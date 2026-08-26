@@ -91,6 +91,19 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
+	// Which caller-supplied context reaches traces is cluster-wide operator
+	// policy, so a Harness must be able to neither widen nor enable it. Dropping
+	// any inherited entry before applying the operator's value is what makes that
+	// hold when the operator has configured nothing at all.
+	environment = slices.DeleteFunc(environment, func(variable corev1.EnvVar) bool {
+		return variable.Name == env.KagentTraceContextKeys.Name()
+	})
+	if traceContextKeys := env.KagentTraceContextKeys.Get(); traceContextKeys != "" {
+		environment = append(environment, corev1.EnvVar{
+			Name:  env.KagentTraceContextKeys.Name(),
+			Value: traceContextKeys,
+		})
+	}
 	environment = dedupeEnv(environment)
 
 	// One provenance list covers every Kubernetes input, including hashed Secret

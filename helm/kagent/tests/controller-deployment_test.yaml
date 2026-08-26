@@ -831,3 +831,21 @@ tests:
           content:
             name: METRICS_BIND_ADDRESS
             value: "0"
+
+  - it: should omit KAGENT_TRACE_CONTEXT_KEYS by default
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.KAGENT_TRACE_CONTEXT_KEYS
+
+  - it: should join otel.tracing.contextKeys into KAGENT_TRACE_CONTEXT_KEYS
+    template: controller-configmap.yaml
+    set:
+      otel.tracing.contextKeys:
+        - user.email
+        - user.name
+        - thread_id
+    asserts:
+      - equal:
+          path: data.KAGENT_TRACE_CONTEXT_KEYS
+          value: "user.email,user.name,thread_id"

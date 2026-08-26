@@ -37,4 +37,13 @@ var (
 		"OTLP exporter endpoint for logs. Takes precedence over OTEL_EXPORTER_OTLP_ENDPOINT for logs.",
 		ComponentController,
 	)
+
+	KagentTraceContextKeys = RegisterStringVar(
+		"KAGENT_TRACE_CONTEXT_KEYS",
+		"",
+		"Comma-separated allowlist of caller-supplied context keys promoted onto every agent span as "+
+			"kagent.context.<key>. Values are read from W3C baggage and A2A message metadata. "+
+			"Empty (the default) disables promotion.",
+		ComponentAgentRuntime,
+	)
 )

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"github.com/stretchr/testify/require"
@@ -260,6 +261,68 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	require.Contains(t, revision.EgressDestinations, "search.example.com")
 	require.Contains(t, revision.EgressDestinations, "ghcr.io")
 	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+}
+
+// KAGENT_TRACE_CONTEXT_KEYS is not an OTEL_ variable, so collectOtelEnvFromProcess
+// does not carry it and it needs forwarding of its own. It is also operator
+// policy, so a Harness must not be able to widen or enable it.
+func TestCompileAgentTemplateForwardsTraceContextKeys(t *testing.T) {
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}},
+	}
+	harnessSupplied := "tenant.supplied"
+
+	tests := []struct {
+		name       string
+		configured string
+		harnessEnv []v1alpha3.HarnessEnvVar
+		want       string
+	}{
+		{name: "absent when unconfigured"},
+		{name: "forwarded when configured", configured: "user.email,thread_id", want: "user.email,thread_id"},
+		{
+			name:       "harness cannot widen the allowlist",
+			configured: "user.email",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
+			want:       "user.email",
+		},
+		{
+			name:       "harness cannot enable promotion",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(env.KagentTraceContextKeys.Name(), tt.configured)
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+				Spec: v1alpha3.HarnessSpec{
+					Kagent:                &v1alpha3.KagentHarness{},
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+					Env: tt.harnessEnv,
+				},
+			}
+
+			revision, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+			require.NoError(t, err)
+
+			var got string
+			var seen int
+			for _, variable := range revision.Environment {
+				if variable.Name == env.KagentTraceContextKeys.Name() {
+					got, seen = variable.Value, seen+1
+				}
+			}
+			require.LessOrEqual(t, seen, 1, "environment must not contain a duplicate entry")
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {
