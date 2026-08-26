@@ -54,18 +54,38 @@ class MCPAppToolNames:
         return len(self._names)
 
 
+def _result_has_ui_resource(response: dict) -> bool:
+    """Whether this specific result, not just the tool's definition, carries a UI resource.
+
+    Mirrors the ``_meta.ui.resourceUri`` / ``_meta["ui/resourceUri"]`` parsing already
+    used to classify a tool's definition (``go/adk/pkg/mcp/mcp_ui.go:parseMCPUIMetadata``).
+    """
+    meta = response.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    ui = meta.get("ui")
+    if isinstance(ui, dict) and ui.get("resourceUri"):
+        return True
+    return bool(meta.get("ui/resourceUri"))
+
+
 def compact_mcp_app_response(response: dict) -> dict:
     """Rewrite an MCP App tool result (a JSON ``CallToolResult``) for the model.
 
     On error, keep the content so the model can diagnose/recover but drop the
     heavy structured payload. On success, collapse the render payload into a
     terminal directive so the model stops re-invoking the rendering tool,
-    preserving ``_meta`` (e.g. resourceUri) for any downstream tooling.
+    preserving ``_meta`` (e.g. resourceUri) for any downstream tooling. A tool
+    can be UI-capable by definition yet return a plain result for a given
+    call; only compact when this result itself carries a UI resource.
     """
     if response.get("isError") is True or response.get("error") is True:
         compacted = dict(response)
         compacted.pop("structuredContent", None)
         return compacted
+
+    if not _result_has_ui_resource(response):
+        return response
 
     compacted: dict = {"content": [{"type": "text", "text": MCP_APP_RENDERED_NOTICE}]}
     if "_meta" in response:
