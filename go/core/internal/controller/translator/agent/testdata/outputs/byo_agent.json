@@ -28,8 +28,7 @@
   },
   "config": {
     "description": "A BYO test agent",
-    "instruction": "",
-    "model": null
+    "instruction": ""
   },
   "manifest": [
     {
