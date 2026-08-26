@@ -33,7 +33,10 @@ export interface EnvironmentVariables {
  * inlines these into the page: passing the environment through wholesale would
  * publish every credential on the developer's machine into the HTML.
  *
- * An extension's own keys are not listed here — see `readEnv`.
+ * An extension's own keys are not listed here, and are not listed anywhere: anything
+ * named `EXTENSION_*` is passed through by the dev server and by `scripts/init.sh`,
+ * and read back with `readEnv`, which takes any key. This application does not know
+ * what an extension's settings are and does not need to.
  */
 export const CORE_ENV_KEYS = [
   "API_BASE_URL",

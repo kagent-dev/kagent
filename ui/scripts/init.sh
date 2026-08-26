@@ -30,11 +30,6 @@ SSO_REDIRECT_PATH="${SSO_REDIRECT_PATH:-/oauth2/start}"
 STREAM_TIMEOUT_MS="${KAGENT_STREAM_TIMEOUT_MS:-1800000}"
 ENABLE_MOCK_UI="${ENABLE_MOCK_UI:-false}"
 
-# Anything an installed extension reads, passed through verbatim. Empty unless
-# the chart sets them, and the app ignores keys it has no use for.
-UI_BACKEND_HOST="${UI_BACKEND_HOST:-}"
-LOCAL_CLUSTER_NAME="${LOCAL_CLUSTER_NAME:-}"
-
 # A non-numeric timeout would abort every chat stream immediately, which looks
 # like the backend hanging up rather than like a bad value. Fall back instead.
 if ! [[ "$STREAM_TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
@@ -52,14 +47,24 @@ json_escape() {
   printf '%s' "${value//</\\u003c}"
 }
 
+# Anything an installed extension reads, passed through verbatim and by name rather
+# than by list: whatever the chart sets as `EXTENSION_*` arrives, so this image needs
+# no change when an extension grows a setting, and this repository does not enumerate
+# another product's configuration. The application ignores keys it has no use for.
+#
+# Built as JSON fragments here and spliced in below, because the heredoc cannot loop.
+extension_json=""
+while IFS='=' read -r name value; do
+  extension_json+="  \"$(json_escape "$name")\": \"$(json_escape "$value")\",
+"
+done < <(env | grep '^EXTENSION_' | sort)
+
 cat > "$CONFIG_PATH" <<EOF
 window.environmentVariables = {
   "API_BASE_URL": "$(json_escape "$API_BASE_URL")",
   "SSO_REDIRECT_PATH": "$(json_escape "$SSO_REDIRECT_PATH")",
   "STREAM_TIMEOUT_MS": "$STREAM_TIMEOUT_MS",
-  "ENABLE_MOCK_UI": "$(json_escape "$ENABLE_MOCK_UI")",
-  "UI_BACKEND_HOST": "$(json_escape "$UI_BACKEND_HOST")",
-  "LOCAL_CLUSTER_NAME": "$(json_escape "$LOCAL_CLUSTER_NAME")"
+${extension_json}  "ENABLE_MOCK_UI": "$(json_escape "$ENABLE_MOCK_UI")"
 };
 EOF
 

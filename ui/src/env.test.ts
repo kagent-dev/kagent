@@ -56,11 +56,11 @@ describe("envIsSet", () => {
 
 describe("readEnv", () => {
   it("reads a key the application knows nothing about", () => {
-    window.environmentVariables = { LOCAL_CLUSTER_NAME: "prod-us-east" };
-    expect(readEnv("LOCAL_CLUSTER_NAME", "mgmt-cluster")).toBe("prod-us-east");
+    window.environmentVariables = { EXTENSION_ANYTHING: "a-value" };
+    expect(readEnv("EXTENSION_ANYTHING", "a-fallback")).toBe("a-value");
   });
 
   it("uses the caller's fallback when it is absent", () => {
-    expect(readEnv("LOCAL_CLUSTER_NAME", "mgmt-cluster")).toBe("mgmt-cluster");
+    expect(readEnv("EXTENSION_ANYTHING", "a-fallback")).toBe("a-fallback");
   });
 });

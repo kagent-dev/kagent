@@ -32,24 +32,27 @@ function devProxy(mode: string) {
 }
 
 /**
- * Extra keys the dev server will pass through beyond the application's own.
+ * What an extension's settings are named, rather than what they are.
  *
- * An installed extension reads settings the application knows nothing about, and
- * a developer still has to be able to set them in `.env`. Listing them here is
- * the deliberate act of exposing them — see `CORE_ENV_KEYS` for why nothing is
- * passed through implicitly.
+ * An installed extension reads settings this application knows nothing about, and a
+ * developer still has to be able to set them in `.env`. This used to be a list of the
+ * three the extension happened to want, which meant a public repository enumerating
+ * another product's configuration and a change here every time that product grew a
+ * setting — for keys nothing in this repository reads.
+ *
+ * A prefix instead. `readEnv` already takes any key and `window.environmentVariables`
+ * is already an open record, so nothing in the application changes when an extension
+ * adds a setting: it names it `EXTENSION_SOMETHING` and it arrives.
+ *
+ * Still bounded, which is the point of `CORE_ENV_KEYS` being a list at all: the dev
+ * server inlines these into the document, so a wholesale copy of the environment would
+ * publish every credential on the machine into the HTML. A variable has to be
+ * deliberately named for an extension to be copied — but only that deliberately, so a
+ * stray `EXTENSION_` variable in a shell will be inlined. It is a development server
+ * rendering a page for the developer who started it; the container path below is the
+ * one that faces a cluster, and there the environment is the chart's own.
  */
-const EXTENSION_ENV_KEYS = [
-  "UI_BACKEND_HOST",
-  "LOCAL_CLUSTER_NAME",
-  "UI_BACKEND_TOKEN",
-  // Setting an issuer turns on a real sign-in: the app runs the authorization code
-  // flow itself rather than expecting an authentication proxy in front of it.
-  "OIDC_ISSUER",
-  "OIDC_CLIENT_ID",
-  "OIDC_SCOPES",
-  "OIDC_REDIRECT_PATH",
-];
+const EXTENSION_ENV_PREFIX = "EXTENSION_";
 
 /**
  * Serves the deployment configuration the way the container does.
@@ -73,8 +76,15 @@ function devEnvConfig(mode: string): Plugin {
       const merged: Record<string, string> = { ...ENV_DEFAULTS };
 
       // The shell wins over `.env`, so a one-off override on the command line
-      // does not require editing a file that is then easy to forget.
-      for (const key of [...CORE_ENV_KEYS, ...EXTENSION_ENV_KEYS]) {
+      // does not require editing a file that is then easy to forget. Both sources are
+      // searched for the extension prefix, so an extension's setting can be put in
+      // either, exactly like one of the application's own.
+      const extensionKeys = [
+        ...Object.keys(fromFiles),
+        ...Object.keys(process.env),
+      ].filter((key) => key.startsWith(EXTENSION_ENV_PREFIX));
+
+      for (const key of [...CORE_ENV_KEYS, ...extensionKeys]) {
         const value = process.env[key] ?? fromFiles[key];
         if (value !== undefined && value !== "") merged[key] = value;
       }
