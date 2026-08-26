@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Stand up a kagent dev cluster from nothing, on this machine (arm64).
 #
-# Follows ui/HANDOFF.md's "Standing this up on a fresh cluster" plus the two pieces it
-# defers to .github/workflows/ci.yaml for. The order matters: every substrate workload
-# mounts secrets that do not exist until the kubectl-ate commands have run.
+# The steps are the ones .github/workflows/ci.yaml runs to stand up its own cluster,
+# plus the two it does not need and a developer does. The order matters: every
+# substrate workload mounts secrets that do not exist until the kubectl-ate commands
+# have run. README.md beside this file is the reader's version of the same thing.
 set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
@@ -44,7 +45,8 @@ $ATE --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-po
 $ATE --context kind-kagent admin make-ca-pool  --ca-id=1 --name=actor-id-ca-pool     --secret-namespace=ate-system
 
 # kubectl-ate prints "Successfully created" and exits 0 slightly BEFORE the secret is
-# readable, so wait on the secret rather than trusting the exit code (HANDOFF trap).
+# readable, so wait on the secret rather than trusting the exit code. Found the hard
+# way: the next step mounts it and fails on a cluster that has just been told it exists.
 for i in $(seq 1 60); do
   kubectl get secret actor-id-ca-pool -n ate-system >/dev/null 2>&1 && break
   sleep 2

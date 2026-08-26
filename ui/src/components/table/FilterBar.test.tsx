@@ -25,9 +25,11 @@ import { useListView } from "./useListView";
  *   survive a reload.
  *
  * The `Select` popup is not driven here. It is antd's own listbox, and in a browser it
- * behaves in ways jsdom does not reproduce — see the note in `HANDOFF.md` about the
- * second, invisible listbox rc-select renders. Choosing a namespace from the control
- * is asserted where it can be asserted honestly: `playwright/tests/lists/`.
+ * behaves in ways jsdom does not reproduce — rc-select renders a second, invisible
+ * `role="listbox"` for screen readers, which `getByRole` resolves to happily and then
+ * waits forever on. `playwright/tests/lists/list-filters.spec.ts` carries that note in
+ * full, and is where choosing a namespace from the control is asserted, because that
+ * is where it can be asserted honestly.
  */
 
 const NAMESPACES: FilterDefinition = {

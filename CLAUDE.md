@@ -133,7 +133,7 @@ Run these from `ui/`:
 
 Only lint **errors** gate a change; a handful of warnings are pre-existing.
 
-`ui/dev-scripts/setup-cluster.sh` builds a Kind cluster with kagent on it in one
+`scripts/setup-cluster/setup-cluster.sh` builds a Kind cluster with kagent on it in one
 command, for work that needs a real backend.
 
 ### Settings reach the app at runtime, not at build time

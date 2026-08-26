@@ -11,7 +11,7 @@ import { CORE_ENV_KEYS, ENV_DEFAULTS } from "./src/env.ts";
  * `process.env` lookup: Vite does not put `.env` values on `process.env`, so a
  * setting read only from there is one a reader can put in their `.env` and watch do
  * nothing. `.env.example` ships this pointed at the UI pod's nginx on 8080, which is
- * the forward `dev-scripts/setup-cluster.sh` already holds open.
+ * the forward `scripts/setup-cluster/setup-cluster.sh` already holds open.
  *
  * The shell still wins, for the same reason it wins over the inlined settings below:
  * a one-off override on the command line should not mean editing a file.

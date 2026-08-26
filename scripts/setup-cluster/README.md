@@ -5,7 +5,7 @@ and the UI are both built from the working tree and swapped in over the chart's
 published images, so what runs on the cluster is the code you are reviewing.
 
 ```sh
-./ui/dev-scripts/setup-cluster.sh          # ~20 min, mostly image builds
+./scripts/setup-cluster/setup-cluster.sh          # ~20 min, mostly image builds
 ```
 
 Then forward the UI and open it:
