@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -350,7 +351,7 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"GRPC_BIND_ADDRESS":              ":9001",
 		"GRPC_MAX_MESSAGE_BYTES":         "1048576",
 		"GRPC_REFLECTION":                "true",
-		"A2A_BASE_URL":                   "http://example.com:9000",
+		"A2A_GATEWAY_URL":                "http://example.com:9000",
 		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
 		"WATCH_NAMESPACES":               "ns1,ns2,ns3",
@@ -405,13 +406,38 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	if cfg.Proxy.URL != "http://proxy.kagent.svc.cluster.local:8080" {
 		t.Errorf("Proxy.URL = %v, want http://proxy.kagent.svc.cluster.local:8080", cfg.Proxy.URL)
 	}
-	if cfg.A2ABaseUrl != "http://example.com:9000" {
-		t.Errorf("A2ABaseUrl = %v, want http://example.com:9000", cfg.A2ABaseUrl)
+	if cfg.A2AGatewayUrl != "http://example.com:9000" {
+		t.Errorf("A2AGatewayUrl = %v, want http://example.com:9000", cfg.A2AGatewayUrl)
 	}
 	if cfg.Database.Url != "postgres://localhost:5432/testdb" {
 		t.Errorf("Database.Url = %v, want postgres://localhost:5432/testdb", cfg.Database.Url)
 	}
 	if cfg.WatchNamespaces != "ns1,ns2,ns3" {
 		t.Errorf("WatchNamespaces = %v, want ns1,ns2,ns3", cfg.WatchNamespaces)
+	}
+}
+
+// The atenet-router URL used to default to "", which callers resolved to
+// DefaultAtenetRouterURL themselves. Substrate is required, so the flag carries
+// the real default and an empty value fails when the dialer is built.
+func TestSubstrateAtenetRouterURLFlag(t *testing.T) {
+	var cfg Config
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg.SetFlags(fs)
+
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.Substrate.AtenetRouterURL != substrate.DefaultAtenetRouterURL {
+		t.Errorf("Substrate.AtenetRouterURL = %q, want %q",
+			cfg.Substrate.AtenetRouterURL, substrate.DefaultAtenetRouterURL)
+	}
+
+	if err := fs.Parse([]string{"-substrate-atenet-router-url=http://router.example:80"}); err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.Substrate.AtenetRouterURL != "http://router.example:80" {
+		t.Errorf("Substrate.AtenetRouterURL = %q, want http://router.example:80",
+			cfg.Substrate.AtenetRouterURL)
 	}
 }

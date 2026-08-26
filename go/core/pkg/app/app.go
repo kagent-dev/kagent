@@ -28,7 +28,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/gorilla/mux"
 
 	"github.com/hashicorp/go-multierror"
@@ -51,6 +50,7 @@ import (
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 
@@ -132,7 +132,7 @@ type Config struct {
 	DefaultModelConfig types.NamespacedName
 	HttpServerAddr     string
 	WatchNamespaces    string
-	A2ABaseUrl         string
+	A2AGatewayUrl      string
 	GRPC               struct {
 		BindAddress     string
 		MaxMessageBytes int
@@ -198,7 +198,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.BoolVar(&cfg.GRPC.Reflection, "grpc-reflection", false, "Enable gRPC server reflection.")
 	commandLine.StringVar(&cfg.GRPC.TLSCertFile, "grpc-tls-cert-file", "", "Path to the optional gRPC server TLS certificate.")
 	commandLine.StringVar(&cfg.GRPC.TLSKeyFile, "grpc-tls-key-file", "", "Path to the optional gRPC server TLS private key.")
-	commandLine.StringVar(&cfg.A2ABaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
+	commandLine.StringVar(&cfg.A2AGatewayUrl, "a2a-gateway-url", "http://127.0.0.1:8084", "The A2A gateway's gRPC endpoint, advertised to clients in agent cards. Agents are reachable only through the gateway, which is served by the gRPC listener.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
@@ -222,7 +222,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443).")
 	commandLine.StringVar(&cfg.Substrate.AteAPICAFile, "substrate-ate-api-ca-file", "", "Path to the CA certificates used to verify ate-api.")
 	commandLine.StringVar(&cfg.Substrate.AteAPIClientCertFile, "substrate-ate-api-client-cert-file", "", "Path to the PEM client certificate and private key used for ate-api mTLS.")
-	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
+	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", substrate.DefaultAtenetRouterURL, "HTTP URL for Substrate atenet-router (Envoy). Substrate is required; NewRuntimeDialer rejects an empty value at startup.")
 	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
 	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
@@ -287,13 +287,6 @@ type ExtensionConfig struct {
 	Authenticator    auth.AuthProvider
 	Authorizer       auth.Authorizer
 	MCPServerPlugins []translator.MCPTranslatorPlugin
-	// A2AHandler serves the A2A API. grpcserver registers that service only
-	// when this is non-nil, so leaving it unset keeps today's behaviour: the
-	// AgentInstance API is available but nothing can talk to an instance.
-	//
-	// An extension can build one with a2agateway.New, using the DbClient it is
-	// handed in BootstrapConfig.
-	A2AHandler a2asrv.RequestHandler
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -610,6 +603,24 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
+	// The A2A gateway is assembled here rather than by an extension: every input is
+	// already in scope, and two of them -- the authenticator and the authorizer --
+	// are extension-supplied policy. Building it here is what gates A2A behind the
+	// same auth as every other gRPC method, instead of whatever an embedder happens
+	// to construct for itself.
+	gatewayDialer, err := a2agateway.NewRuntimeDialer(cfg.Substrate.AtenetRouterURL, extensionCfg.Authenticator)
+	if err != nil {
+		setupLog.Error(err, "unable to create A2A runtime dialer")
+		os.Exit(1)
+	}
+	a2aGatewayHandler := a2agateway.New(
+		dbClient,
+		extensionCfg.Authorizer,
+		gatewayDialer,
+		instanceWorkflow,
+		cfg.A2AGatewayUrl,
+	)
+
 	grpcServer, err := grpcserver.New(grpcserver.Config{
 		BindAddress:           cfg.GRPC.BindAddress,
 		MaxMessageBytes:       cfg.GRPC.MaxMessageBytes,
@@ -629,7 +640,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		SessionService:        sessionService,
 		TaskService:           taskService,
 		AgentInstanceService:  agentInstanceService,
-		A2AHandler:            extensionCfg.A2AHandler,
+		A2AHandler:            a2aGatewayHandler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create gRPC server")
