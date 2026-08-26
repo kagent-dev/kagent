@@ -13,6 +13,19 @@ logger = logging.getLogger(__name__)
 
 # --- File Operation Tools ---
 
+# Longest line read_file and grep_file will emit before truncating, counted in
+# characters. Mirrors maxLineRunes in go/adk/pkg/tools/shell.go, and the
+# "Lines longer than 2000 characters are truncated" both runtimes' read_file
+# descriptions promise (see prompts.py).
+_MAX_LINE_CHARS = 2000
+
+
+def _truncate_line(line: str) -> str:
+    """Shorten line to at most _MAX_LINE_CHARS characters, marking a cut with "..."."""
+    if len(line) > _MAX_LINE_CHARS:
+        return line[:_MAX_LINE_CHARS] + "..."
+    return line
+
 
 def _validate_path(
     file_path: Path,
@@ -57,9 +70,7 @@ def read_file_content(
 
     result_lines = []
     for i, line in enumerate(lines[start:end], start=start + 1):
-        if len(line) > 2000:
-            line = line[:2000] + "..."
-        result_lines.append(f"{i:6d}|{line}")
+        result_lines.append(f"{i:6d}|{_truncate_line(line)}")
 
     if not result_lines:
         return "File is empty."
@@ -191,9 +202,7 @@ def grep_content(
             for line_num, line in enumerate(f, start=1):
                 line = line.rstrip("\n")
                 if compiled.search(line):
-                    if len(line) > 2000:
-                        line = line[:2000] + "..."
-                    matches.append(f"{file_path}:{line_num}:{line}")
+                    matches.append(f"{file_path}:{line_num}:{_truncate_line(line)}")
         return matches
 
     results: list[str] = []
@@ -241,18 +250,19 @@ def grep_content(
                 if entry.is_symlink() and not entry.exists():
                     skipped += 1
                 continue
-            try:
-                # Keep the read inside the session/skills sandbox.
-                safe_entry = _validate_path(entry, allowed_root)
-            except PermissionError:
-                continue
-            # allowed_root is the whole session plus the skills dir, which is
-            # wider than the directory being searched -- so it alone would let
-            # a symlink here pull in a file from a sibling directory the caller
-            # never asked to search. Go bounds each entry by the search root
-            # (WithinRoot), and both the tool description and the README
-            # promise that behavior, so bound it here too. Silent, matching
-            # Go's walkEntrySkip for an out-of-root symlink.
+            # Bound each entry by the directory actually being searched, not
+            # by allowed_root: allowed_root is the whole session plus the
+            # skills dir, so on its own it would let a symlink here pull in a
+            # file from a sibling directory the caller never asked to search.
+            # Go bounds each entry the same way (WithinRoot in
+            # classifyWalkEntry), and both the tool description and the README
+            # promise that behavior. Silent, matching Go's walkEntrySkip for an
+            # out-of-root symlink.
+            #
+            # This subsumes a _validate_path(entry, allowed_root) check:
+            # file_or_dir_path was itself validated against allowed_root above,
+            # so anything relative to it is transitively inside a root.
+            safe_entry = entry.resolve()
             if not safe_entry.is_relative_to(file_or_dir_path):
                 continue
             try:
@@ -318,8 +328,11 @@ _ENABLE_FILE_SEARCH_TOOLS_ENV = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
 def file_search_tools_enabled() -> bool:
     """Whether the list_files/grep_file tools are enabled.
 
-    Disabled by default, same as bash: both give an agent broad filesystem
-    visibility, so some deployments want them off unless explicitly enabled.
+    Opt-in (disabled by default): they let an agent enumerate and search the
+    filesystem under its session/skills roots without invoking a shell, so
+    deployments that want to grant that visibility do so deliberately rather
+    than having it enabled implicitly. Note this gate is theirs alone -- bash
+    is always registered.
     """
     return os.environ.get(_ENABLE_FILE_SEARCH_TOOLS_ENV, "").strip().lower() in ("1", "t", "true")
 

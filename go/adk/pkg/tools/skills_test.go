@@ -65,38 +65,112 @@ func runTool(t *testing.T, tl tool.Tool, ctx adkagent.Context, args map[string]a
 	return text
 }
 
-func TestResolveReadPath_AllowsSymlinkedSkillsDirectory(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
-	skillsDir := t.TempDir()
-	skillFile := filepath.Join(skillsDir, "script.py")
-	if err := os.WriteFile(skillFile, []byte("print('ok')\n"), 0644); err != nil {
-		t.Fatalf("failed to write skill file: %v", err)
+// TestResolvePathContainment pins the sandbox boundary each resolver
+// enforces. The three differ along exactly two axes -- whether the skills
+// directory is an allowed root, and whether a not-yet-existing leaf is
+// tolerated -- and those differences are the whole security contract:
+//
+//	                 session dir   skills dir   missing leaf
+//	resolveReadPath   allow         allow        reject
+//	resolveEditPath   allow         REJECT       reject
+//	resolveWritePath  allow         REJECT       allow
+//
+// resolveEditPath in particular had no direct coverage before this, so a
+// refactor could have silently granted it the skills root -- letting an
+// agent edit read-only skill files -- with nothing failing.
+func TestResolvePathContainment(t *testing.T) {
+	resolvers := map[string]struct {
+		fn              func(sessionID, skillsDirectory, requestedPath string) (string, error)
+		allowsSkillsDir bool
+		allowsNewLeaf   bool
+		// deniedContains is the boundary each policy names when it rejects a
+		// path, kept here so the wording stays tied to the resolver it
+		// describes rather than drifting into a generic message.
+		deniedContains string
+	}{
+		"read":  {resolveReadPath, true, false, "outside the allowed roots"},
+		"edit":  {resolveEditPath, false, false, "outside the writable session directory"},
+		"write": {resolveWritePath, false, true, "outside the writable session directory"},
 	}
 
-	sessionID := fmt.Sprintf("%s-read", t.Name())
-	resolved, err := resolveReadPath(sessionID, skillsDir, "skills/script.py")
-	if err != nil {
-		t.Fatalf("resolveReadPath() error = %v", err)
-	}
-	want, err := filepath.EvalSymlinks(skillFile)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(skillFile) error = %v", err)
-	}
-	if resolved != want {
-		t.Fatalf("resolveReadPath() = %q, want %q", resolved, want)
-	}
-}
+	for name, r := range resolvers {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("TMPDIR", t.TempDir())
+			skillsDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(skillsDir, "script.py"), []byte("print('ok')\n"), 0644); err != nil {
+				t.Fatalf("failed to write skill file: %v", err)
+			}
+			sessionID := fmt.Sprintf("%s-%s", t.Name(), name)
 
-func TestResolveWritePath_BlocksSkillsSymlink(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
-	skillsDir := t.TempDir()
-	sessionID := fmt.Sprintf("%s-write", t.Name())
-	_, err := resolveWritePath(sessionID, skillsDir, "skills/new-file.txt")
-	if err == nil {
-		t.Fatal("expected write through skills symlink to be rejected")
-	}
-	if !strings.Contains(err.Error(), "outside the writable session directory") {
-		t.Fatalf("unexpected error: %v", err)
+			// Seed a real file in the session dir so the "existing leaf"
+			// cases have something to resolve to.
+			sessionPath, err := GetSessionPath(sessionID, skillsDir)
+			if err != nil {
+				t.Fatalf("GetSessionPath() error = %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(sessionPath, "notes.txt"), []byte("hi\n"), 0644); err != nil {
+				t.Fatalf("failed to seed session file: %v", err)
+			}
+
+			t.Run("allows a path inside the session directory", func(t *testing.T) {
+				if _, err := r.fn(sessionID, skillsDir, "notes.txt"); err != nil {
+					t.Errorf("expected session-dir path to be allowed, got %v", err)
+				}
+			})
+
+			t.Run("rejects a path outside every root", func(t *testing.T) {
+				_, err := r.fn(sessionID, skillsDir, "/etc/passwd")
+				if err == nil {
+					t.Fatal("expected a path outside the allowed roots to be rejected")
+				}
+				if !strings.Contains(err.Error(), r.deniedContains) {
+					t.Errorf("expected the error to name %q, got %v", r.deniedContains, err)
+				}
+			})
+
+			t.Run("skills directory", func(t *testing.T) {
+				resolved, err := r.fn(sessionID, skillsDir, "skills/script.py")
+				if r.allowsSkillsDir {
+					if err != nil {
+						t.Fatalf("expected the skills dir to be readable, got %v", err)
+					}
+					// The skills dir is reached through a symlink in the
+					// session dir, so a resolver that returned the unresolved
+					// path would still look "allowed" -- assert it resolved
+					// through to the real file.
+					want, evalErr := filepath.EvalSymlinks(filepath.Join(skillsDir, "script.py"))
+					if evalErr != nil {
+						t.Fatalf("EvalSymlinks() error = %v", evalErr)
+					}
+					if resolved != want {
+						t.Errorf("resolved to %q, want %q", resolved, want)
+					}
+					return
+				}
+				if err == nil {
+					t.Fatal("expected the read-only skills dir to be rejected for mutation")
+				}
+				if !strings.Contains(err.Error(), r.deniedContains) {
+					t.Errorf("expected the error to name %q, got %v", r.deniedContains, err)
+				}
+			})
+
+			t.Run("not-yet-existing leaf", func(t *testing.T) {
+				_, err := r.fn(sessionID, skillsDir, "brand-new-file.txt")
+				if r.allowsNewLeaf && err != nil {
+					t.Errorf("expected a new file in the session dir to be allowed, got %v", err)
+				}
+				if !r.allowsNewLeaf && err == nil {
+					t.Error("expected a nonexistent path to be rejected")
+				}
+			})
+
+			t.Run("rejects traversal escaping the session directory", func(t *testing.T) {
+				if _, err := r.fn(sessionID, skillsDir, "../../../etc/passwd"); err == nil {
+					t.Error("expected ../ traversal out of the session dir to be rejected")
+				}
+			})
+		})
 	}
 }
 

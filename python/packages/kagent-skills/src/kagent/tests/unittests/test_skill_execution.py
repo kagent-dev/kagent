@@ -237,6 +237,29 @@ def test_read_file_allows_path_inside_root(tmp_path):
     assert "hello world" in result
 
 
+def test_read_file_truncates_a_long_line_without_failing_the_file(tmp_path):
+    """A line past the truncation limit is shortened, not fatal.
+
+    The Go twin of this (TestReadFileContent_LongLineIsTruncatedNotFatal) is
+    the one that actually caught a bug: Go's scanner had a hard 64KB cap that
+    failed the entire read. Keeping both pins the promise each runtime's
+    read_file description makes -- "Lines longer than 2000 characters are
+    truncated" -- to the same observable behavior.
+    """
+    f = tmp_path / "bundle.min.js"
+    f.write_text("a" * 100_000 + "\nsecond line\n")
+
+    result = read_file_content(f, allowed_root=tmp_path)
+
+    lines = result.split("\n")
+    assert len(lines) == 2
+    body = lines[0].split("|", 1)[1]
+    assert body.endswith("...")
+    assert len(body.removesuffix("...")) == 2000
+    # The whole point: the rest of the file survives.
+    assert "second line" in lines[1]
+
+
 def test_read_file_allows_multiple_roots(tmp_path):
     """Read should succeed when the file is inside any of the allowed roots."""
     skills_dir = tmp_path / "skills"

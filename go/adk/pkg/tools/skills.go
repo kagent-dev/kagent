@@ -276,7 +276,19 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
 			}
 
-			content, err := GrepContent(path, in.Pattern, in.Recursive, in.IgnoreCase)
+			// ctx is the ADK tool context, which embeds context.Context, so a
+			// recursive search is abortable by whatever deadline or
+			// cancellation the caller already set -- and the walk, not the
+			// match, is the part that can run long here.
+			//
+			// No fixed deadline is added on top of that. The Python runtime
+			// caps grep at 30s, but that bound exists for a hazard Go doesn't
+			// have: Python's `re` backtracks, so an adversarial pattern can
+			// hang on a single line, while RE2 is linear-time. Since only the
+			// walk is unbounded, and its cost scales with the tree the
+			// deployment itself provisioned, a fixed cap here would break
+			// large legitimate searches without closing a distinct risk.
+			content, err := GrepContent(ctx, path, in.Pattern, in.Recursive, in.IgnoreCase)
 			if err != nil {
 				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
 			}
@@ -323,7 +335,38 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	return tools, nil
 }
 
-func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
+// pathPolicy is the sandbox contract for one class of filesystem access.
+// The three resolvers below are the same code differing only in these
+// fields, so they are expressed as data rather than as flags threaded
+// through a shared function.
+type pathPolicy struct {
+	// resolve maps the requested leaf to a real path. EvalSymlinks requires
+	// it to already exist; resolvePathWithExistingParents tolerates a
+	// not-yet-created leaf, which only writes need.
+	resolve func(string) (string, error)
+	// allowSkillsRoot lets the read-only skills directory count as an allowed
+	// root. Reads may reach it; edits and writes must not, or an agent could
+	// modify the skills it was given.
+	allowSkillsRoot bool
+	// denied names the boundary in the error an out-of-bounds path gets. It
+	// is its own field rather than being derived from allowSkillsRoot: the
+	// two happen to correlate today, but a resolver that denied the skills
+	// root for a reason other than writability would otherwise be described
+	// wrongly.
+	denied string
+}
+
+// TestResolvePathContainment pins this matrix for all three policies.
+var (
+	readPolicy  = pathPolicy{filepath.EvalSymlinks, true, "the allowed roots"}
+	editPolicy  = pathPolicy{filepath.EvalSymlinks, false, "the writable session directory"}
+	writePolicy = pathPolicy{resolvePathWithExistingParents, false, "the writable session directory"}
+)
+
+// resolveSandboxedPath maps a requested path onto the session directory,
+// resolves it under policy, and then requires the result to land inside an
+// allowed root -- the check that keeps an agent inside its sandbox.
+func resolveSandboxedPath(sessionID, skillsDirectory, requestedPath string, policy pathPolicy) (string, error) {
 	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
 	if err != nil {
 		return "", err
@@ -334,7 +377,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
+	resolvedCandidate, err := policy.resolve(candidate)
 	if err != nil {
 		return "", err
 	}
@@ -343,70 +386,38 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 	if err != nil {
 		return "", err
 	}
-	skillsRoot, err := filepath.EvalSymlinks(skillsDirectory)
-	if err != nil {
-		return "", err
+	roots := []string{sessionRoot}
+
+	if policy.allowSkillsRoot {
+		// Resolved eagerly rather than only when the session root misses, so
+		// an unresolvable skills directory still surfaces as an error the way
+		// it did before these three were merged into one function.
+		skillsRoot, err := filepath.EvalSymlinks(skillsDirectory)
+		if err != nil {
+			return "", err
+		}
+		roots = append(roots, skillsRoot)
 	}
 
-	if !WithinRoot(resolvedCandidate, sessionRoot) && !WithinRoot(resolvedCandidate, skillsRoot) {
-		return "", fmt.Errorf("path %q is outside the allowed roots", requestedPath)
+	for _, root := range roots {
+		if WithinRoot(resolvedCandidate, root) {
+			return resolvedCandidate, nil
+		}
 	}
 
-	return resolvedCandidate, nil
+	return "", fmt.Errorf("path %q is outside %s", requestedPath, policy.denied)
+}
+
+func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
+	return resolveSandboxedPath(sessionID, skillsDirectory, requestedPath, readPolicy)
 }
 
 func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
-	if err != nil {
-		return "", err
-	}
-
-	candidate, err := resolveRequestedPath(sessionPath, requestedPath)
-	if err != nil {
-		return "", err
-	}
-
-	resolvedCandidate, err := filepath.EvalSymlinks(candidate)
-	if err != nil {
-		return "", err
-	}
-
-	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
-	if err != nil {
-		return "", err
-	}
-	if !WithinRoot(resolvedCandidate, sessionRoot) {
-		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
-	}
-
-	return resolvedCandidate, nil
+	return resolveSandboxedPath(sessionID, skillsDirectory, requestedPath, editPolicy)
 }
 
 func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
-	if err != nil {
-		return "", err
-	}
-
-	candidate, err := resolveRequestedPath(sessionPath, requestedPath)
-	if err != nil {
-		return "", err
-	}
-
-	resolvedCandidate, err := resolvePathWithExistingParents(candidate)
-	if err != nil {
-		return "", err
-	}
-
-	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
-	if err != nil {
-		return "", err
-	}
-	if !WithinRoot(resolvedCandidate, sessionRoot) {
-		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
-	}
-
-	return resolvedCandidate, nil
+	return resolveSandboxedPath(sessionID, skillsDirectory, requestedPath, writePolicy)
 }
 
 func resolveRequestedPath(basePath, requestedPath string) (string, error) {

@@ -20,6 +20,53 @@ type CommandExecutor struct{}
 // truncating. Counted in runes, not bytes -- see truncateRunes.
 const maxLineRunes = 2000
 
+// maxLineBytes caps how much of a single line scanFileLines will buffer.
+// Lines are emitted truncated to maxLineRunes, but grep has to see the whole
+// line to match against it, so the read limit is far larger than the emit
+// limit. A line longer than this makes its file unreadable, which callers
+// surface as an error (read_file) or as a skip count (grep_file).
+const maxLineBytes = 1024 * 1024
+
+// scanFileLines opens path and hands each line to visit, stopping early if
+// visit returns false. Line numbers are 1-based.
+//
+// This is the single reader behind read_file and grep_file. Both need the
+// same three guarantees -- reject non-regular files, cap how much of a line
+// is buffered, and surface failures wrapped -- and keeping them in one place
+// is what stops the two from drifting apart: an earlier revision set the
+// scanner buffer only in the grep path, which left read_file failing outright
+// on any file with a line over bufio's 64KB default.
+func scanFileLines(path string, visit func(lineNum int, line string) bool) error {
+	// Stat before opening: os.Open on a FIFO with no writer connected blocks
+	// indefinitely, and nothing on these paths imposes a timeout. Doing it
+	// here rather than at each call site means no future caller can omit it.
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q is not a regular file", path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open %q: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), maxLineBytes)
+	for lineNum := 1; scanner.Scan(); lineNum++ {
+		if !visit(lineNum, scanner.Text()) {
+			return nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read %q: %w", path, err)
+	}
+	return nil
+}
+
 // truncateRunes shortens s to at most maxRunes code points, appending "..."
 // when it truncates.
 //
@@ -82,42 +129,19 @@ func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 
 // ReadFileContent reads a file with line numbers.
 func ReadFileContent(path string, offset, limit int) (string, error) {
-	// Stat before opening: os.Open on a FIFO with no writer connected blocks
-	// indefinitely, and nothing on this path imposes a timeout. GrepContent
-	// rejects non-regular files for the same reason.
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to stat %q: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%q is not a regular file", path)
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("failed to open %q: %w", path, err)
-	}
-	defer file.Close()
-
 	var result strings.Builder
-	scanner := bufio.NewScanner(file)
-	lineNum := 1
 	start := max(offset, 1)
 	count := 0
 
-	for scanner.Scan() {
-		if lineNum >= start {
-			line := truncateRunes(scanner.Text(), maxLineRunes)
-			fmt.Fprintf(&result, "%6d|%s\n", lineNum, line)
-			count++
-			if limit > 0 && count >= limit {
-				break
-			}
+	err := scanFileLines(path, func(lineNum int, line string) bool {
+		if lineNum < start {
+			return true
 		}
-		lineNum++
-	}
-
-	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(&result, "%6d|%s\n", lineNum, truncateRunes(line, maxLineRunes))
+		count++
+		return limit <= 0 || count < limit
+	})
+	if err != nil {
 		return "", err
 	}
 
@@ -183,7 +207,7 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 func ListDirContent(path string) (string, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to read directory %q: %w", path, err)
 	}
 
 	if len(entries) == 0 {
@@ -302,7 +326,13 @@ func classifyWalkEntry(root, p string, d fs.DirEntry) (walkEntryAction, string) 
 
 // GrepContent searches path for lines matching a regular expression pattern.
 // If path is a directory, recursive must be true to search its files.
-func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, error) {
+//
+// A recursive search walks the whole tree under path, which is unbounded from
+// this function's point of view, so ctx is honored between entries and lets a
+// caller abort one. Note Go needs no equivalent of the Python runtime's regex
+// timeout: this uses RE2, which is linear-time and cannot backtrack
+// catastrophically, so it is the walk rather than the match that can run long.
+func GrepContent(ctx context.Context, path, pattern string, recursive, ignoreCase bool) (string, error) {
 	expr := pattern
 	if ignoreCase {
 		expr = "(?i)" + expr
@@ -320,22 +350,12 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 	var result strings.Builder
 	var skipped int
 	grepFile := func(filePath string) error {
-		file, err := os.Open(filePath)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		lineNum := 1
-		for scanner.Scan() {
-			if line := scanner.Text(); re.MatchString(line) {
+		return scanFileLines(filePath, func(lineNum int, line string) bool {
+			if re.MatchString(line) {
 				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, truncateRunes(line, maxLineRunes))
 			}
-			lineNum++
-		}
-		return scanner.Err()
+			return true
+		})
 	}
 
 	if info.IsDir() {
@@ -355,6 +375,11 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		// symlink, WalkDir would see a non-directory at the root and never
 		// descend into it at all.
 		err = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+			// Checked per entry rather than per line: a single file's scan is
+			// bounded by its size, but the number of entries is not.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if walkErr != nil {
 				if p == root {
 					// The search root itself couldn't be read (e.g.
@@ -385,6 +410,9 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 			return nil
 		})
 	} else {
+		// scanFileLines rejects non-regular files too, but reusing the stat
+		// already taken above lets an explicitly-targeted FIFO report the
+		// plain reason rather than one wrapped in "failed to search".
 		if !info.Mode().IsRegular() {
 			return "", fmt.Errorf("%q is not a regular file", path)
 		}

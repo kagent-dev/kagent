@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -173,6 +174,63 @@ func TestReadFileContent(t *testing.T) {
 				tt.checkFn(t, result)
 			}
 		})
+	}
+}
+
+// TestReadFileContent_LongLineIsTruncatedNotFatal pins the buffer that
+// scanFileLines sets. bufio.Scanner's default cap is 64KB, and exceeding it
+// fails the *whole* scan -- so before the shared reader existed, one long line
+// (a minified bundle, a single-line JSON blob) made every other line in the
+// file unreadable too, even though grep_file handled the same file fine and
+// read_file's own tool description promises such lines are truncated.
+func TestReadFileContent_LongLineIsTruncatedNotFatal(t *testing.T) {
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	// Well past bufio's 64KB default, well under scanFileLines' maxLineBytes.
+	longLine := strings.Repeat("a", 100_000)
+	path := filepath.Join(tmpDir, "bundle.min.js")
+	if err := os.WriteFile(path, []byte(longLine+"\nsecond line\n"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	result, err := ReadFileContent(path, 0, 0)
+	if err != nil {
+		t.Fatalf("ReadFileContent() error = %v, want the long line truncated instead", err)
+	}
+
+	lines := strings.Split(result, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d: %q", len(lines), result)
+	}
+	// Six-column line number, "|", then the truncated body and the ellipsis.
+	body := strings.TrimSuffix(strings.SplitN(lines[0], "|", 2)[1], "...")
+	if n := utf8.RuneCountInString(body); n != maxLineRunes {
+		t.Errorf("expected the long line truncated to %d runes, got %d", maxLineRunes, n)
+	}
+	if !strings.HasSuffix(lines[0], "...") {
+		t.Error("expected the truncated line to end with '...'")
+	}
+	// The whole point: the rest of the file survives.
+	if !strings.Contains(lines[1], "second line") {
+		t.Errorf("expected the line after the long one to still be read, got %q", lines[1])
+	}
+}
+
+// TestReadFileContent_LineOverMaxBytesErrors documents the deliberate residual
+// limit: maxLineBytes exists so a sandboxed runtime can't be made to buffer an
+// arbitrarily long line, so a line past it still fails rather than truncating.
+func TestReadFileContent_LineOverMaxBytesErrors(t *testing.T) {
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	path := filepath.Join(tmpDir, "huge.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("a", maxLineBytes+1)+"\n"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	if _, err := ReadFileContent(path, 0, 0); err == nil {
+		t.Fatal("expected a line over maxLineBytes to error, got nil")
 	}
 }
 
@@ -506,7 +564,7 @@ func TestGrepContent(t *testing.T) {
 	}
 
 	t.Run("matches within a single file", func(t *testing.T) {
-		result, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "hello", false, false)
+		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "hello", false, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -516,7 +574,7 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("no matches", func(t *testing.T) {
-		result, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "nope", false, false)
+		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "nope", false, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -526,7 +584,7 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("ignore case", func(t *testing.T) {
-		result, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "foo", false, true)
+		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "foo", false, true)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -536,13 +594,13 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("directory requires recursive", func(t *testing.T) {
-		if _, err := GrepContent(tmpDir, "foo", false, false); err == nil {
+		if _, err := GrepContent(context.Background(), tmpDir, "foo", false, false); err == nil {
 			t.Fatal("expected error when searching a directory without recursive=true")
 		}
 	})
 
 	t.Run("recursive searches subdirectories", func(t *testing.T) {
-		result, err := GrepContent(tmpDir, "foo", true, true)
+		result, err := GrepContent(context.Background(), tmpDir, "foo", true, true)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -552,7 +610,7 @@ func TestGrepContent(t *testing.T) {
 	})
 
 	t.Run("invalid pattern", func(t *testing.T) {
-		if _, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "(", false, false); err == nil {
+		if _, err := GrepContent(context.Background(), filepath.Join(tmpDir, "a.txt"), "(", false, false); err == nil {
 			t.Fatal("expected error for invalid regex pattern")
 		}
 	})
@@ -571,7 +629,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Remove(linkPath)
 
-		result, err := GrepContent(tmpDir, "foo", true, true)
+		result, err := GrepContent(context.Background(), tmpDir, "foo", true, true)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -591,7 +649,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Remove(linkPath)
 
-		result, err := GrepContent(subDir, "foo via symlink", true, false)
+		result, err := GrepContent(context.Background(), subDir, "foo via symlink", true, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -638,7 +696,7 @@ func TestGrepContent(t *testing.T) {
 			t.Fatalf("Failed to write test file: %v", err)
 		}
 
-		result, err := GrepContent(walkDir, "foo", true, false)
+		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -666,7 +724,7 @@ func TestGrepContent(t *testing.T) {
 
 		// Pass the unresolved symlink directly, as a caller that doesn't
 		// pre-resolve its path would.
-		result, err := GrepContent(linkRoot, "foo", true, false)
+		result, err := GrepContent(context.Background(), linkRoot, "foo", true, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -694,7 +752,7 @@ func TestGrepContent(t *testing.T) {
 		var result string
 		var err error
 		go func() {
-			result, err = GrepContent(fifoDir, "foo", true, false)
+			result, err = GrepContent(context.Background(), fifoDir, "foo", true, false)
 			close(done)
 		}()
 
@@ -726,7 +784,7 @@ func TestGrepContent(t *testing.T) {
 		done := make(chan struct{})
 		var err error
 		go func() {
-			_, err = GrepContent(fifoPath, "foo", false, false)
+			_, err = GrepContent(context.Background(), fifoPath, "foo", false, false)
 			close(done)
 		}()
 
@@ -769,7 +827,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(noPermSub, 0755)
 
-		result, err := GrepContent(walkDir, "foo", true, false)
+		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v, expected the unreadable subdirectory to be skipped rather than aborting the whole search", err)
 		}
@@ -798,7 +856,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(noPermSub, 0755)
 
-		result, err := GrepContent(walkDir, "foo", true, false)
+		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -835,7 +893,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(noPermSub, 0755)
 
-		result, err := GrepContent(walkDir, "foo", true, false)
+		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -862,7 +920,7 @@ func TestGrepContent(t *testing.T) {
 		}
 		defer os.Chmod(walkDir, 0755)
 
-		result, err := GrepContent(walkDir, "foo", true, false)
+		result, err := GrepContent(context.Background(), walkDir, "foo", true, false)
 		if err == nil {
 			t.Fatalf("expected an error when the search root itself is unreadable, got a result instead: %q", result)
 		}
@@ -877,7 +935,7 @@ func TestGrepContent(t *testing.T) {
 			t.Fatalf("Failed to write test file: %v", err)
 		}
 
-		result, err := GrepContent(filepath.Join(tmpDir, "long.txt"), "foo", false, false)
+		result, err := GrepContent(context.Background(), filepath.Join(tmpDir, "long.txt"), "foo", false, false)
 		if err != nil {
 			t.Fatalf("GrepContent() error = %v", err)
 		}
@@ -886,6 +944,53 @@ func TestGrepContent(t *testing.T) {
 		}
 		if len(result) > 2100 {
 			t.Errorf("expected result to be truncated to roughly 2000 chars, got length %d", len(result))
+		}
+	})
+
+	t.Run("recursive search honors a cancelled context", func(t *testing.T) {
+		walkDir := createTempDir(t)
+		defer os.RemoveAll(walkDir)
+
+		// Enough entries that the walk is guaranteed to consult ctx at least
+		// once after cancellation rather than finishing outright.
+		for i := range 50 {
+			name := filepath.Join(walkDir, fmt.Sprintf("file_%02d.txt", i))
+			if err := os.WriteFile(name, []byte("foo\n"), 0644); err != nil {
+				t.Fatalf("Failed to write test file: %v", err)
+			}
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // already cancelled before the walk starts
+
+		_, err := GrepContent(ctx, walkDir, "foo", true, false)
+		if err == nil {
+			t.Fatal("expected a cancelled context to abort the search, got no error")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected the error to wrap context.Canceled, got %v", err)
+		}
+	})
+
+	t.Run("a non-recursive search is unaffected by context", func(t *testing.T) {
+		// Single-file reads are bounded by file size, so they intentionally
+		// don't consult ctx -- pinning that so the cancellation check isn't
+		// later "helpfully" moved somewhere it would break normal reads.
+		tmpDir := createTempDir(t)
+		defer os.RemoveAll(tmpDir)
+		if err := os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("foo\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		result, err := GrepContent(ctx, filepath.Join(tmpDir, "a.txt"), "foo", false, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "a.txt:1:foo") {
+			t.Errorf("expected the single-file match, got %q", result)
 		}
 	})
 }
