@@ -235,46 +235,67 @@ prompt — the tool call and its result are structured data and are shown as suc
 now duplication rather than a defect, and collapsing it needs a decision about whether a
 tool call that has an interactive rendering should still show its raw form at all.
 
-## Blocked on the API: server-side paging, searching and sorting for three lists
+## Blocked on the API: server-side paging, searching and sorting — for every list
 
-**Models, prompt libraries and MCP servers narrow their rows in the browser, and the
-RPCs are why.** Recorded here rather than left implicit, because the shape of the
-request is the whole argument: a client-side filter is honest when the response holds
-every row and dishonest when it holds one page of them, and only the proto says which.
+**Every list in this app narrows its rows in the browser, and the RPCs are why.**
+Recorded here rather than left implicit, because the shape of the request is the whole
+argument: a client-side filter is honest when the response holds every row and dishonest
+when it holds one page of them, and only the proto says which.
 
 | Read | Request today | What it takes | What it needs |
 |---|---|---|---|
 | `ListModelConfigs` | `ListModelConfigsRequest {}` | nothing at all | `PageRequest page`, `string filter`, a sort field enum and `SortOrder` |
 | `ListToolServers` | `ListToolServersRequest {}` | nothing at all | the same four |
 | `ListPromptTemplates` | `ListPromptTemplatesRequest { string namespace = 1 }` | one namespace | `PageRequest page`, `string filter`, sort field and order — the namespace is already there |
+| `GetSubstrateStatus` | `GetSubstrateStatusRequest { namespace }` | one namespace | the same four, twice: actors and workers are separate lists in one message |
 
-There is a worked precedent to copy rather than a design to invent:
-`ListSubstrateActors` and `ListSubstrateWorkers` in `system.proto` carry exactly this
-shape — `PageRequest{limit, page_token}` / `PageResponse{next_page_token}`, a
-case-insensitive substring `filter` over the fields the row displays, and a sort-field
-enum whose every order ends in a unique column so a page token names exactly one row.
-The commentary in that file is worth reading before adding a fifth variant of it.
+**The substrate page used to be the exception, and is not any more.** It read three
+RPCs — `GetSubstrateSummary` for the counts and a page each from `ListSubstrateActors`
+and `ListSubstrateWorkers` — which between them carried `PageRequest{limit, page_token}`,
+a case-insensitive substring `filter`, and a sort-field enum whose every order ended in a
+unique column so a page token named exactly one row. Those three were removed in
+`refactor: simplify UI backend support`, and `GetSubstrateStatus` returns the whole
+inventory in one message again. `api/grpc/operations.ts` keeps the four operation names
+and answers all of them from that one read, filtering and sorting in memory.
 
-**Until then the pages narrow in the browser, which is defensible only while the
-response is the whole list.** The pages used to say so in a note under the table naming
-the RPC; that note was removed as commentary a reader has no use for, so this file is
-now the only place the reasoning is written down. **The moment any of these three RPCs
-starts paging, its page must lose its client-side search and sort in the same change** —
-a filter over a page reports "no matches" about a row on page nine, which is the defect
-the substrate page was rewritten to remove. `substrate.spec.ts`'s "the paged tables do
-not pretend to sort, and the inline ones do" is the assertion that draws the line.
+So there is **no worked precedent left in this repository to copy**. Whoever pages one
+of these lists is designing the request, not following one — and the deleted commentary
+in `system.proto` is worth recovering from git history first, because it had already
+solved the part that is easy to get wrong: a sort order whose last key is not unique
+gives a page token that names more than one row.
+
+That removal also took the counts argument with it. `GetSubstrateSummary` existed so the
+tiles could report a true total while the tables showed one page; with the whole
+inventory in the browser the totals are simply true, and nothing has to be prevented.
+
+**A single-message read is defensible only while the message really holds everything.**
+`GetSubstrateStatus` is the read that already failed this way once: a cluster of 410,110
+actors produced a response gRPC refused to send, which is why it was split in the first
+place. It is back, so that ceiling is back with it. **The moment any of these reads
+starts paging — or starts truncating to survive — its page must lose its client-side
+search and sort in the same change**, because a filter over a page reports "no matches"
+about a row on page nine.
 
 The prompts page is a partial exception worth not losing: `ListPromptTemplates` takes a
 namespace, so `usePrompts` fans out one call per namespace and its **namespace filter is
 genuinely server-side already**. Only its search and sort are not.
 
+Two assertions in `substrate.spec.ts` were written against the paged shape and now
+describe something that no longer exists: "the searches are the server's, and a match is
+found wherever it is" is passing over an in-memory filter, and "the paged tables do not
+pretend to sort, and the inline ones do" withholds a sort from tables that could now
+honestly offer one. They pass, which is the problem — the behaviour they check still
+holds when every row is in the browser, so nothing objected when the reason for it went
+away.
+
 ### Not deferred, but named here so it is not looked for: paging is client-side too
 
-All three tables show a page control. It pages rows that are already in the browser,
-which is a real convenience on a long list and is not a claim about the server. The
-totals beside the controls and in the pager are therefore true totals — unlike a paged
-read, where counting what arrived and calling it a total is the failure
-`GetSubstrateSummary` exists to prevent.
+Every one of these tables shows a page control. It pages rows that are already in the
+browser, which is a real convenience on a long list and is not a claim about the server.
+The totals beside the controls and in the pager are therefore true totals — which is
+only true because the reads return everything. Under a paged read, counting what arrived
+and calling it a total is a lie, and a separate summary read is what fixes it; that is
+what `GetSubstrateSummary` was for before it was removed.
 
 ---
 
@@ -291,9 +312,10 @@ somebody is navigating by is a trade worth making; failures are per-row and sile
 because a title is a convenience over an id that already identifies the row.
 
 The agent's conversation **table** still falls back to `Untitled · <short id>`, and that
-is a decision rather than an omission. It pages, it is sorted and searched server-side,
-and titling a page of rows to put a label on a table is the shape of cost the substrate
-page's three RPCs exist to avoid.
+is a decision rather than an omission: it is the surface that could hold hundreds of
+rows, and one read per row to put a label on them is the cost the rail's budget of thirty
+exists to bound. What narrows it is described two sections down — the read is paged and
+this client follows every page, and the search and sort are the browser's.
 
 Two ways it could stop being a trade-off, both server-side and neither invented here:
 
@@ -316,15 +338,17 @@ that matters, because it is the one the paging is applied after. What the reques
 **not** carry is a search term or a sort field, so the agent page's search box and column
 sorts run in the browser.
 
-That is honest here for a reason worth stating, since it is the opposite of the three
-lists above: the client follows every page token before rendering anything
+That is honest here for a reason worth stating, because it is the one read on the list
+above that is paged at all: the client follows every page token before rendering anything
 (`INSTANCE_PAGE_LIMIT` in `api/grpc/operations.ts`), so what is in the browser is every
-conversation with that agent rather than the first fifty. The note under the table says
-exactly that.
+conversation with that agent rather than the first fifty. The page used to say so under
+the table; that note was removed as commentary a reader has no use for, which leaves this
+file as the record.
 
 **If that page-following is ever removed** — and it should be, once an agent can have
 thousands of conversations — the search and the sort must go server-side in the same
-change. The fields to add are the ones `ListSubstrateActors` already carries.
+change. The fields to add are the four in the table above, and there is no longer an RPC
+in this repository carrying them to copy from.
 
 ## An agent's page is derived, because a pair is not an object
 
