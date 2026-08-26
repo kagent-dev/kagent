@@ -30,8 +30,16 @@ const PHASE_LABEL: Partial<Record<ChatTurnPhase, string>> = {
 export function ChatTranscript({
   chat,
   sessionId,
+  onAnswered,
 }: {
   chat: ChatController;
+  /**
+   * An `ask_user` answer has just gone.
+   *
+   * Forwarded rather than acted on: the composer the caret belongs in afterwards is
+   * the page's, not this transcript's.
+   */
+  onAnswered?: () => void;
   /**
    * The conversation being shown, handed to each message.
    *
@@ -306,6 +314,7 @@ export function ChatTranscript({
           isBusy={chat.phase === "streaming"}
           onAnswer={(answers) => void chat.answerQuestion(answers)}
           onDismiss={() => void chat.dismissQuestion()}
+          onAnswered={onAnswered}
         />
       ) : null}
 

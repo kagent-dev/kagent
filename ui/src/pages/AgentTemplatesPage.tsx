@@ -5,7 +5,7 @@ import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
 import { ChevronRight } from "lucide-react";
-import { FilterBar, WholeListNote } from "@/components/table/FilterBar";
+import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
@@ -342,11 +342,6 @@ export function AgentTemplatesTab() {
             },
           })}
         />
-        <WholeListNote testId="templates-read-note" rpc="ListAgentTemplates">
-          It is read one namespace at a time, because the service validates its namespace
-          first and refuses an empty one rather than treating it as a wildcard. Any
-          namespace that refuses is named above.
-        </WholeListNote>
     </Space>
   );
 }

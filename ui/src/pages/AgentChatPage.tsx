@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Tooltip } from "antd";
 import { FileText, PanelRightClose, PanelRightOpen, Share2 } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import { ChatComposer } from "@/components/chat/ChatComposer";
+import { ChatComposer, type ChatComposerHandle } from "@/components/chat/ChatComposer";
 import { ShareDialog } from "@/components/chat/ShareDialog";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { iconControlStyles } from "@/components/agent/controlStyles";
@@ -242,6 +242,30 @@ export function AgentChatPage() {
     });
   }
 
+  /** The message box, so the caret can be handed back to it after a question. */
+  const composerRef = useRef<ChatComposerHandle>(null);
+
+  /*
+   * Opening a conversation puts the caret in its box.
+   *
+   * Not `autoFocus` on the composer, which fires once when it mounts — and it mounts
+   * disabled, because `canSend` is read from an instance that has not been fetched
+   * yet. A focus that happens before the box can be typed in is a focus that does not
+   * happen at all, so this waits for the state that enables it.
+   *
+   * Once per conversation, tracked rather than left to fire whenever `canSend` is
+   * true. A conversation that comes back from suspended flips it mid-visit, and the
+   * caret is by then wherever the reader put it — quite possibly in the field
+   * answering a question, which is the one place taking it from would cost them
+   * typing.
+   */
+  const focusedFor = useRef<string>(undefined);
+  useEffect(() => {
+    if (!id || !canSend || focusedFor.current === id) return;
+    focusedFor.current = id;
+    composerRef.current?.focus();
+  }, [id, canSend]);
+
   /*
    * The message this conversation was created for, sent once on arrival.
    *
@@ -284,6 +308,16 @@ export function AgentChatPage() {
      * after the turn is under way.
      */
     void chat.send(pending);
+    /*
+     * And now cleared, because `location.state` is kept in the browser's session
+     * history rather than in memory: it survives a refresh, so a reader who reloaded
+     * a conversation they had just started watched its opening message be sent all
+     * over again — a second turn, from a page they only asked to redraw.
+     *
+     * A `replace` to the same address, which leaves the transcript alone: the read
+     * above is keyed on the conversation, and that has not changed.
+     */
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
     // Keyed on the conversation, not on `chat`: the controller is rebuilt every render
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -519,7 +553,15 @@ export function AgentChatPage() {
 
           {/* The transcript owns its own scrolling now, so this passes it the room to
               do it in and nothing else. */}
-          <ChatTranscript chat={chat} sessionId={id} />
+          <ChatTranscript
+            chat={chat}
+            sessionId={id}
+            // The question is answered in a field inside the transcript, and once it
+            // has been, the next thing typed is an ordinary message. The transcript
+            // has no business knowing the composer exists, so the page it belongs to
+            // hands the caret back.
+            onAnswered={() => composerRef.current?.focus()}
+          />
 
           {/* Stuck to the foot of the viewport rather than the foot of the page. The
               page is what scrolls, so a composer in normal flow would be below the
@@ -540,6 +582,7 @@ export function AgentChatPage() {
             }}
           >
             <ChatComposer
+              ref={composerRef}
               send={chat.send}
               isStreaming={chat.phase === "streaming"}
               onCancel={chat.cancel}

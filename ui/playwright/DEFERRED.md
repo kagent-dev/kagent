@@ -255,15 +255,14 @@ case-insensitive substring `filter` over the fields the row displays, and a sort
 enum whose every order ends in a unique column so a page token names exactly one row.
 The commentary in that file is worth reading before adding a fifth variant of it.
 
-**Until then the pages are client-side and say so on the page**, naming the RPC
-(`models-read-note`, `mcp-servers-read-note`, `prompts-read-note`), and
-`tests/lists/list-filters.spec.ts` asserts that they do. That is defensible only while
-the response is the whole list. **The moment any of these three RPCs starts paging, its
-page must lose its client-side search and sort in the same change** — a filter over a
-page reports "no matches" about a row on page nine, which is the defect the substrate
-page was rewritten to remove. `substrate.spec.ts`'s "the paged tables do not pretend to
-sort, and the inline ones do" is the assertion that draws the line; the last step of
-`list-filters.spec.ts` keeps these pages on the correct side of it.
+**Until then the pages narrow in the browser, which is defensible only while the
+response is the whole list.** The pages used to say so in a note under the table naming
+the RPC; that note was removed as commentary a reader has no use for, so this file is
+now the only place the reasoning is written down. **The moment any of these three RPCs
+starts paging, its page must lose its client-side search and sort in the same change** —
+a filter over a page reports "no matches" about a row on page nine, which is the defect
+the substrate page was rewritten to remove. `substrate.spec.ts`'s "the paged tables do
+not pretend to sort, and the inline ones do" is the assertion that draws the line.
 
 The prompts page is a partial exception worth not losing: `ListPromptTemplates` takes a
 namespace, so `usePrompts` fans out one call per namespace and its **namespace filter is

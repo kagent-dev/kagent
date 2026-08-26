@@ -34,6 +34,7 @@ const TIMING = {
   slow: { step: 1_200, word: 400 },
   error: { step: 300, word: 45 },
   asks: { step: 300, word: 45 },
+  "asks-text": { step: 300, word: 45 },
 } as const;
 
 /**
@@ -47,6 +48,8 @@ const QUESTION = "Which pizza toppings would you like? You can choose more than 
 const TOPPINGS = ["Pepperoni", "Mushroom", "Pineapple"];
 const SIZE_QUESTION = "What size pizza would you like?";
 const SIZES = ["Small", "Medium", "Large"];
+/** The one-field variant: no choices offered, so the agent wants prose. */
+const NOTE_QUESTION = "What should I put on the order note?";
 /** The correlation id, which a real answer echoes verbatim. */
 const REQUEST_ID = "adk-mock-ask-1";
 
@@ -279,7 +282,7 @@ export class MockChatClient implements ChatClient {
     // is not something a backend would have recorded as the turn's result.
     this.persist(sessionId);
 
-    if (scenario === "asks") {
+    if (scenario === "asks" || scenario === "asks-text") {
       /*
        * The turn ends by asking rather than by finishing.
        *
@@ -290,10 +293,13 @@ export class MockChatClient implements ChatClient {
        * nothing tells them the conversation is now stuck — which is precisely why
        * it read as an agent that had simply broken.
        */
-      const questions = [
-        { question: SIZE_QUESTION, choices: SIZES, multiple: false },
-        { question: QUESTION, choices: TOPPINGS, multiple: true },
-      ];
+      const questions =
+        scenario === "asks-text"
+          ? [{ question: NOTE_QUESTION, choices: [], multiple: false }]
+          : [
+              { question: SIZE_QUESTION, choices: SIZES, multiple: false },
+              { question: QUESTION, choices: TOPPINGS, multiple: true },
+            ];
 
       const call = dataMessage(`${taskId}-ask-call`, taskId, "tool_call", {
         id: `call-ask-${taskId}`,
@@ -306,7 +312,12 @@ export class MockChatClient implements ChatClient {
       // The question also arrives as prose, exactly as it does on the wire — the
       // structured payload is *beside* it rather than instead of it, so a reader
       // whose build cannot render the choices still sees what was asked.
-      const asked = message(`${taskId}-ask`, "agent", SIZE_QUESTION, taskId);
+      const asked = message(
+        `${taskId}-ask`,
+        "agent",
+        scenario === "asks-text" ? NOTE_QUESTION : SIZE_QUESTION,
+        taskId,
+      );
       transcript.push(asked);
       this.persist(sessionId);
       const request: PendingRequest = {
@@ -460,7 +471,11 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
     dataMessage("seed-1-call", "seed-task-1", "tool_call", {
       id: "call-seed-1",
       name: "k8s_get_events",
-      args: { namespace: "shop", resource: "deployment/checkout" },
+      // Out of alphabetical order on purpose. These args reach the app as a protobuf
+      // `Struct`, whose field order is whatever the sender emitted — for a Go map, a
+      // different order every marshal. A fixture in tidy order would let a renderer
+      // that prints the wire order look correct while the real page reshuffled.
+      args: { resource: "deployment/checkout", namespace: "shop" },
     }),
     dataMessage("seed-1-result", "seed-task-1", "tool_result", {
       id: "call-seed-1",

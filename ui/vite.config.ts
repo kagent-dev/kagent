@@ -4,9 +4,32 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { CORE_ENV_KEYS, ENV_DEFAULTS } from "./src/env.ts";
 
-/** Where the controller listens during local development. */
-const CONTROLLER_URL =
-  process.env.KAGENT_DEV_CONTROLLER_URL ?? "http://127.0.0.1:8083";
+/**
+ * Where the dev server forwards `/api` and `/a2a`.
+ *
+ * Read from `.env` as well as the shell, which takes a `loadEnv` rather than a
+ * `process.env` lookup: Vite does not put `.env` values on `process.env`, so a
+ * setting read only from there is one a reader can put in their `.env` and watch do
+ * nothing. `.env.example` ships this pointed at the UI pod's nginx on 8080, which is
+ * the forward `dev-scripts/setup-cluster.sh` already holds open.
+ *
+ * The shell still wins, for the same reason it wins over the inlined settings below:
+ * a one-off override on the command line should not mean editing a file.
+ *
+ * The fallback is the controller's own port, for a checkout with no `.env` at all.
+ */
+function devProxy(mode: string) {
+  const fromFiles = loadEnv(mode, import.meta.dirname, "");
+  const target =
+    process.env.KAGENT_DEV_CONTROLLER_URL ||
+    fromFiles.KAGENT_DEV_CONTROLLER_URL ||
+    "http://127.0.0.1:8083";
+
+  return {
+    "/api": { target, changeOrigin: true },
+    "/a2a": { target, changeOrigin: true },
+  };
+}
 
 /**
  * Extra keys the dev server will pass through beyond the application's own.
@@ -113,10 +136,7 @@ export default defineConfig(({ mode }) => ({
     // talking to a real controller uses the same relative URLs as production.
     // Requests are only proxied in live mode; the mock worker intercepts first
     // otherwise, so these rules are inert by default.
-    proxy: {
-      "/api": { target: CONTROLLER_URL, changeOrigin: true },
-      "/a2a": { target: CONTROLLER_URL, changeOrigin: true },
-    },
+    proxy: devProxy(mode),
   },
   preview: {
     port: Number(process.env.UI_LOOP_PORT ?? 8001),

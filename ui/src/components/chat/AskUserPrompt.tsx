@@ -31,12 +31,21 @@ export function AskUserPrompt({
   isBusy,
   onAnswer,
   onDismiss,
+  onAnswered,
 }: {
   request: PendingRequest;
   /** A turn is in flight — the answer is on its way, or something else is. */
   isBusy: boolean;
   onAnswer: (answers: readonly string[][]) => void;
   onDismiss: () => void;
+  /**
+   * The answer has gone, and the caret belongs somewhere else now.
+   *
+   * This field exists only because the composer could not end the turn; once it has,
+   * the next thing typed is an ordinary message. Leaving the caret in a field that is
+   * now disabled makes the reader find the composer with the mouse to carry on.
+   */
+  onAnswered?: () => void;
 }) {
   const theme = useTheme();
 
@@ -59,6 +68,23 @@ export function AskUserPrompt({
 
   const setAnswer = (index: number, value: string[]) =>
     setAnswers((current) => current.map((entry, at) => (at === index ? value : entry)));
+
+  /*
+   * One question, answered in prose.
+   *
+   * The case where this panel is a single text field, which is the only shape where
+   * Enter can mean "send": with two questions it would send the one still being
+   * filled in, and against choices there is nothing to press Enter in.
+   */
+  const isSoleTextQuestion =
+    questions.length === 1 && questions[0].choices.length === 0;
+
+  function submit() {
+    if (!answered || isSent || isBusy) return;
+    setSent(true);
+    onAnswer(answers);
+    onAnswered?.();
+  }
 
   const discard = (
     <Button size="small" data-testid="chat-dismiss-question" onClick={onDismiss}>
@@ -122,9 +148,24 @@ export function AskUserPrompt({
                 <Input
                   data-testid={`chat-answer-text-${index}`}
                   disabled={isSent || isBusy}
+                  /* The question arrived while the reader was elsewhere on the page,
+                     and the one thing to do about it is type in here. Only when this
+                     is the whole panel: with several questions, taking the caret
+                     would be choosing which one they answer first. */
+                  autoFocus={isSoleTextQuestion}
                   value={answers[index]?.[0] ?? ""}
                   onChange={(event) =>
                     setAnswer(index, event.target.value === "" ? [] : [event.target.value])
+                  }
+                  onPressEnter={
+                    isSoleTextQuestion
+                      ? (event) => {
+                          // Prevented, or the Enter also reaches whatever this panel
+                          // sits inside and the page acts on it twice.
+                          event.preventDefault();
+                          submit();
+                        }
+                      : undefined
                   }
                   placeholder="Your answer"
                 />
@@ -170,10 +211,7 @@ export function AskUserPrompt({
               // Every question or none: an answers array with a gap in it is paired
               // positionally against the questions and answers the wrong one.
               disabled={!answered || isSent || isBusy}
-              onClick={() => {
-                setSent(true);
-                onAnswer(answers);
-              }}
+              onClick={submit}
             >
               {questions.length > 1 ? "Send answers" : "Send answer"}
             </Button>

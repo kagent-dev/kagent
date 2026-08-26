@@ -341,20 +341,9 @@ test("agent templates: the list narrows like every other landing page", async ({
     await expect(page.getByTestId("templates-filters-search")).toHaveValue("note-taker");
   });
 
-  await test.step("4. the page says where its narrowing happens", async () => {
-    // `ListAgentTemplates` takes no page, sort or search parameter, so this narrowing is
-    // the browser's. Saying so is what stops a reader assuming a search box searched the
-    // cluster — the defect the substrate page was fixed for.
+  await test.step("4. columns sort", async () => {
+    // The search is cleared first: sorting one row proves nothing.
     await page.getByTestId("templates-filters-search").fill("");
-    await expect(page.getByTestId("templates-read-note")).toContainText(
-      "ListAgentTemplates",
-    );
-    await expect(page.getByTestId("templates-read-note")).toContainText(
-      "refuses an empty one",
-    );
-  });
-
-  await test.step("5. columns sort", async () => {
     const first = async () => (await dataRows(page).first().textContent()) ?? "";
     const before = await first();
     await page.getByRole("columnheader", { name: /Template/ }).click();

@@ -9,7 +9,7 @@ import { buildPath, paths } from "@/router/routes";
 import { apiClient, parseRef, useModels, type ModelConfig } from "@/api";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { FilterBar, WholeListNote } from "@/components/table/FilterBar";
+import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import {
   byText,
@@ -264,8 +264,6 @@ export function ModelsPage() {
                 : " ",
           }}
         />
-
-        <WholeListNote testId="models-read-note" rpc="ListModelConfigs" />
       </Space>
     </PageFrame>
   );

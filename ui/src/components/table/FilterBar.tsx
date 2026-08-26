@@ -1,11 +1,9 @@
 import type { ReactNode } from "react";
-import { Select, Tag, Typography } from "antd";
+import { Select, Tag } from "antd";
 import { useTheme } from "@emotion/react";
 import { X } from "lucide-react";
 import { SearchInput } from "./SearchInput";
 import type { ListView } from "./useListView";
-
-const { Text } = Typography;
 
 /**
  * The controls above a list, and the row of pills that says what they are doing.
@@ -224,46 +222,5 @@ export function FilterBar({
         </div>
       ) : null}
     </div>
-  );
-}
-
-/**
- * Where the narrowing happens, said on the page.
- *
- * A search box and a sort arrow look identical whether the server did the work or the
- * browser did, and the difference decides whether a "no matches" is true. This page's
- * reads return the whole list in one message — the RPC named here takes no page,
- * filter or sort parameter — so narrowing in the browser searches everything there is,
- * and the answer is complete.
- *
- * That is the opposite of the substrate page's actor and worker tables, which are
- * paged by the server: there, a local filter would search one page out of hundreds of
- * thousands and report "no matches" about a row on page nine. Those tables offer no
- * sort at all for exactly that reason. The distinction is not a detail of style; it is
- * the difference between a control that tells the truth and one that does not.
- */
-export function WholeListNote({
-  rpc,
-  testId,
-  children,
-}: {
-  /** The RPC the page reads, named so the gap can be looked up rather than trusted. */
-  rpc: string;
-  testId: string;
-  /** Anything this page narrows on the server after all, said in the same breath. */
-  children?: ReactNode;
-}) {
-  const theme = useTheme();
-
-  return (
-    <Text
-      data-testid={testId}
-      css={{ color: theme.color.textMuted, fontSize: 12 }}
-    >
-      {rpc} takes no page, sort or search parameter, so the whole list is read and
-      searching and sorting here cover every row rather than just this page.
-      {children ? " " : null}
-      {children}
-    </Text>
   );
 }

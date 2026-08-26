@@ -1,5 +1,12 @@
 import { test, expect } from "../../fixtures/test";
-import { agentChat, instances, loadPage, withScenario } from "../../helpers/app";
+import {
+  agentChat,
+  agentNewChat,
+  agents,
+  instances,
+  loadPage,
+  withScenario,
+} from "../../helpers/app";
 
 /**
  * Chat — the failure journeys.
@@ -270,5 +277,85 @@ test("chat: a question can be discarded instead of answered", async ({ page }) =
     await page.getByTestId("chat-send").click();
     await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
+  });
+});
+
+/**
+ * Where the caret is, which decides whether answering needs the mouse.
+ *
+ * Reported as three separate irritations with one shape: the page knows exactly which
+ * box the reader is about to type in, and made them click it first. A parked question
+ * with a single prose field is the clearest case — the turn cannot end until something
+ * is typed there, and there is nothing else on the page to type in.
+ *
+ * Only the single-field shape. Two questions, or any question with choices, and there
+ * is no one field the caret obviously belongs in; taking it would be the page choosing
+ * which question gets answered first.
+ */
+test("chat: a question with one prose field takes the caret, and Enter answers it", async ({
+  page,
+}) => {
+  await test.step("1. a turn parks on a single prose question", async () => {
+    await page.goto(`${AGENT_CHAT}?chat=asks-text`);
+    await page.getByTestId("chat-input").fill("Order me a pizza");
+    await page.getByTestId("chat-send").click();
+
+    await expect(page.getByTestId("chat-awaiting-reply")).toBeVisible({ timeout: 20_000 });
+    // One question, and no choices — the shape the rest of this test is about.
+    await expect(page.getByTestId("chat-question")).toHaveCount(1);
+    await expect(page.getByTestId("chat-choices-0")).toHaveCount(0);
+  });
+
+  await test.step("2. the field has the caret already", async () => {
+    await expect(page.getByTestId("chat-answer-text-0")).toBeFocused();
+  });
+
+  await test.step("3. Enter sends it, without reaching for the button", async () => {
+    // Typed with the keyboard rather than filled, because what is under test is that
+    // the caret was already in the right place — `fill` would put it there itself and
+    // pass whether or not step 2 held.
+    await page.keyboard.type("Extra napkins");
+    await page.keyboard.press("Enter");
+
+    // The structured answer arrived, which is the same proof the choices journey
+    // above uses: the fixture says "I did not catch a choice in that" when the
+    // metadata is missing or its correlation id is wrong.
+    await expect(page.getByTestId("chat-message").last()).toContainText(
+      "Noted: Extra napkins",
+      { timeout: 20_000 },
+    );
+    await expect(page.getByTestId("chat-awaiting-reply")).toHaveCount(0);
+  });
+
+  await test.step("4. and the caret comes back to the composer", async () => {
+    // The field it was in is gone with the question, so a caret left there is a caret
+    // nowhere — and the next thing typed is an ordinary message.
+    await expect(page.getByTestId("chat-input")).toBeFocused();
+  });
+});
+
+test("chat: opening a conversation puts the caret in its box", async ({ page }) => {
+  /*
+   * Both ways in, because they reach the composer differently and only one of them
+   * could be done declaratively.
+   *
+   * The new-conversation page is two lines of text and one box, so `autoFocus` on
+   * mount is the whole of it. An existing conversation mounts its composer *disabled* —
+   * `canSend` is read from an instance still being fetched — so a focus on mount is a
+   * focus that never happens, and the page waits for the state that enables the box.
+   * That difference is why the second step is not a duplicate of the first.
+   */
+  await test.step("1. a conversation that does not exist yet", async () => {
+    await loadPage(page, agentNewChat(agents.k8s));
+    await expect(page.getByTestId("new-chat-composer")).toBeVisible();
+    await expect(page.getByTestId("chat-input")).toBeFocused();
+  });
+
+  await test.step("2. and one opened from the rail, whose box starts disabled", async () => {
+    await loadPage(page, AGENT_CHAT);
+    // Waited for rather than assumed: this is the transition the effect exists for,
+    // and asserting focus before it would pass on the wrong thing.
+    await expect(page.getByTestId("chat-input")).toBeEnabled({ timeout: 30_000 });
+    await expect(page.getByTestId("chat-input")).toBeFocused();
   });
 });

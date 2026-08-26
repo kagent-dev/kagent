@@ -171,7 +171,7 @@ export function DashboardPage() {
             />
           </Card>
 
-          <Card title="Recently created agents" data-testid="dashboard-recent-card">
+          <Card title="Recent agent conversations" data-testid="dashboard-recent-card">
             <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
               {agents.error ? (
                 <Text

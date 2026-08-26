@@ -221,64 +221,6 @@ test("lists: a narrowed view is an address, so it survives a reload", async ({ p
   });
 });
 
-test("lists: each page says where its narrowing happens, and names the RPC", async ({
-  page,
-}) => {
-  /*
-   * The honesty requirement, asserted rather than trusted. A search box and a sort
-   * arrow look identical whether the server did the work or the browser did, and the
-   * difference decides whether "no matches" is true. These three reads return the
-   * whole list, so the browser can answer completely — and the page says so, naming
-   * the RPC, so the claim can be checked against the proto rather than believed.
-   */
-  await test.step("1. models names ListModelConfigs", async () => {
-    await loadPage(page, routes.models, { title: "Models" });
-    await expect(page.getByTestId("models-read-note")).toContainText(
-      "ListModelConfigs",
-    );
-    await expect(page.getByTestId("models-read-note")).toContainText(
-      "takes no page, sort or search parameter",
-    );
-  });
-
-  await test.step("2. MCP servers names ListToolServers", async () => {
-    await loadPage(page, routes.mcpServers, { title: "MCP servers" });
-    await expect(page.getByTestId("mcp-servers-read-note")).toContainText(
-      "ListToolServers",
-    );
-  });
-
-  await test.step("3. prompts names its one genuinely server-side filter", async () => {
-    // Not the same claim as the other two. `ListPromptTemplates` takes a namespace and
-    // rejects a request without one, so the namespace filter here really is sent to
-    // the server — one read per namespace chosen — while the search and sort are not.
-    // Saying "everything is client-side" would be as wrong as saying the opposite.
-    await loadPage(page, routes.prompts, { title: "Prompts" });
-    const note = page.getByTestId("prompts-read-note");
-    await expect(note).toContainText("ListPromptTemplates");
-    await expect(note).toContainText("the request carries a namespace");
-  });
-
-  await test.step("4. the substrate page still makes the opposite claim, correctly", async () => {
-    // The contrast is the point, and it is worth pinning that this work did not blur
-    // it: those tables are paged by the server, so they offer no sort at all and say
-    // what order the server applied. If a later change gave them a client-side sorter
-    // to match these pages, this step is what would object.
-    await loadPage(page, routes.substrate, { title: "Substrate" });
-    await expectSettled(page);
-
-    const headers = page.getByTestId("substrate-actors-table").locator("th");
-    await expect(headers.first()).toBeVisible();
-    const sortable = await headers.evaluateAll(
-      (cells) =>
-        cells.filter((cell) => cell.className.includes("column-has-sorters")).length,
-    );
-    expect(sortable, "a server-paged table must not offer a sort it cannot honour").toBe(
-      0,
-    );
-  });
-});
-
 test("lists: prompts asks the server for exactly the namespaces chosen", async ({
   page,
 }) => {

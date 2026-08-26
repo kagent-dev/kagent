@@ -17,7 +17,7 @@ import {
   type ToolServerResponse,
 } from "@/api";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { FilterBar, WholeListNote } from "@/components/table/FilterBar";
+import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import {
   byNumber,
@@ -394,8 +394,6 @@ export function McpServersPage() {
                 : " ",
           }}
         />
-
-        <WholeListNote testId="mcp-servers-read-note" rpc="ListToolServers" />
       </Space>
     </PageFrame>
   );

@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Button, Input, Space } from "antd";
+import type { TextAreaRef } from "antd/es/input/TextArea";
 import { useTheme } from "@emotion/react";
 import { Send, Square } from "lucide-react";
 import type { ChatController } from "@/api";
+
+/** What a page can ask of the box from outside it: put the caret back in it. */
+export type ChatComposerHandle = { focus: () => void };
 
 /**
  * The message box.
@@ -25,6 +29,8 @@ export function ChatComposer({
   onCancel,
   disabled = false,
   variant = "docked",
+  autoFocus = false,
+  ref,
 }: {
   send: (text: string) => Promise<void>;
   isStreaming?: boolean;
@@ -54,9 +60,29 @@ export function ChatComposer({
    * instead of cutting across it.
    */
   variant?: "docked" | "inviting";
+  /**
+   * Take the caret on arrival.
+   *
+   * For a page whose whole purpose is this box — a conversation that does not exist
+   * yet has nothing else to read, so a reader who has to click before typing is being
+   * asked to say twice that they came here to talk.
+   */
+  autoFocus?: boolean;
+  /**
+   * A way back to the caret for whatever took it.
+   *
+   * Answering the agent's question happens in a field inside the transcript, and
+   * when that field is finished with, the next thing typed belongs here. Exposed as
+   * a handle rather than found in the DOM by the answering component, which has no
+   * business knowing this box exists.
+   */
+  ref?: Ref<ChatComposerHandle>;
 }) {
   const theme = useTheme();
   const [draft, setDraft] = useState("");
+  const inputRef = useRef<TextAreaRef>(null);
+
+  useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
   async function submit() {
     const text = draft.trim();
@@ -77,6 +103,8 @@ export function ChatComposer({
       }}
     >
       <Input.TextArea
+        ref={inputRef}
+        autoFocus={autoFocus}
         data-testid="chat-input"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

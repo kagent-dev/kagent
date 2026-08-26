@@ -85,6 +85,22 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     await expect(call).toHaveCount(1);
     await expect(call).toHaveAttribute("data-tool-name", "k8s_get_events");
 
+    /*
+     * Reported as a defect: the payload's properties changed places while the reader
+     * was reading them, because the transcript is re-read while a turn is live and
+     * these args arrive as a protobuf `Struct` — no field order at all, so a Go map
+     * gave a different one every time. Printed in a fixed order instead.
+     *
+     * The fixture supplies `resource` before `namespace` precisely so this asserts
+     * the sort rather than the order it was handed.
+     */
+    const payload = call.getByTestId("chat-tool-payload");
+    const printed = (await payload.textContent()) ?? "";
+    expect(
+      printed.indexOf('"namespace"'),
+      "a tool's payload should read in a fixed order, whatever order it arrived in",
+    ).toBeLessThan(printed.indexOf('"resource"'));
+
     const result = page.getByTestId("chat-tool-result");
     await expect(result).toHaveCount(1);
     await expect(result).toContainText("liveness probe failed");

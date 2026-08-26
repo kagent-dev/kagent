@@ -685,18 +685,6 @@ export function AgentPage() {
             },
           })}
         />
-
-        <Text
-          data-testid="conversations-read-note"
-          css={{ color: theme.color.textMuted, fontSize: 12 }}
-        >
-          ListAgentInstances narrows to this agent on the server: it takes the
-          template and the harness and resolves them through each conversation&rsquo;s
-          prepared revision, so this is the agent&rsquo;s conversations rather than the
-          namespace&rsquo;s filtered afterwards. It is paged, and every page is followed
-          before anything is rendered — so searching and sorting here cover every
-          conversation with this agent, not just the first page of them.
-        </Text>
       </Space>
 
       {/*

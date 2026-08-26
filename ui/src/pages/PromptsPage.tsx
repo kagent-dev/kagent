@@ -9,7 +9,7 @@ import { buildPath, paths } from "@/router/routes";
 import { apiClient, useNamespaces, usePrompts, type PromptTemplateSummary } from "@/api";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { FilterBar, WholeListNote } from "@/components/table/FilterBar";
+import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import {
   byNumber,
@@ -268,11 +268,6 @@ export function PromptsPage() {
                   : " ",
           }}
         />
-
-        <WholeListNote testId="prompts-read-note" rpc="ListPromptTemplates">
-          The namespace filter is the exception: the request carries a namespace, so
-          choosing namespaces asks the server for exactly those and nothing else.
-        </WholeListNote>
       </Space>
     </PageFrame>
   );

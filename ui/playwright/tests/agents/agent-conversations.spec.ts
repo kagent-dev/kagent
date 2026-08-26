@@ -78,15 +78,6 @@ test("agents: one agent lists its own conversations, and only its own", async ({
       "Drafting the runbook",
     );
   });
-
-  await test.step("5. and the page says the narrowing was the server's", async () => {
-    // Because it decides whether "no conversations match" is true. This list is
-    // paged; a browser-side filter over one page would report an empty agent that
-    // has forty conversations.
-    await expect(page.getByTestId("conversations-read-note")).toContainText(
-      "ListAgentInstances narrows to this agent on the server",
-    );
-  });
 });
 
 test("agents: a conversation is named by the reader, and never renders as a bare UUID", async ({
@@ -392,7 +383,32 @@ test("agents: a conversation is created by its first message, not by the click",
     );
   });
 
-  await test.step("5. and the agent's list is the proof, with one more row", async () => {
+  await test.step("5. and the message is not left behind for a reload to send again", async () => {
+    /*
+     * Reported as a defect: reloading a conversation just started sent its opening
+     * message a second time — a whole extra turn, from a page the reader only asked
+     * to redraw.
+     *
+     * The cause is that router state is not in memory. `AgentNewChatPage` hands the
+     * text over in `location.state`, which the browser keeps in the session history
+     * entry, so it came back with the page and the effect that sends it fired again.
+     * The page clears it once the turn is under way.
+     *
+     * Asserted against the history entry rather than by reloading, because the
+     * fixture backend keeps its writes in the page's own memory: a reload starts a
+     * backend that has never heard of this conversation, so there would be no
+     * transcript to count a second message in. The whole entry is searched rather
+     * than a router-specific field, so this keeps holding if the router changes where
+     * it files state.
+     */
+    const entry = await page.evaluate(() => JSON.stringify(window.history.state ?? null));
+    expect(
+      entry,
+      "the opening message must not survive in the history entry",
+    ).not.toContain("crashlooping");
+  });
+
+  await test.step("6. and the agent's list is the proof, with one more row", async () => {
     // Back through the rail rather than by reloading: the fixture backend keeps writes
     // in the page's own memory, so a full page load would start a backend that has
     // never heard of this conversation.
@@ -403,7 +419,7 @@ test("agents: a conversation is created by its first message, not by the click",
     await expect(dataRows(page)).toHaveCount(before + 1, { timeout: 30_000 });
   });
 
-  await test.step("6. an agent with no ready revision cannot start one, and says why", async () => {
+  await test.step("7. an agent with no ready revision cannot start one, and says why", async () => {
     await loadPage(page, agentPage(agents.preparing));
     await expectSettled(page);
 

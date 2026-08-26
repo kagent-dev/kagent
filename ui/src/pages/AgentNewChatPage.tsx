@@ -304,6 +304,10 @@ export function AgentNewChatPage() {
               isStreaming={isCreating}
               variant="inviting"
               disabled={!namespace || !agentTemplate || !harness}
+              // This page is two lines of text and this box. Arriving with the caret
+              // already in it is the difference between a page that is ready and one
+              // that wants a click first for no reason it can explain.
+              autoFocus
             />
           </div>
         </Space>

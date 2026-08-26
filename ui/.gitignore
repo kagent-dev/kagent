@@ -37,3 +37,8 @@ yarn-error.log*
 
 # The saved sign-in for the live suite. A real credential — never committed.
 playwright/.auth/
+
+# Leftovers from the old Next.js UI, which this app replaced.
+/.next
+/next-env.d.ts
+/playwright/test-results

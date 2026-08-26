@@ -2,6 +2,7 @@ import { Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { ChevronRight, Wrench } from "lucide-react";
 import type { ChatDataPart } from "@/api";
+import { stableJson } from "./stableJson";
 
 const { Text } = Typography;
 
@@ -74,7 +75,7 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
 /** Pulls the readable payload out of either shape, and notices a failure. */
 function describe(part: ChatDataPart): { body: string; failed: boolean } {
   if (part.dataKind === "tool_call") {
-    return { body: JSON.stringify(part.data.args ?? {}, null, 2), failed: false };
+    return { body: stableJson(part.data.args ?? {}), failed: false };
   }
 
   const response = part.data.response;
@@ -93,12 +94,9 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
     const payload = output ?? result;
 
     return {
-      body:
-        typeof payload === "string"
-          ? payload
-          : JSON.stringify(payload ?? response, null, 2),
+      body: typeof payload === "string" ? payload : stableJson(payload ?? response),
       failed: isError === true || error !== undefined,
     };
   }
-  return { body: JSON.stringify(part.data, null, 2), failed: false };
+  return { body: stableJson(part.data), failed: false };
 }

@@ -87,8 +87,13 @@ function isScenario(value: string | null): value is MockScenario {
  * controller refuse every further message until it is answered or given up. It is
  * its own value rather than a variation of `ok` because the state persists in the
  * conversation: a reload lands back in it, which is the case worth driving.
+ *
+ * `asks-text` is the same parked turn asking a different shape of question, and it is
+ * a scenario of its own because the shape decides the controls: `asks` offers choices,
+ * `asks-text` offers one prose field — the only shape where the field can take the
+ * caret on arrival and Enter can mean "send".
  */
-export const CHAT_SCENARIOS = ["ok", "error", "slow", "asks"] as const;
+export const CHAT_SCENARIOS = ["ok", "error", "slow", "asks", "asks-text"] as const;
 
 export type ChatScenario = (typeof CHAT_SCENARIOS)[number];
 
