@@ -34,6 +34,13 @@ type Querier interface {
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
+	// Resolves a share token to the share and the instance's owner.
+	//
+	// The owner is joined in because that is what the share grants: the reader is
+	// authenticated as themselves, and the token widens what that account may read to
+	// what the *owner* can see. Without the owner's user id the instance lookup would
+	// run as the visitor and find nothing.
+	GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (GetAgentInstanceShareByTokenHashRow, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
@@ -80,6 +87,14 @@ type Querier interface {
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
+	// Lists the conversations an instance is, optionally narrowed to one agent.
+	//
+	// An agent is an (AgentTemplate, Harness) pair, and the instance row carries
+	// neither name as a column -- both live inside `data`. They are resolved through
+	// `prepared_revision`, which is a foreign key to `runtime_revision` and does
+	// carry them, so the filter needs no new column and matches rows written before
+	// it existed. An instance with no prepared revision belongs to no pair and
+	// therefore matches no template or harness filter.
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
@@ -103,13 +118,27 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
-	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
-	// rest of the transaction so reclamation cannot overwrite concurrent progress.
 	LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
 	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
+	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
+	// rest of the transaction so reclamation cannot overwrite concurrent progress.
+	//
+	// One task by id, whatever state it is in.
+	//
+	// Distinct from LockActiveAgentInstanceTask, which finds whichever task currently
+	// holds the instance's turn — and deliberately no longer counts a parked one, since a
+	// question awaiting an answer must not stop the next turn starting. The parked-task
+	// operations still need to reach that exact task to answer it or give it up, so they
+	// name it instead of asking for the active one.
+	LockAgentInstanceTask(ctx context.Context, arg LockAgentInstanceTaskParams) (AgentInstanceTask, error)
 	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
+	// Renames an instance in place. The row's `data` blob also carries the message,
+	// but `toAgentInstance` reads the name from this column, exactly as it does for
+	// `state` and `operation`, so the column is the single authority and the two
+	// cannot drift.
+	RenameAgentInstance(ctx context.Context, arg RenameAgentInstanceParams) (AgentInstance, error)
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
 	RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error
 	RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error

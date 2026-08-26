@@ -43,6 +43,25 @@ func (client *fakeATEClient) ListActors(context.Context, string) ([]*ateapipb.Ac
 	return client.actors, nil
 }
 
+// EachActorPage hands the actors over in more than one page on purpose.
+//
+// The production client pages, and a fake that answered in a single page would let
+// a selector that only ever sees one page pass — which is precisely the bug worth
+// catching, since the whole reason this method exists is not to hold them all.
+func (client *fakeATEClient) EachActorPage(_ context.Context, _ string, visit func([]*ateapipb.Actor) error) error {
+	if client.err != nil {
+		return client.err
+	}
+	const pageSize = 3
+	for start := 0; start < len(client.actors); start += pageSize {
+		end := min(start+pageSize, len(client.actors))
+		if err := visit(client.actors[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (client *fakeATEClient) ListWorkers(context.Context) ([]*ateapipb.Worker, error) {
 	return client.workers, client.err
 }

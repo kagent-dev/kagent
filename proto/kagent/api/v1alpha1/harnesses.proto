@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// HarnessService is CRUD over the kagent.dev/v1alpha3 Harness CRD: the runtime
+// and infrastructure policy half of the (Harness, AgentTemplate) pair that
+// CreateAgentInstance names.
+//
+// Harness is NOT AgentHarness. AgentService carries GetAgentHarness /
+// CreateAgentHarness / DeleteAgentHarness, and those operate on the separate
+// AgentHarness CRD — a single agent bound to an external ACP backend. The
+// Harness here is a reusable runtime (one of the kagent, codex or claude
+// adapters, plus a Substrate worker pool and snapshot policy) that admits many
+// AgentTemplates through a label selector; the v2 reconciler pairs the two in
+// go/core/v2/controller/collections.go. The names collide but the kinds do not,
+// so this is a separate service rather than more RPCs on AgentService.
+service HarnessService {
+  rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);
+  rpc GetHarness(GetHarnessRequest) returns (GetHarnessResponse);
+  rpc CreateHarness(CreateHarnessRequest) returns (CreateHarnessResponse);
+  rpc UpdateHarness(UpdateHarnessRequest) returns (UpdateHarnessResponse);
+  rpc DeleteHarness(DeleteHarnessRequest) returns (DeleteHarnessResponse);
+}
+
+message Harness {
+  ResourceReference ref = 1;
+
+  // Resource is the whole Harness CR. The spec is carried verbatim rather than
+  // re-modelled here so that a CRD change cannot silently drift from the API.
+  StructuredObject resource = 2;
+
+  // Runtime is the adapter the spec selects: "kagent", "codex" or "claude".
+  // Denormalised because callers listing harnesses group and filter by it, and
+  // would otherwise each reimplement the exactly-one-of check the CRD enforces.
+  string runtime = 3;
+
+  // WorkloadImage is spec.workload.image, the digest-pinned runtime image.
+  string workload_image = 4;
+
+  // Ready mirrors the Ready status condition. False also covers a Harness the
+  // controller has not yet observed.
+  bool ready = 5;
+}
+
+message ListHarnessesRequest {
+  string namespace = 1;
+}
+
+message ListHarnessesResponse {
+  repeated Harness harnesses = 1;
+}
+
+message GetHarnessRequest {
+  ResourceReference ref = 1;
+}
+
+message GetHarnessResponse {
+  Harness harness = 1;
+}
+
+message CreateHarnessRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message CreateHarnessResponse {
+  Harness harness = 1;
+}
+
+message UpdateHarnessRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message UpdateHarnessResponse {
+  Harness harness = 1;
+}
+
+message DeleteHarnessRequest {
+  ResourceReference ref = 1;
+}
+
+message DeleteHarnessResponse {}

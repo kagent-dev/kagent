@@ -28,9 +28,12 @@ import (
 	"syscall"
 	"time"
 
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
+	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
 	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -40,6 +43,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 	"golang.org/x/sync/errgroup"
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -69,7 +75,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Kubernetes config: %v", err)
 	}
+	// The manager's client is what serves the Harness and AgentTemplate RPCs, so
+	// it needs v1alpha3 in its scheme; the controller-runtime default carries
+	// only the built-in kinds and would fail every one of those calls at runtime
+	// rather than at startup.
+	managerScheme := k8sruntime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(managerScheme))
+	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
+		Scheme:                  managerScheme,
 		Metrics:                 metricsserver.Options{BindAddress: "0"},
 		LeaderElection:          envBool("LEADER_ELECT"),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
@@ -121,7 +135,13 @@ func main() {
 		SessionService:       sessionservice.NewService(store),
 		TaskService:          taskservice.NewService(store),
 		AgentInstanceService: instances,
+		// Both halves of the pair CreateAgentInstance names. Without these two
+		// the only way to author a Harness or an AgentTemplate is kubectl.
+		AgentTemplateService: agenttemplateservice.NewService(manager.GetClient(), authorizer),
+		HarnessService:       harnessservice.NewService(manager.GetClient(), authorizer),
 		CheckpointService:    checkpoints,
+		// `instanceWorkflow` is what upstream added: the gateway needs it to suspend an
+		// instance once a turn reaches a quiescent boundary.
 		A2AHandler: a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
 			env("A2A_GATEWAY_URL", "http://127.0.0.1:8084")),
 	})
@@ -129,9 +149,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	health := &http.Server{Addr: ":8083", Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	// The HTTP port serves health *and* gRPC-Web, because a browser cannot speak
+	// gRPC and this is the only port a page can reach: the chart's nginx proxies
+	// /api here, while :8084 speaks native gRPC that `fetch` has no way to talk to.
+	//
+	// Worth stating because the previous shape of this looked correct and was not.
+	// It answered every path with an empty 200 and ignored the request entirely, so
+	// a browser calling an RPC got a success with no body — which reads as a
+	// serialisation fault in the client rather than as a server that never had the
+	// endpoint. The router below hands anything that is not gRPC-Web to the same
+	// health response as before.
+	httpHandler := server.WebHandlerOr(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	})}
+	}))
+	health := &http.Server{Addr: env("HTTP_BIND_ADDRESS", ":8083"), Handler: httpHandler}
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return runtime.Start(ctx) })
 	group.Go(func() error { return manager.Start(ctx) })

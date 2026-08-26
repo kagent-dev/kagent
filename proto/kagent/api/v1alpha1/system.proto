@@ -3,6 +3,8 @@ syntax = "proto3";
 package kagent.api.v1alpha1;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
@@ -10,7 +12,42 @@ service SystemService {
   rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
   rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+
+  // GetSubstrateStatus returns the entire inventory in one message: every
+  // worker pool, actor template, actor and worker, unpaginated and unfiltered.
+  //
+  // It does not survive a real cluster. A deployment reporting 103,134 actors
+  // answers with a message the gRPC client refuses outright — "trying to send
+  // message larger than max (43016460 vs. 16777216)" — so the caller gets no
+  // inventory at all rather than a large one. Raising the ceiling moves the
+  // number without changing the shape.
+  //
+  // Prefer GetSubstrateSummary with ListSubstrateActors and
+  // ListSubstrateWorkers, which bound what any single response can carry. This
+  // RPC is kept for callers that predate them and for the small clusters where
+  // it still works.
   rpc GetSubstrateStatus(GetSubstrateStatusRequest) returns (GetSubstrateStatusResponse);
+
+  // GetSubstrateSummary returns counts computed server-side, plus the two lists
+  // that are inherently small.
+  //
+  // This is the only honest source of a total. A caller that counts a page and
+  // presents the result as a total reports "3 actors" for a cluster running a
+  // hundred thousand, which is the specific failure the paged RPCs below would
+  // otherwise introduce.
+  rpc GetSubstrateSummary(GetSubstrateSummaryRequest) returns (GetSubstrateSummaryResponse);
+
+  // ListSubstrateActors pages the actors, narrowing them server-side.
+  //
+  // Paged because this is one of the two lists whose length is set by the
+  // cluster rather than by configuration, and filtered server-side for the same
+  // reason: narrowing a page that has already been fetched searches only what
+  // was fetched, so a match on page nine reads on screen as "no matches".
+  rpc ListSubstrateActors(ListSubstrateActorsRequest) returns (ListSubstrateActorsResponse);
+
+  // ListSubstrateWorkers pages the worker assignments. The mirror of
+  // ListSubstrateActors.
+  rpc ListSubstrateWorkers(ListSubstrateWorkersRequest) returns (ListSubstrateWorkersResponse);
 }
 
 message GetVersionRequest {}
@@ -49,6 +86,175 @@ message GetSubstrateStatusResponse {
   repeated SubstrateActorTemplate actor_templates = 4;
   repeated SubstrateActor actors = 5;
   repeated SubstrateWorker workers = 6;
+}
+
+message GetSubstrateSummaryRequest {
+  // Namespace narrows the inventory. Empty means every namespace the
+  // controller observes, as it does on GetSubstrateStatusRequest.
+  string namespace = 1;
+}
+
+// SubstrateStatusCount is how many rows carry one status.
+//
+// Status is a plain string on the wire rather than an enum: ate-api and the
+// ActorTemplate controller each fill it in their own vocabulary, so a closed
+// set here would drop a status a newer substrate reports. Counting whatever
+// arrives keeps the tally complete even when a value is one this build has
+// never seen.
+message SubstrateStatusCount {
+  string status = 1;
+  int32 count = 2;
+}
+
+message GetSubstrateSummaryResponse {
+  // Enabled is false when the controller has no ate-api endpoint configured,
+  // which is an ordinary deployment rather than a failure.
+  bool enabled = 1;
+
+  // AteApiError is set when ate-api answered with an error on an otherwise
+  // successful read: the Kubernetes-derived halves below are complete while the
+  // runtime counts may be short. Distinct from the RPC failing, and worth
+  // reporting differently.
+  string ate_api_error = 2;
+
+  // Worker pools and actor templates are bounded by how the cluster is
+  // configured rather than by how much work it is doing — a handful either way
+  // — so they ride inline instead of costing two more round trips.
+  repeated SubstrateWorkerPool worker_pools = 3;
+  repeated SubstrateActorTemplate actor_templates = 4;
+
+  // Totals over everything in scope, before any filter.
+  int32 actor_count = 5;
+  int32 worker_count = 6;
+
+  // RunningActorCount and BusyWorkerCount are the numerators the inventory is
+  // actually read by: how much of what exists is doing something. A worker is
+  // busy when an actor is placed on it.
+  int32 running_actor_count = 7;
+  int32 busy_worker_count = 8;
+
+  // ActorStatusCounts is every status present, with how many actors hold it,
+  // ordered by status. The whole distribution rather than the running count
+  // alone, so a caller can say what the rest are without reading them.
+  repeated SubstrateStatusCount actor_status_counts = 9;
+
+  // ComputedAt is when this answer was produced, which is not necessarily now.
+  //
+  // The substrate reads are memoised for a fraction of a second, because each one
+  // walks ate-api's whole actor list — ~1.6s on a deployment holding 410,110 of
+  // them. A cache is also exactly how a polling control becomes a lie, so the age
+  // travels with the answer: a caller can say "as of 0.4s ago" rather than
+  // implying "now", and a reader can tell a stalled cluster from a stalled read.
+  google.protobuf.Timestamp computed_at = 10;
+}
+
+// SubstrateSortOrder is the direction a paged substrate read is sorted in.
+enum SubstrateSortOrder {
+  // Unspecified sorts ascending, which is what every default order below reads
+  // naturally in.
+  SUBSTRATE_SORT_ORDER_UNSPECIFIED = 0;
+  SUBSTRATE_SORT_ORDER_ASCENDING = 1;
+  SUBSTRATE_SORT_ORDER_DESCENDING = 2;
+}
+
+// SubstrateActorSortField is the column ListSubstrateActors orders by.
+//
+// Every order ends in the actor id, which is unique — so a page token, which is
+// the sort key of the last row already sent, always identifies exactly one row.
+// A key that could tie would skip or repeat rows at a page boundary.
+enum SubstrateActorSortField {
+  // Unspecified groups by status and orders by id within each group. That is the
+  // order the inventory is most usefully read in, and it is stable: ate-api
+  // returns actors in whatever order it holds them, so an unsorted list puts a
+  // different actor on every page each time it is asked.
+  SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED = 0;
+  SUBSTRATE_ACTOR_SORT_FIELD_STATUS = 1;
+  SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID = 2;
+  SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_TEMPLATE = 3;
+  SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD = 4;
+}
+
+// SubstrateWorkerSortField is the column ListSubstrateWorkers orders by.
+// Every order ends in the worker pod, which is unique within its namespace.
+enum SubstrateWorkerSortField {
+  // Unspecified groups by pool and orders by pod within each group.
+  SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED = 0;
+  SUBSTRATE_WORKER_SORT_FIELD_POOL = 1;
+  SUBSTRATE_WORKER_SORT_FIELD_POD = 2;
+  SUBSTRATE_WORKER_SORT_FIELD_ACTOR = 3;
+}
+
+message ListSubstrateActorsRequest {
+  string namespace = 1;
+
+  // Filter is matched case-insensitively as a substring against the actor's id,
+  // status, actor template and worker pod — the fields a row displays. Empty
+  // matches everything.
+  string filter = 2;
+
+  PageRequest page = 3;
+
+  // Sorting is server-side because the rows are paged: ordering a page that has
+  // already been fetched reorders a hundred rows out of hundreds of thousands,
+  // which looks like sorting and is not.
+  SubstrateActorSortField sort_field = 4;
+  SubstrateSortOrder sort_order = 5;
+}
+
+message ListSubstrateActorsResponse {
+  repeated SubstrateActor actors = 1;
+  PageResponse page = 2;
+
+  // TotalSize is how many actors match the filter across every page, so a
+  // caller can say "20 of 4,312" rather than implying the page is the whole
+  // result.
+  int32 total_size = 3;
+
+  // The order actually applied, so a caller can say how the rows are sorted
+  // rather than assuming its request was honoured. An unspecified field and an
+  // unspecified order both resolve to a concrete value here.
+  SubstrateActorSortField applied_sort_field = 4;
+  SubstrateSortOrder applied_sort_order = 5;
+
+  // ComputedAt is when this answer was produced, which is not necessarily now.
+  //
+  // The substrate reads are memoised for a fraction of a second, because each one
+  // walks ate-api's whole actor list — ~1.6s on a deployment holding 410,110 of
+  // them. A cache is also exactly how a polling control becomes a lie, so the age
+  // travels with the answer: a caller can say "as of 0.4s ago" rather than
+  // implying "now", and a reader can tell a stalled cluster from a stalled read.
+  google.protobuf.Timestamp computed_at = 6;
+}
+
+message ListSubstrateWorkersRequest {
+  string namespace = 1;
+
+  // Filter is matched case-insensitively as a substring against the worker's
+  // namespace, pod, pool and placed actor.
+  string filter = 2;
+
+  PageRequest page = 3;
+
+  SubstrateWorkerSortField sort_field = 4;
+  SubstrateSortOrder sort_order = 5;
+}
+
+message ListSubstrateWorkersResponse {
+  repeated SubstrateWorker workers = 1;
+  PageResponse page = 2;
+  int32 total_size = 3;
+
+  SubstrateWorkerSortField applied_sort_field = 4;
+  SubstrateSortOrder applied_sort_order = 5;
+
+  // ComputedAt is when this answer was produced, which is not necessarily now.
+  //
+  // The substrate reads are memoised for a fraction of a second, because each one
+  // walks ate-api's whole actor list — ~1.6s on a deployment holding 410,110 of
+  // them. A cache is also exactly how a polling control becomes a lie, so the age
+  // travels with the answer: a caller can say "as of 0.4s ago" rather than
+  // implying "now", and a reader can tell a stalled cluster from a stalled read.
+  google.protobuf.Timestamp computed_at = 6;
 }
 
 message SubstrateWorkerPool {

@@ -48,6 +48,11 @@ type gatewayTestStore struct {
 	active                *a2atype.Task
 	interruptResult       bool
 	interrupted           bool
+	abandonResult         bool
+	abandoned             bool
+	claimed               *a2atype.Task
+	restored              *a2atype.Task
+	createdTasks          int
 	stored                []a2atype.Event
 	snapshot              *dbpkg.AgentInstanceTaskSnapshot
 	onStore               func()
@@ -91,6 +96,7 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 	}
 	s.task = task
 	s.active = task
+	s.createdTasks++
 	s.stored = append(s.stored, task.History[0])
 	return task, true, nil
 }
@@ -111,8 +117,48 @@ func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _
 	return true, nil
 }
 
-func (s *gatewayTestStore) GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error) {
-	return s.task, s.taskErr
+func (s *gatewayTestStore) AbandonActiveAgentInstanceTask(_ context.Context, _ string, taskID string) (bool, error) {
+	if !s.abandonResult || s.active == nil || string(s.active.ID) != taskID {
+		return false, nil
+	}
+	canceled := *s.active
+	canceled.Status = a2atype.TaskStatus{State: a2atype.TaskStateCanceled}
+	s.task = &canceled
+	s.active = nil
+	s.abandoned = true
+	return true, nil
+}
+
+func (s *gatewayTestStore) ClaimParkedAgentInstanceTask(_ context.Context, _ string, taskID string) (*a2atype.Task, bool, error) {
+	if s.active == nil {
+		return nil, false, dbpkg.ErrNotFound
+	}
+	if string(s.active.ID) != taskID || !dbpkg.TaskParkedAwaitingUser(s.active.Status.State) {
+		return nil, false, nil
+	}
+	parked := *s.active
+	working := *s.active
+	working.Status = a2atype.TaskStatus{State: a2atype.TaskStateWorking}
+	s.active = &working
+	s.claimed = &parked
+	return &parked, true, nil
+}
+
+func (s *gatewayTestStore) RestoreParkedAgentInstanceTask(_ context.Context, _ string, task *a2atype.Task) error {
+	restored := *task
+	s.active = &restored
+	s.restored = &restored
+	return nil
+}
+
+func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string) (*a2atype.Task, error) {
+	if s.taskErr != nil {
+		return nil, s.taskErr
+	}
+	if s.task == nil || string(s.task.ID) != taskID {
+		return nil, dbpkg.ErrNotFound
+	}
+	return s.task, nil
 }
 
 func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error) {
@@ -165,6 +211,17 @@ type gatewayTestRuntime struct {
 	subscribeEvent a2atype.Event
 	subscribeErr   error
 	privateTask    *a2atype.Task
+	subscribeCalls int
+	cancelErr      error
+	sendCalls      int
+	sentTaskID     a2atype.TaskID
+}
+
+func (r *gatewayTestRuntime) CancelTask(context.Context, a2aclient.ServiceParams, *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+	if r.cancelErr != nil {
+		return nil, r.cancelErr
+	}
+	return r.task, nil
 }
 
 func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
@@ -177,6 +234,7 @@ func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *
 }
 
 func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceParams, *a2atype.SubscribeToTaskRequest) iter.Seq2[a2atype.Event, error] {
+	r.subscribeCalls++
 	return func(yield func(a2atype.Event, error) bool) {
 		if r.subscribeEvent != nil || r.subscribeErr != nil {
 			yield(r.subscribeEvent, r.subscribeErr)
@@ -187,6 +245,8 @@ func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceP
 func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	r.sent = true
 	r.privateTask, _ = apia2a.TakeStoredTask(req.Message)
+	r.sendCalls++
+	r.sentTaskID = req.Message.TaskID
 	return &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil
 }
 
@@ -489,6 +549,88 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 	}
 }
 
+/*
+ * A suspended conversation is still readable, and sending to it is still refused.
+ *
+ * Both halves matter and they used to be one rule. Every RPC resolved the instance
+ * through a helper that insisted on READY, which is right for anything needing the
+ * worker and wrong for a task list — that comes out of the store, which does not care
+ * whether a worker is attached.
+ *
+ * It became a real fault once conversations started giving their workers back at the
+ * end of every turn: opening one to re-read what was said reported "AgentInstance is
+ * AGENT_INSTANCE_STATE_SUSPENDED" as though the transcript had been lost. Resuming on
+ * open would have claimed a worker every time somebody glanced at one, which is the
+ * thing suspending them exists to avoid.
+ */
+func TestGatewayReadsTasksWhileSuspended(t *testing.T) {
+	instance := gatewayTestInstance()
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
+	task := &a2atype.Task{ID: gatewayTestID, ContextID: gatewayTestID}
+	store := &gatewayTestStore{instance: instance, task: task, tasks: []*a2atype.Task{task}, total: 1}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	if _, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{}); err != nil {
+		t.Fatalf("ListTasks() on a suspended instance = %v, want the stored transcript", err)
+	}
+	if _, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID}); err != nil {
+		t.Fatalf("GetTask() on a suspended instance = %v, want the stored task", err)
+	}
+
+	// The other half: what needs the worker is still refused, naming the state. Without
+	// this the change would read as "suspended no longer means anything".
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() to a suspended instance succeeded, want a refusal naming the state")
+	}
+}
+
+/*
+ * A runtime that has forgotten the conversation must not erase it.
+ *
+ * `ApplyUpdate` takes the runtime's task where one is sent, which is right for status
+ * and artifacts and wrong for history. A runtime that has been quiesced and resumed can
+ * answer with a task carrying no history at all — and persisting that replaces the
+ * transcript with an empty one, so the conversation opens blank on the next read while
+ * its events sit untouched in the store beside it.
+ *
+ * That is what a conversation parked on a question did after being answered: an
+ * eighty-byte task in place of everything that had been said.
+ */
+func TestGatewayKeepsHistoryARuntimeHasForgotten(t *testing.T) {
+	stored := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		History: []*a2atype.Message{{ID: "one"}, {ID: "two"}, {ID: "three"}},
+	}
+	forgetful := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed},
+	}
+
+	updated, err := taskForEvent(stored, forgetful)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.History) != len(stored.History) {
+		t.Fatalf("history = %d messages, want the stored %d kept", len(updated.History), len(stored.History))
+	}
+	// The rest of the runtime's answer is still believed — this keeps history, it does
+	// not ignore the update.
+	if updated.Status.State != a2atype.TaskStateFailed {
+		t.Fatalf("state = %s, want the runtime's %s", updated.Status.State, a2atype.TaskStateFailed)
+	}
+
+	// And a runtime with more to say is believed about that too, or an agent could
+	// never add to a transcript at all.
+	richer := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		History: []*a2atype.Message{{ID: "one"}, {ID: "two"}, {ID: "three"}, {ID: "four"}},
+	}
+	grown, err := taskForEvent(stored, richer)
+	if err != nil || len(grown.History) != 4 {
+		t.Fatalf("history = %d messages (%v), want the runtime's 4", len(grown.History), err)
+	}
+}
+
 func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	store := &gatewayTestStore{
 		instance: gatewayTestInstance(),
@@ -497,7 +639,7 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 			AgentCard: []byte(`{
 				"name":"assistant","description":"pinned description","version":"v1",
 				"supportedInterfaces":[{"url":"http://127.0.0.1:80","protocolBinding":"GRPC","protocolVersion":"1.0"}],
-				"capabilities":{"pushNotifications":true},"skills":[],
+				"capabilities":{"pushNotifications":true,"extensions":[{"uri":"https://kagent.dev/extensions/hitl/v1","required":false}]},"skills":[],
 				"defaultInputModes":["text"],"defaultOutputModes":["text"]
 			}`),
 		},
@@ -519,6 +661,13 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	}
 	if !card.Capabilities.Streaming || !card.Capabilities.ExtendedAgentCard || card.Capabilities.PushNotifications {
 		t.Fatalf("gateway capabilities = %#v", card.Capabilities)
+	}
+	// Transport and streaming are the gateway's to state, but extensions describe
+	// what the runtime can negotiate. Replacing the whole struct used to drop them,
+	// which left a client no way to discover that an agent's question is answerable
+	// while the card still looked complete.
+	if len(card.Capabilities.Extensions) != 1 || card.Capabilities.Extensions[0].URI != "https://kagent.dev/extensions/hitl/v1" {
+		t.Fatalf("runtime extensions = %#v, want the runtime's own preserved", card.Capabilities.Extensions)
 	}
 	if authorizer.verb != auth.VerbGet || dialer.instance != nil {
 		t.Fatalf("authorization verb = %q, runtime dialed = %v", authorizer.verb, dialer.instance != nil)
@@ -801,5 +950,351 @@ func TestGatewayRejectsConflictingMessageIDWithoutDialing(t *testing.T) {
 	}
 	if dialer.instance != nil {
 		t.Fatal("conflicting message dialed the private runtime")
+	}
+}
+
+// A denying authorizer, so "the share is what let this through" is provable rather
+// than merely consistent with the result.
+type gatewayDenyAuthorizer struct{ called bool }
+
+func (a *gatewayDenyAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
+	a.called = true
+	return errors.New("denied")
+}
+
+/*
+ * Share links over an AgentInstance.
+ *
+ * The instance *is* the conversation, so sharing one is sharing what was said. Two
+ * things have to hold, and neither is implied by the other:
+ *
+ *   - the share is authority over its own instance, and the record is read as the
+ *     *owner* — an instance is scoped to its creator, so reading it as the visitor
+ *     finds nothing and the link would 404;
+ *   - the share is authority over nothing else, so a token for one instance cannot
+ *     open another.
+ */
+func TestGatewayHonoursAgentInstanceShare(t *testing.T) {
+	instance := gatewayTestInstance()
+	store := &gatewayTestStore{instance: instance}
+	authorizer := &gatewayDenyAuthorizer{}
+	runtime := &gatewayTestRuntime{}
+	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
+		Token:           "share",
+		UserID:          "the-owner",
+		AgentInstanceID: instance.GetId(),
+		ReadOnly:        true,
+	})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+
+	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err != nil {
+		t.Fatalf("ListTasks() with a share for this instance = %v", err)
+	}
+	// Read as the owner: the visitor is somebody else, and an instance is scoped to
+	// its creator.
+	if store.userID != "the-owner" {
+		t.Fatalf("instance read as %q, want the share's owner", store.userID)
+	}
+	if authorizer.called {
+		t.Fatal("the ordinary authorization check should be skipped for a matching share")
+	}
+}
+
+func TestGatewayRefusesAShareForADifferentInstance(t *testing.T) {
+	instance := gatewayTestInstance()
+	store := &gatewayTestStore{instance: instance}
+	authorizer := &gatewayDenyAuthorizer{}
+	gateway := New(store, authorizer, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	// A perfectly valid share — for something else.
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
+		Token:           "share",
+		UserID:          "the-owner",
+		AgentInstanceID: "00000000-0000-0000-0000-000000000000",
+	})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+
+	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
+		t.Fatal("a share for another instance opened this one")
+	}
+	if !authorizer.called {
+		t.Fatal("a non-matching share must fall through to the ordinary check")
+	}
+}
+
+// A *session* share must not read as authority over an instance, however its id
+// happens to be spelled. The two are separate fields for exactly this reason.
+func TestGatewayIgnoresASessionShare(t *testing.T) {
+	instance := gatewayTestInstance()
+	authorizer := &gatewayDenyAuthorizer{}
+	gateway := New(&gatewayTestStore{instance: instance}, authorizer, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
+		Token:     "share",
+		UserID:    "the-owner",
+		SessionID: instance.GetId(),
+	})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+
+	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
+		t.Fatal("a session share opened an AgentInstance")
+	}
+	if !authorizer.called {
+		t.Fatal("a session share must fall through to the ordinary check")
+	}
+}
+
+// TestGatewayRefusesButPreservesAParkedTurn is the reproduced defect and the
+// decision about it. A turn that ends INPUT_REQUIRED holds the instance's single
+// active-task slot, so every later send was refused as "already has an active
+// task" — which reads as a broken agent. But that turn is a *valid pending
+// question* (`ask_user` is a long-running call), so the send must be refused with
+// a reason the reader can act on, and the question must survive: only the reader
+// may give it up.
+func TestGatewayRefusesButPreservesAParkedTurn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		state       a2atype.TaskState
+		wantSent    bool
+		wantQueries int
+	}{
+		{name: "input required", state: a2atype.TaskStateInputRequired, wantSent: false, wantQueries: 0},
+		{name: "auth required", state: a2atype.TaskStateAuthRequired, wantSent: false, wantQueries: 0},
+		// A turn the runtime is still executing keeps the slot too, but for the
+		// other reason: an execution really is in flight.
+		{name: "working is still live", state: a2atype.TaskStateWorking, wantSent: false, wantQueries: 1},
+		{name: "submitted is still live", state: a2atype.TaskStateSubmitted, wantSent: false, wantQueries: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			active := &a2atype.Task{ID: "parked", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: test.state}}
+			runtime := &gatewayTestRuntime{subscribeEvent: active}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, abandonResult: true, interruptResult: true}
+			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			if (err == nil) != test.wantSent {
+				t.Fatalf("SendMessage() error = %v, want sent %t", err, test.wantSent)
+			}
+			// The pending question must still be there afterwards.
+			if store.abandoned || store.interrupted || store.active != active {
+				t.Fatalf("the parked turn was discarded: abandoned=%v interrupted=%v active=%#v", store.abandoned, store.interrupted, store.active)
+			}
+			// A parked turn is diagnosed without asking the runtime anything: its
+			// state already says no execution is in flight. Counting dials cannot
+			// show this, so count the reconcile's own round trip.
+			if runtime.subscribeCalls != test.wantQueries || runtime.getTaskCalls != 0 {
+				t.Fatalf("runtime queries: subscribe = %d (want %d), GetTask = %d (want 0)", runtime.subscribeCalls, test.wantQueries, runtime.getTaskCalls)
+			}
+			if dbpkg.TaskParkedAwaitingUser(test.state) && !strings.Contains(err.Error(), "waiting for a reply") {
+				// The old wording named only the symptom, so a conversation waiting on
+				// the reader was indistinguishable from a wedged one.
+				t.Fatalf("refusal for a parked turn = %q, want it to say what the agent is waiting for", err)
+			}
+		})
+	}
+}
+
+// TestGatewayCancelTaskFreesAConversationTheRuntimeCannotHelpWith pins the
+// deliberate recovery. Cancel is the reader choosing to give up a pending
+// question, and it has to work even when the runtime has no record of the task —
+// otherwise a parked or stranded turn leaves the conversation unable to answer
+// with no way out.
+func TestGatewayCancelTaskFreesAConversationTheRuntimeCannotHelpWith(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		abandonResult bool
+		wantErr       bool
+		wantAbandoned bool
+	}{
+		{name: "the active turn is canceled locally", abandonResult: true, wantErr: false, wantAbandoned: true},
+		// Nothing to cancel means the runtime's own error is the honest answer.
+		{name: "a turn that already finished is left to the runtime error", abandonResult: false, wantErr: true, wantAbandoned: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parked := &a2atype.Task{ID: "parked", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}
+			runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), task: parked, active: parked, abandonResult: test.abandonResult}
+			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+			_, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: parked.ID})
+			if (err != nil) != test.wantErr {
+				t.Fatalf("CancelTask() error = %v, want error %t", err, test.wantErr)
+			}
+			if store.abandoned != test.wantAbandoned {
+				t.Fatalf("abandoned = %v, want %t", store.abandoned, test.wantAbandoned)
+			}
+		})
+	}
+}
+
+// TestGatewaySendAfterCancellingAParkedTurnSucceeds is the whole recovery, end to
+// end: refused while the question stands, accepted once the reader cancels it.
+func TestGatewaySendAfterCancellingAParkedTurnSucceeds(t *testing.T) {
+	parked := &a2atype.Task{ID: "parked", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}
+	runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: parked, active: parked, abandonResult: true}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() was accepted while a question was pending")
+	}
+	if _, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: parked.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
+		t.Fatalf("SendMessage() after cancelling the parked turn = %v", err)
+	}
+}
+
+// TestGatewayReapsAStaleSlotOnlyOnceDispatchCannotBeInFlight pins both halves of
+// the age gate. A task the runtime has never heard of may simply not have been
+// dispatched yet, so interrupting a fresh one races the dispatch; an old one
+// cannot still be arriving, and leaving it would make the instance permanently
+// unable to answer.
+func TestGatewayReapsAStaleSlotOnlyOnceDispatchCannotBeInFlight(t *testing.T) {
+	stale := time.Now().Add(-dispatchGracePeriod - time.Minute)
+	fresh := time.Now()
+	for _, test := range []struct {
+		name            string
+		timestamp       *time.Time
+		wantInterrupted bool
+	}{
+		{name: "older than the grace period is reaped", timestamp: &stale, wantInterrupted: true},
+		{name: "within the grace period is left alone", timestamp: &fresh, wantInterrupted: false},
+		{name: "an unknown age is left alone", timestamp: nil, wantInterrupted: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			active := &a2atype.Task{
+				ID: "active", ContextID: gatewayTestID,
+				Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking, Timestamp: test.timestamp},
+			}
+			runtime := &gatewayTestRuntime{taskErr: a2atype.ErrTaskNotFound, subscribeErr: a2atype.ErrTaskNotFound}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
+			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			if (err == nil) != test.wantInterrupted {
+				t.Fatalf("SendMessage() error = %v, want reaped %t", err, test.wantInterrupted)
+			}
+			if store.interrupted != test.wantInterrupted {
+				t.Fatalf("interrupted = %v, want %t", store.interrupted, test.wantInterrupted)
+			}
+		})
+	}
+}
+
+func gatewayTestParkedTask() *a2atype.Task {
+	return &a2atype.Task{
+		ID: "parked", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired},
+	}
+}
+
+func gatewayTestReply(taskID a2atype.TaskID) *a2atype.SendMessageRequest {
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Medium"))
+	message.TaskID = taskID
+	return &a2atype.SendMessageRequest{Message: message}
+}
+
+func TestGatewayRefusesAReplyThatCannotBeDelivered(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// known is the task the store can find by id, which is what separates an
+		// unknown task from one that exists and is simply past answering.
+		known        *a2atype.Task
+		active       *a2atype.Task
+		taskID       a2atype.TaskID
+		wantNotFound bool
+	}{
+		{
+			// The replay guard: a duplicate reply finds the turn already moved on.
+			// Reporting that as "task not found" — which it used to — is a lie about a
+			// task sitting in the reader's own transcript.
+			name:         "a turn already working is no longer waiting",
+			known:        &a2atype.Task{ID: "parked", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
+			active:       &a2atype.Task{ID: "parked", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
+			taskID:       "parked",
+			wantNotFound: false,
+		},
+		{
+			name:         "a reply naming a task that does not exist",
+			active:       gatewayTestParkedTask(),
+			taskID:       "no-such-task",
+			wantNotFound: true,
+		},
+		{
+			name:         "a reply with no turn to answer at all",
+			active:       nil,
+			taskID:       "parked",
+			wantNotFound: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := &gatewayTestRuntime{}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), active: test.active, task: test.known}
+			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestReply(test.taskID))
+			if err == nil {
+				t.Fatal("SendMessage() accepted a reply it could not deliver")
+			}
+			if errors.Is(err, a2atype.ErrTaskNotFound) != test.wantNotFound {
+				t.Fatalf("refusal = %v, want task-not-found %t", err, test.wantNotFound)
+			}
+			if runtime.sent || store.createdTasks != 0 {
+				t.Fatalf("undeliverable reply: reached runtime = %v, tasks reserved = %d", runtime.sent, store.createdTasks)
+			}
+		})
+	}
+}
+
+// TestGatewayRepliedTwiceDeliversOnce is the replay guard measured rather than
+// reasoned about: the same answer sent twice must reach the runtime once.
+func TestGatewayRepliedTwiceDeliversOnce(t *testing.T) {
+	parked := gatewayTestParkedTask()
+	runtime := &gatewayTestRuntime{}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: parked, active: parked}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestReply(parked.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestReply(parked.ID)); err == nil {
+		t.Fatal("the same reply was accepted twice")
+	}
+	if runtime.sendCalls != 1 {
+		t.Fatalf("runtime received %d sends, want exactly 1", runtime.sendCalls)
+	}
+}
+
+// TestGatewayRestoresTheQuestionWhenAReplyCannotBeDelivered keeps a transport
+// failure from turning an answerable question into a dead turn.
+func TestGatewayRestoresTheQuestionWhenAReplyCannotBeDelivered(t *testing.T) {
+	parked := gatewayTestParkedTask()
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: parked, active: parked}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{err: errors.New("runtime unavailable")}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestReply(parked.ID)); err == nil {
+		t.Fatal("SendMessage() reported success with no runtime")
+	}
+	// The last thing written must put the question back where a reader can answer
+	// it. Failing to deliver an answer does not make the question unanswerable, and
+	// leaving the claimed task behind would stop the conversation for good.
+	if store.task == nil || !dbpkg.TaskParkedAwaitingUser(store.task.Status.State) {
+		t.Fatalf("task left behind = %#v, want the question back awaiting the reader", store.task)
 	}
 }

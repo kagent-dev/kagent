@@ -42,6 +42,7 @@ type AgentInstance struct {
 	Operation          string
 	ContextID          string
 	SourceCheckpointID *string
+	Name               string
 }
 
 type AgentInstanceCheckpoint struct {

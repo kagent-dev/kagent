@@ -48,6 +48,7 @@ type instanceStore interface {
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
+	AbandonActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event, *dbpkg.AgentInstanceTaskSnapshot) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
@@ -125,6 +126,33 @@ func newGateway(store instanceStore, authorizer auth.Authorizer, dialer runtimeD
 }
 
 func (g *Gateway) instance(ctx context.Context, verb auth.Verb) (*apiv1alpha1.AgentInstance, error) {
+	instance, err := g.storedInstance(ctx, verb)
+	if err != nil {
+		return nil, err
+	}
+	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
+		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, fmt.Sprintf("AgentInstance is %s", instance.GetState()))
+	}
+	return instance, nil
+}
+
+/*
+ * Resolves the routed instance, whatever state it is in.
+ *
+ * Authorization is unchanged — an instance is still read as its creator, and a share
+ * token still only widens reach to the instance it names. What is dropped is the
+ * readiness requirement, because it was never this function's to impose: a task list
+ * and a task come out of the store, and the store does not care whether the instance
+ * currently holds a worker.
+ *
+ * Requiring READY for those reads made a suspended conversation unreadable, which is a
+ * real problem now that conversations give their workers back at the end of every turn:
+ * opening one to re-read what was said reported "AgentInstance is
+ * AGENT_INSTANCE_STATE_SUSPENDED" as if the record had been lost. The alternative —
+ * resuming on open — would claim a worker every time somebody glanced at a transcript,
+ * which is exactly what suspending them was meant to stop.
+ */
+func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alpha1.AgentInstance, error) {
 	namespace, id, err := route(ctx)
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, err.Error())
@@ -134,19 +162,33 @@ func (g *Gateway) instance(ctx context.Context, verb auth.Verb) (*apiv1alpha1.Ag
 		return nil, a2atype.NewError(a2atype.ErrUnauthenticated, "authentication is required")
 	}
 	principal := session.Principal()
-	if err := g.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "AgentInstance", Name: namespace + "/" + id}); err != nil {
+
+	/*
+	 * A share token is authority over one instance, and only that one.
+	 *
+	 * The visitor is still authenticated as themselves — a share widens what an
+	 * account may reach, it does not replace authentication — so the ordinary
+	 * authorization check is skipped only when the token names *this* instance, and
+	 * the record is then read as its owner. Reading it as the visitor would find
+	 * nothing, because an instance is scoped to its creator.
+	 *
+	 * The read-only half is enforced in the interceptor, which refuses a
+	 * write-access RPC for a read-only share before this is reached.
+	 */
+	creator := principal.User.ID
+	share, hasShare := auth.ShareContextFrom(ctx)
+	if hasShare && share.IsForAgentInstance(id) {
+		creator = share.UserID
+	} else if err := g.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "AgentInstance", Name: namespace + "/" + id}); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
 	}
-	instance, err := g.store.GetAgentInstance(ctx, namespace, id, principal.User.ID)
+	instance, err := g.store.GetAgentInstance(ctx, namespace, id, creator)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
 	}
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance", "namespace", namespace, "id", id)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load AgentInstance")
-	}
-	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
-		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, fmt.Sprintf("AgentInstance is %s", instance.GetState()))
 	}
 	return instance, nil
 }
@@ -168,7 +210,7 @@ func route(ctx context.Context) (namespace, id string, err error) {
 }
 
 func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {
-	instance, err := g.instance(ctx, auth.VerbGet)
+	instance, err := g.storedInstance(ctx, auth.VerbGet)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +229,7 @@ func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2
 }
 
 func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
-	instance, err := g.instance(ctx, auth.VerbGet)
+	instance, err := g.storedInstance(ctx, auth.VerbGet)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +292,17 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	defer client.Destroy()
 	canceled, err := client.CancelTask(ctx, req)
 	if err != nil {
-		return nil, err
+		// A cancel the reader asked for has to free the conversation even when the
+		// runtime cannot help — it may have no record of the task, or be
+		// unreachable. Without this an instance whose turn is parked or stranded
+		// stays unable to answer with no way out, which is the defect this path
+		// exists to escape. The store only acts while the task is still the active
+		// one, so a turn that has already finished is untouched.
+		local, localErr := g.cancelTaskLocally(ctx, instance.GetId(), req.ID)
+		if localErr != nil || local == nil {
+			return nil, err
+		}
+		return local, nil
 	}
 	if err := validateTaskInfo(canceled, task); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
@@ -383,10 +435,17 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 	}
 
 	// The compiled card provides immutable template metadata. Public transport,
-	// capabilities, security, and signatures belong to the gateway instead of
-	// the private runtime that produced that card.
+	// security, and signatures belong to the gateway instead of the private
+	// runtime that produced that card.
 	card.SupportedInterfaces = []*a2atype.AgentInterface{a2atype.NewAgentInterface(g.gatewayURL, a2atype.TransportProtocolGRPC)}
-	card.Capabilities = a2atype.AgentCapabilities{Streaming: true, ExtendedAgentCard: true}
+	// Extensions are the exception, and replacing the whole capabilities struct
+	// used to drop them. They describe what the runtime behind this gateway can
+	// negotiate — human-in-the-loop among them — which is not the gateway's to
+	// erase. A client discovers HITL by reading this card, so wiping it made
+	// answering an agent's question undiscoverable while the card still rendered
+	// perfectly.
+	extensions := card.Capabilities.Extensions
+	card.Capabilities = a2atype.AgentCapabilities{Streaming: true, ExtendedAgentCard: true, Extensions: extensions}
 	card.SecurityRequirements = nil
 	card.SecuritySchemes = nil
 	card.Signatures = nil
@@ -483,6 +542,13 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	if err != nil {
 		return err
 	}
+	// A parked turn needs no runtime round trip: its state already says the
+	// runtime stopped and is waiting on a human. Nothing here may clear it — the
+	// question is still answerable, and only the reader can decide to give it up,
+	// which they do with CancelTask.
+	if dbpkg.TaskParkedAwaitingUser(active.Status.State) {
+		return errParkedTaskHoldsSlot
+	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "failed to reconcile active AgentInstance task", "task", active.ID)
@@ -495,6 +561,16 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	for event, eventErr := range client.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
 		if errors.Is(eventErr, a2atype.ErrTaskNotFound) {
 			latest, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
+			// A runtime that has no record of the task at all is ambiguous: the task
+			// may never have been dispatched, in which case the dispatch is still
+			// coming and interrupting it would race. Age is the only discriminator —
+			// past the dispatch grace period no dispatch can still be in flight, so
+			// the slot is stale rather than contended, and without this an instance
+			// stranded by a lost runtime record could never answer again. A task with
+			// no status timestamp has an unknown age and stays untouched.
+			if errors.Is(err, a2atype.ErrTaskNotFound) && staleBeyondDispatch(active) {
+				return g.interruptTask(ctx, instance.GetId(), active.ID)
+			}
 			if err != nil || latest == nil {
 				return dbpkg.ErrAgentInstanceTaskConflict
 			}
@@ -600,6 +676,28 @@ func taskForEvent(task *a2atype.Task, event a2atype.Event) (*a2atype.Task, error
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, fmt.Sprintf("apply runtime task event: %v", err))
 	}
+	/*
+	 * The runtime may send a whole task, and it does not always remember as much as
+	 * the store does.
+	 *
+	 * `ApplyUpdate` takes the runtime's version where one is given, which is right for
+	 * status and artifacts and wrong for history: a runtime that has been quiesced and
+	 * resumed can answer with a task carrying no history at all, and persisting that
+	 * replaces a transcript with an empty one. That is not a display problem — the
+	 * messages are gone from the record, and the conversation opens blank.
+	 *
+	 * Seen doing exactly that: a conversation parked on a question, answered after the
+	 * runtime had been suspended, came back as an eighty-byte task while its six events
+	 * sat untouched in the store beside it.
+	 *
+	 * So history only ever grows here. A runtime that genuinely has more is believed;
+	 * one that has less is not allowed to forget on the store's behalf.
+	 */
+	if len(updated.History) < len(task.History) {
+		kept := *updated
+		kept.History = task.History
+		return &kept, nil
+	}
 	return updated, nil
 }
 
@@ -646,9 +744,45 @@ func (g *Gateway) failAttempt(ctx context.Context, attempt *preparedSend) {
 	}
 }
 
+// errParkedTaskHoldsSlot means the instance's active task is waiting on a human,
+// not executing. It is reported rather than cleared: the pending question is
+// valid, and the reader may still want to answer it. Discarding it silently to
+// make room for an unrelated message would throw away the thing the agent is
+// waiting for.
+var errParkedTaskHoldsSlot = errors.New("AgentInstance task is waiting for a reply")
+
+// dispatchGracePeriod bounds how long a task the runtime has never heard of may
+// still be mid-dispatch. Well above any real dispatch, so a live one is never
+// interrupted, and short enough that a reader is not locked out of their own
+// conversation for long.
+const dispatchGracePeriod = 5 * time.Minute
+
+func staleBeyondDispatch(task *a2atype.Task) bool {
+	if task.Status.Timestamp == nil {
+		return false
+	}
+	return time.Since(*task.Status.Timestamp) > dispatchGracePeriod
+}
+
+func (g *Gateway) cancelTaskLocally(ctx context.Context, instanceID string, taskID a2atype.TaskID) (*a2atype.Task, error) {
+	canceled, err := g.store.AbandonActiveAgentInstanceTask(ctx, instanceID, string(taskID))
+	if err != nil || !canceled {
+		return nil, err
+	}
+	ctrllog.FromContext(ctx).Info("recorded AgentInstance task cancellation without the runtime", "instance", instanceID, "task", taskID)
+	return g.store.GetAgentInstanceTask(ctx, instanceID, string(taskID))
+}
+
 func (g *Gateway) storeError(ctx context.Context, err error) error {
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
+	}
+	if errors.Is(err, errParkedTaskHoldsSlot) {
+		// Naming the way out matters: saying only that a task was active is why a
+		// conversation waiting on an unanswered question read as a broken agent
+		// rather than as one waiting for the reader.
+		return a2atype.NewError(a2atype.ErrUnsupportedOperation,
+			"the agent is waiting for a reply to its last message; answer it, or cancel that task to start a new one")
 	}
 	if errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
 		return a2atype.NewError(a2atype.ErrUnsupportedOperation, "AgentInstance already has an active task")

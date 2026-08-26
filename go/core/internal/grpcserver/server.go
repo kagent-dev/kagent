@@ -15,7 +15,9 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
+	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
+	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -52,6 +54,8 @@ type Config struct {
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
 	AgentService          *agentservice.Service
+	AgentTemplateService  *agenttemplateservice.Service
+	HarnessService        *harnessservice.Service
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service
@@ -132,6 +136,15 @@ func New(config Config) (*Server, error) {
 	if config.AgentService != nil {
 		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
 	}
+	if config.AgentTemplateService != nil {
+		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
+	}
+	// Registered separately from AgentService on purpose: this serves the
+	// Harness CRD that AgentInstance pairs with an AgentTemplate, not the
+	// AgentHarness CRD that AgentService's *AgentHarness RPCs serve.
+	if config.HarnessService != nil {
+		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
+	}
 	if config.ModelService != nil {
 		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
 	}
@@ -176,6 +189,12 @@ func New(config Config) (*Server, error) {
 type ShareStore interface {
 	GetSessionShareByToken(context.Context, string) (*dbpkg.SessionShare, error)
 	RecordShareAccess(context.Context, string, int64) error
+	// GetAgentInstanceShareByTokenHash resolves an AgentInstance share.
+	//
+	// Two kinds of share reach the same header, because a share link carries one
+	// token and the reader opening it cannot know which kind it is. So the
+	// interceptor tries both — see `authenticate`.
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {

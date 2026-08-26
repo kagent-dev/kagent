@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	}
 
 	instance, err := toAgentInstance(dbgen.AgentInstance{
-		ID: "instance-1", Data: data, State: "SUSPENDED", Operation: "RESUME",
+		ID: "instance-1", Data: data, State: "SUSPENDED", Operation: "RESUME", Name: "Renamed later",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -33,6 +34,31 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED ||
 		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
+	}
+	// The name has to come from the column too: a rename writes only the column,
+	// so reading it from the blob would serve the original name forever.
+	if instance.GetName() != "Renamed later" {
+		t.Fatalf("name = %q, want the column's value", instance.GetName())
+	}
+}
+
+// TestToAgentInstanceLeavesAnEmptyNameEmpty pins the additive property: a row
+// written before the column existed reads as unnamed, not as its id and not as
+// some placeholder.
+func TestToAgentInstanceLeavesAnEmptyNameEmpty(t *testing.T) {
+	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
+		Id:    "instance-1",
+		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := toAgentInstance(dbgen.AgentInstance{ID: "instance-1", Data: data, State: "READY", Operation: "NONE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.GetName() != "" {
+		t.Fatalf("name = %q, want empty", instance.GetName())
 	}
 }
 
@@ -367,7 +393,9 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		fork.GetLabels()["app"] != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
-	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
+	instances, err := client.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
+		Namespace: "team-a", UserID: "alice", Limit: 10,
+	})
 	if err != nil || len(instances) != 1 || instances[0].GetId() != fork.GetId() {
 		t.Fatalf("listed forks = %+v, error %v", instances, err)
 	}
@@ -479,7 +507,9 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if len(replayed.GetLabels()) != 0 {
 		t.Fatalf("labels = %v", replayed.GetLabels())
 	}
-	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
+	instances, err := client.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
+		Namespace: "team-a", UserID: "alice", Limit: 10,
+	})
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
 	}
@@ -585,5 +615,349 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 	if events := countRows(t, db,
 		"SELECT COUNT(*) FROM agent_instance_task_event WHERE task_id = $1", "task-1"); events != 2 {
 		t.Fatalf("events recorded for the interrupted task = %d, want the send and the interruption", events)
+	}
+}
+
+// agentInstanceFixture installs a runnable agent — a template/harness pair with a
+// successful revision — so instances can be created against it.
+func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context, revisionID, template, harness string) {
+	t.Helper()
+	revision := dbpkg.RuntimeRevision{
+		Revision: revisionID, Namespace: "team-a",
+		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		HarnessName: harness, HarnessUID: harness + "-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: []byte("{}"), EgressDestinations: []string{},
+		ActorTemplateNamespace: "team-a", ActorTemplateName: revisionID + "-actor-template",
+		ActorTemplateUID: revisionID + "-actor-uid", Phase: "Ready",
+	}
+	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
+		t.Fatal(err)
+	}
+	pair := dbpkg.AgentTemplateHarnessPair{
+		Namespace: "team-a", AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		HarnessName: harness, HarnessUID: harness + "-uid", DesiredRevision: revisionID,
+	}
+	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newAgentInstanceRequest(id, template, harness, name string) *apiv1alpha1.AgentInstance {
+	return &apiv1alpha1.AgentInstance{
+		Id: id, Namespace: "team-a", Creator: "alice", Name: name,
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: harness},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
+	}
+}
+
+func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	agentInstanceFixture(t, client, ctx, "revision-1", "assistant", "kagent")
+
+	for _, test := range []struct {
+		name     string
+		id       string
+		given    string
+		wantName string
+	}{
+		{name: "a name round-trips", id: "instance-named", given: "Debugging the ingress", wantName: "Debugging the ingress"},
+		// An instance created without a name must read back empty, which is how
+		// every row written before the column existed reads.
+		{name: "an omitted name stays empty", id: "instance-unnamed", given: "", wantName: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			created, wasCreated, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(test.id, "assistant", "kagent", test.given), test.id)
+			if err != nil || !wasCreated {
+				t.Fatalf("CreateAgentInstance() = created %v, error %v", wasCreated, err)
+			}
+			if created.GetName() != test.wantName {
+				t.Fatalf("created name = %q, want %q", created.GetName(), test.wantName)
+			}
+			read, err := client.GetAgentInstance(ctx, "team-a", test.id, "alice")
+			if err != nil || read.GetName() != test.wantName {
+				t.Fatalf("re-read name = %q (%v), want %q", read.GetName(), err, test.wantName)
+			}
+		})
+	}
+
+	renamed, err := client.RenameAgentInstance(ctx, "team-a", "instance-unnamed", "alice", "Named afterwards")
+	if err != nil || renamed.GetName() != "Named afterwards" {
+		t.Fatalf("RenameAgentInstance() = %+v, error %v", renamed, err)
+	}
+	// The rename has to survive a re-read, not just be echoed back: the name lives
+	// in a column while the rest of the message lives in a blob the rename does not
+	// rewrite, so an echoed value proves nothing about what was stored.
+	read, err := client.GetAgentInstance(ctx, "team-a", "instance-unnamed", "alice")
+	if err != nil || read.GetName() != "Named afterwards" {
+		t.Fatalf("re-read after rename = %+v, error %v", read, err)
+	}
+	// Renaming back to empty must be possible, or a name can never be undone.
+	cleared, err := client.RenameAgentInstance(ctx, "team-a", "instance-unnamed", "alice", "")
+	if err != nil || cleared.GetName() != "" {
+		t.Fatalf("RenameAgentInstance(\"\") = %+v, error %v", cleared, err)
+	}
+	// A rename is scoped to the owner, so it cannot reach another reader's row.
+	if _, err := client.RenameAgentInstance(ctx, "team-a", "instance-named", "bob", "Stolen"); !errors.Is(err, dbpkg.ErrNotFound) {
+		t.Fatalf("RenameAgentInstance() as another user error = %v, want %v", err, dbpkg.ErrNotFound)
+	}
+	if _, err := client.RenameAgentInstance(ctx, "team-a", "missing", "alice", "Nothing"); !errors.Is(err, dbpkg.ErrNotFound) {
+		t.Fatalf("RenameAgentInstance() of a missing instance error = %v, want %v", err, dbpkg.ErrNotFound)
+	}
+}
+
+// TestListAgentInstancesFiltersByAgentPair covers the server-side filter behind
+// "this agent's conversations". The pair is resolved through the instance's
+// prepared revision rather than its labels, because the labels an instance
+// carries are the *template's* own Kubernetes labels and are identical for two
+// harnesses admitting one template.
+func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	agentInstanceFixture(t, client, ctx, "revision-1", "assistant", "kagent")
+	agentInstanceFixture(t, client, ctx, "revision-2", "assistant", "claude")
+	agentInstanceFixture(t, client, ctx, "revision-3", "researcher", "kagent")
+
+	for id, pair := range map[string][2]string{
+		"instance-1": {"assistant", "kagent"},
+		"instance-2": {"assistant", "claude"},
+		"instance-3": {"researcher", "kagent"},
+	} {
+		if _, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(id, pair[0], pair[1], ""), id); err != nil {
+			t.Fatalf("CreateAgentInstance(%s) error %v", id, err)
+		}
+	}
+
+	for _, test := range []struct {
+		name  string
+		query dbpkg.AgentInstanceQuery
+		want  []string
+	}{
+		{
+			name:  "no filter lists every conversation",
+			query: dbpkg.AgentInstanceQuery{},
+			want:  []string{"instance-1", "instance-2", "instance-3"},
+		},
+		{
+			name:  "one agent, which is one pair",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant", Harness: "kagent"},
+			want:  []string{"instance-1"},
+		},
+		{
+			// The case labels could never serve: one template, two harnesses, two
+			// agents, and identical labels on both instances.
+			name:  "the same template on a different harness is a different agent",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant", Harness: "claude"},
+			want:  []string{"instance-2"},
+		},
+		{
+			name:  "template alone spans its harnesses",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant"},
+			want:  []string{"instance-1", "instance-2"},
+		},
+		{
+			name:  "harness alone spans its templates",
+			query: dbpkg.AgentInstanceQuery{Harness: "kagent"},
+			want:  []string{"instance-1", "instance-3"},
+		},
+		{
+			name:  "an unknown agent matches nothing rather than everything",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "absent", Harness: "kagent"},
+			want:  []string{},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query := test.query
+			query.Namespace, query.UserID, query.Limit = "team-a", "alice", 10
+			instances, err := client.ListAgentInstances(ctx, query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(instances))
+			for _, instance := range instances {
+				got = append(got, instance.GetId())
+			}
+			if strings.Join(got, ",") != strings.Join(test.want, ",") {
+				t.Fatalf("ListAgentInstances() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+// TestAbandonActiveAgentInstanceTaskFreesTheSlotForTheNextTurn is the store
+// primitive behind a reader-requested cancel.
+//
+// A parked turn no longer blocks the next one: the active-task query now excludes
+// INPUT_REQUIRED and AUTH_REQUIRED, so an unanswered question does not wedge the
+// instance the way it used to. This test asserted that wedge as a fact, which it is
+// not any more.
+//
+// Abandoning is still the primitive it was, and still worth having. A parked task
+// cannot reach a terminal state on its own — nothing clears it, because the question
+// stays valid until the reader gives it up — so this is how a reader says they will
+// not be answering, and how the task gets an ending rather than staying open forever.
+func TestAbandonActiveAgentInstanceTaskFreesTheSlotForTheNextTurn(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, namespace, user_id)
+		VALUES ('instance-1', 'team-a', 'alice');
+
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'instance-1', 'READY', '\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+
+	parked := newAgentInstanceTask("task-1", "message-1")
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), parked); err != nil {
+		t.Fatal(err)
+	}
+	parked.Status.State = a2a.TaskStateInputRequired
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", parked, parked, nil); err != nil {
+		t.Fatal(err)
+	}
+	if abandoned, err := client.AbandonActiveAgentInstanceTask(ctx, "instance-1", "different-task"); err != nil || abandoned {
+		t.Fatalf("AbandonActiveAgentInstanceTask(wrong task) = %v, %v", abandoned, err)
+	}
+	if abandoned, err := client.AbandonActiveAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || !abandoned {
+		t.Fatalf("AbandonActiveAgentInstanceTask() = %v, %v", abandoned, err)
+	}
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"), newAgentInstanceTask("task-2", "message-2"))
+	if err != nil || !created || stored.ID != "task-2" {
+		t.Fatalf("send after abandoning = %#v, created %v, error %v", stored, created, err)
+	}
+
+	closed, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Canceled, not failed: nothing went wrong with that turn, and its own message
+	// has to say what happened rather than borrowing the interruption wording.
+	if closed.Status.State != a2a.TaskStateCanceled {
+		t.Fatalf("abandoned task state = %s, want %s", closed.Status.State, a2a.TaskStateCanceled)
+	}
+	last := closed.History[len(closed.History)-1]
+	if last.Role != a2a.MessageRoleAgent || len(last.Parts) == 0 {
+		t.Fatalf("abandoned task's last message = %#v", last)
+	}
+	if text, ok := last.Parts[0].Content.(a2a.Text); !ok || string(text) != taskAbandonedMessage {
+		t.Fatalf("abandoned task's explanation = %#v, want the abandoned wording", last.Parts[0].Content)
+	}
+}
+
+// TestClaimParkedAgentInstanceTaskIsTheReplayGuard pins the property the reply
+// path relies on for idempotency, against real Postgres. The claim is the guard:
+// it needs no extra bookkeeping because moving the task out of its parked state
+// under a row lock is exactly what makes a second reply refusable.
+func TestClaimParkedAgentInstanceTaskIsTheReplayGuard(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, namespace, user_id)
+		VALUES ('instance-1', 'team-a', 'alice');
+
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'instance-1', 'READY', '\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+
+	task := newAgentInstanceTask("task-1", "message-1")
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task); err != nil {
+		t.Fatal(err)
+	}
+
+	// A turn that is working, not parked, cannot be replied to.
+	if _, claimed, err := client.ClaimParkedAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || claimed {
+		t.Fatalf("ClaimParkedAgentInstanceTask(working) = %v, %v", claimed, err)
+	}
+
+	task.Status.State = a2a.TaskStateInputRequired
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", task, task, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// A reply naming a different task is refused, so it cannot answer for another.
+	if _, claimed, err := client.ClaimParkedAgentInstanceTask(ctx, "instance-1", "task-2"); err != nil || claimed {
+		t.Fatalf("ClaimParkedAgentInstanceTask(other task) = %v, %v", claimed, err)
+	}
+
+	parked, claimed, err := client.ClaimParkedAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil || !claimed {
+		t.Fatalf("ClaimParkedAgentInstanceTask() = %v, %v", claimed, err)
+	}
+	// The returned task is the parked one, which is what a failed delivery restores.
+	if parked.Status.State != a2a.TaskStateInputRequired {
+		t.Fatalf("returned task state = %s, want the parked state", parked.Status.State)
+	}
+	// The stored task has moved on, which is what refuses the duplicate below.
+	claimedTask, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil || claimedTask.Status.State != a2a.TaskStateWorking {
+		t.Fatalf("claimed task state = %v (%v), want working", claimedTask.Status.State, err)
+	}
+	if _, again, err := client.ClaimParkedAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || again {
+		t.Fatalf("second ClaimParkedAgentInstanceTask() = %v, %v — a duplicate reply was not refused", again, err)
+	}
+
+	// Restoring puts the question back, and it is claimable again.
+	if err := client.RestoreParkedAgentInstanceTask(ctx, "instance-1", parked); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil || restored.Status.State != a2a.TaskStateInputRequired {
+		t.Fatalf("restored task state = %v (%v), want the parked state", restored.Status.State, err)
+	}
+	if _, claimed, err := client.ClaimParkedAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || !claimed {
+		t.Fatalf("restored question is not answerable: %v, %v", claimed, err)
+	}
+
+	// Restoring puts the question back, and a new turn is now allowed alongside it.
+	//
+	// This asserted the opposite until the active-task query stopped counting
+	// INPUT_REQUIRED: a standing question used to occupy the instance's one slot, so a
+	// reader who never answered could not start another turn at all. Answering is still
+	// the way to finish *that* turn; it is no longer the only way to have any turn.
+	if err := client.RestoreParkedAgentInstanceTask(ctx, "instance-1", parked); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"), newAgentInstanceTask("task-2", "message-2")); err != nil {
+		t.Fatalf("new turn while a question stands = %v, want it accepted", err)
+	}
+	// And the question is still there to be answered, rather than having been
+	// displaced by the turn that started beside it.
+	restored, restoreErr := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if restoreErr != nil || !dbpkg.TaskParkedAwaitingUser(restored.Status.State) {
+		t.Fatalf("restored task = %v (%v), want it still parked", restored.Status.State, restoreErr)
+	}
+}
+
+// TestClaimParkedAgentInstanceTaskRefusesATaskThatIsNotThere covers a reply naming a
+// task this instance does not have.
+//
+// It used to answer `ErrNotFound`, because it asked for the instance's active task and
+// there was none. It now addresses the task by id — a parked task stopped being the
+// active one — so "no such task" and "that task is not parked" are the same answer:
+// nothing was claimed, and the caller refuses the reply on that alone.
+func TestClaimParkedAgentInstanceTaskRefusesATaskThatIsNotThere(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, namespace, user_id)
+		VALUES ('instance-1', 'team-a', 'alice');
+
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'instance-1', 'READY', '\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+	if _, claimed, err := client.ClaimParkedAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || claimed {
+		t.Fatalf("ClaimParkedAgentInstanceTask() for a task that is not there = %v, %v", claimed, err)
 	}
 }
