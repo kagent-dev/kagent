@@ -1,0 +1,89 @@
+{
+  "anthropic": [
+    {
+      "name": "claude_subagent_start",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": "Delegate this request to the specialist."}]
+        }
+      },
+      "response": {
+        "id": "msg_subagent_route",
+        "type": "message",
+        "role": "assistant",
+        "content": [{
+          "type": "tool_use",
+          "id": "toolu_local_specialist",
+          "name": "Agent",
+          "input": {
+            "description": "Run the local specialist",
+            "prompt": "Return the specialist marker to the parent.",
+            "subagent_type": "specialist"
+          }
+        }],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 10, "output_tokens": 4}
+      }
+    },
+    {
+      "name": "claude_subagent_child",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": "Return the specialist marker to the parent."}]
+        }
+      },
+      "response": {
+        "id": "msg_subagent_child",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "CLAUDE_SUBAGENT_CHILD"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 8, "output_tokens": 3}
+      }
+    },
+    {
+      "name": "claude_subagent_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "tool_result", "tool_use_id": "toolu_local_specialist"}]
+        }
+      },
+      "response": {
+        "id": "msg_subagent_final",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "CLAUDE_SUBAGENT_FINAL"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 12, "output_tokens": 3}
+      }
+    },
+    {
+      "name": "claude_subagent_auxiliary",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": ""}]
+        }
+      },
+      "response": {
+        "id": "msg_subagent_auxiliary",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "OK"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 2, "output_tokens": 1}
+      }
+    }
+  ]
+}

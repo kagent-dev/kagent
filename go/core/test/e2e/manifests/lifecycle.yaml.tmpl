@@ -18,6 +18,25 @@ spec:
         kagent.dev/e2e-runtime: kagent
 ---
 apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: claude-e2e
+  namespace: kagent
+spec:
+  claude: {}
+  workload:
+    image: ${KAGENT_E2E_CLAUDE_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/e2e-runtime: claude
+---
+apiVersion: kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   name: smoke

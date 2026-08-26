@@ -120,7 +120,7 @@ jobs:
             --push
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          make build-controller build-golang-adk
+          make build-controller build-golang-adk build-claude-harness
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
@@ -132,6 +132,9 @@ jobs:
           RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
           test -n "$RUNTIME_DIGEST"
           export KAGENT_E2E_RUNTIME_IMAGE="localhost:5001/kagent-dev/kagent/golang-adk@${RUNTIME_DIGEST}"
+          CLAUDE_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/claude-harness:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          test -n "$CLAUDE_DIGEST"
+          export KAGENT_E2E_CLAUDE_IMAGE="localhost:5001/kagent-dev/kagent/claude-harness@${CLAUDE_DIGEST}"
           envsubst < core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
           for _ in $(seq 1 60); do
             READY=$(kubectl get agenttemplate smoke -n kagent -o jsonpath='{.status.harnesses[?(@.harness=="kagent")].conditions[?(@.type=="Ready")].status}')
@@ -413,6 +416,7 @@ jobs:
           - kagent-adk
           - cli
           - golang-adk
+          - claude-harness
     runs-on: ubuntu-latest
     services:
       registry:
