@@ -20,8 +20,7 @@ func newTestChatModel() *chatModel {
 	return newChatModel(context.Background(), "reporter", "ctx-1", send, false)
 }
 
-// transcript is everything the viewport shows: committed blocks plus the block
-// still being assembled.
+// transcript is everything the viewport shows: committed blocks plus the one being assembled.
 func transcript(m *chatModel) string {
 	if m.agentText == "" {
 		return m.history
@@ -41,8 +40,7 @@ func dataPart(kind, name string, payload map[string]any) *a2atype.Part {
 	return part
 }
 
-// The reducer projects cumulative text, so a delta must not repeat what is
-// already shown and a replacement must not concatenate onto it.
+// The projection is cumulative, so a delta must not repeat and a replacement must not concatenate.
 func TestChatModelStreamsAssembledText(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -100,8 +98,7 @@ func TestChatModelStreamsAssembledText(t *testing.T) {
 	}
 }
 
-// Paused, terminal-failure, and transport problems must read as three
-// different things, and none of them as an ordinary completion.
+// Paused, terminal-failure, and transport problems must read as three different things.
 func TestChatModelRendersStateClasses(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -146,8 +143,7 @@ func TestChatModelRendersStateClasses(t *testing.T) {
 			want: "Connection error: stream disconnected", wantAbsent: "✗ Task",
 		},
 		{
-			// The reducer rejects malformed streams; that is neither a task nor
-			// a transport failure, and must not be dropped.
+			// A malformed stream is neither a task nor a transport failure, and must not be dropped.
 			name: "a malformed stream is a protocol error",
 			apply: func(m *chatModel) {
 				m.appendEvent(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("first")))

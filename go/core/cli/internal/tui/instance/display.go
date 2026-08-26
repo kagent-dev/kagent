@@ -12,8 +12,7 @@ import (
 
 const statePrefix = "AGENT_INSTANCE_STATE_"
 
-// shortIDLength tells instances apart in a narrow column; the full ID stays
-// visible wherever it has to be copied.
+// shortIDLength tells instances apart in a narrow column; the full ID stays copyable elsewhere.
 const shortIDLength = 8
 
 // ShortID abbreviates an AgentInstance ID for space-constrained display.
@@ -29,14 +28,12 @@ func StateLabel(state apiv1alpha1.AgentInstanceState) string {
 	return strings.TrimPrefix(state.String(), statePrefix)
 }
 
-// Ready reports whether an AgentInstance can serve A2A calls. The gateway rejects
-// every request for a non-READY one, history included, so check before dialing.
+// Ready reports whether an AgentInstance can serve A2A calls; the gateway rejects every other state.
 func Ready(agentInstance *apiv1alpha1.AgentInstance) bool {
 	return agentInstance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
 }
 
-// Age renders elapsed time. An absent timestamp renders empty; converting one
-// would yield the Unix epoch and an age of decades.
+// Age renders elapsed time; an absent timestamp renders empty rather than as the Unix epoch.
 func Age(created *timestamppb.Timestamp, now time.Time) string {
 	if !created.IsValid() {
 		return ""

@@ -11,8 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// catalog reads what could be run, not what is running. Harness and AgentTemplate
-// are CRDs with no gRPC read service, so this is the TUI's only kubeconfig need.
+// catalog reads what could be run: Harness and AgentTemplate CRDs, the TUI's only kubeconfig need.
 type catalog interface {
 	Namespaces(ctx context.Context) ([]namespaceCount, error)
 	Harnesses(ctx context.Context, namespace string) ([]string, error)
@@ -32,8 +31,7 @@ type kubeCatalog struct {
 
 var _ catalog = (*kubeCatalog)(nil)
 
-// newKubeCatalog builds a catalog from the ambient kubeconfig. A failure is not
-// fatal: the caller degrades to instance-derived panels.
+// newKubeCatalog builds a catalog from the ambient kubeconfig; callers degrade to instance-derived panels.
 func newKubeCatalog() (catalog, error) {
 	clients, err := commonk8s.NewKagentClientset()
 	if err != nil {
@@ -42,8 +40,7 @@ func newKubeCatalog() (catalog, error) {
 	return &kubeCatalog{clients: clients}, nil
 }
 
-// Namespaces lists the namespaces holding AgentTemplates. An empty namespace
-// lists cluster-wide, which needs list permission the caller may not have.
+// Namespaces lists namespaces holding AgentTemplates, which needs cluster-wide list permission.
 func (c *kubeCatalog) Namespaces(ctx context.Context) ([]namespaceCount, error) {
 	list, err := c.clients.ApiV1alpha3().AgentTemplates("").List(ctx, metav1.ListOptions{})
 	if err != nil {

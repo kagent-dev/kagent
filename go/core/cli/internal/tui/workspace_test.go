@@ -175,8 +175,7 @@ func TestWorkspaceSelectInstance(t *testing.T) {
 		wantStatus string
 	}{
 		{name: "ready opens a chat", state: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY, wantChat: true},
-		// The gateway rejects every call for a non-READY instance, history
-		// included, so the workspace must not dial one.
+		// The gateway rejects every call for a non-READY instance, so the workspace must not dial one.
 		{name: "suspended is not dialed", state: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED, wantStatus: "SUSPENDED"},
 	}
 
@@ -393,8 +392,7 @@ func TestWorkspaceNamespacePanel(t *testing.T) {
 			want: []nameItem{{name: "kagent", count: 3}, {name: "team-b", count: 1}},
 		},
 		{
-			// The panel must show where the user is even when the cluster-wide
-			// list was refused.
+			// The panel must show where the user is even when the cluster-wide list was refused.
 			name:       "always lists the current namespace",
 			catalog:    &fakeCatalog{err: errors.New("forbidden")},
 			want:       []nameItem{{name: "kagent"}},
@@ -438,16 +436,14 @@ func TestWorkspaceSwitchingNamespaceRefetches(t *testing.T) {
 	assert.Equal(t, "team-b", m.namespace)
 	assert.Empty(t, m.all, "the previous namespace's instances are cleared")
 	assert.Nil(t, m.chat, "the open chat belonged to the old namespace")
-	// The port-forward was established against the controller's namespace
-	// before the TUI started, so switching must not disturb it.
+	// The port-forward was established before the TUI started, so switching must not disturb it.
 	assert.Equal(t, "kagent", m.cfg.Namespace, "the connection's namespace is untouched")
 
 	runBatch(cmd)
 	assert.Equal(t, "team-b", lister.requests[len(lister.requests)-1].GetNamespace())
 }
 
-// The list delegate renders nothing for an item it cannot type-assert, so
-// these assert on real output rather than model state.
+// The delegate renders nothing it cannot type-assert, so these assert on output not model state.
 func TestWorkspaceRenders(t *testing.T) {
 	const id = "66666666-6666-6666-6666-666666666666"
 	tests := []struct {
@@ -493,8 +489,7 @@ func TestWorkspaceRenders(t *testing.T) {
 	}
 }
 
-// Async replies name their instance, so one that lands after the user moved on
-// must not be written into the new chat.
+// Async replies name their instance, so a late one must not land in the new chat.
 func TestWorkspaceIgnoresHistoryForAnotherInstance(t *testing.T) {
 	first, second := readyInstance("a", "smoke"), readyInstance("b", "reporter")
 	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", first, second)}})
@@ -523,8 +518,7 @@ func TestWorkspaceStopsTheOutgoingStreamOnSwitch(t *testing.T) {
 	assert.True(t, stopped, "the previous instance's stream is cancelled")
 }
 
-// A chat streams under the workspace's context, so cancelling the program
-// cancels the request rather than leaving it for process teardown.
+// A chat streams under the workspace's context, so cancelling the program cancels the request.
 func TestChatStreamsUnderTheWorkspaceContext(t *testing.T) {
 	ready := readyInstance("a", "smoke")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -556,8 +550,7 @@ func TestChatStreamsUnderTheWorkspaceContext(t *testing.T) {
 	}
 }
 
-// Stream messages must reach the chat even when a panel has focus, or nothing
-// re-arms the read and the reply is stranded.
+// Stream messages must reach the chat even when a panel has focus, or the reply is stranded.
 func TestWorkspaceRoutesStreamMessagesRegardlessOfFocus(t *testing.T) {
 	ready := readyInstance("a", "smoke")
 	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", ready)}})

@@ -354,8 +354,7 @@ func currentKubeContext() string {
 	return raw.CurrentContext
 }
 
-// runInteractive launches the AgentInstance workspace. The TUI takes over the
-// screen and reads raw keys, so a redirected stream is an error, not a fallback.
+// runInteractive launches the workspace; the TUI reads raw keys, so a redirected stream is an error.
 func runInteractive(cmd *cobra.Command, cfg *connection.Options) (err error) {
 	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
 		return errors.New("kagent requires a terminal; use `kagent get agent-instance` and `kagent invoke` for non-interactive use")
@@ -381,8 +380,7 @@ func runInteractive(cmd *cobra.Command, cfg *connection.Options) (err error) {
 	return nil
 }
 
-// isTerminal reports whether a stream is backed by a TTY. A stream that is not
-// an *os.File (a test buffer, a pipe wrapper) is never a terminal.
+// isTerminal reports whether a stream is backed by a TTY; a non-*os.File never is.
 func isTerminal(stream any) bool {
 	file, ok := stream.(*os.File)
 	return ok && term.IsTerminal(int(file.Fd()))

@@ -49,8 +49,7 @@ func (p panelID) next() panelID {
 	return p + 1
 }
 
-// Panel geometry: 2 columns of border plus 2 of padding, 3 rows of chrome.
-// Hand these to whatever fills a panel, or its content wraps.
+// Panel chrome: 2 columns of border plus 2 of padding, 3 rows of header and borders.
 const panelChromeHeight = 3 // both borders plus the title line
 
 func panelInnerWidth(total int) int  { return max(total-4, 8) }
@@ -194,8 +193,7 @@ func instanceRow(item list.Item, width int) string {
 	)
 }
 
-// truncate shortens text to width display columns, marking what it cut. Width
-// is measured in cells, not bytes, so wide runes stay aligned.
+// truncate shortens text to width display cells, not bytes, so wide runes stay aligned.
 func truncate(text string, width int) string {
 	if ansi.StringWidth(text) <= width {
 		return text

@@ -23,8 +23,7 @@ import (
 const (
 	// instancePageSize matches the server's default list page.
 	instancePageSize = 50
-	// maxInstancePages bounds the pages walked on open so a large deployment
-	// cannot stall startup. Reaching it is reported rather than hidden.
+	// maxInstancePages bounds the pages walked on open; reaching it is reported rather than hidden.
 	maxInstancePages = 20
 	// historyTaskLimit bounds how many past tasks open in the transcript.
 	historyTaskLimit = 20
@@ -33,8 +32,7 @@ const (
 
 	sidebarWidth = 34
 	detailsWidth = 32
-	// The harness and template panels size to their contents up to this cap;
-	// the instance panel takes whatever height is left.
+	// Cascade panels size to their contents up to this cap; the instance panel takes what is left.
 	maxFilterPanelHeight = 9
 	minFilterPanelHeight = 5
 	// allNames is the synthetic row that clears a cascade filter.
@@ -43,8 +41,7 @@ const (
 
 // Options contains the settings the workspace needs from the CLI's connection.
 type Options struct {
-	// Namespace is the namespace the connection was established against. The
-	// browsing namespace changes as the user navigates; this one does not.
+	// Namespace is the connection's namespace; the browsing namespace changes, this one does not.
 	Namespace string
 }
 
@@ -54,9 +51,9 @@ type instanceLister interface {
 }
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
-// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 func RunWorkspace(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) error {
 	m := newWorkspaceModel(ctx, cfg, clientSet, verbose)
+	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
@@ -70,32 +67,28 @@ type instancesLoadedMsg struct {
 
 type instanceSelectedMsg struct{ agentInstance *apiv1alpha1.AgentInstance }
 
-// instanceHistoryLoadedMsg names the instance it belongs to: a reply that
-// arrives after the user moved on must not land in the new chat.
+// instanceHistoryLoadedMsg names its instance, so a late reply cannot land in the new chat.
 type instanceHistoryLoadedMsg struct {
 	instanceID string
 	tasks      []*a2atype.Task
 	err        error
 }
 
-// catalogLoadedMsg carries the Kubernetes-side names. An error is reported but
-// not fatal: the cascade falls back to instance-derived names.
+// catalogLoadedMsg carries Kubernetes names; on error the cascade falls back to instance-derived ones.
 type catalogLoadedMsg struct {
 	harnesses []string
 	templates []string
 	err       error
 }
 
-// namespacesLoadedMsg carries the namespaces holding AgentTemplates. Listing
-// cluster-wide can be forbidden, so a failure leaves just the current one.
+// namespacesLoadedMsg carries namespaces holding AgentTemplates; a forbidden list leaves the current one.
 type namespacesLoadedMsg struct {
 	namespaces []namespaceCount
 	err        error
 }
 
 type workspaceModel struct {
-	// ctx cancels in-flight I/O when the program stops. Bubble Tea commands
-	// take no context of their own, so they close over this one.
+	// ctx cancels in-flight I/O; Bubble Tea commands take no context of their own.
 	ctx        context.Context
 	cfg        Options
 	client     *client.ClientSet
@@ -116,16 +109,14 @@ type workspaceModel struct {
 	details     string
 	showDetails bool
 
-	// data. all holds every fetched AgentInstance; the panels above narrow it.
-	// The catalog names come from Kubernetes and include what has no instance.
+	// all holds every fetched AgentInstance; the cascade panels above narrow it.
 	all              []*apiv1alpha1.AgentInstance
 	catalogHarnesses []string
 	catalogTemplates []string
 	current          *apiv1alpha1.AgentInstance
 	status           string
 
-	// cascade selections. Empty harness or template means no filter; namespace
-	// is always set, since every request is namespace-scoped.
+	// Empty harness or template means no filter; namespace is always set.
 	namespace string
 	harness   string
 	template  string
@@ -138,8 +129,7 @@ func newWorkspaceModel(ctx context.Context, cfg Options, clientSet *client.Clien
 	if clientSet != nil {
 		lister = clientSet.AgentInstance
 	}
-	// A missing kubeconfig is not fatal, but the reason is kept so the panels
-	// can say why they fell back to names derived from the instances.
+	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
 	kubeCatalog, catalogErr := newKubeCatalog()
 
 	return &workspaceModel{
@@ -223,8 +213,7 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 	}
 }
 
-// loadHistory reads past tasks. The gateway orders them by random task UUID,
-// so they are sorted here into a coherent transcript.
+// loadHistory reads past tasks, sorted here because the gateway orders them by random task UUID.
 func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
 	id := agentInstance.GetId()
 	return func() tea.Msg {
@@ -293,8 +282,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, task := range msg.tasks {
 			m.chat.AppendHistoryTask(task)
 		}
-		// Tasks are sorted oldest first, so the last is the most recent thing
-		// this instance actually did.
+		// Tasks are sorted oldest first, so the last is the most recent thing this instance did.
 		if last := len(msg.tasks) - 1; last >= 0 && msg.tasks[last] != nil && msg.tasks[last].Status.Timestamp != nil {
 			m.chat.setHeaderMeta(stateBadge(m.current.GetState()), *msg.tasks[last].Status.Timestamp)
 		}
@@ -310,8 +298,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-	// Stream and timer messages go to the chat wherever focus is. Routing them
-	// by focus would strand a reply as soon as the user looked at a panel.
+	// Stream and timer messages go to the chat wherever focus is, or a reply is stranded.
 	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg:
 		if m.chat == nil {
 			return m, nil
@@ -350,8 +337,7 @@ func (m *workspaceModel) handleMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 	return m.resize(), true
 }
 
-// sidebarPanel is one stacked list panel, the height it is drawn at, and how
-// its rows render.
+// sidebarPanel is one stacked list panel, its drawn height, and how its rows render.
 type sidebarPanel struct {
 	id     panelID
 	list   *list.Model
@@ -359,8 +345,7 @@ type sidebarPanel struct {
 	row    func(list.Item, int) string
 }
 
-// sidebarPanels is the single source of the sidebar's geometry: order, heights,
-// and therefore every screen offset. The instance panel takes what is left.
+// sidebarPanels is the single source of sidebar geometry; the instance panel takes what is left.
 func (m *workspaceModel) sidebarPanels() []sidebarPanel {
 	namespaces := filterPanelHeight(m.namespaces)
 	harnesses := filterPanelHeight(m.harnesses)
@@ -427,8 +412,7 @@ func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
 	if m.current == nil {
 		return m.openSelectedInstance()
 	}
-	// A refresh may have deleted the open instance or changed its state, so
-	// re-read it rather than leaving a stale chat and header behind.
+	// A refresh may have deleted the open instance or changed its state, so re-read it.
 	for _, agentInstance := range m.all {
 		if agentInstance.GetId() == m.current.GetId() {
 			if agentInstance.GetState() != m.current.GetState() {
@@ -445,8 +429,7 @@ func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
 	return m.openSelectedInstance()
 }
 
-// rebuildPanels derives the cascade panels from the instances already fetched,
-// then narrows the instance panel by the current selections.
+// rebuildPanels derives the cascade from fetched instances, then narrows by the current selections.
 func (m *workspaceModel) rebuildPanels() {
 	m.harnesses.SetItems(countedNames(m.catalogHarnesses, m.all, func(i *apiv1alpha1.AgentInstance) string {
 		return i.GetHarness().GetName()
@@ -454,8 +437,7 @@ func (m *workspaceModel) rebuildPanels() {
 	m.rebuildTemplates()
 }
 
-// rebuildTemplates also rebuilds the instances below it, since SetItems resets
-// this panel's cursor and so clears whatever template was selected.
+// rebuildTemplates also rebuilds the instances below it, since SetItems resets this panel's cursor.
 func (m *workspaceModel) rebuildTemplates() {
 	m.templates.SetItems(countedNames(m.catalogTemplates, m.filterByHarness(), func(i *apiv1alpha1.AgentInstance) string {
 		return i.GetAgentTemplate().GetName()
@@ -473,8 +455,7 @@ func (m *workspaceModel) rebuildInstances() {
 	m.instances.SetItems(items)
 }
 
-// applyNamespaces fills the namespace panel, always including the current
-// namespace so the user can see where they are even if the list failed.
+// applyNamespaces fills the namespace panel, always including the current namespace.
 func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 	namespaces := msg.namespaces
 	if msg.err != nil {
@@ -498,9 +479,7 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 	}
 }
 
-// syncCascade applies the cascade panels' cursors. Moving the cursor filters
-// immediately, so there is nothing to confirm with enter. A namespace change
-// refetches, because every request below it is namespace-scoped.
+// syncCascade applies the cascade cursors; a namespace change refetches, since requests are scoped by it.
 func (m *workspaceModel) syncCascade() tea.Cmd {
 	if namespace := selectedNamespace(m.namespaces); namespace != "" && namespace != m.namespace {
 		m.namespace = namespace
@@ -522,8 +501,7 @@ func (m *workspaceModel) syncCascade() tea.Cmd {
 	return nil
 }
 
-// selectedNamespace reads the namespace panel's cursor. Unlike the filter
-// panels it has no "(all)" row, since every request is namespace-scoped.
+// selectedNamespace reads the namespace panel's cursor; unlike the filters it has no "(all)" row.
 func selectedNamespace(panel list.Model) string {
 	item, ok := panel.SelectedItem().(nameItem)
 	if !ok {
@@ -532,8 +510,7 @@ func selectedNamespace(panel list.Model) string {
 	return item.name
 }
 
-// countedNames lists every catalog name with its instance count, after an "(all)"
-// row. Unused names still get a row; so do names seen only on instances.
+// countedNames lists catalog names with instance counts after an "(all)" row, including unused ones.
 func countedNames(catalogNames []string, instances []*apiv1alpha1.AgentInstance, name func(*apiv1alpha1.AgentInstance) string) []list.Item {
 	counts := map[string]int{}
 	for _, value := range catalogNames {
@@ -595,8 +572,7 @@ func (m *workspaceModel) openSelectedInstance() tea.Cmd {
 	return func() tea.Msg { return instanceSelectedMsg{agentInstance: selected} }
 }
 
-// selectInstance opens a chat for an instance. A non-READY instance is not
-// dialed at all: the gateway rejects every call for one, history included.
+// selectInstance opens a chat; a non-READY instance is not dialed at all.
 func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
 	if agentInstance == nil {
 		return nil
@@ -637,8 +613,7 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "ctrl+c":
-		// Cancel the in-flight stream before the program tears down, rather
-		// than leaving the request to be dropped by process exit.
+		// Cancel the in-flight stream before teardown rather than letting process exit drop it.
 		m.chat.stop()
 		return tea.Quit, true
 	case "ctrl+r":
@@ -735,8 +710,7 @@ func (m *workspaceModel) resize() tea.Cmd {
 	return nil
 }
 
-// filterPanelHeight sizes a cascade panel to its rows, within bounds. The extra
-// line is bubbles' own spacing; without it the last row is silently clipped.
+// filterPanelHeight sizes a cascade panel to its rows; the extra line is bubbles' own spacing.
 func filterPanelHeight(panel list.Model) int {
 	const listSpacing = 1
 	return min(max(len(panel.Items())+panelChromeHeight+listSpacing, minFilterPanelHeight), maxFilterPanelHeight)
@@ -833,8 +807,7 @@ func lineCount(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// noCatalogErr explains why there is no catalog, preserving the kubeconfig
-// failure rather than reporting a generic absence.
+// noCatalogErr explains why there is no catalog, preserving the kubeconfig failure.
 func (m *workspaceModel) noCatalogErr() error {
 	if m.catalogErr != nil {
 		return m.catalogErr

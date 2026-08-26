@@ -40,9 +40,7 @@ type toolResult struct {
 type chatModel struct {
 	agentRef  string
 	contextID string
-	// The header is pinned above the viewport rather than written into
-	// history, so it stays visible however long the transcript grows. state
-	// arrives pre-rendered: a local agent has no lifecycle and leaves it empty.
+	// The header is pinned above the viewport so it survives a long transcript.
 	state      string
 	lastActive time.Time
 	verbose    bool
@@ -50,13 +48,11 @@ type chatModel struct {
 	vp    viewport.Model
 	input textarea.Model
 
-	// agentText is the trailing block still being assembled; it grows in place
-	// and is committed into history before anything else is written.
+	// agentText is the trailing block still being assembled, committed into history before anything else.
 	history   string
 	agentText string
 
-	// projected is the assembler's last text projection, so a cumulative
-	// replacement chunk yields a delta rather than duplicated text.
+	// projected is the assembler's last text projection, so cumulative chunks yield a delta not a duplicate.
 	assembler *clia2a.Assembler
 	projected string
 	lastState a2atype.TaskState
@@ -67,8 +63,7 @@ type chatModel struct {
 
 	spin spinner.Model
 
-	// ctx is the workspace's context, so a signal that cancels the program also
-	// cancels an in-flight stream rather than leaving it to process teardown.
+	// ctx is the workspace's context, so cancelling the program cancels an in-flight stream.
 	ctx       context.Context
 	send      SendMessageFn
 	streamCh  <-chan clia2a.StreamResult
@@ -134,8 +129,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		// What View draws around the viewport: the pinned header and its rule
-		// above; a rule, the status line, and the input below.
+		// What View draws around the viewport: header and rule above; rule, status, and input below.
 		const chromeHeight = 5
 		vpHeight := max(msg.Height-chromeHeight, 5)
 
@@ -208,8 +202,7 @@ func (m *chatModel) View() string {
 	)
 }
 
-// setHeaderMeta adds lifecycle detail to the pinned header. The caller renders
-// state, so this stays free of any control-plane type.
+// setHeaderMeta adds lifecycle detail to the header; the caller pre-renders state to keep this type-free.
 func (m *chatModel) setHeaderMeta(state string, lastActive time.Time) {
 	m.state, m.lastActive = state, lastActive
 }
@@ -222,9 +215,7 @@ func (m *chatModel) stop() {
 	}
 }
 
-// headerView pins who you are talking to, its state, and when it last ran.
-// The ID is abbreviated so the metadata after it survives a narrow pane; the
-// details pane carries the full copyable one.
+// headerView pins who you are talking to; the ID is abbreviated so metadata survives a narrow pane.
 func (m *chatModel) headerView(width int) string {
 	parts := []string{
 		theme.HeadingStyle().Render(m.agentRef),
@@ -296,8 +287,7 @@ func (m *chatModel) appendEvent(ev a2atype.Event) {
 	m.renderState()
 }
 
-// eventParts returns what one event carries, so tool activity shows as it happens
-// rather than only in the assembled task.
+// eventParts returns what one event carries, so tool activity shows as it happens.
 func eventParts(ev a2atype.Event) a2atype.ContentParts {
 	switch res := ev.(type) {
 	case *a2atype.Message:
@@ -314,8 +304,7 @@ func eventParts(ev a2atype.Event) a2atype.ContentParts {
 	return nil
 }
 
-// renderAssembledText appends newly assembled text. The projection is cumulative,
-// so an extension grows the block in place and a replacement starts a new one.
+// renderAssembledText appends newly assembled text; the cumulative projection grows the block in place.
 func (m *chatModel) renderAssembledText() {
 	text := assembledText(m.assembler.Result())
 	if text == m.projected {
@@ -332,8 +321,7 @@ func (m *chatModel) renderAssembledText() {
 	m.render()
 }
 
-// assembledText projects agent output. Only artifacts carry it; status messages
-// are control-plane content, rendered by renderState.
+// assembledText projects agent output; only artifacts carry it, status messages are control-plane.
 func assembledText(result a2atype.SendMessageResult) string {
 	switch result := result.(type) {
 	case *a2atype.Message:
@@ -354,8 +342,7 @@ func assembledText(result a2atype.SendMessageResult) string {
 	}
 }
 
-// renderState banners a state change: paused states invite another message,
-// terminal failures are errors, completion needs no banner.
+// renderState banners a state change; completion needs none.
 func (m *chatModel) renderState() {
 	task, ok := m.assembler.Result().(*a2atype.Task)
 	if !ok {
@@ -368,9 +355,7 @@ func (m *chatModel) renderState() {
 	m.lastState = state
 
 	switch state {
-	// The gateway rejects a message carrying a TaskID, so a reply cannot
-	// resume a paused task yet; it starts a new one. Say so rather than
-	// promising a continuation that does not happen.
+	// The gateway rejects a message carrying a TaskID, so a reply starts a new task rather than resuming.
 	case a2atype.TaskStateInputRequired:
 		m.appendLine(theme.StatusStyle().Render("⏸ Input required. Resuming a paused task is not supported yet; a reply starts a new one."))
 	case a2atype.TaskStateAuthRequired:
@@ -414,14 +399,12 @@ func (m *chatModel) appendUser(text string) {
 	m.appendLine(theme.UserStyle().Render("You:") + " " + text)
 }
 
-// appendTransportError reports a stream or connection failure, which is
-// distinct from a task the agent itself failed.
+// appendTransportError reports a stream failure, distinct from a task the agent itself failed.
 func (m *chatModel) appendTransportError(err error) {
 	m.appendLine(theme.ErrorStyle().Render(fmt.Sprintf("Connection error: %v", err)))
 }
 
-// renderToolActivity shows tool calls and results. These are kagent data parts;
-// the reducer has no opinion about them.
+// renderToolActivity shows kagent data parts; the reducer has no opinion about them.
 func (m *chatModel) renderToolActivity(parts a2atype.ContentParts) {
 	var calls []toolCall
 	var results []toolResult

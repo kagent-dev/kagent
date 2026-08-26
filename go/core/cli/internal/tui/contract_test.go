@@ -10,9 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTUIReachesOnlyV2ControlPlane is the R5 boundary gate: bare `kagent` talks
-// to AgentInstance and A2A only. The v2 controller serves no Agent, Tool, or
-// Model service, and its Session service carries the wrong identity model.
+// The controller serves no Agent, Tool, or Model service, and its Session identity model is wrong.
 func TestTUIReachesOnlyV2ControlPlane(t *testing.T) {
 	forbidden := []string{
 		"api/httpapi",
