@@ -11,6 +11,14 @@ from google.adk.agents.run_config import RunConfig, StreamingMode
 
 import kagent.adk._agent_executor as executor_module
 from kagent.adk._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
+from kagent.adk._bearer_token import bearer_token
+
+
+@pytest.fixture(autouse=True)
+def _reset_bearer_token():
+    token = bearer_token.set(None)
+    yield
+    bearer_token.reset(token)
 
 
 def _request_context(*, state: dict | None = None) -> RequestContext:
@@ -40,6 +48,24 @@ def test_request_converter_adds_headers_without_mutating_message_metadata(stream
     assert run_request.run_config.streaming_mode == expected_mode
     assert run_request.state_delta == {"headers": {"authorization": "Bearer token"}}
     assert not context.message.metadata
+
+
+def test_convert_request_sets_bearer_token_context_var():
+    context = _request_context(state={"headers": {"authorization": "Bearer the-callers-token"}})
+    executor = A2aAgentExecutor(runner=lambda: None, config=A2aAgentExecutorConfig())
+
+    executor._convert_request(context, None)
+
+    assert bearer_token.get() == "the-callers-token"
+
+
+def test_convert_request_clears_bearer_token_when_no_auth_header():
+    context = _request_context(state={"headers": {}})
+    executor = A2aAgentExecutor(runner=lambda: None, config=A2aAgentExecutorConfig())
+
+    executor._convert_request(context, None)
+
+    assert bearer_token.get() is None
 
 
 @pytest.mark.asyncio

@@ -84,14 +84,24 @@ spec:
                                 bucket:
                                   minLength: 1
                                   type: string
+                                endpoint:
+                                  description: Endpoint is the HTTP(S) endpoint of
+                                    an AWS or S3-compatible service.
+                                  pattern: ^https?://[^[:space:]]+$
+                                  type: string
                                 key:
                                   minLength: 1
+                                  type: string
+                                region:
+                                  description: Region is used for request signing
+                                    when required by the service.
                                   type: string
                                 versionId:
                                   minLength: 1
                                   type: string
                               required:
                               - bucket
+                              - endpoint
                               - key
                               - versionId
                               type: object
@@ -107,6 +117,7 @@ spec:
                               type: string
                             url:
                               minLength: 1
+                              pattern: ^https?://[^[:space:]]+$
                               type: string
                           required:
                           - commit
@@ -184,14 +195,24 @@ spec:
                                 bucket:
                                   minLength: 1
                                   type: string
+                                endpoint:
+                                  description: Endpoint is the HTTP(S) endpoint of
+                                    an AWS or S3-compatible service.
+                                  pattern: ^https?://[^[:space:]]+$
+                                  type: string
                                 key:
                                   minLength: 1
+                                  type: string
+                                region:
+                                  description: Region is used for request signing
+                                    when required by the service.
                                   type: string
                                 versionId:
                                   minLength: 1
                                   type: string
                               required:
                               - bucket
+                              - endpoint
                               - key
                               - versionId
                               type: object
@@ -207,6 +228,7 @@ spec:
                               type: string
                             url:
                               minLength: 1
+                              pattern: ^https?://[^[:space:]]+$
                               type: string
                           required:
                           - commit

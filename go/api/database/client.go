@@ -19,6 +19,10 @@ var ErrIdempotencyConflict = errors.New("request id was already used with differ
 
 var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation conflicts with its current state")
 
+var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an active task")
+
+var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
+
 type QueryOptions struct {
 	Limit    int
 	After    time.Time
@@ -118,6 +122,7 @@ type Client interface {
 
 	// AgentInstance lifecycle methods
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
+	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -126,4 +131,19 @@ type Client interface {
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
+	// CreateAgentInstanceTask reserves the instance's single active-task slot.
+	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task) (*a2a.Task, bool, error)
+	GetActiveAgentInstanceTask(context.Context, string) (*a2a.Task, error)
+	// InterruptActiveAgentInstanceTask fails the expected task and records an
+	// interruption. It returns false if that task is no longer active.
+	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
+	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event, *AgentInstanceTaskSnapshot) error
+	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
+	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
+	ReserveAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
+	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]AgentInstanceCheckpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
 }

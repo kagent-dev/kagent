@@ -261,7 +261,7 @@ If no model is specified, the agent will need to be configured later.
 Examples:
   kagent init adk python dice
   kagent init adk python dice --instruction-file instructions.md
-  kagent init adk python dice --model-provider Gemini --model-name gemini-2.0-flash`,
+  kagent init adk python dice --model-provider Gemini --model-name gemini-2.5-flash`,
 		Args: cobra.ExactArgs(3),
 		Run: func(cmd *cobra.Command, args []string) {
 			initCfg.Framework = args[0]
@@ -279,7 +279,7 @@ Examples:
 	// Add flags for custom instructions and model selection
 	initCmd.Flags().StringVar(&initCfg.InstructionFile, "instruction-file", "", "Path to file containing custom instructions for the root agent")
 	initCmd.Flags().StringVar(&initCfg.ModelProvider, "model-provider", "Gemini", "Model provider (OpenAI, Anthropic, Gemini)")
-	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "gemini-2.0-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.0-flash)")
+	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "gemini-2.5-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.5-flash)")
 	initCmd.Flags().StringVar(&initCfg.Description, "description", "", "Description for the agent")
 
 	buildCfg := &cli.BuildCfg{

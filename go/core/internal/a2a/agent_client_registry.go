@@ -27,12 +27,6 @@ func (r *AgentClientRegistry) set(agentRef string, c *a2aclient.Client) {
 	r.clients[agentRef] = c
 }
 
-func (r *AgentClientRegistry) delete(agentRef string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.clients, agentRef)
-}
-
 // Register adds or replaces the A2A client for the given agent.
 func (r *AgentClientRegistry) Register(namespace, name string, c *a2aclient.Client) {
 	r.set(namespace+"/"+name, c)

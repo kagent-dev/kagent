@@ -9,14 +9,14 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	defaultSnapshotsBucket   = "ate-snapshots"
-	defaultOpenClawContainer = "openclaw"
+	defaultSnapshotsBucket = "ate-snapshots"
 
 	// Referenced by generated ActorTemplates to gate scheduling onto a WorkerPool.
 	// The kagent Helm chart stamps it on the WorkerPool it manages;
@@ -26,33 +26,16 @@ const (
 
 // LifecycleDefaults are cluster-wide defaults for generated ActorTemplate lifecycle.
 type LifecycleDefaults struct {
-	PauseImage           string
-	DefaultWorkloadImage string
-	DefaultWorkerPool    types.NamespacedName
-	// ImageRegistry and ImageRepository are the runtime registry/repository used
-	// to compose digest-pinned acp-sandbox workload image refs (from
-	// --image-registry/--image-repository). ImageRepository is the agent app
-	// repository (e.g. "kagent-dev/kagent/app"); see acpSandboxImageConfig.
-	ImageRegistry   string
-	ImageRepository string
+	DefaultWorkerPool types.NamespacedName
 }
 
-// Lifecycle reconciles the Kubernetes lifecycle that kagent owns for a substrate AgentHarness.
+// Lifecycle reconciles the Kubernetes lifecycle that kagent owns for substrate-backed agents.
 // WorkerPools are externally owned; this helper only resolves the selected WorkerPool.
 type Lifecycle struct {
 	Client    client.Client
 	Defaults  LifecycleDefaults
 	AteClient *Client
 }
-
-// AgentHarnessLifecycle is the substrate lifecycle surface used by the
-// AgentHarness controller.
-type AgentHarnessLifecycle interface {
-	EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (LifecycleState, error)
-	CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (bool, error)
-}
-
-var _ AgentHarnessLifecycle = (*Lifecycle)(nil)
 
 func NewLifecycle(kube client.Client, defaults LifecycleDefaults, ateClient *Client) *Lifecycle {
 	return &Lifecycle{
@@ -62,20 +45,6 @@ func NewLifecycle(kube client.Client, defaults LifecycleDefaults, ateClient *Cli
 	}
 }
 
-// acpSandboxImageConfig returns the runtime registry/repository used to compose
-// digest-pinned acp-sandbox workload image refs.
-func (p *Lifecycle) acpSandboxImageConfig() acpSandboxImageConfig {
-	return acpSandboxImageConfig{
-		Registry:   p.Defaults.ImageRegistry,
-		Repository: p.Defaults.ImageRepository,
-	}
-}
-
-// LifecycleState describes the generated Substrate lifecycle for an AgentHarness.
-type LifecycleState struct {
-	ActorTemplateReady bool
-}
-
 func workerSelectorForPool(wpKey types.NamespacedName) *metav1.LabelSelector {
 	if wpKey.Name == "" {
 		return nil
@@ -83,17 +52,6 @@ func workerSelectorForPool(wpKey types.NamespacedName) *metav1.LabelSelector {
 	return &metav1.LabelSelector{
 		MatchLabels: map[string]string{WorkerPoolLabelKey: wpKey.Name},
 	}
-}
-
-func substrateSnapshotsLocation(ah *v1alpha3.AgentHarness) string {
-	if ah == nil {
-		return substrateSnapshotsLocationFor("", "", "")
-	}
-	loc := ""
-	if sub := ah.Spec.Substrate; sub != nil && sub.SnapshotsConfig != nil {
-		loc = sub.SnapshotsConfig.Location
-	}
-	return substrateSnapshotsLocationFor(ah.Namespace, ah.Name, loc)
 }
 
 func substrateSnapshotsLocationFor(namespace, name, explicitLocation string) string {
@@ -133,17 +91,6 @@ func (p *Lifecycle) resolveWorkerPoolRefFor(
 
 func defaultSubstrateSnapshotsLocation(namespace, name string) string {
 	return fmt.Sprintf("gs://%s/%s/%s", defaultSnapshotsBucket, namespace, name)
-}
-
-func lifecycleLabels(ah *v1alpha3.AgentHarness) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/managed-by": "kagent",
-		"kagent.dev/agent-harness":     ah.Name,
-	}
-}
-
-func actorTemplateName(ah *v1alpha3.AgentHarness) string {
-	return truncateDNS1123(ah.Name)
 }
 
 func truncateDNS1123(s string) string {
@@ -253,8 +200,7 @@ func pinImageRef(image string) (string, error) {
 	return image, nil
 }
 
-// actorTemplateEnvFromPodEnv converts pod env vars into ActorTemplate env vars.
-// Substrate ActorTemplates only support literal values, secretKeyRef, and configMapKeyRef.
+// actorTemplateEnvFromPodEnv converts resolved pod env vars into ActorTemplate env vars.
 func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
 	out := make([]atev1alpha1.EnvVar, 0, len(env))
 	seen := make(map[string]struct{}, len(env))
@@ -276,24 +222,39 @@ func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
 }
 
 func sanitizeActorTemplateEnvVar(e corev1.EnvVar) *atev1alpha1.EnvVar {
-	if e.ValueFrom == nil {
-		return &atev1alpha1.EnvVar{
-			Name:      e.Name,
-			ValueFrom: nil,
-			Value:     &e.Value,
-		}
+	if e.ValueFrom != nil {
+		return nil
 	}
-	if ref := e.ValueFrom.SecretKeyRef; ref != nil {
-		return &atev1alpha1.EnvVar{
-			Name: e.Name,
-			ValueFrom: &atev1alpha1.EnvVarSource{
-				SecretKeyRef: &atev1alpha1.SecretKeySelector{
-					Name:     ref.Name,
-					Key:      ref.Key,
-					Optional: ref.Optional,
-				},
-			},
+	return &atev1alpha1.EnvVar{Name: e.Name, Value: e.Value}
+}
+
+func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, env []corev1.EnvVar, localSecret *corev1.Secret) ([]corev1.EnvVar, error) {
+	resolved := append([]corev1.EnvVar(nil), env...)
+	for i, variable := range resolved {
+		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
+			continue
 		}
+		ref := variable.ValueFrom.SecretKeyRef
+		secret := &corev1.Secret{}
+		if localSecret != nil && localSecret.Name == ref.Name {
+			secret = localSecret
+		} else if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
+			if ref.Optional != nil && *ref.Optional && apierrors.IsNotFound(err) {
+				resolved[i].ValueFrom = nil
+				continue
+			}
+			return nil, err
+		}
+		value, ok := secret.Data[ref.Key]
+		if !ok {
+			if ref.Optional != nil && *ref.Optional {
+				resolved[i].ValueFrom = nil
+				continue
+			}
+			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
+		}
+		resolved[i].Value = string(value)
+		resolved[i].ValueFrom = nil
 	}
-	return nil
+	return resolved, nil
 }

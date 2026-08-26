@@ -330,9 +330,7 @@ func (s *Service) listSubstrateCRs(ctx context.Context, namespace string) ([]Sub
 			WorkerSelector:  labelSelectorString(ctx, actorTemplate.Spec.WorkerSelector),
 			ManagedByKagent: actorTemplate.Labels["app.kubernetes.io/managed-by"] == "kagent",
 		}
-		if harness := strings.TrimSpace(actorTemplate.Labels[substrate.HarnessLabelKey]); harness != "" {
-			entry.HarnessName = harness
-		} else if agentName := substrate.SandboxAgentNameFromLabels(actorTemplate.Labels); agentName != "" {
+		if agentName := substrate.SandboxAgentNameFromLabels(actorTemplate.Labels); agentName != "" {
 			entry.HarnessName = agentName
 		}
 		actorTemplates = append(actorTemplates, entry)
@@ -389,33 +387,34 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 }
 
 func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
-	assignment := actor.GetWorkerAssignment()
+	assignment := actor.GetStatus().GetWorkerAssignment()
 	return SubstrateActor{
 		ActorID:                actor.GetMetadata().GetName(),
 		Atespace:               actor.GetMetadata().GetAtespace(),
-		Status:                 substrate.ActorStatusLabel(actor.GetStatus()),
+		Status:                 substrate.ActorStatusLabel(actor.GetStatus().GetState()),
 		ActorTemplateNamespace: actor.GetActorTemplateNamespace(),
 		ActorTemplateName:      actor.GetActorTemplateName(),
 		AteomPodNamespace:      assignment.GetWorkerNamespace(),
 		AteomPodName:           assignment.GetWorkerPod(),
 		AteomPodIP:             assignment.GetWorkerPodIp(),
-		LatestSnapshot:         actor.GetLatestSnapshot().GetName(),
+		LatestSnapshot:         actor.GetStatus().GetLatestSnapshot().GetName(),
 		WorkerPoolName:         assignment.GetWorkerPool(),
-		InProgressSnapshot:     actor.GetInProgressSnapshotName(),
+		InProgressSnapshot:     actor.GetStatus().GetInProgressSnapshotName(),
 		Version:                actor.GetMetadata().GetVersion(),
 	}
 }
 
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
+	assignment := worker.GetStatus().GetAssignment()
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  worker.GetAssignment().GetActorTemplate().GetNamespace(),
-		ActorTemplate:   worker.GetAssignment().GetActorTemplate().GetName(),
-		ActorID:         worker.GetAssignment().GetActor().GetName(),
+		ActorNamespace:  assignment.GetActorTemplate().GetNamespace(),
+		ActorTemplate:   assignment.GetActorTemplate().GetName(),
+		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
-		Version:         worker.GetVersion(),
+		Version:         worker.GetMetadata().GetVersion(),
 	}
 }
 

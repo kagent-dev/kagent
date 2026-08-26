@@ -37,14 +37,13 @@ import (
 	legacysubstrate "github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
-
-const defaultPauseImage = "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -79,9 +78,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("create controller manager: %v", err)
 	}
-	runtime, err := v2controller.NewRuntime(kubeConfig, namespaces(os.Getenv("WATCH_NAMESPACES")), v2controller.CollectionConfig{
-		PauseImage: env("SUBSTRATE_PAUSE_IMAGE", defaultPauseImage),
-	}, ctx.Done())
+	runtime, err := v2controller.NewRuntime(kubeConfig, namespaces(os.Getenv("WATCH_NAMESPACES")), ctx.Done())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,7 +103,9 @@ func main() {
 
 	authenticator := &authimpl.UnsecureAuthenticator{}
 	authorizer := &authimpl.NoopAuthorizer{}
-	instances := agentinstance.NewService(store, authorizer, agentinstance.NewActorWorkflow(store, actors))
+	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
+	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
+	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		env("SUBSTRATE_ATENET_ROUTER_URL", legacysubstrate.DefaultAtenetRouterURL),
 		authenticator,
@@ -122,7 +121,9 @@ func main() {
 		SessionService:       sessionservice.NewService(store),
 		TaskService:          taskservice.NewService(store),
 		AgentInstanceService: instances,
-		A2AHandler:           a2agateway.New(store, authorizer, gatewayDialer),
+		CheckpointService:    checkpoints,
+		A2AHandler: a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
+			env("A2A_GATEWAY_URL", "http://127.0.0.1:8084")),
 	})
 	if err != nil {
 		log.Fatal(err)

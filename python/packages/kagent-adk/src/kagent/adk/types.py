@@ -239,10 +239,6 @@ class RemoteAgentConfig(BaseModel):
     headers: dict[str, Any] | None = None
     timeout: float = DEFAULT_TIMEOUT
     description: str = ""
-    # isolate_sessions: accepted for schema parity with the Go declarative
-    # runtime (see go/api/v1alpha3.Tool.IsolateSessions). The Python low-level
-    # tool (KAgentRemoteA2AToolset / _remote_a2a_tool.py) does not yet honor
-    # this flag — it only affects agents running on runtime: go.
     isolate_sessions: bool = False
 
 
@@ -374,6 +370,7 @@ class EmbeddingConfig(BaseModel):
     model: str
     provider: str
     base_url: str | None = None
+    api_key_passthrough: bool = False
 
 
 class MemoryConfig(BaseModel):
@@ -527,6 +524,7 @@ class AgentConfig(BaseModel):
                         agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
                         httpx_client=client,
                         header_provider=a2a_header_provider,
+                        isolate_sessions=remote_agent.isolate_sessions,
                     )
                 )
 

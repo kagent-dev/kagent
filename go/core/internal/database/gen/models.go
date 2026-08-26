@@ -13,6 +13,13 @@ import (
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
+type A2aContext struct {
+	ID        string
+	Namespace string
+	UserID    string
+	CreatedAt time.Time
+}
+
 type Agent struct {
 	ID           string
 	CreatedAt    *time.Time
@@ -24,15 +31,38 @@ type Agent struct {
 }
 
 type AgentInstance struct {
-	ID               string
-	Namespace        string
-	UserID           string
-	RequestID        string
-	PreparedRevision *string
-	State            string
-	Labels           []byte
-	Data             []byte
-	Operation        string
+	ID                 string
+	Namespace          string
+	UserID             string
+	RequestID          string
+	PreparedRevision   *string
+	State              string
+	Labels             []byte
+	Data               []byte
+	Operation          string
+	ContextID          string
+	SourceCheckpointID *string
+}
+
+type AgentInstanceCheckpoint struct {
+	ID                   string
+	Namespace            string
+	SourceInstanceID     string
+	UserID               string
+	RequestID            string
+	HeadTaskID           string
+	HistorySequence      int64
+	SnapshotAtespace     string
+	SnapshotName         string
+	SnapshotUid          string
+	SnapshotContentScope string
+	TagUid               string
+	State                string
+	Failure              string
+	CreatedAt            time.Time
+	SourceContextID      string
+	PreparedRevision     *string
+	SourceLabels         []byte
 }
 
 type AgentInstanceShare struct {
@@ -43,6 +73,32 @@ type AgentInstanceShare struct {
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
+}
+
+type AgentInstanceTask struct {
+	ContextID            string
+	ID                   string
+	State                string
+	StatusTimestamp      *time.Time
+	Data                 []byte
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	InitialMessageID     *string
+	RequestHash          []byte
+	SnapshotAtespace     *string
+	SnapshotName         *string
+	SnapshotUid          *string
+	SnapshotContentScope *string
+	HistorySequence      *int64
+}
+
+type AgentInstanceTaskEvent struct {
+	Sequence  int64
+	ContextID string
+	TaskID    *string
+	Data      []byte
+	CreatedAt time.Time
+	MessageID *string
 }
 
 type AgentTemplateHarnessPair struct {
@@ -168,6 +224,7 @@ type RuntimeRevision struct {
 	GoldenSnapshot         string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	AgentCard              []byte
 }
 
 type Session struct {

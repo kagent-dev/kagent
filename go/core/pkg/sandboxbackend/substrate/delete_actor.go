@@ -27,35 +27,35 @@ func deleteActor(ctx context.Context, c *Client, atespace, actorID string) (bool
 		return false, fmt.Errorf("get actor %q: %w", actorID, err)
 	}
 
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED:
 		if err := c.DeleteActor(ctx, atespace, actorID); err != nil {
 			if status.Code(err) == codes.NotFound {
 				return true, nil
 			}
 			if status.Code(err) == codes.FailedPrecondition {
-				return false, fmt.Errorf("delete actor %q: not suspended (status %s)", actorID, actor.GetStatus())
+				return false, fmt.Errorf("delete actor %q: not suspended (status %s)", actorID, actor.GetStatus().GetState())
 			}
 			return false, fmt.Errorf("delete actor %q: %w", actorID, err)
 		}
 		return false, nil
-	case ateapipb.Actor_STATUS_SUSPENDING:
-		_ = c.SuspendActor(ctx, atespace, actorID)
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
+		_, _ = c.SuspendActor(ctx, atespace, actorID)
 		return false, nil
-	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
-		if err := c.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING:
+		if _, err := c.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return false, fmt.Errorf("suspend actor %q: %w", actorID, err)
 		}
 		return false, nil
-	case ateapipb.Actor_STATUS_PAUSED:
+	case ateapipb.ActorState_ACTOR_STATE_PAUSED:
 		if _, err := c.ResumeActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return false, fmt.Errorf("resume paused actor %q before delete: %w", actorID, err)
 		}
 		return false, nil
-	case ateapipb.Actor_STATUS_PAUSING:
+	case ateapipb.ActorState_ACTOR_STATE_PAUSING:
 		return false, nil
 	default:
-		_ = c.SuspendActor(ctx, atespace, actorID)
+		_, _ = c.SuspendActor(ctx, atespace, actorID)
 		return false, nil
 	}
 }
