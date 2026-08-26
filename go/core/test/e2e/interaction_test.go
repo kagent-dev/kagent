@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json
+//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json
 var interactionMocks embed.FS
 
 // TestAgentInstanceInteraction verifies the complete public interaction path:
