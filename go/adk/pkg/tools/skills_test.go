@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -287,17 +288,21 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}
 
-	var listFilesTool, grepFileTool tool.Tool
+	var listFilesTool, grepFileTool, readFileTool, bashTool tool.Tool
 	for _, tl := range tools {
 		switch tl.Name() {
 		case "list_files":
 			listFilesTool = tl
 		case "grep_file":
 			grepFileTool = tl
+		case "read_file":
+			readFileTool = tl
+		case "bash":
+			bashTool = tl
 		}
 	}
-	if listFilesTool == nil || grepFileTool == nil {
-		t.Fatal("expected list_files and grep_file tools to be present")
+	if listFilesTool == nil || grepFileTool == nil || readFileTool == nil || bashTool == nil {
+		t.Fatal("expected list_files, grep_file, read_file and bash tools to be present")
 	}
 
 	sessionID := fmt.Sprintf("%s-session", t.Name())
@@ -345,6 +350,67 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 		result := runTool(t, listFilesTool, ctx, map[string]any{"path": "/etc"})
 		if !strings.Contains(result, "outside the allowed roots") {
 			t.Errorf("list_files result = %q, want an outside-allowed-roots error", result)
+		}
+	})
+
+	// Exercised here, through the registered tool rather than against
+	// ReadFileContent directly, because the failure this guards was invisible
+	// at the function level: read_file and grep_file scanned with different
+	// buffer limits, so a file grep_file handled fine made read_file fail
+	// outright. Driving the same tree through both tools is what makes that
+	// asymmetry observable.
+	t.Run("read_file and grep_file agree on a line past bufio's default", func(t *testing.T) {
+		longLine := strings.Repeat("a", 100_000)
+		bundle := filepath.Join(sessionPath, "bundle.min.js")
+		if err := os.WriteFile(bundle, []byte(longLine+"\nneedle here\n"), 0644); err != nil {
+			t.Fatalf("failed to seed long-line file: %v", err)
+		}
+
+		read := runTool(t, readFileTool, ctx, map[string]any{"file_path": "bundle.min.js"})
+		if strings.Contains(read, "Error reading file") {
+			t.Fatalf("read_file failed on a long line instead of truncating: %q", read)
+		}
+		readLines := strings.Split(read, "\n")
+		if len(readLines) != 2 {
+			t.Fatalf("read_file returned %d lines, want 2: %.200q", len(readLines), read)
+		}
+		body := strings.TrimSuffix(strings.SplitN(readLines[0], "|", 2)[1], "...")
+		if n := utf8.RuneCountInString(body); n != maxLineRunes {
+			t.Errorf("read_file truncated line 1 to %d runes, want %d", n, maxLineRunes)
+		}
+		if !strings.Contains(readLines[1], "needle here") {
+			t.Errorf("read_file lost the line after the long one: %q", readLines[1])
+		}
+
+		// The same file must remain greppable -- this is the side that always
+		// worked, and it is what read_file is now consistent with.
+		grep := runTool(t, grepFileTool, ctx, map[string]any{
+			"pattern": "needle here",
+			"path":    "bundle.min.js",
+		})
+		if !strings.Contains(grep, "bundle.min.js:2:needle here") {
+			t.Errorf("grep_file result = %q, want the match on line 2", grep)
+		}
+	})
+
+	t.Run("list_files reports a symlink's target size, not the link's", func(t *testing.T) {
+		linkDir := filepath.Join(sessionPath, "linkdir")
+		if err := os.Mkdir(linkDir, 0755); err != nil {
+			t.Fatalf("failed to create linkdir: %v", err)
+		}
+		target := filepath.Join(linkDir, "target.txt")
+		if err := os.WriteFile(target, []byte(strings.Repeat("x", 5000)), 0644); err != nil {
+			t.Fatalf("failed to write symlink target: %v", err)
+		}
+		// A relative target, so the stored path string is far shorter than the
+		// file -- an Lstat-based size would report 10, not 5000.
+		if err := os.Symlink("target.txt", filepath.Join(linkDir, "file-link")); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+
+		result := runTool(t, listFilesTool, ctx, map[string]any{"path": "linkdir"})
+		if !strings.Contains(result, "file-link\t5000") {
+			t.Errorf("list_files result = %q, want file-link sized by its target (5000)", result)
 		}
 	})
 }
