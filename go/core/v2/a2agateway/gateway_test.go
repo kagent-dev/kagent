@@ -15,6 +15,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -163,6 +164,7 @@ type gatewayTestRuntime struct {
 	getTaskCalls   int
 	subscribeEvent a2atype.Event
 	subscribeErr   error
+	privateTask    *a2atype.Task
 }
 
 func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
@@ -184,6 +186,7 @@ func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceP
 
 func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	r.sent = true
+	r.privateTask, _ = apia2a.TakeStoredTask(req.Message)
 	return &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil
 }
 
@@ -309,9 +312,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 }
 
 func TestGatewayContinuesInputRequiredTask(t *testing.T) {
+	status := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("waiting"))
 	waiting := &a2atype.Task{
 		ID: "task-1", ContextID: gatewayTestID,
-		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired},
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: status},
 	}
 	store := &gatewayTestStore{instance: gatewayTestInstance(), task: waiting}
 	runtime := &gatewayTestRuntime{}
@@ -319,6 +323,7 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
 	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
 	reply.TaskID = waiting.ID
+	reply.Metadata = map[string]any{"https://kagent.dev/internal/stored-task/v1": "untrusted"}
 
 	result, err := gateway.SendMessage(gatewayTestContext(), &a2atype.SendMessageRequest{Message: reply})
 	if err != nil {
@@ -330,6 +335,12 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	}
 	if authorizer.verb != auth.VerbUpdate || reply.ContextID != gatewayTestID || len(store.stored) != 2 {
 		t.Fatalf("reply authorization = %s, context = %q, stored events = %d", authorizer.verb, reply.ContextID, len(store.stored))
+	}
+	if runtime.privateTask == nil || runtime.privateTask.Status.State != a2atype.TaskStateInputRequired || runtime.privateTask.Status.Message == nil || runtime.privateTask.Status.Message.ID != status.ID {
+		t.Fatalf("private continuation state = %#v", runtime.privateTask)
+	}
+	if len(reply.Metadata) != 0 {
+		t.Fatalf("private continuation state leaked into public metadata: %#v", reply.Metadata)
 	}
 }
 
