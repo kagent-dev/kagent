@@ -14,7 +14,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
 	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
@@ -51,100 +50,6 @@ func Root() *cobra.Command {
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "Timeout")
 	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", cfg.UserID, "Caller identity used to select the server-side data partition")
-	installCfg := &commands.InstallCfg{
-		Connection: cfg,
-	}
-
-	installCmd := &cobra.Command{
-		Use:   "install",
-		Short: "Install kagent",
-		Long:  `Install kagent`,
-		Run: func(cmd *cobra.Command, args []string) {
-			commands.InstallCmd(cmd.Context(), installCfg)
-		},
-	}
-	installCmd.Flags().StringVar(&installCfg.Profile, "profile", "", "Installation profile (minimal|demo)")
-	_ = installCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
-	})
-
-	uninstallCmd := &cobra.Command{
-		Use:   "uninstall",
-		Short: "Uninstall kagent",
-		Long:  `Uninstall kagent`,
-		Run: func(cmd *cobra.Command, args []string) {
-			commands.UninstallCmd(cmd.Context(), cfg.Namespace)
-		},
-	}
-
-	invokeCfg := &agentinstancecli.InvokeCfg{
-		Connection: cfg,
-	}
-
-	invokeCmd := &cobra.Command{
-		Use:   "invoke",
-		Short: "Invoke an AgentInstance",
-		Long:  `Invoke an existing AgentInstance through the A2A API.`,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			invokeCfg.OutputFormat = outputFormat
-			return agentinstancecli.InvokeCmd(cmd.Context(), invokeCfg, cmd.InOrStdin(), cmd.OutOrStdout())
-		},
-		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
-	}
-
-	invokeCmd.Flags().StringVar(&invokeCfg.AgentInstance, "agent-instance", "", "AgentInstance ID")
-	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task text")
-	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "Read task text from a file or - for stdin")
-	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
-	invokeCmd.Flags().StringVar(&invokeCfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
-	_ = invokeCmd.MarkFlagRequired("agent-instance")
-	invokeCmd.MarkFlagsOneRequired("task", "file")
-	invokeCmd.MarkFlagsMutuallyExclusive("task", "file")
-
-	bugReportCmd := &cobra.Command{
-		Use:   "bug-report",
-		Short: "Generate a bug report",
-		Long:  `Generate a bug report`,
-		Run: func(cmd *cobra.Command, args []string) {
-			pf, err := connection.Connect(cmd.Context(), cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-				return
-			}
-			if pf != nil {
-				defer pf.Stop()
-			}
-			commands.BugReportCmd(cfg.Namespace, cfg.Verbose)
-		},
-	}
-
-	versionCmd := &cobra.Command{
-		Use:   "version",
-		Short: "Print the kagent version",
-		Long:  `Print the kagent version`,
-		Run: func(cmd *cobra.Command, args []string) {
-			// print out kagent CLI version regardless if a port-forward to kagent server succeeds
-			// versions unable to obtain from the remote kagent will be reported as "unknown"
-			clientSet := cfg.Client()
-			defer clientSet.Close() //nolint:errcheck
-			defer commands.VersionCmd(clientSet)
-
-			if pf, _ := connection.Connect(cmd.Context(), cfg); pf != nil {
-				defer pf.Stop()
-			}
-		},
-	}
-
-	dashboardCmd := &cobra.Command{
-		Use:   "dashboard",
-		Short: "Open the kagent dashboard",
-		Long:  `Open the kagent dashboard`,
-		Run: func(cmd *cobra.Command, args []string) {
-			commands.DashboardCmd(cmd.Context(), cfg.Namespace)
-		},
-	}
-
 	getCmd := &cobra.Command{
 		Use:   "get",
 		Short: "Get a kagent resource",
@@ -154,43 +59,6 @@ func Root() *cobra.Command {
 			return fmt.Errorf("resource type is required")
 		},
 	}
-	agentInstanceGetCfg := &agentinstancecli.GetCfg{Connection: cfg}
-	getAgentInstanceCmd := &cobra.Command{
-		Use:   "agent-instance [ID]",
-		Short: "Get an AgentInstance or list your AgentInstances",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agentInstanceGetCfg.OutputFormat = outputFormat
-			agentInstanceGetCfg.InstanceID = ""
-			if len(args) == 1 {
-				agentInstanceGetCfg.InstanceID = args[0]
-			}
-			return agentinstancecli.GetCmd(cmd.Context(), agentInstanceGetCfg, cmd.OutOrStdout())
-		},
-	}
-	getAgentInstanceCmd.Flags().Int32Var(&agentInstanceGetCfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
-	getAgentInstanceCmd.Flags().StringVar(&agentInstanceGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
-
-	agentTemplateGetCfg := &agenttemplatecli.GetCfg{}
-	getAgentTemplateCmd := &cobra.Command{
-		Use:   "agent-template [NAME]",
-		Short: "Get an AgentTemplate or list AgentTemplates",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			agentTemplateGetCfg.Namespace = cfg.Namespace
-			agentTemplateGetCfg.OutputFormat = outputFormat
-			agentTemplateGetCfg.Name = ""
-			if len(args) == 1 {
-				agentTemplateGetCfg.Name = args[0]
-			}
-			return agenttemplatecli.GetCmd(cmd.Context(), agentTemplateGetCfg, cmd.OutOrStdout())
-		},
-	}
-	getAgentTemplateCmd.Flags().Int64Var(&agentTemplateGetCfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
-	getAgentTemplateCmd.Flags().StringVar(&agentTemplateGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
-
-	getCmd.AddCommand(getAgentInstanceCmd, getAgentTemplateCmd)
-
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a kagent resource",
@@ -199,23 +67,6 @@ func Root() *cobra.Command {
 			return fmt.Errorf("resource type is required")
 		},
 	}
-	createAgentInstanceCfg := &agentinstancecli.CreateCfg{Connection: cfg}
-	createAgentInstanceCmd := &cobra.Command{
-		Use:   "agent-instance",
-		Short: "Create an AgentInstance",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			createAgentInstanceCfg.OutputFormat = outputFormat
-			return agentinstancecli.CreateCmd(cmd.Context(), createAgentInstanceCfg, cmd.OutOrStdout())
-		},
-	}
-	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.Harness, "harness", "", "Harness name")
-	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.AgentTemplate, "agent-template", "", "AgentTemplate name")
-	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.RequestID, "request-id", "", "Idempotency key (generated when omitted)")
-	_ = createAgentInstanceCmd.MarkFlagRequired("harness")
-	_ = createAgentInstanceCmd.MarkFlagRequired("agent-template")
-	createCmd.AddCommand(createAgentInstanceCmd)
-
 	deleteCmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a kagent resource",
@@ -224,20 +75,24 @@ func Root() *cobra.Command {
 			return fmt.Errorf("resource type is required")
 		},
 	}
-	deleteAgentInstanceCfg := &agentinstancecli.DeleteCfg{Connection: cfg}
-	deleteAgentInstanceCmd := &cobra.Command{
-		Use:   "agent-instance ID",
-		Short: "Delete an AgentInstance",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			deleteAgentInstanceCfg.OutputFormat = outputFormat
-			deleteAgentInstanceCfg.InstanceID = args[0]
-			return agentinstancecli.DeleteCmd(cmd.Context(), deleteAgentInstanceCfg, cmd.OutOrStdout())
-		},
-	}
-	deleteCmd.AddCommand(deleteAgentInstanceCmd)
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
+	// Add subcommands to the respective parent commands
+	getCmd.AddCommand(agentinstancecli.NewGetCommand(cfg, &outputFormat))
+	getCmd.AddCommand(agenttemplatecli.NewGetCommand(&cfg.Namespace, &outputFormat))
+	createCmd.AddCommand(agentinstancecli.NewCreateCommand(cfg, &outputFormat))
+	deleteCmd.AddCommand(agentinstancecli.NewDeleteCommand(cfg, &outputFormat))
+	rootCmd.AddCommand(commands.NewInstallCommand(cfg))
+	rootCmd.AddCommand(commands.NewUninstallCommand(&cfg.Namespace))
+	rootCmd.AddCommand(agentinstancecli.NewInvokeCommand(cfg, &outputFormat))
+	rootCmd.AddCommand(commands.NewBugReportCommand(cfg))
+	rootCmd.AddCommand(commands.NewVersionCommand(cfg))
+	rootCmd.AddCommand(commands.NewDashboardCommand(&cfg.Namespace))
+	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(mcp.NewMCPCmd())
+	rootCmd.AddCommand(envdoc.NewEnvCmd())
+	rootCmd.AddCommand(dbcli.NewCommandFromFunc(migrationSources(cfg)))
 
 	return rootCmd
 }
