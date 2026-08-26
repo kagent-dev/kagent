@@ -254,7 +254,7 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
 });
 
 /**
- * Each section narrows on its own, and every column sorts.
+ * Each section narrows on its own, and a match is found wherever it is.
  *
  * Four searches rather than one for the page, because these lists answer four
  * different questions: narrowing the actors to one template must not also empty the
@@ -262,8 +262,16 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
  *
  * The count beside each heading reports both numbers while a search is active. A bare
  * count under a search box is how a reader concludes their cluster has one actor.
+ *
+ * These searches used to be the server's, and the title used to say so. They are the
+ * browser's again: `GetSubstrateSummary`, `ListSubstrateActors` and
+ * `ListSubstrateWorkers` were removed, `GetSubstrateStatus` answers all four lists from
+ * one message, and `api/grpc/operations.ts` filters it in memory. The property being
+ * asserted did not change — a match is still found wherever it is — but the reason it
+ * holds did, from "the server searched everything" to "the browser has everything". See
+ * `playwright/DEFERRED.md` for what that costs and when it stops being true.
  */
-test("substrate: the searches are the server's, and a match is found wherever it is", async ({
+test("substrate: each list narrows on its own, and a match is found wherever it is", async ({
   page,
 }) => {
   await loadPage(page, routes.substrate, { title: "Substrate" });
@@ -273,10 +281,11 @@ test("substrate: the searches are the server's, and a match is found wherever it
   const templatesCard = page.getByTestId("substrate-templates-card");
   const actorsTable = page.getByTestId("substrate-actors-table");
 
-  await test.step("1. the term is sent, not applied to the rows already fetched", async () => {
-    // This is the whole reason the filter moved server-side. The actors are paged, so
-    // narrowing a fetched page searches only that page — and a match on page nine
-    // reads on screen as "no matches", which is worse than no search at all.
+  await test.step("1. the term narrows the list, and finds a row anywhere in it", async () => {
+    // Honest only because the read holds every row. Applied to a page of them it would
+    // search that page, and a match on page nine would read on screen as "no matches",
+    // which is worse than no search at all — so if this read ever pages or truncates,
+    // this search has to go with it.
     await page.getByTestId("substrate-actors-search").locator("input").fill("7f21");
 
     await expect(actorsTable).toContainText("actor-7f21");
@@ -299,28 +308,35 @@ test("substrate: the searches are the server's, and a match is found wherever it
       .getByTestId("substrate-actors-search")
       .locator("input")
       .fill("no-such-actor");
-    // "anywhere in this scope" rather than "on this page" — which is a claim the page
-    // can only make because the server did the narrowing.
+    // "anywhere in this scope" rather than "on this page" — a claim the page can only
+    // make because every row in the scope is in the browser to be searched.
     await expect(actorsTable).toContainText("No actors match your search");
     await expect(actorsCard).toContainText("anywhere in this scope");
   });
 });
 
 /**
- * What the two paged tables deliberately do *not* offer.
+ * Which tables offer a sort, which is currently a decision nobody has revisited.
  *
- * Every column of the actor and worker tables used to sort. That was honest while
- * the page held the whole inventory and is not now: a client-side sorter reorders
- * the page it was handed, so "sort by status descending" shows the last status on
- * *this page* rather than in the cluster — the first row of a sorted 410,110 actors
- * is almost certainly not among the hundred on screen.
+ * Every column of the actor and worker tables used to sort. The sorters were taken away
+ * when those lists became paged reads, and the reasoning was sound: a client-side sorter
+ * reorders the page it was handed, so "sort by status descending" shows the last status
+ * on *this page* rather than in the cluster, and the first row of a sorted 410,110
+ * actors is almost certainly not among the hundred on screen.
  *
- * A control that looks like sorting and sorts a hundredth of the data is the kind of
- * quiet half-truth this codebase keeps having to undo, so the sorters are gone and
- * the server's order stands. The two inline tables keep theirs, because they really
- * do hold everything.
+ * That reason has gone. `ListSubstrateActors` and `ListSubstrateWorkers` were removed,
+ * `GetSubstrateStatus` returns the whole inventory again, and these tables hold every
+ * row — so a sorter here would now be as honest as the one the templates table keeps.
+ * The sorters have not come back, which is why this test's name no longer claims a
+ * principle: it pins what the page does today, and the open question is whether the
+ * actor and worker tables should sort again now that they could.
+ *
+ * Kept rather than deleted because the assertion is still load-bearing in one direction.
+ * If these reads are paged again — and `DEFERRED.md` explains why they were the first
+ * time — a sorter added in the meantime becomes exactly the half-truth described above,
+ * and this is what would object.
  */
-test("substrate: the paged tables do not pretend to sort, and the inline ones do", async ({
+test("substrate: the actor and worker tables offer no sort, and the inline ones do", async ({
   page,
 }) => {
   await loadPage(page, routes.substrate, { title: "Substrate" });
@@ -333,19 +349,25 @@ test("substrate: the paged tables do not pretend to sort, and the inline ones do
       const sortable = await headers.evaluateAll((cells) =>
         cells.filter((cell) => cell.className.includes("column-has-sorters")).length,
       );
-      expect(sortable, `${testId} should not offer a sort it cannot honour`).toBe(0);
+      expect(
+        sortable,
+        `${testId} offers no sort today; adding one is a decision, and paging these reads again would make it wrong`,
+      ).toBe(0);
     }
   });
 
-  await test.step("2. the pools and templates still sort, because they are whole", async () => {
+  await test.step("2. the pools and templates do sort", async () => {
     const headers = page.getByTestId("substrate-templates-table").locator("th");
     await expect(headers.first()).toHaveClass(/column-has-sorters/);
   });
 
-  await test.step("3. the actors arrive grouped by status, which is the server's order", async () => {
+  await test.step("3. the actors are grouped by status, in an order nobody asked for", async () => {
     // Stated rather than asked for: ate-api returns actors in whatever order it holds
-    // them, so the same actor would appear somewhere different on every poll. The
-    // server groups them so a row does not move under the pointer while it is read.
+    // them, so the same actor would appear somewhere different on every poll. Something
+    // has to impose an order, and with the paged reads gone that something is
+    // `api/grpc/operations.ts`, which sorts what it filtered — where it used to be the
+    // server. Either way the point is that a row does not move under the pointer while
+    // it is being read.
     const statuses = await page
       .getByTestId("substrate-actors-table")
       .locator(".ant-table-row")
