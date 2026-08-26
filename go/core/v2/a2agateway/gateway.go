@@ -41,7 +41,7 @@ const (
 	// AgentInstanceIDHeader selects the AgentInstance within that namespace.
 	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
 	// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
-	TaskCreatedAtMetadataKey = "io.kagent/task-created-at"
+	TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
 )
 
 type instanceStore interface {
