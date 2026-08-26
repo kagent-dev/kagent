@@ -7,6 +7,7 @@
 package apiv1alpha1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1399,7 +1400,7 @@ var File_kagent_api_v1alpha1_agent_instances_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\n" +
-	")kagent/api/v1alpha1/agent_instances.proto\x12\x13kagent.api.v1alpha1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\";\n" +
+	")kagent/api/v1alpha1/agent_instances.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\xf5\x05\n" +
@@ -1422,22 +1423,23 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\x06labels\x18\r \x03(\v2..kagent.api.v1alpha1.AgentInstance.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9a\x01\n" +
-	"\x1aCreateAgentInstanceRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x18\n" +
-	"\aharness\x18\x02 \x01(\tR\aharness\x12%\n" +
-	"\x0eagent_template\x18\x03 \x01(\tR\ragentTemplate\x12\x1d\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc1\x01\n" +
+	"\x1aCreateAgentInstanceRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12!\n" +
+	"\aharness\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aharness\x12.\n" +
+	"\x0eagent_template\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ragentTemplate\x12)\n" +
 	"\n" +
-	"request_id\x18\x04 \x01(\tR\trequestId\"h\n" +
+	"request_id\x18\x04 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"h\n" +
 	"\x1bCreateAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"c\n" +
-	"\x17GetAgentInstanceRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\"e\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"u\n" +
+	"\x17GetAgentInstanceRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"e\n" +
 	"\x18GetAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xb6\x02\n" +
-	"\x19ListAgentInstancesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12b\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xbf\x02\n" +
+	"\x19ListAgentInstancesRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12b\n" +
 	"\fmatch_labels\x18\x02 \x03(\v2?.kagent.api.v1alpha1.ListAgentInstancesRequest.MatchLabelsEntryR\vmatchLabels\x12!\n" +
 	"\fall_creators\x18\x03 \x01(\bR\vallCreators\x124\n" +
 	"\x04page\x18\x04 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x1a>\n" +
@@ -1446,20 +1448,20 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
 	"\x1aListAgentInstancesResponse\x12K\n" +
 	"\x0fagent_instances\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentInstanceR\x0eagentInstances\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"g\n" +
-	"\x1bSuspendAgentInstanceRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\"i\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"y\n" +
+	"\x1bSuspendAgentInstanceRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"i\n" +
 	"\x1cSuspendAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"f\n" +
-	"\x1aResumeAgentInstanceRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\"h\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"x\n" +
+	"\x1aResumeAgentInstanceRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"h\n" +
 	"\x1bResumeAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"f\n" +
-	"\x1aDeleteAgentInstanceRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\"h\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"x\n" +
+	"\x1aDeleteAgentInstanceRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"h\n" +
 	"\x1bDeleteAgentInstanceResponse\x12I\n" +
 	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x96\x02\n" +
 	"\x12AgentInstanceShare\x12\x0e\n" +
@@ -1471,26 +1473,27 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"permission\x18\x05 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionR\n" +
 	"permission\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xbe\x01\n" +
-	"\x1fCreateAgentInstanceShareRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\x12Q\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xdc\x01\n" +
+	"\x1fCreateAgentInstanceShareRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x12]\n" +
 	"\n" +
-	"permission\x18\x03 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionR\n" +
+	"permission\x18\x03 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\n" +
 	"permission\"w\n" +
 	" CreateAgentInstanceShareResponse\x12=\n" +
 	"\x05share\x18\x01 \x01(\v2'.kagent.api.v1alpha1.AgentInstanceShareR\x05share\x12\x14\n" +
-	"\x05token\x18\x02 \x01(\tR\x05token\"\xa0\x01\n" +
-	"\x1eListAgentInstanceSharesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\x124\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"\xb2\x01\n" +
+	"\x1eListAgentInstanceSharesRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x124\n" +
 	"\x04page\x18\x03 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\x99\x01\n" +
 	"\x1fListAgentInstanceSharesResponse\x12?\n" +
 	"\x06shares\x18\x01 \x03(\v2'.kagent.api.v1alpha1.AgentInstanceShareR\x06shares\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"Z\n" +
-	"\x1fRevokeAgentInstanceShareRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x19\n" +
-	"\bshare_id\x18\x02 \x01(\tR\ashareId\"\"\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"l\n" +
+	"\x1fRevokeAgentInstanceShareRequest\x12%\n" +
+	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12\"\n" +
+	"\bshare_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ashareId\"\"\n" +
 	" RevokeAgentInstanceShareResponse*\x87\x02\n" +
 	"\x12AgentInstanceState\x12$\n" +
 	" AGENT_INSTANCE_STATE_UNSPECIFIED\x10\x00\x12!\n" +

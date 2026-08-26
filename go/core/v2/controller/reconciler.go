@@ -13,6 +13,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -47,6 +48,7 @@ type ReconciliationFailure struct {
 
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
+	agentTemplates krt.Collection[*kagentv1alpha3.AgentTemplate],
 	modelConfigs krt.Collection[*kagentv1alpha3.ModelConfig],
 	remoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer],
 	configMaps krt.Collection[*corev1.ConfigMap],
@@ -58,10 +60,12 @@ func newPairReconciliations(
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
 		state := &PairReconciliation{Pair: pair}
 		reader := collectionReader{
-			ctx: ctx, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
+			ctx: ctx, agentTemplates: agentTemplates, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
 			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
 		}
-		revision, err := v2translator.NewCompiler(reader).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
+		revision, err := v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+		}).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *v2translator.ValidationError

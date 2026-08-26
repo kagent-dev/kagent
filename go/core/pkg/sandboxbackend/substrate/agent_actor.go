@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -13,6 +14,8 @@ import (
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // SandboxAgentActorBackend manages ate-api actors for SandboxAgent workloads.
 type SandboxAgentActorBackend struct {
@@ -123,7 +126,7 @@ func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *
 	}
 	switch actor.GetStatus().GetState() {
 	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-		if err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if _, err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
 		}
 	}

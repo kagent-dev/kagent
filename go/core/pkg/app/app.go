@@ -28,22 +28,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/gorilla/mux"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/core/internal/metrics"
 	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 
-	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
-	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
-	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
@@ -65,10 +60,8 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -86,7 +79,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -227,11 +219,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.BoolVar(&cfg.MCPEgressPlaintext, "mcp-egress-plaintext", false,
 		"When set, rewrite RemoteMCPServer tool URLs and the controller's tool-discovery dial from https://host[:port] to http://host:<port-or-443> so MCP traffic egresses in plaintext to a TLS-originating proxy. Off by default.")
 
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
-	commandLine.StringVar(&agent_translator.AgentImageDigest, "image-digest", agent_translator.AgentImageDigest, "Manifest digest (sha256:...) for the agent image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
-
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443).")
 	commandLine.StringVar(&cfg.Substrate.AteAPICAFile, "substrate-ate-api-ca-file", "", "Path to the CA certificates used to verify ate-api.")
 	commandLine.StringVar(&cfg.Substrate.AteAPIClientCertFile, "substrate-ate-api-client-cert-file", "", "Path to the PEM client certificate and private key used for ate-api mTLS.")
@@ -299,9 +286,14 @@ type CtrlManagerConfigFunc func(manager.Manager) error
 type ExtensionConfig struct {
 	Authenticator    auth.AuthProvider
 	Authorizer       auth.Authorizer
-	AgentPlugins     []agent_translator.TranslatorPlugin
 	MCPServerPlugins []translator.MCPTranslatorPlugin
-	SandboxBackend   sandboxbackend.Backend
+	// A2AHandler serves the A2A API. grpcserver registers that service only
+	// when this is non-nil, so leaving it unset keeps today's behaviour: the
+	// AgentInstance API is available but nothing can talk to an instance.
+	//
+	// An extension can build one with a2agateway.New, using the DbClient it is
+	// handed in BootstrapConfig.
+	A2AHandler a2asrv.RequestHandler
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -521,15 +513,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "unable to dial substrate ate-api for sandbox agents")
 		os.Exit(1)
 	}
-	substrateLifecycle := substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
-	atenetRouterURL := cfg.Substrate.AtenetRouterURL
-	if atenetRouterURL == "" {
-		atenetRouterURL = substrate.DefaultAtenetRouterURL
-	}
-	substrateSandboxActorBackend := substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
-	agentHarnessSessionActorBackend := substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
-	extensionCfg.SandboxBackend = substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
-
 	v2Runtime, err := v2controller.NewRuntime(mgr.GetConfig(), watchNamespacesList, ctx.Done())
 	if err != nil {
 		setupLog.Error(err, "unable to initialize v2 KRT runtime")
@@ -550,136 +533,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 	agentInstanceService := agentinstance.NewService(dbClient, extensionCfg.Authorizer, instanceWorkflow)
-
-	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
-		mgr.GetClient(),
-		watchNamespacesList,
-		cfg.DefaultModelConfig,
-		extensionCfg.AgentPlugins,
-		cfg.Proxy.URL,
-		extensionCfg.SandboxBackend,
-		cfg.MCPEgressPlaintext,
-	)
-	rcnclr := reconciler.NewKagentReconciler(
-		apiTranslator,
-		mgr.GetClient(),
-		dbClient,
-		cfg.DefaultModelConfig,
-		watchNamespacesList,
-		extensionCfg.SandboxBackend,
-		cfg.MCPEgressPlaintext,
-	)
-
-	if err := (&controller.ServiceController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MCPServerToolDiscovery")
-		os.Exit(1)
-	}
-
-	if err := (&controller.MCPServerToolController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Service")
-		os.Exit(1)
-	}
-
-	kubeClient := mgr.GetClient()
-	substrateHarnessBackends := buildSubstrateHarnessBackends(substrateAteClient)
-
-	if err = (&controller.SandboxAgentController{
-		Client:                mgr.GetClient(),
-		Scheme:                mgr.GetScheme(),
-		Reconciler:            rcnclr,
-		AdkTranslator:         apiTranslator,
-		SubstrateLifecycle:    substrateLifecycle,
-		SubstrateActorBackend: substrateSandboxActorBackend,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
-		os.Exit(1)
-	}
-	if err := (&controller.SubstrateAgentHarnessController{
-		Client:              kubeClient,
-		Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
-		Backends:            substrateHarnessBackends,
-		SubstrateLifecycle:  substrateLifecycle,
-		SessionActorBackend: agentHarnessSessionActorBackend,
-		DbClient:            dbClient,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
-		os.Exit(1)
-	}
-
-	if err = (&controller.ModelConfigController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
-		os.Exit(1)
-	}
-
-	if err = (&controller.ModelProviderConfigController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ModelProviderConfig")
-		os.Exit(1)
-	}
-
-	if err = (&controller.RemoteMCPServerController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
-		os.Exit(1)
-	}
-
-	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
-		setupLog.Error(err, "failed to setup indexes for owned lifecycle")
-		os.Exit(1)
-	}
-
-	clientRegistry := a2a.NewAgentClientRegistry()
-
-	// Create MCP handler that invokes agents directly via their A2A clients,
-	// bypassing the controller's own HTTP A2A listener.
-	mcpHandler, err := mcp.NewMCPHandler(
-		mgr.GetClient(),
-		clientRegistry,
-		extensionCfg.Authenticator,
-	)
-	if err != nil {
-		setupLog.Error(err, "unable to create MCP handler")
-		os.Exit(1)
-	}
-
-	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, dbClient)
-	ateneRouterURL := cfg.Substrate.AtenetRouterURL
-	if ateneRouterURL == "" {
-		ateneRouterURL = substrate.DefaultAtenetRouterURL
-	}
-	a2aRegistrar, err := a2a.NewA2ARegistrar(
-		mgr.GetCache(),
-		a2aHandler,
-		clientRegistry,
-		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
-		ateneRouterURL,
-		extensionCfg.Authenticator,
-		mcpHandler,
-		substrateSandboxActorBackend,
-		dbClient,
-	)
-	if err != nil {
-		setupLog.Error(err, "unable to create a2a registrar")
-		os.Exit(1)
-	}
-	if err := mgr.Add(a2aRegistrar); err != nil {
-		setupLog.Error(err, "unable to set up a2a registrar")
-		os.Exit(1)
-	}
 
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
@@ -712,32 +565,15 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	agentHarnessGateway := &handlers.AgentHarnessGatewayConfig{
-		AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
-	}
 	modelConfigService := modelservice.NewService(
 		mgr.GetClient(),
 		extensionCfg.Authorizer,
 		common.GetResourceNamespace(),
-		modelservice.WithProviderModelRefresher(rcnclr),
 	)
-	agentServiceOptions := []agentservice.ServiceOption{
-		agentservice.WithValidator(agentservice.NewManifestValidator(agentservice.ManifestValidatorConfig{
-			KubeClient:         mgr.GetClient(),
-			WatchedNamespaces:  watchNamespacesList,
-			DefaultModelConfig: cfg.DefaultModelConfig,
-			Plugins:            extensionCfg.AgentPlugins,
-			ProxyURL:           cfg.Proxy.URL,
-			SandboxBackend:     extensionCfg.SandboxBackend,
-			MCPEgressPlaintext: cfg.MCPEgressPlaintext,
-		})),
-	}
-	agentServiceOptions = append(agentServiceOptions, agentservice.WithActorLifecycle(agentHarnessSessionActorBackend))
 	agentService := agentservice.NewService(
 		mgr.GetClient(),
 		extensionCfg.Authorizer,
 		cfg.DefaultModelConfig.Namespace,
-		agentServiceOptions...,
 	)
 	toolService := toolservice.NewService(
 		mgr.GetClient(),
@@ -755,22 +591,15 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	))
 	feedbackService := feedbackservice.NewService(dbClient)
 	memoryService := memoryservice.NewService(dbClient)
-	sessionService := sessionservice.NewService(
-		dbClient,
-		sessionservice.WithSandboxLifecycle(mgr.GetClient(), substrateSandboxActorBackend),
-	)
+	sessionService := sessionservice.NewService(dbClient)
 	taskService := taskservice.NewService(dbClient)
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:                   router,
-		BindAddr:                 cfg.HttpServerAddr,
-		KubeClient:               mgr.GetClient(),
-		A2AHandler:               a2aHandler,
-		MCPHandler:               mcpHandler,
-		DbClient:                 dbClient,
-		Authenticator:            extensionCfg.Authenticator,
-		AgentHarnessGateway:      agentHarnessGateway,
-		AgentHarnessSessionActor: agentHarnessSessionActorBackend,
+		Router:        router,
+		BindAddr:      cfg.HttpServerAddr,
+		KubeClient:    mgr.GetClient(),
+		DbClient:      dbClient,
+		Authenticator: extensionCfg.Authenticator,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -800,6 +629,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		SessionService:        sessionService,
 		TaskService:           taskService,
 		AgentInstanceService:  agentInstanceService,
+		A2AHandler:            extensionCfg.A2AHandler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create gRPC server")
@@ -824,17 +654,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 }
 
-func buildSubstrateHarnessBackends(client *substrate.Client) map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend {
-	backends := make(map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
-	for _, b := range []v1alpha3.AgentHarnessBackendType{
-		v1alpha3.AgentHarnessBackendOpenClaw,
-		v1alpha3.AgentHarnessBackendHermes,
-	} {
-		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
-	}
-	return backends
-}
-
 func substrateAppConfig(cfg *Config) substrate.Config {
 	sc := substrate.Config{
 		AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
@@ -844,24 +663,6 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 		CallTimeout:    cfg.Substrate.CallTimeout,
 	}
 	return sc
-}
-
-func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
-	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
-		// ImageRegistry/ImageRepository mirror the declarative-agent image config
-		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
-		// workload images resolve against the same (possibly private/mirrored)
-		// registry as the rest of the kagent images.
-		ImageRegistry:   agent_translator.DefaultImageConfig.Registry,
-		ImageRepository: agent_translator.DefaultImageConfig.Repository,
-		// DefaultWorkloadImage is left unset: each backend falls back to its own
-		// digest-pinned default (acpSandboxOpenClawImage / acpSandboxHermesImage)
-		// resolved at ActorTemplate build time.
-		DefaultWorkerPool: types.NamespacedName{
-			Namespace: cfg.Substrate.DefaultWorkerPoolNamespace,
-			Name:      cfg.Substrate.DefaultWorkerPoolName,
-		},
-	}, ate)
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

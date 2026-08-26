@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,8 +32,9 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent:   &v1alpha3.KagentHarness{},
-			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Kagent:                &v1alpha3.KagentHarness{},
+			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			Substrate: v1alpha3.HarnessSubstratePolicy{
 				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
 			},
@@ -71,6 +73,9 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
 	}
+	if config.SessionDBURL != "sqlite:////data/sessions.db" {
+		t.Fatalf("session DB URL = %q", config.SessionDBURL)
+	}
 	plugins := config.AgentPlugins
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", config)
@@ -92,13 +97,41 @@ func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
 	t.Helper()
 	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	return v2translator.NewCompiler(testReader{kube})
+	reader := testReader{kube}
+	return v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+	})
 }
 
 type testReader struct{ client.Client }
 
 func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
 	return r.Client.Get(ctx, key, object.(client.Object))
+}
+
+type testHarnessCompiler struct{ input *v2translator.HarnessInput }
+
+func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
+	c.input = input
+	return &v2translator.Revision{AgentTemplateName: input.Root.Template.Name}, nil
+}
+
+func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
+	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(modelConfig()).Build()
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+	}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}}}
+
+	revision, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.NoError(t, err)
+	require.Equal(t, "assistant", revision.AgentTemplateName)
+	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
 }
 
 func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
@@ -127,8 +160,9 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent:   &v1alpha3.KagentHarness{},
-			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Kagent:                &v1alpha3.KagentHarness{},
+			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			Substrate: v1alpha3.HarnessSubstratePolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
 				SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
@@ -176,4 +210,96 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	if len(spec.EgressDestinations) != 3 || spec.EgressDestinations[0] != "api.openai.com" || spec.EgressDestinations[1] != "mcp.example.com" || spec.EgressDestinations[2] != "second-mcp.example.com" {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
 	}
+}
+
+func TestCompileAgentTemplateSharedAgent(t *testing.T) {
+	selector := &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{MatchLabels: map[string]string{"runtime": "kagent"}}}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent: &v1alpha3.KagentHarness{}, AllowedAgentTemplates: selector,
+			Workload:  v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+		},
+	}
+	child := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "researcher", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: "search"}, Tools: []string{"lookup"},
+			}}},
+			Skills: []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{
+				OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			}}},
+		},
+	}
+	root := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+				Name: "web_researcher", Description: "research the web", TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: child.Name},
+			}}},
+		},
+	}
+	revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgentTemplate(context.Background(), harness, root)
+	require.NoError(t, err)
+	var config adk.AgentConfig
+	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+	require.Len(t, config.SubAgents, 1)
+	require.Equal(t, "web_researcher", config.SubAgents[0].Name)
+	require.Equal(t, "research the web", config.SubAgents[0].Description)
+	require.Equal(t, "research carefully", config.SubAgents[0].Instruction)
+	require.Equal(t, []string{"lookup"}, config.SubAgents[0].HttpTools[0].Tools)
+	require.Equal(t, "review", config.SubAgents[0].AgentPlugins.Skills[0].Name)
+	require.Contains(t, revision.EgressDestinations, "search.example.com")
+	require.Contains(t, revision.EgressDestinations, "ghcr.io")
+	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+}
+
+func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {
+	selector := &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{MatchLabels: map[string]string{"runtime": "kagent"}}}
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		Kagent: &v1alpha3.KagentHarness{}, AllowedAgentTemplates: selector,
+	}}
+	binding := func(name, target string) v1alpha3.ToolBinding {
+		return v1alpha3.ToolBinding{Agent: &v1alpha3.AgentToolBinding{Name: name, Description: name, TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: target}}}
+	}
+	template := func(name string, tools ...v1alpha3.ToolBinding) *v1alpha3.AgentTemplate {
+		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Tools: tools}}
+	}
+
+	t.Run("shared DAG", func(t *testing.T) {
+		child := template("child")
+		root := template("root", binding("first", child.Name), binding("second", child.Name))
+		_, err := compiler(t, child).CompileAgentTemplate(context.Background(), harness, root)
+		require.ErrorContains(t, err, "referenced more than once")
+	})
+	t.Run("cycle", func(t *testing.T) {
+		root := template("root", binding("child", "child"))
+		child := template("child", binding("root", root.Name))
+		_, err := compiler(t, root, child).CompileAgentTemplate(context.Background(), harness, root)
+		require.ErrorContains(t, err, "cycle")
+	})
+	t.Run("consecutive shared depth", func(t *testing.T) {
+		root := template("root", binding("child", "child"))
+		child := template("child", binding("grandchild", "grandchild"))
+		grandchild := template("grandchild")
+		_, err := compiler(t, child, grandchild).CompileAgentTemplate(context.Background(), harness, root)
+		require.ErrorContains(t, err, "consecutive Shared")
+	})
+	t.Run("not admitted", func(t *testing.T) {
+		root := template("root", binding("child", "child"))
+		child := template("child")
+		child.Labels = nil
+		_, err := compiler(t, child).CompileAgentTemplate(context.Background(), harness, root)
+		require.ErrorContains(t, err, "not admitted")
+	})
+	t.Run("dedicated", func(t *testing.T) {
+		root := template("root", binding("child", "child"))
+		root.Spec.Tools[0].Agent.Isolation = v1alpha3.AgentToolIsolationDedicated
+		_, err := compiler(t).CompileAgentTemplate(context.Background(), harness, root)
+		require.ErrorContains(t, err, "Dedicated")
+	})
 }

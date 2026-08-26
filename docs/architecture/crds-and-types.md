@@ -131,7 +131,7 @@ ModelConfigSpec
 │   ├── baseUrl, temperature, maxTokens, topP
 │   ├── frequencyPenalty, presencePenalty
 │   ├── seed, n, timeout
-│   └── reasoningEffort: none | minimal | low | medium | high
+│   └── reasoningEffort: none | minimal | low | medium | high | xhigh | max
 ├── anthropic: AnthropicConfig
 │   └── baseUrl, maxTokens, temperature, topP, topK
 ├── azureOpenAI: AzureOpenAIConfig
