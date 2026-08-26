@@ -557,3 +557,70 @@ test("agent rail: the newest conversation is at the top", async ({ page }) => {
     `chat-session-${instances.suspended}`,
   );
 });
+
+test("agent rail: a conversation can be renamed from inside it, two ways", async ({
+  page,
+}) => {
+  /*
+   * Renaming used to live only in the agent's conversations table, which meant leaving
+   * the conversation you were reading, finding it in a list, renaming it there and
+   * coming back — for the one field on the record its reader owns. It is offered on the
+   * conversation itself now, from the row's action menu and from the details modal.
+   *
+   * The proof is the rail row's own text rather than the toast: a success message says
+   * the app believes it worked, and a rename that failed would still show one.
+   */
+  await page.goto(agentChat(instances.ready));
+  const rail = page.getByTestId("chat-sessions");
+  await expect(rail.locator('a[data-testid^="chat-session-"]').first()).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await test.step("1. the row's action menu offers it", async () => {
+    await page.locator(`[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`).click({
+      force: true,
+    });
+    // The dropdown animates in, and a click landing mid-transition is refused as
+    // unstable rather than missing the element.
+    await page.waitForTimeout(400);
+    await page.getByRole("menuitem", { name: "Rename chat" }).click();
+
+    const field = page.getByTestId("conversation-rename-input").locator("input");
+    // Empty for an unnamed conversation rather than pre-filled with the placeholder,
+    // or clearing a title would be impossible.
+    await expect(field).toHaveValue("");
+    await field.fill("Named from the rail");
+    await page.getByRole("button", { name: "Save" }).click();
+  });
+
+  await test.step("2. and the rail says so without a reload", async () => {
+    await expect(
+      rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`),
+    ).toContainText("Named from the rail", { timeout: 30_000 });
+  });
+
+  await test.step("3. the details modal offers it too, on the open conversation", async () => {
+    await page.getByTestId("chat-details").click();
+    await expect(page.getByTestId("conversation-details-fields")).toBeVisible();
+    // The name is a row on the record now, which is what gives the pencil something to
+    // sit beside — and what a reader came to this modal to check.
+    await expect(page.getByTestId("conversation-details-fields")).toContainText(
+      "Tuesday cluster review",
+    );
+
+    await page.getByTestId("conversation-details-rename").click();
+    const field = page.getByTestId("conversation-rename-input").locator("input");
+    // Pre-filled here, because this conversation *has* a name: the box opens on the
+    // stored one so an edit is an edit rather than a retype.
+    await expect(field).toHaveValue("Tuesday cluster review");
+    await field.fill("Named from the details");
+    await page.getByRole("button", { name: "Save" }).click();
+  });
+
+  await test.step("4. and the record behind the modal is re-read, not just the toast", async () => {
+    await expect(page.getByTestId("conversation-details-fields")).toContainText(
+      "Named from the details",
+      { timeout: 30_000 },
+    );
+  });
+});

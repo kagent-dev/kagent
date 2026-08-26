@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
 import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
+import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
@@ -24,6 +25,7 @@ import {
   PanelLeftOpen,
   Search,
   SquarePen,
+  Pencil,
   Trash,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -1121,6 +1123,9 @@ export function AgentRail({
                 href={url.chat({ namespace: candidate.namespace, id: candidate.id })}
                 isActive={candidate.id === ref.id}
                 onDelete={deleteConversation}
+                // The list this row came from, re-read so the new name is on screen
+                // before the toast says it changed.
+                onRenamed={conversations.refresh}
                 isDeleting={deletingId === candidate.id}
                 isSelected={selected.has(candidate.id)}
                 onToggleSelected={toggleSelected}
@@ -1334,6 +1339,7 @@ function ChatEntry({
   href,
   isActive,
   onDelete,
+  onRenamed,
   shownState,
   shownOperation,
   isDeleting,
@@ -1346,6 +1352,8 @@ function ChatEntry({
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance) => void;
+  /** A rename landed, so whatever read this row came from is now stale. */
+  onRenamed: () => void | Promise<void>;
   /**
    * The state to draw, which is not always the state on the record.
    *
@@ -1378,6 +1386,7 @@ function ChatEntry({
    * question is *which one*.
    */
   const [isConfirming, setConfirming] = useState(false);
+  const [isRenaming, setRenaming] = useState(false);
 
   return (
     <li css={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
@@ -1490,6 +1499,12 @@ function ChatEntry({
         menu={{
           items: [
             {
+              key: "rename",
+              icon: <Pencil size={13} />,
+              label: "Rename chat",
+              onClick: () => setRenaming(true),
+            },
+            {
               key: "delete",
               danger: true,
               icon: <Trash size={13} />,
@@ -1517,6 +1532,16 @@ function ChatEntry({
           }}
         />
       </Dropdown>
+
+      {/* Beside the menu that opens it rather than at the rail's root: the row already
+          holds the delete confirmation the same way, and one dialog per row costs
+          nothing while it is closed. */}
+      <RenameConversationDialog
+        instance={instance}
+        open={isRenaming}
+        onClose={() => setRenaming(false)}
+        onRenamed={onRenamed}
+      />
     </li>
   );
 }

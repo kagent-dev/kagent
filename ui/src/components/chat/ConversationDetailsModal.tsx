@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Alert, Descriptions, Modal, Skeleton } from "antd";
 import { useTheme } from "@emotion/react";
 import { instanceFields } from "@/components/agent-instances/instanceFields";
+import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { bareName, type AgentInstance, type ApiResource } from "@/api";
 
@@ -29,6 +31,7 @@ export function ConversationDetailsModal({
 }) {
   const theme = useTheme();
   const data = instance.data;
+  const [isRenaming, setRenaming] = useState(false);
 
   const agentHref = data?.agentTemplate && data.harness
     ? agentPageUrl({
@@ -65,8 +68,25 @@ export function ConversationDetailsModal({
           bordered
           size="small"
           column={2}
-          items={instanceFields(data, theme, agentHref)}
+          items={instanceFields(data, theme, agentHref, () => setRenaming(true))}
           data-testid="conversation-details-fields"
+        />
+
+        {/*
+          A dialog over a modal, which is worth a word because it is usually a smell.
+          The alternative was editing the name in place in this table, and that means a
+          second copy of the field's validation and of the write behind it — and this
+          record exists in the first place because two copies of it drifted. antd stacks
+          these correctly and returns focus here on close, and what the reader gets is
+          the same box the table and the rail open.
+        */}
+        <RenameConversationDialog
+          instance={data}
+          open={isRenaming}
+          onClose={() => setRenaming(false)}
+          // This modal reads the conversation it describes, so re-reading it is what
+          // puts the new name into the row above.
+          onRenamed={instance.refresh}
         />
         </>
       )}

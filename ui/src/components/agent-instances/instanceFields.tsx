@@ -1,12 +1,14 @@
-import { Space, Tag, Typography } from "antd";
+import { Button, Space, Tag, Tooltip, Typography } from "antd";
 import type { DescriptionsProps } from "antd";
 import type { Theme } from "@emotion/react";
+import { Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import { bareName } from "@/api";
 import {
   labelPairs,
   relativeAge,
+  shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { NotReported } from "@/components/agent-instances/InstanceTags";
 import { buildPath, paths } from "@/router/routes";
@@ -26,8 +28,47 @@ export function instanceFields(
   theme: Theme,
   /** Where the agent's own page is, when this record names a pair. */
   agentHref?: string,
+  /**
+   * Offered where the reader can act on it, and omitted where they cannot.
+   *
+   * The name is the one field on this record a reader owns, so it is the one field worth
+   * an edit control — and it is first, because it is what they came to check. Absent, the
+   * row still shows the name; it is the pencil that is conditional, not the fact.
+   */
+  onRename?: () => void,
 ): DescriptionsProps["items"] {
   return [
+  {
+    key: "name",
+    label: "Name",
+    span: 2,
+    children: (
+      <Space size={4}>
+        {data.name ? (
+          <Text>{data.name}</Text>
+        ) : (
+          // Not a gap: an unnamed conversation is the ordinary case, and it is
+          // identified by its id everywhere else in the app. Saying "not reported"
+          // here would read as the controller having failed to send something.
+          <Text css={{ color: theme.color.textMuted }}>
+            Untitled · {shortInstanceId(data.id)}
+          </Text>
+        )}
+        {onRename ? (
+          <Tooltip title="Rename this conversation">
+            <Button
+              type="text"
+              size="small"
+              icon={<Pencil size={13} />}
+              onClick={onRename}
+              data-testid="conversation-details-rename"
+              aria-label="Rename this conversation"
+            />
+          </Tooltip>
+        ) : null}
+      </Space>
+    ),
+  },
   {
     key: "id",
     label: "Instance ID",
