@@ -72,6 +72,9 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 - Pin upstream A2A definitions; do not maintain an editable copy.
 - Keep lifecycle/catalog APIs separate from A2A interaction APIs.
 - Add generated contracts before registering implementations when the roadmap separates those PRs.
+- Put request-intrinsic API validation in the source `.proto` with `buf.validate` annotations. Prefer standard rules, use message or field CEL for one-off domain rules, and add a predefined rule only when the same rule is reused across schemas.
+- The gRPC Protovalidate interceptor enforces these rules before handlers run. Do not duplicate them in handlers or services; keep authorization and checks requiring database, Kubernetes, or network state in the owning service or workflow.
+- Protovalidate stores rules in protobuf descriptors and does not generate validator files. Regenerate Go protobuf code after changing annotations.
 - Run Buf lint, breaking checks when configured, generation, and generated-output verification.
 
 ## Database changes

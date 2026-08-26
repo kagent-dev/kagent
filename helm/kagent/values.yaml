@@ -129,6 +129,15 @@ database:
         limits:
           cpu: 500m
           memory: 512Mi
+      # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+      tolerations: []
+
+      # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+      nodeSelector: {}
+
+      # -- [Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) rules for the bundled PostgreSQL pod.
+      affinity: {}
+
       # -- Pod-level security context for the bundled PostgreSQL deployment.
       podSecurityContext:
         fsGroup: 999
@@ -184,17 +193,8 @@ controller:
   # -- Public gRPC URL advertised by AgentInstance Agent Cards.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
+  # -- The image used for declarative agents.
   agentImage:
-    registry: ""
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
-  # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
-  skillsInitImage:
-    registry: ""
-    repository: kagent-dev/kagent/skills-init
-    tag: "" # Will default to global, then Chart version
-  # -- The image used for the Go (ADK) runtime agent.
-  goAgentImage:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
@@ -337,7 +337,6 @@ controller:
     defaultWorkerPool:
       namespace: ""
       name: ""
-    # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
@@ -735,25 +734,6 @@ grafana-mcp:
     limits:
       cpu: 500m
       memory: 512Mi
-
-querydoc:
-  enabled: true
-  replicas: 1
-  image:
-    registry: ghcr.io
-    repository: kagent-dev/doc2vec/mcp
-    tag: 1.1.14
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  openai:
-    apiKey: ""
-    # secretRef: ""  # Name of existing Secret containing OPENAI_API_KEY. Takes precedence over apiKey.
 
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)

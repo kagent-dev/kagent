@@ -19,13 +19,8 @@ jobs:
         image:
           - controller
           - ui
-          - app
+          - kagent-adk
           - golang-adk
-          - golang-adk-full
-          - skills-init
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
-          - acp-sandbox-claude
     runs-on: ubuntu-latest
     permissions:
       contents: read

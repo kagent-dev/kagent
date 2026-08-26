@@ -114,7 +114,7 @@ async function handleChat(req, res) {
 // noise to the run — like the chat stream above, we answer them locally:
 //
 //   - GET /mcp-apps/**/tools   the controller tries to dial the real MCP server
-//                              (grafana, querydoc, a just-created remote server),
+//                              (grafana, a just-created remote server),
 //                              which isn't reachable in kind → 500. No spec
 //                              asserts tool contents, so we return an empty list.
 //   - GET /sessions/**/shares  fired by ShareButton on every chat mount; the

@@ -35,9 +35,6 @@ ENABLED TOOLS:
 {{- if index .Values "grafana-mcp" "enabled" }}
   - Tool Server: Grafana MCP
 {{- end }}
-{{- if .Values.querydoc.enabled }}
-  - Tool Server: QueryDoc
-{{- end }}
 
 USEFUL COMMANDS:
   # View all kagent resources

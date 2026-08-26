@@ -20,6 +20,8 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/loadmemorytool"
 	"google.golang.org/adk/v2/tool/preloadmemorytool"
+	"google.golang.org/adk/v2/tool/skilltoolset"
+	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 	"google.golang.org/genai"
 )
 
@@ -36,6 +38,10 @@ const (
 // Optional stsPlugin can be provided for token propagation to MCP tools; pass
 // nil if token propagation is not needed.
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
+	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, true, extraTools...)
+}
+
+func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, legacySkillsEnv bool, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
@@ -47,7 +53,32 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
-	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
+	skillsDirectory := agentConfig.SkillsDirectory
+	if skillsDirectory == "" && legacySkillsEnv {
+		skillsDirectory = strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
+	}
+	if skillsDirectory != "" {
+		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
+		skills, err := skillsSource.ListFrontmatters(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load skills: %w", err)
+		}
+		if len(skills) > 0 {
+			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
+			}
+			extraTools = append(extraTools, executionTools...)
+
+			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
+			}
+			toolsets = append(toolsets, skillsToolset)
+			log.Info("Wired local skills", "skillsDirectory", skillsDirectory, "skillCount", len(skills), "executionToolCount", len(executionTools))
+		}
+	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
 
 	var remoteAgentTools []tool.Tool
@@ -80,6 +111,14 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 
 	if agentName == "" {
 		agentName = "agent"
+	}
+	var subAgents []agent.Agent
+	for _, childConfig := range agentConfig.SubAgents {
+		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create sub-agent %q: %w", childConfig.Name, err)
+		}
+		subAgents = append(subAgents, child)
 	}
 
 	// Collect tool names that require approval from HttpTools and SseTools.
@@ -123,6 +162,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		IncludeContents:       llmagent.IncludeContentsDefault,
 		Tools:                 localTools,
 		Toolsets:              toolsets,
+		SubAgents:             subAgents,
 		BeforeToolCallbacks:   beforeToolCallbacks,
 		BeforeModelCallbacks:  beforeModelCallbacks,
 		AfterToolCallbacks: []llmagent.AfterToolCallback{
@@ -163,16 +203,6 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 	}
 	localTools = append(localTools, remoteAgentTools...)
 	localTools = append(localTools, extraTools...)
-
-	skillsDirectory := strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
-	if skillsDirectory != "" {
-		skillsTools, err := tools.NewSkillsTools(skillsDirectory)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create skills tools: %w", err)
-		}
-		localTools = append(localTools, skillsTools...)
-		log.Info("Wired local skills tools", "skillsDirectory", skillsDirectory, "toolCount", len(skillsTools))
-	}
 
 	askUserTool, err := tools.NewAskUserTool()
 	if err != nil {

@@ -39,7 +39,6 @@ func main() {
 		return &app.ExtensionConfig{
 			Authenticator: authenticator,
 			Authorizer:    authorizer,
-			AgentPlugins:  nil,
 		}, nil
 	}, nil)
 }

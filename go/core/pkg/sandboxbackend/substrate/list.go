@@ -48,21 +48,21 @@ func (c *Client) ListWorkers(ctx context.Context) ([]*ateapipb.Worker, error) {
 }
 
 // ActorStatusLabel returns a stable human-readable actor status.
-func ActorStatusLabel(status ateapipb.Actor_Status) string {
+func ActorStatusLabel(status ateapipb.ActorState) string {
 	switch status {
-	case ateapipb.Actor_STATUS_RESUMING:
+	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
 		return "Resuming"
-	case ateapipb.Actor_STATUS_RUNNING:
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING:
 		return "Running"
-	case ateapipb.Actor_STATUS_SUSPENDING:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 		return "Suspending"
-	case ateapipb.Actor_STATUS_SUSPENDED:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 		return "Suspended"
-	case ateapipb.Actor_STATUS_PAUSING:
+	case ateapipb.ActorState_ACTOR_STATE_PAUSING:
 		return "Pausing"
-	case ateapipb.Actor_STATUS_PAUSED:
+	case ateapipb.ActorState_ACTOR_STATE_PAUSED:
 		return "Paused"
-	case ateapipb.Actor_STATUS_UNSPECIFIED:
+	case ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED:
 		return "Unknown"
 	default:
 		return status.String()

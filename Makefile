@@ -52,38 +52,17 @@ KIND_IMAGE_VERSION ?= 1.35.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
-APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
-SKILLS_INIT_IMAGE_NAME ?= skills-init
-ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
-ACP_SANDBOX_HERMES_IMAGE_NAME ?= acp-sandbox-hermes
-ACP_SANDBOX_OPENCLAW_IMAGE_NAME ?= acp-sandbox-openclaw
-ACP_SANDBOX_CLAUDE_IMAGE_NAME ?= acp-sandbox-claude
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
-APP_IMAGE_TAG ?= $(VERSION)
-APP_FULL_IMAGE_TAG ?= $(VERSION)-full
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
-KAGENT_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
-GOLANG_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
-SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
-ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-APP_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_FULL_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
-KAGENT_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_FULL_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
-GOLANG_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_FULL_IMAGE_TAG)
-SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
-ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
-ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
-ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
-ACP_SANDBOX_CLAUDE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_CLAUDE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -240,23 +219,17 @@ build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
 build-all: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
-	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile.full ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-app-full build-controller
+build: buildx-create build-ui build-kagent-adk build-golang-adk build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
-	@echo "App Image: $(APP_IMG)"
-	@echo "App Full Image: $(APP_FULL_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
-	@echo "Kagent ADK Full Image: $(KAGENT_ADK_FULL_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
-	@echo "Golang ADK Full Image: $(GOLANG_ADK_FULL_IMG)"
-	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
 build-monitor: ## Watch BuildKit process list inside the buildx container
@@ -282,17 +255,8 @@ build-cli-local: proto-generate
 build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
-	@echo app=$(APP_IMG)
-	@echo app-full=$(APP_FULL_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
-	@echo kagent-adk-full=$(KAGENT_ADK_FULL_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
-	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
-	@echo skills-init=$(SKILLS_INIT_IMG)
-	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
-	@echo acp-sandbox-hermes=$(ACP_SANDBOX_HERMES_IMG)
-	@echo acp-sandbox-openclaw=$(ACP_SANDBOX_OPENCLAW_IMG)
-	@echo acp-sandbox-claude=$(ACP_SANDBOX_CLAUDE_IMG)
 
 .PHONY: controller-manifests
 controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
@@ -319,73 +283,15 @@ build-kagent-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
-.PHONY: build-app
-build-app: ## Build and push the app image (distroless slim; depends on kagent-adk)
-build-app: buildx-create build-kagent-adk
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
-	$(DOCKER_PUSH) $(APP_IMG)
-
-.PHONY: build-kagent-adk-full
-build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
-build-kagent-adk-full: proto-generate buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
-	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
-
-.PHONY: build-app-full
-build-app-full: ## Build and push the full app image (sandbox runtime; depends on kagent-adk-full)
-build-app-full: buildx-create build-kagent-adk-full
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_FULL_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_FULL_IMG) -f python/Dockerfile.app ./python
-	$(DOCKER_PUSH) $(APP_FULL_IMG)
-
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
 build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
-.PHONY: build-golang-adk-full
-build-golang-adk-full: ## Build and push the Go ADK full image (with extra tooling)
-build-golang-adk-full: proto-generate buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
-	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
-
-.PHONY: build-skills-init
-build-skills-init: ## Build and push the skills-init image
-build-skills-init: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
-	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
-
-.PHONY: build-acp-sandbox
-build-acp-sandbox: ## Build and push all ACP sandbox agent images (hermes, openclaw, claude)
-build-acp-sandbox: build-acp-sandbox-hermes build-acp-sandbox-openclaw build-acp-sandbox-claude
-
-.PHONY: build-acp-sandbox-base
-build-acp-sandbox-base: ## Build and push the ACP sandbox base image (acp-shim only, no agent)
-build-acp-sandbox-base: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target base -t $(ACP_SANDBOX_BASE_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_BASE_IMG)
-
-.PHONY: build-acp-sandbox-hermes
-build-acp-sandbox-hermes: ## Build and push the ACP sandbox Hermes image
-build-acp-sandbox-hermes: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target hermes -t $(ACP_SANDBOX_HERMES_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_HERMES_IMG)
-
-.PHONY: build-acp-sandbox-openclaw
-build-acp-sandbox-openclaw: ## Build and push the ACP sandbox OpenClaw image
-build-acp-sandbox-openclaw: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target openclaw -t $(ACP_SANDBOX_OPENCLAW_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_OPENCLAW_IMG)
-
-.PHONY: build-acp-sandbox-claude
-build-acp-sandbox-claude: ## Build and push the ACP sandbox Claude image
-build-acp-sandbox-claude: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target claude -t $(ACP_SANDBOX_CLAUDE_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_CLAUDE_IMG)
-
 .PHONY: push
-push: ## Push all component images (controller, ui, app, ADKs)
-push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
+push: ## Push all component images (controller, ui, ADKs)
+push: push-controller push-ui push-kagent-adk push-golang-adk
 
 
 ##@ Testing
@@ -394,25 +300,6 @@ push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-gola
 lint: ## Run linters for Go and Python
 	make -C go lint
 	make -C python lint
-
-.PHONY: push-test-agent
-push-test-agent: buildx-create build-kagent-adk build-kagent-adk-full ## Build and push E2E test agent images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)-full"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
-	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/poem-flow:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/basic-openai:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
-
-.PHONY: push-test-skill
-push-test-skill: buildx-create ## Build and push E2E test skill images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
 
 
 ##@ Cluster
@@ -457,8 +344,6 @@ helm-test: helm-version
 helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
-	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
@@ -503,7 +388,6 @@ helm-install-provider: helm-version check-api-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		--set database.postgres.bundled.image.repository=pgvector \
 		--set database.postgres.bundled.image.name=pgvector \
 		--set database.postgres.bundled.image.tag=pg18-trixie \
@@ -717,9 +601,8 @@ report/image-cve: ## Scan built images with grype and write CVE CSV reports to r
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
-	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
+	grype $(CONTAINER_RUNTIME):$(KAGENT_ADK_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/kagent-adk-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
-	grype $(CONTAINER_RUNTIME):$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv
 
 
 ##@ Cleanup

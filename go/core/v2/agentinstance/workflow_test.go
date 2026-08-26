@@ -36,8 +36,15 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if len(actors.actors) != 1 {
 		t.Fatalf("actors = %v", actors.actors)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
-		t.Fatalf("created Actor status = %s", actor.GetStatus())
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
+	}
+	boundary, err := workflow.Quiesce(context.Background(), created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || boundary.Name != "snapshot-1" || boundary.UID != "snapshot-uid" {
+		t.Fatalf("quiesced instance = %+v, boundary = %+v", created, boundary)
 	}
 
 	suspended, err := workflow.Suspend(context.Background(), created)
@@ -47,8 +54,8 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if suspended.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		t.Fatalf("suspended instance = %+v", suspended)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
-		t.Fatalf("suspended Actor status = %s", actor.GetStatus())
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Fatalf("suspended Actor status = %s", actor.GetStatus().GetState())
 	}
 
 	resumed, err := workflow.Resume(context.Background(), suspended)
@@ -65,6 +72,39 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || store.instance != nil || len(actors.actors) != 0 {
 		t.Fatalf("deleted instance = %+v, actors = %v", deleted, actors.actors)
+	}
+}
+
+func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
+	instance := &apiv1alpha1.AgentInstance{
+		Id: "fork-1", Namespace: "team-a", PreparedRevision: "revision-1",
+		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+	}
+	store := &lifecycleTestStore{
+		instance: instance,
+		revision: &dbpkg.RuntimeRevision{
+			Revision: "revision-1", ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+		},
+	}
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	checkpoint := &dbpkg.AgentInstanceCheckpoint{
+		ID: "checkpoint-1", SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid",
+	}
+	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]
+	if fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
+		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
+		actor.GetSourceSnapshotTag().GetName() != "checkpoint-checkpoint-1" {
+		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
+	}
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
+	store.instance = instance
+	actor.SourceSnapshotTag.Name = "wrong-tag"
+	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint); err == nil {
+		t.Fatal("Fork() accepted an existing Actor with the wrong snapshot tag")
 	}
 }
 
@@ -117,7 +157,23 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 	actor := &ateapipb.Actor{
 		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
-		Status: ateapipb.Actor_STATUS_SUSPENDED,
+		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+	}
+	a.actors[actorKey(atespace, name)] = actor
+	return actor, nil
+}
+
+func (a *lifecycleTestActors) CreateActorFromSnapshotTag(_ context.Context, atespace, name, templateNamespace, templateName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
+	actor := &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
+		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
+		SourceSnapshotTag: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
+		Status: &ateapipb.ActorStatus{
+			State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+			SourceSnapshot: &ateapipb.ActorSourceSnapshotStatus{
+				Snapshot: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: "snapshot-1"}, SnapshotUid: "snapshot-uid",
+			},
+		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
 	return actor, nil
@@ -125,13 +181,22 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 
 func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
-	actor.Status = ateapipb.Actor_STATUS_RUNNING
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	return actor, nil
 }
 
-func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) error {
-	a.actors[actorKey(atespace, name)].Status = ateapipb.Actor_STATUS_SUSPENDED
-	return nil
+func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor := a.actors[actorKey(atespace, name)]
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	actor.Status.LatestSnapshot = &ateapipb.ObjectRef{Atespace: atespace, Name: "snapshot-1"}
+	return actor, nil
+}
+
+func (a *lifecycleTestActors) GetActorSnapshot(_ context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
+	return &ateapipb.ActorSnapshot{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "snapshot-uid"},
+		Status:   &ateapipb.ActorSnapshotStatus{ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA},
+	}, nil
 }
 
 func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {

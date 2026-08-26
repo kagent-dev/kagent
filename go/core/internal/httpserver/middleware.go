@@ -2,15 +2,12 @@ package httpserver
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -85,52 +82,6 @@ func contentTypeMiddleware(next http.Handler) http.Handler {
 		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
 			w.Header().Set("Content-Type", "application/json")
 		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// shareTokenMiddleware validates X-Share-Token headers.
-// It runs after the auth middleware, so the caller is already authenticated.
-// When the header is present and resolves to a valid share record, a ShareContext
-// is stored on the request context for A2A task queries and write enforcement.
-func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("X-Share-Token")
-		if token == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		_, ok := auth.AuthSessionFrom(r.Context())
-		if !ok {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		share, err := s.config.DbClient.GetSessionShareByToken(r.Context(), token)
-		if err != nil {
-			if errors.Is(err, database.ErrNotFound) {
-				http.Error(w, "Invalid or expired share token", http.StatusForbidden)
-			} else {
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
-			}
-			return
-		}
-
-		callerSession, _ := auth.AuthSessionFrom(r.Context())
-		callerID := callerSession.Principal().User.ID
-		if err := s.config.DbClient.RecordShareAccess(r.Context(), callerID, share.ID); err != nil {
-			log := ctrllog.FromContext(r.Context())
-			log.Error(err, "failed to record share access", "shareID", share.ID)
-		}
-
-		sc := &auth.ShareContext{
-			Token:     token,
-			SessionID: share.SessionID,
-			UserID:    share.UserID,
-			ReadOnly:  share.ReadOnly,
-		}
-		r = r.WithContext(auth.ShareContextTo(r.Context(), sc))
 		next.ServeHTTP(w, r)
 	})
 }

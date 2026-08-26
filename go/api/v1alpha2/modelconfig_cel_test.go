@@ -158,6 +158,19 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "max reasoning effort accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-reasoning-max", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-5.6-luna",
+						Provider: ModelProviderOpenAI,
+						OpenAI:   &OpenAIConfig{ReasoningEffort: new(OpenAIReasoningEffort("max"))},
+					},
+				}
+			},
+		},
+		{
 			name: "minimal reasoning effort remains accepted",
 			build: func() ctrl_client.Object {
 				return &ModelConfig{

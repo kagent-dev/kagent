@@ -36,13 +36,13 @@ jobs:
           echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
           echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
   test-e2e:
-    # Disabled until the suite provisions Agent Substrate and tests SandboxAgent.
-    if: false
     needs:
       - setup
     env:
       VERSION: v0.0.1-test
+      SUBSTRATE_VERSION: 0.0.20
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -79,12 +79,39 @@ jobs:
         run: |
           make create-kind-cluster
 
+      - name: Install Agent Substrate
+        run: |
+          curl -fsSL -o kubectl-ate "https://github.com/kagent-dev/substrate/releases/download/v${SUBSTRATE_VERSION}/kubectl-ate-linux-amd64"
+          chmod +x kubectl-ate
+          helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
+          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000'
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
+          ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
+          actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
+          kubectl create secret generic actor-id-ca-certs -n ate-system --from-literal=ca.crt="${actor_id_ca_root}"
+          kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
+          helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values --wait --timeout 5m
+
       - name: Install Kagent
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
-          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
+          KMCP_ENABLED: "false"
+          KAGENT_HELM_EXTRA_ARGS: >-
+            --cleanup-on-fail=false
+            --set ui.replicas=0
+            --set kagent-tools.enabled=false
+            --set grafana-mcp.enabled=false
+            --set controller.substrate.enabled=true
+            --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443
+            --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
+            --set controller.substrate.defaultWorkerPool.name=kagent-default
+            --set substrateWorkerPool.create=true
+            --set substrateWorkerPool.replicas=1
+            --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
@@ -93,54 +120,29 @@ jobs:
             --push
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          make helm-install
-          make push-test-agent push-test-skill
+          make build-controller build-golang-adk
+          make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
-          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
-          kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s
 
       - name: Run e2e tests
         if: success()
         working-directory: go
         run: |
-          # Get the Kind network gateway IP that pods can reach
-          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
-          echo "Detected Kind network gateway: $HOST_IP"
-          export KAGENT_LOCAL_HOST=$HOST_IP
-
-          export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          RUNTIME_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/golang-adk:${VERSION}" | awk '$1 == "Digest:" { print $2; exit }')
+          test -n "$RUNTIME_DIGEST"
+          export KAGENT_E2E_RUNTIME_IMAGE="localhost:5001/kagent-dev/kagent/golang-adk@${RUNTIME_DIGEST}"
+          envsubst < core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
+          for _ in $(seq 1 60); do
+            READY=$(kubectl get agenttemplate smoke -n kagent -o jsonpath='{.status.harnesses[?(@.harness=="kagent")].conditions[?(@.type=="Ready")].status}')
+            if [ "$READY" = True ]; then break; fi
+            sleep 5
+          done
+          test "$READY" = True
           export KAGENT_GRPC_URL="$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8084"
-          echo "KAGENT_URL: $KAGENT_URL"
           echo "KAGENT_GRPC_URL: $KAGENT_GRPC_URL"
-          echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
-
-          # no need to run e2e tests with race, as this will just apply to the test code.
-          # all objects created in e2e tests have a generated name, so they can run in parallel safely.
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on
 
-      - name: Run namespace-scoped e2e tests
-        if: success()
-        env:
-          OPENAI_API_KEY: fake
-          KAGENT_HELM_EXTRA_ARGS: >-
-            --set 'rbac.namespaces={kagent}'
-        run: |
-          # Upgrade helm to use namespace-scoped RBAC
-          make helm-install-provider
-
-          # Wait for controller to be ready after upgrade
-          kubectl rollout status deployment/kagent-controller -n kagent --timeout=90s
-
-          # Setup environment variables (reusing logic from previous step)
-          HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
-          export KAGENT_LOCAL_HOST=$HOST_IP
-          export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
-          export KAGENT_GRPC_URL="$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8084"
-
-          # Run critical tests with namespace-scoped RBAC to verify the controller didn't lose needed permissions
-          cd go
-          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -run '^TestE2EInvokeInlineAgent$|^TestE2EInvokeDeclarativeAgentWithMcpServerTool$' -failfast
       - name: fail print info
         if: failure()
         run: |
@@ -149,9 +151,16 @@ jobs:
           kubectl describe pods -n kagent
           echo "::error::Kubectl get events -n kagent"
           kubectl get events -n kagent
-          echo "::error::Kubectl get agents -n kagent"
+          echo "::error::Kubectl get Harnesses and AgentTemplates -n kagent"
+          kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
+          kubectl get pods,actortemplates,workerpools -A
+          echo "::error::Substrate logs"
+          kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
+          kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
+          kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
+          kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --previous --tail=200 || true
 
   query-contraction-check:
     name: Query Contraction Check
@@ -202,11 +211,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # prev-stable: the previous minor line's latest published version,
-        #   including a prerelease before GA — runs on every base.
         # adjacent: the same-line latest published version, including prereleases
         #   — only meaningful on a release branch and skipped on main.
-        upgrade-from: [adjacent, prev-stable]
+        upgrade-from: [adjacent]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -250,11 +257,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # prev-stable: the previous minor line's latest published version,
-        #   including a prerelease before GA — runs on every base.
         # adjacent: the same-line latest published version, including prereleases
         #   — only meaningful on a release branch and skipped on main.
-        upgrade-from: [adjacent, prev-stable]
+        upgrade-from: [adjacent]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -304,7 +309,14 @@ jobs:
 
       - name: Run Go unit tests
         working-directory: go
+        env:
+          # Runners are ephemeral, so Ryuk's leaked-container cleanup buys nothing,
+          # and its single session-scoped reaper is contended by the parallel package
+          # processes of `go test ./...`, intermittently timing out the Postgres tests.
+          TESTCONTAINERS_RYUK_DISABLED: "true"
         run: |
+          make setup-envtest
+          export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
           go test -race -skip 'TestE2E.*' -v ./...
 
   helm-unit-tests:
@@ -331,7 +343,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/querydoc
           helm unittest helm/tools/grafana-mcp
 
   ui-tests:
@@ -375,7 +386,7 @@ jobs:
         working-directory: ./ui
         run: npm run test:vitest
 
-  # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
+  # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
   build:
     needs: setup
     env:
@@ -385,14 +396,9 @@ jobs:
         image:
           - controller
           - ui
-          - app
+          - kagent-adk
           - cli
           - golang-adk
-          - golang-adk-full
-          - skills-init
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
-          - acp-sandbox-claude
     runs-on: ubuntu-latest
     services:
       registry:

@@ -7,11 +7,8 @@
 // "technical_writer"), wraps them in a ParallelAgent, and exposes the result
 // as an A2A-compatible agent.
 //
-// The app builder automatically wires kagent infrastructure based on
-// environment variables:
+// The app builder uses these environment variables:
 //
-//   - KAGENT_GRPC_URL: when set, enables remote session and task persistence via
-//     the kagent controller gRPC API. Token auth is handled automatically.
 //   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
 //     scoping. Falls back to the agent card name.
 //   - PORT: the port to listen on (default "8080").
@@ -27,10 +24,6 @@
 // Run locally (standalone, no kagent):
 //
 //	OPENAI_API_KEY=sk-... go run ./examples/byo/
-//
-// Run with kagent persistence:
-//
-//	KAGENT_GRPC_URL=kagent-controller:8084 OPENAI_API_KEY=sk-... go run ./examples/byo/
 //
 // Test with curl:
 //

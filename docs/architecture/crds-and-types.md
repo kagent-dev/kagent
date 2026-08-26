@@ -46,7 +46,6 @@ AgentSpec
 ├── allowedNamespaces: AllowedNamespaces
 │
 ├── declarative: DeclarativeAgentSpec (if type=Declarative)
-│   ├── runtime: python | go
 │   ├── systemMessage: string (or Go template if promptTemplate set)
 │   ├── systemMessageFrom: ValueSource (alternative: load from ConfigMap/Secret)
 │   ├── promptTemplate: PromptTemplateSpec
@@ -132,7 +131,7 @@ ModelConfigSpec
 │   ├── baseUrl, temperature, maxTokens, topP
 │   ├── frequencyPenalty, presencePenalty
 │   ├── seed, n, timeout
-│   └── reasoningEffort: none | minimal | low | medium | high
+│   └── reasoningEffort: none | minimal | low | medium | high | xhigh | max
 ├── anthropic: AnthropicConfig
 │   └── baseUrl, maxTokens, temperature, topP, topK
 ├── azureOpenAI: AzureOpenAIConfig
