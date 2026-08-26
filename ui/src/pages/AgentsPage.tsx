@@ -383,8 +383,8 @@ export function AgentsTab() {
           answer to "why is there no New agent button", and it is wanted by somebody
           looking at the list rather than by somebody reading the model. */}
       <Text data-testid="agents-derived-note" css={{ color: theme.color.textMuted }}>
-        The agents list is populated automatically from the template and harness
-        configurations available.
+        The agents list is populated automatically from the available template and harness
+        configurations.
       </Text>
 
         {/*

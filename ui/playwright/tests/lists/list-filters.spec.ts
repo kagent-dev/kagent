@@ -3,25 +3,25 @@ import { test, expect } from "../../fixtures/test";
 import { dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
 
 /**
- * The filter bar, the URL state behind it, and what the three list pages claim about
- * where their narrowing happens.
+ * The filter bar as the list pages actually use it.
  *
- * These are the properties the shared machinery exists for, and each of them replaces
- * something a page was previously doing worse:
+ * Deliberately not the bar's own behaviour. `FilterBar.test.tsx` owns that — eleven
+ * cases covering a pill per chosen value, a pill removing only its own filter, the last
+ * pill taking the parameter with it, clear dropping the lot, the term reaching the
+ * address, and a filter change returning to page one. Those claims were asserted here
+ * too for a while, which bought nothing and cost two browser engines and a page load
+ * each. What is left is what a jsdom test cannot reach:
  *
- * - **Selecting no namespaces means every namespace.** The old pattern was a separate
- *   "all namespaces" toggle beside a single-select — two controls answering one
- *   question, able to disagree. An empty multi-select has one state.
- * - **The choices are visible without opening the control.** A trigger reading
- *   "2 selected" hides which two, and "why can I not see the row I am looking for" is
- *   the question a filtered list most often provokes.
- * - **The view is in the address**, so it can be linked to and survives a reload.
- * - **The pages say where the narrowing happens.** All three of these RPCs return the
- *   whole list — `ListModelConfigs` and `ListToolServers` take an empty request, and
- *   `ListPromptTemplates` takes only a namespace — so a search in the browser searches
- *   every row. That is the fact the note on each page states, and it is what makes a
- *   client-side control honest here where it would not be on the substrate page's
- *   paged tables.
+ * - **A page narrows its own rows.** The bar can be rendered perfectly and never
+ *   passed to the read behind the table, and only real data in a real table shows it.
+ * - **The view is in the address**, so it can be linked to and survives a real reload —
+ *   a reload being the thing under test, which rules out simulating it.
+ * - **A filter that is genuinely the server's is sent there.** `ListPromptTemplates`
+ *   takes a namespace and refuses a request without one, so choosing namespaces on
+ *   that page is one call each rather than a narrowing of something already fetched.
+ *   Whether a call happened is not observable from the component.
+ * - **Two writes in one tick do not lose one of each other**, which needs the router
+ *   and the page together.
  *
  * Driving the antd multi-select needs one piece of local knowledge, which is why it
  * has a helper: rc-select renders a *second*, invisible `role="listbox"` for screen
@@ -39,131 +39,49 @@ async function chooseFilter(page: Page, filterTestId: string, label: string) {
   await page.keyboard.press("Escape");
 }
 
-test("lists: no namespaces chosen means every namespace, and each choice becomes a pill", async ({
-  page,
-}) => {
-  await test.step("1. the page opens unnarrowed, with no pills at all", async () => {
+test("lists: a page's filter narrows that page's own rows", async ({ page }) => {
+  /*
+   * What the browser is needed to say, and nothing more.
+   *
+   * The bar's own mechanics — a pill per chosen value, a pill removing only its own
+   * filter, the last pill taking the parameter with it, clear dropping everything, the
+   * term reaching the address — are `FilterBar.test.tsx`, eleven cases of it, and they
+   * used to be re-asserted here as well: the same claims a second time, in two browser
+   * engines, at a page load each. What a unit test cannot say is that *this page*
+   * wired the bar to its own read, so that is what is left.
+   */
+  await test.step("1. unnarrowed is every row, and nothing claims otherwise", async () => {
     await loadPage(page, routes.models, { title: "Models" });
     await expectSettled(page);
 
     // Four configurations across three namespaces — the whole fixture set, which is
-    // what "nothing selected" has to mean. A control that read an empty selection as
+    // what "nothing selected" has to mean. A control reading an empty selection as
     // "narrow to nothing" would show an empty table here.
     await expect(dataRows(page)).toHaveCount(4);
     await expect(page.getByTestId("models-filters-pills")).toHaveCount(0);
-    await expect(page.getByTestId("models-filters-pill-clear")).toHaveCount(0);
   });
 
-  await test.step("2. choosing one namespace narrows the list and raises one pill", async () => {
+  await test.step("2. choosing a namespace narrows the rows, and says so in the address", async () => {
     await chooseFilter(page, "models-filters-filter-ns", "kagent");
 
-    await expect(page.getByTestId("models-filters-pill-ns-kagent")).toContainText(
-      "Namespace: kagent",
-    );
-    await expect(rowNamed(page, "default-model-config")).toHaveCount(1);
-    await expect(rowNamed(page, "ollama-local")).toHaveCount(0);
+    // The wiring, in one assertion: the page's own rows respond. A page that rendered
+    // the bar and never passed the selection to its read would keep all four.
     await expect(dataRows(page)).toHaveCount(2);
-  });
-
-  await test.step("3. a second namespace adds to the first rather than replacing it", async () => {
-    // The whole reason for a multi-select. A single-select answers "which one
-    // namespace"; a reader comparing two namespaces has to be able to ask for both.
-    await chooseFilter(page, "models-filters-filter-ns", "platform");
-
     await expect(page.getByTestId("models-filters-pill-ns-kagent")).toBeVisible();
-    await expect(page.getByTestId("models-filters-pill-ns-platform")).toBeVisible();
-    await expect(dataRows(page)).toHaveCount(3);
-    await expect(page.getByTestId("models-summary")).toContainText("3 of 4");
+    await expect(page).toHaveURL(/ns=kagent/);
   });
 
-  await test.step("4. a second filter narrows further and keeps its own pill", async () => {
-    // Two different filters at once is what the bar takes definitions for. A
-    // component built around namespaces could not do this at all.
-    await chooseFilter(page, "models-filters-filter-provider", "OpenAI");
-
-    await expect(page.getByTestId("models-filters-pill-provider-OpenAI")).toContainText(
-      "Provider: OpenAI",
-    );
-    await expect(dataRows(page)).toHaveCount(1);
-    await expect(rowNamed(page, "default-model-config")).toHaveCount(1);
-  });
-
-  await test.step("5. clicking a pill removes that filter and leaves the rest alone", async () => {
-    await page.getByTestId("models-filters-pill-provider-OpenAI").click();
-
-    await expect(page.getByTestId("models-filters-pill-provider-OpenAI")).toHaveCount(0);
-    // The two namespace pills are untouched: removing one choice is not a reset.
-    await expect(page.getByTestId("models-filters-pill-ns-kagent")).toBeVisible();
-    await expect(page.getByTestId("models-filters-pill-ns-platform")).toBeVisible();
-    await expect(dataRows(page)).toHaveCount(3);
-  });
-
-  await test.step("6. the last pill of a filter takes the parameter with it", async () => {
+  await test.step("3. a term and a filter chosen in quick succession both survive", async () => {
     /*
-     * Removed back to back, with no wait between them.
-     *
-     * Each removal used to compute the remainder from the render it was drawn in, so
-     * two clicks landing in the same frame both worked from the same list: the second
-     * wrote back the namespace the first had just taken out, and a pill survived being
-     * clicked. `no wait` is the assertion — pausing here would pass either way.
+     * A regression this build actually had, and the one thing here no unit test
+     * reaches: the two writes landed before React had re-rendered, so the second read
+     * the address as it was before the first and put the cleared filter straight back
+     * — a filter that would not clear, and a search reporting no matches for a row
+     * plainly on the page. Driven without waiting in between, because waiting is what
+     * hid it.
      */
-    await page.getByTestId("models-filters-pill-ns-platform").click({ noWaitAfter: true });
-    await page.getByTestId("models-filters-pill-ns-kagent").click({ noWaitAfter: true });
-
-    // Not `?ns=`, which would read as "narrowed to nothing" — the address has to
-    // become the address of the unfiltered list again, or a link to "everything" and a
-    // link to "nothing" would look the same.
-    await expect(page).not.toHaveURL(/ns=/);
-    await expect(page.getByTestId("models-filters-pills")).toHaveCount(0);
-    await expect(dataRows(page)).toHaveCount(4);
-  });
-});
-
-test("lists: the search term is a filter too, and clearing means everything", async ({
-  page,
-}) => {
-  await test.step("1. models has a search box, which it did not before", async () => {
-    // The page's only way to find a configuration used to be reading the table.
     await loadPage(page, routes.models, { title: "Models" });
     await expectSettled(page);
-    await expect(page.getByTestId("models-filters-search")).toBeVisible();
-  });
-
-  await test.step("2. a term narrows the list and appears as its own pill", async () => {
-    await page.getByTestId("models-filters-search").fill("haiku");
-
-    // Matched on the model rather than the name, which is the point of searching
-    // every column the row displays.
-    await expect(rowNamed(page, "bedrock-haiku")).toHaveCount(1);
-    await expect(dataRows(page)).toHaveCount(1);
-    await expect(page.getByTestId("models-filters-pill-search")).toContainText(
-      "Search: haiku",
-    );
-  });
-
-  await test.step("3. clear filters drops the term and every filter at once", async () => {
-    await chooseFilter(page, "models-filters-filter-ns", "analytics");
-    await expect(page.getByTestId("models-filters-pill-ns-analytics")).toBeVisible();
-
-    await page.getByTestId("models-filters-pill-clear").click();
-
-    // Everything: the term as well as the namespace. A term left in the box is the
-    // filter a reader is most likely to have forgotten, so a control that cleared the
-    // pills and left it would still be hiding rows.
-    await expect(page.getByTestId("models-filters-pills")).toHaveCount(0);
-    await expect(page.getByTestId("models-filters-search")).toHaveValue("");
-    await expect(dataRows(page)).toHaveCount(4);
-    await expect(page).toHaveURL(/\/models\?mock=ok$/);
-  });
-
-  await test.step("4. a term and a filter chosen in quick succession both survive", async () => {
-    /*
-     * A regression this build actually had. The two writes landed before React had
-     * re-rendered, so the second read the address as it was before the first and put
-     * the cleared filter straight back — a filter that would not clear, and a search
-     * reporting no matches for a row plainly on the page. Driven without waiting in
-     * between, because waiting is what hid it.
-     */
     await page.getByTestId("models-filters-search").fill("model");
     await chooseFilter(page, "models-filters-filter-ns", "kagent");
 

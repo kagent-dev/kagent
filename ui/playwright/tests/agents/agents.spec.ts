@@ -8,6 +8,7 @@ import {
   rowNamed,
   routes,
 } from "../../helpers/app";
+import { background, settledPaint } from "../../helpers/style";
 
 /**
  * Agents — what can be run, and what each one is.
@@ -316,19 +317,27 @@ test("agents: pressing a row looks different from hovering it", async ({ page })
   const row = page.locator("tbody tr.clickable-table-row").first();
   await expect(row).toBeVisible({ timeout: 30_000 });
 
-  const background = () =>
-    row.locator("td").first().evaluate((cell) => getComputedStyle(cell).backgroundColor);
+  const cell = row.locator("td").first();
 
   await row.hover();
-  const hovered = await background();
+  // Settled, so this really is the hover colour. Read in the same tick it would be
+  // the at-rest colour, and the assertion below would be comparing the pressed state
+  // against the wrong thing entirely — which is what it was doing.
+  const hovered = (await settledPaint(cell)).background;
 
   const box = await row.boundingBox();
   await page.mouse.move(box!.x + 30, box!.y + 10);
   await page.mouse.down();
-  const pressed = await background();
-  await page.mouse.up();
-
-  expect(pressed, "a press must not look like a hover").not.toBe(hovered);
+  try {
+    // Polled: the cell transitions over 200ms, so the first read after `mouse.down`
+    // is still the colour being left. See `helpers/style` for the measurements.
+    await expect
+      .poll(() => background(cell), { message: "a press must not look like a hover" })
+      .not.toBe(hovered);
+  } finally {
+    // Released even on a failure, so a held button cannot affect later tests.
+    await page.mouse.up();
+  }
 });
 
 /**

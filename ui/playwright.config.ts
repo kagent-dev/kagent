@@ -109,12 +109,48 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  /*
+   * Parallel in CI too, at a share of the runner rather than a count.
+   *
+   * It was one worker, and that was buying real stability: at high concurrency this
+   * suite produced roughly one failure per two full runs, always a different test.
+   * Two of those were the suite's own fault and are fixed — see `helpers/style` for
+   * the press-state reads that compared unpainted frames. The rest were starvation
+   * rather than logic: a mock-backed click that normally settles in under a second
+   * timing out at fifteen, because two dev servers and two browser engines on one
+   * machine leave the servers transforming modules for whoever asks first.
+   *
+   * A share, not a number, because that failure mode is about how much machine there
+   * is: `ubuntu-latest` is four cores, where a flat `4` would thrash with two engines
+   * running, and a runner that grows should get the benefit without another edit.
+   *
+   * `retries` stays at two deliberately. Raising concurrency without keeping the net
+   * would trade a slow suite for a suite that fails on other people's pull requests,
+   * and the starvation above is not fixed — only made less likely by asking for less
+   * of the machine than the local runs that provoked it.
+   */
+  workers: process.env.CI ? "50%" : undefined,
   reporter: process.env.CI ? "github" : "list",
-  // A real backend behind a port-forward answers in tens of seconds where the
-  // in-browser mock answers in milliseconds, so the defaults that suit the mock
-  // suite are too tight to distinguish "slow cluster" from "broken page".
-  ...(LIVE ? { timeout: 120_000, expect: { timeout: 30_000 } } : {}),
+  /*
+   * A real backend behind a port-forward answers in tens of seconds where the
+   * in-browser mock answers in milliseconds, so the defaults that suit the mock
+   * suite are too tight to distinguish "slow cluster" from "broken page".
+   *
+   * The mock suite gets sixty rather than the default thirty, which is about the
+   * machine and not about the app. Several of these tests are journeys — six steps,
+   * a page load in most of them — and thirty seconds is a comfortable budget on an
+   * idle laptop and a tight one on a runner sharing itself with another engine. The
+   * failure it produced said `Test timeout of 30000ms exceeded` partway through a
+   * step that had done nothing wrong, which is a report about contention dressed as
+   * a defect.
+   *
+   * `expect.timeout` is deliberately left at its default. That is the one that keeps
+   * a genuinely missing element fast to find: an assertion still gives up in five
+   * seconds, so a real failure does not sit here spending the larger budget.
+   */
+  ...(LIVE
+    ? { timeout: 120_000, expect: { timeout: 30_000 } }
+    : { timeout: 60_000 }),
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",
