@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -410,6 +412,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req == nil || req.Message == nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
 	}
+	apia2a.ClearStoredTask(req.Message)
 	if req.Message.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
 	}
@@ -417,7 +420,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
 	if req.Message.TaskID != "" {
-		return g.prepareReply(ctx, instance, req.Message)
+		return g.prepareReply(ctx, instance, req)
 	}
 	req.Message.ContextID = instance.GetId()
 	requestHash, err := hashSendRequest(req)
@@ -438,7 +441,8 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	return &preparedSend{instance: instance, task: stored, dispatch: created}, nil
 }
 
-func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentInstance, message *a2atype.Message) (*preparedSend, error) {
+func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentInstance, req *a2atype.SendMessageRequest) (*preparedSend, error) {
+	message := req.Message
 	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID))
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
@@ -460,6 +464,12 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), &attempt, message, nil); err != nil {
 		return nil, g.storeError(ctx, err)
 	}
+	runtimeMessage := *message
+	runtimeMessage.Metadata = maps.Clone(message.Metadata)
+	if err := apia2a.AttachStoredTask(&runtimeMessage, stored); err != nil {
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to prepare task continuation")
+	}
+	req.Message = &runtimeMessage
 	return &preparedSend{instance: instance, task: &attempt, previous: stored, dispatch: true}, nil
 }
 
