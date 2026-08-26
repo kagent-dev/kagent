@@ -115,7 +115,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   // Single place that computes the high-water mark, so every update site stays
   // consistent. Accepts the raw server Task[] (artifacts/synthetic cards are
-  // intentionally ignored — only persisted history counts).
+  // intentionally ignored, only persisted history counts).
   const setServerMark = (tasks: Task[] | undefined) => {
     syncedServerMsgCountRef.current = countServerMessages(tasks ?? []);
   };
@@ -185,8 +185,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     [isStandaloneToolName, pendingDecisions, pendingApprovalIds],
   );
   // Group over the COMBINED transcript (stored + streaming) so a run that
-  // spans the boundary — e.g. an approval request persisted at
-  // input_required and its tool result arriving on the post-approval stream —
+  // spans the boundary (e.g. an approval request persisted at
+  // input_required and its tool result arriving on the post-approval stream)
   // folds into a single group instead of two.
   const renderItems = useMemo(() => groupToolCallMessages(allMessages, groupingOptions), [allMessages, groupingOptions]);
   // Shared call_id -> is_error lookup so each group summary is O(group size).
@@ -224,6 +224,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   }), [selectedNamespace, selectedAgentName, onTerminalTask]);
 
   useEffect(() => {
+    let cancelled = false;
     async function initializeChat() {
       setSessionStats({ total: 0, prompt: 0, completion: 0 });
       setTerminalTaskIds(new Set());
@@ -257,6 +258,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         if (shareToken) {
           // Fetch session info to get authoritative read_only status from the server.
           const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
+          if (cancelled) return;
           if (sessionInfoResponse.error || !sessionInfoResponse.data) {
             setSessionNotFound(true);
             setIsLoading(false);
@@ -265,6 +267,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setShareReadOnly(sessionInfoResponse.data.read_only === true);
         } else {
           const sessionExistsResponse = await checkSessionExists(sessionId);
+          if (cancelled) return;
           if (sessionExistsResponse.error || !sessionExistsResponse.data) {
             setSessionNotFound(true);
             setIsLoading(false);
@@ -273,6 +276,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
 
         const messagesResponse = await getSessionTasks(sessionId, shareToken);
+        if (cancelled) return;
         if (messagesResponse.error) {
           toast.error("Failed to load messages");
           setIsLoading(false);
@@ -314,6 +318,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
         setServerMark(messagesResponse.data);
       } catch (error) {
+        if (cancelled) return;
         console.error("Error loading messages:", error);
         toast.error("Error loading messages");
         setSessionNotFound(true);
@@ -321,6 +326,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         return;
       }
 
+      if (cancelled) return;
       setIsLoading(false);
 
       if (activeTask) {
@@ -330,6 +336,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     initializeChat();
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage, shareToken]);
 
@@ -368,16 +377,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
-    // Two cases: (1) another tab is still streaming — reconnect instead of sending;
-    // (2) another tab completed a turn we haven't loaded — reload so the user sees
+    // Two cases: (1) another tab is still streaming, reconnect instead of sending;
+    // (2) another tab completed a turn we haven't loaded, reload so the user sees
     // the full context before their next message goes out.
     const guardSessionId = session?.id || sessionId;
     if (guardSessionId) {
       const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
         messages: {
-          inFlight: "This session is already being processed — reconnecting to live updates",
-          inputRequired: "Session is awaiting your input — please review before sending",
-          staleOrChanged: "New messages loaded — please review before sending",
+          inFlight: "This session is already being processed, reconnecting to live updates",
+          inputRequired: "Session is awaiting your input, please review before sending",
+          staleOrChanged: "New messages loaded, please review before sending",
         },
       });
       if (guardResult === "blocked") return;
@@ -415,7 +424,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       // rename block below must be skipped: the title was already set at creation
       // time, and session React state hasn't yet re-rendered (so session?.name
       // is still null, which would make isPlaceholderSessionTitle return true
-      // incorrectly and queue a redundant — potentially hanging — POST /sessions).
+      // incorrectly and queue a redundant, potentially hanging, POST /sessions).
       let justCreatedSession = false;
 
       // If there's no session, create one
@@ -725,13 +734,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       await consumeStream(stream);
 
-      // Stream ended cleanly — reload final state from DB and settle.
+      // Stream ended cleanly, reload final state from DB and settle.
       await reloadSessionFromDB();
     } catch (error: unknown) {
       if (error instanceof Error && error.name !== "AbortError" && !isTerminalError(error)) {
         console.error("Resubscribe failed:", error);
       }
-      // Terminal, AbortError, or unexpected error — reload whatever state we have.
+      // Terminal, AbortError, or unexpected error, reload whatever state we have.
       if (!(error instanceof Error && error.name === "AbortError")) {
         await reloadSessionFromDB();
       }
@@ -798,8 +807,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
         expectedTaskId: taskId,
         messages: {
-          inFlight: "Another tab already responded — reconnecting to live updates",
-          staleOrChanged: "Session state changed — please review",
+          inFlight: "Another tab already responded, reconnecting to live updates",
+          staleOrChanged: "Session state changed, please review",
         },
       });
       if (guardResult === "blocked") return;
@@ -832,7 +841,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         setPendingDecisions({});
         pendingDecisionsRef.current = {};
         pendingRejectionReasonsRef.current = {};
-        // Only reset "thinking" → "ready".  Do NOT reset "input_required" —
+        // Only reset "thinking" to "ready".  Do NOT reset "input_required",
         // handleMessageEvent may have already set it for the next HITL cycle
         // during this same stream.
         setChatStatus(prev => prev === "thinking" ? "ready" : prev);
@@ -1058,7 +1067,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                           ? voiceError
                           : isListening
                             ? "Stop listening"
-                            : "Voice input — click and speak"}
+                            : "Voice input, click and speak"}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
