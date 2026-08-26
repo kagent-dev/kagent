@@ -1,5 +1,12 @@
 import { test, expect } from "../../fixtures/test";
-import { agentChat, agentDetail, agentPage, agents, instances } from "../../helpers/app";
+import {
+  agentChat,
+  agentDetail,
+  agentPage,
+  agents,
+  instances,
+  SIBLING_OF_READY,
+} from "../../helpers/app";
 
 /**
  * The agent rail — the navigation for when you are inside one agent.
@@ -75,8 +82,19 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
 
   const item = page.getByRole("menuitem", { name: "Delete chat" });
 
+  /*
+   * A named row, and deliberately not "the first one".
+   *
+   * `.first()` was an unstated dependency on the order the rail happened to render in.
+   * Once the rail sorted newest-first that became the *open* conversation, and deleting
+   * the conversation you are looking at navigates away — so the rail went with it and
+   * this test failed counting rows on a page it had left. The sibling is the row this
+   * was always about: one that goes without taking the page with it.
+   */
+  const sibling = `[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`;
+
   await test.step("1. the menu offers it, and the row is otherwise quiet", async () => {
-    const menu = rail.locator('[data-testid^="chat-session-menu-"]').first();
+    const menu = rail.locator(sibling);
     // Present for a pointer to find, but not drawn until the row is hovered.
     await expect(menu).toHaveCSS("opacity", "0");
     await menu.click({ force: true });
@@ -99,7 +117,7 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
   await test.step("3. and Delete removes exactly one", async () => {
     // The dialog animates out, and a click while it is still there lands on its mask.
     await expect(page.locator(".ant-modal:visible")).toHaveCount(0);
-    await page.locator('[data-testid^="chat-session-menu-"]').first().click({ force: true });
+    await page.locator(sibling).click({ force: true });
     await page.waitForTimeout(400);
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
     await page.locator(".ant-modal:visible").getByRole("button", { name: "Delete" }).click();
@@ -506,4 +524,36 @@ test("agent rail: several conversations can be picked and deleted together", asy
     await expect(rows).toHaveCount(before - 2, { timeout: 20_000 });
     await expect(confirm).toHaveCount(0);
   });
+});
+
+test("agent rail: the newest conversation is at the top", async ({ page }) => {
+  /*
+   * The rail rendered in whatever order `ListAgentInstances` answered in, which is an
+   * order in no particular order — so a conversation started a minute ago could sit
+   * anywhere in the list.
+   *
+   * By when it was *started*, not when it was last spoken in. The latter is the more
+   * useful ordering and is not available: `AgentInstance.updatedAt` is written when the
+   * instance is created and when it goes `CREATING` -> `READY`, and never when a message
+   * is sent, so ordering by it would be creation order wearing a better name. The
+   * comparator carries the note, and `conversationOrder.test.ts` carries the cases.
+   *
+   * The fixtures are arranged against this deliberately: unsorted, this rail renders
+   * the *older* suspended sibling first, so a rail that sorts has to move it and a
+   * rail that does not cannot accidentally pass. Asserted on ids rather than titles,
+   * because a title is derived and a row's identity is not.
+   */
+  await page.goto(agentChat(instances.ready));
+  const rail = page.getByTestId("chat-sessions");
+  const rows = rail.locator('a[data-testid^="chat-session-"]');
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+
+  await expect(rows.first()).toHaveAttribute(
+    "data-testid",
+    `chat-session-${instances.ready}`,
+  );
+  await expect(rows.nth(1)).toHaveAttribute(
+    "data-testid",
+    `chat-session-${instances.suspended}`,
+  );
 });

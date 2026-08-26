@@ -623,6 +623,14 @@ export const mockAgentInstances: AgentInstance[] = [
     a2aAuthority: "k8s-agent-b28e4f13.kagent.svc.cluster.local:8080",
     state: "suspended",
     operation: "unspecified",
+    /*
+     * Older than the named sibling above it, which the rail renders *after* this one
+     * when nothing sorts them.
+     *
+     * Deliberate, and load-bearing for `agent rail: the newest conversation is at the
+     * top`: unsorted, this row comes first, so a rail that sorts newest-first has to
+     * move it and one that does not cannot accidentally pass.
+     */
     createdAt: "2026-08-11T16:40:00Z",
     updatedAt: "2026-08-19T08:22:00Z",
     labels: { team: "platform" },

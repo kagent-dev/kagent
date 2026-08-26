@@ -12,6 +12,7 @@ import {
   Typography,
 } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
+import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
@@ -336,15 +337,17 @@ export function AgentRail({
         )
       : (conversations.data ?? []);
     const needle = query.trim().toLowerCase();
-    if (!needle) return siblings;
-    // The name as well as the id: a reader who titled a conversation searches for
-    // what they called it, and a box that only matched hex would find nothing while
-    // the row they wanted was on screen.
-    return siblings.filter(
-      (candidate) =>
-        candidate.id.toLowerCase().includes(needle) ||
-        candidate.name.toLowerCase().includes(needle),
-    );
+    const found = !needle
+      ? siblings
+      : // The name as well as the id: a reader who titled a conversation searches for
+        // what they called it, and a box that only matched hex would find nothing while
+        // the row they wanted was on screen.
+        siblings.filter(
+          (candidate) =>
+            candidate.id.toLowerCase().includes(needle) ||
+            candidate.name.toLowerCase().includes(needle),
+        );
+    return [...found].sort(byNewestFirst);
   }, [conversations.data, instance, query]);
 
   /*
