@@ -40,6 +40,8 @@ const (
 	AgentInstanceNamespaceHeader = "x-kagent-agent-instance-namespace"
 	// AgentInstanceIDHeader selects the AgentInstance within that namespace.
 	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
+	// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
+	TaskCreatedAtMetadataKey = "io.kagent/task-created-at"
 )
 
 type instanceStore interface {
@@ -388,7 +390,7 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 		g.failAttempt(ctx, attempt)
 		return errorEvents(g.storeError(ctx, err))
 	}
-	return run.observeReader(ctx, nil, reader)
+	return run.observeReader(ctx, attempt.task, reader)
 }
 
 func (g *Gateway) GetTaskPushConfig(ctx context.Context, req *a2atype.GetTaskPushConfigRequest) (*a2atype.PushConfig, error) {
@@ -477,6 +479,14 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
+	createdAt := time.Now().UTC()
+	if submitted.Status.Timestamp != nil {
+		createdAt = submitted.Status.Timestamp.UTC()
+	}
+	if submitted.Metadata == nil {
+		submitted.Metadata = map[string]any{}
+	}
+	submitted.Metadata[TaskCreatedAtMetadataKey] = createdAt.Format(time.RFC3339Nano)
 	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
 	if errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
 		if err = g.reconcileActiveTask(ctx, instance); err == nil {
@@ -486,6 +496,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
+	req.Message.TaskID = stored.ID
 	return &preparedSend{instance: instance, task: stored, dispatch: created}, nil
 }
 
@@ -600,6 +611,12 @@ func taskForResult(submitted *a2atype.Task, result a2atype.SendMessageResult) (*
 	case *a2atype.Task:
 		if err := validateTaskInfo(result, submitted); err != nil {
 			return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
+		}
+		if createdAt, ok := submitted.Metadata[TaskCreatedAtMetadataKey]; ok {
+			if result.Metadata == nil {
+				result.Metadata = map[string]any{}
+			}
+			result.Metadata[TaskCreatedAtMetadataKey] = createdAt
 		}
 		return result, nil
 	case *a2atype.Message:

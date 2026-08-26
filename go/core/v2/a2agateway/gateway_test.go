@@ -41,6 +41,7 @@ type gatewayTestStore struct {
 	revision              *dbpkg.RuntimeRevision
 	err                   error
 	task                  *a2atype.Task
+	created               *a2atype.Task
 	tasks                 []*a2atype.Task
 	total                 int
 	taskErr               error
@@ -91,6 +92,7 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 		return nil, false, dbpkg.ErrAgentInstanceTaskConflict
 	}
 	s.task = task
+	s.created = task
 	s.active = task
 	s.createdTasks++
 	s.stored = append(s.stored, task.History[0])
@@ -325,11 +327,35 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	if result.(*a2atype.Task).ID == "" || !runtime.sent || !runtime.destroyed {
 		t.Fatalf("runtime result = %#v, sent %v, destroyed %v", result, runtime.sent, runtime.destroyed)
 	}
+	createdAt, ok := store.created.Metadata[TaskCreatedAtMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, createdAt); !ok || err != nil {
+		t.Fatalf("task creation timestamp = %#v: %v", store.created.Metadata[TaskCreatedAtMetadataKey], err)
+	}
 	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
 		t.Fatalf("store lookup = %q/%q user %q", store.namespace, store.id, store.userID)
 	}
 	if authorizer.verb != auth.VerbCreate || authorizer.resource != (auth.Resource{Type: "AgentInstance", Name: "team-a/" + gatewayTestID}) {
 		t.Fatalf("authorization = %q %#v", authorizer.verb, authorizer.resource)
+	}
+}
+
+func TestGatewayReturnsStoredTaskIDOnReplay(t *testing.T) {
+	replayed := &a2atype.Task{
+		ID: "replayed-task", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+	}
+	request := gatewayTestRequest()
+	gateway := New(
+		&gatewayTestStore{instance: gatewayTestInstance(), replay: replayed},
+		&gatewayTestAuthorizer{}, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL,
+	)
+	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), request) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if request.Message.TaskID != replayed.ID {
+		t.Fatalf("request task ID = %q, want stored ID %q", request.Message.TaskID, replayed.ID)
 	}
 }
 
@@ -380,8 +406,25 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 		}
 		events++
 	}
-	if events != 1 || !runtime.destroyed || !destroyedAtQuiesce {
+	if events != 2 || !runtime.destroyed || !destroyedAtQuiesce {
 		t.Fatalf("stream events = %d, destroyed %v, destroyed at quiesce %v", events, runtime.destroyed, destroyedAtQuiesce)
+	}
+}
+
+func TestTaskForResultPreservesCreationTime(t *testing.T) {
+	submitted := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Metadata: map[string]any{TaskCreatedAtMetadataKey: "2026-08-26T10:00:00Z"},
+	}
+	result, err := taskForResult(submitted, &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata[TaskCreatedAtMetadataKey] != submitted.Metadata[TaskCreatedAtMetadataKey] {
+		t.Fatalf("creation timestamp = %#v", result.Metadata[TaskCreatedAtMetadataKey])
 	}
 }
 
@@ -642,9 +685,15 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	workflow := &gatewayTestWorkflow{onQuiesce: func() { order = append(order, "suspend") }}
 	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, workflow, gatewayTestURL)
 
-	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+	for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
 		if err != nil {
 			t.Fatal(err)
+		}
+		if task, ok := event.(*a2atype.Task); ok && task.Status.State == a2atype.TaskStateSubmitted {
+			if len(store.stored) != 1 {
+				t.Fatalf("submitted task published after %d durable writes, want 1", len(store.stored))
+			}
+			continue
 		}
 		if len(store.stored) != 2 {
 			t.Fatalf("published event after %d durable writes, want 2", len(store.stored))
@@ -788,12 +837,17 @@ func TestGatewayKeepsTaskActiveWhenQuiesceFails(t *testing.T) {
 	workflow := &gatewayTestWorkflow{err: errors.New("snapshot failed")}
 	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, workflow, gatewayTestURL)
 
+	sawError := false
 	for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
-		if event != nil || err == nil {
+		if task, ok := event.(*a2atype.Task); ok && task.Status.State == a2atype.TaskStateSubmitted && err == nil {
+			continue
+		}
+		if event != nil || err == nil || sawError {
 			t.Fatalf("stream result = %#v, %v", event, err)
 		}
+		sawError = true
 	}
-	if workflow.quiesceCalls != 1 || len(store.stored) != 1 || store.active == nil {
+	if !sawError || workflow.quiesceCalls != 1 || len(store.stored) != 1 || store.active == nil {
 		t.Fatalf("quiescence calls = %d, stored events = %d, active task = %#v", workflow.quiesceCalls, len(store.stored), store.active)
 	}
 }
