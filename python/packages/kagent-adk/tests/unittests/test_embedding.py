@@ -54,6 +54,24 @@ class TestEmbeddingClient:
         assert result == vec
 
     @pytest.mark.asyncio
+    async def test_generate_single_text_omits_dimensions(self):
+        # Providers that don't offer exactly 768 dimensions (e.g. Bedrock Titan
+        # behind an OpenAI-compatible gateway) reject the request outright when
+        # dimensions is set. _process_embeddings truncates whatever comes back.
+        client = make_client(provider="openai", model="text-embedding-3-small")
+        vec = [0.1] * 768
+        mock_response = make_openai_embedding_response([vec])
+        with mock.patch("openai.AsyncOpenAI") as mock_cls:
+            instance = mock.AsyncMock()
+            instance.embeddings.create = mock.AsyncMock(return_value=mock_response)
+            mock_cls.return_value = instance
+            await client.generate("hello world")
+        instance.embeddings.create.assert_called_once_with(
+            model="text-embedding-3-small",
+            input=["hello world"],
+        )
+
+    @pytest.mark.asyncio
     async def test_generate_batch_texts(self):
         client = make_client(provider="openai", model="text-embedding-3-small")
         vecs = [[0.1] * 768, [0.2] * 768]

@@ -29,9 +29,8 @@ func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 			t.Fatalf("read body: %v", err)
 		}
 		var req struct {
-			Model      string   `json:"model"`
-			Input      []string `json:"input"`
-			Dimensions int      `json:"dimensions"`
+			Model string   `json:"model"`
+			Input []string `json:"input"`
 		}
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Fatalf("unmarshal request: %v", err)
@@ -39,8 +38,18 @@ func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 		if req.Model != "text-embedding-3-small" {
 			t.Errorf("model = %q, want text-embedding-3-small", req.Model)
 		}
-		if req.Dimensions != TargetDimension {
-			t.Errorf("dimensions = %d, want %d", req.Dimensions, TargetDimension)
+		// dimensions must not be sent at all: providers that don't offer
+		// exactly TargetDimension (e.g. Bedrock Titan behind an
+		// OpenAI-compatible gateway) would reject the request outright.
+		// processEmbeddings truncates whatever the provider returns instead.
+		// Checked against the raw body, not a decoded field, since decoding
+		// into an int can't tell an absent field from an explicit 0.
+		var rawFields map[string]json.RawMessage
+		if err := json.Unmarshal(body, &rawFields); err != nil {
+			t.Fatalf("unmarshal request as map: %v", err)
+		}
+		if _, present := rawFields["dimensions"]; present {
+			t.Errorf("request body has a dimensions field, want it omitted: %s", body)
 		}
 		if len(req.Input) != 1 || req.Input[0] != "hello" {
 			t.Errorf("input = %v, want [hello]", req.Input)

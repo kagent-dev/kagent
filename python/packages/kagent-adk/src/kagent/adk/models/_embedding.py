@@ -174,7 +174,6 @@ class KAgentEmbedding:
         response = await client.embeddings.create(
             model=self.config.model,
             input=texts,
-            dimensions=self.TARGET_DIMENSION,
         )
         return [item.embedding for item in response.data]
 
