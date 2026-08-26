@@ -362,7 +362,7 @@ func TestTurnUsageIsPerExecution(t *testing.T) {
 func TestUsageObservingRunnerProviderMirrorsRunnerConfig(t *testing.T) {
 	mirrored := []string{"AppName", "Agent", "SessionService"}
 
-	fields := reflect.VisibleFields(reflect.TypeOf(adka2a.RunnerConfig{}))
+	fields := reflect.VisibleFields(reflect.TypeFor[adka2a.RunnerConfig]())
 	got := make([]string, 0, len(fields))
 	for _, field := range fields {
 		got = append(got, field.Name)
