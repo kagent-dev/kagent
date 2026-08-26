@@ -40,10 +40,10 @@ func deleteActor(ctx context.Context, c *Client, atespace, actorID string) (bool
 		}
 		return false, nil
 	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-		_ = c.SuspendActor(ctx, atespace, actorID)
+		_, _ = c.SuspendActor(ctx, atespace, actorID)
 		return false, nil
 	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING:
-		if err := c.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if _, err := c.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return false, fmt.Errorf("suspend actor %q: %w", actorID, err)
 		}
 		return false, nil
@@ -55,7 +55,7 @@ func deleteActor(ctx context.Context, c *Client, atespace, actorID string) (bool
 	case ateapipb.ActorState_ACTOR_STATE_PAUSING:
 		return false, nil
 	default:
-		_ = c.SuspendActor(ctx, atespace, actorID)
+		_, _ = c.SuspendActor(ctx, atespace, actorID)
 		return false, nil
 	}
 }

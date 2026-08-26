@@ -13,13 +13,28 @@ WHERE p.namespace = $1
 
 -- name: InsertAgentInstance :one
 INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, prepared_revision, state, operation, labels, data
-) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7)
+    id, namespace, user_id, request_id, context_id, prepared_revision, state, operation, labels, data
+) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
+ON CONFLICT (user_id, namespace, request_id) DO NOTHING
+RETURNING *;
+
+-- name: InsertA2AContext :exec
+INSERT INTO a2a_context (id, namespace, user_id)
+VALUES ($1, $2, $3);
+
+-- name: InsertForkedAgentInstance :one
+INSERT INTO agent_instance (
+    id, namespace, user_id, request_id, context_id, prepared_revision, source_checkpoint_id,
+    state, operation, labels, data
+) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
 ON CONFLICT (user_id, namespace, request_id) DO NOTHING
 RETURNING *;
 
 -- name: GetAgentInstanceByID :one
 SELECT * FROM agent_instance WHERE id = $1;
+
+-- name: LockAgentInstance :one
+SELECT * FROM agent_instance WHERE id = $1 FOR UPDATE;
 
 -- name: GetAgentInstanceForUser :one
 SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
@@ -42,9 +57,16 @@ RETURNING *;
 -- name: TransitionAgentInstance :one
 UPDATE agent_instance
 SET state = sqlc.arg(next_state), operation = sqlc.arg(next_operation), data = sqlc.arg(data)
-WHERE id = sqlc.arg(id)
-  AND state = sqlc.arg(expected_state)
-  AND operation = sqlc.arg(expected_operation)
+WHERE agent_instance.id = sqlc.arg(id)
+  AND agent_instance.state = sqlc.arg(expected_state)
+  AND agent_instance.operation = sqlc.arg(expected_operation)
+  AND (
+    sqlc.arg(expected_operation)::text <> 'NONE'
+    OR NOT EXISTS (
+      SELECT 1 FROM agent_instance_checkpoint c
+      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
+    )
+  )
 RETURNING *;
 
 -- name: DeleteAgentInstance :exec

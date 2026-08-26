@@ -20,10 +20,6 @@ dependencies:
     version: ${VERSION}
     repository: file://../tools/grafana-mcp
     condition: grafana-mcp.enabled
-  - name: querydoc
-    version: ${VERSION}
-    repository: file://../tools/querydoc
-    condition: querydoc.enabled
   - name: oauth2-proxy
     version: "~10.7.0"
     repository: "https://oauth2-proxy.github.io/manifests"

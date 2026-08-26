@@ -119,7 +119,6 @@ The controller embeds OCI manifest digests for agent workload images at **link t
 |---|---|---|
 | `golang-adk` | `build-golang-adk` | `AgentImageDigest` |
 
-`scripts/controller-digest-ldflags.sh` inspects the runtime image digests from the registry and emits the matching `LDFLAGS` entries.
 
 `kagent-adk` remains available as a base for Python BYO images, but is not a declarative runtime.
 

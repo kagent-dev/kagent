@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"os"
@@ -56,7 +57,7 @@ func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
 }
 
 func main() {
-	logLevel := flag.String("log-level", "info", "Set the logging level (debug, info, warn, error)")
+	logLevel := flag.String("log-level", cmp.Or(os.Getenv("LOG_LEVEL"), "info"), "Set the logging level (debug, info, warn, error)")
 	host := flag.String("host", "", "Set the host address to bind to (default: empty, binds to all interfaces)")
 	portFlag := flag.String("port", "", "Set the port to listen on (overrides PORT environment variable)")
 	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides CONFIG_DIR environment variable)")
@@ -92,26 +93,12 @@ func main() {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
 		os.Exit(1)
 	}
-	pluginConfig := agentplugins.MCPConfig{}
-	if agentConfig.AgentPlugins != nil {
-		pluginConfig, err = agentplugins.Materialize(
-			logr.NewContext(context.Background(), logger),
-			*agentConfig.AgentPlugins,
-			agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
-		)
-		if err != nil {
-			logger.Error(err, "Failed to materialize Agent Plugins")
-			os.Exit(1)
-		}
-	}
-	agentConfig.HttpTools = append(agentConfig.HttpTools, pluginConfig.HTTP...)
-	agentConfig.SseTools = append(agentConfig.SseTools, pluginConfig.SSE...)
-	agentConfig.StdioTools = append(agentConfig.StdioTools, pluginConfig.Stdio...)
-	if agentConfig.AgentPlugins != nil {
-		if err := os.Setenv("KAGENT_SKILLS_FOLDER", agentplugins.DefaultSkillsRoot); err != nil {
-			logger.Error(err, "Failed to configure Agent Plugins skills directory")
-			os.Exit(1)
-		}
+	if err := agentplugins.MaterializeAgentConfig(
+		logr.NewContext(context.Background(), logger), agentConfig,
+		agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
+	); err != nil {
+		logger.Error(err, "Failed to materialize Agent Plugins")
+		os.Exit(1)
 	}
 	logger.Info("Loaded agent config", "configDir", configDir)
 	logger.Info("Agent configuration",
@@ -183,9 +170,8 @@ func main() {
 
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
-	// AgentConfig.session_db_url (set by the controller for durable-dir substrate sandbox
-	// agents) selects the local store; otherwise sessions live in the controller database.
-	sessionService, err := session.NewService(agentConfig.SessionDBURL, controllerClient)
+	// AgentConfig.session_db_url selects the actor-local DurableDir store.
+	sessionService, err := session.NewService(agentConfig.SessionDBURL)
 	if err != nil {
 		logger.Error(err, "Failed to open local session store", "url", agentConfig.SessionDBURL)
 		os.Exit(1)
@@ -193,10 +179,8 @@ func main() {
 	switch sessionService.(type) {
 	case *session.LocalSessionService:
 		logger.Info("Using local durable-dir session store", "url", agentConfig.SessionDBURL)
-	case *session.KAgentSessionService:
-		logger.Info("Using KAgent gRPC session service", "target", kagentGRPCURL)
 	default:
-		logger.Info("No KAGENT_GRPC_URL set, using in-memory session and no task persistence")
+		logger.Info("No session DB configured, using in-memory session")
 	}
 
 	ctx := logr.NewContext(context.Background(), logger)
@@ -246,17 +230,15 @@ func main() {
 	}
 	agentCard.Capabilities.Streaming = stream
 
-	// Delegate server, task store, and remaining infrastructure to app.New.
+	// Delegate the actor-local A2A server and task store to app.New.
 	kagentApp, err := app.New(app.AppConfig{
-		AgentCard:        *agentCard,
-		Host:             *host,
-		Port:             port,
-		KAgentGRPCURL:    kagentGRPCURL,
-		AppName:          appName,
-		ShutdownTimeout:  5 * time.Second,
-		Logger:           logger,
-		ControllerClient: controllerClient,
-		Agent:            runnerConfig.Agent,
+		AgentCard:       *agentCard,
+		Host:            *host,
+		Port:            port,
+		AppName:         appName,
+		ShutdownTimeout: 5 * time.Second,
+		Logger:          logger,
+		Agent:           runnerConfig.Agent,
 	}, executor)
 	if err != nil {
 		logger.Error(err, "Failed to create app")
