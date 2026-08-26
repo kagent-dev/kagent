@@ -523,6 +523,39 @@ func TestWorkspaceStopsTheOutgoingStreamOnSwitch(t *testing.T) {
 	assert.True(t, stopped, "the previous instance's stream is cancelled")
 }
 
+// A chat streams under the workspace's context, so cancelling the program
+// cancels the request rather than leaving it for process teardown.
+func TestChatStreamsUnderTheWorkspaceContext(t *testing.T) {
+	ready := readyInstance("a", "smoke")
+	ctx, cancel := context.WithCancel(context.Background())
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", ready)}})
+	m.ctx = ctx
+	loaded(m)
+	m.selectInstance(ready)
+
+	streamCtx := make(chan context.Context, 1)
+	m.chat.send = func(ctx context.Context, _ *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
+		streamCtx <- ctx
+		return make(chan clia2a.StreamResult)
+	}
+	m.chat.submit("hello")
+
+	var sent context.Context
+	select {
+	case sent = <-streamCtx:
+	default:
+		t.Fatal("the chat never started a stream")
+	}
+
+	cancel()
+	select {
+	case <-sent.Done():
+		assert.ErrorIs(t, sent.Err(), context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("cancelling the workspace did not cancel the stream")
+	}
+}
+
 // Stream messages must reach the chat even when a panel has focus, or nothing
 // re-arms the read and the reply is stranded.
 func TestWorkspaceRoutesStreamMessagesRegardlessOfFocus(t *testing.T) {

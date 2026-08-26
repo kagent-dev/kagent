@@ -23,14 +23,6 @@ import (
 // SendMessageFn abstracts the A2A client's SendStreamingMessage method for easier testing.
 type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult
 
-// RunChat starts the TUI chat, blocking until the user exits.
-func RunChat(agentRef string, contextID string, sendFn SendMessageFn, verbose bool) error {
-	model := newChatModel(agentRef, contextID, sendFn, verbose)
-	p := tea.NewProgram(model, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
-}
-
 type streamDoneMsg struct{}
 
 type toolCall struct {
@@ -75,13 +67,16 @@ type chatModel struct {
 
 	spin spinner.Model
 
+	// ctx is the workspace's context, so a signal that cancels the program also
+	// cancels an in-flight stream rather than leaving it to process teardown.
+	ctx       context.Context
 	send      SendMessageFn
 	streamCh  <-chan clia2a.StreamResult
 	cancel    context.CancelFunc
 	streaming bool
 }
 
-func newChatModel(agentRef string, contextID string, send SendMessageFn, verbose bool) *chatModel {
+func newChatModel(ctx context.Context, agentRef string, contextID string, send SendMessageFn, verbose bool) *chatModel {
 	input := textarea.New()
 	input.Placeholder = "Type a message (Enter to send)"
 	input.FocusedStyle.CursorLine = lipgloss.NewStyle()
@@ -98,6 +93,7 @@ func newChatModel(agentRef string, contextID string, send SendMessageFn, verbose
 	sp.Style = lipgloss.NewStyle().Foreground(theme.ColorPrimary)
 
 	return &chatModel{
+		ctx:       ctx,
 		agentRef:  agentRef,
 		contextID: contextID,
 		verbose:   verbose,
@@ -249,7 +245,7 @@ func (m *chatModel) submit(text string) tea.Cmd {
 	m.projected = ""
 	m.lastState = ""
 	m.setWorkingTime(time.Time{})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancel = cancel
 
 	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))

@@ -622,7 +622,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(agentInstance.GetAgentTemplate().GetName(), agentInstance.GetId(), send, m.verbose)
+	m.chat = newChatModel(m.ctx, agentInstance.GetAgentTemplate().GetName(), agentInstance.GetId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(agentInstance.GetState()), agentInstance.GetUpdatedAt().AsTime())
 	// Bubble Tea calls Init only on the root model, so start the chat's here.
 	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(agentInstance))
@@ -637,6 +637,9 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "ctrl+c":
+		// Cancel the in-flight stream before the program tears down, rather
+		// than leaving the request to be dropped by process exit.
+		m.chat.stop()
 		return tea.Quit, true
 	case "ctrl+r":
 		return m.loadInstances(), true

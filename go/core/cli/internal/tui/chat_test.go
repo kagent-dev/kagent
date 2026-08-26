@@ -17,7 +17,7 @@ func newTestChatModel() *chatModel {
 		close(ch)
 		return ch
 	}
-	return newChatModel("reporter", "ctx-1", send, false)
+	return newChatModel(context.Background(), "reporter", "ctx-1", send, false)
 }
 
 // transcript is everything the viewport shows: committed blocks plus the block
