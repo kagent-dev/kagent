@@ -11,7 +11,7 @@ import {
   labelsFromDraft,
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
-import { agentTemplatesTab, paths } from "@/router/routes";
+import { agentTemplatesTab } from "@/router/routes";
 import { apiClient, useAgentTemplates, useNamespaces } from "@/api";
 
 const { Text } = Typography;
@@ -72,7 +72,10 @@ export function AgentTemplateNewPage() {
       });
       await templates.refresh();
       toast.success(`Agent template ${created.name} created`);
-      navigate(`${paths.agentTemplates}?namespace=${encodeURIComponent(effective)}`);
+      // The address the reader ends up at, with the parameter the list reads. Through
+      // `paths.agentTemplates` this was lost twice over: that route is a redirect and
+      // carries no query string, and the list narrows on `ns` rather than `namespace`.
+      navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(effective)}`);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

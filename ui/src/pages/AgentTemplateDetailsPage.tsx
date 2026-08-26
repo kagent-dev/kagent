@@ -28,7 +28,7 @@ import {
   specFromDraft,
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
-import { agentTemplatesTab, paths } from "@/router/routes";
+import { agentTemplatesTab } from "@/router/routes";
 import {
   apiClient,
   useAgentConversations,
@@ -248,9 +248,9 @@ export function AgentTemplateDetailsPage() {
   /** Back to the list, having re-read it — this page is about an object that is gone. */
   async function afterDelete(): Promise<void> {
     await templates.refresh();
-    navigate(
-      `${paths.agentTemplates}?namespace=${encodeURIComponent(namespace ?? "")}`,
-    );
+    // See the note on the same navigation after a create: the list narrows on `ns`, and
+    // the bare `/agent-templates` route is a redirect that carries no query string.
+    navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(namespace ?? "")}`);
   }
 
   const problems = draft ? draftProblems(draft, { isCreate: false }) : [];

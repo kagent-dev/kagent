@@ -113,6 +113,11 @@ test("agent templates: creating one, and being told when nothing will run it", a
     // The admission is the controller's answer, recomputed from the labels — not an
     // echo of what the form claimed.
     await expect(row).toContainText("k8s-agent");
+
+    // And narrowed to the namespace it was created in, which is the other half of the
+    // same defect the delete step covers — see the note there.
+    await expect(page).toHaveURL(/[?&]ns=kagent(&|$)/);
+    await expect(page.getByTestId("templates-filters-pill-ns-kagent")).toBeVisible();
   });
 });
 
@@ -304,6 +309,17 @@ test("agent templates: deleting one says what it costs, and the list is re-read"
     await expect(rowNamed(page, "note-taker")).toHaveCount(0, { timeout: 30_000 });
     // And the rest of the list is intact, so "gone" means that one rather than the read.
     await expect(rowNamed(page, "k8s-agent-7f3a91c")).toBeVisible();
+
+    /*
+     * And it comes back narrowed to the namespace that was being worked in.
+     *
+     * Nothing asserted this, which is how two faults sat on the one line that asks for
+     * it: `/agent-templates` is a redirect and carries no query string, and the list
+     * narrows on `ns` while the caller was sending `namespace`. Either alone would have
+     * been enough to lose the filter, and the page looked reasonable both ways.
+     */
+    await expect(page).toHaveURL(/[?&]ns=kagent(&|$)/);
+    await expect(page.getByTestId("templates-filters-pill-ns-kagent")).toBeVisible();
   });
 });
 
