@@ -1,4 +1,4 @@
-package cli
+package commands
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 
 	"github.com/briandowns/spinner"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 )
 

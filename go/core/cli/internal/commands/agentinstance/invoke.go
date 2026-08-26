@@ -14,8 +14,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")

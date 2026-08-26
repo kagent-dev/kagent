@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

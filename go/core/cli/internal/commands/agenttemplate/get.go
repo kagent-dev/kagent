@@ -12,8 +12,8 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

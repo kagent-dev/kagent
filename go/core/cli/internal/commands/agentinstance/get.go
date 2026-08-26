@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jedib0t/go-pretty/v6/table"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

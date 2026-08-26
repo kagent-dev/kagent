@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	cli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agent"
-	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agentinstance"
-	agenttemplatecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agenttemplate"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/commands"
+	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/agentinstance"
+	agenttemplatecli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/agenttemplate"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/envdoc"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
@@ -85,7 +85,7 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "Timeout")
 	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", cfg.UserID, "Caller identity used to select the server-side data partition")
-	installCfg := &cli.InstallCfg{
+	installCfg := &commands.InstallCfg{
 		Connection: cfg,
 	}
 
@@ -94,7 +94,7 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 		Short: "Install kagent",
 		Long:  `Install kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.InstallCmd(cmd.Context(), installCfg)
+			commands.InstallCmd(cmd.Context(), installCfg)
 		},
 	}
 	installCmd.Flags().StringVar(&installCfg.Profile, "profile", "", "Installation profile (minimal|demo)")
@@ -107,7 +107,7 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 		Short: "Uninstall kagent",
 		Long:  `Uninstall kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.UninstallCmd(cmd.Context(), cfg.Namespace)
+			commands.UninstallCmd(cmd.Context(), cfg.Namespace)
 		},
 	}
 
@@ -149,7 +149,7 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 			if pf != nil {
 				defer pf.Stop()
 			}
-			cli.BugReportCmd(cfg.Namespace, cfg.Verbose)
+			commands.BugReportCmd(cfg.Namespace, cfg.Verbose)
 		},
 	}
 
@@ -162,7 +162,7 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 			// versions unable to obtain from the remote kagent will be reported as "unknown"
 			clientSet := cfg.Client()
 			defer clientSet.Close() //nolint:errcheck
-			defer cli.VersionCmd(clientSet)
+			defer commands.VersionCmd(clientSet)
 
 			if pf, _ := connection.Connect(cmd.Context(), cfg); pf != nil {
 				defer pf.Stop()
@@ -175,7 +175,7 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 		Short: "Open the kagent dashboard",
 		Long:  `Open the kagent dashboard`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.DashboardCmd(cmd.Context(), cfg.Namespace)
+			commands.DashboardCmd(cmd.Context(), cfg.Namespace)
 		},
 	}
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"

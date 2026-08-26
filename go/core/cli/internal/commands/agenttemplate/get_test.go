@@ -8,7 +8,7 @@ import (
 
 	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
