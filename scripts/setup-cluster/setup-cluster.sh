@@ -169,12 +169,37 @@ kubectl get agenttemplate -n kagent assistant \
 step "10/10  Done"
 kubectl get pods -n kagent
 
-# The UI the cluster is running, which is the one built above -- not a dev server.
+# Both forwards a developer needs, held open together.
 #
-# The script ends by holding this open rather than printing one more command to run,
-# so the last thing it does is give you a working URL. Ctrl-C ends it; the cluster
-# stays up, and `kubectl -n kagent port-forward svc/kagent-ui 8080:8080` brings it
-# back.
+# 8080 is the UI the cluster is running -- the image built above, served by its nginx,
+# not a dev server. 8083 is the controller, which `yarn dev` proxies to by default.
+#
+# The second one is here so that default is true. With only the UI forwarded, running
+# the dev server needed KAGENT_DEV_CONTROLLER_URL pointed at 8080 in `ui/.env`, and
+# without that line every read failed with `ECONNREFUSED 127.0.0.1:8083` on a page that
+# otherwise loaded -- which reads as a broken backend rather than a missing forward. A
+# second `kubectl` is cheaper than a setting every reader has to be told about.
+#
+# Backgrounded and waited on rather than `exec`ed, because two of them cannot both be
+# the foreground process. The trap is what makes Ctrl-C take both down: without it the
+# script would exit and leave orphaned forwards holding the ports, and the next run
+# would fail on an address already in use.
+kubectl -n kagent port-forward svc/kagent-ui 8080:8080 &
+UI_FORWARD=$!
+kubectl -n kagent port-forward svc/kagent-controller 8083:8083 &
+CONTROLLER_FORWARD=$!
+trap 'kill "$UI_FORWARD" "$CONTROLLER_FORWARD" 2>/dev/null || true' EXIT INT TERM
+
 printf '\n\033[1;32m==> The UI is at http://localhost:8080\033[0m\n'
-printf '    (port-forward running in this shell; Ctrl-C to stop)\n\n'
-exec kubectl -n kagent port-forward svc/kagent-ui 8080:8080
+printf '    The controller is on :8083, which `cd ui && yarn dev` uses by default.\n'
+printf '    (both port-forwards running in this shell; Ctrl-C to stop)\n\n'
+
+# Held until either one dies, because a forward that has gone means whatever depended on
+# it is now failing and saying so beats leaving one working and one silently absent.
+#
+# Polled rather than `wait -n`, which is bash 4.3 and this is a script for a Mac: the
+# system bash here is 3.2, where `wait -n` is a syntax error and `wait` alone would sit
+# on a dead forward until the other one went too.
+while kill -0 "$UI_FORWARD" 2>/dev/null && kill -0 "$CONTROLLER_FORWARD" 2>/dev/null; do
+  sleep 1
+done

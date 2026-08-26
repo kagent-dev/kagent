@@ -25,16 +25,25 @@ new-template form applies those labels for you.
 ## Iterating on the UI
 
 The dev server talks to the same cluster, with hot reload, and is the better loop while
-changing code. It reaches the controller directly rather than through the UI pod's
-nginx, so it needs its own port-forward:
+changing code. Nothing to configure — the script forwards the controller on `8083`,
+which is where `yarn dev` looks by default:
 
 ```sh
 cd ui
-kubectl -n kagent port-forward svc/kagent-controller 8083:8083 &
 yarn dev
 ```
 
 **http://localhost:8001**
+
+That is the whole reason this script holds two forwards open rather than one. It used to
+forward only the UI, and running the dev server then needed
+`KAGENT_DEV_CONTROLLER_URL=http://127.0.0.1:8080` in `ui/.env` — a line whose absence
+looked like a broken backend rather than a missing forward, since the page loaded fine
+and every read failed with `ECONNREFUSED 127.0.0.1:8083`.
+
+Setting that line is still worth doing when what you want to exercise is the proxy hop
+itself: at `8080` the dev server goes through the UI pod's nginx exactly as a deployed
+build does, rather than straight to the controller.
 
 Worth knowing which one you are looking at: the dev server does not exercise the
 Dockerfile, nginx, or `scripts/init.sh` rendering settings at start. To see a change

@@ -33,24 +33,32 @@ The choice persists across in-app navigation, e.g. `/agents?mock=error`.
 
 ### Running against a real backend
 
-Follow [DEVELOPMENT.md](../DEVELOPMENT.md) to get kagent running, then
-port-forward the controller:
+The quickest way from nothing to this app running on real data is
+[`scripts/setup-cluster`](../scripts/setup-cluster/README.md). One command builds a Kind
+cluster, installs **this checkout** on it, and leaves an agent there to talk to:
 
 ```bash
-kubectl port-forward svc/kagent-controller 8083
+../scripts/setup-cluster/setup-cluster.sh     # ~20 min, mostly image builds
 ```
 
-Then start the UI in live mode:
+It ends by holding two port-forwards open — the UI on `8080` and the controller on
+`8083` — so the dev server needs no configuration at all:
 
 ```bash
-cp .env.example .env     # then set ENABLE_MOCK_UI=false
 yarn dev
 ```
 
-The dev server proxies `/api` and `/a2a` to `127.0.0.1:8083`, matching what nginx
-does in a deployed cluster, so the app uses the same relative URLs either way.
-Override the target with `KAGENT_DEV_CONTROLLER_URL`, or set `API_BASE_URL` to
-call a backend directly and bypass the proxy.
+For any other way of getting kagent running — an existing cluster, a different install —
+see [DEVELOPMENT.md](../DEVELOPMENT.md), and forward the controller yourself:
+
+```bash
+kubectl -n kagent port-forward svc/kagent-controller 8083:8083
+```
+
+Either way `8083` is where the proxy looks, so neither case needs a `.env` entry. Two
+settings change that when you want them to: `KAGENT_DEV_CONTROLLER_URL=http://127.0.0.1:8080`
+sends the proxy through the UI pod's nginx instead, which is the hop a deployed build
+takes; and `API_BASE_URL` calls a backend directly, bypassing the proxy.
 
 Which backend is serving is decided in exactly one place, `src/api/config.ts`.
 Nothing above the data layer knows or cares.
