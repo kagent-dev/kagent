@@ -80,14 +80,9 @@ export function ConversationDetailsModal({
           these correctly and returns focus here on close, and what the reader gets is
           the same box the table and the rail open.
         */}
-        <RenameConversationDialog
-          instance={data}
-          open={isRenaming}
-          onClose={() => setRenaming(false)}
-          // This modal reads the conversation it describes, so re-reading it is what
-          // puts the new name into the row above.
-          onRenamed={instance.refresh}
-        />
+        {isRenaming ? (
+          <RenameConversationDialog instance={data} onClose={() => setRenaming(false)} />
+        ) : null}
         </>
       )}
     </Modal>

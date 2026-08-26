@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Input, Modal, Typography } from "antd";
 import toast from "react-hot-toast";
 import { useTheme } from "@emotion/react";
@@ -6,6 +6,7 @@ import {
   apiClient,
   conversationNameProblem,
   MAX_CONVERSATION_NAME_LENGTH,
+  useInvalidateConversations,
   type AgentInstance,
 } from "@/api";
 import { shortInstanceId } from "./instanceLabels";
@@ -47,42 +48,47 @@ const { Paragraph, Text } = Typography;
  */
 export function RenameConversationDialog({
   instance,
-  open,
   onClose,
   onRenamed,
 }: {
   instance: AgentInstance;
-  open: boolean;
+  /**
+   * Rendered only while it is open, which is what makes the box start on the stored
+   * name without an effect to put it there.
+   *
+   * The first shape of this took an `open` prop and stayed mounted, and then needed an
+   * effect to reset the draft each time it opened — otherwise a cancelled edit was
+   * still sitting in the field the next time, reading as a name the conversation does
+   * not have. Mounting it with the state it should have is the same fix without the
+   * cascading render, and the callers say `{isRenaming && …}` instead of passing a
+   * flag through.
+   */
   onClose: () => void;
-  onRenamed: () => void | Promise<void>;
+  /**
+   * Anything beyond re-reading the conversation, which this does for itself.
+   *
+   * Every surface showing this conversation is re-read whichever one the rename was
+   * started from, so a caller needs this only when a rename means something to it over
+   * and above the new name — which so far nothing does.
+   */
+  onRenamed?: () => void | Promise<void>;
 }) {
   const theme = useTheme();
   const [draft, setDraft] = useState(instance.name);
   const [isSaving, setSaving] = useState(false);
+  const invalidateConversations = useInvalidateConversations();
 
   const problem = conversationNameProblem(draft);
-
-  /*
-   * Reset on opening, not on mounting.
-   *
-   * The dialog stays mounted between openings — its callers render it beside a menu
-   * item or a table cell rather than conditionally — so a draft left over from a
-   * cancelled edit would be waiting there the next time it opened, which reads as the
-   * conversation already having a name it does not have. `destroyOnHidden` clears the
-   * modal's own contents and not this state, which lives a level above it.
-   */
-  useEffect(() => {
-    if (open) setDraft(instance.name);
-  }, [open, instance.name]);
 
   async function save() {
     if (problem) return;
     setSaving(true);
     try {
       await apiClient.agentInstances.rename(instance.namespace, instance.id, draft);
-      // Refreshed before the toast, so the list already shows the new name by the
-      // time the reader is told it changed.
-      await onRenamed();
+      // Awaited before the toast, so every surface showing this conversation already
+      // has the new name by the time the reader is told it changed.
+      await invalidateConversations();
+      await onRenamed?.();
       onClose();
       toast.success(
         draft === ""
@@ -105,7 +111,7 @@ export function RenameConversationDialog({
 
   return (
     <Modal
-      open={open}
+      open
       title="Name this conversation"
       okText="Save"
       // No test id on the confirm button: antd builds the footer itself, and a

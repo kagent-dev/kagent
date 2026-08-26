@@ -114,6 +114,7 @@ export {
   useAgentInstances,
   useAgentInstancesAcrossNamespaces,
 } from "./hooks/useAgentInstances";
+export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
 export type {
   AgentConversations,
   AgentInstancesAcrossNamespaces,

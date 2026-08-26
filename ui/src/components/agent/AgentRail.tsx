@@ -1123,9 +1123,6 @@ export function AgentRail({
                 href={url.chat({ namespace: candidate.namespace, id: candidate.id })}
                 isActive={candidate.id === ref.id}
                 onDelete={deleteConversation}
-                // The list this row came from, re-read so the new name is on screen
-                // before the toast says it changed.
-                onRenamed={conversations.refresh}
                 isDeleting={deletingId === candidate.id}
                 isSelected={selected.has(candidate.id)}
                 onToggleSelected={toggleSelected}
@@ -1339,7 +1336,6 @@ function ChatEntry({
   href,
   isActive,
   onDelete,
-  onRenamed,
   shownState,
   shownOperation,
   isDeleting,
@@ -1352,8 +1348,6 @@ function ChatEntry({
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance) => void;
-  /** A rename landed, so whatever read this row came from is now stale. */
-  onRenamed: () => void | Promise<void>;
   /**
    * The state to draw, which is not always the state on the record.
    *
@@ -1536,12 +1530,12 @@ function ChatEntry({
       {/* Beside the menu that opens it rather than at the rail's root: the row already
           holds the delete confirmation the same way, and one dialog per row costs
           nothing while it is closed. */}
-      <RenameConversationDialog
-        instance={instance}
-        open={isRenaming}
-        onClose={() => setRenaming(false)}
-        onRenamed={onRenamed}
-      />
+      {isRenaming ? (
+        <RenameConversationDialog
+          instance={instance}
+          onClose={() => setRenaming(false)}
+        />
+      ) : null}
     </li>
   );
 }

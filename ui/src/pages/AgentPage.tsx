@@ -373,11 +373,7 @@ export function AgentPage() {
           const mine = openableIds === undefined || openableIds.has(row.id);
           return (
             <Space size={0}>
-              <RenameConversationButton
-                instance={row}
-                disabled={!mine}
-                onRenamed={conversations.refresh}
-              />
+              <RenameConversationButton instance={row} disabled={!mine} />
               <DeleteResourceButton
                 kind="conversation"
                 name={conversationTitle(row)}

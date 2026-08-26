@@ -17,7 +17,8 @@ import {
   useTools,
   type AgentInstance,
 } from "@/api";
-import { shortInstanceId } from "@/components/agent-instances/instanceLabels";
+import { conversationTitle } from "@/components/agent-instances/instanceLabels";
+import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import { RefreshButton } from "@/components/table/RefreshButton";
 
 const { Text } = Typography;
@@ -79,6 +80,16 @@ export function DashboardPage() {
   const agentRows = agents.error ? [] : (agents.data?.instances ?? []);
   const readyCount = agentRows.filter((row) => row.state === "ready").length;
   const recent = [...agentRows].sort(byNewest).slice(0, 5);
+  /*
+   * Titles for the unnamed ones among those five.
+   *
+   * The hook reads one task list per conversation and only for the ones nobody has
+   * named, so this is at most five reads and usually fewer — well inside the budget it
+   * enforces for the rail, which does the same thing for thirty. Without it a card
+   * headed "Recent agent conversations" lists rows called "Untitled", which is true and
+   * useless.
+   */
+  const derivedTitles = useConversationTitles(recent);
 
   return (
     <PageFrame
@@ -196,7 +207,11 @@ export function DashboardPage() {
                     css={{ listStyle: "none", margin: 0, padding: 0 }}
                   >
                     {recent.map((row) => (
-                      <RecentAgent key={`${row.namespace}/${row.id}`} row={row} />
+                      <RecentAgent
+                        key={`${row.namespace}/${row.id}`}
+                        row={row}
+                        autoTitle={derivedTitles[row.id]}
+                      />
                     ))}
                   </ul>
                 </>
@@ -223,7 +238,7 @@ function agentsHint(
 }
 
 /** One row of the recent-activity list: which agent it is, whether it came up, and when. */
-function RecentAgent({ row }: { row: AgentInstance }) {
+function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: string }) {
   const theme = useTheme();
 
   return (
@@ -244,9 +259,11 @@ function RecentAgent({ row }: { row: AgentInstance }) {
           to={buildPath(paths.agentChat, { namespace: row.namespace, id: row.id })}
           css={{ fontWeight: 500 }}
         >
-          {/* An agent has no name; the short id is what distinguishes one
-              conversation from another, and the template below says what it is. */}
-          {shortInstanceId(row.id)}
+          {/* The name the reader gave it, the title derived from its first message, or
+              "Untitled" and the short id — the same three answers in the same order as
+              the rail and the conversations table. This used to be the bare short id,
+              on the reasoning that a conversation had no name to show. It does now. */}
+          {conversationTitle(row, autoTitle)}
         </Link>
         <Text css={{ display: "block", color: theme.color.textMuted, fontSize: 12 }}>
           {row.namespace} · {row.agentTemplate ?? "template not reported"}

@@ -27,7 +27,8 @@ export function RenameConversationButton({
    * then refused would be worse than plainly unavailable.
    */
   disabled?: boolean;
-  onRenamed: () => void | Promise<void>;
+  /** Passed through: the dialog re-reads every surface showing this conversation. */
+  onRenamed?: () => void | Promise<void>;
 }) {
   const [isOpen, setOpen] = useState(false);
 
@@ -56,12 +57,13 @@ export function RenameConversationButton({
         </span>
       </Tooltip>
 
-      <RenameConversationDialog
-        instance={instance}
-        open={isOpen}
-        onClose={() => setOpen(false)}
-        onRenamed={onRenamed}
-      />
+      {isOpen ? (
+        <RenameConversationDialog
+          instance={instance}
+          onClose={() => setOpen(false)}
+          onRenamed={onRenamed}
+        />
+      ) : null}
     </>
   );
 }

@@ -623,4 +623,34 @@ test("agent rail: a conversation can be renamed from inside it, two ways", async
       { timeout: 30_000 },
     );
   });
+
+  await test.step("5. and the rail behind it, which is a different read", async () => {
+    /*
+     * The direction that was broken, and the reason renaming stopped being wired
+     * surface-to-surface.
+     *
+     * The chat page reads the open conversation on its own and the rail beside it reads
+     * the list, so a rename that refreshed the read it was started from left the other
+     * one showing the old name. Renaming from the modal refreshed the modal and not the
+     * rail; renaming from the rail refreshed the rail and not the modal. Both were
+     * right about their own read and both looked broken.
+     *
+     * Asserted through the modal rather than after closing it, because the rail is
+     * behind it the whole time and this is the moment the old value would still be on
+     * screen.
+     */
+    await expect(
+      rail.locator(`a[data-testid="chat-session-${instances.ready}"]`),
+    ).toContainText("Named from the details", { timeout: 30_000 });
+  });
+
+  await test.step("6. and the other direction too: the rail's rename reached this record", async () => {
+    // Step 1 renamed the sibling from the rail, before this modal was ever opened. The
+    // modal describes the conversation that is open rather than that sibling, so the
+    // proof is the rail row it set — still correct after a second rename went the other
+    // way, which a refresh that clobbered one read with the other would have undone.
+    await expect(
+      rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`),
+    ).toContainText("Named from the rail");
+  });
 });
