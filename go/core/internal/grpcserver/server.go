@@ -187,13 +187,6 @@ func New(config Config) (*Server, error) {
 }
 
 type ShareStore interface {
-	GetSessionShareByToken(context.Context, string) (*dbpkg.SessionShare, error)
-	RecordShareAccess(context.Context, string, int64) error
-	// GetAgentInstanceShareByTokenHash resolves an AgentInstance share.
-	//
-	// Two kinds of share reach the same header, because a share link carries one
-	// token and the reader opening it cannot know which kind it is. So the
-	// interceptor tries both — see `authenticate`.
 	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error)
 }
 

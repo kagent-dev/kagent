@@ -73,7 +73,6 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			shareStore := &testShareStore{
-				err: dbpkg.ErrNotFound,
 				instanceShare: &dbpkg.AgentInstanceShare{
 					ID: "share-1", InstanceID: "instance-1", Permission: test.permission, OwnerUserID: "owner",
 				},

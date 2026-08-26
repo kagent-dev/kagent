@@ -94,7 +94,6 @@ type Client interface {
 	GetSessionShareByToken(ctx context.Context, token string) (*SessionShare, error)
 	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
 	DeleteSessionShare(ctx context.Context, token, sessionID, userID string) error
-	RecordShareAccess(ctx context.Context, userID string, shareID int64) error
 
 	// Agent memory (vector search) methods
 	StoreAgentMemory(ctx context.Context, memory *Memory) error

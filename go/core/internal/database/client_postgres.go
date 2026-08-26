@@ -223,16 +223,6 @@ func (c *postgresClient) DeleteSessionShare(ctx context.Context, token, sessionI
 	return nil
 }
 
-func (c *postgresClient) RecordShareAccess(ctx context.Context, userID string, shareID int64) error {
-	if err := c.q.UpsertShareAccess(ctx, dbgen.UpsertShareAccessParams{
-		UserID:  userID,
-		ShareID: shareID,
-	}); err != nil {
-		return fmt.Errorf("record share access: %w", err)
-	}
-	return nil
-}
-
 // ── Events ────────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreEvents(ctx context.Context, events ...*dbpkg.Event) error {

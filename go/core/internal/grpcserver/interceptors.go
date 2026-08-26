@@ -77,38 +77,6 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		return ctx, status.Error(codes.Internal, "share-token validation is unavailable")
 	}
 
-	/*
-	 * Two kinds of share arrive on this one header.
-	 *
-	 * A session share is the older one, over a chat session. An AgentInstance share
-	 * is over the conversation itself, which is what an instance now is. A link
-	 * carries a token and nothing else, so the reader opening it cannot say which
-	 * kind it is — and neither can this. So the session store is asked first,
-	 * because that is the shape that has always worked, and an instance share is
-	 * tried only when there is no session share by that token.
-	 *
-	 * Both resolve to a ShareContext naming exactly one of the two resources, so
-	 * nothing downstream can mistake one for the other.
-	 */
-	share, err := shareStore.GetSessionShareByToken(authenticatedContext, shareToken)
-	if err == nil {
-		if share.ReadOnly && access != AccessPublic && access != AccessRead {
-			return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
-		}
-		if err := shareStore.RecordShareAccess(authenticatedContext, session.Principal().User.ID, share.ID); err != nil {
-			ctrllog.FromContext(authenticatedContext).Error(err, "failed to record gRPC share access", "shareID", share.ID)
-		}
-		return auth.ShareContextTo(authenticatedContext, &auth.ShareContext{
-			Token:     shareToken,
-			SessionID: share.SessionID,
-			UserID:    share.UserID,
-			ReadOnly:  share.ReadOnly,
-		}), nil
-	}
-	if !errors.Is(err, dbpkg.ErrNotFound) {
-		return ctx, status.Error(codes.Internal, "failed to validate share token")
-	}
-
 	// Only the digest is stored, which is what stops a database dump being a set of
 	// working share links — so the token is hashed the same way it was on creation.
 	digest := sha256.Sum256([]byte(shareToken))
