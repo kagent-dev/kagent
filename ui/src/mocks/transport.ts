@@ -1331,7 +1331,7 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
  * An empty name is accepted and clears the title. That is not laxity — it is the
  * controller's rule, and it is the only way a name can be taken away.
  */
-on(AgentInstanceService.method.renameAgentInstance, (input, call) => {
+on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
   const instance = instanceFor(
     requireNamespace(input.namespace),
     requireInstanceId(input.agentInstanceId),

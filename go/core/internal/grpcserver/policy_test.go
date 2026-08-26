@@ -26,7 +26,7 @@ func TestAgentInstanceServicePoliciesMatchTheirEffect(t *testing.T) {
 		{name: "create", method: apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName, want: AccessCreate},
 		{name: "get", method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, want: AccessRead},
 		{name: "list", method: apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName, want: AccessRead},
-		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_RenameAgentInstance_FullMethodName, want: AccessUpdate},
+		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, want: AccessUpdate},
 		{name: "suspend", method: apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName, want: AccessUpdate},
 		{name: "resume", method: apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName, want: AccessUpdate},
 		{name: "delete", method: apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName, want: AccessDelete},
@@ -64,11 +64,11 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 		},
 		{
 			name: "read-only share may not rename", permission: "READ_ONLY",
-			method: apiv1alpha1.AgentInstanceService_RenameAgentInstance_FullMethodName, wantCode: codes.PermissionDenied,
+			method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, wantCode: codes.PermissionDenied,
 		},
 		{
 			name: "read-write share may rename", permission: "READ_WRITE",
-			method: apiv1alpha1.AgentInstanceService_RenameAgentInstance_FullMethodName, wantCode: codes.OK,
+			method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, wantCode: codes.OK,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

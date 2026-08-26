@@ -54,8 +54,8 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 		{"leading whitespace", &apiv1alpha1.CreateAgentInstanceRequest{Namespace: "team-a", Harness: "kagent", AgentTemplate: "assistant", RequestId: "request-1", Name: " title"}, false},
 		{"control character", &apiv1alpha1.CreateAgentInstanceRequest{Namespace: "team-a", Harness: "kagent", AgentTemplate: "assistant", RequestId: "request-1", Name: "first\nsecond"}, false},
 		{"invalid template filter", &apiv1alpha1.ListAgentInstancesRequest{Namespace: "team-a", AgentTemplate: "NOT A NAME"}, false},
-		{"valid rename", &apiv1alpha1.RenameAgentInstanceRequest{Namespace: "team-a", AgentInstanceId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
-		{"invalid rename id", &apiv1alpha1.RenameAgentInstanceRequest{Namespace: "team-a", AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
+		{"valid rename", &apiv1alpha1.UpdateAgentInstanceNameRequest{Namespace: "team-a", AgentInstanceId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
+		{"invalid rename id", &apiv1alpha1.UpdateAgentInstanceNameRequest{Namespace: "team-a", AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)

@@ -49,12 +49,12 @@ func (s *grpcServer) ListAgentInstances(ctx context.Context, request *apiv1alpha
 	}, nil
 }
 
-func (s *grpcServer) RenameAgentInstance(ctx context.Context, request *apiv1alpha1.RenameAgentInstanceRequest) (*apiv1alpha1.RenameAgentInstanceResponse, error) {
+func (s *grpcServer) UpdateAgentInstanceName(ctx context.Context, request *apiv1alpha1.UpdateAgentInstanceNameRequest) (*apiv1alpha1.UpdateAgentInstanceNameResponse, error) {
 	instance, err := s.service.Rename(ctx, request.GetNamespace(), request.GetAgentInstanceId(), request.GetName())
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.RenameAgentInstanceResponse{AgentInstance: instance}, nil
+	return &apiv1alpha1.UpdateAgentInstanceNameResponse{AgentInstance: instance}, nil
 }
 
 func (s *grpcServer) SuspendAgentInstance(ctx context.Context, request *apiv1alpha1.SuspendAgentInstanceRequest) (*apiv1alpha1.SuspendAgentInstanceResponse, error) {

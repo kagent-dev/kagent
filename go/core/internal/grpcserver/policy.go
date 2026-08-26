@@ -95,7 +95,7 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName] = AccessRead
 	// A rename is the only write on this service that is not a lifecycle
 	// operation, and it must not inherit the read mode its neighbours carry.
-	policies[apiv1alpha1.AgentInstanceService_RenameAgentInstance_FullMethodName] = AccessUpdate
+	policies[apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName] = AccessUpdate
 	policies[apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName] = AccessUpdate
 	policies[apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName] = AccessUpdate
 	policies[apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName] = AccessDelete

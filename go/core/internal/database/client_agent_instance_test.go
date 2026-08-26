@@ -684,9 +684,9 @@ func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 		})
 	}
 
-	renamed, err := client.RenameAgentInstance(ctx, "team-a", "instance-unnamed", "alice", "Named afterwards")
+	renamed, err := client.UpdateAgentInstanceName(ctx, "team-a", "instance-unnamed", "alice", "Named afterwards")
 	if err != nil || renamed.GetName() != "Named afterwards" {
-		t.Fatalf("RenameAgentInstance() = %+v, error %v", renamed, err)
+		t.Fatalf("UpdateAgentInstanceName() = %+v, error %v", renamed, err)
 	}
 	// The rename has to survive a re-read, not just be echoed back: the name lives
 	// in a column while the rest of the message lives in a blob the rename does not
@@ -696,16 +696,16 @@ func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 		t.Fatalf("re-read after rename = %+v, error %v", read, err)
 	}
 	// Renaming back to empty must be possible, or a name can never be undone.
-	cleared, err := client.RenameAgentInstance(ctx, "team-a", "instance-unnamed", "alice", "")
+	cleared, err := client.UpdateAgentInstanceName(ctx, "team-a", "instance-unnamed", "alice", "")
 	if err != nil || cleared.GetName() != "" {
-		t.Fatalf("RenameAgentInstance(\"\") = %+v, error %v", cleared, err)
+		t.Fatalf("UpdateAgentInstanceName(\"\") = %+v, error %v", cleared, err)
 	}
 	// A rename is scoped to the owner, so it cannot reach another reader's row.
-	if _, err := client.RenameAgentInstance(ctx, "team-a", "instance-named", "bob", "Stolen"); !errors.Is(err, dbpkg.ErrNotFound) {
-		t.Fatalf("RenameAgentInstance() as another user error = %v, want %v", err, dbpkg.ErrNotFound)
+	if _, err := client.UpdateAgentInstanceName(ctx, "team-a", "instance-named", "bob", "Stolen"); !errors.Is(err, dbpkg.ErrNotFound) {
+		t.Fatalf("UpdateAgentInstanceName() as another user error = %v, want %v", err, dbpkg.ErrNotFound)
 	}
-	if _, err := client.RenameAgentInstance(ctx, "team-a", "missing", "alice", "Nothing"); !errors.Is(err, dbpkg.ErrNotFound) {
-		t.Fatalf("RenameAgentInstance() of a missing instance error = %v, want %v", err, dbpkg.ErrNotFound)
+	if _, err := client.UpdateAgentInstanceName(ctx, "team-a", "missing", "alice", "Nothing"); !errors.Is(err, dbpkg.ErrNotFound) {
+		t.Fatalf("UpdateAgentInstanceName() of a missing instance error = %v, want %v", err, dbpkg.ErrNotFound)
 	}
 }
 

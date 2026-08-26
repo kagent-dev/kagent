@@ -125,11 +125,6 @@ type Querier interface {
 	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
-	// Renames an instance in place. The row's `data` blob also carries the message,
-	// but `toAgentInstance` reads the name from this column, exactly as it does for
-	// `state` and `operation`, so the column is the single authority and the two
-	// cannot drift.
-	RenameAgentInstance(ctx context.Context, arg RenameAgentInstanceParams) (AgentInstance, error)
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
 	RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error
 	RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error
@@ -150,6 +145,11 @@ type Querier interface {
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
+	// Renames an instance in place. The row's `data` blob also carries the message,
+	// but `toAgentInstance` reads the name from this column, exactly as it does for
+	// `state` and `operation`, so the column is the single authority and the two
+	// cannot drift.
+	UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
 	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error

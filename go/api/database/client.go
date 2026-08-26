@@ -124,9 +124,9 @@ type Client interface {
 	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
-	// RenameAgentInstance sets the instance's display name, scoped to its owner.
+	// UpdateAgentInstanceName sets the instance's display name, scoped to its owner.
 	// Takes namespace, id, owner and the new name.
-	RenameAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error

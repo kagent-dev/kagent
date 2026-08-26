@@ -26,7 +26,7 @@ type store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
-	RenameAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
@@ -129,7 +129,7 @@ func (s *Service) Rename(ctx context.Context, namespace, id, name string) (*apiv
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.RenameAgentInstance(ctx, namespace, id, creator, name)
+	instance, err := s.store.UpdateAgentInstanceName(ctx, namespace, id, creator, name)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}

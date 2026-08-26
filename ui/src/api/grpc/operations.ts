@@ -1152,9 +1152,9 @@ const agentInstances: Pick<
    * identified by its id.
    */
   "agentInstances.rename": async (input, options) => {
-    const name = "AgentInstanceService/RenameAgentInstance";
+    const name = "AgentInstanceService/UpdateAgentInstanceName";
     const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentInstanceService).renameAgentInstance(
+      serviceClient(AgentInstanceService).updateAgentInstanceName(
         { namespace: input.namespace, agentInstanceId: input.id, name: input.name },
         call("agentInstances.rename", options),
       ),

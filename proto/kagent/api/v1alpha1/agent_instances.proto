@@ -12,7 +12,7 @@ service AgentInstanceService {
   rpc CreateAgentInstance(CreateAgentInstanceRequest) returns (CreateAgentInstanceResponse);
   rpc GetAgentInstance(GetAgentInstanceRequest) returns (GetAgentInstanceResponse);
   rpc ListAgentInstances(ListAgentInstancesRequest) returns (ListAgentInstancesResponse);
-  rpc RenameAgentInstance(RenameAgentInstanceRequest) returns (RenameAgentInstanceResponse);
+  rpc UpdateAgentInstanceName(UpdateAgentInstanceNameRequest) returns (UpdateAgentInstanceNameResponse);
   rpc SuspendAgentInstance(SuspendAgentInstanceRequest) returns (SuspendAgentInstanceResponse);
   rpc ResumeAgentInstance(ResumeAgentInstanceRequest) returns (ResumeAgentInstanceResponse);
   rpc DeleteAgentInstance(DeleteAgentInstanceRequest) returns (DeleteAgentInstanceResponse);
@@ -124,7 +124,7 @@ message ListAgentInstancesResponse {
   PageResponse page = 2;
 }
 
-message RenameAgentInstanceRequest {
+message UpdateAgentInstanceNameRequest {
   string namespace = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 63
@@ -139,7 +139,7 @@ message RenameAgentInstanceRequest {
   }];
 }
 
-message RenameAgentInstanceResponse {
+message UpdateAgentInstanceNameResponse {
   AgentInstance agent_instance = 1;
 }
 

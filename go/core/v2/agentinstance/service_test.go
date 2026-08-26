@@ -63,7 +63,7 @@ func (s *serviceTestStore) ListAgentInstances(_ context.Context, query dbpkg.Age
 	return s.instances, nil
 }
 
-func (s *serviceTestStore) RenameAgentInstance(_ context.Context, _, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, _, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
 	if s.renameErr != nil {
 		return nil, s.renameErr
 	}

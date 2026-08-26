@@ -18,7 +18,7 @@ const { Paragraph, Text } = Typography;
  *
  * A conversation is named by the reader — there is nothing else to name it by, since
  * an instance is a row keyed by a UUID and the agent it belongs to is named by its
- * template. `RenameAgentInstance` is the only write on `AgentInstanceService` that is
+ * template. `UpdateAgentInstanceName` is the only write on `AgentInstanceService` that is
  * not a lifecycle operation, and it authorises as a write: its policy entry is
  * `AccessUpdate`, so a read-only share link cannot retitle a conversation for
  * everybody holding it.

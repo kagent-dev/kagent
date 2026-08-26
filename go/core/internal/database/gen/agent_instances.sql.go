@@ -556,49 +556,6 @@ func (q *Queries) MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInsta
 	return i, err
 }
 
-const renameAgentInstance = `-- name: RenameAgentInstance :one
-UPDATE agent_instance
-SET name = $1
-WHERE namespace = $2 AND id = $3 AND user_id = $4
-RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
-`
-
-type RenameAgentInstanceParams struct {
-	Name      string
-	Namespace string
-	ID        string
-	UserID    string
-}
-
-// Renames an instance in place. The row's `data` blob also carries the message,
-// but `toAgentInstance` reads the name from this column, exactly as it does for
-// `state` and `operation`, so the column is the single authority and the two
-// cannot drift.
-func (q *Queries) RenameAgentInstance(ctx context.Context, arg RenameAgentInstanceParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, renameAgentInstance,
-		arg.Name,
-		arg.Namespace,
-		arg.ID,
-		arg.UserID,
-	)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-		&i.Operation,
-		&i.ContextID,
-		&i.SourceCheckpointID,
-		&i.Name,
-	)
-	return i, err
-}
-
 const transitionAgentInstance = `-- name: TransitionAgentInstance :one
 UPDATE agent_instance
 SET state = $1, operation = $2, data = $3
@@ -632,6 +589,49 @@ func (q *Queries) TransitionAgentInstance(ctx context.Context, arg TransitionAge
 		arg.ID,
 		arg.ExpectedState,
 		arg.ExpectedOperation,
+	)
+	var i AgentInstance
+	err := row.Scan(
+		&i.ID,
+		&i.Namespace,
+		&i.UserID,
+		&i.RequestID,
+		&i.PreparedRevision,
+		&i.State,
+		&i.Labels,
+		&i.Data,
+		&i.Operation,
+		&i.ContextID,
+		&i.SourceCheckpointID,
+		&i.Name,
+	)
+	return i, err
+}
+
+const updateAgentInstanceName = `-- name: UpdateAgentInstanceName :one
+UPDATE agent_instance
+SET name = $1
+WHERE namespace = $2 AND id = $3 AND user_id = $4
+RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
+`
+
+type UpdateAgentInstanceNameParams struct {
+	Name      string
+	Namespace string
+	ID        string
+	UserID    string
+}
+
+// Renames an instance in place. The row's `data` blob also carries the message,
+// but `toAgentInstance` reads the name from this column, exactly as it does for
+// `state` and `operation`, so the column is the single authority and the two
+// cannot drift.
+func (q *Queries) UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error) {
+	row := q.db.QueryRow(ctx, updateAgentInstanceName,
+		arg.Name,
+		arg.Namespace,
+		arg.ID,
+		arg.UserID,
 	)
 	var i AgentInstance
 	err := row.Scan(

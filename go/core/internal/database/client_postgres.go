@@ -830,10 +830,10 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.Age
 	return result, nil
 }
 
-// RenameAgentInstance writes only the name column, scoped to the instance's
+// UpdateAgentInstanceName writes only the name column, scoped to the instance's
 // owner so a rename cannot reach another reader's conversation.
-func (c *postgresClient) RenameAgentInstance(ctx context.Context, namespace, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
-	row, err := c.q.RenameAgentInstance(ctx, dbgen.RenameAgentInstanceParams{
+func (c *postgresClient) UpdateAgentInstanceName(ctx context.Context, namespace, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.UpdateAgentInstanceName(ctx, dbgen.UpdateAgentInstanceNameParams{
 		Namespace: namespace, ID: id, UserID: userID, Name: name,
 	})
 	if err != nil {

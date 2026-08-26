@@ -84,7 +84,7 @@ RETURNING *;
 -- but `toAgentInstance` reads the name from this column, exactly as it does for
 -- `state` and `operation`, so the column is the single authority and the two
 -- cannot drift.
--- name: RenameAgentInstance :one
+-- name: UpdateAgentInstanceName :one
 UPDATE agent_instance
 SET name = sqlc.arg(name)
 WHERE namespace = sqlc.arg(namespace) AND id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)

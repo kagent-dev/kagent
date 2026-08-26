@@ -750,7 +750,7 @@ func (x *ListAgentInstancesResponse) GetPage() *PageResponse {
 	return nil
 }
 
-type RenameAgentInstanceRequest struct {
+type UpdateAgentInstanceNameRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Namespace       string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
@@ -761,20 +761,20 @@ type RenameAgentInstanceRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RenameAgentInstanceRequest) Reset() {
-	*x = RenameAgentInstanceRequest{}
+func (x *UpdateAgentInstanceNameRequest) Reset() {
+	*x = UpdateAgentInstanceNameRequest{}
 	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RenameAgentInstanceRequest) String() string {
+func (x *UpdateAgentInstanceNameRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RenameAgentInstanceRequest) ProtoMessage() {}
+func (*UpdateAgentInstanceNameRequest) ProtoMessage() {}
 
-func (x *RenameAgentInstanceRequest) ProtoReflect() protoreflect.Message {
+func (x *UpdateAgentInstanceNameRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -786,53 +786,53 @@ func (x *RenameAgentInstanceRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RenameAgentInstanceRequest.ProtoReflect.Descriptor instead.
-func (*RenameAgentInstanceRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdateAgentInstanceNameRequest.ProtoReflect.Descriptor instead.
+func (*UpdateAgentInstanceNameRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *RenameAgentInstanceRequest) GetNamespace() string {
+func (x *UpdateAgentInstanceNameRequest) GetNamespace() string {
 	if x != nil {
 		return x.Namespace
 	}
 	return ""
 }
 
-func (x *RenameAgentInstanceRequest) GetAgentInstanceId() string {
+func (x *UpdateAgentInstanceNameRequest) GetAgentInstanceId() string {
 	if x != nil {
 		return x.AgentInstanceId
 	}
 	return ""
 }
 
-func (x *RenameAgentInstanceRequest) GetName() string {
+func (x *UpdateAgentInstanceNameRequest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-type RenameAgentInstanceResponse struct {
+type UpdateAgentInstanceNameResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentInstance *AgentInstance         `protobuf:"bytes,1,opt,name=agent_instance,json=agentInstance,proto3" json:"agent_instance,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RenameAgentInstanceResponse) Reset() {
-	*x = RenameAgentInstanceResponse{}
+func (x *UpdateAgentInstanceNameResponse) Reset() {
+	*x = UpdateAgentInstanceNameResponse{}
 	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RenameAgentInstanceResponse) String() string {
+func (x *UpdateAgentInstanceNameResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RenameAgentInstanceResponse) ProtoMessage() {}
+func (*UpdateAgentInstanceNameResponse) ProtoMessage() {}
 
-func (x *RenameAgentInstanceResponse) ProtoReflect() protoreflect.Message {
+func (x *UpdateAgentInstanceNameResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_kagent_api_v1alpha1_agent_instances_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -844,12 +844,12 @@ func (x *RenameAgentInstanceResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RenameAgentInstanceResponse.ProtoReflect.Descriptor instead.
-func (*RenameAgentInstanceResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use UpdateAgentInstanceNameResponse.ProtoReflect.Descriptor instead.
+func (*UpdateAgentInstanceNameResponse) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_agent_instances_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *RenameAgentInstanceResponse) GetAgentInstance() *AgentInstance {
+func (x *UpdateAgentInstanceNameResponse) GetAgentInstance() *AgentInstance {
 	if x != nil {
 		return x.AgentInstance
 	}
@@ -1589,12 +1589,12 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
 	"\x1aListAgentInstancesResponse\x12K\n" +
 	"\x0fagent_instances\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentInstanceR\x0eagentInstances\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"\xf1\x01\n" +
-	"\x1aRenameAgentInstanceRequest\x12J\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"\xf5\x01\n" +
+	"\x1eUpdateAgentInstanceNameRequest\x12J\n" +
 	"\tnamespace\x18\x01 \x01(\tB,\xbaH)r'\x10\x01\x18?2!^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$R\tnamespace\x124\n" +
 	"\x11agent_instance_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12Q\n" +
-	"\x04name\x18\x03 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\"h\n" +
-	"\x1bRenameAgentInstanceResponse\x12I\n" +
+	"\x04name\x18\x03 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\"l\n" +
+	"\x1fUpdateAgentInstanceNameResponse\x12I\n" +
 	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"y\n" +
 	"\x1bSuspendAgentInstanceRequest\x12%\n" +
 	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
@@ -1658,12 +1658,13 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\x1cAgentInstanceSharePermission\x12/\n" +
 	"+AGENT_INSTANCE_SHARE_PERMISSION_UNSPECIFIED\x10\x00\x12-\n" +
 	")AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY\x10\x01\x12.\n" +
-	"*AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE\x10\x022\xfe\t\n" +
+	"*AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE\x10\x022\x8b\n" +
+	"\n" +
 	"\x14AgentInstanceService\x12x\n" +
 	"\x13CreateAgentInstance\x12/.kagent.api.v1alpha1.CreateAgentInstanceRequest\x1a0.kagent.api.v1alpha1.CreateAgentInstanceResponse\x12o\n" +
 	"\x10GetAgentInstance\x12,.kagent.api.v1alpha1.GetAgentInstanceRequest\x1a-.kagent.api.v1alpha1.GetAgentInstanceResponse\x12u\n" +
-	"\x12ListAgentInstances\x12..kagent.api.v1alpha1.ListAgentInstancesRequest\x1a/.kagent.api.v1alpha1.ListAgentInstancesResponse\x12x\n" +
-	"\x13RenameAgentInstance\x12/.kagent.api.v1alpha1.RenameAgentInstanceRequest\x1a0.kagent.api.v1alpha1.RenameAgentInstanceResponse\x12{\n" +
+	"\x12ListAgentInstances\x12..kagent.api.v1alpha1.ListAgentInstancesRequest\x1a/.kagent.api.v1alpha1.ListAgentInstancesResponse\x12\x84\x01\n" +
+	"\x17UpdateAgentInstanceName\x123.kagent.api.v1alpha1.UpdateAgentInstanceNameRequest\x1a4.kagent.api.v1alpha1.UpdateAgentInstanceNameResponse\x12{\n" +
 	"\x14SuspendAgentInstance\x120.kagent.api.v1alpha1.SuspendAgentInstanceRequest\x1a1.kagent.api.v1alpha1.SuspendAgentInstanceResponse\x12x\n" +
 	"\x13ResumeAgentInstance\x12/.kagent.api.v1alpha1.ResumeAgentInstanceRequest\x1a0.kagent.api.v1alpha1.ResumeAgentInstanceResponse\x12x\n" +
 	"\x13DeleteAgentInstance\x12/.kagent.api.v1alpha1.DeleteAgentInstanceRequest\x1a0.kagent.api.v1alpha1.DeleteAgentInstanceResponse\x12\x87\x01\n" +
@@ -1697,8 +1698,8 @@ var file_kagent_api_v1alpha1_agent_instances_proto_goTypes = []any{
 	(*GetAgentInstanceResponse)(nil),         // 8: kagent.api.v1alpha1.GetAgentInstanceResponse
 	(*ListAgentInstancesRequest)(nil),        // 9: kagent.api.v1alpha1.ListAgentInstancesRequest
 	(*ListAgentInstancesResponse)(nil),       // 10: kagent.api.v1alpha1.ListAgentInstancesResponse
-	(*RenameAgentInstanceRequest)(nil),       // 11: kagent.api.v1alpha1.RenameAgentInstanceRequest
-	(*RenameAgentInstanceResponse)(nil),      // 12: kagent.api.v1alpha1.RenameAgentInstanceResponse
+	(*UpdateAgentInstanceNameRequest)(nil),   // 11: kagent.api.v1alpha1.UpdateAgentInstanceNameRequest
+	(*UpdateAgentInstanceNameResponse)(nil),  // 12: kagent.api.v1alpha1.UpdateAgentInstanceNameResponse
 	(*SuspendAgentInstanceRequest)(nil),      // 13: kagent.api.v1alpha1.SuspendAgentInstanceRequest
 	(*SuspendAgentInstanceResponse)(nil),     // 14: kagent.api.v1alpha1.SuspendAgentInstanceResponse
 	(*ResumeAgentInstanceRequest)(nil),       // 15: kagent.api.v1alpha1.ResumeAgentInstanceRequest
@@ -1734,7 +1735,7 @@ var file_kagent_api_v1alpha1_agent_instances_proto_depIdxs = []int32{
 	30, // 11: kagent.api.v1alpha1.ListAgentInstancesRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
 	4,  // 12: kagent.api.v1alpha1.ListAgentInstancesResponse.agent_instances:type_name -> kagent.api.v1alpha1.AgentInstance
 	31, // 13: kagent.api.v1alpha1.ListAgentInstancesResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
-	4,  // 14: kagent.api.v1alpha1.RenameAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
+	4,  // 14: kagent.api.v1alpha1.UpdateAgentInstanceNameResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
 	4,  // 15: kagent.api.v1alpha1.SuspendAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
 	4,  // 16: kagent.api.v1alpha1.ResumeAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
 	4,  // 17: kagent.api.v1alpha1.DeleteAgentInstanceResponse.agent_instance:type_name -> kagent.api.v1alpha1.AgentInstance
@@ -1748,7 +1749,7 @@ var file_kagent_api_v1alpha1_agent_instances_proto_depIdxs = []int32{
 	5,  // 25: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:input_type -> kagent.api.v1alpha1.CreateAgentInstanceRequest
 	7,  // 26: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:input_type -> kagent.api.v1alpha1.GetAgentInstanceRequest
 	9,  // 27: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:input_type -> kagent.api.v1alpha1.ListAgentInstancesRequest
-	11, // 28: kagent.api.v1alpha1.AgentInstanceService.RenameAgentInstance:input_type -> kagent.api.v1alpha1.RenameAgentInstanceRequest
+	11, // 28: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:input_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameRequest
 	13, // 29: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:input_type -> kagent.api.v1alpha1.SuspendAgentInstanceRequest
 	15, // 30: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:input_type -> kagent.api.v1alpha1.ResumeAgentInstanceRequest
 	17, // 31: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:input_type -> kagent.api.v1alpha1.DeleteAgentInstanceRequest
@@ -1758,7 +1759,7 @@ var file_kagent_api_v1alpha1_agent_instances_proto_depIdxs = []int32{
 	6,  // 35: kagent.api.v1alpha1.AgentInstanceService.CreateAgentInstance:output_type -> kagent.api.v1alpha1.CreateAgentInstanceResponse
 	8,  // 36: kagent.api.v1alpha1.AgentInstanceService.GetAgentInstance:output_type -> kagent.api.v1alpha1.GetAgentInstanceResponse
 	10, // 37: kagent.api.v1alpha1.AgentInstanceService.ListAgentInstances:output_type -> kagent.api.v1alpha1.ListAgentInstancesResponse
-	12, // 38: kagent.api.v1alpha1.AgentInstanceService.RenameAgentInstance:output_type -> kagent.api.v1alpha1.RenameAgentInstanceResponse
+	12, // 38: kagent.api.v1alpha1.AgentInstanceService.UpdateAgentInstanceName:output_type -> kagent.api.v1alpha1.UpdateAgentInstanceNameResponse
 	14, // 39: kagent.api.v1alpha1.AgentInstanceService.SuspendAgentInstance:output_type -> kagent.api.v1alpha1.SuspendAgentInstanceResponse
 	16, // 40: kagent.api.v1alpha1.AgentInstanceService.ResumeAgentInstance:output_type -> kagent.api.v1alpha1.ResumeAgentInstanceResponse
 	18, // 41: kagent.api.v1alpha1.AgentInstanceService.DeleteAgentInstance:output_type -> kagent.api.v1alpha1.DeleteAgentInstanceResponse
