@@ -741,7 +741,22 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
     if (taken.has(identity)) return;
     taken.add(identity);
     messages.push({
-      id: message.messageId || nextId("history"),
+      /*
+       * Derived from the task and the position in it, never from a counter.
+       *
+       * The gateway does not name an agent reply, so this is the branch most replies
+       * take — and it used to take a process-wide counter, which meant the same reply
+       * came back as `history-1` on one read and `history-2` on the next. The
+       * transcript merge treats the id as identity, so on every re-read the copy
+       * already on screen stopped matching and was kept as a local extra, appended
+       * after everything the server sent: a reply from three turns ago reappearing
+       * under the newest one, and a refresh — which drops the local copy and the
+       * counter together — putting it right. Focus was enough to trigger it.
+       *
+       * Position within the task is stable for the same payload and unaffected by the
+       * task gaining later messages, which is all the merge needs.
+       */
+      id: message.messageId || `${task.id || "task"}-message-${messages.length}`,
       role: message.role === Role.AGENT ? "agent" : "user",
       parts,
       createdAt,
@@ -760,7 +775,9 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
     const body = textOf(parts);
     if (parts.length === 0 || (body !== "" && shown.has(body))) continue;
     messages.push({
-      id: artifact.artifactId || nextId("artifact"),
+      // Derived, for the reason given against the message id above: an unnamed
+      // artifact renamed on every read is an artifact the merge cannot recognise.
+      id: artifact.artifactId || `${task.id || "task"}-artifact-${messages.length}`,
       role: "agent",
       parts,
       createdAt,

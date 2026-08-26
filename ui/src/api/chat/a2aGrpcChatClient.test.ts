@@ -618,6 +618,49 @@ describe("A2AGrpcChatClient.history", () => {
     expect(messages).toHaveLength(1);
   });
 
+  it("names a message the same thing on a re-read, so a merge can recognise it", async () => {
+    /*
+     * Reported as a defect: in a conversation several turns long, tabbing away and
+     * back put an earlier agent reply underneath the newest one, and a refresh
+     * cleared it.
+     *
+     * The gateway does not name an agent reply, and the id for an unnamed one came
+     * from a process-wide counter — so the same reply was `history-1` on one read and
+     * `history-2` on the next. `useLiveTranscript` re-reads on `visibilitychange`,
+     * the transcript merge treats the id as identity, and a copy that no longer
+     * matched was kept as a local addition and appended after everything the server
+     * sent. A reload dropped the copy and reset the counter together, which is why it
+     * looked like a rendering fault rather than a merge.
+     *
+     * Asserted across two reads of the *same* task, because one read cannot show it.
+     */
+    const task = {
+      id: "task-1",
+      contextId: CONVERSATION.id,
+      status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+      history: [
+        { messageId: "m1", role: Role.USER, parts: [text("how many pods?")] },
+        // Unnamed, as an agent reply arrives.
+        { role: Role.AGENT, parts: [text("3 pods")] },
+      ],
+      artifacts: [{ parts: [text("and one pending")] }],
+    };
+
+    serveTasks([task]);
+    const first = await new A2AGrpcChatClient().history(CONVERSATION);
+    serveTasks([task]);
+    const second = await new A2AGrpcChatClient().history(CONVERSATION);
+
+    expect(second.messages.map((message) => message.id)).toEqual(
+      first.messages.map((message) => message.id),
+    );
+    // And the derived ids are still distinct from each other, or the merge would
+    // collapse two different messages into one.
+    expect(new Set(first.messages.map((message) => message.id)).size).toBe(
+      first.messages.length,
+    );
+  });
+
   it("drops an artifact repeating text already in the history", async () => {
     serveTasks([
       {
