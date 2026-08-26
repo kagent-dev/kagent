@@ -178,6 +178,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*database.
 		Source:  request.Source,
 	}
 	if err := s.store.StoreSession(ctx, value); err != nil {
+		if errors.Is(err, database.ErrSessionIDInUse) {
+			return nil, serviceerrors.NewAlreadyExists("Session ID is already in use", err)
+		}
 		return nil, serviceerrors.NewInternal("Failed to create session", err)
 	}
 	stored, err := s.store.GetSession(ctx, id, userID)
