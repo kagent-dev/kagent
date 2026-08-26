@@ -53,8 +53,8 @@ def add_skills_tool_to_agent(
         logger.debug(f"Added edit file tool to agent: {agent.name}")
 
     # list_files/grep_file are opt-in: they give an agent broad filesystem
-    # visibility, so some deployments want them off unless explicitly
-    # enabled, same as bash.
+    # visibility, so deployments enable them deliberately. Note this gate is
+    # theirs alone -- bash above is always registered.
     if file_search_tools_enabled():
         if "list_files" not in existing_tool_names:
             agent.tools.append(ListFilesTool(skills_directory))

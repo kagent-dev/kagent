@@ -13,13 +13,15 @@ import (
 )
 
 // enableFileSearchToolsEnv gates the list_files and grep_file tools, which
-// are opt-in (disabled by default): they let an agent walk the filesystem
-// under its session/skills roots without a shell, which some deployments
-// want to keep off by default alongside bash rather than enable implicitly.
+// are opt-in (disabled by default): they let an agent enumerate and search
+// the filesystem under its session/skills roots without invoking a shell, so
+// deployments that want to grant that visibility deliberately can, rather
+// than having it enabled implicitly.
 //
 // Also registered (separately, for `kagent env` CLI discoverability only,
-// not read here) as KagentEnableFileSearchTools in go/core/pkg/env/kagent.go
-// -- keep both string literals in sync if this name ever changes.
+// not read here) as KagentEnableFileSearchTools in go/core/pkg/env/kagent.go.
+// TestEnableFileSearchToolsEnvMatchesRegistry pins the two literals together
+// so they cannot drift.
 const enableFileSearchToolsEnv = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
 
 // fileSearchToolsEnabled accepts the same case-insensitive true-values as
@@ -230,8 +232,8 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	tools := []tool.Tool{readFileTool, writeFileTool, editFileTool}
 
 	// list_files/grep_file are opt-in: they give an agent broad filesystem
-	// visibility, so some deployments want them off unless explicitly
-	// enabled, same as bash below.
+	// visibility, so deployments enable them deliberately. Note this gate is
+	// theirs alone -- bash below is always registered.
 	fileSearchEnabled := fileSearchToolsEnabled()
 	if fileSearchEnabled {
 		listFilesTool, err := functiontool.New(functiontool.Config{

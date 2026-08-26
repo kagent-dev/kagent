@@ -394,6 +394,72 @@ def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
         outside_dir.rmdir()
 
 
+def test_grep_content_recursive_skips_symlinks_that_escape_the_searched_directory(tmp_path):
+    """A symlink may not pull in a file from outside the directory being searched.
+
+    allowed_root in production is the whole session dir plus the skills dir --
+    wider than the search root -- so validating against it alone would let a
+    link in the searched subdirectory read a sibling the caller never asked
+    about. Go bounds each entry by the search root; this pins the same rule.
+    """
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("sibling foo\n")
+
+    searched = tmp_path / "searched"
+    searched.mkdir()
+    (searched / "own.txt").write_text("own foo\n")
+    link = searched / "escape.txt"
+
+    try:
+        link.symlink_to(sibling / "secret.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported")
+
+    # allowed_root is tmp_path (the shared parent), so the link's target IS
+    # inside the sandbox -- only the search-root check can exclude it.
+    result = grep_content(searched, "foo", recursive=True, allowed_root=tmp_path)
+
+    assert "own foo" in result
+    assert "sibling foo" not in result
+
+
+def test_grep_content_counts_broken_symlink_as_unreadable(tmp_path):
+    """A dangling link is a genuine read failure and must not vanish silently."""
+    (tmp_path / "match.txt").write_text("foo readable\n")
+    link = tmp_path / "broken.txt"
+
+    try:
+        link.symlink_to(tmp_path / "does-not-exist.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported")
+
+    result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+
+    assert "match.txt:1:foo readable" in result
+    assert "could not be read" in result
+
+
+def test_grep_content_does_not_count_fifo_as_unreadable(tmp_path):
+    """A FIFO is excluded by policy, not failure -- it must stay silent.
+
+    Counting it would make every session dir containing a pipe report a
+    spurious "N entries could not be read", which is exactly the confusing
+    signal the annotation exists to avoid.
+    """
+    (tmp_path / "match.txt").write_text("foo readable\n")
+    fifo_path = tmp_path / "pipe"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, NotImplementedError, OSError):
+        pytest.skip("FIFOs not supported")
+
+    result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+
+    assert "match.txt:1:foo readable" in result
+    assert "could not be read" not in result
+
+
 def _call_with_timeout(fn, *args, timeout=5, **kwargs):
     """Run fn in a worker thread and fail loudly if it doesn't return in time.
 

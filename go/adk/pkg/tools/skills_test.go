@@ -7,10 +7,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
+
+// TestEnableFileSearchToolsEnvMatchesRegistry pins this package's env var
+// literal to the `kagent env` registry entry in go/core/pkg/env. The name is
+// declared twice on purpose -- the runtime reads the raw variable here, while
+// the registry exists solely so `kagent env` can document it -- so without
+// this assertion nothing would catch the two drifting apart.
+//
+// This is a test-only import: it does not put a dependency on the
+// control-plane module into the shipped agent runtime.
+func TestEnableFileSearchToolsEnvMatchesRegistry(t *testing.T) {
+	if got, want := enableFileSearchToolsEnv, env.KagentEnableFileSearchTools.Name(); got != want {
+		t.Fatalf("env var name drift: %s has %q, go/core/pkg/env registry has %q",
+			"go/adk/pkg/tools/skills.go", got, want)
+	}
+}
 
 // fakeToolContext is a minimal agent.Context for directly invoking tools in
 // tests, bypassing the full ADK flow engine. Embeds StrictContextMock (an

@@ -54,11 +54,11 @@ class SkillsToolset(BaseToolset):
         self.write_file_tool = WriteFileTool()
         self.edit_file_tool = EditFileTool()
         # list_files/grep_file are opt-in: they give an agent broad
-        # filesystem visibility, so some deployments want them off unless
-        # explicitly enabled, same as bash. A single list (rather than two
-        # separately-nullable attributes) keeps "both present or both
-        # absent" a structural guarantee instead of a convention the two
-        # attributes have to be kept in sync by hand.
+        # filesystem visibility, so deployments enable them deliberately.
+        # Note this gate is theirs alone -- bash below is always registered.
+        # A single list (rather than two separately-nullable attributes)
+        # keeps "both present or both absent" a structural guarantee instead
+        # of a convention the two attributes have to be kept in sync by hand.
         self._file_search_tools: list[BaseTool] = (
             [ListFilesTool(skills_directory), GrepFileTool(skills_directory)] if file_search_tools_enabled() else []
         )

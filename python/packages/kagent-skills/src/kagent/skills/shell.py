@@ -227,17 +227,33 @@ def grep_content(
         skipped += len(walk_errors)
 
         for entry in sorted(entries):
-            # is_file() follows symlinks and checks S_ISREG, so this also
-            # excludes FIFOs/sockets/devices -- opening one for reading can
-            # block indefinitely (e.g. a FIFO with no writer connected).
+            # is_file() follows symlinks and checks S_ISREG, so a False here
+            # covers two cases that deserve different treatment -- matching
+            # the split Go makes in classifyWalkEntry:
+            #   - a broken symlink (or a symlink loop) is a genuine read
+            #     failure, so count it, as Go's walkEntryUnreadable does.
+            #     Otherwise a tree of dangling links reports a confidently
+            #     empty "no matches found".
+            #   - a FIFO/socket/device is excluded by policy, not failure
+            #     (opening one can block indefinitely), so stay silent, as
+            #     Go's walkEntrySkip does.
             if not entry.is_file():
+                if entry.is_symlink() and not entry.exists():
+                    skipped += 1
                 continue
             try:
-                # Skip entries whose symlink-resolved target escapes the
-                # root being searched, so a symlink can't be used to read
-                # files outside the requested directory.
+                # Keep the read inside the session/skills sandbox.
                 safe_entry = _validate_path(entry, allowed_root)
             except PermissionError:
+                continue
+            # allowed_root is the whole session plus the skills dir, which is
+            # wider than the directory being searched -- so it alone would let
+            # a symlink here pull in a file from a sibling directory the caller
+            # never asked to search. Go bounds each entry by the search root
+            # (WithinRoot), and both the tool description and the README
+            # promise that behavior, so bound it here too. Silent, matching
+            # Go's walkEntrySkip for an out-of-root symlink.
+            if not safe_entry.is_relative_to(file_or_dir_path):
                 continue
             try:
                 results.extend(grep_file(safe_entry))

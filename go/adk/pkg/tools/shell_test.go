@@ -2,12 +2,14 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func createTempDir(t *testing.T) string {
@@ -172,6 +174,78 @@ func TestReadFileContent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReadFileContent_FIFOReturnsErrorInsteadOfHanging(t *testing.T) {
+	fifoDir := createTempDir(t)
+	defer os.RemoveAll(fifoDir)
+
+	fifoPath := filepath.Join(fifoDir, "pipe")
+	if err := syscall.Mkfifo(fifoPath, 0644); err != nil {
+		t.Skipf("FIFOs not supported: %v", err)
+	}
+
+	// Opening a FIFO with no writer connected blocks forever, and nothing on
+	// this path has a timeout -- so run it off-goroutine and fail on the
+	// timeout rather than hanging the whole test binary.
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = ReadFileContent(fifoPath, 0, 0)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReadFileContent hung opening a FIFO instead of erroring")
+	}
+
+	if err == nil {
+		t.Fatal("expected an error for a non-regular file target, got nil")
+	}
+	if !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("expected a not-a-regular-file error, got %v", err)
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	t.Run("truncates on a rune boundary and stays valid UTF-8", func(t *testing.T) {
+		// 3000 three-byte runes: byte-slicing at 2000 would land mid-rune.
+		long := strings.Repeat("世", 3000)
+
+		got := truncateRunes(long, maxLineRunes)
+
+		if !utf8.ValidString(got) {
+			t.Error("expected truncated output to be valid UTF-8")
+		}
+		if strings.ContainsRune(got, utf8.RuneError) {
+			t.Error("expected no U+FFFD replacement char from a split rune")
+		}
+		body := strings.TrimSuffix(got, "...")
+		if n := utf8.RuneCountInString(body); n != maxLineRunes {
+			t.Errorf("expected exactly %d runes before the ellipsis, got %d", maxLineRunes, n)
+		}
+		if !strings.HasSuffix(got, "...") {
+			t.Errorf("expected truncated output to end with '...', got %q", got)
+		}
+	})
+
+	t.Run("leaves a short string untouched", func(t *testing.T) {
+		if got := truncateRunes("héllo", maxLineRunes); got != "héllo" {
+			t.Errorf("expected input returned unchanged, got %q", got)
+		}
+	})
+
+	t.Run("counts characters not bytes, matching the Python runtime", func(t *testing.T) {
+		// 2000 multi-byte runes is 6000 bytes -- well over a byte-based
+		// limit, but exactly at the rune limit, so it must NOT truncate.
+		exact := strings.Repeat("世", maxLineRunes)
+		if got := truncateRunes(exact, maxLineRunes); got != exact {
+			t.Errorf("expected a string of exactly %d runes to be left alone, got %d runes",
+				maxLineRunes, utf8.RuneCountInString(got))
+		}
+	})
 }
 
 func TestWriteFileContent(t *testing.T) {
@@ -360,6 +434,58 @@ func TestListDirContent(t *testing.T) {
 		}
 		if strings.Contains(result, "dir-link\t") {
 			t.Errorf("expected symlinked directory not to be listed as a file, got %q", result)
+		}
+	})
+
+	t.Run("symlink to a file reports the target's size, not the link's", func(t *testing.T) {
+		linkDir := createTempDir(t)
+		defer os.RemoveAll(linkDir)
+
+		// The target's contents must be longer than the symlink's own
+		// "size" (the byte length of the stored target path) so the two are
+		// unambiguous: Lstat would report len(target path), Stat reports 20.
+		target := filepath.Join(linkDir, "target.txt")
+		contents := strings.Repeat("x", 20)
+		if err := os.WriteFile(target, []byte(contents), 0644); err != nil {
+			t.Fatalf("Failed to write target file: %v", err)
+		}
+		linkPath := filepath.Join(linkDir, "file-link")
+		if err := os.Symlink(target, linkPath); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+
+		result, err := ListDirContent(linkDir)
+		if err != nil {
+			t.Fatalf("ListDirContent() error = %v", err)
+		}
+		if !strings.Contains(result, fmt.Sprintf("file-link\t%d", len(contents))) {
+			t.Errorf("expected symlinked file to report the target's size (%d), got %q", len(contents), result)
+		}
+		if strings.Contains(result, fmt.Sprintf("file-link\t%d", len(target))) {
+			t.Errorf("expected not to report the symlink's own size (%d), got %q", len(target), result)
+		}
+	})
+
+	t.Run("broken symlink is listed without a size", func(t *testing.T) {
+		linkDir := createTempDir(t)
+		defer os.RemoveAll(linkDir)
+
+		linkPath := filepath.Join(linkDir, "broken-link")
+		if err := os.Symlink(filepath.Join(linkDir, "does-not-exist"), linkPath); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+
+		result, err := ListDirContent(linkDir)
+		if err != nil {
+			t.Fatalf("ListDirContent() error = %v", err)
+		}
+		// Bare name, no size and no trailing slash -- matching Python's
+		// list_dir_content, whose stat() raises on a dangling link.
+		if !strings.Contains(result, "broken-link") {
+			t.Errorf("expected broken symlink to be listed, got %q", result)
+		}
+		if strings.Contains(result, "broken-link\t") || strings.Contains(result, "broken-link/") {
+			t.Errorf("expected broken symlink to be listed with no size and no trailing slash, got %q", result)
 		}
 	})
 }

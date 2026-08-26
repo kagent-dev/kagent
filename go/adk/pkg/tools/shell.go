@@ -16,6 +16,33 @@ import (
 
 type CommandExecutor struct{}
 
+// maxLineRunes is the longest line read_file and grep_file will emit before
+// truncating. Counted in runes, not bytes -- see truncateRunes.
+const maxLineRunes = 2000
+
+// truncateRunes shortens s to at most maxRunes code points, appending "..."
+// when it truncates.
+//
+// Slicing a Go string directly (s[:n]) cuts on a byte boundary, which can
+// split a multi-byte UTF-8 sequence and leave a partial code point that
+// renders as U+FFFD. It also makes the limit mean bytes, so the same line
+// would truncate at a different point than in the Python runtime (whose str
+// slicing is per-code-point) and than the tool descriptions promise, which
+// say "characters".
+func truncateRunes(s string, maxRunes int) string {
+	count := 0
+	// Ranging a string yields one iteration per rune, with i the byte index
+	// where that rune starts -- so at the maxRunes'th rune, s[:i] holds
+	// exactly maxRunes complete runes.
+	for i := range s {
+		if count == maxRunes {
+			return s[:i] + "..."
+		}
+		count++
+	}
+	return s
+}
+
 // GetSessionPath creates the working directory used by skill execution tools.
 func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 	if sessionID == "" {
@@ -55,9 +82,20 @@ func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 
 // ReadFileContent reads a file with line numbers.
 func ReadFileContent(path string, offset, limit int) (string, error) {
+	// Stat before opening: os.Open on a FIFO with no writer connected blocks
+	// indefinitely, and nothing on this path imposes a timeout. GrepContent
+	// rejects non-regular files for the same reason.
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%q is not a regular file", path)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to open %q: %w", path, err)
 	}
 	defer file.Close()
 
@@ -69,10 +107,7 @@ func ReadFileContent(path string, offset, limit int) (string, error) {
 
 	for scanner.Scan() {
 		if lineNum >= start {
-			line := scanner.Text()
-			if len(line) > 2000 {
-				line = line[:2000] + "..."
-			}
+			line := truncateRunes(scanner.Text(), maxLineRunes)
 			fmt.Fprintf(&result, "%6d|%s\n", lineNum, line)
 			count++
 			if limit > 0 && count >= limit {
@@ -162,16 +197,25 @@ func ListDirContent(path string) (string, error) {
 			continue
 		}
 
-		// entry.IsDir() reflects the entry's own type (Lstat-like) and is
-		// false for a symlink even when its target is a directory -- e.g.
-		// the "skills" symlink present in every session dir. Stat (which
-		// follows symlinks) to classify those correctly, matching Python's
-		// pathlib Path.is_dir(), which follows symlinks by default.
+		// entry.IsDir() and entry.Info() both describe the entry itself
+		// (Lstat-like), so for a symlink they report the link rather than
+		// its target -- the target's type is lost, and Info().Size() is the
+		// length of the stored target path, not the file's size. os.Stat
+		// follows the link, so use it for both, matching Python's pathlib
+		// Path.is_dir()/Path.stat(), which follow symlinks by default.
 		if entry.Type()&fs.ModeSymlink != 0 {
-			if target, statErr := os.Stat(filepath.Join(path, entry.Name())); statErr == nil && target.IsDir() {
+			target, statErr := os.Stat(filepath.Join(path, entry.Name()))
+			switch {
+			case statErr != nil:
+				// Broken link: there is no target to size. Print the bare
+				// name, as Python does when its stat() raises here.
+				fmt.Fprintf(&result, "%s\n", entry.Name())
+			case target.IsDir():
 				fmt.Fprintf(&result, "%s/\n", entry.Name())
-				continue
+			default:
+				fmt.Fprintf(&result, "%s\t%d\n", entry.Name(), target.Size())
 			}
+			continue
 		}
 
 		info, err := entry.Info()
@@ -270,7 +314,7 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to stat %q: %w", path, err)
 	}
 
 	var result strings.Builder
@@ -287,10 +331,7 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		lineNum := 1
 		for scanner.Scan() {
 			if line := scanner.Text(); re.MatchString(line) {
-				if len(line) > 2000 {
-					line = line[:2000] + "..."
-				}
-				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, line)
+				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, truncateRunes(line, maxLineRunes))
 			}
 			lineNum++
 		}
@@ -307,7 +348,7 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		var root string
 		root, err = filepath.EvalSymlinks(path)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to resolve %q: %w", path, err)
 		}
 		// Walk the resolved root, not path: filepath.WalkDir uses Lstat on
 		// its root argument, so if path itself were an unresolved directory
@@ -350,7 +391,7 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		err = grepFile(path)
 	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to search %q: %w", path, err)
 	}
 
 	if result.Len() == 0 {
