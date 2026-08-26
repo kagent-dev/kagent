@@ -179,6 +179,10 @@ class TestEmbeddingDispatch:
         assert mock_cls.call_args.kwargs["azure_endpoint"] == "https://example.cognitiveservices.azure.com/"
         assert mock_cls.call_args.kwargs["azure_deployment"] == "embedding-deployment"
         assert mock_cls.call_args.kwargs["api_version"] == "2025-01-01"
+        instance.embeddings.create.assert_called_once_with(
+            model="text-embedding-3-small",
+            input=["hello"],
+        )
 
     @pytest.mark.asyncio
     async def test_foundry_embed_uses_workload_identity(self):
