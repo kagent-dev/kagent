@@ -42,9 +42,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
-	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
-	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -609,8 +608,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	memoryService := memoryservice.NewService(dbClient)
 	sessionService := sessionservice.NewService(dbClient)
 	taskService := taskservice.NewService(dbClient)
-	agentTemplateService := agenttemplateservice.NewService(mgr.GetClient(), extensionCfg.Authorizer)
-	harnessService := harnessservice.NewService(mgr.GetClient(), extensionCfg.Authorizer)
+	agentTemplateService := kubecrud.NewService(mgr.GetClient(), extensionCfg.Authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	harnessService := kubecrud.NewService(mgr.GetClient(), extensionCfg.Authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
 
 	// A2A over gRPC, routed to an AgentInstance: the gateway reads the
 	// `x-kagent-agent-instance-{namespace,id}` metadata and dials that instance's

@@ -14,10 +14,10 @@ import (
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
-	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
-	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -54,8 +54,8 @@ type Config struct {
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
 	AgentService          *agentservice.Service
-	AgentTemplateService  *agenttemplateservice.Service
-	HarnessService        *harnessservice.Service
+	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service

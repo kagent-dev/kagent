@@ -9,8 +9,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
-	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -40,8 +39,8 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		Listener:             listener,
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
-		AgentTemplateService: agenttemplateservice.NewService(kubeClient, &authimpl.NoopAuthorizer{}),
-		HarnessService:       harnessservice.NewService(kubeClient, &authimpl.NoopAuthorizer{}),
+		AgentTemplateService: kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:       kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -6,7 +6,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,11 +25,11 @@ const (
 
 type harnessServer struct {
 	apiv1alpha1.UnimplementedHarnessServiceServer
-	service         *harnessservice.Service
+	service         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	maxMessageBytes int
 }
 
-func newHarnessServer(service *harnessservice.Service, maxMessageBytes int) *harnessServer {
+func newHarnessServer(service *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList], maxMessageBytes int) *harnessServer {
 	return &harnessServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 
@@ -54,6 +54,7 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
+	incoming.Status = v1alpha3.HarnessStatus{}
 	result, err := s.service.Create(ctx, incoming)
 	if err != nil {
 		return nil, err

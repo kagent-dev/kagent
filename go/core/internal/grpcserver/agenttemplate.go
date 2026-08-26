@@ -6,7 +6,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -15,11 +15,11 @@ const agentTemplateKind = "AgentTemplate"
 
 type agentTemplateServer struct {
 	apiv1alpha1.UnimplementedAgentTemplateServiceServer
-	service         *agenttemplateservice.Service
+	service         *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	maxMessageBytes int
 }
 
-func newAgentTemplateServer(service *agenttemplateservice.Service, maxMessageBytes int) *agentTemplateServer {
+func newAgentTemplateServer(service *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], maxMessageBytes int) *agentTemplateServer {
 	return &agentTemplateServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 
@@ -60,6 +60,7 @@ func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
+	incoming.Status = v1alpha3.AgentTemplateStatus{}
 	result, err := s.service.Create(ctx, incoming)
 	if err != nil {
 		return nil, err
@@ -80,7 +81,12 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	result, err := s.service.Update(ctx, ref, incoming)
+	existing, err := s.service.GetForUpdate(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	existing.Spec = *incoming.Spec.DeepCopy()
+	result, err := s.service.SaveUpdate(ctx, existing)
 	if err != nil {
 		return nil, err
 	}

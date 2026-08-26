@@ -32,8 +32,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	agenttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/agenttemplate"
-	harnessservice "github.com/kagent-dev/kagent/go/core/internal/service/harness"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -137,8 +136,8 @@ func main() {
 		AgentInstanceService: instances,
 		// Both halves of the pair CreateAgentInstance names. Without these two
 		// the only way to author a Harness or an AgentTemplate is kubectl.
-		AgentTemplateService: agenttemplateservice.NewService(manager.GetClient(), authorizer),
-		HarnessService:       harnessservice.NewService(manager.GetClient(), authorizer),
+		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		CheckpointService:    checkpoints,
 		// `instanceWorkflow` is what upstream added: the gateway needs it to suspend an
 		// instance once a turn reaches a quiescent boundary.
