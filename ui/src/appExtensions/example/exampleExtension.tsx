@@ -1,18 +1,18 @@
 import { css } from "@emotion/react";
 import type { AppExtensionConfig } from "@/appExtensions";
-import { ExampleInsightsPage } from "./ExampleInsightsPage";
+import { ExamplePage } from "./ExamplePage";
 import { ExampleNavItem } from "./ExampleNavItem";
 import { ExampleTenantProvider } from "./ExampleTenantProvider";
-import { exampleComplianceTierField } from "./exampleFormFields";
+import { exampleTeamField } from "./exampleFormFields";
 import { exampleAgentRegionColumn } from "./exampleTableColumns";
-import { EXAMPLE_INSIGHTS_PATH } from "./paths";
+import { EXAMPLE_PATH } from "./paths";
 import {
   ExampleAgentBadge,
   ExampleAgentsHeaderAction,
+  ExampleBanner,
   ExampleDashboardCard,
   ExampleMessageAction,
   ExampleOverlayWidget,
-  ExamplePolicyBanner,
   ExampleSidebarFooter,
 } from "./ExampleSlots";
 
@@ -32,21 +32,16 @@ export const exampleAppExtension: AppExtensionConfig = {
 
   // Site-wide: a nav entry positioned between Agents (200) and Models (300).
   navItems: [
-    {
-      key: "exampleInsights",
-      order: 250,
-      path: EXAMPLE_INSIGHTS_PATH,
-      Component: ExampleNavItem,
-    },
+    { key: "example", order: 250, path: EXAMPLE_PATH, Component: ExampleNavItem },
   ],
 
   // Site-wide: a whole page merged into the router.
-  routes: [{ path: EXAMPLE_INSIGHTS_PATH, element: <ExampleInsightsPage /> }],
+  routes: [{ path: EXAMPLE_PATH, element: <ExamplePage /> }],
 
   // Per-point components. Keys are checked against the extension point union,
   // and each component against that point's context contract.
   slots: {
-    app_shell_appLayout_contentArea_leadingBanner: ExamplePolicyBanner,
+    app_shell_appLayout_contentArea_leadingBanner: ExampleBanner,
     app_shell_appLayout_contentArea_globalOverlay: ExampleOverlayWidget,
     app_shell_appLayout_appSidebar_footer: ExampleSidebarFooter,
     app_agents_agentsList_pageHeader_actions: ExampleAgentsHeaderAction,
@@ -56,7 +51,7 @@ export const exampleAppExtension: AppExtensionConfig = {
   },
 
   // A field added to a core form, mapped into the extension's own CRD shape.
-  formFields: [exampleComplianceTierField],
+  formFields: [exampleTeamField],
 
   // A column on a core table. The application has no concept of the dimension
   // this adds, which is the case a column contribution exists for.

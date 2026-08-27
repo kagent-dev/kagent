@@ -123,15 +123,24 @@ with the application's own navigation rather than being appended after it.
 
 ```tsx
 const exampleNavItem: ExtensionNavItemContribution = {
-  key: "exampleInsights",   // unique across core and extension items
+  key: "example",            // unique across core and contributed items
   order: 250,
-  path: "/example/insights", // used for active-state matching only
-  Component: ExampleNavItem, // receives { isActive: boolean }
+  path: "/example",          // used for active-state matching only
+  Component: ExampleNavItem, // receives { isActive, collapsed }
 };
 ```
 
 Your component renders its own link. `path` is optional and exists only so the
-framework can tell you whether you are the active item.
+framework can tell you whether you are the active item; `collapsed` says whether
+the rail is in its narrow form, which the renderer cannot work out for itself.
+
+**To sit in the list rather than beside it, render the same antd `Menu` the rail
+uses** — that is what the bundled example does. A hand-rolled link is free until
+it has to line up, and then it has to reproduce the row height, the inset pill,
+the icon column and the collapsed layout, and drift from all four the next time
+the library changes any of them. `useThemeMode()` is re-exported from the barrel
+for the light/dark choice the `Menu` takes, since no design token stands in for
+it.
 
 ## Pages
 
@@ -143,7 +152,7 @@ login.
 
 ```tsx
 routes: [
-  { path: "/example/insights", element: <ExampleInsightsPage /> },
+  { path: "/example", element: <ExamplePage /> },
   { path: "/example/onboarding", element: <ExampleOnboarding />, standalone: true },
 ]
 ```
@@ -208,19 +217,19 @@ Target forms are listed in `EXTENSION_FORM_IDS`:
 `app_mcpServers_mcpServerNew_mcpServerForm`.
 
 ```ts
-export const exampleComplianceTierField = defineExtensionFormField({
-  id: "exampleComplianceTier",
+export const exampleTeamField = defineExtensionFormField({
+  id: "exampleTeam",
   formId: "app_agents_agentNew_agentForm",
-  Component: ExampleComplianceTierField,
-  fromPayload: (payload) => payload.metadata?.labels?.["example.tier"] ?? "standard",
+  Component: ExampleTeamField,
+  fromPayload: (payload) => payload.metadata?.labels?.["example.com/team"] ?? "",
   toPayload: (payload, value) => ({
     ...payload,
     metadata: {
       ...payload.metadata,
-      labels: { ...payload.metadata?.labels, "example.tier": value },
+      labels: { ...payload.metadata?.labels, "example.com/team": value },
     },
   }),
-  validate: (value) => (value ? undefined : "Pick a compliance tier"),
+  validate: (value) => (value ? undefined : "Pick a team"),
 });
 ```
 

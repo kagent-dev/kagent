@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Card, Descriptions, Typography } from "antd";
+import { Card, Typography } from "antd";
 import { css, useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import {
@@ -10,9 +10,9 @@ import {
 } from "@/appExtensions";
 import { useExampleTenant } from "./exampleTenant";
 
-const { Paragraph } = Typography;
+const { Paragraph, Text } = Typography;
 
-/** The payload a core form would be building before extension fields fold in. */
+/** The payload a core form would be building before contributed fields fold in. */
 const basePayload = {
   apiVersion: "kagent.dev/v1alpha2",
   kind: "Agent",
@@ -22,13 +22,13 @@ const basePayload = {
 /**
  * A whole page contributed by the extension and merged into the router.
  *
- * It doubles as the live proof for two capabilities that have no visible home
- * until the core pages are rebuilt: the app-level provider (the tenant strip
- * reads from a context the extension itself installed) and the form-field
- * contract (the field renders, and the payload preview updates as its value
- * maps into the request body).
+ * One card, because one card is all it needs. The page exists to make the
+ * form-field contract observable — the field renders here exactly as it does in
+ * the core form, and the payload updates as its value maps into the request body,
+ * which is the half of that contract nothing else on screen would show. The
+ * workspace line under the title is the app-level provider proving it ran.
  */
-export function ExampleInsightsPage() {
+export function ExamplePage() {
   const theme = useTheme();
   const tenant = useExampleTenant();
   const fields = useExtensionFormFields("app_agents_agentNew_agentForm");
@@ -39,8 +39,8 @@ export function ExampleInsightsPage() {
 
   return (
     <PageFrame
-      title="Example Insights"
-      description="A page contributed by the Example App Extension through its config."
+      title="Example"
+      description="A page contributed by the Example App Extension."
     >
       <div
         css={css`
@@ -48,29 +48,19 @@ export function ExampleInsightsPage() {
           gap: ${theme.space(5)};
           max-width: 760px;
         `}
-        data-testid="example-insights-page"
+        data-testid="example-page"
       >
-        <Card size="small" title="Tenant (from the extension's own provider)">
-          <Descriptions
-            size="small"
-            column={2}
-            data-testid="example-tenant"
-            items={[
-              { key: "tenantId", label: "Tenant", children: tenant.tenantId },
-              { key: "plan", label: "Plan", children: tenant.plan },
-            ]}
-          />
-        </Card>
+        <Text data-testid="example-tenant" css={{ color: theme.color.textMuted }}>
+          Workspace <strong>{tenant.tenantId}</strong> on the {tenant.plan} plan,
+          read from a React context the extension installed itself.
+        </Text>
 
-        <Card size="small" title="Contributed form field">
-          <Paragraph
-            css={css`
-              color: ${theme.color.textMuted};
-            `}
-          >
-            The same field the extension adds to the core “new agent” form.
-            Changing it rewrites the request payload below.
+        <Card size="small" title="A field this extension adds to the new-agent form">
+          <Paragraph css={{ color: theme.color.textMuted }}>
+            Choosing a value rewrites the request the form would send. The field
+            has no idea where its value lands — that is the mapper's job.
           </Paragraph>
+
           {fields.map((field) => {
             const Field = field.Component;
             return (
@@ -86,13 +76,11 @@ export function ExampleInsightsPage() {
               />
             );
           })}
-        </Card>
 
-        <Card size="small" title="Resulting request payload">
           <pre
             data-testid="example-payload-preview"
             css={css`
-              margin: 0;
+              margin: ${theme.space(4)} 0 0;
               padding: ${theme.space(3)};
               border-radius: ${theme.radius.sm};
               background: ${theme.color.bg};

@@ -91,6 +91,12 @@ export type {
 export { buildSidebarSections, isNavPathActive } from "./composition";
 export type { SidebarSection } from "./composition";
 
+// The palette currently showing. Re-exported because a contribution that wants to
+// look like the application's own chrome has to pick the same one — antd's Menu
+// and Table both take a light/dark choice that no design token can stand in for.
+export { useThemeMode } from "@/theme/themeMode";
+export type { ThemeMode } from "@/theme/theme";
+
 export {
   AppExtensionConfigError,
   validateAppExtensions,

@@ -207,6 +207,7 @@ export function AppSidebar() {
                 section.item.path !== undefined &&
                 isNavPathActive(section.item.path, pathname)
               }
+              collapsed={collapsed}
             />
           ),
         )}

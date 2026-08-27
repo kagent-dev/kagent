@@ -1,11 +1,7 @@
 import { defineExtensionFormField } from "@/appExtensions";
-import { ExampleComplianceTierField } from "./ExampleComplianceTierField";
-import {
-  TIER_ANNOTATION,
-  isComplianceTier,
-  readAnnotations,
-} from "./exampleComplianceTier";
-import type { ComplianceTierValue } from "./exampleComplianceTier";
+import { ExampleTeamField } from "./ExampleTeamField";
+import { TEAM_ANNOTATION, isTeam, readAnnotations } from "./exampleTeam";
+import type { TeamValue } from "./exampleTeam";
 
 /**
  * A field the extension adds to the core "new agent" form.
@@ -18,16 +14,16 @@ import type { ComplianceTierValue } from "./exampleComplianceTier";
  * can never fail its own validation, so the example would document a rule it
  * never demonstrates.
  */
-export const exampleComplianceTierField = defineExtensionFormField<ComplianceTierValue>({
-  id: "exampleComplianceTier",
+export const exampleTeamField = defineExtensionFormField<TeamValue>({
+  id: "exampleTeam",
   formId: "app_agents_agentNew_agentForm",
   order: 10,
-  Component: ExampleComplianceTierField,
+  Component: ExampleTeamField,
   defaultValue: "",
 
   fromPayload: (payload) => {
-    const raw = readAnnotations(payload)[TIER_ANNOTATION];
-    return isComplianceTier(raw) ? raw : "";
+    const raw = readAnnotations(payload)[TEAM_ANNOTATION];
+    return isTeam(raw) ? raw : "";
   },
 
   toPayload: (payload, value) => {
@@ -38,17 +34,16 @@ export const exampleComplianceTierField = defineExtensionFormField<ComplianceTie
 
     // An unanswered field writes nothing, so a rejected submit does not leave a
     // blank annotation behind on the payload.
-    if (!isComplianceTier(value)) return payload;
+    if (!isTeam(value)) return payload;
 
     return {
       ...payload,
       metadata: {
         ...metadata,
-        annotations: { ...readAnnotations(payload), [TIER_ANNOTATION]: value },
+        annotations: { ...readAnnotations(payload), [TEAM_ANNOTATION]: value },
       },
     };
   },
 
-  validate: (value) =>
-    isComplianceTier(value) ? undefined : "Pick a compliance tier",
+  validate: (value) => (isTeam(value) ? undefined : "Pick a team"),
 });

@@ -1,20 +1,36 @@
 import { Alert, Button, Tag } from "antd";
 import { useTheme } from "@emotion/react";
-import { ShieldCheck } from "lucide-react";
+import { Puzzle } from "lucide-react";
+import { StatTile } from "@/components/dashboard/StatTile";
+import { EXTENSION_POINT_IDS } from "@/appExtensions";
 import type { ExtensionPointProps } from "@/appExtensions";
 
+/**
+ * What this extension mounts at each point.
+ *
+ * Every one of these says what it is rather than pretending to be a product
+ * feature. That is deliberate: the example exists so a reader can see which
+ * pixels on a page came from an extension and which came from the application,
+ * and an invented domain would only make that harder to tell.
+ *
+ * They are drawn with the application's own components — `Alert`, `Button`,
+ * `Tag`, and the dashboard's `StatTile` — because a contribution that wants to
+ * belong on the page should look like it does. Nothing here needs custom styling
+ * to sit correctly.
+ */
+
 /** Mounted inline at the top of the content area on every page. */
-export function ExamplePolicyBanner() {
+export function ExampleBanner() {
   const theme = useTheme();
 
   return (
     <Alert
       type="info"
       showIcon
-      icon={<ShieldCheck size={16} />}
-      data-testid="example-policy-banner"
+      icon={<Puzzle size={16} />}
+      data-testid="example-banner"
       css={{ marginBottom: theme.space(5) }}
-      title="Example policy engine is enforcing 3 guardrails on this cluster."
+      title="Example App Extension is installed. Everything labelled “Example” comes from it."
     />
   );
 }
@@ -42,20 +58,13 @@ export function ExampleOverlayWidget() {
         borderRadius: theme.radius.lg,
         border: `1px solid ${theme.color.border}`,
         background: theme.color.bgElevated,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.25)",
         fontSize: 13,
-        color: theme.color.text,
+        color: theme.color.textMuted,
       }}
     >
-      <span
-        css={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: theme.color.success,
-        }}
-      />
-      Example agent mesh: healthy
+      <Puzzle size={14} />
+      Example overlay
     </div>
   );
 }
@@ -80,37 +89,30 @@ export function ExampleSidebarFooter() {
   );
 }
 
-/** Mounted inline in the Agents page header, once that page is rebuilt. */
+/** Mounted inline in the Agents page header, beside the application's own buttons. */
 export function ExampleAgentsHeaderAction() {
   return (
-    <Button size="small" data-testid="example-agents-scan">
-      Run Example scan
+    <Button size="small" data-testid="example-agents-action">
+      Example action
     </Button>
   );
 }
 
 /**
- * Mounted inline per agent row. Shows a point that carries context: the badge
- * needs to know which agent it is decorating.
+ * Mounted as the first card in the dashboard's summary grid.
+ *
+ * Rendered with the dashboard's own `StatTile`, so it matches the tiles beside it
+ * exactly — the same border, radius, label colour and figure size — and keeps
+ * matching them when any of those change.
  */
-/** Mounted as the first card in the dashboard's summary grid. */
 export function ExampleDashboardCard() {
-  const theme = useTheme();
-
   return (
-    <div
-      data-testid="example-dashboard-card"
-      css={{
-        border: `1px solid ${theme.color.border}`,
-        borderRadius: theme.radius.lg,
-        padding: theme.space(4),
-      }}
-    >
-      <div css={{ color: theme.color.textMuted, marginBottom: theme.space(2) }}>
-        Example compliance
-      </div>
-      <div css={{ fontSize: 24, fontWeight: 600 }}>3 guardrails</div>
-    </div>
+    <StatTile
+      label="Example"
+      value={EXTENSION_POINT_IDS.length}
+      hint="extension points offered"
+      testId="example-dashboard-card"
+    />
   );
 }
 
@@ -131,20 +133,22 @@ export function ExampleMessageAction({
       data-testid={`example-message-action-${role}-${messageId}`}
       // Reads the turn's own text, so the contribution demonstrably receives
       // content and not just identifiers.
-      title={`Send ${text.length} characters to Example review`}
+      title={`This ${role} message is ${text.length} characters long`}
     >
-      Review
+      Example
     </Button>
   );
 }
 
+/**
+ * Mounted inline per agent row. Shows a point that carries context: the badge
+ * needs to know which agent it is decorating.
+ */
 export function ExampleAgentBadge({
   agentName,
   namespace,
 }: ExtensionPointProps<"app_agents_agentsList_agentListItem_badge">) {
   return (
-    <Tag color="purple" data-testid={`example-agent-badge-${namespace}-${agentName}`}>
-      Example managed
-    </Tag>
+    <Tag data-testid={`example-agent-badge-${namespace}-${agentName}`}>Example</Tag>
   );
 }

@@ -1,21 +1,21 @@
 import type { ExtensionFormPayload } from "@/appExtensions";
 
 /** Where this extension's CRD keeps the value — nowhere near the field's own id. */
-export const TIER_ANNOTATION = "example.com/compliance-tier";
+export const TEAM_ANNOTATION = "example.com/team";
 
-export const TIERS = ["standard", "regulated", "restricted"] as const;
+export const TEAMS = ["platform", "research", "support"] as const;
 
-export type ComplianceTier = (typeof TIERS)[number];
+export type Team = (typeof TEAMS)[number];
 
 /**
  * The field's value type. A required select starts empty rather than
  * pre-answered, so `""` is a real state the value can hold — and the reason
  * this field's `validate` is reachable at all.
  */
-export type ComplianceTierValue = ComplianceTier | "";
+export type TeamValue = Team | "";
 
-export function isComplianceTier(value: unknown): value is ComplianceTier {
-  return typeof value === "string" && (TIERS as readonly string[]).includes(value);
+export function isTeam(value: unknown): value is Team {
+  return typeof value === "string" && (TEAMS as readonly string[]).includes(value);
 }
 
 /** Reads `metadata.annotations` out of a payload without assuming it exists. */

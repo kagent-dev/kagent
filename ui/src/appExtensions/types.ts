@@ -9,10 +9,19 @@ import type { ExtensionBranding } from "./branding";
 import type { ExtensionNavOverrides } from "./navOverrides";
 import type { ExtensionTableColumn } from "./tableColumns";
 
-/** Props an extension nav item's renderer receives. */
+/** Props a contributed nav item's renderer receives. */
 export interface ExtensionNavItemProps {
   /** True when the current location matches the item's `path`. */
   isActive: boolean;
+  /**
+   * True while the rail is showing its narrow form.
+   *
+   * The renderer cannot work this out for itself — the rail owns the state, and
+   * it changes on a breakpoint as well as on the collapse control — so an entry
+   * that was not told would keep its label while every entry beside it had
+   * shrunk to an icon. A contribution that only ever renders a mark can ignore it.
+   */
+  collapsed: boolean;
 }
 
 /**
