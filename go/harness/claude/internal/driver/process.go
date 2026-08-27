@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -86,6 +85,7 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
+	configureProcessGroup(cmd)
 	cmd.Dir = d.config.Workspace
 	cmd.Env = append([]string(nil), d.config.Environment...)
 	stdout, err := cmd.StdoutPipe()
@@ -204,13 +204,16 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 }
 
 func (d *ProcessDriver) terminate(cmd *exec.Cmd, waitDone <-chan error) {
-	_ = cmd.Process.Signal(os.Interrupt)
+	_ = interruptProcessGroup(cmd.Process)
 	timer := time.NewTimer(d.config.InterruptGrace)
 	defer timer.Stop()
 	select {
 	case <-waitDone:
+		// The group leader can exit on the interrupt while a descendant that
+		// ignores it remains alive. Kill any processes still in the group.
+		_ = killProcessGroup(cmd.Process)
 	case <-timer.C:
-		_ = cmd.Process.Kill()
+		_ = killProcessGroup(cmd.Process)
 		<-waitDone
 	}
 }
