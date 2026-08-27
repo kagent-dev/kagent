@@ -52,7 +52,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	template, harness := input.Root.Template, input.Harness
 	cfg := compiled.config
-	cfg.SessionDBURL = "sqlite:////data/sessions.db"
+	// The async driver is named, because the Python runtime cannot infer it and the Go
+	// one does not need it. `DatabaseSessionService` builds an asyncio engine and
+	// refuses a bare `sqlite:` URL with "the asyncio extension requires an async
+	// driver" — so a kagent-adk actor never opened its readiness port, and the harness
+	// sat in ResumeGoldenActor until the golden actor timed out. The Go ADK accepts
+	// `sqlite+<driver>` and strips the driver (see adk/pkg/session.sqlitePathFromURL),
+	// so one URL serves both.
+	cfg.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
 
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
@@ -386,6 +393,12 @@ func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1
 }
 
 // agentTemplateCard describes the runtime-local A2A server. Substrate routes
+// hitlExtensionURI is the human-in-the-loop A2A extension the kagent runtime
+// negotiates. Spelled here rather than imported from the ADK package so the
+// controller does not depend on the runtime's module for one constant; the two
+// must agree, and `agentcard.go` is the definition.
+const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
+
 // public traffic to this loopback interface; the card must not advertise a
 // cluster-specific external address.
 func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
@@ -398,7 +411,19 @@ func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
 			ProtocolBinding: a2atype.TransportProtocolGRPC,
 			ProtocolVersion: a2atype.Version,
 		}},
-		Capabilities:       a2atype.AgentCapabilities{Streaming: true},
+		// This compiler builds cards for the kagent runtime specifically, whose A2A
+		// layer always negotiates human-in-the-loop (see adk/pkg/a2a/agentcard.go,
+		// which appends this extension unconditionally). Declaring it here is what
+		// makes an agent's question discoverably answerable: a client reads the card
+		// to learn it may request the extension and render the choices. Other
+		// harnesses compile their own cards and make no such claim.
+		Capabilities: a2atype.AgentCapabilities{
+			Streaming: true,
+			Extensions: []a2atype.AgentExtension{{
+				URI:         hitlExtensionURI,
+				Description: "Human in the loop for tool approval, ask user, and nested subagents",
+			}},
+		},
 		Skills:             []a2atype.AgentSkill{},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},

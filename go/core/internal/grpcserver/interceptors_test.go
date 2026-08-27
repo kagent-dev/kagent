@@ -47,20 +47,15 @@ func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, pkgauth.P
 }
 
 type testShareStore struct {
-	share          *dbpkg.SessionShare
-	err            error
-	recordedUserID string
-	recordedShare  int64
+	instanceShare    *dbpkg.AgentInstanceShare
+	instanceShareErr error
 }
 
-func (s *testShareStore) GetSessionShareByToken(context.Context, string) (*dbpkg.SessionShare, error) {
-	return s.share, s.err
-}
-
-func (s *testShareStore) RecordShareAccess(_ context.Context, userID string, shareID int64) error {
-	s.recordedUserID = userID
-	s.recordedShare = shareID
-	return nil
+func (s *testShareStore) GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error) {
+	if s.instanceShare == nil && s.instanceShareErr == nil {
+		return nil, dbpkg.ErrNotFound
+	}
+	return s.instanceShare, s.instanceShareErr
 }
 
 func TestAuthenticationUnaryInterceptor(t *testing.T) {
@@ -127,18 +122,31 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
-	t.Run("read-only share is attached to read call", func(t *testing.T) {
-		authenticator := &testAuthenticator{session: session}
-		store := &testShareStore{share: &dbpkg.SessionShare{
-			ID: 42, Token: "share", SessionID: "session-1", UserID: "owner", ReadOnly: true,
-		}}
+	t.Run("an AgentInstance share is attached to a read call", func(t *testing.T) {
+		store := &testShareStore{
+			instanceShare: &dbpkg.AgentInstanceShare{
+				ID: "share-1", Namespace: "kagent", InstanceID: "instance-1",
+				Permission: "READ_ONLY", OwnerUserID: "owner",
+			},
+		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-		_, err := authenticationUnaryInterceptor(authenticator, store, policies)(
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},
 			func(ctx context.Context, _ any) (any, error) {
 				share, ok := pkgauth.ShareContextFrom(ctx)
-				if !ok || share.SessionID != "session-1" || share.UserID != "owner" || !share.ReadOnly {
-					t.Fatalf("share context = %#v, %v", share, ok)
+				if !ok {
+					t.Fatal("no share context")
+				}
+				if !share.IsForAgentInstance("instance-1") {
+					t.Errorf("share is not for instance-1: %#v", share)
+				}
+				// The owner, not the visitor: the instance read runs as the owner or
+				// it finds nothing, because an instance is scoped to its creator.
+				if share.UserID != "owner" {
+					t.Errorf("UserID = %q, want the owner", share.UserID)
+				}
+				if !share.ReadOnly {
+					t.Error("READ_ONLY should be read-only")
 				}
 				return nil, nil
 			},
@@ -146,13 +154,14 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("interceptor error = %v", err)
 		}
-		if store.recordedUserID != "caller" || store.recordedShare != 42 {
-			t.Fatalf("recorded access = %q, %d", store.recordedUserID, store.recordedShare)
-		}
 	})
 
-	t.Run("read-only share cannot mutate", func(t *testing.T) {
-		store := &testShareStore{share: &dbpkg.SessionShare{ReadOnly: true}}
+	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
+		store := &testShareStore{
+			instanceShare: &dbpkg.AgentInstanceShare{
+				InstanceID: "instance-1", Permission: "READ_ONLY", OwnerUserID: "owner",
+			},
+		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod},
@@ -166,8 +175,35 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		}
 	})
 
+	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
+		store := &testShareStore{
+			instanceShare: &dbpkg.AgentInstanceShare{
+				InstanceID: "instance-1", Permission: "READ_WRITE", OwnerUserID: "owner",
+			},
+		}
+		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
+		ran := false
+		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
+			ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod},
+			func(ctx context.Context, _ any) (any, error) {
+				ran = true
+				share, _ := pkgauth.ShareContextFrom(ctx)
+				if share.ReadOnly {
+					t.Error("READ_WRITE should not be read-only")
+				}
+				return nil, nil
+			},
+		)
+		if err != nil {
+			t.Fatalf("interceptor error = %v", err)
+		}
+		if !ran {
+			t.Fatal("handler did not run")
+		}
+	})
+
 	t.Run("invalid share token is denied", func(t *testing.T) {
-		store := &testShareStore{err: dbpkg.ErrNotFound}
+		store := &testShareStore{instanceShareErr: dbpkg.ErrNotFound}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "missing"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},

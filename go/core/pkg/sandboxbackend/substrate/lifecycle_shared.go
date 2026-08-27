@@ -228,6 +228,28 @@ func sanitizeActorTemplateEnvVar(e corev1.EnvVar) *atev1alpha1.EnvVar {
 	return &atev1alpha1.EnvVar{Name: e.Name, Value: e.Value}
 }
 
+// secretValue reads a key from a Secret that may not have come from the API server.
+//
+// `Data` is the only field a Secret read from the cluster has populated, but
+// `StringData` is write-only: the API server folds it into `Data` on create, so a
+// Secret built in memory and never applied has `StringData` set and `Data` empty.
+// The sandbox path passes exactly such a Secret — the translator builds the agent's
+// config Secret and hands it straight to the actor-template builder — so reading only
+// `Data` finds nothing and every sandbox agent fails to reconcile with "secret does
+// not contain key config.json" about a Secret whose content is right there.
+//
+// Preferring `Data` keeps the cluster-read path byte-identical; the fallback only
+// matters for the not-yet-applied case.
+func secretValue(secret *corev1.Secret, key string) ([]byte, bool) {
+	if value, ok := secret.Data[key]; ok {
+		return value, true
+	}
+	if value, ok := secret.StringData[key]; ok {
+		return []byte(value), true
+	}
+	return nil, false
+}
+
 func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, env []corev1.EnvVar, localSecret *corev1.Secret) ([]corev1.EnvVar, error) {
 	resolved := append([]corev1.EnvVar(nil), env...)
 	for i, variable := range resolved {
@@ -245,7 +267,7 @@ func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, en
 			}
 			return nil, err
 		}
-		value, ok := secret.Data[ref.Key]
+		value, ok := secretValue(secret, ref.Key)
 		if !ok {
 			if ref.Optional != nil && *ref.Optional {
 				resolved[i].ValueFrom = nil

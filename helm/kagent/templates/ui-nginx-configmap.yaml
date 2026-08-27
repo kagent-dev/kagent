@@ -8,5 +8,3 @@ metadata:
 data:
   nginx.conf: |
     {{- tpl (.Files.Get "files/nginx.conf") . | nindent 4 }}
-  supervisord.conf: |
-    {{- tpl (.Files.Get "files/supervisord.conf") . | nindent 4 }}

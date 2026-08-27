@@ -223,16 +223,6 @@ func (c *postgresClient) DeleteSessionShare(ctx context.Context, token, sessionI
 	return nil
 }
 
-func (c *postgresClient) RecordShareAccess(ctx context.Context, userID string, shareID int64) error {
-	if err := c.q.UpsertShareAccess(ctx, dbgen.UpsertShareAccessParams{
-		UserID:  userID,
-		ShareID: shareID,
-	}); err != nil {
-		return fmt.Errorf("record share access: %w", err)
-	}
-	return nil
-}
-
 // ── Events ────────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreEvents(ctx context.Context, events ...*dbpkg.Event) error {
@@ -479,6 +469,10 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	// migrations can backfill them without rewriting the protobuf blob.
 	instance.State = apiv1alpha1.AgentInstanceState(state)
 	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
+	// The name is a column for the same reason, and because a rename writes only
+	// the column: reading it from the blob would serve the name the row was
+	// created with for the rest of the instance's life.
+	instance.Name = row.Name
 	return instance, nil
 }
 
@@ -542,7 +536,8 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 		}
 		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
 			ID: request.GetId(), Namespace: request.GetNamespace(), UserID: request.GetCreator(), RequestID: requestID,
-			ContextID: request.GetId(), PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels, Data: data,
+			ContextID: request.GetId(), PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
+			Name: request.GetName(), Data: data,
 		})
 		return err
 	})
@@ -806,7 +801,8 @@ func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, us
 	return toAgentInstance(row)
 }
 
-func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, userID string, allUsers bool, matchLabels map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
+func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+	matchLabels := query.MatchLabels
 	if matchLabels == nil {
 		matchLabels = map[string]string{}
 	}
@@ -815,8 +811,10 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, user
 		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
 	}
 	rows, err := c.q.ListAgentInstances(ctx, dbgen.ListAgentInstancesParams{
-		Namespace: namespace, UserID: userID, AllUsers: allUsers,
-		AfterID: afterID, MatchLabels: labels, PageSize: int32(limit),
+		Namespace: query.Namespace, UserID: query.UserID, AllUsers: query.AllUsers,
+		AfterID: query.AfterID, MatchLabels: labels,
+		AgentTemplate: query.AgentTemplate, Harness: query.Harness,
+		PageSize: int32(query.Limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstances: %w", err)
@@ -830,6 +828,18 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, user
 		result = append(result, instance)
 	}
 	return result, nil
+}
+
+// UpdateAgentInstanceName writes only the name column, scoped to the instance's
+// owner so a rename cannot reach another reader's conversation.
+func (c *postgresClient) UpdateAgentInstanceName(ctx context.Context, namespace, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.UpdateAgentInstanceName(ctx, dbgen.UpdateAgentInstanceNameParams{
+		Namespace: namespace, ID: id, UserID: userID, Name: name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("rename AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+	}
+	return toAgentInstance(row)
 }
 
 func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
@@ -916,15 +926,14 @@ func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) err
 func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
 	return dbpkg.AgentInstanceShare{
 		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
-		Creator: row.Creator, Permission: row.Permission,
-		TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 	}
 }
 
 func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
 		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
-		Creator: share.Creator, Permission: share.Permission, TokenHash: share.TokenHash,
+		Permission: share.Permission, TokenHash: share.TokenHash,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create AgentInstance share: %w", err)
@@ -933,9 +942,25 @@ func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbp
 	return &result, nil
 }
 
-func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+// GetAgentInstanceShareByTokenHash resolves a share token to its share.
+//
+// Takes the hash rather than the token: only the digest is stored, which is what
+// keeps a database dump from being a set of working share links.
+func (c *postgresClient) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*dbpkg.AgentInstanceShare, error) {
+	row, err := c.q.GetAgentInstanceShareByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
+	}
+	return &dbpkg.AgentInstanceShare{
+		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
+		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+		OwnerUserID: row.OwnerUserID,
+	}, nil
+}
+
+func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
-		Namespace: namespace, InstanceID: instanceID, UserID: creator,
+		Namespace: namespace, InstanceID: instanceID, UserID: userID,
 		AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
@@ -948,8 +973,8 @@ func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace,
 	return result, nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, creator string) error {
-	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, UserID: creator})
+func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, userID string) error {
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
 	}

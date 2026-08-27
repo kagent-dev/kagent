@@ -94,7 +94,6 @@ type Client interface {
 	GetSessionShareByToken(ctx context.Context, token string) (*SessionShare, error)
 	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
 	DeleteSessionShare(ctx context.Context, token, sessionID, userID string) error
-	RecordShareAccess(ctx context.Context, userID string, shareID int64) error
 
 	// Agent memory (vector search) methods
 	StoreAgentMemory(ctx context.Context, memory *Memory) error
@@ -124,12 +123,19 @@ type Client interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
+	// UpdateAgentInstanceName sets the instance's display name, scoped to its owner.
+	// Takes namespace, id, owner and the new name.
+	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
+	// GetAgentInstanceShareByTokenHash resolves a share token to its share and the
+	// owner of the instance it grants access to. Takes the digest, because only the
+	// digest is stored.
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
 	// CreateAgentInstanceTask reserves the instance's single active-task slot.
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task) (*a2a.Task, bool, error)

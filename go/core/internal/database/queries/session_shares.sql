@@ -16,8 +16,3 @@ ORDER BY created_at DESC;
 -- name: DeleteSessionShare :exec
 DELETE FROM session_share
 WHERE token = $1 AND session_id = $2 AND user_id = $3;
-
--- name: UpsertShareAccess :exec
-INSERT INTO session_share_access (user_id, share_id, accessed_at)
-VALUES ($1, $2, NOW())
-ON CONFLICT (user_id, share_id) DO UPDATE SET accessed_at = NOW();

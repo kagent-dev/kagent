@@ -27,6 +27,7 @@ type ServerConfig struct {
 	KubeClient    ctrl_client.Client
 	DbClient      dbpkg.Client
 	Authenticator auth.AuthProvider
+	GrpcWebRouter func(next http.Handler) http.Handler
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -62,7 +63,7 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	// and W3C TraceContext propagation on every incoming request.
 	s.httpServer = &http.Server{
 		Addr: s.config.BindAddr,
-		Handler: otelhttp.NewHandler(s.router, "http.server",
+		Handler: otelhttp.NewHandler(s.config.GrpcWebRouter(s.router), "http.server",
 			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 				return r.Method + " " + r.URL.Path
 			}),

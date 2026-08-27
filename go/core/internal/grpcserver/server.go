@@ -14,8 +14,10 @@ import (
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -52,6 +54,8 @@ type Config struct {
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
 	AgentService          *agentservice.Service
+	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service
@@ -132,6 +136,15 @@ func New(config Config) (*Server, error) {
 	if config.AgentService != nil {
 		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
 	}
+	if config.AgentTemplateService != nil {
+		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
+	}
+	// Registered separately from AgentService on purpose: this serves the
+	// Harness CRD that AgentInstance pairs with an AgentTemplate, not the
+	// AgentHarness CRD that AgentService's *AgentHarness RPCs serve.
+	if config.HarnessService != nil {
+		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
+	}
 	if config.ModelService != nil {
 		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
 	}
@@ -174,8 +187,7 @@ func New(config Config) (*Server, error) {
 }
 
 type ShareStore interface {
-	GetSessionShareByToken(context.Context, string) (*dbpkg.SessionShare, error)
-	RecordShareAccess(context.Context, string, int64) error
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {

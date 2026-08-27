@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -76,27 +77,37 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		return ctx, status.Error(codes.Internal, "share-token validation is unavailable")
 	}
 
-	share, err := shareStore.GetSessionShareByToken(authenticatedContext, shareToken)
+	// Only the digest is stored, which is what stops a database dump being a set of
+	// working share links — so the token is hashed the same way it was on creation.
+	digest := sha256.Sum256([]byte(shareToken))
+	instanceShare, err := shareStore.GetAgentInstanceShareByTokenHash(authenticatedContext, digest[:])
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return ctx, status.Error(codes.PermissionDenied, "invalid or expired share token")
 		}
 		return ctx, status.Error(codes.Internal, "failed to validate share token")
 	}
-	if share.ReadOnly && access != AccessPublic && access != AccessRead {
+	// READ_WRITE also allows A2A send and cancel; anything else is read-only.
+	readOnly := instanceShare.Permission != agentInstanceShareReadWrite
+	if readOnly && access != AccessPublic && access != AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
-
-	if err := shareStore.RecordShareAccess(authenticatedContext, session.Principal().User.ID, share.ID); err != nil {
-		ctrllog.FromContext(authenticatedContext).Error(err, "failed to record gRPC share access", "shareID", share.ID)
-	}
 	return auth.ShareContextTo(authenticatedContext, &auth.ShareContext{
-		Token:     shareToken,
-		SessionID: share.SessionID,
-		UserID:    share.UserID,
-		ReadOnly:  share.ReadOnly,
+		Token: shareToken,
+		// The owner, not the visitor: the token widens what this account may reach
+		// to what the owner can see, and the instance read runs as the owner.
+		UserID:          instanceShare.OwnerUserID,
+		ReadOnly:        readOnly,
+		AgentInstanceID: instanceShare.InstanceID,
 	}), nil
 }
+
+// agentInstanceShareReadWrite is the permission that allows more than reading.
+//
+// Spelled as the column's own value rather than derived from the proto enum: the
+// database stores 'READ_ONLY' or 'READ_WRITE' under a CHECK constraint, and that
+// string is what this has to match.
+const agentInstanceShareReadWrite = "READ_WRITE"
 
 func incomingHTTPHeaders(ctx context.Context) http.Header {
 	headers := make(http.Header)

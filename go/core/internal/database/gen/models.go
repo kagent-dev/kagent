@@ -42,6 +42,7 @@ type AgentInstance struct {
 	Operation          string
 	ContextID          string
 	SourceCheckpointID *string
+	Name               string
 }
 
 type AgentInstanceCheckpoint struct {
@@ -69,7 +70,6 @@ type AgentInstanceShare struct {
 	ID         string
 	Namespace  string
 	InstanceID string
-	Creator    string
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time

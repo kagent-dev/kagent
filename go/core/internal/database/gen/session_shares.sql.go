@@ -109,19 +109,3 @@ func (q *Queries) ListSessionSharesBySession(ctx context.Context, sessionID stri
 	}
 	return items, nil
 }
-
-const upsertShareAccess = `-- name: UpsertShareAccess :exec
-INSERT INTO session_share_access (user_id, share_id, accessed_at)
-VALUES ($1, $2, NOW())
-ON CONFLICT (user_id, share_id) DO UPDATE SET accessed_at = NOW()
-`
-
-type UpsertShareAccessParams struct {
-	UserID  string
-	ShareID int64
-}
-
-func (q *Queries) UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error {
-	_, err := q.db.Exec(ctx, upsertShareAccess, arg.UserID, arg.ShareID)
-	return err
-}

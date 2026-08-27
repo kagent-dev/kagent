@@ -218,7 +218,11 @@ class KAgentApp:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            server = await asyncio.start_server(handle, host="::", port=8081)
+            # Every interface on every family, not just IPv6. `host="::"` bound an
+            # IPv6-only socket, so a probe of the actor's IPv4 address was refused —
+            # Substrate dials one, and the harness sat in ResumeGoldenActor until the
+            # golden actor timed out, reporting only "connection refused".
+            server = await asyncio.start_server(handle, host=None, port=8081)
             try:
                 yield
             finally:

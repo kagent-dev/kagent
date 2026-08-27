@@ -43,6 +43,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -51,6 +52,7 @@ import (
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
+	a2agateway "github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 
@@ -534,6 +536,19 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 	agentInstanceService := agentinstance.NewService(dbClient, extensionCfg.Authorizer, instanceWorkflow)
 
+	atenetRouterURL := cfg.Substrate.AtenetRouterURL
+	if atenetRouterURL == "" {
+		atenetRouterURL = substrate.DefaultAtenetRouterURL
+	}
+	// Dials an instance's runtime through the atenet router, which is how the A2A
+	// gateway reaches a private actor: the instance's authority is not routable
+	// directly.
+	a2aGatewayDialer, err := a2agateway.NewRuntimeDialer(atenetRouterURL, extensionCfg.Authenticator)
+	if err != nil {
+		setupLog.Error(err, "unable to create A2A runtime dialer")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 	if metricsCertWatcher != nil {
 		setupLog.Info("Adding metrics certificate watcher to manager")
@@ -593,21 +608,22 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	memoryService := memoryservice.NewService(dbClient)
 	sessionService := sessionservice.NewService(dbClient)
 	taskService := taskservice.NewService(dbClient)
+	agentTemplateService := kubecrud.NewService(mgr.GetClient(), extensionCfg.Authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	harnessService := kubecrud.NewService(mgr.GetClient(), extensionCfg.Authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
 
-	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:        router,
-		BindAddr:      cfg.HttpServerAddr,
-		KubeClient:    mgr.GetClient(),
-		DbClient:      dbClient,
-		Authenticator: extensionCfg.Authenticator,
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to create HTTP server")
-		os.Exit(1)
-	}
-	if err := mgr.Add(httpServer); err != nil {
-		setupLog.Error(err, "unable to set up HTTP server")
-		os.Exit(1)
+	// A2A over gRPC, routed to an AgentInstance: the gateway reads the
+	// `x-kagent-agent-instance-{namespace,id}` metadata and dials that instance's
+	// own `a2a_authority` through the atenet router.
+	//
+	// An extension may supply its own; absent one this controller serves the
+	// gateway itself, so a browser that can list and create agents over gRPC-Web
+	// also has somewhere to send a message. The workflow is what lets the gateway
+	// suspend an instance when a turn completes — the same one the lifecycle RPCs
+	// use, rather than a second over the same client.
+	a2aHandler := extensionCfg.A2AHandler
+	if a2aHandler == nil {
+		a2aHandler = a2agateway.New(dbClient, extensionCfg.Authorizer, a2aGatewayDialer,
+			instanceWorkflow, cfg.A2ABaseUrl)
 	}
 
 	grpcServer, err := grpcserver.New(grpcserver.Config{
@@ -622,6 +638,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		AgentService:          agentService,
 		ModelService:          modelConfigService,
 		ToolService:           toolService,
+		AgentTemplateService:  agentTemplateService,
+		HarnessService:        harnessService,
 		PromptTemplateService: promptTemplateService,
 		SystemService:         systemService,
 		FeedbackService:       feedbackService,
@@ -629,7 +647,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		SessionService:        sessionService,
 		TaskService:           taskService,
 		AgentInstanceService:  agentInstanceService,
-		A2AHandler:            extensionCfg.A2AHandler,
+		A2AHandler:            a2aHandler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create gRPC server")
@@ -637,6 +655,26 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 	if err := mgr.Add(grpcServer); err != nil {
 		setupLog.Error(err, "unable to set up gRPC server")
+		os.Exit(1)
+	}
+
+	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
+		Router:        router,
+		BindAddr:      cfg.HttpServerAddr,
+		KubeClient:    mgr.GetClient(),
+		DbClient:      dbClient,
+		Authenticator: extensionCfg.Authenticator,
+		// Lets a browser reach the gRPC services over the same origin the app is
+		// served from; see grpcserver.WebHandler. Built after the gRPC server
+		// because it is that server's own rule about which requests are its.
+		GrpcWebRouter: grpcServer.WebHandlerOr,
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to create HTTP server")
+		os.Exit(1)
+	}
+	if err := mgr.Add(httpServer); err != nil {
+		setupLog.Error(err, "unable to set up HTTP server")
 		os.Exit(1)
 	}
 

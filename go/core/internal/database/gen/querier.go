@@ -34,6 +34,13 @@ type Querier interface {
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
+	// Resolves a share token to the share and the instance's owner.
+	//
+	// The owner is joined in because that is what the share grants: the reader is
+	// authenticated as themselves, and the token widens what that account may read to
+	// what the *owner* can see. Without the owner's user id the instance lookup would
+	// run as the visitor and find nothing.
+	GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (GetAgentInstanceShareByTokenHashRow, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
@@ -80,6 +87,14 @@ type Querier interface {
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
+	// Lists the conversations an instance is, optionally narrowed to one agent.
+	//
+	// An agent is an (AgentTemplate, Harness) pair, and the instance row carries
+	// neither name as a column -- both live inside `data`. They are resolved through
+	// `prepared_revision`, which is a foreign key to `runtime_revision` and does
+	// carry them, so the filter needs no new column and matches rows written before
+	// it existed. An instance with no prepared revision belongs to no pair and
+	// therefore matches no template or harness filter.
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
@@ -130,6 +145,11 @@ type Querier interface {
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
+	// Renames an instance in place. The row's `data` blob also carries the message,
+	// but `toAgentInstance` reads the name from this column, exactly as it does for
+	// `state` and `operation`, so the column is the single authority and the two
+	// cannot drift.
+	UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
 	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
@@ -140,7 +160,6 @@ type Querier interface {
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
-	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
 	// UpsertTask returns the upserted id, or no rows when the write was rejected:
 	// the id belongs to another user, or it belongs to a soft-deleted task (a
 	// deleted id is never updated or resurrected, it stays burned). Callers map
