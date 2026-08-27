@@ -165,7 +165,7 @@ describe("installExtensionApi", () => {
   // The hook's whole value is deciding on the strength of where the request is
   // finally going, so it has to run after the base URL has been rewritten. If it
   // ran first it would see the application's own URL and could not tell a call
-  // bound for the extension's control plane from any other.
+  // bound for the extension's own backend from any other.
   it("runs the global hook after the base URL rewrite", async () => {
     let seen = "";
     installExtensionApi({

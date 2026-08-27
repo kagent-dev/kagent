@@ -11,7 +11,7 @@ import type {
  * shape would show up as blank columns rather than as a type error.
  */
 
-/** `SystemService.GetSubstrateStatus` — control-plane and Kubernetes state, aggregated. */
+/** `SystemService.GetSubstrateStatus` — controller and Kubernetes state, aggregated. */
 export interface SubstrateStatusResponse {
   /** True when the controller is configured with an ate-api endpoint. */
   enabled: boolean;

@@ -276,7 +276,7 @@ fails to compile.
 
 ```ts
 api: {
-  baseUrl: "https://control-plane.example.com/api",   // optional: replace the API root
+  baseUrl: "https://api.example.com",                 // optional: replace the API root
   endpoints: { "agents.list": "/managed-agents" },      // optional: per-endpoint path
   transforms: {
     "agents.list": {
@@ -298,14 +298,14 @@ one description of a request in the codebase.
 
 ### Something every request needs
 
-A control plane usually demands something of *all* its traffic rather than of one
+A backend usually demands something of *all* its traffic rather than of one
 endpoint — an authorization header, a tenant, a correlation id. The per-endpoint
 table is the wrong shape for that: it means an entry per endpoint, and the endpoint
 somebody adds next week goes out without it.
 
 ```ts
 api: {
-  baseUrl: "https://control-plane.example.com/api",
+  baseUrl: "https://api.example.com",
   request: (context) => ({
     ...context,
     headers: { ...context.headers, authorization: `Bearer ${token()}` },
@@ -316,7 +316,7 @@ api: {
 This hook runs **last** — after `baseUrl` and after any per-endpoint transform —
 so `context.url` is the URL the request will actually be sent to. That ordering is
 the point rather than an accident: a hook attaching a credential needs to be able
-to tell a call bound for the extension's own control plane from one going anywhere
+to tell a call bound for the extension's own backend from one going anywhere
 else, and it can only do that if it sees the final destination.
 
 It cannot call hooks — it runs per request, outside React. Anything it needs from
@@ -489,7 +489,8 @@ read back with `readEnv`:
 ```ts
 import { readEnv } from "@/env";
 
-const controlPlane = readEnv("EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
+// No VITE_ prefix, and adding one would break it — see below.
+const apiUrl = readEnv("EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
 ```
 
 The application reads none of them and does not know what they mean; the extension
@@ -509,11 +510,27 @@ Three properties worth knowing before you reach for it:
   inlines these into the page, so it copies a bounded set out of the shell rather
   than the whole environment. A key outside both is not passed through.
 
-The `VITE_` prefix marks the difference, and only the build-time pair carries it:
-Vite exposes a variable to `import.meta.env` only when its name matches
-`envPrefix`, which is the default guard against inlining a whole environment into
-a bundle. A runtime setting never goes through Vite, so it never takes the prefix
-— `EXTENSION_ACCOUNT_URL`, not `VITE_EXTENSION_ACCOUNT_URL`.
+### Why there is no `VITE_` prefix on those
+
+Because they never go through Vite. `VITE_` is not a house style, it is the
+`envPrefix` filter on `import.meta.env` — Vite's guard against inlining a whole
+environment into a bundle. It applies to `import.meta.env` and to nothing else, so
+only the two build-time pins carry it.
+
+A runtime setting is read from a `<script>` tag instead: rendered by
+`scripts/init.sh` from the pod's environment in a container, and by a dev-server
+plugin from `.env` and the shell locally. Both select keys by the `EXTENSION_`
+prefix, and the dev plugin calls Vite's `loadEnv` with an *empty* prefix precisely
+so these are read under the names the chart sets rather than under bundler names.
+
+So the prefix is not merely unnecessary here — **adding it breaks the setting.**
+`VITE_EXTENSION_ACCOUNT_URL` matches neither selector, so it is never copied onto
+`window.environmentVariables`, and `readEnv` returns the fallback with no warning.
+
+| | Name | Read with | Decided |
+|---|---|---|---|
+| Build-time pin | `VITE_APP_EXTENSIONS`, `VITE_API_MODE` | `import.meta.env` | when the bundle is built |
+| Extension setting | `EXTENSION_*` | `readEnv` | by the operator, per deployment |
 
 That split is not incidental. **Which** extensions are installed has to be decided
 at build time, because the array is compiled and an extension has to be imported

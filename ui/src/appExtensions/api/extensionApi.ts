@@ -9,7 +9,7 @@ import type {
 /**
  * The API-layer extension contract.
  *
- * An extension's control plane rarely lives at the same URLs as the reference one,
+ * An extension's backend rarely lives at the same URLs as this application's,
  * and rarely speaks the same payload shapes, so an extension needs to say where
  * a call goes and how to reshape it in both directions.
  *
@@ -79,7 +79,7 @@ export interface ExtensionApi<TCallId extends string = string> {
    * The gRPC equivalent of a path override, and strictly more: the implementation
    * receives the operation's own input and returns its own domain type, so it can
    * answer from a different service, a different protocol, or from nothing at all.
-   * This is how a control plane that owns some of these resources itself serves
+   * This is how a backend that owns some of these resources itself serves
    * them without the application knowing.
    */
   operations?: { [K in OperationId]?: ApiOperation<K> };
@@ -88,7 +88,7 @@ export interface ExtensionApi<TCallId extends string = string> {
   /**
    * Applied to *every* request, after `baseUrl` and the per-endpoint transforms.
    *
-   * For what a control plane requires of all its traffic rather than of one
+   * For what a backend requires of all its traffic rather than of one
    * endpoint — an authorization header, a tenant header, a correlation id. The
    * per-endpoint table cannot express that: it would mean an entry per endpoint,
    * and the endpoint added next week would silently go out without it.

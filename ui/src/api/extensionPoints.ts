@@ -8,7 +8,7 @@
  *
  * 1. **What a call actually does** — `registerOperationOverride` replaces one
  *    operation's implementation, so a deployment can serve `agents.list` from its
- *    own control plane, a different API version, or a different protocol
+ *    own backend, a different API version, or a different protocol
  *    entirely.
  * 2. **Where an HTTP call goes** — `registerEndpointOverride` swaps the path an
  *    endpoint id resolves to. Only the handful of endpoints still served over
