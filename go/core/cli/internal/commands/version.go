@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/client"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/spf13/cobra"
 )
 
-func VersionCmd(clientSet *client.ClientSet) {
+func runVersion(clientSet *client.ClientSet) {
 	versionInfo := map[string]string{
 		"kagent_version": version.Version,
 		"git_commit":     version.GitCommit,
@@ -26,4 +28,22 @@ func VersionCmd(clientSet *client.ClientSet) {
 	}
 
 	json.NewEncoder(os.Stdout).Encode(versionInfo) //nolint:errcheck
+}
+
+// NewVersionCmd constructs the kagent version command.
+func NewVersionCmd(connectionOptions *connection.Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the kagent version",
+		Long:  `Print the kagent version`,
+		Run: func(cmd *cobra.Command, _ []string) {
+			clientSet := connectionOptions.Client()
+			defer clientSet.Close() //nolint:errcheck
+			defer runVersion(clientSet)
+
+			if portForward, _ := connection.Connect(cmd.Context(), connectionOptions); portForward != nil {
+				defer portForward.Stop()
+			}
+		},
+	}
 }

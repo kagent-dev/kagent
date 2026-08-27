@@ -14,6 +14,7 @@ import (
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
+	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -29,8 +30,8 @@ type GetCfg struct {
 	PageToken    string
 }
 
-// GetCmd gets one AgentTemplate or lists AgentTemplates through Kubernetes.
-func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) error {
+// runGet gets one AgentTemplate or lists AgentTemplates through Kubernetes.
+func runGet(ctx context.Context, cfg *GetCfg, out io.Writer) error {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -121,4 +122,26 @@ func writeTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, lis
 		return fmt.Errorf("write AgentTemplate output: %w", err)
 	}
 	return nil
+}
+
+// NewGetCmd constructs the AgentTemplate get/list command.
+func NewGetCmd(namespace *string, outputFormat *string) *cobra.Command {
+	cfg := &GetCfg{}
+	cmd := &cobra.Command{
+		Use:   "agent-template [NAME]",
+		Short: "Get an AgentTemplate or list AgentTemplates",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg.Namespace = *namespace
+			cfg.OutputFormat = *outputFormat
+			cfg.Name = ""
+			if len(args) == 1 {
+				cfg.Name = args[0]
+			}
+			return runGet(cmd.Context(), cfg, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
+	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	return cmd
 }

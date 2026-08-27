@@ -16,6 +16,7 @@ import (
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
+	"github.com/spf13/cobra"
 )
 
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")
@@ -30,7 +31,7 @@ type InvokeCfg struct {
 	Token         string
 }
 
-func InvokeCmd(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer) (err error) {
+func runInvoke(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -326,4 +327,29 @@ func sendResultError(result a2atype.SendMessageResult) error {
 	default:
 		return fmt.Errorf("AgentInstance task %s returned before reaching a final state: %s", task.ID, task.Status.State)
 	}
+}
+
+// NewInvokeCmd constructs the AgentInstance invoke command.
+func NewInvokeCmd(connectionOptions *connection.Options, outputFormat *string) *cobra.Command {
+	cfg := &InvokeCfg{Connection: connectionOptions}
+	cmd := &cobra.Command{
+		Use:     "invoke",
+		Short:   "Invoke an AgentInstance",
+		Long:    `Invoke an existing AgentInstance through the A2A API.`,
+		Args:    cobra.NoArgs,
+		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg.OutputFormat = *outputFormat
+			return runInvoke(cmd.Context(), cfg, cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&cfg.AgentInstance, "agent-instance", "", "AgentInstance ID")
+	cmd.Flags().StringVarP(&cfg.Task, "task", "t", "", "Task text")
+	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
+	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
+	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
+	_ = cmd.MarkFlagRequired("agent-instance")
+	cmd.MarkFlagsOneRequired("task", "file")
+	cmd.MarkFlagsMutuallyExclusive("task", "file")
+	return cmd
 }

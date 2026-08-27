@@ -14,6 +14,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
+	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -33,8 +34,8 @@ type GetCfg struct {
 	PageToken    string
 }
 
-// GetCmd gets one AgentInstance or lists the caller's AgentInstances.
-func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
+// runGet gets one AgentInstance or lists the caller's AgentInstances.
+func runGet(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -153,4 +154,25 @@ func formatTimestamp(timestamp *timestamppb.Timestamp) string {
 		return ""
 	}
 	return timestamp.AsTime().UTC().Format(time.RFC3339)
+}
+
+// NewGetCmd constructs the AgentInstance get/list command.
+func NewGetCmd(connectionOptions *connection.Options, outputFormat *string) *cobra.Command {
+	cfg := &GetCfg{Connection: connectionOptions}
+	cmd := &cobra.Command{
+		Use:   "agent-instance [ID]",
+		Short: "Get an AgentInstance or list your AgentInstances",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg.OutputFormat = *outputFormat
+			cfg.InstanceID = ""
+			if len(args) == 1 {
+				cfg.InstanceID = args[0]
+			}
+			return runGet(cmd.Context(), cfg, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
+	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	return cmd
 }

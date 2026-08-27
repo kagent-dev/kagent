@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/spf13/cobra"
 
 	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
@@ -64,7 +65,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
+func runInstall(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -231,7 +232,7 @@ func deleteCRDs(ctx context.Context) error {
 	return nil
 }
 
-func UninstallCmd(ctx context.Context, namespace string) {
+func runUninstall(ctx context.Context, namespace string) {
 	// Check if helm is available
 	if err := checkHelmAvailable(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -302,4 +303,34 @@ func checkHelmAvailable() error {
 		return fmt.Errorf("helm not found in PATH. Please install helm first: https://helm.sh/docs/intro/install/")
 	}
 	return nil
+}
+
+// NewInstallCmd constructs the kagent install command.
+func NewInstallCmd(connectionOptions *connection.Options) *cobra.Command {
+	cfg := &InstallCfg{Connection: connectionOptions}
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install kagent",
+		Long:  `Install kagent`,
+		Run: func(cmd *cobra.Command, _ []string) {
+			runInstall(cmd.Context(), cfg)
+		},
+	}
+	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal|demo)")
+	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
+	})
+	return cmd
+}
+
+// NewUninstallCmd constructs the kagent uninstall command.
+func NewUninstallCmd(namespace *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall kagent",
+		Long:  `Uninstall kagent`,
+		Run: func(cmd *cobra.Command, _ []string) {
+			runUninstall(cmd.Context(), *namespace)
+		},
+	}
 }

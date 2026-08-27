@@ -1,16 +1,17 @@
-//go:build !darwin
-
 package commands
 
 import (
-	"context"
-	"fmt"
-	"os"
+	"github.com/spf13/cobra"
 )
 
-func DashboardCmd(ctx context.Context, namespace string) {
-	fmt.Fprintln(os.Stderr, "Dashboard is not available on this platform")
-	fmt.Fprintln(os.Stderr, "You can easily start the dashboard by running:")
-	fmt.Fprintf(os.Stderr, "kubectl port-forward -n %s service/kagent-ui 8082:8080\n", namespace)
-	fmt.Fprintln(os.Stderr, "and then opening http://localhost:8082 in your browser")
+// NewDashboardCmd constructs the kagent dashboard command.
+func NewDashboardCmd(namespace *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "dashboard",
+		Short: "Open the kagent dashboard",
+		Long:  `Open the kagent dashboard`,
+		Run: func(cmd *cobra.Command, _ []string) {
+			runDashboard(cmd.Context(), *namespace)
+		},
+	}
 }

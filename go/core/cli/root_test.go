@@ -1,15 +1,16 @@
-package cli
+package cli_test
 
 import (
 	"bytes"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 
 	assert.Equal(t, "http://localhost:8083", rootCmd.PersistentFlags().Lookup("kagent-url").DefValue)
 	assert.Equal(t, "localhost:8084", rootCmd.PersistentFlags().Lookup("kagent-grpc-url").DefValue)
@@ -24,7 +25,7 @@ func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
 }
 
 func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 	require.NoError(t, rootCmd.ParseFlags([]string{
 		"--kagent-url", "http://flag.example.test",
 		"--grpc-url", "grpc.flag.example.test:8443",
@@ -56,15 +57,15 @@ func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
 }
 
 func TestRootCommandAllowsNoTimeout(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 
 	require.NoError(t, rootCmd.ParseFlags([]string{"--timeout", "0"}))
 	assert.Equal(t, "0s", rootCmd.PersistentFlags().Lookup("timeout").Value.String())
 }
 
 func TestRootCommandsOwnIndependentFlagState(t *testing.T) {
-	first := Root()
-	second := Root()
+	first := cli.Root()
+	second := cli.Root()
 
 	require.NoError(t, first.ParseFlags([]string{"--namespace", "first"}))
 
@@ -73,7 +74,7 @@ func TestRootCommandsOwnIndependentFlagState(t *testing.T) {
 }
 
 func TestRootCommandDoesNotValidateClientFlagsForIndependentCommand(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "env"})
 	rootCmd.SetOut(&bytes.Buffer{})
 
@@ -81,7 +82,7 @@ func TestRootCommandDoesNotValidateClientFlagsForIndependentCommand(t *testing.T
 }
 
 func TestRootCommandInvokeContract(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 	assert.True(t, rootCmd.SilenceErrors)
 	assert.True(t, rootCmd.SilenceUsage)
 
@@ -103,7 +104,7 @@ func TestRootCommandInvokeContract(t *testing.T) {
 }
 
 func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 
 	getTemplateCmd, _, err := rootCmd.Find([]string{"get", "agent-template"})
 	require.NoError(t, err)
@@ -130,7 +131,7 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 }
 
 func TestRootCommandRemovesLegacyPaths(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 
 	rootCommands := make([]string, 0, len(rootCmd.Commands()))
 	for _, command := range rootCmd.Commands() {
@@ -153,7 +154,7 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 }
 
 func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
-	rootCmd := Root()
+	rootCmd := cli.Root()
 	rootCmd.SetArgs(nil)
 	rootCmd.SetIn(&bytes.Buffer{})
 	rootCmd.SetOut(&bytes.Buffer{})
