@@ -653,6 +653,11 @@ export const AgentService: GenService<{
     output: typeof DeleteSandboxAgentResponseSchema;
   },
   /**
+   * The AgentHarness RPCs below operate on the AgentHarness CRD — one agent
+   * bound to an external ACP backend. They are unrelated to the Harness CRD
+   * that AgentInstance pairs with an AgentTemplate; that one is served by
+   * HarnessService in harnesses.proto.
+   *
    * @generated from rpc kagent.api.v1alpha1.AgentService.GetAgentHarness
    */
   getAgentHarness: {

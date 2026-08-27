@@ -9,15 +9,15 @@ import logging
 
 from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
+from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
+from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
-    KAgentTaskStore,
     attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
@@ -59,7 +59,6 @@ class KAgentApp:
         agent_card: AgentCard | dict,
         config: KAgentConfig,
         executor_config: LangGraphAgentExecutorConfig | None = None,
-        controller_client: AsyncControllerClient | None = None,
         tracing: bool = True,
     ):
         """Initialize the KAgent application.
@@ -77,7 +76,6 @@ class KAgentApp:
         self.config = config
 
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
-        self._controller_client = controller_client
         self._enable_tracing = tracing
 
     def build(self) -> FastAPI:
@@ -87,12 +85,6 @@ class KAgentApp:
         Returns:
             Configured FastAPI application ready for deployment
         """
-        controller_client = self._controller_client or AsyncControllerClient(
-            self.config.grpc_url,
-            agent_name=self.config.app_name,
-            token_provider=AsyncFileTokenProvider(),
-        )
-
         # Create agent executor
         agent_executor = LangGraphAgentExecutor(
             graph=self._graph,
@@ -101,7 +93,7 @@ class KAgentApp:
         )
 
         # Create task store
-        task_store = KAgentTaskStore(controller_client)
+        task_store = InMemoryTaskStore()
 
         # Create request context builder
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
@@ -122,7 +114,6 @@ class KAgentApp:
             title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
-            lifespan=controller_client.lifespan(),
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,

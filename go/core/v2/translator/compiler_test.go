@@ -73,7 +73,11 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.SessionDBURL != "sqlite:////data/sessions.db" {
+	// The driver is part of the assertion, not incidental. The Python runtime opens
+	// this URL with an asyncio engine and refuses a bare `sqlite:` one, so dropping
+	// the driver leaves an actor that never serves /readyz — which surfaces as a
+	// harness stuck in ResumeGoldenActor rather than as anything naming this line.
+	if config.SessionDBURL != "sqlite+aiosqlite:////data/sessions.db" {
 		t.Fatalf("session DB URL = %q", config.SessionDBURL)
 	}
 	plugins := config.AgentPlugins

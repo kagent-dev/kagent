@@ -31,20 +31,6 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.MemoryService_Search_FullMethodName:                       AccessRead,
 		apiv1alpha1.MemoryService_List_FullMethodName:                         AccessRead,
 		apiv1alpha1.MemoryService_Delete_FullMethodName:                       AccessDelete,
-		apiv1alpha1.SessionService_ListSessions_FullMethodName:                AccessRead,
-		apiv1alpha1.SessionService_ListSessionsByAgent_FullMethodName:         AccessRead,
-		apiv1alpha1.SessionService_CreateSession_FullMethodName:               AccessCreate,
-		apiv1alpha1.SessionService_GetSession_FullMethodName:                  AccessRead,
-		apiv1alpha1.SessionService_UpdateSession_FullMethodName:               AccessUpdate,
-		apiv1alpha1.SessionService_DeleteSession_FullMethodName:               AccessDelete,
-		apiv1alpha1.SessionService_AddSessionEvent_FullMethodName:             AccessCreate,
-		apiv1alpha1.SessionService_CreateSessionShare_FullMethodName:          AccessCreate,
-		apiv1alpha1.SessionService_ListSessionShares_FullMethodName:           AccessRead,
-		apiv1alpha1.SessionService_DeleteSessionShare_FullMethodName:          AccessDelete,
-		apiv1alpha1.TaskStoreService_UpsertTask_FullMethodName:                AccessUpdate,
-		apiv1alpha1.TaskStoreService_GetTask_FullMethodName:                   AccessRead,
-		apiv1alpha1.TaskStoreService_DeleteTask_FullMethodName:                AccessDelete,
-		apiv1alpha1.TaskStoreService_ListTasks_FullMethodName:                 AccessRead,
 		apiv1alpha1.AgentService_ListAgents_FullMethodName:                    AccessRead,
 		apiv1alpha1.AgentService_GetSandboxAgent_FullMethodName:               AccessRead,
 		apiv1alpha1.AgentService_CreateSandboxAgent_FullMethodName:            AccessCreate,
@@ -81,10 +67,21 @@ func DefaultMethodPolicies() MethodPolicies {
 		grpc_health_v1.Health_Watch_FullMethodName:                            AccessPublic,
 		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":           AccessPublic,
 		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo":      AccessPublic,
+		apiv1alpha1.AgentTemplateService_ListAgentTemplates_FullMethodName:    AccessRead,
+		apiv1alpha1.AgentTemplateService_GetAgentTemplate_FullMethodName:      AccessRead,
+		apiv1alpha1.AgentTemplateService_CreateAgentTemplate_FullMethodName:   AccessCreate,
+		apiv1alpha1.AgentTemplateService_UpdateAgentTemplate_FullMethodName:   AccessUpdate,
+		apiv1alpha1.AgentTemplateService_DeleteAgentTemplate_FullMethodName:   AccessDelete,
+		apiv1alpha1.HarnessService_ListHarnesses_FullMethodName:               AccessRead,
+		apiv1alpha1.HarnessService_CreateHarness_FullMethodName:               AccessCreate,
+		apiv1alpha1.HarnessService_DeleteHarness_FullMethodName:               AccessDelete,
 	}
 	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = AccessCreate
 	policies[apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName] = AccessRead
 	policies[apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName] = AccessRead
+	// A rename is the only write on this service that is not a lifecycle
+	// operation, and it must not inherit the read mode its neighbours carry.
+	policies[apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName] = AccessUpdate
 	policies[apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName] = AccessUpdate
 	policies[apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName] = AccessUpdate
 	policies[apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName] = AccessDelete
