@@ -54,7 +54,11 @@ func scanFileLines(path string, visit func(lineNum int, line string) bool) error
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), maxLineBytes)
+	// nil initial buffer, not a fixed 64KB one: bufio grows from 4KB by
+	// doubling, so a long line still reaches maxLineBytes, but the common
+	// case -- a recursive grep over a tree of small files -- stops paying
+	// 64KB of allocation per file. Measured at ~15x less allocated per file.
+	scanner.Buffer(nil, maxLineBytes)
 	for lineNum := 1; scanner.Scan(); lineNum++ {
 		if !visit(lineNum, scanner.Text()) {
 			return nil
