@@ -407,6 +407,7 @@ helm-install-provider: helm-version check-api-key
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
 		--set kmcp.enabled=$(KMCP_ENABLED)
+		--set substrate.enabled=true
 	helm $(HELM_ACTION) kagent helm/kagent \
 		--namespace kagent \
 		--create-namespace \
