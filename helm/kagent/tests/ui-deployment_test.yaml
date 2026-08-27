@@ -76,15 +76,6 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8080
 
-  - it: should set the internal gRPC backend URL
-    template: ui-deployment.yaml
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: BACKEND_GRPC_URL
-            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8084"
-
   - it: should set global annotations on deployment
     template: ui-deployment.yaml
     set:
@@ -207,7 +198,7 @@ tests:
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
 
-  - it: should mount unified ui-config ConfigMap for nginx and supervisord
+  - it: should mount the ui-config ConfigMap for nginx
     template: ui-deployment.yaml
     asserts:
       - contains:
@@ -223,7 +214,11 @@ tests:
             mountPath: /etc/nginx/nginx.conf
             subPath: nginx.conf
             readOnly: true
-      - contains:
+
+  - it: should not mount a supervisord config now that nginx runs as PID 1
+    template: ui-deployment.yaml
+    asserts:
+      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: ui-config
@@ -307,40 +302,99 @@ tests:
       - notExists:
           path: spec.template.spec.topologySpreadConstraints
 
-  - it: should use same-origin public API path and internal controller URL for nginx proxying
+  - it: should pass runtime browser config to init.sh as env
     template: ui-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: NEXT_PUBLIC_BACKEND_URL
+            name: KAGENT_API_BASE_URL
             value: "/api"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: BACKEND_INTERNAL_URL
-            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083/api"
+            name: SSO_REDIRECT_PATH
+            value: "/oauth2/start"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_STREAM_TIMEOUT_MS
+            value: "1800000"
 
-  - it: should allow overriding ui.backendInternalUrl
+  - it: should carry an overridden publicBackendUrl through to the browser config
     template: ui-deployment.yaml
     set:
       ui:
-        backendInternalUrl: "http://custom-controller:9090/api"
+        publicBackendUrl: "https://api.example.com/api"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: BACKEND_INTERNAL_URL
-            value: "http://custom-controller:9090/api"
+            name: KAGENT_API_BASE_URL
+            value: "https://api.example.com/api"
 
-  - it: should allow overriding ui.publicBackendUrl
+  - it: should fall back to /api when publicBackendUrl is blanked
     template: ui-deployment.yaml
     set:
       ui:
-        publicBackendUrl: "https://example.com/api"
+        publicBackendUrl: ""
     asserts:
       - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_API_BASE_URL
+            value: "/api"
+
+  - it: should reflect overridden auth and stream settings
+    template: ui-deployment.yaml
+    set:
+      ui:
+        auth:
+          ssoRedirectPath: /custom/start
+        streamTimeoutSeconds: 90
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SSO_REDIRECT_PATH
+            value: "/custom/start"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_STREAM_TIMEOUT_MS
+            value: "90000"
+
+  - it: should not set env vars that only the removed node server consumed
+    template: ui-deployment.yaml
+    asserts:
+      - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: NEXT_PUBLIC_BACKEND_URL
-            value: "https://example.com/api"
+            value: "/api"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NEXT_PUBLIC_SSO_REDIRECT_PATH
+            value: "/oauth2/start"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BACKEND_INTERNAL_URL
+            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083/api"
+      # The browser reaches gRPC over the same origin, through nginx, so there is
+      # no separate gRPC URL for anything to be configured with.
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BACKEND_GRPC_URL
+            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8084"
+
+  - it: should not mount a nextjs build cache
+    template: ui-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: nextjs-cache
+            mountPath: /app/ui/.next/cache

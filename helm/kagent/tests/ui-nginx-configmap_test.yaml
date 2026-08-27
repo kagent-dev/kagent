@@ -14,7 +14,11 @@ tests:
           value: RELEASE-NAME-ui-config
       - exists:
           path: data["nginx.conf"]
-      - exists:
+
+  - it: should no longer ship a supervisord config
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - notExists:
           path: data["supervisord.conf"]
 
   - it: should only have IPv4 listen by default
@@ -40,32 +44,141 @@ tests:
           path: data["nginx.conf"]
           pattern: "listen \\[::\\]:8080;"
 
-  - it: should use IPv4 HOSTNAME by default
-    template: ui-nginx-configmap.yaml
-    asserts:
-      - matchRegex:
-          path: data["supervisord.conf"]
-          pattern: 'HOSTNAME="0\.0\.0\.0"'
-      - notMatchRegex:
-          path: data["supervisord.conf"]
-          pattern: 'HOSTNAME="::"'
-
-  - it: should use dual-stack HOSTNAME when ipv6 is enabled
-    template: ui-nginx-configmap.yaml
-    set:
-      ipv6:
-        enabled: true
-    asserts:
-      - matchRegex:
-          path: data["supervisord.conf"]
-          pattern: 'HOSTNAME="::"'
-      - notMatchRegex:
-          path: data["supervisord.conf"]
-          pattern: 'HOSTNAME="0\.0\.0\.0"'
-
   - it: should proxy api upstream to controller Cluster DNS
     template: ui-nginx-configmap.yaml
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc:8083;'
+
+  # ---------------------------------------------------------------------------
+  # Static SPA serving
+  # ---------------------------------------------------------------------------
+  - it: should serve the built bundle from disk with a SPA fallback
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'root /usr/share/nginx/html;'
+      # Deep links such as /agents are client-side routes, not files.
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'try_files \$uri \$uri/ /index\.html;'
+
+  - it: should drop the node upstream now that no server process runs
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'upstream kagent_ui'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: '127\.0\.0\.1:8001'
+
+  - it: should keep the health endpoint
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "location /health"
+
+  # The name matters as much as the caching: the document loads this by that exact
+  # path before the app, so a rename here is a blank page rather than a stale setting.
+  - it: should serve runtime env-config.js uncached
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location = /env-config\.js'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'alias /tmp/kagent/env-config\.js;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'add_header Cache-Control "no-store" always;'
+
+  - it: should refuse the mock service worker outright
+    template: ui-nginx-configmap.yaml
+    asserts:
+      # The SPA fallback would otherwise answer this with index.html and a 200.
+      # An exact-match location also beats the fallback if a future build ever
+      # ships the worker again.
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location = /mockServiceWorker\.js'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'return 404;'
+
+  - it: should never cache the bundle entrypoint
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location = /index\.html'
+
+  # ---------------------------------------------------------------------------
+  # Streaming
+  # ---------------------------------------------------------------------------
+  - it: should route a2a to the backend, not the removed node server
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_pass http://kagent_backend/a2a/;'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_pass http://kagent_ui'
+
+  - it: should keep streaming settings on a2a so SSE is not buffered
+    template: ui-nginx-configmap.yaml
+    set:
+      ui:
+        nginx:
+          proxyReadTimeout: 900s
+          proxySendTimeout: 800s
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_buffering off;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_read_timeout 900s;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_send_timeout 800s;'
+
+  # ---------------------------------------------------------------------------
+  # Identity header hygiene
+  #
+  # The Next proxy forwarded a strict allowlist. nginx forwards everything by
+  # default, so auth-proxy identity headers are cleared unless opted in.
+  # ---------------------------------------------------------------------------
+  - it: should strip spoofable identity headers by default
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-auth-request-email "";'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-forwarded-email "";'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-forwarded-user "";'
+
+  - it: should forward an identity header the operator opted into
+    template: ui-nginx-configmap.yaml
+    set:
+      ui:
+        additionalForwardedHeaders:
+          - X-Forwarded-Email
+    asserts:
+      # Opted in, so no longer cleared...
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-forwarded-email "";'
+      # ...while the rest of the set stays stripped.
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-forwarded-user "";'

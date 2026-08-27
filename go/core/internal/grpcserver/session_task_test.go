@@ -38,8 +38,6 @@ type generatedClientSessionTaskStore struct {
 	lastEventQueryOptions database.QueryOptions
 	lastEventUserID       string
 	lastTaskListUserID    string
-	recordedShareUserID   string
-	recordedShareID       int64
 }
 
 func newGeneratedClientSessionTaskStore() *generatedClientSessionTaskStore {
@@ -171,12 +169,6 @@ func (s *generatedClientSessionTaskStore) DeleteSessionShare(_ context.Context, 
 	if ok && value.SessionID == sessionID && value.UserID == userID {
 		delete(s.shares, token)
 	}
-	return nil
-}
-
-func (s *generatedClientSessionTaskStore) RecordShareAccess(_ context.Context, userID string, shareID int64) error {
-	s.recordedShareUserID = userID
-	s.recordedShareID = shareID
 	return nil
 }
 
@@ -360,30 +352,7 @@ func TestSessionAndTaskGeneratedClients(t *testing.T) {
 	}
 	assertTaskObject(t, gotTask.GetTask(), "task-1", sessionID)
 
-	visitorContext := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(
-		"x-user-id", "visitor",
-		"x-share-token", "generated-share-token",
-	))
-	sharedSession, err := sessionClient.GetSession(visitorContext, &apiv1alpha1.GetSessionRequest{SessionId: sessionID})
-	if err != nil {
-		t.Fatalf("GetSession(shared) error = %v", err)
-	}
-	if sharedSession.ReadOnly == nil || !sharedSession.GetReadOnly() || store.lastEventUserID != "user-a" {
-		t.Fatalf("GetSession(shared) = %+v, event user = %q", sharedSession, store.lastEventUserID)
-	}
-	sharedTasks, err := taskClient.ListTasks(visitorContext, &apiv1alpha1.ListTasksRequest{SessionId: sessionID})
-	if err != nil || len(sharedTasks.GetTasks()) != 1 || store.lastTaskListUserID != "user-a" {
-		t.Fatalf("ListTasks(shared) = %+v, user = %q, error = %v", sharedTasks, store.lastTaskListUserID, err)
-	}
-	if store.recordedShareUserID != "visitor" || store.recordedShareID != share.GetShare().GetId() {
-		t.Fatalf("share access = user %q, id %d", store.recordedShareUserID, store.recordedShareID)
-	}
-
 	updatedName := "Renamed"
-	_, err = sessionClient.UpdateSession(visitorContext, &apiv1alpha1.UpdateSessionRequest{SessionId: sessionID, Name: &updatedName})
-	if status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("UpdateSession(read-only share) error = %v, want PermissionDenied", err)
-	}
 	updated, err := sessionClient.UpdateSession(userContext, &apiv1alpha1.UpdateSessionRequest{SessionId: sessionID, Name: &updatedName})
 	if err != nil || updated.GetSession().GetName() != updatedName {
 		t.Fatalf("UpdateSession() = %+v, error = %v", updated, err)

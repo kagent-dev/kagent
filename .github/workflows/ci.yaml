@@ -358,33 +358,45 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version-file: ui/.nvmrc
-          cache: "npm"
-          cache-dependency-path: ui/package-lock.json
 
-      # Honor the pinned npm from ui/package.json "packageManager" so npm ci
-      # resolves the lock file with the same npm version it was generated with.
+      # Before any cache step that shells out to yarn: the pinned version in
+      # ui/package.json "packageManager" is Yarn 4, and without corepack the shim
+      # on the runner is a different one that cannot read this lock file.
       - name: Enable Corepack
         run: corepack enable
 
+      - name: Cache Yarn downloads
+        uses: actions/cache@v4
+        with:
+          path: ui/.yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
       - name: Install dependencies
         working-directory: ./ui
-        run: npm ci
+        run: yarn install --immutable
+
+      - name: Typecheck
+        working-directory: ./ui
+        run: yarn typecheck
 
       - name: Run lint
         working-directory: ./ui
-        run: npm run lint
+        run: yarn lint
 
-      - name: Run unit tests (Jest)
+      - name: Run unit tests
         working-directory: ./ui
-        run: npm run test
+        run: yarn test
 
-      - name: Install Playwright browser (Chromium)
+      # Both engines the suite declares. Installing only one leaves that project
+      # failing to launch, which reads as a broken app rather than a missing browser.
+      - name: Install Playwright browsers
         working-directory: ./ui
-        run: npx playwright install --with-deps chromium
+        run: yarn playwright install --with-deps chromium firefox
 
-      - name: Run Storybook tests (Vitest + Playwright)
+      - name: Run browser tests
         working-directory: ./ui
-        run: npm run test:vitest
+        run: yarn test:pw
 
   # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
   build:
@@ -399,9 +411,6 @@ jobs:
           - kagent-adk
           - cli
           - golang-adk
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
-          - acp-sandbox-claude
     runs-on: ubuntu-latest
     services:
       registry:

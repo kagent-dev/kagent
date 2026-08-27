@@ -14,9 +14,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Store interface {
@@ -34,15 +31,9 @@ type Store interface {
 	DeleteSessionShare(context.Context, string, string, string) error
 }
 
-type SandboxActorCleaner interface {
-	DeleteSandboxAgentSessionActor(context.Context, *v1alpha3.SandboxAgent, string) (bool, error)
-}
-
 type Service struct {
-	store        Store
-	kube         client.Client
-	actorCleaner SandboxActorCleaner
-	token        func() (string, error)
+	store Store
+	token func() (string, error)
 }
 
 type Option func(*Service)
@@ -78,13 +69,6 @@ func NewService(store Store, options ...Option) *Service {
 		option(service)
 	}
 	return service
-}
-
-func WithSandboxLifecycle(kube client.Client, cleaner SandboxActorCleaner) Option {
-	return func(service *Service) {
-		service.kube = kube
-		service.actorCleaner = cleaner
-	}
 }
 
 func WithShareTokenGenerator(generator func() (string, error)) Option {
@@ -155,18 +139,12 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*database.
 		return nil, serviceerrors.NewInvalidArgument(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", request.AgentRef), err)
 	}
 	if agent.WorkloadType == v1alpha3.WorkloadModeSandbox {
-		_, isSubstrateSandbox, err := s.lookupSubstrateSandboxAgent(ctx, request.AgentRef)
+		existing, err := s.store.ListSessionsForAgentAllUsers(ctx, agentID)
 		if err != nil {
-			return nil, serviceerrors.NewInternal("Failed to inspect sandbox agent", err)
+			return nil, serviceerrors.NewInternal("Failed to list sessions for agent", err)
 		}
-		if !isSubstrateSandbox {
-			existing, err := s.store.ListSessionsForAgentAllUsers(ctx, agentID)
-			if err != nil {
-				return nil, serviceerrors.NewInternal("Failed to list sessions for agent", err)
-			}
-			if len(existing) > 0 {
-				return nil, serviceerrors.NewAlreadyExists("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent"))
-			}
+		if len(existing) > 0 {
+			return nil, serviceerrors.NewAlreadyExists("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent"))
 		}
 	}
 
@@ -261,22 +239,8 @@ func (s *Service) Delete(ctx context.Context, sessionID string) error {
 	if s.store == nil {
 		return serviceerrors.NewInternal("Failed to delete session", fmt.Errorf("database client is not configured"))
 	}
-
-	var cleanup *v1alpha3.SandboxAgent
-	if s.actorCleaner != nil {
-		if session, getErr := s.store.GetSession(ctx, sessionID, userID); getErr == nil && session != nil && session.AgentID != nil {
-			if sandboxAgent, lookupErr := s.substrateSandboxAgentForSession(ctx, session); lookupErr == nil {
-				cleanup = sandboxAgent
-			}
-		}
-	}
 	if err := s.store.DeleteSession(ctx, sessionID, userID); err != nil {
 		return serviceerrors.NewInternal("Failed to delete session", err)
-	}
-	if cleanup != nil {
-		if _, err := s.actorCleaner.DeleteSandboxAgentSessionActor(ctx, cleanup, sessionID); err != nil {
-			ctrllog.FromContext(ctx).Error(err, "failed to delete substrate session actor", "sessionID", sessionID)
-		}
 	}
 	return nil
 }
@@ -391,47 +355,6 @@ func (s *Service) DeleteShare(ctx context.Context, sessionID, token string) erro
 		return serviceerrors.NewInternal("failed to delete share", err)
 	}
 	return nil
-}
-
-func (s *Service) lookupSubstrateSandboxAgent(ctx context.Context, agentRef string) (*v1alpha3.SandboxAgent, bool, error) {
-	if s.kube == nil {
-		return nil, false, nil
-	}
-	ref := strings.TrimSpace(agentRef)
-	if ref == "" {
-		return nil, false, nil
-	}
-	kubernetesRef := utils.ConvertToKubernetesIdentifier(ref)
-	namespacedName, err := utils.ParseRefString(kubernetesRef, "")
-	if err != nil {
-		return nil, false, nil
-	}
-	sandboxAgent := &v1alpha3.SandboxAgent{}
-	if err := s.kube.Get(ctx, namespacedName, sandboxAgent); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	return sandboxAgent, true, nil
-}
-
-func (s *Service) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha3.SandboxAgent, error) {
-	if session == nil || session.AgentID == nil {
-		return nil, nil
-	}
-	agent, err := s.store.GetAgent(ctx, *session.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	if agent.WorkloadType != v1alpha3.WorkloadModeSandbox {
-		return nil, nil
-	}
-	sandboxAgent, isSubstrate, err := s.lookupSubstrateSandboxAgent(ctx, *session.AgentID)
-	if err != nil || !isSubstrate {
-		return nil, err
-	}
-	return sandboxAgent, nil
 }
 
 func authenticatedPrincipal(ctx context.Context) (auth.Principal, error) {
