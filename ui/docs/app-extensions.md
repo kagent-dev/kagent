@@ -14,8 +14,7 @@ export const activeAppExtensions: readonly AppExtensionConfig[] = [
 ```
 
 That is the whole integration surface. Installing a second extension is one more
-entry; nothing else in the application changes. If you maintain a fork,
-`activeExtensions.ts` is intended to be one of the very few files it ever changes.
+entry; nothing else in the application changes.
 
 Nothing is installed by default, including the bundled example. To see the example
 running without editing the file, start the dev server with
@@ -23,10 +22,10 @@ running without editing the file, start the dev server with
 
 ---
 
-This UI is built to be extended without being forked into a divergent codebase.
-A downstream distribution contributes navigation entries, whole pages, components
-at named points inside existing pages, extra form fields, API endpoint overrides
-and payload transforms, and app-level React providers — all declared in **one
+This UI is built to be extended without editing the application itself. A
+distribution contributes navigation entries, whole pages, components at named
+points inside existing pages, extra form fields, API endpoint overrides and
+payload transforms, and app-level React providers — all declared in **one
 configuration object** per extension.
 
 The model is deliberately close to [Backstage](https://backstage.io) plugins: a
@@ -112,7 +111,7 @@ compatibility obligation for this project. Requiring a component costs an
 extension a few lines once and costs the host nothing thereafter.
 
 If you want something that looks exactly like a core element, import the core
-component in your fork and render it yourself.
+component and render it yourself.
 
 ---
 
@@ -424,8 +423,8 @@ change, and that a genuine collision is still caught.
 
 Reach for this only when the destination **belongs to the product** rather than
 being a variant of the application's page. Replacing a page the application
-maintains means its improvements stop arriving — which is the fork problem this
-framework exists to avoid. Adding a point to the page is almost always better.
+maintains means its improvements stop arriving. Adding a point to the page is
+almost always better.
 
 ## Branding
 

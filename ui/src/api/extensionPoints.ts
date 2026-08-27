@@ -4,7 +4,7 @@
  * The core UI never imports extension code; an extension bundle imports this module and
  * registers what it wants to change, once, before the first request is made
  * (from its own entry module, which the app loads ahead of rendering). Three
- * things can be changed without forking anything:
+ * things can be changed without editing the application:
  *
  * 1. **What a call actually does** — `registerOperationOverride` replaces one
  *    operation's implementation, so a deployment can serve `agents.list` from its

@@ -6,8 +6,7 @@ import { exampleAppExtension } from "./example/exampleExtension";
  *
  * Installing one is two lines: import its config above, and add it to this array.
  * Everything it contributes arrives through the extension points, so no other
- * module has to know it exists — which is what lets a build that installs one take
- * changes from upstream as merges.
+ * module has to know it exists — this file is the only one an install touches.
  *
  * **Order is the precedence.** Additive contributions from every entry all take
  * effect, in this order; where two extensions say something about the same single
