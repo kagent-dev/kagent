@@ -14,12 +14,14 @@ import { exampleAppExtension } from "./example/exampleExtension";
  * the later entry wins. So list the extension whose opinion should prevail last.
  *
  * The worked example is not installed by default: it is documentation you can run,
- * not a feature of the application. `VITE_APP_EXTENSIONS=example` appends it, which
+ * not a feature of the application. `VITE_EXAMPLE_EXTENSION=true` appends it, which
  * is how the framework's own extension-point specs get an installed extension to
  * assert against, and how anyone can see it running without editing this file.
+ *
+ * That switch is for the bundled example and nothing else — it names no extension
+ * and cannot. An extension has to be imported to be in the bundle at all, which is
+ * the same reason installing one is an edit here rather than a setting.
  */
 export const activeAppExtensions: readonly AppExtensionConfig[] = [
-  ...(import.meta.env.VITE_APP_EXTENSIONS === "example"
-    ? [exampleAppExtension]
-    : []),
+  ...(import.meta.env.VITE_EXAMPLE_EXTENSION === "true" ? [exampleAppExtension] : []),
 ];

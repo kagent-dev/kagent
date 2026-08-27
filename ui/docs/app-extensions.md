@@ -18,7 +18,7 @@ entry; nothing else in the application changes.
 
 Nothing is installed by default, including the bundled example. To see the example
 running without editing the file, start the dev server with
-`VITE_APP_EXTENSIONS=example yarn dev`.
+`VITE_EXAMPLE_EXTENSION=true yarn dev`.
 
 ---
 
@@ -81,7 +81,7 @@ installed, so a default build renders only what this project itself provides.
 Switch it on with:
 
 ```bash
-VITE_APP_EXTENSIONS=example yarn dev
+VITE_EXAMPLE_EXTENSION=true yarn dev
 ```
 
 Read that directory alongside this document — it exercises every extension point
@@ -524,10 +524,10 @@ two consequences of it are worth knowing:
 
 ### The two build-time exceptions
 
-`VITE_API_MODE` and `VITE_APP_EXTENSIONS` are the only variables in this UI that
+`VITE_API_MODE` and `VITE_EXAMPLE_EXTENSION` are the only variables in this UI that
 carry a `VITE_` prefix, and neither is a deployment setting:
 
-| | `VITE_API_MODE`, `VITE_APP_EXTENSIONS` | `EXTENSION_*` |
+| | `VITE_API_MODE`, `VITE_EXAMPLE_EXTENSION` | `EXTENSION_*` |
 |---|---|---|
 | Read with | `import.meta.env` | `readEnv` |
 | Fixed when | the bundle is built | the container starts |
@@ -540,9 +540,11 @@ read at runtime, so an extension setting never takes it — prefixed, the variab
 would no longer match the `EXTENSION_` prefix the init script and the dev server
 select on, and `readEnv` would quietly return the fallback.
 
-`VITE_APP_EXTENSIONS` is also not a way to install an extension. It only appends the
-bundled example, for the e2e suite and for a look at it running. Installing is the
-array.
+`VITE_EXAMPLE_EXTENSION=true` is a switch for the bundled example and nothing else.
+It cannot name an extension — an extension has to be *imported* to exist in the
+bundle at all, which is the same reason installing one is an edit to
+`activeExtensions.ts` rather than a setting. There is no environment variable that
+lists the installed extensions; the array is that list.
 
 ---
 

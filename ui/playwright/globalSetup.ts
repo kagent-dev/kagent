@@ -53,7 +53,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
             `${baseUrl} was expected to serve the app with the example extension ` +
               `installed (project "${project.name}"), but no extension points are ` +
               `mounted. The server on that port came up without ` +
-              `VITE_APP_EXTENSIONS=example.`,
+              `VITE_EXAMPLE_EXTENSION=true.`,
           );
         }
         if (!wantsExtension && slots > 0) {

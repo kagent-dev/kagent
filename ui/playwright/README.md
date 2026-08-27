@@ -79,7 +79,7 @@ Which extensions a build installs is decided at build time, so "installed" and
 | Project | Server | Specs |
 |---|---|---|
 | `chromium` | bare — no extension, on `UI_LOOP_PORT` | everything not matching `*.withExtension.spec.ts` |
-| `chromium-with-extension` | `VITE_APP_EXTENSIONS=example`, on `UI_LOOP_PORT + 50` | `*.withExtension.spec.ts` |
+| `chromium-with-extension` | `VITE_EXAMPLE_EXTENSION=true`, on `UI_LOOP_PORT + 50` | `*.withExtension.spec.ts` |
 
 A spec opts into the extension-installed app by being named `*.withExtension.spec.ts`.
 

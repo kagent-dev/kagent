@@ -42,13 +42,13 @@ const MOCK_BACKEND = { VITE_API_MODE: "mock" };
  * stated in one place — and so a branch that installs an extension changes a
  * value instead of restructuring the `projects`/`webServer` blocks.
  *
- * `VITE_APP_EXTENSIONS` is pinned on the bare server for the same reason
+ * `VITE_EXAMPLE_EXTENSION` is pinned on the bare server for the same reason
  * `VITE_API_MODE` is: an inherited value must not be able to decide what a run
  * measures. Left unpinned, the bare project measures whatever the shell happened
  * to export.
  */
-const BARE_APP = { ...MOCK_BACKEND, VITE_APP_EXTENSIONS: "none" };
-const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_APP_EXTENSIONS: "example" };
+const BARE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "false" };
+const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "true" };
 
 /**
  * The third mode: one app, wired to a real backend.
