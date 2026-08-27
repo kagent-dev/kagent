@@ -509,6 +509,18 @@ Three properties worth knowing before you reach for it:
   inlines these into the page, so it copies a bounded set out of the shell rather
   than the whole environment. A key outside both is not passed through.
 
+The `VITE_` prefix marks the difference, and only the build-time pair carries it:
+Vite exposes a variable to `import.meta.env` only when its name matches
+`envPrefix`, which is the default guard against inlining a whole environment into
+a bundle. A runtime setting never goes through Vite, so it never takes the prefix
+— `EXTENSION_ACCOUNT_URL`, not `VITE_EXTENSION_ACCOUNT_URL`.
+
+That split is not incidental. **Which** extensions are installed has to be decided
+at build time, because the array is compiled and an extension has to be imported
+to be in the bundle at all — which is what lets an uninstalled one be tree-shaken
+out entirely. **How** an installed extension is configured is an operator's
+decision, and so is read at runtime.
+
 Locally the same values come from `ui/.env` (git-ignored). `ui/.env.example`
 documents the application's own and has a section at the bottom for an installed
 extension's, so a branch that installs one appends rather than editing above it.
