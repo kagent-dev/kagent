@@ -11,7 +11,6 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -24,7 +23,8 @@ type lifecycleClient interface {
 
 // CreateCfg configures AgentInstance creation.
 type CreateCfg struct {
-	Config        *config.Config
+	Connection    *connection.Options
+	OutputFormat  string
 	Harness       string
 	AgentTemplate string
 	RequestID     string
@@ -32,13 +32,14 @@ type CreateCfg struct {
 
 // DeleteCfg configures AgentInstance deletion.
 type DeleteCfg struct {
-	Config     *config.Config
-	InstanceID string
+	Connection   *connection.Options
+	OutputFormat string
+	InstanceID   string
 }
 
 // CreateCmd creates an AgentInstance.
 func CreateCmd(ctx context.Context, cfg *CreateCfg, out io.Writer) (err error) {
-	format, err := clioutput.Parse(cfg.Config.OutputFormat)
+	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
@@ -46,7 +47,7 @@ func CreateCmd(ctx context.Context, cfg *CreateCfg, out io.Writer) (err error) {
 		return err
 	}
 
-	portForward, err := connection.Connect(ctx, cfg.Config)
+	portForward, err := connection.Connect(ctx, cfg.Connection)
 	if err != nil {
 		return fmt.Errorf("connect to kagent: %w", err)
 	}
@@ -54,36 +55,11 @@ func CreateCmd(ctx context.Context, cfg *CreateCfg, out io.Writer) (err error) {
 		defer portForward.Stop()
 	}
 
-	clientSet := cfg.Config.Client()
+	clientSet := cfg.Connection.Client()
 	defer func() {
 		err = errors.Join(err, clientSet.Close())
 	}()
-	return create(ctx, clientSet.AgentInstance, cfg, format, out)
-}
-
-// DeleteCmd deletes an AgentInstance.
-func DeleteCmd(ctx context.Context, cfg *DeleteCfg, out io.Writer) (err error) {
-	format, err := clioutput.Parse(cfg.Config.OutputFormat)
-	if err != nil {
-		return err
-	}
-	if err := validateDeleteCfg(cfg); err != nil {
-		return err
-	}
-
-	portForward, err := connection.Connect(ctx, cfg.Config)
-	if err != nil {
-		return fmt.Errorf("connect to kagent: %w", err)
-	}
-	if portForward != nil {
-		defer portForward.Stop()
-	}
-
-	clientSet := cfg.Config.Client()
-	defer func() {
-		err = errors.Join(err, clientSet.Close())
-	}()
-	return deleteAgentInstance(ctx, clientSet.AgentInstance, cfg, format, out)
+	return create(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
 }
 
 func prepareCreateCfg(cfg *CreateCfg) error {
@@ -103,6 +79,30 @@ func prepareCreateCfg(cfg *CreateCfg) error {
 	return nil
 }
 
+// DeleteCmd deletes an AgentInstance.
+func DeleteCmd(ctx context.Context, cfg *DeleteCfg, out io.Writer) (err error) {
+	format, err := clioutput.Parse(cfg.OutputFormat)
+	if err != nil {
+		return err
+	}
+	if err := validateDeleteCfg(cfg); err != nil {
+		return err
+	}
+	portForward, err := connection.Connect(ctx, cfg.Connection)
+	if err != nil {
+		return fmt.Errorf("connect to kagent: %w", err)
+	}
+	if portForward != nil {
+		defer portForward.Stop()
+	}
+
+	clientSet := cfg.Connection.Client()
+	defer func() {
+		err = errors.Join(err, clientSet.Close())
+	}()
+	return deleteAgentInstance(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
+}
+
 func validateDeleteCfg(cfg *DeleteCfg) error {
 	instanceID, err := uuid.Parse(cfg.InstanceID)
 	if err != nil {
@@ -115,12 +115,13 @@ func validateDeleteCfg(cfg *DeleteCfg) error {
 func create(
 	ctx context.Context,
 	client lifecycleClient,
+	namespace string,
 	cfg *CreateCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	response, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace: cfg.Config.Namespace, Harness: cfg.Harness,
+		Namespace: namespace, Harness: cfg.Harness,
 		AgentTemplate: cfg.AgentTemplate, RequestId: cfg.RequestID,
 	})
 	if err != nil {
@@ -135,12 +136,13 @@ func create(
 func deleteAgentInstance(
 	ctx context.Context,
 	client lifecycleClient,
+	namespace string,
 	cfg *DeleteCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	response, err := client.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-		Namespace: cfg.Config.Namespace, AgentInstanceId: cfg.InstanceID,
+		Namespace: namespace, AgentInstanceId: cfg.InstanceID,
 	})
 	if status.Code(err) == codes.Aborted {
 		return fmt.Errorf("delete AgentInstance: another lifecycle operation is in progress; retry after it completes: %w", err)

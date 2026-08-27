@@ -16,14 +16,14 @@ import (
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"google.golang.org/grpc/metadata"
 )
 
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")
 
 type InvokeCfg struct {
-	Config        *config.Config
+	Connection    *connection.Options
+	OutputFormat  string
 	Task          string
 	File          string
 	AgentInstance string
@@ -32,7 +32,7 @@ type InvokeCfg struct {
 }
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer) (err error) {
-	format, err := clioutput.Parse(cfg.Config.OutputFormat)
+	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
@@ -48,7 +48,7 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer)
 		return errors.New("model API key must not contain whitespace")
 	}
 
-	portForward, err := connection.Connect(ctx, cfg.Config)
+	portForward, err := connection.Connect(ctx, cfg.Connection)
 	if err != nil {
 		return fmt.Errorf("connect to kagent: %w", err)
 	}
@@ -56,11 +56,11 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer)
 		defer portForward.Stop()
 	}
 
-	clientSet := cfg.Config.Client()
+	clientSet := cfg.Connection.Client()
 	defer func() {
 		err = errors.Join(err, clientSet.Close())
 	}()
-	a2aClient, err := clientSet.A2A.ForAgentInstance(ctx, cfg.Config.Namespace, instanceID.String())
+	a2aClient, err := clientSet.A2A.ForAgentInstance(ctx, cfg.Connection.Namespace, instanceID.String())
 	if err != nil {
 		return fmt.Errorf("create AgentInstance A2A client: %w", err)
 	}
@@ -152,10 +152,12 @@ func invokeStreaming(
 	}
 
 	result, streamErr := consumeA2AStream(client.SendStreamingMessage(ctx, request), onEvent)
+	return finishInvokeStream(tableWriter, result, streamErr)
+}
+
+func finishInvokeStream(tableWriter *tableStreamWriter, result a2atype.SendMessageResult, streamErr error) error {
 	if tableWriter != nil {
-		if err := tableWriter.Finish(result); err != nil {
-			return err
-		}
+		streamErr = errors.Join(streamErr, tableWriter.Finish(result))
 	}
 	if streamErr != nil {
 		return fmt.Errorf("invoke AgentInstance stream: %w", streamErr)

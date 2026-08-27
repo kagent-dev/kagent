@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
 func checkNpxInstalled() error {
@@ -18,12 +16,7 @@ func checkNpxInstalled() error {
 }
 
 // createMCPInspectorConfig creates an MCP inspector configuration file
-func createMCPInspectorConfig(serverName string, serverConfig map[string]any, configPath string) error {
-	cfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
+func createMCPInspectorConfig(serverName string, serverConfig map[string]any, configPath string, verbose bool) error {
 	config := map[string]any{
 		"mcpServers": map[string]any{
 			serverName: serverConfig,
@@ -39,7 +32,7 @@ func createMCPInspectorConfig(serverName string, serverConfig map[string]any, co
 		return fmt.Errorf("failed to write mcp-server-config.json: %w", err)
 	}
 
-	if cfg.Verbose {
+	if verbose {
 		fmt.Printf("Created mcp-server-config.json: %s\n", configPath)
 		fmt.Printf("Config content:\n%s\n", string(configData))
 	}
@@ -58,19 +51,14 @@ func createMCPInspectorConfig(serverName string, serverConfig map[string]any, co
 }
 
 // runMCPInspector runs the MCP inspector with the given configuration
-func runMCPInspector(configPath, serverName string, workingDir string) error {
-	cfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
+func runMCPInspector(configPath, serverName string, workingDir string, verbose bool) error {
 	args := []string{
 		"@modelcontextprotocol/inspector",
 		"--config", configPath,
 		"--server", serverName,
 	}
 
-	if cfg.Verbose {
+	if verbose {
 		fmt.Printf("Running: npx %s\n", args)
 	}
 

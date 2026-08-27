@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 )
 
@@ -15,6 +14,7 @@ type RunCfg struct {
 	ProjectDir  string
 	NoInspector bool
 	Transport   string
+	Verbose     bool
 }
 
 func RunMcp(cfg *RunCfg) error {
@@ -59,12 +59,8 @@ func runFastMCPPython(cfg *RunCfg, projectDir string, manifest *manifests.Projec
 		)
 	}
 
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
 	// Run uv sync first
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Running uv sync in: %s\n", projectDir)
 	}
 	syncCmd := exec.Command("uv", "sync")
@@ -97,12 +93,12 @@ func runFastMCPPython(cfg *RunCfg, projectDir string, manifest *manifests.Projec
 
 	// Create MCP inspector config
 	configPath := filepath.Join(projectDir, "mcp-server-config.json")
-	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath); err != nil {
+	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath, cfg.Verbose); err != nil {
 		return err
 	}
 
 	// Run the inspector
-	return runMCPInspector(configPath, manifest.Name, projectDir)
+	return runMCPInspector(configPath, manifest.Name, projectDir, cfg.Verbose)
 }
 
 func runMCPGo(cfg *RunCfg, projectDir string, manifest *manifests.ProjectManifest) error {
@@ -112,12 +108,8 @@ func runMCPGo(cfg *RunCfg, projectDir string, manifest *manifests.ProjectManifes
 		return fmt.Errorf("go is required to run mcp-go projects locally. Please install Go: %s", goInstallURL)
 	}
 
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
 	// Run go mod tidy first to ensure dependencies are up to date
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Running go mod tidy in: %s\n", projectDir)
 	}
 	tidyCmd := exec.Command("go", "mod", "tidy")
@@ -150,19 +142,15 @@ func runMCPGo(cfg *RunCfg, projectDir string, manifest *manifests.ProjectManifes
 
 	// Create MCP inspector config
 	configPath := filepath.Join(projectDir, "mcp-server-config.json")
-	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath); err != nil {
+	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath, cfg.Verbose); err != nil {
 		return err
 	}
 
 	// Run the inspector
-	return runMCPInspector(configPath, manifest.Name, projectDir)
+	return runMCPInspector(configPath, manifest.Name, projectDir, cfg.Verbose)
 }
 
 func getProjectDir(cfg *RunCfg) (string, error) {
-	appCfg, err := config.Get()
-	if err != nil {
-		return "", fmt.Errorf("failed to get config: %w", err)
-	}
 	// Determine project directory
 	dir := cfg.ProjectDir
 	if dir == "" {
@@ -183,7 +171,7 @@ func getProjectDir(cfg *RunCfg) (string, error) {
 		}
 	}
 
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Using project directory: %s\n", dir)
 	}
 
@@ -213,12 +201,8 @@ func runTypeScript(cfg *RunCfg, projectDir string, manifest *manifests.ProjectMa
 		return fmt.Errorf("npm is required to run TypeScript projects locally. Please install Node.js and npm: %s", npmInstallURL)
 	}
 
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
 	// Install dependencies first
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Installing dependencies in: %s\n", projectDir)
 	}
 	installCmd := exec.Command("npm", "install")
@@ -251,12 +235,12 @@ func runTypeScript(cfg *RunCfg, projectDir string, manifest *manifests.ProjectMa
 
 	// Create MCP inspector config
 	configPath := filepath.Join(projectDir, "mcp-server-config.json")
-	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath); err != nil {
+	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath, cfg.Verbose); err != nil {
 		return err
 	}
 
 	// Run the inspector
-	return runMCPInspector(configPath, manifest.Name, projectDir)
+	return runMCPInspector(configPath, manifest.Name, projectDir, cfg.Verbose)
 }
 
 func runJava(cfg *RunCfg, projectDir string, manifest *manifests.ProjectManifest) error {
@@ -266,12 +250,8 @@ func runJava(cfg *RunCfg, projectDir string, manifest *manifests.ProjectManifest
 		return fmt.Errorf("mvn is required to run Java projects locally. Please install Maven: %s", mvnInstallURL)
 	}
 
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
 	// Run mvn clean install first to ensure dependencies are up to date
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Running mvn clean install in: %s\n", projectDir)
 	}
 	installCmd := exec.Command("mvn", "clean", "install", "-DskipTests")
@@ -325,10 +305,10 @@ func runJava(cfg *RunCfg, projectDir string, manifest *manifests.ProjectManifest
 
 	// Create MCP inspector config
 	configPath := filepath.Join(projectDir, "mcp-server-config.json")
-	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath); err != nil {
+	if err := createMCPInspectorConfig(manifest.Name, serverConfig, configPath, cfg.Verbose); err != nil {
 		return err
 	}
 
 	// Run the inspector
-	return runMCPInspector(configPath, manifest.Name, projectDir)
+	return runMCPInspector(configPath, manifest.Name, projectDir, cfg.Verbose)
 }

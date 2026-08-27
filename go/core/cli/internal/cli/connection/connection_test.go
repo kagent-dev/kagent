@@ -13,7 +13,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -30,30 +29,30 @@ func (c failingVersionClient) GetVersion(context.Context) (*api.VersionResponse,
 
 func TestCheckServerPreservesCause(t *testing.T) {
 	permissionErr := status.Error(codes.PermissionDenied, "denied")
-	err := CheckServer(t.Context(), &client.ClientSet{Version: failingVersionClient{err: permissionErr}})
+	err := checkServer(t.Context(), &client.ClientSet{Version: failingVersionClient{err: permissionErr}})
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrServerConnection)
+	assert.ErrorIs(t, err, errServerConnection)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
 func TestShouldPortForward(t *testing.T) {
-	defaultConfig := config.Config{KAgentURL: config.DefaultKAgentURL, KAgentGRPCURL: config.DefaultKAgentGRPCURL}
+	defaultConfig := Options{KAgentURL: defaultKAgentURL, KAgentGRPCURL: defaultKAgentGRPCURL}
 	tests := []struct {
 		name   string
-		config config.Config
+		config Options
 		err    error
 		want   bool
 	}{
 		{name: "default endpoint unavailable", config: defaultConfig, err: status.Error(codes.Unavailable, "offline"), want: true},
 		{name: "default endpoint gRPC deadline", config: defaultConfig, err: status.Error(codes.DeadlineExceeded, "deadline"), want: true},
 		{name: "default endpoint context deadline", config: defaultConfig, err: context.DeadlineExceeded, want: true},
-		{name: "empty gRPC endpoint uses client default", config: config.Config{KAgentURL: config.DefaultKAgentURL}, err: status.Error(codes.Unavailable, "offline"), want: true},
+		{name: "empty gRPC endpoint uses client default", config: Options{KAgentURL: defaultKAgentURL}, err: status.Error(codes.Unavailable, "offline"), want: true},
 		{name: "authentication failure", config: defaultConfig, err: status.Error(codes.Unauthenticated, "unauthenticated")},
 		{name: "authorization failure", config: defaultConfig, err: status.Error(codes.PermissionDenied, "denied")},
-		{name: "explicit TLS", config: config.Config{KAgentURL: config.DefaultKAgentURL, KAgentGRPCURL: config.DefaultKAgentGRPCURL, KAgentGRPCTLS: true}, err: status.Error(codes.Unavailable, "TLS failed")},
-		{name: "explicit gRPC endpoint", config: config.Config{KAgentURL: config.DefaultKAgentURL, KAgentGRPCURL: "api.example.test:443"}, err: status.Error(codes.Unavailable, "offline")},
-		{name: "explicit HTTP endpoint", config: config.Config{KAgentURL: "https://api.example.test", KAgentGRPCURL: config.DefaultKAgentGRPCURL}, err: status.Error(codes.Unavailable, "offline")},
+		{name: "explicit TLS", config: Options{KAgentURL: defaultKAgentURL, KAgentGRPCURL: defaultKAgentGRPCURL, KAgentGRPCTLS: true}, err: status.Error(codes.Unavailable, "TLS failed")},
+		{name: "explicit gRPC endpoint", config: Options{KAgentURL: defaultKAgentURL, KAgentGRPCURL: "api.example.test:443"}, err: status.Error(codes.Unavailable, "offline")},
+		{name: "explicit HTTP endpoint", config: Options{KAgentURL: "https://api.example.test", KAgentGRPCURL: defaultKAgentGRPCURL}, err: status.Error(codes.Unavailable, "offline")},
 		{name: "other error", config: defaultConfig, err: errors.New("invalid CA")},
 	}
 
@@ -94,21 +93,21 @@ func TestConnectionRuntimeConnectStartsPortForwardAndRedials(t *testing.T) {
 func TestConnectionRuntimeConnectDoesNotPortForwardExplicitFailures(t *testing.T) {
 	tests := []struct {
 		name   string
-		config *config.Config
+		config *Options
 		err    error
 	}{
 		{name: "authentication failure", config: defaultTestConfig(false), err: status.Error(codes.Unauthenticated, "unauthenticated")},
-		{name: "TLS endpoint", config: func() *config.Config {
+		{name: "TLS endpoint", config: func() *Options {
 			cfg := defaultTestConfig(false)
 			cfg.KAgentGRPCTLS = true
 			return cfg
 		}(), err: status.Error(codes.Unavailable, "TLS failed")},
-		{name: "remote gRPC endpoint", config: func() *config.Config {
+		{name: "remote gRPC endpoint", config: func() *Options {
 			cfg := defaultTestConfig(false)
 			cfg.KAgentGRPCURL = "api.example.test:443"
 			return cfg
 		}(), err: status.Error(codes.Unavailable, "offline")},
-		{name: "remote HTTP endpoint", config: func() *config.Config {
+		{name: "remote HTTP endpoint", config: func() *Options {
 			cfg := defaultTestConfig(false)
 			cfg.KAgentURL = "https://api.example.test"
 			return cfg
@@ -131,6 +130,20 @@ func TestConnectionRuntimeConnectDoesNotPortForwardExplicitFailures(t *testing.T
 			assert.Equal(t, status.Code(tt.err), status.Code(err))
 		})
 	}
+}
+
+func TestConnectionRuntimeConnectRejectsInvalidClientConfig(t *testing.T) {
+	runtime := testConnectionRuntime(t, "wait", func(context.Context, *client.ClientSet) error {
+		t.Fatal("server must not be checked with invalid client configuration")
+		return nil
+	})
+	cfg := defaultTestConfig(false)
+	cfg.UserID = "invalid user"
+
+	portForward, err := runtime.connect(t.Context(), cfg)
+	require.Error(t, err)
+	assert.Nil(t, portForward)
+	assert.Contains(t, err.Error(), "caller identity")
 }
 
 func TestConnectionRuntimeNewPortForwardReportsStartFailure(t *testing.T) {
@@ -227,10 +240,10 @@ func testConnectionRuntime(
 	}
 }
 
-func defaultTestConfig(verbose bool) *config.Config {
-	return &config.Config{
-		KAgentURL:     config.DefaultKAgentURL,
-		KAgentGRPCURL: config.DefaultKAgentGRPCURL,
+func defaultTestConfig(verbose bool) *Options {
+	return &Options{
+		KAgentURL:     defaultKAgentURL,
+		KAgentGRPCURL: defaultKAgentGRPCURL,
 		Namespace:     "kagent",
 		UserID:        "test-user",
 		Verbose:       verbose,

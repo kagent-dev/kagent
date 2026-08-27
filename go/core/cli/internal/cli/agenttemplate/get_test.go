@@ -9,7 +9,6 @@ import (
 	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,7 +61,7 @@ func TestGetAgentTemplatesTableReportsHarnessReadiness(t *testing.T) {
 	var output bytes.Buffer
 
 	err := get(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &GetCfg{
-		Config: &config.Config{Namespace: "kagent"}, PageSize: 3, PageToken: "previous-page",
+		Namespace: "kagent", PageSize: 3, PageToken: "previous-page",
 	}, clioutput.FormatTable, &output)
 	require.NoError(t, err)
 	assert.Contains(t, output.String(), "ready-template")
@@ -78,7 +77,9 @@ func TestGetAgentTemplatesTableReportsHarnessReadiness(t *testing.T) {
 
 func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
 	clientSet := clientfake.NewSimpleClientset()
-	clientSet.PrependReactor("list", "agenttemplates", func(k8stesting.Action) (bool, runtime.Object, error) {
+	clientSet.PrependReactor("list", "agenttemplates", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		options := action.(interface{ GetListOptions() metav1.ListOptions }).GetListOptions()
+		assert.Equal(t, int64(maxPageSize), options.Limit)
 		return true, &apiv1alpha3.AgentTemplateList{
 			ListMeta: metav1.ListMeta{Continue: "next-page"},
 			Items: []apiv1alpha3.AgentTemplate{
@@ -91,7 +92,7 @@ func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
 	var output bytes.Buffer
 
 	err := get(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &GetCfg{
-		Config: &config.Config{Namespace: "kagent"},
+		Namespace: "kagent",
 	}, clioutput.FormatJSON, &output)
 	require.NoError(t, err)
 	assert.True(t, json.Valid(output.Bytes()))

@@ -8,10 +8,9 @@ import (
 	"time"
 
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
-func BugReportCmd(cfg *config.Config) {
+func BugReportCmd(namespace string, verbose bool) {
 	// Create a temporary directory for bug report
 	timestamp := time.Now().Format("20060102-150405")
 	reportDir := fmt.Sprintf("kagent-bug-report-%s", timestamp)
@@ -21,12 +20,12 @@ func BugReportCmd(cfg *config.Config) {
 	}
 
 	fmt.Println("Gathering bug report information...")
-	kubectl := commonexec.NewKubectlExecutor(cfg.Verbose, cfg.Namespace)
+	kubectl := commonexec.NewKubectlExecutor(verbose, namespace)
 
 	// Get Agent, ModelConfig, and ToolServers YAMLs
 	resources := []string{"agent", "modelconfig", "toolserver", "mcpserver", "remotemcpserver"}
 	for _, resource := range resources {
-		output, err := kubectl.RunWithOutput("get", resource, "-n", cfg.Namespace, "-o", "yaml")
+		output, err := kubectl.RunWithOutput("get", resource, "-n", namespace, "-o", "yaml")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting %s resources: %v\n", resource, err)
 			continue
@@ -40,7 +39,7 @@ func BugReportCmd(cfg *config.Config) {
 	}
 
 	// Get secret names (without values)
-	output, err := kubectl.RunWithOutput("get", "secrets", "-n", cfg.Namespace, "-o", "custom-columns=NAME:.metadata.name")
+	output, err := kubectl.RunWithOutput("get", "secrets", "-n", namespace, "-o", "custom-columns=NAME:.metadata.name")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting secret names: %v\n", err)
 	} else {
@@ -51,7 +50,7 @@ func BugReportCmd(cfg *config.Config) {
 	}
 
 	// Get pod logs
-	output, err = kubectl.RunWithOutput("get", "pods", "-n", cfg.Namespace, "-o", "name")
+	output, err = kubectl.RunWithOutput("get", "pods", "-n", namespace, "-o", "name")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting pod names: %v\n", err)
 	} else {
@@ -63,7 +62,7 @@ func BugReportCmd(cfg *config.Config) {
 			podName := strings.TrimPrefix(pod, "pod/")
 
 			// Get container names for this pod
-			containerOutput, err := kubectl.RunWithOutput("get", "pod", podName, "-n", cfg.Namespace, "-o", "jsonpath='{.spec.containers[*].name}'")
+			containerOutput, err := kubectl.RunWithOutput("get", "pod", podName, "-n", namespace, "-o", "jsonpath='{.spec.containers[*].name}'")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error getting containers for pod %s: %v\n", podName, err)
 				continue
@@ -75,7 +74,7 @@ func BugReportCmd(cfg *config.Config) {
 
 			if len(containers) == 0 {
 				// Fallback to getting logs without specifying container
-				logs, err := kubectl.RunWithOutput("logs", "-n", cfg.Namespace, podName)
+				logs, err := kubectl.RunWithOutput("logs", "-n", namespace, podName)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error getting logs for pod %s: %v\n", podName, err)
 					continue
@@ -88,7 +87,7 @@ func BugReportCmd(cfg *config.Config) {
 			} else {
 				// Get logs for each container
 				for _, container := range containers {
-					logs, err := kubectl.RunWithOutput("logs", "-n", cfg.Namespace, podName, "-c", container)
+					logs, err := kubectl.RunWithOutput("logs", "-n", namespace, podName, "-c", container)
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error getting logs for container %s in pod %s: %v\n", container, podName, err)
 						continue
@@ -104,7 +103,7 @@ func BugReportCmd(cfg *config.Config) {
 	}
 
 	// Get versions and images
-	output, err = kubectl.RunWithOutput("get", "pods", "-n", cfg.Namespace, "-o", "jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{range .spec.containers[*]}{.image}{\"\\n\"}{end}{end}'")
+	output, err = kubectl.RunWithOutput("get", "pods", "-n", namespace, "-o", "jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{range .spec.containers[*]}{.image}{\"\\n\"}{end}{end}'")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting pod images: %v\n", err)
 	} else {

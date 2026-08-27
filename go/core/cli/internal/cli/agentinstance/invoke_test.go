@@ -306,6 +306,19 @@ func TestConsumeA2AStreamPreservesTerminalError(t *testing.T) {
 	require.NotNil(t, result)
 }
 
+func TestFinishInvokeStreamPreservesStreamAndWriteErrors(t *testing.T) {
+	streamErr := errors.New("stream disconnected")
+	writeErr := errors.New("broken pipe")
+	result := &a2atype.Task{
+		ID: "task-1", ContextID: "instance-1", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+	}
+
+	err := finishInvokeStream(&tableStreamWriter{w: failingWriter{err: writeErr}, text: "partial"}, result, streamErr)
+
+	require.ErrorIs(t, err, streamErr)
+	require.ErrorIs(t, err, writeErr)
+}
+
 type streamItem struct {
 	event a2atype.Event
 	err   error
@@ -324,6 +337,14 @@ func eventStream(items ...streamItem) iter.Seq2[a2atype.Event, error] {
 type signalWriter struct {
 	bytes.Buffer
 	wrote chan struct{}
+}
+
+type failingWriter struct {
+	err error
+}
+
+func (w failingWriter) Write([]byte) (int, error) {
+	return 0, w.err
 }
 
 func (w *signalWriter) Write(p []byte) (int, error) {

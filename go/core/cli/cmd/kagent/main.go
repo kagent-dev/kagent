@@ -15,8 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
 	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
@@ -43,13 +41,7 @@ func main() {
 
 		cancel()
 	}()
-	cfg, err := loadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
-		os.Exit(1)
-	}
-
-	rootCmd := newRootCommand(ctx, cfg)
+	rootCmd := newRootCommand(ctx, defaultRootOptions())
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 
@@ -57,27 +49,23 @@ func main() {
 	}
 }
 
-func loadConfig() (*config.Config, error) {
-	if err := config.Init(); err != nil {
-		return nil, err
-	}
-	return config.Get()
+type rootOptions struct {
+	Connection   connection.Options
+	OutputFormat string
 }
 
-func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
+func defaultRootOptions() *rootOptions {
+	return &rootOptions{Connection: connection.DefaultOptions(), OutputFormat: "table"}
+}
+
+func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
+	cfg := &opts.Connection
 	rootCmd := &cobra.Command{
 		Use:           "kagent",
 		Short:         "kagent is a CLI for kagent",
 		Long:          "kagent is a CLI for kagent",
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			if err := cfg.Validate(); err != nil {
-				return err
-			}
-			_, err := clioutput.Parse(cfg.OutputFormat)
-			return err
-		},
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return fmt.Errorf("interactive mode is not available in this release; use `kagent get agent-instance` and `kagent invoke`")
 		},
@@ -90,12 +78,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCCAFile, "kagent-grpc-ca-file", cfg.KAgentGRPCCAFile, "CA certificate file for KAgent gRPC")
 	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCServerName, "kagent-grpc-server-name", cfg.KAgentGRPCServerName, "TLS server name for KAgent gRPC")
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", cfg.Namespace, "Namespace")
-	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", cfg.OutputFormat, "Output format")
+	rootCmd.PersistentFlags().StringVarP(&opts.OutputFormat, "output-format", "o", opts.OutputFormat, "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "Timeout")
 	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", cfg.UserID, "Caller identity used to select the server-side data partition")
 	installCfg := &cli.InstallCfg{
-		Config: cfg,
+		Connection: cfg,
 	}
 
 	installCmd := &cobra.Command{
@@ -116,12 +104,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Uninstall kagent",
 		Long:  `Uninstall kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.UninstallCmd(cmd.Context(), cfg)
+			cli.UninstallCmd(cmd.Context(), cfg.Namespace)
 		},
 	}
 
 	invokeCfg := &agentinstancecli.InvokeCfg{
-		Config: cfg,
+		Connection: cfg,
 	}
 
 	invokeCmd := &cobra.Command{
@@ -130,6 +118,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Long:  `Invoke an existing AgentInstance through the A2A API.`,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			invokeCfg.OutputFormat = opts.OutputFormat
 			return agentinstancecli.InvokeCmd(cmd.Context(), invokeCfg, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
@@ -157,7 +146,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			if pf != nil {
 				defer pf.Stop()
 			}
-			cli.BugReportCmd(cfg)
+			cli.BugReportCmd(cfg.Namespace, cfg.Verbose)
 		},
 	}
 
@@ -168,7 +157,9 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			// print out kagent CLI version regardless if a port-forward to kagent server succeeds
 			// versions unable to obtain from the remote kagent will be reported as "unknown"
-			defer cli.VersionCmd(cfg)
+			clientSet := cfg.Client()
+			defer clientSet.Close() //nolint:errcheck
+			defer cli.VersionCmd(clientSet)
 
 			if pf, _ := connection.Connect(cmd.Context(), cfg); pf != nil {
 				defer pf.Stop()
@@ -181,7 +172,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Open the kagent dashboard",
 		Long:  `Open the kagent dashboard`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.DashboardCmd(cmd.Context(), cfg)
+			cli.DashboardCmd(cmd.Context(), cfg.Namespace)
 		},
 	}
 
@@ -194,12 +185,13 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			return fmt.Errorf("resource type is required")
 		},
 	}
-	agentInstanceGetCfg := &agentinstancecli.GetCfg{Config: cfg}
+	agentInstanceGetCfg := &agentinstancecli.GetCfg{Connection: cfg}
 	getAgentInstanceCmd := &cobra.Command{
 		Use:   "agent-instance [ID]",
 		Short: "Get an AgentInstance or list your AgentInstances",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			agentInstanceGetCfg.OutputFormat = opts.OutputFormat
 			agentInstanceGetCfg.InstanceID = ""
 			if len(args) == 1 {
 				agentInstanceGetCfg.InstanceID = args[0]
@@ -210,12 +202,14 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	getAgentInstanceCmd.Flags().Int32Var(&agentInstanceGetCfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
 	getAgentInstanceCmd.Flags().StringVar(&agentInstanceGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
-	agentTemplateGetCfg := &agenttemplatecli.GetCfg{Config: cfg}
+	agentTemplateGetCfg := &agenttemplatecli.GetCfg{}
 	getAgentTemplateCmd := &cobra.Command{
 		Use:   "agent-template [NAME]",
 		Short: "Get an AgentTemplate or list AgentTemplates",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			agentTemplateGetCfg.Namespace = cfg.Namespace
+			agentTemplateGetCfg.OutputFormat = opts.OutputFormat
 			agentTemplateGetCfg.Name = ""
 			if len(args) == 1 {
 				agentTemplateGetCfg.Name = args[0]
@@ -223,7 +217,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			return agenttemplatecli.GetCmd(cmd.Context(), agentTemplateGetCfg, cmd.OutOrStdout())
 		},
 	}
-	getAgentTemplateCmd.Flags().Int64Var(&agentTemplateGetCfg.PageSize, "page-size", 0, "Number of AgentTemplates to return (maximum 100)")
+	getAgentTemplateCmd.Flags().Int64Var(&agentTemplateGetCfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
 	getAgentTemplateCmd.Flags().StringVar(&agentTemplateGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
 	getCmd.AddCommand(getAgentInstanceCmd, getAgentTemplateCmd)
@@ -236,12 +230,13 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			return fmt.Errorf("resource type is required")
 		},
 	}
-	createAgentInstanceCfg := &agentinstancecli.CreateCfg{Config: cfg}
+	createAgentInstanceCfg := &agentinstancecli.CreateCfg{Connection: cfg}
 	createAgentInstanceCmd := &cobra.Command{
 		Use:   "agent-instance",
 		Short: "Create an AgentInstance",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			createAgentInstanceCfg.OutputFormat = opts.OutputFormat
 			return agentinstancecli.CreateCmd(cmd.Context(), createAgentInstanceCfg, cmd.OutOrStdout())
 		},
 	}
@@ -260,19 +255,20 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			return fmt.Errorf("resource type is required")
 		},
 	}
-	deleteAgentInstanceCfg := &agentinstancecli.DeleteCfg{Config: cfg}
+	deleteAgentInstanceCfg := &agentinstancecli.DeleteCfg{Connection: cfg}
 	deleteAgentInstanceCmd := &cobra.Command{
 		Use:   "agent-instance ID",
 		Short: "Delete an AgentInstance",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			deleteAgentInstanceCfg.OutputFormat = opts.OutputFormat
 			deleteAgentInstanceCfg.InstanceID = args[0]
 			return agentinstancecli.DeleteCmd(cmd.Context(), deleteAgentInstanceCfg, cmd.OutOrStdout())
 		},
 	}
 	deleteCmd.AddCommand(deleteAgentInstanceCmd)
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(opts)))
 
 	return rootCmd
 }
@@ -290,7 +286,7 @@ const vectorEnabledKey = "DATABASE_VECTOR_ENABLED"
 // environment (explicit operator intent, works without a cluster), the
 // controller's configmap on the live cluster (the same value the server
 // reads), and finally the controller's default (enabled).
-func migrationSources(cfg *config.Config) dbmigrate.SourcesFunc {
+func migrationSources(opts *rootOptions) dbmigrate.SourcesFunc {
 	return func(ctx context.Context) ([]migrations.Source, error) {
 		vectorEnabled := true
 		if v := os.Getenv(vectorEnabledKey); v != "" {
@@ -300,7 +296,7 @@ func migrationSources(cfg *config.Config) dbmigrate.SourcesFunc {
 			} else {
 				vectorEnabled = b
 			}
-		} else if b, ok := clusterVectorEnabled(ctx, cfg.Namespace); ok {
+		} else if b, ok := clusterVectorEnabled(ctx, opts.Connection.Namespace); ok {
 			vectorEnabled = b
 		}
 		return migrations.BuiltinSources(vectorEnabled), nil

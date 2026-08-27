@@ -12,10 +12,10 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -198,8 +198,8 @@ func (h *Handler) invoke(ctx context.Context, input InvokeAgentInstanceInput, as
 
 func routeContext(ctx context.Context, namespace, instanceID string) context.Context {
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		a2agateway.AgentInstanceNamespaceHeader, namespace,
-		a2agateway.AgentInstanceIDHeader, instanceID,
+		kagenta2a.AgentInstanceNamespaceHeader, namespace,
+		kagenta2a.AgentInstanceIDHeader, instanceID,
 	))
 	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {adka2a.HITLExtensionURI},

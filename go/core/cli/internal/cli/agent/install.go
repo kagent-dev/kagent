@@ -13,16 +13,14 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 
-	"github.com/abiosoft/ishell/v2"
 	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 )
 
 type InstallCfg struct {
-	Config  *config.Config
-	Profile string
+	Connection *connection.Options
+	Profile    string
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -103,45 +101,7 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
 		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
 	}
 
-	return install(ctx, cfg.Config, helmConfig, modelProvider)
-}
-
-func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *connection.PortForward {
-	if version.Version == "dev" {
-		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
-		return nil
-	}
-
-	if err := checkHelmAvailable(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return nil
-	}
-
-	cfg := config.GetCfg(c)
-
-	// get model provider from KAGENT_DEFAULT_MODEL_PROVIDER environment variable or use DefaultModelProvider
-	modelProvider := GetModelProvider()
-
-	// if model provider is openai, check if the api key is set
-	apiKeyName := GetProviderAPIKey(modelProvider)
-	apiKeyValue := os.Getenv(apiKeyName)
-
-	if apiKeyName != "" && apiKeyValue == "" {
-		fmt.Fprintf(os.Stderr, "%s is not set\n", apiKeyName)
-		fmt.Fprintf(os.Stderr, "Please set the %s environment variable\n", apiKeyName)
-		fmt.Fprintf(os.Stderr, "To use a different provider set KAGENT_DEFAULT_MODEL_PROVIDER (e.g. ollama, anthropic, gemini)\n")
-		return nil
-	}
-
-	helmConfig := setupHelmConfig(modelProvider, apiKeyValue)
-
-	// Add profile selection
-	profileIdx := c.MultiChoice(profiles.Profiles, "Select a profile:")
-	selectedProfile := profiles.Profiles[profileIdx]
-
-	helmConfig.inlineValues = profiles.GetProfileYaml(selectedProfile)
-
-	return install(ctx, cfg, helmConfig, modelProvider)
+	return install(ctx, cfg.Connection, helmConfig, modelProvider)
 }
 
 // helmConfig is the config for the kagent chart
@@ -181,7 +141,7 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 }
 
 // install installs kagent and kagent-crds using the helm config
-func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider) *connection.PortForward {
+func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider) *connection.PortForward {
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -271,7 +231,7 @@ func deleteCRDs(ctx context.Context) error {
 	return nil
 }
 
-func UninstallCmd(ctx context.Context, cfg *config.Config) {
+func UninstallCmd(ctx context.Context, namespace string) {
 	// Check if helm is available
 	if err := checkHelmAvailable(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -288,7 +248,7 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 		"uninstall",
 		"kagent",
 		"--namespace",
-		cfg.Namespace,
+		namespace,
 	}
 	cmd := exec.CommandContext(ctx, "helm", args...)
 
@@ -311,7 +271,7 @@ func UninstallCmd(ctx context.Context, cfg *config.Config) {
 		"uninstall",
 		"kagent-crds",
 		"--namespace",
-		cfg.Namespace,
+		namespace,
 	}
 	cmd = exec.CommandContext(ctx, "helm", args...)
 

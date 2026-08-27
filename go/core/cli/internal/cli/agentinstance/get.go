@@ -14,7 +14,6 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,15 +26,16 @@ type getClient interface {
 
 // GetCfg configures AgentInstance get and list operations.
 type GetCfg struct {
-	Config     *config.Config
-	InstanceID string
-	PageSize   int32
-	PageToken  string
+	Connection   *connection.Options
+	OutputFormat string
+	InstanceID   string
+	PageSize     int32
+	PageToken    string
 }
 
 // GetCmd gets one AgentInstance or lists the caller's AgentInstances.
 func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
-	format, err := clioutput.Parse(cfg.Config.OutputFormat)
+	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
 		return err
 	}
 
-	portForward, err := connection.Connect(ctx, cfg.Config)
+	portForward, err := connection.Connect(ctx, cfg.Connection)
 	if err != nil {
 		return fmt.Errorf("connect to kagent: %w", err)
 	}
@@ -51,11 +51,11 @@ func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
 		defer portForward.Stop()
 	}
 
-	clientSet := cfg.Config.Client()
+	clientSet := cfg.Connection.Client()
 	defer func() {
 		err = errors.Join(err, clientSet.Close())
 	}()
-	return get(ctx, clientSet.AgentInstance, cfg, format, out)
+	return get(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
 }
 
 func validateGetCfg(cfg *GetCfg) error {
@@ -79,13 +79,14 @@ func validateGetCfg(cfg *GetCfg) error {
 func get(
 	ctx context.Context,
 	client getClient,
+	namespace string,
 	cfg *GetCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	if cfg.InstanceID != "" {
 		response, err := client.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{
-			Namespace: cfg.Config.Namespace, AgentInstanceId: cfg.InstanceID,
+			Namespace: namespace, AgentInstanceId: cfg.InstanceID,
 		})
 		if err != nil {
 			return fmt.Errorf("get AgentInstance: %w", err)
@@ -100,7 +101,7 @@ func get(
 	}
 
 	response, err := client.ListAgentInstances(ctx, &apiv1alpha1.ListAgentInstancesRequest{
-		Namespace: cfg.Config.Namespace,
+		Namespace: namespace,
 		Page:      &apiv1alpha1.PageRequest{Limit: cfg.PageSize, PageToken: cfg.PageToken},
 	})
 	if err != nil {

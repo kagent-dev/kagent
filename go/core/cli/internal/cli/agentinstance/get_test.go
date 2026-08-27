@@ -9,7 +9,6 @@ import (
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -46,10 +45,10 @@ func TestValidateGetCfg(t *testing.T) {
 
 func TestGetAgentInstanceTableUsesFullID(t *testing.T) {
 	client := &fakeAgentInstanceClient{instance: testInstance(), nextPageToken: "next-page"}
-	cfg := &GetCfg{Config: &config.Config{Namespace: "kagent"}}
+	cfg := &GetCfg{}
 	var output bytes.Buffer
 
-	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatTable, &output))
+	require.NoError(t, get(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &output))
 	assert.Equal(t, &apiv1alpha1.ListAgentInstancesRequest{
 		Namespace: "kagent", Page: &apiv1alpha1.PageRequest{},
 	}, client.listRequest)
@@ -61,10 +60,10 @@ func TestGetAgentInstanceTableUsesFullID(t *testing.T) {
 
 func TestGetOneAgentInstanceJSON(t *testing.T) {
 	client := &fakeAgentInstanceClient{instance: testInstance()}
-	cfg := &GetCfg{Config: &config.Config{Namespace: "kagent"}, InstanceID: testInstanceID}
+	cfg := &GetCfg{InstanceID: testInstanceID}
 	var output bytes.Buffer
 
-	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatJSON, &output))
+	require.NoError(t, get(t.Context(), client, "kagent", cfg, clioutput.FormatJSON, &output))
 	assert.Equal(t, testInstanceID, client.getRequest.GetAgentInstanceId())
 	assert.True(t, json.Valid(output.Bytes()))
 	assert.Contains(t, output.String(), testInstanceID)
@@ -73,11 +72,11 @@ func TestGetOneAgentInstanceJSON(t *testing.T) {
 func TestListAgentInstancesJSONPreservesNextPageToken(t *testing.T) {
 	client := &fakeAgentInstanceClient{instance: testInstance(), nextPageToken: "next-page"}
 	cfg := &GetCfg{
-		Config: &config.Config{Namespace: "kagent"}, PageSize: 1, PageToken: "current-page",
+		PageSize: 1, PageToken: "current-page",
 	}
 	var output bytes.Buffer
 
-	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatJSON, &output))
+	require.NoError(t, get(t.Context(), client, "kagent", cfg, clioutput.FormatJSON, &output))
 	assert.Equal(t, int32(1), client.listRequest.GetPage().GetLimit())
 	assert.Equal(t, "current-page", client.listRequest.GetPage().GetPageToken())
 	assert.True(t, json.Valid(output.Bytes()))

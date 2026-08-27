@@ -27,6 +27,15 @@ Model Context Protocol servers with dynamic tool loading.`,
 	return mcpCmd
 }
 
+func setVerbose(cmd *cobra.Command, target *bool) error {
+	verbose, err := cmd.Flags().GetBool("verbose")
+	if err != nil {
+		return err
+	}
+	*target = verbose
+	return nil
+}
+
 func newInitCmd() *cobra.Command {
 	cfg := &InitMcpCfg{}
 
@@ -167,7 +176,10 @@ MCP server Docker image.
 Examples:
   kagent mcp build                    # Build Docker image from current directory
   kagent mcp build --project-dir ./my-project  # Build Docker image from specific directory`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := setVerbose(cmd, &cfg.Verbose); err != nil {
+				return err
+			}
 			return BuildMcp(cfg)
 		},
 	}
@@ -220,7 +232,10 @@ Examples:
   kagent mcp deploy --file /path/to/manifest.yaml # Use custom manifest.yaml file
   kagent mcp deploy --environment staging         # Target environment for deployment (e.g., staging, production)`,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := setVerbose(cmd, &cfg.Verbose); err != nil {
+				return err
+			}
 			return DeployMcp(cfg)
 		},
 	}
@@ -260,7 +275,10 @@ Examples:
   kagent mcp deploy package --deployment-name my-server --manager npx --args my-package --no-inspector                                           # Deploy without starting inspector
   kagent mcp deploy package --deployment-name my-server --manager uvx --args mcp-server-git                                                      # Use UV and write managed tools and installables to /tmp directories`,
 		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := setVerbose(cmd, &packageCfg.Verbose); err != nil {
+				return err
+			}
 			return PackageDeployMcp(packageCfg)
 		},
 	}
@@ -307,7 +325,10 @@ Examples:
   kagent mcp add-tool weather --force  # Overwrite existing tool
 `,
 		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := setVerbose(cmd, &cfg.Verbose); err != nil {
+				return err
+			}
 			return AddToolMcp(cfg, args[0])
 		},
 	}
@@ -344,7 +365,10 @@ Examples:
   kagent run mcp --project-dir ./my-project     # Run with inspector (default)
   kagent run mcp --no-inspector                 # Run server directly without inspector
   kagent run mcp --transport http               # Run with HTTP transport`,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := setVerbose(cmd, &cfg.Verbose); err != nil {
+				return err
+			}
 			return RunMcp(cfg)
 		},
 	}

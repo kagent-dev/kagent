@@ -14,7 +14,6 @@ import (
 
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
@@ -39,6 +38,7 @@ type DeployCfg struct {
 	File        string
 	Environment string
 	NoInspector bool
+	Verbose     bool
 	// Package subcommand specific
 	PackageManager string
 	PackageName    string
@@ -165,11 +165,6 @@ func DeployMcp(cfg *DeployCfg) error {
 	var projectDir string
 	var err error
 
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
 	if cfg.File != "" {
 		// Use specified file path
 		projectDir, err = getProjectDirFromFile(cfg.File)
@@ -207,7 +202,7 @@ func DeployMcp(cfg *DeployCfg) error {
 	// Set namespace
 	mcpServer.Namespace = cfg.Namespace
 
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Generated MCPServer: %s/%s\n", mcpServer.Namespace, mcpServer.Name)
 	}
 
@@ -442,13 +437,8 @@ func parseEnvVars(envVars []string) map[string]string {
 }
 
 func applyToCluster(cfg *DeployCfg, projectDir, yamlContent string, mcpServer *v1alpha1.MCPServer) error {
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
 	// Create kubectl executor with namespace and verbose settings
-	kubectl := commonexec.NewKubectlExecutor(appCfg.Verbose, mcpServer.Namespace)
+	kubectl := commonexec.NewKubectlExecutor(cfg.Verbose, mcpServer.Namespace)
 
 	fmt.Printf("🚀 Applying MCPServer to cluster...\n")
 
@@ -486,18 +476,18 @@ func applyToCluster(cfg *DeployCfg, projectDir, yamlContent string, mcpServer *v
 			"url":  fmt.Sprintf("http://localhost:%d/mcp", port),
 		}
 		configPath = filepath.Join(projectDir, "mcp-server-config.json")
-		if err := createMCPInspectorConfig(mcpServer.Name, serverConfig, configPath); err != nil {
+		if err := createMCPInspectorConfig(mcpServer.Name, serverConfig, configPath, cfg.Verbose); err != nil {
 			return fmt.Errorf("failed to create inspector config: %w", err)
 		}
 
-		if err := runInspector(mcpServer, configPath, projectDir); err != nil {
+		if err := runInspector(mcpServer, configPath, projectDir, cfg.Verbose); err != nil {
 			return fmt.Errorf("failed to run inspector: %w", err)
 		}
 	}
 	return nil
 }
 
-func runInspector(mcpServer *v1alpha1.MCPServer, configPath string, projectDir string) error {
+func runInspector(mcpServer *v1alpha1.MCPServer, configPath string, projectDir string, verbose bool) error {
 	// Check if npx is installed
 	if err := checkNpxInstalled(); err != nil {
 		return err
@@ -517,7 +507,7 @@ func runInspector(mcpServer *v1alpha1.MCPServer, configPath string, projectDir s
 	}()
 
 	// Run the inspector
-	return runMCPInspector(configPath, mcpServer.Name, projectDir)
+	return runMCPInspector(configPath, mcpServer.Name, projectDir, verbose)
 }
 
 func runPortForward(mcpServer *v1alpha1.MCPServer) (*exec.Cmd, error) {

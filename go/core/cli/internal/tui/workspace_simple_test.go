@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/test/testutil"
 )
 
@@ -19,11 +19,8 @@ func TestWorkspaceModel_Initialization(t *testing.T) {
 		testutil.MockAgentResponse([]api.AgentResponse{}),
 	)
 
-	cfg := &config.Config{
-		KAgentURL: mockServer.URL,
-		Namespace: "kagent",
-	}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 
 	m := newWorkspaceModel(cfg, clientSet, false)
 
@@ -70,8 +67,8 @@ func TestWorkspaceModel_LoadAgentsCommand(t *testing.T) {
 		}),
 	)
 
-	cfg := &config.Config{KAgentURL: mockServer.URL}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 	m := newWorkspaceModel(cfg, clientSet, false)
 
 	// Test the loadAgents command returns a valid command
@@ -130,8 +127,8 @@ func TestWorkspaceModel_WindowSizeMessage(t *testing.T) {
 		testutil.MockAgentResponse([]api.AgentResponse{}),
 	)
 
-	cfg := &config.Config{KAgentURL: mockServer.URL}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 	m := newWorkspaceModel(cfg, clientSet, false)
 
 	// Send window size message
@@ -150,8 +147,8 @@ func TestWorkspaceModel_CreateSessionCommand(t *testing.T) {
 		w.Write([]byte(`{}`))
 	})
 
-	cfg := &config.Config{KAgentURL: mockServer.URL}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 	m := newWorkspaceModel(cfg, clientSet, false)
 	m.agentRef = "test-agent"
 
@@ -167,8 +164,8 @@ func TestWorkspaceModel_LoadSessionsCommand(t *testing.T) {
 		w.Write([]byte(`{"data": []}`))
 	})
 
-	cfg := &config.Config{KAgentURL: mockServer.URL}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 	m := newWorkspaceModel(cfg, clientSet, false)
 	m.agent = &api.AgentResponse{ID: "agent-1"}
 
@@ -182,8 +179,8 @@ func TestWorkspaceModel_AgentsLoadedUpdate(t *testing.T) {
 		testutil.MockAgentResponse([]api.AgentResponse{}),
 	)
 
-	cfg := &config.Config{KAgentURL: mockServer.URL}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 	m := newWorkspaceModel(cfg, clientSet, false)
 
 	// Simulate agents loaded message with valid agent data
@@ -210,8 +207,8 @@ func TestWorkspaceModel_InitCommand(t *testing.T) {
 		testutil.MockAgentResponse([]api.AgentResponse{}),
 	)
 
-	cfg := &config.Config{KAgentURL: mockServer.URL}
-	clientSet := cfg.Client()
+	cfg := Options{KAgentURL: mockServer.URL}
+	clientSet := client.New(mockServer.URL)
 	m := newWorkspaceModel(cfg, clientSet, false)
 
 	// Test Init returns a command

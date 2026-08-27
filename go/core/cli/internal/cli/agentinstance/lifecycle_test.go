@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -42,9 +41,7 @@ func TestPrepareCreateCfgValidation(t *testing.T) {
 }
 
 func TestCreateAgentInstanceGeneratedRequestIDIsStable(t *testing.T) {
-	cfg := &CreateCfg{
-		Config: &config.Config{Namespace: "kagent"}, Harness: "kagent", AgentTemplate: "smoke",
-	}
+	cfg := &CreateCfg{Harness: "kagent", AgentTemplate: "smoke"}
 	require.NoError(t, prepareCreateCfg(cfg))
 	requestID := cfg.RequestID
 	require.NoError(t, uuid.Validate(requestID))
@@ -52,7 +49,7 @@ func TestCreateAgentInstanceGeneratedRequestIDIsStable(t *testing.T) {
 	assert.Equal(t, requestID, cfg.RequestID)
 
 	client := &lifecycleAgentInstanceClient{createInstance: testInstance()}
-	require.NoError(t, create(t.Context(), client, cfg, clioutput.FormatTable, &bytes.Buffer{}))
+	require.NoError(t, create(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &bytes.Buffer{}))
 	assert.Equal(t, requestID, client.createRequest.GetRequestId())
 }
 
@@ -68,13 +65,11 @@ func TestCreateAgentInstanceExplicitReplayIDAndOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &lifecycleAgentInstanceClient{createInstance: testInstance()}
 			cfg := &CreateCfg{
-				Config: &config.Config{Namespace: "kagent"}, Harness: "kagent",
-				AgentTemplate: "smoke", RequestID: "replay-1",
+				Harness: "kagent", AgentTemplate: "smoke", RequestID: "replay-1",
 			}
 			var output bytes.Buffer
 
-			require.NoError(t, prepareCreateCfg(cfg))
-			require.NoError(t, create(t.Context(), client, cfg, tt.format, &output))
+			require.NoError(t, create(t.Context(), client, "kagent", cfg, tt.format, &output))
 			assert.Equal(t, &apiv1alpha1.CreateAgentInstanceRequest{
 				Namespace: "kagent", Harness: "kagent", AgentTemplate: "smoke", RequestId: "replay-1",
 			}, client.createRequest)
@@ -92,11 +87,10 @@ func TestDeleteAgentInstance(t *testing.T) {
 	client := &lifecycleAgentInstanceClient{deleteInstance: &apiv1alpha1.AgentInstance{
 		Id: testInstanceID, State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED,
 	}}
-	cfg := &DeleteCfg{Config: &config.Config{Namespace: "kagent"}, InstanceID: testInstanceID}
+	cfg := &DeleteCfg{InstanceID: testInstanceID}
 	var output bytes.Buffer
 
-	require.NoError(t, validateDeleteCfg(cfg))
-	require.NoError(t, deleteAgentInstance(t.Context(), client, cfg, clioutput.FormatTable, &output))
+	require.NoError(t, deleteAgentInstance(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &output))
 	assert.Equal(t, &apiv1alpha1.DeleteAgentInstanceRequest{
 		Namespace: "kagent", AgentInstanceId: testInstanceID,
 	}, client.deleteRequest)
@@ -111,9 +105,9 @@ func TestValidateDeleteCfg(t *testing.T) {
 
 func TestDeleteAgentInstanceAborted(t *testing.T) {
 	client := &lifecycleAgentInstanceClient{deleteErr: status.Error(codes.Aborted, "conflict")}
-	cfg := &DeleteCfg{Config: &config.Config{Namespace: "kagent"}, InstanceID: testInstanceID}
+	cfg := &DeleteCfg{InstanceID: testInstanceID}
 
-	err := deleteAgentInstance(t.Context(), client, cfg, clioutput.FormatTable, &bytes.Buffer{})
+	err := deleteAgentInstance(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &bytes.Buffer{})
 	require.ErrorContains(t, err, "another lifecycle operation is in progress; retry after it completes")
 	assert.Equal(t, codes.Aborted, status.Code(err))
 }

@@ -14,7 +14,6 @@ import (
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
@@ -24,15 +23,16 @@ const maxPageSize = 100
 
 // GetCfg configures AgentTemplate get and list operations.
 type GetCfg struct {
-	Config    *config.Config
-	Name      string
-	PageSize  int64
-	PageToken string
+	Namespace    string
+	OutputFormat string
+	Name         string
+	PageSize     int64
+	PageToken    string
 }
 
 // GetCmd gets one AgentTemplate or lists AgentTemplates through Kubernetes.
 func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) error {
-	format, err := clioutput.Parse(cfg.Config.OutputFormat)
+	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
@@ -51,12 +51,12 @@ func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("create Kubernetes client: %w", err)
 	}
-	return get(ctx, clients.ApiV1alpha3().AgentTemplates(cfg.Config.Namespace), cfg, format, out)
+	return get(ctx, clients.ApiV1alpha3().AgentTemplates(cfg.Namespace), cfg, format, out)
 }
 
 func validateGetCfg(cfg *GetCfg) error {
 	if cfg.PageSize < 0 || cfg.PageSize > maxPageSize {
-		return fmt.Errorf("page size must be between 1 and %d, or 0 for the server default", maxPageSize)
+		return fmt.Errorf("page size must be between 1 and %d, or 0 for the default of %d", maxPageSize, maxPageSize)
 	}
 	if cfg.Name != "" && (cfg.PageSize != 0 || cfg.PageToken != "") {
 		return errors.New("pagination flags cannot be used when getting one AgentTemplate")
@@ -82,7 +82,11 @@ func get(
 		return writeTemplatesTable(out, []apiv1alpha3.AgentTemplate{*template}, false, "")
 	}
 
-	templates, err := client.List(ctx, metav1.ListOptions{Limit: cfg.PageSize, Continue: cfg.PageToken})
+	pageSize := cfg.PageSize
+	if pageSize == 0 {
+		pageSize = maxPageSize
+	}
+	templates, err := client.List(ctx, metav1.ListOptions{Limit: pageSize, Continue: cfg.PageToken})
 	if err != nil {
 		return fmt.Errorf("list AgentTemplates: %w", err)
 	}

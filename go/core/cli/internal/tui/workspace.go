@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/help"
@@ -17,7 +18,6 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/dialogs"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/keys"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
@@ -25,8 +25,14 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
 
+// Options contains the settings used by the workspace TUI.
+type Options struct {
+	KAgentURL string
+	Timeout   time.Duration
+}
+
 // RunWorkspace launches a split-pane TUI: sessions (left), chat (center), details (toggleable right).
-func RunWorkspace(cfg *config.Config, clientSet *client.ClientSet, verbose bool) error {
+func RunWorkspace(cfg Options, clientSet *client.ClientSet, verbose bool) error {
 	m := newWorkspaceModel(cfg, clientSet, verbose)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
@@ -72,7 +78,7 @@ func (i sessionListItem) Description() string { return i.s.ID }
 func (i sessionListItem) FilterValue() string { return i.Title() }
 
 type workspaceModel struct {
-	cfg     *config.Config
+	cfg     Options
 	client  *client.ClientSet
 	verbose bool
 
@@ -108,7 +114,7 @@ type workspaceModel struct {
 	help help.Model
 }
 
-func newWorkspaceModel(cfg *config.Config, clientSet *client.ClientSet, verbose bool) *workspaceModel {
+func newWorkspaceModel(cfg Options, clientSet *client.ClientSet, verbose bool) *workspaceModel {
 	sessionList := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	sessionList.Title = "Sessions"
 	sessionList.SetShowStatusBar(false)

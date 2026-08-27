@@ -6,12 +6,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
-func VersionCmd(cfg *config.Config) {
+func VersionCmd(clientSet *client.ClientSet) {
 	versionInfo := map[string]string{
 		"kagent_version": version.Version,
 		"git_commit":     version.GitCommit,
@@ -19,12 +18,11 @@ func VersionCmd(cfg *config.Config) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	client := cfg.Client()
-	version, err := client.Version.GetVersion(ctx)
+	serverVersion, err := clientSet.Version.GetVersion(ctx)
 	if err != nil {
 		versionInfo["backend_version"] = "unknown"
 	} else {
-		versionInfo["backend_version"] = version.KAgentVersion
+		versionInfo["backend_version"] = serverVersion.KAgentVersion
 	}
 
 	json.NewEncoder(os.Stdout).Encode(versionInfo) //nolint:errcheck
