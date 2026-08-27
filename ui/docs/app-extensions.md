@@ -17,8 +17,8 @@ That is the whole integration surface. Installing a second extension is one more
 entry; nothing else in the application changes.
 
 Nothing is installed by default, including the bundled example. To see the example
-running without editing the file, start the dev server with
-`VITE_EXAMPLE_EXTENSION=true yarn dev`.
+running without editing the file, set `VITE_EXAMPLE_EXTENSION=true` — in `ui/.env`,
+or on the command line as `VITE_EXAMPLE_EXTENSION=true yarn dev`.
 
 ---
 
@@ -83,6 +83,10 @@ Switch it on with:
 ```bash
 VITE_EXAMPLE_EXTENSION=true yarn dev
 ```
+
+or by putting `VITE_EXAMPLE_EXTENSION=true` in `ui/.env`, which `.env.example`
+documents. It is read by the bundler rather than at runtime, so changing it needs
+the dev server restarted.
 
 Read that directory alongside this document — it exercises every extension point
 described here.
