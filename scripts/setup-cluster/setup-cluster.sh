@@ -79,18 +79,14 @@ step "7/10  The controller and the UI, both built from this checkout"
 # The chart installs published images, so without this the cluster would run somebody
 # else's build and none of the local changes would be on it. Both are replaced.
 #
-# The controller is the v1 binary specifically: the chart deploys controller-v2, which
-# does not implement agents, models, tool servers or prompt libraries, so every page
-# would read an empty API. Note that `make build-controller` builds v2 -- the other one.
-#
 # Built for this machine's own architecture: the images run on the Kind node, which is
 # a container on this host, so a cross-built one would not start.
 ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH=amd64; [ "$ARCH" = "aarch64" ] && ARCH=arm64
 docker buildx build --push --platform "linux/${ARCH}" \
   --build-arg BASE_IMAGE_REGISTRY=cgr.dev \
-  --build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
-  -t localhost:5001/kagent-dev/kagent/controller:v1full -f go/Dockerfile ./go
-kubectl -n kagent set image deploy/kagent-controller controller=localhost:5001/kagent-dev/kagent/controller:v1full
+  --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
+  -t localhost:5001/kagent-dev/kagent/controller:dev -f go/Dockerfile ./go
+kubectl -n kagent set image deploy/kagent-controller controller=localhost:5001/kagent-dev/kagent/controller:dev
 
 docker buildx build --push --platform "linux/${ARCH}" \
   -t localhost:5001/kagent-dev/kagent/ui:dev -f ui/Dockerfile ./ui

@@ -197,9 +197,6 @@ func mapError(err error) error {
 		}
 		return status.Error(serviceErrorCode(code), serviceerrors.MessageOf(err))
 	}
-	if statusError, ok := err.(interface{ StatusCode() int }); ok {
-		return status.Error(httpStatusCode(statusError.StatusCode()), err.Error())
-	}
 	return status.Error(codes.Internal, "internal server error")
 }
 
@@ -222,29 +219,6 @@ func serviceErrorCode(code serviceerrors.Code) codes.Code {
 	case serviceerrors.CodeAborted:
 		return codes.Aborted
 	case serviceerrors.CodeUnavailable:
-		return codes.Unavailable
-	default:
-		return codes.Internal
-	}
-}
-
-func httpStatusCode(code int) codes.Code {
-	switch code {
-	case http.StatusBadRequest, http.StatusUnprocessableEntity:
-		return codes.InvalidArgument
-	case http.StatusUnauthorized:
-		return codes.Unauthenticated
-	case http.StatusForbidden:
-		return codes.PermissionDenied
-	case http.StatusNotFound:
-		return codes.NotFound
-	case http.StatusConflict:
-		return codes.Aborted
-	case http.StatusTooManyRequests:
-		return codes.ResourceExhausted
-	case http.StatusGatewayTimeout:
-		return codes.DeadlineExceeded
-	case http.StatusServiceUnavailable:
 		return codes.Unavailable
 	default:
 		return codes.Internal

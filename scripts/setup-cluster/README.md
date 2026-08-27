@@ -87,10 +87,6 @@ Five things make the obvious path fail, and each fails silently:
 - **`make create-kind-cluster && make helm-install` does not work.** Every substrate
   workload mounts secrets that do not exist until the `kubectl-ate` pool commands have
   run, so the controller crash-loops while its pod reports `1/1 Ready`.
-- **The chart deploys `controller-v2`**, which does not implement agents, models, tool
-  servers or prompt libraries — those pages read an empty API. The script builds
-  `core/cmd/controller/main.go` and swaps it in. Note that `make build-controller`
-  builds v2, the other one.
 - **`kubectl-ate` exits 0 slightly before its secret is readable**, so the next step
   waits for the secret rather than trusting the exit code.
 - **The chart installs published images**, so a cluster built without this script runs

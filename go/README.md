@@ -103,7 +103,7 @@ The workspace uses a single `Dockerfile` parameterized with `BUILD_PACKAGE`:
 
 ```bash
 # Build controller image (default)
-docker build --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t controller .
+docker build --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go -t controller .
 
 # Build Go ADK image
 docker build --build-arg BUILD_PACKAGE=adk/cmd/main.go -t golang-adk .

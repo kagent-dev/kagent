@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	httperrors "github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
@@ -223,10 +222,6 @@ func TestMapError(t *testing.T) {
 	}{
 		{"canceled", context.Canceled, codes.Canceled},
 		{"deadline", context.DeadlineExceeded, codes.DeadlineExceeded},
-		{"bad request", httperrors.NewBadRequestError("bad", nil), codes.InvalidArgument},
-		{"not found", httperrors.NewNotFoundError("missing", nil), codes.NotFound},
-		{"conflict", httperrors.NewConflictError("conflict", nil), codes.Aborted},
-		{"forbidden", httperrors.NewForbiddenError("forbidden", nil), codes.PermissionDenied},
 		{"service invalid argument", serviceerrors.NewInvalidArgument("invalid", nil), codes.InvalidArgument},
 		{"service unauthenticated", serviceerrors.NewUnauthenticated("unauthenticated", nil), codes.Unauthenticated},
 		{"service permission denied", serviceerrors.NewPermissionDenied("denied", nil), codes.PermissionDenied},

@@ -201,7 +201,7 @@ container port, env vars) should render, empty otherwise. Honours both
 disable signals: `controller.metrics.enabled=false` and the binary's
 own `--metrics-bind-address=0` sentinel reached through `bindAddress`.
 The two are equivalent so the field name keeps faith with the binary's
-documented contract (see go/core/pkg/app/app.go).
+documented contract.
 */}}
 {{- define "kagent.controller.metricsEnabled" -}}
 {{- $port := include "kagent.controller.metricsPort" . -}}
