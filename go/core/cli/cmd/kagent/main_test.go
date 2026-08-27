@@ -114,11 +114,6 @@ func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
 	assert.Equal(t, "45s", rootCmd.PersistentFlags().Lookup("timeout").DefValue)
 	assert.Equal(t, "configured-user", rootCmd.PersistentFlags().Lookup("user-id").DefValue)
 
-	deployCmd, _, err := rootCmd.Find([]string{"deploy"})
-	require.NoError(t, err)
-	require.NotNil(t, deployCmd)
-
-	assert.Equal(t, "configured-ns", deployCmd.Flags().Lookup("namespace").DefValue)
 	assert.Equal(t, "configured-ns", cfg.Namespace)
 }
 
@@ -258,6 +253,41 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
 		assert.Error(t, err, "%s must not be exposed by the CLI", command)
 	}
+}
+
+func TestRootCommandRemovesLegacyPaths(t *testing.T) {
+	cfg := &config.Config{
+		KAgentURL:     config.DefaultKAgentURL,
+		KAgentGRPCURL: config.DefaultKAgentGRPCURL,
+		OutputFormat:  "table",
+		UserID:        config.DefaultUserID,
+	}
+	rootCmd := newRootCommand(t.Context(), cfg)
+
+	rootCommands := make([]string, 0, len(rootCmd.Commands()))
+	for _, command := range rootCmd.Commands() {
+		rootCommands = append(rootCommands, command.Name())
+	}
+	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp"} {
+		assert.NotContains(t, rootCommands, command)
+	}
+	assert.Contains(t, rootCommands, "mcp")
+
+	getCmd, _, err := rootCmd.Find([]string{"get"})
+	require.NoError(t, err)
+	getCommands := make([]string, 0, len(getCmd.Commands()))
+	for _, command := range getCmd.Commands() {
+		getCommands = append(getCommands, command.Name())
+	}
+	for _, command := range []string{"agent", "session", "tool"} {
+		assert.NotContains(t, getCommands, command)
+	}
+
+	rootCmd.SetArgs(nil)
+	err = rootCmd.ExecuteContext(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "interactive mode is not available")
+	assert.Contains(t, err.Error(), "kagent invoke")
 }
 
 func resetConfigState(t *testing.T) {

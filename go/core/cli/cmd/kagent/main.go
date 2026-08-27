@@ -18,7 +18,6 @@ import (
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
 	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -68,8 +67,8 @@ func loadConfig() (*config.Config, error) {
 func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "kagent",
-		Short:         "kagent is a CLI and TUI for kagent",
-		Long:          "kagent is a CLI and TUI for kagent",
+		Short:         "kagent is a CLI for kagent",
+		Long:          "kagent is a CLI for kagent",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
@@ -79,8 +78,8 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			_, err := clioutput.Parse(cfg.OutputFormat)
 			return err
 		},
-		Run: func(cmd *cobra.Command, args []string) {
-			runInteractive(cmd, args, cfg)
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("interactive mode is not available in this release; use `kagent get agent-instance` and `kagent invoke`")
 		},
 	}
 	rootCmd.SetContext(ctx)
@@ -227,66 +226,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	getAgentTemplateCmd.Flags().Int64Var(&agentTemplateGetCfg.PageSize, "page-size", 0, "Number of AgentTemplates to return (maximum 100)")
 	getAgentTemplateCmd.Flags().StringVar(&agentTemplateGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
-	getSessionCmd := &cobra.Command{
-		Use:   "session [session_id]",
-		Short: "Get a session or list all sessions",
-		Long:  `Get a session by ID or list all sessions`,
-		Run: func(cmd *cobra.Command, args []string) {
-			pf, err := connection.Connect(cmd.Context(), cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-				return
-			}
-			if pf != nil {
-				defer pf.Stop()
-			}
-			resourceName := ""
-			if len(args) > 0 {
-				resourceName = args[0]
-			}
-			cli.GetSessionCmd(cfg, resourceName)
-		},
-	}
-
-	getAgentCmd := &cobra.Command{
-		Use:   "agent [agent_name]",
-		Short: "Get an agent or list all agents",
-		Long:  `Get an agent by name or list all agents`,
-		Run: func(cmd *cobra.Command, args []string) {
-			pf, err := connection.Connect(cmd.Context(), cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-				return
-			}
-			if pf != nil {
-				defer pf.Stop()
-			}
-			resourceName := ""
-			if len(args) > 0 {
-				resourceName = args[0]
-			}
-			cli.GetAgentCmd(cfg, resourceName)
-		},
-	}
-
-	getToolCmd := &cobra.Command{
-		Use:   "tool",
-		Short: "Get tools",
-		Long:  `List all available tools`,
-		Run: func(cmd *cobra.Command, args []string) {
-			pf, err := connection.Connect(cmd.Context(), cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-				return
-			}
-			if pf != nil {
-				defer pf.Stop()
-			}
-			cli.GetToolCmd(cfg)
-		},
-	}
-
-	getCmd.AddCommand(getAgentInstanceCmd, getAgentTemplateCmd, getSessionCmd, getAgentCmd, getToolCmd)
+	getCmd.AddCommand(getAgentInstanceCmd, getAgentTemplateCmd)
 
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -332,223 +272,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	}
 	deleteCmd.AddCommand(deleteAgentInstanceCmd)
 
-	initCfg := &cli.InitCfg{
-		Config: cfg,
-	}
-
-	initCmd := &cobra.Command{
-		Use:   "init [framework] [language] [agent-name]",
-		Short: "Initialize a new agent project",
-		Long: `Initialize a new agent project using the specified framework and language.
-
-You can customize the root agent instructions using the --instruction-file flag.
-You can select a specific model using --model-provider and --model-name flags.
-If no custom instruction file is provided, a default dice-rolling instruction will be used.
-If no model is specified, the agent will need to be configured later.
-
-Examples:
-  kagent init adk python dice
-  kagent init adk python dice --instruction-file instructions.md
-  kagent init adk python dice --model-provider Gemini --model-name gemini-2.5-flash`,
-		Args: cobra.ExactArgs(3),
-		Run: func(cmd *cobra.Command, args []string) {
-			initCfg.Framework = args[0]
-			initCfg.Language = args[1]
-			initCfg.AgentName = args[2]
-
-			if err := cli.InitCmd(initCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent init adk python dice`,
-	}
-
-	// Add flags for custom instructions and model selection
-	initCmd.Flags().StringVar(&initCfg.InstructionFile, "instruction-file", "", "Path to file containing custom instructions for the root agent")
-	initCmd.Flags().StringVar(&initCfg.ModelProvider, "model-provider", "Gemini", "Model provider (OpenAI, Anthropic, Gemini)")
-	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "gemini-2.5-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.5-flash)")
-	initCmd.Flags().StringVar(&initCfg.Description, "description", "", "Description for the agent")
-
-	buildCfg := &cli.BuildCfg{
-		Config: cfg,
-	}
-
-	buildCmd := &cobra.Command{
-		Use:   "build [project-directory]",
-		Short: "Build a Docker images for an agent project",
-		Long: `Build Docker images for an agent project created with the init command.
-
-This command will look for a kagent.yaml file in the specified project directory and build Docker images using docker build. The images can optionally be pushed to a registry.
-
-Image naming:
-- If --image is provided, it will be used as the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)
-- Otherwise, defaults to localhost:5001/{agentName}:latest where agentName is loaded from kagent.yaml
-
-Examples:
-  kagent build ./my-agent
-  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0
-  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0 --push`,
-		Args: cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			buildCfg.ProjectDir = args[0]
-
-			if err := cli.BuildCmd(buildCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent build ./my-agent`,
-	}
-
-	// Add flags for build command
-	buildCmd.Flags().StringVar(&buildCfg.Image, "image", "", "Full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)")
-	buildCmd.Flags().BoolVar(&buildCfg.Push, "push", false, "Push the image to the registry")
-	buildCmd.Flags().StringVar(&buildCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
-
-	deployCfg := &cli.DeployCfg{
-		Config: cfg,
-	}
-
-	deployCmd := &cobra.Command{
-		Use:   "deploy [project-directory]",
-		Short: "Deploy an agent to Kubernetes",
-		Long: `Deploy an agent to Kubernetes.
-
-This command will read the kagent.yaml file from the specified project directory,
-load environment variables from a .env file, and create an Agent CRD with necessary secrets.
-
-The command will:
-1. Load the agent configuration from kagent.yaml
-2. Load environment variables from a .env file (including the model provider API key)
-3. Create Kubernetes secrets for environment variables and API keys
-4. Create an Agent CRD with the appropriate configuration
-
-API Key Requirements:
-  The .env file MUST contain the API key for your model provider:
-  - Anthropic: ANTHROPIC_API_KEY=your-key-here
-  - OpenAI: OPENAI_API_KEY=your-key-here
-  - Gemini: GOOGLE_API_KEY=your-key-here
-
-Environment Variables:
-  --env-file: REQUIRED. Path to a .env file containing environment variables (including API keys).
-              Variables will be stored in a Kubernetes secret and mounted as environment variables.
-
-Dry-Run Mode:
-  --dry-run: Output YAML manifests without applying them to the cluster. This is useful
-             for previewing changes or for use with GitOps workflows.
-
-Examples:
-  kagent deploy ./my-agent --env-file .env
-  kagent deploy ./my-agent --env-file .env --image "myregistry/myagent:v1.0"
-  kagent deploy ./my-agent --env-file .env --namespace "my-namespace"
-  kagent deploy ./my-agent --env-file .env --dry-run > manifests.yaml`,
-		Args: cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			deployCfg.ProjectDir = args[0]
-
-			// Create Kubernetes client (skip in dry-run mode)
-			var k8sClient client.Client
-			var err error
-			if !deployCfg.DryRun {
-				k8sClient, err = cli.CreateKubernetesClient()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error creating Kubernetes client: %v\n", err)
-					os.Exit(1)
-				}
-			}
-
-			if err := cli.DeployCmd(cmd.Context(), k8sClient, deployCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent deploy ./my-agent --env-file .env`,
-	}
-
-	// Add flags for deploy command
-	deployCmd.Flags().StringVarP(&deployCfg.Image, "image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
-	deployCmd.Flags().StringVar(&deployCfg.EnvFile, "env-file", "", "Path to .env file containing environment variables (including API keys)")
-	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", cfg.Namespace, "Kubernetes namespace to deploy to")
-	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
-	deployCmd.Flags().StringVar(&deployCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
-
-	// add-mcp command
-	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
-	addMcpCmd := &cobra.Command{
-		Use:   "add-mcp [name] [args...]",
-		Short: "Add an MCP server entry to kagent.yaml",
-		Long:  `Add an MCP server entry to kagent.yaml. Use flags for non-interactive setup or run without flags to open the wizard.`,
-		Args:  cobra.ArbitraryArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) > 0 {
-				addMcpCfg.Name = args[0]
-				if len(args) > 1 && addMcpCfg.Command != "" {
-					addMcpCfg.Args = append(addMcpCfg.Args, args[1:]...)
-				}
-			}
-			if err := cli.AddMcpCmd(addMcpCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-	}
-
-	// Flags for non-interactive usage
-	addMcpCmd.Flags().StringVar(&addMcpCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.RemoteURL, "remote", "", "Remote MCP server URL (http/https)")
-	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Headers, "header", nil, "HTTP header for remote MCP in KEY=VALUE format (repeatable, supports ${VAR} for env vars)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.Command, "command", "", "Command to run MCP server (e.g., npx, uvx, kmcp, or a binary)")
-	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Args, "arg", nil, "Command argument (repeatable)")
-	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Env, "env", nil, "Environment variable in KEY=VALUE format (repeatable)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.Image, "image", "", "Container image (optional; mutually exclusive with --build)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.Build, "build", "", "Container build (optional; mutually exclusive with --image)")
-
-	runCfg := &cli.RunCfg{
-		Config: cfg,
-	}
-
-	runCmd := &cobra.Command{
-		Use:   "run [project-directory]",
-		Short: "Run agent project locally with docker-compose and launch chat interface",
-		Long: `Run an agent project locally using docker-compose and launch an interactive chat session.
-
-Examples:
-  kagent run ./my-agent
-  kagent run .`,
-		Args: cobra.MaximumNArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) > 0 {
-				runCfg.ProjectDir = args[0]
-			} else {
-				runCfg.ProjectDir = "."
-			}
-
-			if runCfg.Build {
-				fmt.Fprintf(os.Stderr, "Building image before running...\n")
-
-				buildCfg := &cli.BuildCfg{
-					Config:     runCfg.Config,
-					ProjectDir: runCfg.ProjectDir,
-				}
-
-				if err := cli.BuildCmd(buildCfg); err != nil {
-					fmt.Fprintf(os.Stderr, "Build failed: %v\n", err)
-					os.Exit(1)
-				}
-			}
-			if err := cli.RunCmd(cmd.Context(), runCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error running agent: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent run ./my-agent`,
-	}
-
-	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
-	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
-
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
 
 	return rootCmd
 }
@@ -593,7 +317,14 @@ func migrationSources(cfg *config.Config) dbmigrate.SourcesFunc {
 // ok=false when no cluster is reachable, the configmap is absent, or the
 // value doesn't parse — callers fall back to the default.
 func clusterVectorEnabled(ctx context.Context, namespace string) (enabled, ok bool) {
-	k8sClient, err := cli.CreateKubernetesClient()
+	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
+	if err != nil {
+		return false, false
+	}
+	k8sClient, err := client.New(restConfig, client.Options{})
 	if err != nil {
 		return false, false
 	}
@@ -622,22 +353,4 @@ func currentKubeContext() string {
 		return "(current kubeconfig context)"
 	}
 	return raw.CurrentContext
-}
-
-func runInteractive(cmd *cobra.Command, args []string, cfg *config.Config) {
-	client := cfg.Client()
-	defer client.Close() //nolint:errcheck
-
-	pf, err := connection.Connect(cmd.Context(), cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-		return
-	}
-	if pf != nil {
-		defer pf.Stop()
-	}
-
-	if err := tui.RunWorkspace(cfg, client, cfg.Verbose); err != nil {
-		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
-	}
 }
