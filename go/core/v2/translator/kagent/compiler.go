@@ -124,15 +124,27 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 }
 
 func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*compiledAgent, error) {
-	modelRuntime, err := c.resolveModel(ctx, input.ModelConfig)
-	if err != nil {
-		return nil, fmt.Errorf("resolve ModelConfig %q: %w", input.ModelConfig.Name, err)
+	if input.ResolvedModelConfig == nil {
+		return nil, fmt.Errorf("resolved ModelConfig is required")
 	}
-	if modelRuntime.HasUnsupportedVolumes {
+	modelConfig := input.ResolvedModelConfig.Config
+	if modelConfig == nil {
+		return nil, fmt.Errorf("resolved ModelConfig configuration is required")
+	}
+	model, data, err := renderModel(input.ResolvedModelConfig)
+	if err != nil {
+		return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
+	}
+	runtimeModel := &modelRuntime{
+		Model: model, Environment: data.EnvVars,
+		HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
+		data:                  data,
+	}
+	if runtimeModel.HasUnsupportedVolumes {
 		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	stream := true
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
+	cfg := &adk.AgentConfig{Model: runtimeModel.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
 	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
@@ -150,18 +162,18 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, ref, headers); err != nil {
+		if err := c.addRemoteMCPServer(cfg, runtimeModel, server, ref, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
-		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
+		runtimeModel.Environment = append(runtimeModel.Environment, credentialEnv...)
 	}
-	if modelRuntime.HasUnsupportedVolumes {
+	if runtimeModel.HasUnsupportedVolumes {
 		return nil, v2translator.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	result := &compiledAgent{
-		config: cfg, models: []*v1alpha3.ModelConfig{input.ModelConfig}, templates: []*v1alpha3.AgentTemplate{input.Template},
-		environment: modelRuntime.Environment,
-		egress:      append(agentConfigDestinations(cfg, input.ModelConfig, modelRuntime.Model), pluginEgress...),
+		config: cfg, models: []*v1alpha3.ModelConfig{modelConfig}, templates: []*v1alpha3.AgentTemplate{input.Template},
+		environment: runtimeModel.Environment,
+		egress:      append(agentConfigDestinations(cfg, modelConfig, runtimeModel.Model), pluginEgress...),
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)

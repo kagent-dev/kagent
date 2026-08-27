@@ -113,6 +113,40 @@ func (r testReader) Get(ctx context.Context, key types.NamespacedName, object ru
 	return r.Client.Get(ctx, key, object.(client.Object))
 }
 
+func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
+	model := &v1alpha3.ModelConfig{}
+	if err := r.Get(ctx, key, model); err != nil {
+		return nil, err
+	}
+	return v2translator.ResolveModelConfig(ctx, r, model)
+}
+
+func TestResolveModelConfigExposesResolvedFoundryEndpoint(t *testing.T) {
+	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{Deployment: "chat", APIVersion: "2024-10-21", EndpointFrom: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
+			}},
+		},
+	}
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
+		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
+	}
+	reader := testReader{fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(model, configMap).Build()}
+
+	resolved, err := reader.GetResolvedModelConfig(context.Background(), types.NamespacedName{Namespace: "test", Name: "foundry"})
+	require.NoError(t, err)
+	require.Equal(t, model.Spec, resolved.Config.Spec)
+	require.Equal(t, configMap.Data["endpoint"], resolved.FoundryEndpoint)
+	require.Equal(t, []v2translator.ModelConfigReference{{
+		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
+	}}, resolved.References)
+}
+
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
 
 func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
@@ -136,6 +170,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
+	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
 }
 
 func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {

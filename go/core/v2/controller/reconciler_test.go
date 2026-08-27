@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -45,7 +47,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 			Reconciliations: reconciliations, AgentTemplateStatuses: statuses,
 		},
 		templates: templates, store: store,
-		updateStatus: func(_ context.Context, template *kagentv1alpha3.AgentTemplate) error {
+		updateAgentTemplateStatus: func(_ context.Context, template *kagentv1alpha3.AgentTemplate) error {
 			statusWrite = template
 			return nil
 		},
@@ -73,7 +75,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 		t.Fatal("ready revision was not stored and marked successful")
 	}
 
-	if err := reconciler.reconcileStatus(context.Background(), "team-a/assistant"); err != nil {
+	if err := reconciler.reconcileAgentTemplateStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
 	}
 	if statusWrite == nil || statusWrite.Status.Harnesses[0].Conditions[0].LastTransitionTime.IsZero() {
@@ -146,4 +148,88 @@ func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Cont
 
 func (s *fakeRuntimeRevisionStore) DeleteUnreferencedRuntimeRevision(context.Context, string) error {
 	return nil
+}
+
+func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test", nil)
+
+	modelConfig := &kagentv1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", Generation: 1},
+		Spec: kagentv1alpha3.ModelConfigSpec{
+			Model:        "gpt-5",
+			Provider:     kagentv1alpha3.ModelProviderOpenAI,
+			APIKeySecret: "credentials",
+		},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"},
+		Data:       map[string][]byte{"key": []byte("initial-secret")},
+	}
+
+	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{modelConfig}, opts.WithName("ModelConfigs")...)
+	secrets := krt.NewStaticCollection(nil, []*corev1.Secret{secret}, opts.WithName("Secrets")...)
+	configMaps := krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...)
+	modelConfigReconciliations := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
+
+	collections := Collections{
+		ModelConfigs:               modelConfigs,
+		Secrets:                    secrets,
+		ConfigMaps:                 configMaps,
+		ModelConfigReconciliations: modelConfigReconciliations,
+		AgentTemplates:             krt.NewStaticCollection[*kagentv1alpha3.AgentTemplate](nil, nil, opts.WithName("AgentTemplates")...),
+		Reconciliations:            krt.NewStaticCollection[PairReconciliation](nil, nil, opts.WithName("Reconciliations")...),
+		AgentTemplateStatuses:      krt.NewStaticCollection[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]](nil, nil, opts.WithName("AgentTemplateStatuses")...),
+	}
+
+	statusUpdates := make(chan *kagentv1alpha3.ModelConfig, 10)
+	reconciler := newReconciler(
+		collections,
+		atefake.NewSimpleClientset().ApiV1alpha1(), //nolint:staticcheck
+		&fakeRuntimeRevisionStore{},
+		func(_ context.Context, _ *kagentv1alpha3.AgentTemplate) error { return nil },
+		func(_ context.Context, mc *kagentv1alpha3.ModelConfig) error {
+			modelConfigs.UpdateObject(mc.DeepCopy())
+			statusUpdates <- mc.DeepCopy()
+			return nil
+		},
+	)
+
+	go reconciler.Run(stop)
+
+	var initialUpdate *kagentv1alpha3.ModelConfig
+	select {
+	case initialUpdate = <-statusUpdates:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for initial ModelConfig status update")
+	}
+
+	if initialUpdate.Status.SecretHash == "" {
+		t.Fatal("expected secret hash in status update")
+	}
+	if len(initialUpdate.Status.Conditions) != 2 {
+		t.Fatalf("expected 2 conditions in status, got: %+v", initialUpdate.Status.Conditions)
+	}
+	if initialUpdate.Status.Conditions[0].LastTransitionTime.IsZero() || initialUpdate.Status.Conditions[1].LastTransitionTime.IsZero() {
+		t.Fatal("expected LastTransitionTime to be set on ModelConfig conditions")
+	}
+
+	initialHash := initialUpdate.Status.SecretHash
+
+	secrets.UpdateObject(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"},
+		Data:       map[string][]byte{"key": []byte("updated-secret")},
+	})
+
+	var updatedMC *kagentv1alpha3.ModelConfig
+	select {
+	case updatedMC = <-statusUpdates:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for updated ModelConfig status after secret change")
+	}
+
+	if updatedMC.Status.SecretHash == initialHash {
+		t.Fatalf("expected secret hash to change after secret update, but got initial hash %s", initialHash)
+	}
 }

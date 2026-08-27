@@ -11,4 +11,5 @@ import (
 // KRT supplies a dependency-tracking implementation; tests may use any reader.
 type Reader interface {
 	Get(context.Context, types.NamespacedName, runtime.Object) error
+	GetResolvedModelConfig(context.Context, types.NamespacedName) (*ResolvedModelConfig, error)
 }

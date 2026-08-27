@@ -140,15 +140,18 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections  Collections
-	templates    actorTemplateClient
-	store        runtimeRevisionStore
-	updateStatus func(context.Context, *kagentv1alpha3.AgentTemplate) error
+	collections               Collections
+	templates                 actorTemplateClient
+	store                     runtimeRevisionStore
+	updateAgentTemplateStatus func(context.Context, *kagentv1alpha3.AgentTemplate) error
+	updateModelConfigStatus   func(context.Context, *kagentv1alpha3.ModelConfig) error
 
-	pairs         controllers.Queue
-	statuses      controllers.Queue
-	pairHandler   krt.HandlerRegistration
-	statusHandler krt.HandlerRegistration
+	pairs                      controllers.Queue
+	agentTemplateStatuses      controllers.Queue
+	modelConfigStatuses        controllers.Queue
+	pairHandler                krt.HandlerRegistration
+	agentTemplateStatusHandler krt.HandlerRegistration
+	modelConfigStatusHandler   krt.HandlerRegistration
 }
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
@@ -158,35 +161,58 @@ func NewReconciler(config *rest.Config, collections Collections, store runtimeRe
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
-	return newReconciler(collections, templates, store, func(ctx context.Context, template *kagentv1alpha3.AgentTemplate) error {
-		_, err := statusClient.AgentTemplates(template.Namespace).UpdateStatus(ctx, template, metav1.UpdateOptions{})
-		return err
-	}), nil
+	return newReconciler(collections, templates, store,
+		func(ctx context.Context, template *kagentv1alpha3.AgentTemplate) error {
+			_, err := statusClient.AgentTemplates(template.Namespace).UpdateStatus(ctx, template, metav1.UpdateOptions{})
+			return err
+		},
+		func(ctx context.Context, modelConfig *kagentv1alpha3.ModelConfig) error {
+			_, err := statusClient.ModelConfigs(modelConfig.Namespace).UpdateStatus(ctx, modelConfig, metav1.UpdateOptions{})
+			return err
+		},
+	), nil
 }
 
 func newReconciler(
 	collections Collections,
 	templates actorTemplateClient,
 	store runtimeRevisionStore,
-	updateStatus func(context.Context, *kagentv1alpha3.AgentTemplate) error,
+	updateAgentTemplateStatus func(context.Context, *kagentv1alpha3.AgentTemplate) error,
+	updateModelConfigStatus func(context.Context, *kagentv1alpha3.ModelConfig) error,
 ) *Reconciler {
-	r := &Reconciler{collections: collections, templates: templates, store: store, updateStatus: updateStatus}
+	r := &Reconciler{
+		collections:               collections,
+		templates:                 templates,
+		store:                     store,
+		updateAgentTemplateStatus: updateAgentTemplateStatus,
+		updateModelConfigStatus:   updateModelConfigStatus,
+	}
 	r.pairs = controllers.NewQueue("v2-agent-template-pairs", controllers.WithGenericReconciler(func(item any) error {
 		return r.reconcilePair(context.Background(), item.(string))
 	}), controllers.WithMaxAttempts(5))
-	r.statuses = controllers.NewQueue("v2-agent-template-status", controllers.WithGenericReconciler(func(item any) error {
-		return r.reconcileStatus(context.Background(), item.(string))
+	r.agentTemplateStatuses = controllers.NewQueue("v2-agent-template-status", controllers.WithGenericReconciler(func(item any) error {
+		return r.reconcileAgentTemplateStatus(context.Background(), item.(string))
+	}), controllers.WithMaxAttempts(5))
+	r.modelConfigStatuses = controllers.NewQueue("v2-model-config-status", controllers.WithGenericReconciler(func(item any) error {
+		return r.reconcileModelConfigStatus(context.Background(), item.(string))
 	}), controllers.WithMaxAttempts(5))
 
 	r.pairHandler = collections.Reconciliations.Register(func(event krt.Event[PairReconciliation]) {
 		r.pairs.Add(krt.GetKey(event.Latest()))
 	})
-	r.statusHandler = collections.AgentTemplateStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]]) {
+	r.agentTemplateStatusHandler = collections.AgentTemplateStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]]) {
 		status := event.Latest()
 		if apiequality.Semantic.DeepEqual(statusWithTransitionTimes(status.Status, status.Obj.Status), status.Obj.Status) {
 			return
 		}
-		r.statuses.Add(status.ResourceName())
+		r.agentTemplateStatuses.Add(status.ResourceName())
+	})
+	r.modelConfigStatusHandler = collections.ModelConfigReconciliations.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]]) {
+		status := event.Latest()
+		if apiequality.Semantic.DeepEqual(modelConfigStatusWithTransitionTimes(status.Status, status.Obj.Status), status.Obj.Status) {
+			return
+		}
+		r.modelConfigStatuses.Add(status.ResourceName())
 	})
 	return r
 }
@@ -194,13 +220,15 @@ func newReconciler(
 // Run waits for the graph boundary to observe initial state, then processes
 // pair and status writes until stop closes.
 func (r *Reconciler) Run(stop <-chan struct{}) {
-	if !r.pairHandler.WaitUntilSynced(stop) || !r.statusHandler.WaitUntilSynced(stop) {
+	if !r.pairHandler.WaitUntilSynced(stop) || !r.agentTemplateStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
 		r.pairs.ShutDownEarly()
-		r.statuses.ShutDownEarly()
+		r.agentTemplateStatuses.ShutDownEarly()
+		r.modelConfigStatuses.ShutDownEarly()
 		return
 	}
 	go r.pollPendingTemplates(stop)
-	go r.statuses.Run(stop)
+	go r.agentTemplateStatuses.Run(stop)
+	go r.modelConfigStatuses.Run(stop)
 	r.pairs.Run(stop)
 }
 
@@ -310,7 +338,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	return nil
 }
 
-func (r *Reconciler) reconcileStatus(ctx context.Context, key string) error {
+func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key string) error {
 	desired := r.collections.AgentTemplateStatuses.GetKey(key)
 	template := r.collections.AgentTemplates.GetKey(key)
 	if desired == nil || template == nil {
@@ -321,8 +349,25 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, key string) error {
 	if apiequality.Semantic.DeepEqual(updated.Status, (*template).Status) {
 		return nil
 	}
-	if err := r.updateStatus(ctx, updated); err != nil {
+	if err := r.updateAgentTemplateStatus(ctx, updated); err != nil {
 		return fmt.Errorf("update AgentTemplate %s status: %w", key, err)
+	}
+	return nil
+}
+
+func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string) error {
+	desired := r.collections.ModelConfigReconciliations.GetKey(key)
+	modelConfig := r.collections.ModelConfigs.GetKey(key)
+	if desired == nil || modelConfig == nil {
+		return nil
+	}
+	updated := (*modelConfig).DeepCopy()
+	updated.Status = modelConfigStatusWithTransitionTimes(desired.Status, updated.Status)
+	if apiequality.Semantic.DeepEqual(updated.Status, (*modelConfig).Status) {
+		return nil
+	}
+	if err := r.updateModelConfigStatus(ctx, updated); err != nil {
+		return fmt.Errorf("update ModelConfig %s status: %w", key, err)
 	}
 	return nil
 }
@@ -379,6 +424,21 @@ func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentTemplateStat
 			}
 			condition.LastTransitionTime = metav1.Now()
 		}
+	}
+	return desired
+}
+
+func modelConfigStatusWithTransitionTimes(desired, current kagentv1alpha3.ModelConfigStatus) kagentv1alpha3.ModelConfigStatus {
+	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
+	for conditionIndex := range desired.Conditions {
+		condition := &desired.Conditions[conditionIndex]
+		if previous := apimeta.FindStatusCondition(current.Conditions, condition.Type); previous != nil &&
+			previous.Status == condition.Status && previous.Reason == condition.Reason &&
+			previous.Message == condition.Message && previous.ObservedGeneration == condition.ObservedGeneration {
+			condition.LastTransitionTime = previous.LastTransitionTime
+			continue
+		}
+		condition.LastTransitionTime = metav1.Now()
 	}
 	return desired
 }
