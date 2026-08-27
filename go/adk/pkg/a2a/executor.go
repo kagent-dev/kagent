@@ -175,6 +175,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
 			}
+			// Work around upstream ADK's artifact-only event conversion: its callbacks can
+			// mutate an artifact but cannot replace it with another A2A event. Do this before
+			// a2a-go persists the update; remove when ADK exposes a general event converter.
 			if update, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && artifactContainsToolEvent(update.Artifact) {
 				message := a2atype.NewMessageForTask(a2atype.MessageRoleAgent, update, update.Artifact.Parts...)
 				message.ID = string(update.Artifact.ID)
