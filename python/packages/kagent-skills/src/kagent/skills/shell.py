@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 import os
 import re
@@ -25,6 +26,68 @@ def _truncate_line(line: str) -> str:
     if len(line) > _MAX_LINE_CHARS:
         return line[:_MAX_LINE_CHARS] + "..."
     return line
+
+
+class _WalkEntryAction(enum.Enum):
+    """How a recursive grep should treat one entry it walked."""
+
+    #: A regular, in-bounds file that should be grepped.
+    GREP = enum.auto()
+    #: Silently excluded by policy, not a read failure -- a non-regular file
+    #: (FIFO/socket/device), or a symlink whose target escapes the search root.
+    SKIP = enum.auto()
+    #: A genuine read/stat failure on this entry.
+    UNREADABLE = enum.auto()
+
+
+def _classify_walk_entry(root: Path, entry: Path) -> tuple[_WalkEntryAction, Path | None]:
+    """Decide how grep_content should treat entry, given the resolved search root.
+
+    This is the Python half of a contract the Go runtime implements as
+    classifyWalkEntry in go/adk/pkg/tools/grep.go. Both must sort a tree into
+    the same three outcomes, and reading them side by side is the only
+    practical way to confirm they still do -- so they share these names, this
+    argument order, and this return shape. Prefer changing both, or neither.
+
+    They are not branch-for-branch identical, and should not be forced to be.
+    Go tests IsDir, EvalSymlinks, Stat and IsRegular separately because
+    filepath.WalkDir hands it directories and unresolvable links; here
+    os.walk yields only filenames, and Path.is_file() already collapses
+    "exists, resolves, and is a regular file" into one call. The outcomes
+    agree; the number of branches reaching them does not.
+
+    One known divergence, not reachable through any case we could construct:
+    Go counts a failed Stat on a non-symlink as UNREADABLE, while
+    Path.is_file() swallows the OSError and lands here on SKIP. Reaching it
+    needs a stat that fails on an entry os.walk just listed -- EIO, a stale
+    NFS handle, a misbehaving FUSE mount. Symlink loops and broken links are
+    unaffected; both are UNREADABLE in either runtime.
+
+    Returns the resolved path alongside GREP so the caller reads what was
+    just checked rather than re-resolving the symlink separately.
+    """
+    # is_file() follows symlinks and checks S_ISREG, so a False covers two
+    # cases that deserve different treatment.
+    if not entry.is_file():
+        # A broken symlink (or a symlink loop) is a genuine read failure.
+        # Counting it is what stops a tree of dangling links from reporting a
+        # confidently empty "no matches found".
+        if entry.is_symlink() and not entry.exists():
+            return _WalkEntryAction.UNREADABLE, None
+        # A FIFO/socket/device is excluded by policy, not failure: opening one
+        # can block indefinitely, and grep has no business reading it.
+        return _WalkEntryAction.SKIP, None
+
+    resolved = entry.resolve()
+    # Bound each entry by the directory actually being searched. The caller's
+    # allowed_root is the whole session plus the skills dir, so it alone would
+    # let a symlink here pull in a file from a sibling directory nobody asked
+    # to search. Containment against root subsumes it: root was itself
+    # validated against allowed_root, so anything under root is inside a root.
+    if not resolved.is_relative_to(root):
+        return _WalkEntryAction.SKIP, None
+
+    return _WalkEntryAction.GREP, resolved
 
 
 def _validate_path(
@@ -236,43 +299,19 @@ def grep_content(
         skipped += len(walk_errors)
 
         for entry in sorted(entries):
-            # is_file() follows symlinks and checks S_ISREG, so a False here
-            # covers two cases that deserve different treatment -- matching
-            # the split Go makes in classifyWalkEntry:
-            #   - a broken symlink (or a symlink loop) is a genuine read
-            #     failure, so count it, as Go's walkEntryUnreadable does.
-            #     Otherwise a tree of dangling links reports a confidently
-            #     empty "no matches found".
-            #   - a FIFO/socket/device is excluded by policy, not failure
-            #     (opening one can block indefinitely), so stay silent, as
-            #     Go's walkEntrySkip does.
-            if not entry.is_file():
-                if entry.is_symlink() and not entry.exists():
-                    skipped += 1
+            action, safe_entry = _classify_walk_entry(file_or_dir_path, entry)
+            if action is _WalkEntryAction.SKIP:
                 continue
-            # Bound each entry by the directory actually being searched, not
-            # by allowed_root: allowed_root is the whole session plus the
-            # skills dir, so on its own it would let a symlink here pull in a
-            # file from a sibling directory the caller never asked to search.
-            # Go bounds each entry the same way (WithinRoot in
-            # classifyWalkEntry), and both the tool description and the README
-            # promise that behavior. Silent, matching Go's walkEntrySkip for an
-            # out-of-root symlink.
-            #
-            # This subsumes a _validate_path(entry, allowed_root) check:
-            # file_or_dir_path was itself validated against allowed_root above,
-            # so anything relative to it is transitively inside a root.
-            safe_entry = entry.resolve()
-            if not safe_entry.is_relative_to(file_or_dir_path):
+            if action is _WalkEntryAction.UNREADABLE:
+                skipped += 1
                 continue
             try:
                 results.extend(grep_file(safe_entry))
             except OSError:
                 # A read error on one file shouldn't abort matches already
                 # found elsewhere in the tree, but it also shouldn't look
-                # identical to a genuinely empty search -- see the note below.
+                # identical to a genuinely empty search -- hence the count.
                 skipped += 1
-                continue
     else:
         if not file_or_dir_path.is_file():
             raise OSError(f"{file_or_dir_path} is not a regular file")

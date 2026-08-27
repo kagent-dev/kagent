@@ -21,7 +21,7 @@ from kagent.skills import (
     write_file_content,
 )
 from kagent.skills.prompts import get_bash_description
-from kagent.skills.shell import _sanitize_env
+from kagent.skills.shell import _classify_walk_entry, _sanitize_env, _WalkEntryAction
 
 
 @pytest.fixture
@@ -461,6 +461,57 @@ def test_grep_content_counts_broken_symlink_as_unreadable(tmp_path):
 
     assert "match.txt:1:foo readable" in result
     assert "could not be read" in result
+
+
+def test_classify_walk_entry_covers_each_outcome(tmp_path):
+    """Pin the three-way split directly, not just through grep_content.
+
+    This is the Python half of the contract go/adk/pkg/tools/grep.go states as
+    classifyWalkEntry. Asserting it at the unit level is what makes the two
+    runtimes comparable side by side: same three outcomes, same inputs, same
+    answers. A divergence should fail here rather than surface later as a
+    grep that quietly returns different results in one runtime.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+
+    plain = root / "plain.txt"
+    plain.write_text("hello\n")
+
+    inside_link = root / "inside-link"
+    inside_link.symlink_to(plain)
+
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret\n")
+    escaping_link = root / "escaping-link"
+    escaping_link.symlink_to(outside)
+
+    broken_link = root / "broken-link"
+    broken_link.symlink_to(tmp_path / "does-not-exist")
+
+    assert _classify_walk_entry(root, plain) == (_WalkEntryAction.GREP, plain.resolve())
+    # A symlink that stays inside the root is greppable, and resolves through
+    # to its target so the caller reads what was just checked.
+    assert _classify_walk_entry(root, inside_link) == (_WalkEntryAction.GREP, plain.resolve())
+    # Escaping the searched directory is a policy exclusion, so it is silent.
+    assert _classify_walk_entry(root, escaping_link) == (_WalkEntryAction.SKIP, None)
+    # A dangling link is a real read failure and must be counted.
+    assert _classify_walk_entry(root, broken_link) == (_WalkEntryAction.UNREADABLE, None)
+    # A symlink loop is the same class of failure as a dangling link.
+    loop = root / "loop-link"
+    loop.symlink_to(loop)
+    assert _classify_walk_entry(root, loop) == (_WalkEntryAction.UNREADABLE, None)
+
+
+def test_classify_walk_entry_treats_a_fifo_as_a_silent_skip(tmp_path):
+    """A FIFO is excluded by policy, not failure, so it must not be counted."""
+    fifo_path = tmp_path / "pipe"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, NotImplementedError, OSError):
+        pytest.skip("FIFOs not supported")
+
+    assert _classify_walk_entry(tmp_path, fifo_path) == (_WalkEntryAction.SKIP, None)
 
 
 def test_grep_content_does_not_count_fifo_as_unreadable(tmp_path):
