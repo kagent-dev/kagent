@@ -27,7 +27,7 @@ test("extension points: a bare build renders the application and nothing else", 
       await loadPage(page, path, { title });
       await expect(
         allSlots(page),
-        `${path} rendered a vendor slot with no extension installed`,
+        `${path} rendered an extension slot with no extension installed`,
       ).toHaveCount(0);
     }
   });

@@ -1,18 +1,18 @@
 /**
- * Drivers for the vendor extension framework.
+ * Drivers for the app extension framework.
  *
  * These assert the **mechanism**, never the example's content. A point either
- * mounts what was configured at it or it does not; the bundled Example extension is
+ * mounts what was configured at it or it does not; the bundled Example App Extension is
  * only the thing being mounted, and it is free to change its copy, its styling,
  * or its own test ids without any of this needing an edit.
  *
- * The one handle these rely on is `vendor-slot-<id>`, which `VendorSlot` emits
+ * The one handle these rely on is `extension-slot-<id>`, which `ExtensionSlot` emits
  * for exactly this purpose.
  */
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
-/** Every extension point the app offers. Mirrors `src/vendorExtensions/extensionPoints.ts`. */
+/** Every extension point the app offers. Mirrors `src/appExtensions/extensionPoints.ts`. */
 export const EXTENSION_POINT_IDS = [
   "app_shell_appLayout_contentArea_leadingBanner",
   "app_shell_appLayout_contentArea_globalOverlay",
@@ -27,12 +27,12 @@ export type ExtensionPointId = (typeof EXTENSION_POINT_IDS)[number];
 
 /** Whatever is mounted at a point, wherever it ended up in the DOM. */
 export function slot(page: Page, id: ExtensionPointId): Locator {
-  return page.locator(`[data-testid="vendor-slot-${id}"]`);
+  return page.locator(`[data-testid="extension-slot-${id}"]`);
 }
 
 /** Every mounted slot on the page, regardless of point. */
 export function allSlots(page: Page): Locator {
-  return page.locator('[data-testid^="vendor-slot-"]');
+  return page.locator('[data-testid^="extension-slot-"]');
 }
 
 /**
@@ -73,11 +73,11 @@ export const CORE_NAV_ORDER = [
  */
 export async function expectPortalled(page: Page, id: ExtensionPointId): Promise<void> {
   await expect(
-    page.locator(`[data-testid="app-content"] [data-testid="vendor-slot-${id}"]`),
+    page.locator(`[data-testid="app-content"] [data-testid="extension-slot-${id}"]`),
     "portalled content should not be inside the scrolling content area",
   ).toHaveCount(0);
   await expect(
-    page.locator(`body > [data-testid="vendor-slot-${id}"]`),
+    page.locator(`body > [data-testid="extension-slot-${id}"]`),
     "portalled content should be mounted at the document root",
   ).toHaveCount(1);
 }
@@ -88,6 +88,6 @@ export async function expectInline(
   id: ExtensionPointId,
   within: Locator,
 ): Promise<void> {
-  await expect(within.locator(`[data-testid="vendor-slot-${id}"]`)).toHaveCount(1);
-  await expect(page.locator(`body > [data-testid="vendor-slot-${id}"]`)).toHaveCount(0);
+  await expect(within.locator(`[data-testid="extension-slot-${id}"]`)).toHaveCount(1);
+  await expect(page.locator(`body > [data-testid="extension-slot-${id}"]`)).toHaveCount(0);
 }

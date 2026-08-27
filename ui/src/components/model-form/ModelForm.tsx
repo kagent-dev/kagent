@@ -688,7 +688,7 @@ export function ModelForm({
                   <>
                     <Form.Item
                       label="Default headers"
-                      help="Sent on every request to the provider — for API versioning, tracing, or vendor-specific needs."
+                      help="Sent on every request to the provider — for API versioning, tracing, or provider-specific needs."
                     >
                       <Space
                         orientation="vertical"

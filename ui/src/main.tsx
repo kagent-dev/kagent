@@ -1,9 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { isMockMode } from "./api/config";
-import { activeVendorExtensionConfig } from "./vendorExtensions/activeConfig";
-import { loadVendorStylesheets } from "./vendorExtensions/theme";
-import { applyVendorDocumentTitle } from "./vendorExtensions/branding";
+import { activeAppExtensions } from "./appExtensions/activeExtensions";
+import { extensionBranding, extensionThemes } from "./appExtensions/selectors";
+import { loadExtensionStylesheets } from "./appExtensions/theme";
+import { applyExtensionDocumentTitle } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
 import { App } from "./App";
 
@@ -15,8 +16,8 @@ async function bootstrap() {
 
   // Before the first render: a web font that arrives afterwards reflows
   // everything already painted.
-  loadVendorStylesheets(activeVendorExtensionConfig.theme);
-  applyVendorDocumentTitle(activeVendorExtensionConfig.branding);
+  loadExtensionStylesheets(extensionThemes(activeAppExtensions));
+  applyExtensionDocumentTitle(extensionBranding(activeAppExtensions));
 
   // Which backend is serving is decided in one place, `api/config.ts`, and read
   // here rather than re-derived: two independent readings of the same env var
@@ -29,7 +30,7 @@ async function bootstrap() {
 
   ReactDOM.createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      {/* Outside <App> because authentication is not a vendor concern: the
+      {/* Outside <App> because authentication is not an extension concern: the
           extension config's provider list belongs to whoever installs an
           extension, and core auth must exist whether or not one is present. */}
       <AuthProvider>

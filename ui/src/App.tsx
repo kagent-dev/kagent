@@ -6,22 +6,35 @@ import { Toaster } from "react-hot-toast";
 import { SWRConfig } from "swr";
 import { GlobalStyles } from "./theme/GlobalStyles";
 import { ThemeModeProvider, useThemeMode } from "./theme/themeMode";
-import { resolveAntdTheme, resolveAppTheme } from "./vendorExtensions/theme";
+import {
+  resolveAntdTheme,
+  resolveAppTheme,
+  resolveSupportedModes,
+} from "./appExtensions/theme";
 import { createAppRouter, reservedRoutePaths } from "./router/router";
-import { VendorExtensionProvider, VendorProviders } from "./vendorExtensions";
-import { useVendorExtensionConfig } from "./vendorExtensions";
-import { activeVendorExtensionConfig } from "./vendorExtensions/activeConfig";
-// Side effect: registers the extension's API overrides before the first
+import { AppExtensionsProvider, ExtensionProviders } from "./appExtensions";
+import { extensionThemes, useAppExtensions } from "./appExtensions";
+import { activeAppExtensions } from "./appExtensions/activeExtensions";
+// Side effect: registers the extensions' API overrides before the first
 // request, which can be issued during the first render.
-import "./vendorExtensions/installActiveExtension";
+import "./appExtensions/installActiveExtensions";
 
 /**
- * Builds the router from the config in context, once. Separate from `App` so
- * it sits inside `VendorExtensionProvider` and can read the vendor's routes.
+ * The installed extensions' themes, resolved once.
+ *
+ * Module scope rather than a hook: the install is fixed at build time, so this
+ * cannot change while the app is open, and computing it here keeps the identity
+ * stable for the memos below.
+ */
+const themes = extensionThemes(activeAppExtensions);
+
+/**
+ * Builds the router from the install in context, once. Separate from `App` so
+ * it sits inside `AppExtensionsProvider` and can read the contributed routes.
  */
 function AppRouter() {
-  const config = useVendorExtensionConfig();
-  const router = useMemo(() => createAppRouter(config), [config]);
+  const extensions = useAppExtensions();
+  const router = useMemo(() => createAppRouter(extensions), [extensions]);
 
   return <RouterProvider router={router} />;
 }
@@ -36,15 +49,14 @@ function AppRouter() {
 function ThemedApp() {
   const { mode } = useThemeMode();
 
-  // Resolved from the installed config: an extension's tokens restyle the
+  // Resolved from the whole install: an extension's tokens restyle the
   // application's own components, so this has to wrap everything that renders.
-  const vendorTheme = activeVendorExtensionConfig.theme;
-  const resolvedTheme = resolveAppTheme(vendorTheme, mode);
-  const resolvedAntd = resolveAntdTheme(vendorTheme, mode);
+  const resolvedTheme = resolveAppTheme(themes, mode);
+  const resolvedAntd = resolveAntdTheme(themes, mode);
 
   return (
-    <VendorExtensionProvider
-      config={activeVendorExtensionConfig}
+    <AppExtensionsProvider
+      extensions={activeAppExtensions}
       reservedPaths={reservedRoutePaths}
     >
       <ConfigProvider
@@ -62,31 +74,33 @@ function ThemedApp() {
         <ThemeProvider theme={resolvedTheme}>
           <GlobalStyles />
           {/* After the application's own global styles, so an extension wins on
-              ties — that is the point of letting it supply any. */}
-          {vendorTheme?.globalStyles ? (
-            <Global styles={vendorTheme.globalStyles} />
-          ) : null}
-          {/* Vendor providers sit inside the app's own theming so they can read
+              ties — that is the point of letting it supply any. Emitted in install
+              order, so the later extension wins a tie between two of them for the
+              same reason. */}
+          {themes.map((theme, index) =>
+            theme.globalStyles ? (
+              <Global key={index} styles={theme.globalStyles} />
+            ) : null,
+          )}
+          {/* Extension providers sit inside the app's own theming so they can read
               it, and outside the router so they survive navigation. */}
-          <VendorProviders>
+          <ExtensionProviders>
             <SWRConfig
               value={{ revalidateOnFocus: false, shouldRetryOnError: false }}
             >
               <AppRouter />
               <Toaster position="bottom-right" />
             </SWRConfig>
-          </VendorProviders>
+          </ExtensionProviders>
         </ThemeProvider>
       </ConfigProvider>
-    </VendorExtensionProvider>
+    </AppExtensionsProvider>
   );
 }
 
 export function App() {
   return (
-    <ThemeModeProvider
-      supportedModes={activeVendorExtensionConfig.theme?.supportedModes}
-    >
+    <ThemeModeProvider supportedModes={resolveSupportedModes(themes)}>
       <ThemedApp />
     </ThemeModeProvider>
   );

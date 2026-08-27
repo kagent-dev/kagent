@@ -1,7 +1,7 @@
 /**
- * The seam a vendor extension bundle hooks into.
+ * The seam an app extension bundle hooks into.
  *
- * The core UI never imports vendor code; a vendor bundle imports this module and
+ * The core UI never imports extension code; an extension bundle imports this module and
  * registers what it wants to change, once, before the first request is made
  * (from its own entry module, which the app loads ahead of rendering). Three
  * things can be changed without forking anything:
@@ -32,7 +32,7 @@
  * interleaves.
  *
  * @example
- * // In a vendor bundle's entry module:
+ * // In an extension bundle's entry module:
  * registerOperationOverride("agents.list", () => managedAgents());
  * registerApiTransform({
  *   name: "tenant-header",
@@ -77,7 +77,7 @@ export interface ApiRequestContext {
    * The URL the call is going to.
    *
    * For an HTTP endpoint, rewriting this sends the request somewhere else — which
-   * is how a vendor base URL moves chat.
+   * is how an extension base URL moves chat.
    *
    * For an RPC it is **informational**. A gRPC method is addressed from its own
    * descriptor and the transport's base URL, so a rewritten URL here changes

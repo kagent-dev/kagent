@@ -10,22 +10,22 @@ const PORT = Number(process.env.UI_LOOP_PORT ?? 8001);
 const BASE_URL = `http://localhost:${PORT}`;
 
 /**
- * A second app, booted with the example vendor extension installed.
+ * A second app, booted with the Example App Extension installed.
  *
- * Which extension a build ships with is decided at build time
- * (`src/vendorExtensions/activeConfig.ts` reads an env var), so "installed" and
- * "not installed" cannot be two states of one server — they are two servers.
- * That split is also what lets the default suite assert the app is bare, which
- * is the shape a build with no extension takes.
+ * Which extensions a build installs is decided at build time
+ * (`src/appExtensions/activeExtensions.ts` is an array, and reads an env var to
+ * append the example), so "installed" and "not installed" cannot be two states of
+ * one server — they are two servers. That split is also what lets the default suite
+ * assert the app is bare, which is the shape a build with no extension takes.
  */
 // Deliberately not PORT + 1: Vite falls forward to the next free port when the
 // one it is told to use is busy, so adjacent ports let a slow-to-die server from
 // a previous run push one app onto the other's port.
-const VENDOR_PORT = Number(process.env.UI_LOOP_VENDOR_PORT ?? PORT + 50);
-const VENDOR_BASE_URL = `http://localhost:${VENDOR_PORT}`;
+const EXTENSION_PORT = Number(process.env.UI_LOOP_EXTENSION_PORT ?? PORT + 50);
+const EXTENSION_BASE_URL = `http://localhost:${EXTENSION_PORT}`;
 
-/** Specs that need the extension installed opt in by filename. */
-const VENDOR_SPECS = /\.vendor\.spec\.ts$/;
+/** Specs that need an extension installed opt in by filename. */
+const EXTENSION_SPECS = /\.withExtension\.spec\.ts$/;
 
 /**
  * The suite is the acceptance bar, so what it runs against cannot depend on the
@@ -42,13 +42,13 @@ const MOCK_BACKEND = { VITE_API_MODE: "mock" };
  * stated in one place — and so a branch that installs an extension changes a
  * value instead of restructuring the `projects`/`webServer` blocks.
  *
- * `VITE_VENDOR_EXTENSIONS` is pinned on the bare server for the same reason
+ * `VITE_APP_EXTENSIONS` is pinned on the bare server for the same reason
  * `VITE_API_MODE` is: an inherited value must not be able to decide what a run
  * measures. Left unpinned, the bare project measures whatever the shell happened
  * to export.
  */
-const BARE_APP = { ...MOCK_BACKEND, VITE_VENDOR_EXTENSIONS: "none" };
-const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_VENDOR_EXTENSIONS: "example" };
+const BARE_APP = { ...MOCK_BACKEND, VITE_APP_EXTENSIONS: "none" };
+const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_APP_EXTENSIONS: "example" };
 
 /**
  * The third mode: one app, wired to a real backend.
@@ -166,7 +166,7 @@ export default defineConfig({
     : [
         {
           name: "chromium",
-          testIgnore: VENDOR_SPECS,
+          testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Chrome"], baseURL: BASE_URL },
         },
         {
@@ -178,25 +178,25 @@ export default defineConfig({
           // a rail that stays put are exactly the kind of thing one engine gets
           // right by accident.
           //
-          // The vendor split below is a build-time difference, not a browser one,
+          // The extension split below is a build-time difference, not a browser one,
           // so it stays on one engine rather than doubling for no new signal.
           name: "firefox",
-          testIgnore: VENDOR_SPECS,
+          testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Firefox"], baseURL: BASE_URL },
         },
         {
-          name: "chromium-vendor",
-          testMatch: VENDOR_SPECS,
-          use: { ...devices["Desktop Chrome"], baseURL: VENDOR_BASE_URL },
+          name: "chromium-with-extension",
+          testMatch: EXTENSION_SPECS,
+          use: { ...devices["Desktop Chrome"], baseURL: EXTENSION_BASE_URL },
         },
       ],
   // Never adopt a server this config did not start. Adopting one skips the `env`
   // below, so a dev server left over from an earlier run — or one a developer has
   // open — silently serves a build with the wrong extension config, and the
-  // vendor specs then fail looking for contributions that were never installed.
+  // extension specs then fail looking for contributions that were never installed.
   // That was an intermittent failure whose frequency depended only on whether
   // something happened to linger. Refusing to adopt makes an occupied port a
-  // loud startup error instead; set UI_LOOP_PORT / UI_LOOP_VENDOR_PORT to run
+  // loud startup error instead; set UI_LOOP_PORT / UI_LOOP_EXTENSION_PORT to run
   // alongside a dev server you want to keep.
   webServer: LIVE
     ? [
@@ -223,8 +223,8 @@ export default defineConfig({
           env: BARE_APP,
         },
         {
-          command: `yarn dev --port ${VENDOR_PORT}`,
-          url: VENDOR_BASE_URL,
+          command: `yarn dev --port ${EXTENSION_PORT}`,
+          url: EXTENSION_BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
           env: EXAMPLE_APP,

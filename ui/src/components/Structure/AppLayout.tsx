@@ -5,24 +5,26 @@ import { AppHeader } from "./AppHeader";
 import { AppSidebar } from "./AppSidebar";
 import { coreNavItems } from "./navItems";
 import {
-  VendorSlot,
+  ExtensionSlot,
   applyNavOverrides,
-  useVendorExtensionConfig,
-  useVendorNavItems,
-} from "@/vendorExtensions";
+  useExtensionNavItems,
+  useExtensionNavOverrides,
+  useExtensionShell,
+} from "@/appExtensions";
 
 const { Content } = Layout;
 
 export function AppLayout() {
   const theme = useTheme();
-  const { shell, navOverrides } = useVendorExtensionConfig();
-  const vendorNavItems = useVendorNavItems();
+  const shell = useExtensionShell();
+  const navOverrides = useExtensionNavOverrides();
+  const extensionNavItems = useExtensionNavItems();
 
   // A replacement owns the region outright, including rendering the app's own
   // navigation — which is why it is handed `coreNavItems` rather than having to
   // keep a copy that drifts as pages are added.
-  const Sidebar = shell?.Sidebar;
-  const Header = shell?.Header ?? AppHeader;
+  const Sidebar = shell.Sidebar;
+  const Header = shell.Header ?? AppHeader;
 
   return (
     /*
@@ -51,7 +53,7 @@ export function AppLayout() {
         {Sidebar ? (
           <Sidebar
             coreNavItems={applyNavOverrides(coreNavItems, navOverrides)}
-            vendorNavItems={vendorNavItems}
+            extensionNavItems={extensionNavItems}
           />
         ) : (
           <AppSidebar />
@@ -62,13 +64,13 @@ export function AppLayout() {
             a short viewport. The document scrolls instead, and the sidebar goes with
             it, which is what every page on the web does. */}
         <Content data-testid="app-content" css={{ padding: theme.space(6) }}>
-          <VendorSlot id="app_shell_appLayout_contentArea_leadingBanner" />
+          <ExtensionSlot id="app_shell_appLayout_contentArea_leadingBanner" />
           <Outlet />
         </Content>
       </Layout>
       {/* Portalled to the document root, so an overlay is never clipped by, or
           stacked beneath, anything in the layout it was opened from. */}
-      <VendorSlot id="app_shell_appLayout_contentArea_globalOverlay" />
+      <ExtensionSlot id="app_shell_appLayout_contentArea_globalOverlay" />
     </Layout>
   );
 }

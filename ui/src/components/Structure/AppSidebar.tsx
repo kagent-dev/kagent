@@ -7,13 +7,13 @@ import { SidebarFooter } from "./SidebarFooter";
 import { coreNavItems } from "./navItems";
 import type { NavItem } from "./navItems";
 import {
-  VendorSlot,
+  ExtensionSlot,
   applyNavOverrides,
   buildSidebarSections,
   isNavPathActive,
-  useVendorExtensionConfig,
-  useVendorNavItems,
-} from "@/vendorExtensions";
+  useExtensionNavItems,
+  useExtensionNavOverrides,
+} from "@/appExtensions";
 
 const { Sider } = Layout;
 
@@ -32,20 +32,20 @@ export function AppSidebar() {
   const theme = useTheme();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const vendorNavItems = useVendorNavItems();
+  const extensionNavItems = useExtensionNavItems();
   const { mode } = useThemeMode();
   const [collapsed, setCollapsed] = useState(false);
-  const { navOverrides } = useVendorExtensionConfig();
+  const navOverrides = useExtensionNavOverrides();
 
-  // Core and vendor entries interleave by `order`, so consecutive core items
-  // are grouped into one antd Menu and vendor components render between the
+  // Core and extension entries interleave by `order`, so consecutive core items
+  // are grouped into one antd Menu and extension components render between the
   // groups. That is what lets a contribution sit at position 250 rather than
   // being appended after everything the app ships with.
   // Overrides applied before grouping, so a hidden or re-ordered entry is
   // grouped as the extension asked rather than as the application declared.
   const sections = buildSidebarSections(
     applyNavOverrides(coreNavItems, navOverrides),
-    vendorNavItems,
+    extensionNavItems,
   );
 
   return (
@@ -212,9 +212,9 @@ export function AppSidebar() {
         )}
       </div>
 
-      <VendorSlot id="app_shell_appLayout_appSidebar_footer" />
+      <ExtensionSlot id="app_shell_appLayout_appSidebar_footer" />
 
-      {/* After the vendor slot, so a distribution's own footer content sits above
+      {/* After the extension slot, so a distribution's own footer content sits above
           these rather than below the collapse control. */}
       <SidebarFooter
         collapsed={collapsed}
