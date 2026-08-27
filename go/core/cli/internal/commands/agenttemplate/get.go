@@ -13,6 +13,7 @@ import (
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -125,19 +126,28 @@ func writeTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, lis
 }
 
 // NewGetCmd constructs the AgentTemplate get/list command.
-func NewGetCmd(namespace *string, outputFormat *string) *cobra.Command {
+func NewGetCmd() *cobra.Command {
 	cfg := &GetCfg{}
 	cmd := &cobra.Command{
 		Use:   "agent-template [NAME]",
 		Short: "Get an AgentTemplate or list AgentTemplates",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg.Namespace = *namespace
-			cfg.OutputFormat = *outputFormat
-			cfg.Name = ""
-			if len(args) == 1 {
-				cfg.Name = args[0]
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
 			}
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			cfg.Namespace = options.Namespace
+			cfg.OutputFormat = format
+			cfg.Name = name
 			return runGet(cmd.Context(), cfg, cmd.OutOrStdout())
 		},
 	}

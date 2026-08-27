@@ -30,7 +30,8 @@ const (
 	kubectlErrorLimit       = 8 << 10
 )
 
-// Options contains only the settings needed to connect to kagent.
+// Options is how the CLI reaches kagent: where to dial, who to dial as, the
+// namespace to port-forward into, and whether to narrate the attempt.
 type Options struct {
 	KAgentURL            string
 	KAgentGRPCURL        string

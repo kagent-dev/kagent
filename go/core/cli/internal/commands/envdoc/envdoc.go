@@ -7,13 +7,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	format    string
-	component string
-)
-
 // NewEnvCmd returns a cobra command that generates environment variable documentation.
 func NewEnvCmd() *cobra.Command {
+	var format, component string
 	cmd := &cobra.Command{
 		Use:    "env",
 		Hidden: true,

@@ -27,7 +27,6 @@ type getClient interface {
 
 // GetCfg configures AgentInstance get and list operations.
 type GetCfg struct {
-	Connection   *connection.Options
 	OutputFormat string
 	InstanceID   string
 	PageSize     int32
@@ -35,7 +34,12 @@ type GetCfg struct {
 }
 
 // runGet gets one AgentInstance or lists the caller's AgentInstances.
-func runGet(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
+func runGet(
+	ctx context.Context,
+	options connection.Options,
+	cfg *GetCfg,
+	out io.Writer,
+) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -44,19 +48,14 @@ func runGet(ctx context.Context, cfg *GetCfg, out io.Writer) (err error) {
 		return err
 	}
 
-	portForward, err := connection.Connect(ctx, cfg.Connection)
+	session, err := connection.Open(ctx, options)
 	if err != nil {
-		return fmt.Errorf("connect to kagent: %w", err)
+		return err
 	}
-	if portForward != nil {
-		defer portForward.Stop()
-	}
-
-	clientSet := cfg.Connection.Client()
 	defer func() {
-		err = errors.Join(err, clientSet.Close())
+		err = errors.Join(err, session.Close())
 	}()
-	return get(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
+	return get(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func validateGetCfg(cfg *GetCfg) error {
@@ -157,19 +156,28 @@ func formatTimestamp(timestamp *timestamppb.Timestamp) string {
 }
 
 // NewGetCmd constructs the AgentInstance get/list command.
-func NewGetCmd(connectionOptions *connection.Options, outputFormat *string) *cobra.Command {
-	cfg := &GetCfg{Connection: connectionOptions}
+func NewGetCmd() *cobra.Command {
+	cfg := &GetCfg{}
 	cmd := &cobra.Command{
 		Use:   "agent-instance [ID]",
 		Short: "Get an AgentInstance or list your AgentInstances",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg.OutputFormat = *outputFormat
-			cfg.InstanceID = ""
-			if len(args) == 1 {
-				cfg.InstanceID = args[0]
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
 			}
-			return runGet(cmd.Context(), cfg, cmd.OutOrStdout())
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			var instanceID string
+			if len(args) == 1 {
+				instanceID = args[0]
+			}
+			cfg.OutputFormat = format
+			cfg.InstanceID = instanceID
+			return runGet(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().Int32Var(&cfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")

@@ -20,8 +20,7 @@ import (
 )
 
 type InstallCfg struct {
-	Connection *connection.Options
-	Profile    string
+	Profile string
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -65,7 +64,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func runInstall(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
+func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg) *connection.PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -102,7 +101,7 @@ func runInstall(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
 		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
 	}
 
-	return install(ctx, cfg.Connection, helmConfig, modelProvider)
+	return install(ctx, &options, helmConfig, modelProvider)
 }
 
 // helmConfig is the config for the kagent chart
@@ -306,14 +305,19 @@ func checkHelmAvailable() error {
 }
 
 // NewInstallCmd constructs the kagent install command.
-func NewInstallCmd(connectionOptions *connection.Options) *cobra.Command {
-	cfg := &InstallCfg{Connection: connectionOptions}
+func NewInstallCmd() *cobra.Command {
+	cfg := &InstallCfg{}
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
 		Long:  `Install kagent`,
-		Run: func(cmd *cobra.Command, _ []string) {
-			runInstall(cmd.Context(), cfg)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			runInstall(cmd.Context(), options, cfg)
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal|demo)")
@@ -324,13 +328,18 @@ func NewInstallCmd(connectionOptions *connection.Options) *cobra.Command {
 }
 
 // NewUninstallCmd constructs the kagent uninstall command.
-func NewUninstallCmd(namespace *string) *cobra.Command {
+func NewUninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
 		Short: "Uninstall kagent",
 		Long:  `Uninstall kagent`,
-		Run: func(cmd *cobra.Command, _ []string) {
-			runUninstall(cmd.Context(), *namespace)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			runUninstall(cmd.Context(), options.Namespace)
+			return nil
 		},
 	}
 }

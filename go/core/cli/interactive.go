@@ -12,26 +12,25 @@ import (
 )
 
 // runInteractive launches the workspace; the TUI reads raw keys, so a redirected stream is an error.
-func runInteractive(cmd *cobra.Command, cfg *connection.Options) (err error) {
+func runInteractive(cmd *cobra.Command, _ []string) (err error) {
 	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
 		return errors.New("kagent requires a terminal; use `kagent get agent-instance` and `kagent invoke` for non-interactive use")
 	}
 
-	client := cfg.Client()
+	options, err := connection.OptionsFromCommand(cmd)
+	if err != nil {
+		return err
+	}
+	session, err := connection.Open(cmd.Context(), options)
+	if err != nil {
+		return err
+	}
 	defer func() {
-		err = errors.Join(err, client.Close())
+		err = errors.Join(err, session.Close())
 	}()
 
-	portForward, connectErr := connection.Connect(cmd.Context(), cfg)
-	if connectErr != nil {
-		return fmt.Errorf("connect to kagent: %w", connectErr)
-	}
-	if portForward != nil {
-		defer portForward.Stop()
-	}
-
-	workspace := tui.Options{Namespace: cfg.Namespace}
-	if runErr := tui.RunWorkspace(cmd.Context(), workspace, client, cfg.Verbose); runErr != nil {
+	workspace := tui.Options{Namespace: session.Namespace}
+	if runErr := tui.RunWorkspace(cmd.Context(), workspace, session.Client, options.Verbose); runErr != nil {
 		return fmt.Errorf("run kagent workspace: %w", runErr)
 	}
 	return nil

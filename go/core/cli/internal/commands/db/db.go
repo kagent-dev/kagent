@@ -24,9 +24,21 @@ import (
 // itself consumes via envFrom. Same name, two different places.
 const vectorEnabledKey = "DATABASE_VECTOR_ENABLED"
 
-// NewDBCmd constructs the kagent db command.
-func NewDBCmd(connectionOptions *connection.Options) *cobra.Command {
-	return dbcli.NewCommandFromFunc(migrationSources(connectionOptions))
+// NewDBCmd constructs the kagent db command. The source callback the shared db
+// package takes carries no command, so the namespace is captured just before a
+// subcommand runs, when the root's flags have been parsed.
+func NewDBCmd() *cobra.Command {
+	var namespace string
+	cmd := dbcli.NewCommandFromFunc(migrationSources(&namespace))
+	cmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		options, err := connection.OptionsFromCommand(cmd)
+		if err != nil {
+			return err
+		}
+		namespace = options.Namespace
+		return nil
+	}
+	return cmd
 }
 
 // migrationSources resolves the built-in migration tracks when a db
@@ -36,7 +48,7 @@ func NewDBCmd(connectionOptions *connection.Options) *cobra.Command {
 // environment (explicit operator intent, works without a cluster), the
 // controller's configmap on the live cluster (the same value the server
 // reads), and finally the controller's default (enabled).
-func migrationSources(cfg *connection.Options) dbmigrate.SourcesFunc {
+func migrationSources(namespace *string) dbmigrate.SourcesFunc {
 	return func(ctx context.Context) ([]migrations.Source, error) {
 		vectorEnabled := true
 		if v := os.Getenv(vectorEnabledKey); v != "" {
@@ -46,7 +58,7 @@ func migrationSources(cfg *connection.Options) dbmigrate.SourcesFunc {
 			} else {
 				vectorEnabled = b
 			}
-		} else if b, ok := clusterVectorEnabled(ctx, cfg.Namespace); ok {
+		} else if b, ok := clusterVectorEnabled(ctx, *namespace); ok {
 			vectorEnabled = b
 		}
 		return migrations.BuiltinSources(vectorEnabled), nil

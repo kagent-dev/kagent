@@ -120,21 +120,24 @@ func runBugReport(namespace string, verbose bool) {
 }
 
 // NewBugReportCmd constructs the kagent bug-report command.
-func NewBugReportCmd(connectionOptions *connection.Options) *cobra.Command {
+func NewBugReportCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "bug-report",
 		Short: "Generate a bug report",
 		Long:  `Generate a bug report`,
-		Run: func(cmd *cobra.Command, _ []string) {
-			portForward, err := connection.Connect(cmd.Context(), connectionOptions)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			session, err := connection.Open(cmd.Context(), options)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
-				return
+				return nil
 			}
-			if portForward != nil {
-				defer portForward.Stop()
-			}
-			runBugReport(connectionOptions.Namespace, connectionOptions.Verbose)
+			defer session.Close() //nolint:errcheck
+			runBugReport(options.Namespace, options.Verbose)
+			return nil
 		},
 	}
 }

@@ -22,7 +22,6 @@ import (
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")
 
 type InvokeCfg struct {
-	Connection    *connection.Options
 	OutputFormat  string
 	Task          string
 	File          string
@@ -31,7 +30,13 @@ type InvokeCfg struct {
 	Token         string
 }
 
-func runInvoke(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer) (err error) {
+func runInvoke(
+	ctx context.Context,
+	options connection.Options,
+	cfg *InvokeCfg,
+	in io.Reader,
+	out io.Writer,
+) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -48,19 +53,14 @@ func runInvoke(ctx context.Context, cfg *InvokeCfg, in io.Reader, out io.Writer)
 		return errors.New("model API key must not contain whitespace")
 	}
 
-	portForward, err := connection.Connect(ctx, cfg.Connection)
+	session, err := connection.Open(ctx, options)
 	if err != nil {
-		return fmt.Errorf("connect to kagent: %w", err)
+		return err
 	}
-	if portForward != nil {
-		defer portForward.Stop()
-	}
-
-	clientSet := cfg.Connection.Client()
 	defer func() {
-		err = errors.Join(err, clientSet.Close())
+		err = errors.Join(err, session.Close())
 	}()
-	a2aClient, err := clientSet.A2A.ForAgentInstance(ctx, cfg.Connection.Namespace, instanceID.String())
+	a2aClient, err := session.Client.A2A.ForAgentInstance(ctx, session.Namespace, instanceID.String())
 	if err != nil {
 		return fmt.Errorf("create AgentInstance A2A client: %w", err)
 	}
@@ -330,8 +330,8 @@ func sendResultError(result a2atype.SendMessageResult) error {
 }
 
 // NewInvokeCmd constructs the AgentInstance invoke command.
-func NewInvokeCmd(connectionOptions *connection.Options, outputFormat *string) *cobra.Command {
-	cfg := &InvokeCfg{Connection: connectionOptions}
+func NewInvokeCmd() *cobra.Command {
+	cfg := &InvokeCfg{}
 	cmd := &cobra.Command{
 		Use:     "invoke",
 		Short:   "Invoke an AgentInstance",
@@ -339,8 +339,16 @@ func NewInvokeCmd(connectionOptions *connection.Options, outputFormat *string) *
 		Args:    cobra.NoArgs,
 		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg.OutputFormat = *outputFormat
-			return runInvoke(cmd.Context(), cfg, cmd.InOrStdin(), cmd.OutOrStdout())
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			cfg.OutputFormat = format
+			return runInvoke(cmd.Context(), options, cfg, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().StringVar(&cfg.AgentInstance, "agent-instance", "", "AgentInstance ID")

@@ -13,10 +13,10 @@ func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
 	rootCmd := cli.Root()
 
 	assert.Equal(t, "http://localhost:8083", rootCmd.PersistentFlags().Lookup("kagent-url").DefValue)
-	assert.Equal(t, "localhost:8084", rootCmd.PersistentFlags().Lookup("kagent-grpc-url").DefValue)
-	assert.Equal(t, "false", rootCmd.PersistentFlags().Lookup("kagent-grpc-tls").DefValue)
-	assert.Empty(t, rootCmd.PersistentFlags().Lookup("kagent-grpc-ca-file").DefValue)
-	assert.Empty(t, rootCmd.PersistentFlags().Lookup("kagent-grpc-server-name").DefValue)
+	assert.Equal(t, "localhost:8084", rootCmd.PersistentFlags().Lookup("grpc-url").DefValue)
+	assert.Equal(t, "false", rootCmd.PersistentFlags().Lookup("grpc-tls").DefValue)
+	assert.Empty(t, rootCmd.PersistentFlags().Lookup("grpc-ca-file").DefValue)
+	assert.Empty(t, rootCmd.PersistentFlags().Lookup("grpc-server-name").DefValue)
 	assert.Equal(t, "kagent", rootCmd.PersistentFlags().Lookup("namespace").DefValue)
 	assert.Equal(t, "table", rootCmd.PersistentFlags().Lookup("output-format").DefValue)
 	assert.Equal(t, "false", rootCmd.PersistentFlags().Lookup("verbose").DefValue)
@@ -40,16 +40,16 @@ func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
 	}))
 
 	want := map[string]string{
-		"kagent-url":              "http://flag.example.test",
-		"kagent-grpc-url":         "grpc.flag.example.test:8443",
-		"kagent-grpc-tls":         "true",
-		"kagent-grpc-ca-file":     "/tmp/flag-ca.pem",
-		"kagent-grpc-server-name": "grpc.flag.example.test",
-		"namespace":               "flag-ns",
-		"output-format":           "yaml",
-		"verbose":                 "true",
-		"timeout":                 "10s",
-		"user-id":                 "flag-user",
+		"kagent-url":       "http://flag.example.test",
+		"grpc-url":         "grpc.flag.example.test:8443",
+		"grpc-tls":         "true",
+		"grpc-ca-file":     "/tmp/flag-ca.pem",
+		"grpc-server-name": "grpc.flag.example.test",
+		"namespace":        "flag-ns",
+		"output-format":    "yaml",
+		"verbose":          "true",
+		"timeout":          "10s",
+		"user-id":          "flag-user",
 	}
 	for name, value := range want {
 		assert.Equal(t, value, rootCmd.PersistentFlags().Lookup(name).Value.String())
@@ -164,4 +164,46 @@ func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "kagent requires a terminal")
 	assert.Contains(t, err.Error(), "kagent invoke")
+}
+
+func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
+	// An unparseable format is rejected before any command connects, so this
+	// reaches the run function without touching the network or a cluster.
+	for name, args := range map[string][]string{
+		"get agent-instance":    {"get", "agent-instance"},
+		"get agent-template":    {"get", "agent-template"},
+		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
+		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
+		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rootCmd := cli.Root()
+			rootCmd.SetArgs(append(args, "--output-format", "bogus"))
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+
+			err := rootCmd.ExecuteContext(t.Context())
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `unsupported output format "bogus"`)
+		})
+	}
+}
+
+func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
+	for name, want := range map[string]string{
+		"get":    "agent-instance, agent-template",
+		"create": "agent-instance",
+		"delete": "agent-instance",
+	} {
+		t.Run(name, func(t *testing.T) {
+			rootCmd := cli.Root()
+			rootCmd.SetArgs([]string{name})
+
+			err := rootCmd.ExecuteContext(t.Context())
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "available resource types: "+want)
+		})
+	}
 }
