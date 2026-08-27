@@ -487,9 +487,8 @@ import { readEnv } from "@/appExtensions";
 const apiUrl = readEnv("EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
 ```
 
-**Set it in a deployment** by getting the variable into the UI container's
-environment. With the `kagent` chart that is `ui.env`, which is passed through to
-the UI deployment verbatim:
+**Set it in a deployment** through `ui.env` in the `kagent` chart, which is passed
+through to the UI deployment verbatim:
 
 ```yaml
 # values.yaml
@@ -498,10 +497,6 @@ ui:
     - name: EXTENSION_EXAMPLE_API_URL
       value: https://api.example.test
 ```
-
-Any other chart works the same way — the only requirement is that the pod running
-the UI has the variable set. Nothing reads it from Kubernetes directly; the
-container's own startup script reads its environment.
 
 **Set it locally** in `ui/.env`, which is git-ignored — `.env.example` keeps a
 section at the bottom for exactly this, so a branch that installs an extension
