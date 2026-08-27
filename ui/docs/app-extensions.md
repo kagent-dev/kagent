@@ -475,80 +475,74 @@ rule applies one level up: the earlier extension's providers wrap the later one'
 
 ## Settings an extension reads
 
-Two different mechanisms, and picking the wrong one is the usual mistake.
+An extension that needs configuring — an API root, a feature flag, an account id —
+names a variable `EXTENSION_*`. Three steps, and none of them touch this
+application.
 
-**`VITE_APP_EXTENSIONS` is build-time**, and it exists only to append the bundled
-example for the e2e suite and for anyone who wants to see it running. It is not a
-way to install an extension — the array is.
-
-**An extension's own settings are runtime**, and arrive on
-`window.environmentVariables`. Anything named `EXTENSION_*` is passed through
-untouched, by the dev server and by the container's `scripts/init.sh` alike, and
-read back with `readEnv`:
+**Read it** with `readEnv`, which takes any key and a fallback:
 
 ```ts
-import { readEnv } from "@/env";
+import { readEnv } from "@/appExtensions";
 
-// No VITE_ prefix, and adding one would break it — see below.
 const apiUrl = readEnv("EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
 ```
 
-The application reads none of them and does not know what they mean; the extension
-that reads one documents it. Nothing needs registering — an extension names a key
-`EXTENSION_SOMETHING` and it arrives.
+**Set it in a deployment** through the chart's `ui.env`:
 
-Three properties worth knowing before you reach for it:
-
-- **Runtime, not build time.** One image serves every deployment, and the container
-  rewrites these on every start, so a setting is an operator's decision rather than
-  something frozen into a build. Never use `import.meta.env` for a value an operator
-  should be able to change.
-- **Read synchronously, at import time.** The script tag that supplies them is
-  synchronous and runs ahead of the app, so a module-level constant can read one.
-  Anything awaited would be read before it arrived.
-- **Only `EXTENSION_*` and `CORE_ENV_KEYS` reach the browser.** The dev server
-  inlines these into the page, so it copies a bounded set out of the shell rather
-  than the whole environment. A key outside both is not passed through.
-
-### Why there is no `VITE_` prefix on those
-
-Because they never go through Vite. `VITE_` is not a house style, it is the
-`envPrefix` filter on `import.meta.env` — Vite's guard against inlining a whole
-environment into a bundle. It applies to `import.meta.env` and to nothing else, so
-only the two build-time pins carry it.
-
-A runtime setting is read from a `<script>` tag instead: rendered by
-`scripts/init.sh` from the pod's environment in a container, and by a dev-server
-plugin from `.env` and the shell locally. Both select keys by the `EXTENSION_`
-prefix, and the dev plugin calls Vite's `loadEnv` with an *empty* prefix precisely
-so these are read under the names the chart sets rather than under bundler names.
-
-So the prefix is not merely unnecessary here — **adding it breaks the setting.**
-`VITE_EXTENSION_ACCOUNT_URL` matches neither selector, so it is never copied onto
-`window.environmentVariables`, and `readEnv` returns the fallback with no warning.
-
-| | Name | Read with | Decided |
-|---|---|---|---|
-| Build-time pin | `VITE_APP_EXTENSIONS`, `VITE_API_MODE` | `import.meta.env` | when the bundle is built |
-| Extension setting | `EXTENSION_*` | `readEnv` | by the operator, per deployment |
-
-That split is not incidental. **Which** extensions are installed has to be decided
-at build time, because the array is compiled and an extension has to be imported
-to be in the bundle at all — which is what lets an uninstalled one be tree-shaken
-out entirely. **How** an installed extension is configured is an operator's
-decision, and so is read at runtime.
-
-Locally the same values come from `ui/.env` (git-ignored). `ui/.env.example`
-documents the application's own and has a section at the bottom for an installed
-extension's, so a branch that installs one appends rather than editing above it.
-
-Import everything from the `@/appExtensions` barrel. Anything below it is
-internal and free to move:
-
-```ts
-import { ExtensionSlot, defineExtensionFormField } from "@/appExtensions";
-import type { AppExtensionConfig } from "@/appExtensions";
+```yaml
+ui:
+  env:
+    - name: EXTENSION_EXAMPLE_API_URL
+      value: https://api.example.test
 ```
+
+**Set it locally** in `ui/.env`, which is git-ignored — `.env.example` keeps a
+section at the bottom for exactly this, so a branch that installs an extension
+appends rather than editing the application's own settings above it:
+
+```sh
+EXTENSION_EXAMPLE_API_URL=https://api.example.test
+```
+
+That is the whole mechanism, and nothing needs registering. The container's
+`scripts/init.sh` copies every `EXTENSION_*` variable out of the pod's environment
+**by prefix**, and the dev server does the same from `.env` and your shell. Neither
+enumerates the keys, so this application never learns what your settings mean and
+needs no change when your extension grows one.
+
+The values land on `window.environmentVariables`, which is what `readEnv` reads.
+You should not have to think about that object — the init script writes it — but
+two consequences of it are worth knowing:
+
+- **A setting is a deployment's choice, not a build's.** One image serves every
+  deployment and the values are rewritten on every container start, so changing one
+  needs a restart and a page reload, never a rebuild. Never reach for
+  `import.meta.env` for a value an operator should be able to change.
+- **A setting is readable synchronously, by the first module that runs**, because
+  the script tag carrying it is synchronous and precedes the app. A module-level
+  constant can read one; anything awaited would be read after the app had started.
+
+### The two build-time exceptions
+
+`VITE_API_MODE` and `VITE_APP_EXTENSIONS` are the only variables in this UI that
+carry a `VITE_` prefix, and neither is a deployment setting:
+
+| | `VITE_API_MODE`, `VITE_APP_EXTENSIONS` | `EXTENSION_*` |
+|---|---|---|
+| Read with | `import.meta.env` | `readEnv` |
+| Fixed when | the bundle is built | the container starts |
+| Set by | whoever runs the build | the operator, via `ui.env` |
+
+`VITE_` is not a naming convention to follow. It is Vite's `envPrefix` filter,
+which decides what `import.meta.env` exposes to bundled code and guards against
+inlining a whole machine's environment into a bundle. It has no bearing on anything
+read at runtime, so an extension setting never takes it — prefixed, the variable
+would no longer match the `EXTENSION_` prefix the init script and the dev server
+select on, and `readEnv` would quietly return the fallback.
+
+`VITE_APP_EXTENSIONS` is also not a way to install an extension. It only appends the
+bundled example, for the e2e suite and for a look at it running. Installing is the
+array.
 
 ---
 

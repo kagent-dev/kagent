@@ -91,6 +91,11 @@ export type {
 export { buildSidebarSections, isNavPathActive } from "./composition";
 export type { SidebarSection } from "./composition";
 
+// One deployment setting, by name. An extension's own settings are named
+// `EXTENSION_*` and are not the application's business, so this takes any key and
+// a fallback rather than a union of keys it knows about.
+export { readEnv } from "@/env";
+
 // The palette currently showing. Re-exported because a contribution that wants to
 // look like the application's own chrome has to pick the same one — antd's Menu
 // and Table both take a light/dark choice that no design token can stand in for.
