@@ -39,8 +39,6 @@ type Client struct {
 	maxMessageBytes int
 	agentName       string
 	tokenProvider   TokenProvider
-	sessionService  apiv1alpha1.SessionServiceClient
-	taskService     apiv1alpha1.TaskStoreServiceClient
 	memoryService   apiv1alpha1.MemoryServiceClient
 	closeOnce       sync.Once
 	closeErr        error
@@ -80,18 +78,8 @@ func New(config Config) (*Client, error) {
 		maxMessageBytes: config.MaxMessageBytes,
 		agentName:       config.AgentName,
 		tokenProvider:   config.TokenProvider,
-		sessionService:  apiv1alpha1.NewSessionServiceClient(connection),
-		taskService:     apiv1alpha1.NewTaskStoreServiceClient(connection),
 		memoryService:   apiv1alpha1.NewMemoryServiceClient(connection),
 	}, nil
-}
-
-func (client *Client) SessionService() apiv1alpha1.SessionServiceClient {
-	return client.sessionService
-}
-
-func (client *Client) TaskService() apiv1alpha1.TaskStoreServiceClient {
-	return client.taskService
 }
 
 func (client *Client) MemoryService() apiv1alpha1.MemoryServiceClient {

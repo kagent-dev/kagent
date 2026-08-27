@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS agent_instance_share (
     id TEXT PRIMARY KEY,
     namespace TEXT NOT NULL,
     instance_id TEXT NOT NULL REFERENCES agent_instance(id) ON DELETE CASCADE,
-    creator TEXT NOT NULL,
     permission TEXT NOT NULL,
     token_hash BYTEA NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

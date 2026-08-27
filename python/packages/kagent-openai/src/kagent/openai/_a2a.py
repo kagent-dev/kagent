@@ -19,11 +19,10 @@ from agents import Agent, set_default_openai_api, set_default_openai_client, set
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
+from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
-    KAgentTaskStore,
     get_a2a_max_content_length,
 )
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
@@ -31,7 +30,6 @@ from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 from openai import AsyncOpenAI
 
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
-from ._session_service import KAgentSessionFactory
 
 # Logging is configured by kagent.core (imported above) which sets
 # timestamp format via configure_logging() at import time.
@@ -133,8 +131,7 @@ class KAgentApp:
         """Build a production FastAPI application with KAgent integration.
 
         This creates an application that:
-        - Uses KAgentSessionFactory for session management
-        - Connects to the KAgent backend via generated gRPC clients
+        - Lets the public A2A gateway own durable task history
         - Implements A2A protocol handlers
         - Includes health check endpoints
 
@@ -143,34 +140,20 @@ class KAgentApp:
         """
         _configure_openai_client()
 
-        controller_client = AsyncControllerClient(
-            self.config.grpc_url,
-            agent_name=self.config.app_name,
-            token_provider=AsyncFileTokenProvider(),
-        )
-
-        # Create session factory
-        session_factory = KAgentSessionFactory(
-            client=controller_client,
-            app_name=self.config.app_name,
-        )
-
-        # Create agent executor with session factory
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
             app_name=self.config.app_name,
-            session_factory=session_factory.create_session,
+            session_factory=None,
             config=self.executor_config,
         )
 
-        # Create KAgent task store
-        kagent_task_store = KAgentTaskStore(controller_client)
+        task_store = InMemoryTaskStore()
 
         # Create request context builder and handler
-        request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
+        request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
         request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
-            task_store=kagent_task_store,
+            task_store=task_store,
             agent_card=self.agent_card,
             request_context_builder=request_context_builder,
         )
@@ -179,7 +162,7 @@ class KAgentApp:
         faulthandler.enable()
 
         # Create FastAPI app with lifespan
-        app = FastAPI(lifespan=controller_client.lifespan())
+        app = FastAPI()
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
             max_content_length=get_a2a_max_content_length(),

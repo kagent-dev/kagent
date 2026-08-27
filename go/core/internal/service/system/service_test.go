@@ -11,7 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -126,7 +126,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 			&atev1alpha1.ActorTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "template", Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "kagent",
-					substrate.SandboxAgentLabelKey: "agent",
+					substrate.RevisionHarnessLabel: "agent",
 				}},
 				Spec:   atev1alpha1.ActorTemplateSpec{SandboxClass: atev1alpha1.SandboxClassGvisor},
 				Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady},
