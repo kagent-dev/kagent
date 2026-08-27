@@ -36,35 +36,42 @@ in the host application rather than magic discovery.
 
 `activeAppExtensions` is an ordered array, and the order is the precedence. An
 extension's config is the same shape whether it is installed alone or alongside
-others — what the array decides is only how two of them are reconciled:
+others — what the array decides is only how two of them are reconciled. Two rules
+cover everything:
 
 | | Rule |
 |---|---|
-| `navItems`, `routes`, `formFields`, `tableColumns`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. Nav items are then re-sorted by `order`, so a contribution lands at its position regardless of which extension supplied it. |
-| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
+| `navItems`, `routes`, `formFields`, `tableColumns`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
+| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
 
-Two consequences worth knowing:
+So list the extension whose opinion should prevail **last**.
 
-- **A slot renders every contribution mounted at it**, not just one. A point is a
-  place in the layout, not a single appointment, so two extensions each adding a
-  header action get both — installing one must never silently switch off part of
-  another.
-- **API transforms compose; overrides do not.** Operation, endpoint and base-URL
-  overrides are single-valued, so the later extension wins. Request and response
-  transforms are a list applied in order, so both extensions' transforms run and the
-  later one sees the earlier one's work.
+### Per capability
+
+| Capability | With two installed |
+|---|---|
+| `navItems` | Concatenated, then re-sorted by `order` — so a contribution lands at its position regardless of which extension supplied it, and two extensions' entries interleave with each other as well as with the application's. |
+| `routes` | Concatenated. Two extensions claiming one path is a startup error. `replaces` is a union: a core route named by any extension is dropped. |
+| `slots` | **Every** contribution renders, in array order, inside the one wrapper the point declares. |
+| `formFields` | Concatenated, then sorted by `order` within the target form. |
+| `tableColumns` | Concatenated, each placed after the core column its `after` names. |
+| `providers` | Concatenated and nested outermost-first, so the earlier extension's providers wrap the later one's. |
+| `theme.tokens` / `modeTokens` | Folded one level deep in order; the later extension wins a token both name, and keeps one only the earlier names. |
+| `theme.antd.components` | Merged per component, then per token — so naming one property of `Input` does not discard the others. |
+| `theme.globalStyles` | All emitted, in order, after the application's own — later wins a tie. |
+| `theme.stylesheets` | All loaded; an href already present is not fetched twice. |
+| `theme.supportedModes` | **Intersected**, not last-wins. It is a statement that an extension's own components cannot be read in the other palette, and a second install does not make the first one's components legible. A mode is offered only while every extension that has an opinion can honour it. |
+| `navOverrides` | Merged **two** levels — per entry, then per field. One extension hiding an entry and another renaming it gives a hidden, renamed entry rather than whichever spoke last. |
+| `api.transforms` / `api.request` | **Compose.** They are a list applied in registration order, so both extensions' transforms run and the later one sees the earlier one's work. |
+| `api.operations` / `endpoints` / `baseUrl` | Single-valued, so the later extension wins. |
+
+An absent field never overwrites: omitting something means "no opinion", which is
+what lets a second extension change the header without blanking the sidebar the
+first one replaced.
 
 Collisions that cannot be reconciled — two extensions claiming the same route path
 or the same nav key, or the same extension installed twice — are rejected at
 startup rather than resolved arbitrarily. See [Validation](#validation).
-
-Import everything from the `@/appExtensions` barrel. Anything below it is
-internal and free to move:
-
-```ts
-import { ExtensionSlot, defineExtensionFormField } from "@/appExtensions";
-import type { AppExtensionConfig } from "@/appExtensions";
-```
 
 ### Running the bundled example
 
@@ -461,7 +468,58 @@ providers: [ExampleTenantProvider, ExampleTelemetryProvider],
 ```
 
 They sit inside the app's own theming, so they can read it, and outside the
-router, so they survive navigation.
+router, so they survive navigation. With several extensions installed the same
+rule applies one level up: the earlier extension's providers wrap the later one's.
+
+---
+
+## Settings an extension reads
+
+Two different mechanisms, and picking the wrong one is the usual mistake.
+
+**`VITE_APP_EXTENSIONS` is build-time**, and it exists only to append the bundled
+example for the e2e suite and for anyone who wants to see it running. It is not a
+way to install an extension — the array is.
+
+**An extension's own settings are runtime**, and arrive on
+`window.environmentVariables`. Anything named `EXTENSION_*` is passed through
+untouched, by the dev server and by the container's `scripts/init.sh` alike, and
+read back with `readEnv`:
+
+```ts
+import { readEnv } from "@/env";
+
+const controlPlane = readEnv("EXTENSION_ACME_API_URL", "https://api.acme.test");
+```
+
+The application reads none of them and does not know what they mean; the extension
+that reads one documents it. Nothing needs registering — an extension names a key
+`EXTENSION_SOMETHING` and it arrives.
+
+Three properties worth knowing before you reach for it:
+
+- **Runtime, not build time.** One image serves every deployment, and the container
+  rewrites these on every start, so a setting is an operator's decision rather than
+  something frozen into a build. Never use `import.meta.env` for a value an operator
+  should be able to change.
+- **Read synchronously, at import time.** The script tag that supplies them is
+  synchronous and runs ahead of the app, so a module-level constant can read one.
+  Anything awaited would be read before it arrived.
+- **Only `EXTENSION_*` and `CORE_ENV_KEYS` reach the browser.** The dev server
+  inlines these into the page, so it copies a bounded set out of the shell rather
+  than the whole environment. A key outside both is not passed through.
+
+Locally the same values come from `ui/.env` (git-ignored). `ui/.env.example`
+documents the application's own and has a section at the bottom for an installed
+extension's, so a branch that installs one appends rather than editing above it.
+
+Import everything from the `@/appExtensions` barrel. Anything below it is
+internal and free to move:
+
+```ts
+import { ExtensionSlot, defineExtensionFormField } from "@/appExtensions";
+import type { AppExtensionConfig } from "@/appExtensions";
+```
 
 ---
 
