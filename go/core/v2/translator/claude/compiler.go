@@ -49,7 +49,7 @@ func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: ku
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ModelConfig == nil {
-		return nil, fmt.Errorf("Claude compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
+		return nil, fmt.Errorf("claude compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
 	model := input.Root.ModelConfig
 	if strings.TrimSpace(model.Spec.Model) == "" {
@@ -148,7 +148,7 @@ func (c *Compiler) compileLocalAgents(root *v2translator.AgentInput) (map[string
 	for _, binding := range root.Shared {
 		child := binding.Agent
 		if child == nil || child.Template == nil || child.ModelConfig == nil {
-			return nil, fmt.Errorf("Claude local agent %q is not fully resolved", binding.Name)
+			return nil, fmt.Errorf("claude local agent %q is not fully resolved", binding.Name)
 		}
 		if len(child.MCPTools) != 0 || len(child.Shared) != 0 || len(child.Template.Spec.Tools) != 0 {
 			return nil, v2translator.NewValidationError("Claude local agent %q cannot contain MCP or nested agent tools yet", binding.Name)
@@ -420,7 +420,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		}
 		value, ok := secret.Data[ref.Key]
 		if !ok {
-			return nil, fmt.Errorf("Secret %q does not contain key %q", ref.Name, ref.Key)
+			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
 		hash := sha256.Sum256(value)
 		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
@@ -453,7 +453,7 @@ func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, env
 		}
 		value, ok := secret.Data[ref.Key]
 		if !ok {
-			return nil, fmt.Errorf("Secret %q does not contain key %q", ref.Name, ref.Key)
+			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
 		resolved[i].Value, resolved[i].ValueFrom = string(value), nil
 	}

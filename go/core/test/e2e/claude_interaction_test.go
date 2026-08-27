@@ -243,24 +243,6 @@ func assertClaudeToolEvents(t *testing.T, events []claudeToolEvent, toolNames ..
 	}
 }
 
-func firstClaudeToolPairName(events []claudeToolEvent) string {
-	calls := map[string]map[string]struct{}{}
-	for _, event := range events {
-		if event.partType == "function_call" {
-			if calls[event.name] == nil {
-				calls[event.name] = map[string]struct{}{}
-			}
-			calls[event.name][event.id] = struct{}{}
-		}
-		if event.partType == "function_response" {
-			if _, ok := calls[event.name][event.id]; ok {
-				return event.name
-			}
-		}
-	}
-	return ""
-}
-
 func getClaudeTask(t *testing.T, fixture *interactionFixture, taskID a2atype.TaskID) *a2atype.Task {
 	t.Helper()
 	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: taskID})

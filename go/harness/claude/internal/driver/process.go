@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -49,7 +50,7 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 	}
 	version := strings.TrimSpace(string(output))
 	if d.config.StrictVersion && !strings.Contains(version, d.config.ExpectedVersion) {
-		return fmt.Errorf("Claude version mismatch: got %q, expected %q", version, d.config.ExpectedVersion)
+		return fmt.Errorf("claude version mismatch: got %q, expected %q", version, d.config.ExpectedVersion)
 	}
 	return nil
 }
@@ -118,14 +119,20 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		}
 	}()
 	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
+	var waitOnce sync.Once
+	waitForExit := func() <-chan error {
+		waitOnce.Do(func() {
+			go func() { waitDone <- cmd.Wait() }()
+		})
+		return waitDone
+	}
 	var terminal *runtime.Outcome
 
 	for {
 		select {
 		case item, ok := <-items:
 			if !ok {
-				return runtime.Outcome{}, fmt.Errorf("Claude parser stopped without a result")
+				return runtime.Outcome{}, fmt.Errorf("claude parser stopped without a result")
 			}
 			if item.event != nil {
 				outcome, err := emitEvent(*item.event, sink, terminal != nil)
@@ -136,26 +143,28 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 					continue
 				}
 				close(stopEmit)
-				d.terminate(cmd, waitDone)
+				d.terminate(cmd, waitForExit())
 				for range items {
 				}
 				return runtime.Outcome{}, err
 			}
 			if item.err != nil {
 				close(stopEmit)
-				d.terminate(cmd, waitDone)
+				d.terminate(cmd, waitForExit())
 				return runtime.Outcome{}, item.err
 			}
-			if waitErr := <-waitDone; waitErr != nil {
-				return runtime.Outcome{}, fmt.Errorf("Claude exited with an error: %w: %s", waitErr, stderr.String())
+			// StdoutPipe requires all reads to complete before Wait closes the pipe.
+			// The parser's nil result is the EOF boundary, so start Wait only now.
+			if waitErr := <-waitForExit(); waitErr != nil {
+				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, stderr.String())
 			}
 			if terminal == nil {
-				return runtime.Outcome{}, fmt.Errorf("Claude process exited without a terminal result")
+				return runtime.Outcome{}, fmt.Errorf("claude process exited without a terminal result")
 			}
 			return *terminal, nil
 		case <-ctx.Done():
 			close(stopEmit)
-			d.terminate(cmd, waitDone)
+			d.terminate(cmd, waitForExit())
 			for range items {
 			}
 			return runtime.Outcome{}, ctx.Err()
@@ -165,7 +174,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 
 func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Outcome, error) {
 	if terminal {
-		return nil, fmt.Errorf("Claude emitted activity after its terminal result")
+		return nil, fmt.Errorf("claude emitted activity after its terminal result")
 	}
 	switch event.Kind {
 	case EventSessionStarted:
@@ -183,7 +192,7 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 				ID: event.ToolID, Name: event.ToolName, Result: event.ToolResult, IsError: event.ToolError,
 			})
 		default:
-			return nil, fmt.Errorf("Claude tool activity has unsupported phase %q", event.ToolPhase)
+			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)
 		}
 	case EventCompleted:
 		return &runtime.Outcome{}, nil

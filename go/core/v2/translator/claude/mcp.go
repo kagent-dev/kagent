@@ -52,6 +52,13 @@ func (c *Compiler) compileMCP(
 		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
+		if server.Spec.SseReadTimeout != nil {
+			result.warnings = append(result.warnings, fmt.Sprintf(
+				"Claude RemoteMCPServer %q ignores sseReadTimeout %s because Claude does not expose that transport setting",
+				server.Name,
+				server.Spec.SseReadTimeout.Duration,
+			))
+		}
 
 		transport, err := claudeMCPTransport(server)
 		if err != nil {
@@ -119,9 +126,6 @@ func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, error) {
 	}
 	if server.Spec.Timeout != nil && server.Spec.Timeout.Duration != 30*time.Second {
 		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q supports only the default 30s timeout", server.Name)
-	}
-	if server.Spec.SseReadTimeout != nil {
-		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q does not support sseReadTimeout", server.Name)
 	}
 	if server.Spec.TerminateOnClose != nil && !*server.Spec.TerminateOnClose {
 		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q requires terminateOnClose", server.Name)

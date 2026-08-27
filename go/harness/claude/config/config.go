@@ -95,25 +95,25 @@ func (c Config) Validate() error {
 	}
 	for name, agent := range c.Agents {
 		if !agentNamePattern.MatchString(name) {
-			return fmt.Errorf("Claude agent name %q must contain only letters, numbers, underscores, or hyphens", name)
+			return fmt.Errorf("claude agent name %q must contain only letters, numbers, underscores, or hyphens", name)
 		}
 		if strings.TrimSpace(agent.Description) == "" || strings.TrimSpace(agent.Prompt) == "" {
-			return fmt.Errorf("Claude agent %q requires a non-empty description and prompt", name)
+			return fmt.Errorf("claude agent %q requires a non-empty description and prompt", name)
 		}
 	}
 	for name, server := range c.MCPServers {
 		if !agentNamePattern.MatchString(name) {
-			return fmt.Errorf("Claude MCP server name %q must contain only letters, numbers, underscores, or hyphens", name)
+			return fmt.Errorf("claude MCP server name %q must contain only letters, numbers, underscores, or hyphens", name)
 		}
 		if server.Type != "http" && server.Type != "sse" {
-			return fmt.Errorf("Claude MCP server %q has unsupported transport %q", name, server.Type)
+			return fmt.Errorf("claude MCP server %q has unsupported transport %q", name, server.Type)
 		}
 		if strings.TrimSpace(server.URL) == "" {
-			return fmt.Errorf("Claude MCP server %q URL is required", name)
+			return fmt.Errorf("claude MCP server %q URL is required", name)
 		}
 		for header, value := range server.Headers {
 			if strings.TrimSpace(header) == "" || strings.TrimSpace(value) == "" {
-				return fmt.Errorf("Claude MCP server %q headers require non-empty names and values", name)
+				return fmt.Errorf("claude MCP server %q headers require non-empty names and values", name)
 			}
 		}
 	}

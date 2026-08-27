@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
@@ -216,8 +217,9 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "math-server", Namespace: "test", UID: "mcp-uid", Generation: 3},
 		Spec: v1alpha3.RemoteMCPServerSpec{
-			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
-			URL:      "https://mcp.example.com/mcp",
+			Protocol:       v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			URL:            "https://mcp.example.com/mcp",
+			SseReadTimeout: &metav1.Duration{Duration: 5 * time.Minute},
 			HeadersFrom: []v1alpha3.ValueRef{
 				{Name: "X-Tenant", Value: "test"},
 				{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}},
@@ -237,8 +239,8 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(revision.Warnings) != 0 {
-		t.Fatalf("whole-server selection warnings = %v", revision.Warnings)
+	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "ignores sseReadTimeout 5m0s") {
+		t.Fatalf("MCP compatibility warnings = %v", revision.Warnings)
 	}
 	var cfg claudeconfig.Config
 	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {

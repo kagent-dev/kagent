@@ -265,11 +265,11 @@ func validateRequest(reqCtx *a2asrv.ExecutorContext) (string, error) {
 		return "", fmt.Errorf("task ID and context ID are required")
 	}
 	if reqCtx.Message.Role != a2atype.MessageRoleUser || len(reqCtx.Message.Parts) != 1 || reqCtx.Message.Parts[0] == nil {
-		return "", fmt.Errorf("Harness runtime accepts exactly one user text part")
+		return "", fmt.Errorf("harness runtime accepts exactly one user text part")
 	}
 	text := reqCtx.Message.Parts[0].Text()
 	if text == "" {
-		return "", fmt.Errorf("Harness runtime accepts a non-empty text part")
+		return "", fmt.Errorf("harness runtime accepts a non-empty text part")
 	}
 	return text, nil
 }

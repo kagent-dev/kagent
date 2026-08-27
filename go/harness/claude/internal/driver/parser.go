@@ -42,7 +42,7 @@ func ParseJSONL(r io.Reader, maxEventBytes int, emit func(Event) error) error {
 		}
 	}
 	if !p.terminal {
-		return fmt.Errorf("Claude process exited without a terminal result event")
+		return fmt.Errorf("claude process exited without a terminal result event")
 	}
 	return nil
 }
@@ -52,7 +52,7 @@ func readBoundedLine(r *bufio.Reader, max int) ([]byte, error) {
 	for {
 		fragment, err := r.ReadSlice('\n')
 		if len(line)+len(fragment) > max {
-			return nil, fmt.Errorf("Claude event exceeds %d bytes", max)
+			return nil, fmt.Errorf("claude event exceeds %d bytes", max)
 		}
 		line = append(line, fragment...)
 		if err != bufio.ErrBufferFull {
@@ -141,10 +141,10 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, emit func(Event) error) e
 	case "content_block_start":
 		if event.ContentBlock.Type == "tool_use" {
 			if event.ContentBlock.ID == "" || event.ContentBlock.Name == "" {
-				return fmt.Errorf("Claude tool_use start requires an id and name")
+				return fmt.Errorf("claude tool_use start requires an id and name")
 			}
 			if previous := p.tools[event.ContentBlock.ID]; previous != "" && previous != event.ContentBlock.Name {
-				return fmt.Errorf("Claude tool_use %q changed name from %q to %q", event.ContentBlock.ID, previous, event.ContentBlock.Name)
+				return fmt.Errorf("claude tool_use %q changed name from %q to %q", event.ContentBlock.ID, previous, event.ContentBlock.Name)
 			}
 			p.tools[event.ContentBlock.ID] = event.ContentBlock.Name
 		}
@@ -192,10 +192,10 @@ func (p *parser) parseAssistant(raw json.RawMessage, emit func(Event) error) err
 			}
 		case "tool_use":
 			if content.ID == "" || content.Name == "" {
-				return fmt.Errorf("Claude assistant tool_use requires an id and name")
+				return fmt.Errorf("claude assistant tool_use requires an id and name")
 			}
 			if previous := p.tools[content.ID]; previous != "" && previous != content.Name {
-				return fmt.Errorf("Claude tool_use %q changed name from %q to %q", content.ID, previous, content.Name)
+				return fmt.Errorf("claude tool_use %q changed name from %q to %q", content.ID, previous, content.Name)
 			}
 			p.tools[content.ID] = content.Name
 			if _, emitted := p.emittedToolCalls[content.ID]; emitted {
@@ -228,10 +228,10 @@ func (p *parser) parseUser(raw json.RawMessage, emit func(Event) error) error {
 		}
 		name := p.tools[content.ToolUseID]
 		if content.ToolUseID == "" || name == "" {
-			return fmt.Errorf("Claude tool_result references unknown tool_use id %q", content.ToolUseID)
+			return fmt.Errorf("claude tool_result references unknown tool_use id %q", content.ToolUseID)
 		}
 		if _, emitted := p.emittedResults[content.ToolUseID]; emitted {
-			return fmt.Errorf("Claude tool_result for %q was emitted more than once", content.ToolUseID)
+			return fmt.Errorf("claude tool_result for %q was emitted more than once", content.ToolUseID)
 		}
 		var result any
 		if len(content.Content) != 0 && string(content.Content) != "null" {
