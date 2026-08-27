@@ -117,22 +117,9 @@ export const paths = {
   /*
    * A conversation opened through a share link.
    *
-   * The token is in the path because that is what makes the link a link — it is the
-   * whole credential, and one a reader forwards by copying the address bar. Which
-   * conversation it is for is in the path too: the token identifies the share to the
-   * backend, but the app has to know what to ask for before it can spend it.
-   */
-  sharedSession: "/shared/:sessionId/:token",
-
-  /*
-   * A conversation opened through a share link.
-   *
    * Addressed by the instance, because the instance *is* the conversation. The
-   * token is in the path for the reason the session one is: it is the whole
-   * credential, and one a reader forwards by copying the address bar.
-   *
-   * `sharedSession` above is kept for the links issued before this existed. It reads
-   * a session's stored turns; this one reads the instance's through the A2A gateway.
+   * token is in the path because it is the whole credential, and one a reader
+   * forwards by copying the address bar.
    */
   sharedAgent: "/shared/agent/:namespace/:id/:token",
 } as const;

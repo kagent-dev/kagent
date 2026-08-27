@@ -336,7 +336,7 @@ export function AgentTemplateForm({
         {/* Tools — MCP servers */}
         <Form.Item
           label="Tools from MCP servers"
-          extra="Each binding names one server and the tools to take from it. The CRD requires at least one tool per server — unlike the older agent kind, an empty selection does not mean “all of them”."
+          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             {readOnly && draft.mcpTools.length === 0
@@ -384,7 +384,7 @@ export function AgentTemplateForm({
                     : {})}
                   value={tool.tools}
                   loading={tools.isLoading}
-                  placeholder={placeholder("Tools")}
+                  placeholder={placeholder("All tools")}
                   popupMatchSelectWidth={false}
                   onChange={(value: string[]) => {
                     const next = [...draft.mcpTools];

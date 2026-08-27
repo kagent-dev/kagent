@@ -134,17 +134,32 @@ describe("the agent template draft", () => {
     expect(toInline).not.toHaveProperty("systemPromptFrom");
   });
 
-  it("drops a tool binding the CRD would refuse", () => {
+  it("keeps an MCP binding with no selection because it exposes every server tool", () => {
     const draft = emptyDraft("kagent");
     draft.modelConfig = "gpt";
-    // `MinItems=1` on the CRD: a server with nothing selected is rejected, so it is
-    // not sent. Unlike the older Agent kind, an empty list does not mean "all".
     draft.mcpTools = [{ serverRef: "kagent/tools", tools: [] }];
     draft.agentTools = [
       { name: "", description: "", templateName: "other", isolation: "Shared" },
     ];
 
-    expect(specFromDraft(draft)).not.toHaveProperty("tools");
+    expect(specFromDraft(draft).tools).toEqual([
+      {
+        mcp: {
+          server: { kind: "RemoteMCPServer", name: "tools" },
+        },
+      },
+    ]);
+  });
+
+  it("round-trips an MCP binding that exposes every server tool", () => {
+    const template = templateWithExtras();
+    template.resource.spec.tools = [
+      { mcp: { server: { kind: "RemoteMCPServer", name: "tools" } } },
+    ];
+
+    const spec = specFromDraft(draftFromTemplate(template), template.resource.spec);
+
+    expect(spec.tools).toEqual(template.resource.spec.tools);
   });
 
   it("sends an MCP server by bare name, as the CRD's reference is same-namespace", () => {

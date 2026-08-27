@@ -30,22 +30,16 @@ import { AgentKind, AgentService } from "@/generated/kagent/api/v1alpha1/agents_
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import {
-  SessionService,
-  TaskStoreService,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
   AgentInstanceState as PbAgentInstanceState,
 } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
-import { Role, TaskState } from "@/generated/a2a_pb";
 import { ApiError, isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
 import { registerAuthTokenSource, setApiTransport } from "./transport";
-import { withShareToken } from "./shareToken";
 import { registerApiTransform } from "./extensionPoints";
 
 /** Installs in-process services as the transport the client calls through. */
@@ -664,148 +658,6 @@ describe("prompt libraries", () => {
   });
 });
 
-describe("sessions", () => {
-  const sessionMessage = {
-    id: "sess-1",
-    name: "why is checkout crashlooping?",
-    userId: "someone@example.test",
-    agentId: "kagent__NS__k8s-agent",
-    createdAt: { seconds: 1767225600n, nanos: 0 },
-    updatedAt: { seconds: 1767225600n, nanos: 0 },
-  };
-
-  /**
-   * Timestamps arrive as `google.protobuf.Timestamp` and every renderer wants
-   * RFC3339. A session that has not been deleted gets no `deleted_at` at all
-   * rather than the epoch, which would render as "1 January 1970" on a screen that
-   * only checks the field for truthiness.
-   */
-  it("renders proto timestamps as RFC3339 and leaves an unset one empty", async () => {
-    serve(({ service }) => {
-      service(SessionService, { getSession: () => ({ session: sessionMessage }) });
-    });
-
-    const session = await apiClient.sessions.get("sess-1");
-    expect(session.created_at).toBe("2026-01-01T00:00:00.000Z");
-    expect(session.deleted_at).toBe("");
-    expect(session.agent_id).toBe("kagent__NS__k8s-agent");
-  });
-
-  /**
-   * `read_only` is reported beside the session rather than on it, because it
-   * describes the caller's access rather than the record. Folded in because that is
-   * where every reader looks for it.
-   */
-  it("folds the caller's read-only access onto the record", async () => {
-    serve(({ service }) => {
-      service(SessionService, {
-        getSession: () => ({ session: sessionMessage, readOnly: true }),
-      });
-    });
-
-    expect((await apiClient.sessions.get("sess-1")).share_read_only).toBe(true);
-  });
-
-  it("lists a share and reads its int64 id as a number", async () => {
-    serve(({ service }) => {
-      service(SessionService, {
-        listSessionShares: () => ({
-          shares: [
-            {
-              id: 42n,
-              token: "tok-abc",
-              sessionId: "sess-1",
-              userId: "someone@example.test",
-              readOnly: true,
-              createdAt: { seconds: 1767225600n, nanos: 0 },
-            },
-          ],
-        }),
-      });
-    });
-
-    const [share] = await apiClient.sessions.shares.list("sess-1");
-    expect(share.id).toBe(42);
-    expect(share.token).toBe("tok-abc");
-    expect(share.read_only).toBe(true);
-  });
-
-  // The controller defaults an omitted `read_only` to true, which is the right way
-  // round for handing out access — but it is sent explicitly rather than left to a
-  // default nobody reading this code can see.
-  it("asks for a read-only share unless told otherwise", async () => {
-    const asked: Array<boolean | undefined> = [];
-    serve(({ service }) => {
-      service(SessionService, {
-        createSessionShare: (request) => {
-          asked.push(request.readOnly);
-          return {
-            share: {
-              id: 1n,
-              token: "t",
-              sessionId: request.sessionId,
-              userId: "u",
-              readOnly: request.readOnly ?? true,
-            },
-          };
-        },
-      });
-    });
-
-    await apiClient.sessions.shares.create("sess-1");
-    await apiClient.sessions.shares.create("sess-1", { read_only: false });
-    expect(asked).toEqual([true, false]);
-  });
-
-  /**
-   * The trap this operation exists to avoid, restated for the proto path.
-   *
-   * A `Part` is a **oneof** in the proto — `{content: {case: "text", value}}` — with
-   * no `kind` field anywhere, so a reader that tests `part.kind === "text"` finds
-   * nothing and a replayed conversation comes back empty with no error. Reading the
-   * oneof is what makes the transcript appear, and this is the assertion that would
-   * catch it going wrong.
-   */
-  it("reads the transcript out of the proto rather than testing for a `kind`", async () => {
-    serve(({ service }) => {
-      service(TaskStoreService, {
-        listTasks: () => ({
-          tasks: [
-            {
-              id: "task-1",
-              contextId: "sess-1",
-              status: {
-                state: TaskState.COMPLETED,
-                timestamp: { seconds: 1767225600n, nanos: 0 },
-              },
-              history: [
-                {
-                  messageId: "m1",
-                  role: Role.USER,
-                  parts: [{ content: { case: "text" as const, value: "hello" } }],
-                },
-              ],
-              artifacts: [],
-            },
-          ],
-        }),
-      });
-    });
-
-    const messages = await apiClient.sessions.tasks("sess-1");
-
-    expect(messages).toHaveLength(1);
-    expect(messages[0].id).toBe("m1");
-    expect(messages[0].role).toBe("user");
-    expect(messages[0].parts).toEqual([{ kind: "text", text: "hello" }]);
-    // The task's own instant, not the clock now: history messages carry no time of
-    // their own, so stamping them with the moment the conversation was reopened
-    // reads as true and is wrong by however long ago the conversation was.
-    expect(messages[0].createdAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(messages[0].taskId).toBe("task-1");
-  });
-});
-
 describe("the cluster", () => {
   it("lists namespaces with their phase", async () => {
     serve(({ service }) => {
@@ -889,30 +741,6 @@ describe("the cluster", () => {
  * registry.
  */
 describe("transforms reaching the wire", () => {
-  it("carries a share token into the call's metadata", async () => {
-    const seen: Array<string | null> = [];
-    serve(({ service }) => {
-      service(SessionService, {
-        getSession: (_request, context) => {
-          seen.push(context.requestHeader.get("X-Share-Token"));
-          return { session: { id: "sess-1", userId: "u" } };
-        },
-      });
-    });
-
-    registerApiTransform({
-      name: "shareToken",
-      request: (context) => withShareToken(context, "sess-1", "tok-abc"),
-    });
-
-    await apiClient.sessions.get("sess-1");
-    await apiClient.sessions.get("sess-2");
-
-    // The token belongs to one conversation, and only that conversation's call
-    // gets it.
-    expect(seen).toEqual(["tok-abc", null]);
-  });
-
   /**
    * The interceptors live above the transport rather than inside it precisely so a
    * substituted one cannot skip them. This is the test that says so: the transport

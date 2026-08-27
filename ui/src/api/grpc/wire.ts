@@ -115,7 +115,6 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  *   awk '/^message /{m=$2} /int64|uint64/{print FILENAME":"NR" "m}' \
  *     proto/kagent/api/v1alpha1/*.proto
  *
- * - `sessions.proto:68` — `SessionShare.id`            (reached by `sessions.shares.*`)
  * - `system.proto:85`   — `SubstrateActor.version`     (reached by `substrate.status`)
  * - `system.proto:96`   — `SubstrateWorker.version`    (reached by `substrate.status`)
  * - `feedback.proto:15` — `Feedback.id`                (no operation id yet)
