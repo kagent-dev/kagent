@@ -11,10 +11,6 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
-// ErrTaskOwnedByAnotherUser means a task with this id already belongs to a
-// different user.
-var ErrTaskOwnedByAnotherUser = errors.New("task id owned by another user")
-
 var ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
 
 var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation conflicts with its current state")
@@ -23,11 +19,6 @@ var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an acti
 
 var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
 
-type QueryOptions struct {
-	Limit    int
-	After    time.Time
-	OrderAsc bool // When true, order results by created_at ASC (chronological). Default is DESC (newest first).
-}
 type LangGraphCheckpointTuple struct {
 	Checkpoint *LangGraphCheckpoint
 	Writes     []*LangGraphCheckpointWrite
@@ -36,42 +27,26 @@ type LangGraphCheckpointTuple struct {
 type Client interface {
 	// Store methods
 	StoreFeedback(ctx context.Context, feedback *Feedback) error
-	StoreSession(ctx context.Context, session *Session) error
 	StoreAgent(ctx context.Context, agent *Agent) error
-	StoreTask(ctx context.Context, task *a2a.Task, userID string) error
-	StorePushNotification(ctx context.Context, config *a2a.PushConfig) error
 	StoreToolServer(ctx context.Context, toolServer *ToolServer) (*ToolServer, error)
-	StoreEvents(ctx context.Context, messages ...*Event) error
 
 	// Delete methods
-	DeleteSession(ctx context.Context, sessionID string, userID string) error
 	DeleteAgent(ctx context.Context, agentID string) error
 	DeleteToolServer(ctx context.Context, serverName string, groupKind string) error
-	DeleteTask(ctx context.Context, taskID string, userID string) error
-	DeletePushNotification(ctx context.Context, taskID string) error
 	DeleteToolsForServer(ctx context.Context, serverName string, groupKind string) error
 
 	// Get methods
 
-	GetSession(ctx context.Context, sessionID string, userID string) (*Session, error)
 	GetAgent(ctx context.Context, name string) (*Agent, error)
-	GetTask(ctx context.Context, id string, userID string) (*a2a.Task, error)
 	GetTool(ctx context.Context, name string) (*Tool, error)
 	GetToolServer(ctx context.Context, name string) (*ToolServer, error)
-	GetPushNotification(ctx context.Context, taskID string, configID string) (*a2a.PushConfig, error)
 
 	// List methods
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListTasksForSession(ctx context.Context, sessionID string, userID string) ([]*a2a.Task, error)
-	ListSessions(ctx context.Context, userID string) ([]Session, error)
-	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]SessionWithShareToken, error)
-	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListToolServers(ctx context.Context) ([]ToolServer, error)
 	ListToolsForServer(ctx context.Context, serverName string, groupKind string) ([]Tool, error)
-	ListEventsForSession(ctx context.Context, sessionID, userID string, options QueryOptions) ([]*Event, error)
-	ListPushNotifications(ctx context.Context, taskID string) ([]*a2a.PushConfig, error)
 
 	// Helper methods
 	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha3.MCPTool) error
@@ -89,12 +64,6 @@ type Client interface {
 	StoreCrewAIFlowState(ctx context.Context, state *CrewAIFlowState) error
 	GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*CrewAIFlowState, error)
 
-	// Session share methods
-	CreateSessionShare(ctx context.Context, share *SessionShare) (*SessionShare, error)
-	GetSessionShareByToken(ctx context.Context, token string) (*SessionShare, error)
-	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
-	DeleteSessionShare(ctx context.Context, token, sessionID, userID string) error
-
 	// Agent memory (vector search) methods
 	StoreAgentMemory(ctx context.Context, memory *Memory) error
 	StoreAgentMemories(ctx context.Context, memories []*Memory) error
@@ -102,11 +71,6 @@ type Client interface {
 	ListAgentMemories(ctx context.Context, agentName, userID string) ([]Memory, error)
 	DeleteAgentMemory(ctx context.Context, agentName, userID string) error
 	PruneExpiredMemories(ctx context.Context) error
-
-	// PruneExpiredSessions hard-deletes idle sessions older than retentionDays
-	// (sliding window on updated_at) and cascaded conversation state. No-op when
-	// retentionDays <= 0. Returns the number of sessions deleted.
-	PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error)
 
 	// AgentTemplate runtime revision methods
 	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error

@@ -33,8 +33,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
-	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
-	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
@@ -139,8 +137,6 @@ func main() {
 		Reflection:           envBool("GRPC_REFLECTION"),
 		Authenticator:        authenticator,
 		ShareStore:           store,
-		SessionService:       sessionservice.NewService(store),
-		TaskService:          taskservice.NewService(store),
 		AgentInstanceService: instances,
 		// Both halves of the pair CreateAgentInstance names. Without these two
 		// the only way to author a Harness or an AgentTemplate is kubectl.

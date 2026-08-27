@@ -164,7 +164,7 @@ var (
 )
 
 // EventsFromSession extracts the typed event slice from an adksession.Session.
-// If the underlying session is a *localSession (as created by KAgentSessionService),
+// If the underlying session is a *localSession,
 // it returns the slice directly. Otherwise it falls back to iterating Events().
 func EventsFromSession(sess adksession.Session) []*adksession.Event {
 	if ls, ok := sess.(*localSession); ok {

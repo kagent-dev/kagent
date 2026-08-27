@@ -21,9 +21,7 @@ import (
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
-	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
-	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
@@ -62,8 +60,6 @@ type Config struct {
 	SystemService         *systemservice.Service
 	FeedbackService       *feedbackservice.Service
 	MemoryService         *memoryservice.Service
-	SessionService        *sessionservice.Service
-	TaskService           *taskservice.Service
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
 	A2AHandler            a2asrv.RequestHandler
@@ -159,12 +155,6 @@ func New(config Config) (*Server, error) {
 	}
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
-	}
-	if config.SessionService != nil {
-		apiv1alpha1.RegisterSessionServiceServer(grpcServer, newSessionServer(config.SessionService))
-	}
-	if config.TaskService != nil {
-		apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, newTaskServer(config.TaskService))
 	}
 	if config.AgentInstanceService != nil {
 		agentinstance.RegisterGRPC(grpcServer, config.AgentInstanceService)

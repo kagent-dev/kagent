@@ -13,17 +13,11 @@ type Querier interface {
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
-	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentInstance(ctx context.Context, id string) error
 	DeleteAgentInstanceCheckpoint(ctx context.Context, arg DeleteAgentInstanceCheckpointParams) (int64, error)
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
-	// DeleteExpiredSessionsBatch hard-deletes up to batch_size idle sessions whose
-	// updated_at is older than retention_days, plus cascaded conversation state.
-	// Soft-deleted sessions are included so tombstones still reclaim disk.
-	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
-	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
@@ -44,29 +38,10 @@ type Querier interface {
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
-	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
 	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
-	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
-	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
-	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
-	// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
-	// before the owner column existed, or by a pre-upgrade pod during a rolling
-	// upgrade) is only visible to, and claimable by, a caller whose session id
-	// maps to exactly one user across its whole history (deleted sessions
-	// included) and that user is the caller. Anything ambiguous stays hidden
-	// rather than guessed. This mirrors the backfill rule in migration
-	// 000007_task_owner.
-	//
-	// The resolving session must also have existed at or before the task was
-	// written (s.created_at <= task.created_at). Without that bound, a task
-	// whose original session is gone entirely (hard deleted, or never migrated)
-	// would become claimable by whoever is first to create a brand new session
-	// reusing that same id after the fact, handing them a stranger's task.
-	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
-	GetTaskOwner(ctx context.Context, id string) (*string, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
@@ -77,7 +52,6 @@ type Querier interface {
 	InsertAgentInstanceCheckpoint(ctx context.Context, arg InsertAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error)
 	InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertCopiedAgentInstanceTaskParams) error
-	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error)
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
@@ -101,19 +75,7 @@ type Querier interface {
 	ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error)
 	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
 	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
-	ListEventsByContextID(ctx context.Context, sessionID *string) ([]Event, error)
-	ListEventsByContextIDLimit(ctx context.Context, arg ListEventsByContextIDLimitParams) ([]Event, error)
-	ListEventsForSessionAsc(ctx context.Context, arg ListEventsForSessionAscParams) ([]Event, error)
-	ListEventsForSessionAscLimit(ctx context.Context, arg ListEventsForSessionAscLimitParams) ([]Event, error)
-	ListEventsForSessionDesc(ctx context.Context, arg ListEventsForSessionDescParams) ([]Event, error)
-	ListEventsForSessionDescLimit(ctx context.Context, arg ListEventsForSessionDescLimitParams) ([]Event, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
-	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
-	ListSessions(ctx context.Context, userID string) ([]Session, error)
-	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
-	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
-	ListTasksForSession(ctx context.Context, arg ListTasksForSessionParams) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
@@ -137,13 +99,8 @@ type Querier interface {
 	SoftDeleteAgent(ctx context.Context, id string) error
 	SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error
 	SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error
-	SoftDeleteEvent(ctx context.Context, id string) error
-	SoftDeletePushNotification(ctx context.Context, taskID string) error
-	SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error
-	SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
-	TaskExists(ctx context.Context, id string) (bool, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
 	// Renames an instance in place. The row's `data` blob also carries the message,
 	// but `toAgentInstance` reads the name from this column, exactly as it does for
@@ -157,14 +114,7 @@ type Querier interface {
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
-	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
-	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
-	// UpsertTask returns the upserted id, or no rows when the write was rejected:
-	// the id belongs to another user, or it belongs to a soft-deleted task (a
-	// deleted id is never updated or resurrected, it stays burned). Callers map
-	// "no rows" to a conflict error.
-	UpsertTask(ctx context.Context, arg UpsertTaskParams) (string, error)
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)
 }
