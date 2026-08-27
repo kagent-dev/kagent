@@ -489,7 +489,7 @@ read back with `readEnv`:
 ```ts
 import { readEnv } from "@/env";
 
-const controlPlane = readEnv("EXTENSION_ACME_API_URL", "https://api.acme.test");
+const controlPlane = readEnv("EXTENSION_EXAMPLE_API_URL", "https://api.example.test");
 ```
 
 The application reads none of them and does not know what they mean; the extension
