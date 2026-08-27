@@ -522,29 +522,11 @@ two consequences of it are worth knowing:
   the script tag carrying it is synchronous and precedes the app. A module-level
   constant can read one; anything awaited would be read after the app had started.
 
-### The two build-time exceptions
-
-`VITE_API_MODE` and `VITE_EXAMPLE_EXTENSION` are the only variables in this UI that
-carry a `VITE_` prefix, and neither is a deployment setting:
-
-| | `VITE_API_MODE`, `VITE_EXAMPLE_EXTENSION` | `EXTENSION_*` |
-|---|---|---|
-| Read with | `import.meta.env` | `readEnv` |
-| Fixed when | the bundle is built | the container starts |
-| Set by | whoever runs the build | the operator, via `ui.env` |
-
-`VITE_` is not a naming convention to follow. It is Vite's `envPrefix` filter,
-which decides what `import.meta.env` exposes to bundled code and guards against
-inlining a whole machine's environment into a bundle. It has no bearing on anything
-read at runtime, so an extension setting never takes it — prefixed, the variable
-would no longer match the `EXTENSION_` prefix the init script and the dev server
-select on, and `readEnv` would quietly return the fallback.
-
-`VITE_EXAMPLE_EXTENSION=true` is a switch for the bundled example and nothing else.
-It cannot name an extension — an extension has to be *imported* to exist in the
-bundle at all, which is the same reason installing one is an edit to
-`activeExtensions.ts` rather than a setting. There is no environment variable that
-lists the installed extensions; the array is that list.
+**Do not add a `VITE_` prefix.** That prefix is Vite's `envPrefix` filter, which
+decides what `import.meta.env` exposes to bundled code; it applies to build-time
+variables and to nothing else. A prefixed name would no longer match the
+`EXTENSION_` prefix the init script and the dev server select on, so the value
+would never arrive and `readEnv` would quietly return the fallback.
 
 ---
 
