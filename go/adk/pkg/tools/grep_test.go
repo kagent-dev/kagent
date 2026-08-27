@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,116 @@ import (
 	"testing"
 	"time"
 )
+
+// TestClassifyWalkEntry pins the three-way split directly rather than only
+// through TestGrepContent's integration assertions, so a change to the
+// classifier fails here with the specific case that broke.
+//
+// It is the deliberate mirror of Python's
+// test_classify_walk_entry_covers_each_outcome (kagent-skills, shell.py):
+// same cases, same order, same expected outcomes. The two runtimes must sort
+// a tree identically, and reading these two tests side by side is how that
+// stays true. Prefer changing both, or neither.
+//
+// The directory case has no Python counterpart on purpose -- filepath.WalkDir
+// hands this function directories, while Python's os.walk yields only
+// filenames, so only Go can reach it.
+func TestClassifyWalkEntry(t *testing.T) {
+	root := createTempDir(t)
+	defer os.RemoveAll(root)
+
+	plain := filepath.Join(root, "plain.txt")
+	if err := os.WriteFile(plain, []byte("hello\n"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "subdir"), 0755); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
+	// A sibling temp dir, not filepath.Dir(root): that would be the shared
+	// system temp directory, where a fixed filename races other runs of this
+	// package.
+	outsideDir := createTempDir(t)
+	defer os.RemoveAll(outsideDir)
+	outside := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret\n"), 0644); err != nil {
+		t.Fatalf("failed to write out-of-root file: %v", err)
+	}
+
+	for name, target := range map[string]string{
+		"inside-link":   "plain.txt",
+		"escaping-link": outside,
+		"broken-link":   filepath.Join(root, "does-not-exist"),
+	} {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+	}
+	loop := filepath.Join(root, "loop-link")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+	fifoErr := syscall.Mkfifo(filepath.Join(root, "pipe"), 0644)
+
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(root) error = %v", err)
+	}
+	resolvedPlain, err := filepath.EvalSymlinks(plain)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(plain) error = %v", err)
+	}
+
+	entries := map[string]fs.DirEntry{}
+	dirEntries, err := os.ReadDir(resolvedRoot)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	for _, d := range dirEntries {
+		entries[d.Name()] = d
+	}
+
+	tests := []struct {
+		name         string
+		entry        string
+		wantAction   walkEntryAction
+		wantResolved string
+		why          string
+	}{
+		{"regular file", "plain.txt", walkEntryGrep, resolvedPlain,
+			"a normal in-bounds file is the whole point"},
+		{"symlink inside the root", "inside-link", walkEntryGrep, resolvedPlain,
+			"resolves through to its target so the caller reads what was just checked"},
+		{"symlink escaping the root", "escaping-link", walkEntrySkip, "",
+			"a symlink must not be usable to read outside the searched directory"},
+		{"broken symlink", "broken-link", walkEntryUnreadable, "",
+			"a dangling link is a real read failure, not a policy exclusion"},
+		{"symlink loop", "loop-link", walkEntryUnreadable, "",
+			"same class of failure as a dangling link"},
+		{"directory", "subdir", walkEntrySkip, "",
+			"WalkDir descends on its own; Python never reaches this case"},
+		{"fifo", "pipe", walkEntrySkip, "",
+			"excluded by policy, not failure -- opening one can block forever"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.entry == "pipe" && fifoErr != nil {
+				t.Skipf("FIFOs not supported: %v", fifoErr)
+			}
+			d, ok := entries[tt.entry]
+			if !ok {
+				t.Fatalf("test setup: no dir entry named %q", tt.entry)
+			}
+			action, resolved := classifyWalkEntry(resolvedRoot, filepath.Join(resolvedRoot, tt.entry), d)
+			if action != tt.wantAction {
+				t.Errorf("classifyWalkEntry() action = %v, want %v (%s)", action, tt.wantAction, tt.why)
+			}
+			if resolved != tt.wantResolved {
+				t.Errorf("classifyWalkEntry() resolved = %q, want %q", resolved, tt.wantResolved)
+			}
+		})
+	}
+}
 
 func TestGrepContent(t *testing.T) {
 	tmpDir := createTempDir(t)
