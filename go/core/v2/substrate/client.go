@@ -121,12 +121,6 @@ func actorRef(atespace, actorID string) *ateapipb.ObjectRef {
 	return &ateapipb.ObjectRef{Atespace: atespace, Name: actorID}
 }
 
-// actorName returns the actor's identity within its atespace. v0.0.9 moved this
-// out of the flat Actor.ActorId field into Metadata.
-func actorName(a *ateapipb.Actor) string {
-	return a.GetMetadata().GetName()
-}
-
 func (c *Client) GetActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()

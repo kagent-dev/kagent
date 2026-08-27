@@ -37,12 +37,12 @@ import (
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	legacysubstrate "github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 	v2mcp "github.com/kagent-dev/kagent/go/core/v2/mcp"
+	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	"golang.org/x/sync/errgroup"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -105,7 +105,7 @@ func main() {
 		log.Fatalf("add reconciler to controller manager: %v", err)
 	}
 
-	actors, err := legacysubstrate.Dial(ctx, legacysubstrate.Config{
+	actors, err := substrate.Dial(ctx, substrate.Config{
 		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
 		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
 		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
@@ -122,7 +122,7 @@ func main() {
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
 	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		env("SUBSTRATE_ATENET_ROUTER_URL", legacysubstrate.DefaultAtenetRouterURL),
+		env("SUBSTRATE_ATENET_ROUTER_URL", substrate.DefaultAtenetRouterURL),
 		authenticator,
 	)
 	if err != nil {
