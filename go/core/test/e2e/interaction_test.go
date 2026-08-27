@@ -24,10 +24,12 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/google/uuid"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	v2substrate "github.com/kagent-dev/kagent/go/core/v2/substrate"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/grpc"
@@ -101,7 +103,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	}
 	checkpoint := created.GetCheckpoint()
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), 2*time.Minute)
 		defer cleanupCancel()
 		_, cleanupErr := fixture.checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1alpha1.DeleteCheckpointRequest{
 			Namespace: "kagent", CheckpointId: checkpoint.GetId(),
@@ -449,6 +451,8 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
+		// DeleteAgentInstance returns only after its Substrate Actor has been
+		// suspended and deleted, so this cleanup covers both resources.
 		_, cleanupErr := instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
 			Namespace: "kagent", AgentInstanceId: instance.GetId(),
 		})
@@ -559,6 +563,11 @@ func startMockLLMServer(t *testing.T, fixtures fs.ReadFileFS, fixture string) st
 	if err != nil {
 		t.Fatalf("load mock LLM response: %v", err)
 	}
+	return startMockLLMConfig(t, cfg)
+}
+
+func startMockLLMConfig(t *testing.T, cfg mockllm.Config) string {
+	t.Helper()
 	server := mockllm.NewServer(cfg)
 	baseURL, err := server.Start(t.Context())
 	if err != nil {
@@ -767,6 +776,9 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 		t.Fatalf("load Kubernetes config: %v", err)
 	}
 	clientScheme := k8sruntime.NewScheme()
+	if err := atev1alpha1.AddToScheme(clientScheme); err != nil {
+		t.Fatalf("register Substrate API: %v", err)
+	}
 	if err := corev1.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register Kubernetes core API: %v", err)
 	}
@@ -812,8 +824,48 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 		t.Fatalf("create interaction AgentTemplate: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := kube.Delete(context.Background(), template); err != nil && !apierrors.IsNotFound(err) {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cleanupCancel()
+		if err := kube.Delete(cleanupCtx, template); err != nil && !apierrors.IsNotFound(err) {
 			t.Errorf("delete interaction AgentTemplate: %v", err)
+			return
+		}
+		if err := wait.PollUntilContextTimeout(cleanupCtx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			current := &v1alpha3.AgentTemplate{}
+			if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), current); err == nil {
+				return false, nil
+			} else if !apierrors.IsNotFound(err) {
+				return false, err
+			}
+			return true, nil
+		}); err != nil {
+			t.Errorf("wait for interaction AgentTemplate %s/%s to be deleted: %v", template.Namespace, template.Name, err)
+			return
+		}
+
+		labels := ctrlclient.MatchingLabels{
+			v2substrate.RevisionAgentTemplateLabel: template.Name,
+			v2substrate.RevisionHarnessLabel:       harnessName,
+		}
+		actorTemplates := &atev1alpha1.ActorTemplateList{}
+		if err := kube.List(cleanupCtx, actorTemplates, ctrlclient.InNamespace(template.Namespace), labels); err != nil {
+			t.Errorf("list generated ActorTemplates for %s/%s harness %q: %v", template.Namespace, template.Name, harnessName, err)
+			return
+		}
+		for index := range actorTemplates.Items {
+			if err := kube.Delete(cleanupCtx, &actorTemplates.Items[index]); err != nil && !apierrors.IsNotFound(err) {
+				t.Errorf("delete generated ActorTemplate %s/%s: %v", actorTemplates.Items[index].Namespace, actorTemplates.Items[index].Name, err)
+			}
+		}
+		if err := wait.PollUntilContextTimeout(cleanupCtx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			actorTemplates := &atev1alpha1.ActorTemplateList{}
+			if err := kube.List(ctx, actorTemplates, ctrlclient.InNamespace(template.Namespace), labels); err != nil {
+				return false, err
+			}
+			return len(actorTemplates.Items) == 0, nil
+		}); err != nil {
+			t.Errorf("wait for generated ActorTemplates for %s/%s harness %q to be deleted: %v",
+				template.Namespace, template.Name, harnessName, err)
 		}
 	})
 

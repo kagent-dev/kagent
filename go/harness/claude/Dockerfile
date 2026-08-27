@@ -11,6 +11,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     go mod download
 COPY api/ api/
 COPY adk/ adk/
+COPY core/ core/
 COPY harness/ harness/
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     --mount=type=cache,target=/root/.cache/go-build,rw \

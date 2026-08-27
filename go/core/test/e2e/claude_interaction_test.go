@@ -1,8 +1,10 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -21,7 +23,7 @@ import (
 
 const claudeE2EHarness = "claude-e2e"
 
-//go:embed mocks/invoke_claude_agent.json mocks/invoke_claude_builtin_tools.json mocks/invoke_claude_local_subagent.json
+//go:embed mocks/invoke_claude_agent.json mocks/invoke_claude_builtin_tools.json mocks/invoke_claude_local_subagent.json mocks/invoke_claude_resources.json
 var claudeInteractionMocks embed.FS
 
 func TestClaudeMockInteractionResumeAndPersistence(t *testing.T) {
@@ -422,4 +424,87 @@ func assertNoClaudeChildInstance(t *testing.T, fixture *interactionFixture, chil
 			t.Fatalf("Claude local child created AgentInstance %q", instance.GetId())
 		}
 	}
+}
+
+func TestClaudeMockWholeServerMCP(t *testing.T) {
+	target := interactionTarget(t)
+	mcpURL, mcpMock := startMCPMock(t)
+
+	kube := interactionKubeClient(t)
+	mcpServer := createClaudeMCPServer(t, kube, mcpURL)
+	toolName := "mcp__" + mcpServer.Name + "__add_numbers"
+	llmURL := startClaudeResourceMockLLM(t, toolName)
+	model := createClaudeMockModel(t, kube, llmURL)
+	template := createClaudeMCPTemplate(t, kube, model.Name, mcpServer.Name)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, template)
+
+	streamed := sendClaudeStreaming(t, fixture, "Add 3 and 5 using the configured MCP server.")
+	if streamed.state != a2atype.TaskStateCompleted || !strings.Contains(streamed.text, "CLAUDE_MCP_DONE result is 8") {
+		t.Fatalf("whole-server MCP task state = %s, text = %q, failure = %q", streamed.state, streamed.text, streamed.failureText)
+	}
+	assertClaudeToolEvents(t, streamed.toolEvents, toolName)
+	assertClaudeToolEvents(t, claudeTaskToolEvents(getClaudeTask(t, fixture, streamed.taskID)), toolName)
+
+	for _, request := range mcpMock.Requests() {
+		if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
+			return
+		}
+	}
+	t.Fatal("mock MCP server did not receive an add_numbers tool call")
+}
+
+func createClaudeMCPServer(t *testing.T, kube ctrlclient.Client, mcpURL string) *v1alpha3.RemoteMCPServer {
+	t.Helper()
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "claude-resources-", Namespace: "kagent"},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Description: "Claude whole-server MCP E2E fixture",
+			Protocol:    v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			URL:         mcpURL,
+		},
+	}
+	if err := kube.Create(t.Context(), server); err != nil {
+		t.Fatalf("create Claude RemoteMCPServer: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), server); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete Claude RemoteMCPServer: %v", err)
+		}
+	})
+
+	return server
+}
+
+func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string) string {
+	t.Helper()
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "claude-resources-", Namespace: "kagent",
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
+		},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: modelConfig},
+			Description:  "Claude direct whole-server MCP E2E fixture",
+			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: mcpServer},
+			}}},
+		},
+	}
+	createAndWaitInteractionTemplateForHarness(t, kube, template, claudeE2EHarness)
+	return template.Name
+}
+
+func startClaudeResourceMockLLM(t *testing.T, toolName string) string {
+	t.Helper()
+	raw, err := claudeInteractionMocks.ReadFile("mocks/invoke_claude_resources.json")
+	if err != nil {
+		t.Fatalf("read Claude resource mock fixture: %v", err)
+	}
+	raw = bytes.ReplaceAll(raw, []byte("MCP_TOOL_NAME"), []byte(toolName))
+	var cfg mockllm.Config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("decode Claude resource mock fixture: %v", err)
+	}
+	return reachableServerURL(t, startMockLLMConfig(t, cfg), "")
 }

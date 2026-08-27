@@ -20,7 +20,8 @@
           "input": {
             "description": "Run the local specialist",
             "prompt": "Return the specialist marker to the parent.",
-            "subagent_type": "specialist"
+            "subagent_type": "specialist",
+            "run_in_background": false
           }
         }],
         "model": "claude-sonnet-4-5",

@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // PairReconciliation is the complete desired and observed state for one
@@ -223,6 +224,14 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	}
 	if state.Revision == nil || state.RevisionID.IsZero() {
 		return r.cleanupUnreferencedRevisions(ctx)
+	}
+	for _, warning := range state.Revision.Warnings {
+		ctrllog.FromContext(ctx).Info("runtime configuration warning",
+			"namespace", state.Pair.AgentTemplate.Namespace,
+			"agentTemplate", state.Pair.AgentTemplate.Name,
+			"harness", state.Pair.Harness.Name,
+			"warning", warning,
+		)
 	}
 
 	pair := dbpkg.AgentTemplateHarnessPair{

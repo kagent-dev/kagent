@@ -95,7 +95,10 @@ func main() {
 	}
 	if err := agentplugins.MaterializeAgentConfig(
 		logr.NewContext(context.Background(), logger), agentConfig,
-		agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
+		agentplugins.ADKPaths{
+			SkillPaths: agentplugins.SkillPaths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot},
+			Data:       agentplugins.DefaultDataRoot,
+		},
 	); err != nil {
 		logger.Error(err, "Failed to materialize Agent Plugins")
 		os.Exit(1)

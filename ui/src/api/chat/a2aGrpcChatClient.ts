@@ -218,7 +218,19 @@ function dataKindOf(data: Record<string, unknown>): ChatDataPart["dataKind"] {
 }
 
 function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
-  return (parts ?? []).map(toPart).filter((part): part is ChatPart => part !== undefined);
+  const result: ChatPart[] = [];
+  for (const source of parts ?? []) {
+    const part = toPart(source);
+    if (part === undefined) continue;
+
+    const previous = result.at(-1);
+    if (part.kind === "text" && previous?.kind === "text") {
+      previous.text += part.text;
+      continue;
+    }
+    result.push(part);
+  }
+  return result;
 }
 
 /** The prose of a set of parts, for comparing a reply against the artifact repeating it. */

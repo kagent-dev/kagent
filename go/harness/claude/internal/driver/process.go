@@ -20,6 +20,7 @@ type ProcessConfig struct {
 	Model              string
 	AppendSystemPrompt string
 	AgentsJSON         string
+	MCPConfigPath      string
 	Environment        []string
 	MaxEventBytes      int
 	MaxStderrBytes     int
@@ -70,6 +71,9 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	}
 	if d.config.AgentsJSON != "" {
 		args = append(args, "--agents", d.config.AgentsJSON)
+	}
+	if d.config.MCPConfigPath != "" {
+		args = append(args, "--mcp-config", d.config.MCPConfigPath)
 	}
 	if turn.ContinuationID != "" {
 		// Resume the Actor's exact root conversation. --continue selects Claude's

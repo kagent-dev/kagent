@@ -1,10 +1,13 @@
 package adapter
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 )
 
@@ -13,7 +16,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
 	runner, err := New(Input{
-		ConfigJSON: []byte(`{"version":2,"claude_executable":"claude","expected_claude_version":"2.1.217","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
+		ConfigJSON: []byte(`{"version":3,"claude_executable":"claude","expected_claude_version":"2.1.217","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
 		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_AUTOUPDATER=0"},
@@ -31,6 +34,44 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 		}
 		if info.Mode().Perm() != 0o700 {
 			t.Errorf("%s permissions = %o, want 700", path, info.Mode().Perm())
+		}
+	}
+}
+
+func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	claudeDir := filepath.Join(durableDir, "claude")
+	packageRoot := filepath.Join(claudeDir, "packages", "standalone-0")
+	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "SKILL.md"), []byte("# Review"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
+		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
+	}}}
+	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com/mcp"}}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ephemeralDir := filepath.Join(t.TempDir(), "generated")
+	if _, err := New(Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(claudeDir, "skills", "review", "SKILL.md"): "# Review",
+		filepath.Join(ephemeralDir, "mcp.json"):                  `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
+	} {
+		contents, err := os.ReadFile(path)
+		if err != nil || string(contents) != want {
+			t.Fatalf("%s = %q, %v; want %q", path, contents, err, want)
 		}
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 type StreamableHTTPConnectionParams struct {
@@ -548,44 +550,19 @@ type NetworkConfig struct {
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
 }
 
-// AgentPluginConfig describes immutable Agent Plugin and standalone skill
-// packages that the runtime must download before starting the agent.
-type AgentPluginConfig struct {
-	Skills  []StandaloneSkill   `json:"skills,omitempty"`
-	Plugins []AgentPluginBundle `json:"plugins,omitempty"`
-}
+// These aliases preserve the existing ADK configuration API while sharing one
+// runtime-neutral resource model with other Harness adapters.
+type AgentPluginConfig = agentplugin.Resources
 
-// StandaloneSkill identifies one independently sourced skill, rather than a
-// skill selected from an Agent Plugin bundle.
-type StandaloneSkill struct {
-	Name   string            `json:"name"`
-	Source AgentPluginSource `json:"source"`
-}
+type StandaloneSkill = agentplugin.Skill
 
-type AgentPluginBundle struct {
-	Source AgentPluginSource `json:"source"`
-	Skills []string          `json:"skills,omitempty"`
-}
+type AgentPluginBundle = agentplugin.Bundle
 
-type AgentPluginSource struct {
-	OCI  string          `json:"oci,omitempty"`
-	Git  *AgentPluginGit `json:"git,omitempty"`
-	S3   *AgentPluginS3  `json:"s3,omitempty"`
-	Path string          `json:"path,omitempty"`
-}
+type AgentPluginSource = agentplugin.Source
 
-type AgentPluginGit struct {
-	URL    string `json:"url"`
-	Commit string `json:"commit"`
-}
+type AgentPluginGit = agentplugin.GitSource
 
-type AgentPluginS3 struct {
-	Endpoint  string `json:"endpoint"`
-	Bucket    string `json:"bucket"`
-	Key       string `json:"key"`
-	VersionID string `json:"versionId"`
-	Region    string `json:"region,omitempty"`
-}
+type AgentPluginS3 = agentplugin.S3Source
 
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {

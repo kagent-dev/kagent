@@ -74,7 +74,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
 			wantEnv: map[string]string{useVertexEnv: "1", vertexProjectEnv: "project", vertexRegionEnv: "us-east5",
 				claudeconfig.GoogleCredentialsJSONEnvName: `{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`},
-			wantEgress: []string{"us-east5-aiplatform.googleapis.com", "oauth2.googleapis.com"},
+			wantEgress: []string{"oauth2.googleapis.com", "us-east5-aiplatform.googleapis.com"},
 		},
 	}
 
@@ -163,6 +163,151 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	var validation *v2translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
+	}
+}
+
+func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Root.Template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{
+		Name: "review", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+			URL: "https://git.example.com/skills.git", Commit: strings.Repeat("a", 40),
+		}},
+	}}
+	input.Root.Template.Spec.Plugins = []v1alpha3.PluginBundle{{
+		Source: v1alpha3.ArtifactSource{OCI: "registry.example.com/team/plugin@sha256:" + strings.Repeat("b", 64)},
+		Skills: []string{"deploy"},
+	}}
+
+	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SkillResources == nil || len(cfg.SkillResources.Skills) != 1 || cfg.SkillResources.Skills[0].Name != "review" ||
+		len(cfg.SkillResources.Plugins) != 1 || !reflect.DeepEqual(cfg.SkillResources.Plugins[0].Skills, []string{"deploy"}) {
+		t.Fatalf("compiled skills = %#v", cfg.SkillResources)
+	}
+	wantEgress := []string{"api.anthropic.com", "git.example.com", "registry.example.com"}
+	if !reflect.DeepEqual(revision.EgressDestinations, wantEgress) {
+		t.Fatalf("egress = %v, want %v", revision.EgressDestinations, wantEgress)
+	}
+
+	input.Root.Template.Spec.Plugins[0].Skills = []string{"review"}
+	if _, err := NewCompiler(reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
+		t.Fatalf("duplicate skill Compile() error = %v", err)
+	}
+}
+
+func TestCompileDirectWholeServerMCP(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{
+		"api-key": []byte("model-secret"), "mcp-token": []byte(credentialValue),
+	})
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "math-server", Namespace: "test", UID: "mcp-uid", Generation: 3},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			URL:      "https://mcp.example.com/mcp",
+			HeadersFrom: []v1alpha3.ValueRef{
+				{Name: "X-Tenant", Value: "test"},
+				{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}},
+			},
+		},
+		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 3, DiscoveredTools: []*v1alpha3.MCPTool{
+			{Name: "echo"}, {Name: "add_numbers"}, {Name: "get_time"},
+		}},
+	}
+	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+		Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name},
+		Tools:  []string{"get_time", "echo", "add_numbers"},
+	}}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
+
+	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revision.Warnings) != 0 {
+		t.Fatalf("whole-server selection warnings = %v", revision.Warnings)
+	}
+	var cfg claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	compiled := cfg.MCPServers["math-server"]
+	if compiled.Type != "http" || compiled.URL != server.Spec.URL || compiled.Headers["X-Tenant"] != "test" ||
+		!strings.HasPrefix(compiled.Headers["Authorization"], "${"+mcpCredentialPrefix) {
+		t.Fatalf("compiled MCP = %#v", cfg.MCPServers)
+	}
+	if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
+		t.Fatal("compiled MCP config or provenance contains credential material")
+	}
+	foundSecret := false
+	for _, variable := range revision.Environment {
+		if strings.HasPrefix(variable.Name, mcpCredentialPrefix) && variable.Value == credentialValue {
+			foundSecret = true
+		}
+	}
+	if !foundSecret {
+		t.Fatalf("MCP credential environment missing: %#v", revision.Environment)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "mcp.example.com"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	if !bytes.Contains(revision.Provenance, []byte(`"kind":"RemoteMCPServer"`)) {
+		t.Fatalf("provenance omits RemoteMCPServer: %s", revision.Provenance)
+	}
+}
+
+func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", Generation: 1},
+		Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp"},
+		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 1, DiscoveredTools: []*v1alpha3.MCPTool{
+			{Name: "one"}, {Name: "two"},
+		}},
+	}
+	binding := v1alpha3.MCPToolBinding{Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: binding, Server: server}}
+	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("omitted selection Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 0 {
+		t.Fatalf("omitted selection warnings = %v", revision.Warnings)
+	}
+
+	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
+	revision, err = NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("partial selection Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "exposing the whole server") {
+		t.Fatalf("partial selection warnings = %v", revision.Warnings)
+	}
+
+	server.Status.ObservedGeneration = 0
+	revision, err = NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("stale discovery Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "no current discovered tool set") {
+		t.Fatalf("stale discovery warnings = %v", revision.Warnings)
 	}
 }
 

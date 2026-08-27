@@ -32,7 +32,8 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	agentsJSON := `{"reviewer":{"description":"Reviews changes","prompt":"Review carefully","tools":["Read"]}}`
-	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	mcpConfigPath := filepath.Join(dir, "mcp.json")
+	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
 	if err := d.Validate(t.Context()); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -60,6 +61,9 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	}
 	if !strings.Contains(string(args), "--agents\n"+agentsJSON+"\n") {
 		t.Error("arguments do not contain compiler-owned local agents JSON")
+	}
+	if !strings.Contains(string(args), "--mcp-config\n"+mcpConfigPath+"\n") {
+		t.Error("arguments do not contain compiler-owned MCP configuration")
 	}
 	if strings.Contains(string(args), "--permission-prompt-tool\n") {
 		t.Error("arguments unexpectedly configure Claude's native permission bridge")

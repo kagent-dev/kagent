@@ -51,12 +51,6 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ModelConfig == nil {
 		return nil, fmt.Errorf("Claude compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
-	if len(input.Root.MCPTools) != 0 {
-		return nil, v2translator.NewValidationError("Claude external MCP tools are not supported yet")
-	}
-	if len(input.Root.Template.Spec.Skills) != 0 || len(input.Root.Template.Spec.Plugins) != 0 {
-		return nil, v2translator.NewValidationError("Claude skills and plugins are not supported yet")
-	}
 	model := input.Root.ModelConfig
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, v2translator.NewValidationError("Claude ModelConfig model is required")
@@ -69,10 +63,22 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
+	skillResources, skillEgress, err := v2translator.CompileSkillResources(input.Root.Template)
+	if err != nil {
+		return nil, err
+	}
+	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools)
+	if err != nil {
+		return nil, err
+	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
+	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
 		if _, reserved := ownedEnvironment[variable.Name]; reserved {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude's compiled provider configuration", variable.Name)
+		}
+		if strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
+			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude's compiled MCP credentials", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
 		if variable.Value != nil {
@@ -95,6 +101,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
+	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
+		config.SkillResources = &skillResources
+	}
+	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
 		return nil, v2translator.NewValidationError("invalid compiled Claude configuration: %v", err)
 	}
@@ -115,6 +125,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("resolve Claude runtime environment: %w", err)
 	}
 
+	egress = append(egress, skillEgress...)
+	egress = append(egress, mcp.egress...)
+	slices.Sort(egress)
+	egress = slices.Compact(egress)
 	template, harness := input.Root.Template, input.Harness
 	return &v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
@@ -122,7 +136,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		ConfigJSON: configJSON, AgentCardJSON: cardJSON,
 		WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 		SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance:       provenance, EgressDestinations: egress,
+		Provenance:       provenance, EgressDestinations: egress, Warnings: mcp.warnings,
 	}, nil
 }
 
@@ -373,6 +387,12 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		}
 		for _, child := range agent.Shared {
 			addAgent(child.Agent)
+		}
+		for _, tool := range agent.MCPTools {
+			server := tool.Server
+			if server != nil {
+				addObject("RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec)
+			}
 		}
 	}
 	addAgent(input.Root)

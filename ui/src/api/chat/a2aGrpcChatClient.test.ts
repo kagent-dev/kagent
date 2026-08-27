@@ -699,6 +699,40 @@ describe("A2AGrpcChatClient.history", () => {
     expect(messages).toHaveLength(1);
   });
 
+  it("coalesces persisted artifact chunks without crossing structured parts", async () => {
+    // `append: true` is projected by the gateway as several parts on one artifact.
+    // Those are transport chunks, not separate prose blocks, so reopening a task
+    // must look like the single message that the live stream accumulated.
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "a-1",
+            parts: [
+              text("alpha"),
+              text(" beta"),
+              data({ name: "lookup", args: {} }),
+              text(" gamma"),
+              text(" delta"),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].parts).toEqual([
+      { kind: "text", text: "alpha beta" },
+      { kind: "data", dataKind: "tool_call", data: { name: "lookup", args: {} } },
+      { kind: "text", text: " gamma delta" },
+    ]);
+  });
+
   it("follows every page of a long conversation", async () => {
     // A conversation shown with its first page only, saying nothing, is the quiet
     // half-truth this codebase keeps having to undo.

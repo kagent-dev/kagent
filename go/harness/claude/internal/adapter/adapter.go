@@ -3,12 +3,14 @@
 package adapter
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 )
@@ -22,6 +24,7 @@ const (
 // Input contains compiler output and Actor-owned locations used to construct
 // the Claude driver.
 type Input struct {
+	Context      context.Context
 	ConfigJSON   []byte
 	Workspace    string
 	DurableDir   string
@@ -39,6 +42,10 @@ func New(input Input) (*driver.ProcessDriver, error) {
 	if err != nil {
 		return nil, err
 	}
+	mcpJSON, err := cfg.MCPConfigJSON()
+	if err != nil {
+		return nil, err
+	}
 	if !filepath.IsAbs(input.Workspace) || !filepath.IsAbs(input.DurableDir) || !filepath.IsAbs(input.EphemeralDir) {
 		return nil, fmt.Errorf("workspace, durable, and ephemeral directories must be absolute paths")
 	}
@@ -52,19 +59,62 @@ func New(input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("prepare %s directory: %w", directory.name, err)
 		}
 	}
+	if cfg.SkillResources != nil {
+		materializeContext := input.Context
+		if materializeContext == nil {
+			materializeContext = context.Background()
+		}
+		if err := agentplugins.MaterializeSkills(materializeContext, *cfg.SkillResources, agentplugins.SkillPaths{
+			Plugins: filepath.Join(claudeDir, "packages"),
+			Skills:  filepath.Join(claudeDir, "skills"),
+		}); err != nil {
+			return nil, fmt.Errorf("materialize Claude skills: %w", err)
+		}
+	}
 	environment := setEnvironment(input.Environment, claudeConfigDirEnv, claudeDir)
 	environment = setEnvironment(environment, disableUpdaterEnv, "1")
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err
 	}
+	var mcpConfigPath string
+	if len(mcpJSON) != 0 {
+		if err := ensurePrivateDir(input.EphemeralDir); err != nil {
+			return nil, fmt.Errorf("prepare ephemeral MCP directory: %w", err)
+		}
+		mcpConfigPath = filepath.Join(input.EphemeralDir, "mcp.json")
+		if err := replacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
+			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
+		}
+	}
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
-		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, Environment: environment,
+		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(),
 	}), nil
+}
+
+func replacePrivateFile(path string, contents []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
 
 func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {

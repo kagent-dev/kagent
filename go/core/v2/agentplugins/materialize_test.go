@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 func TestMaterializeGitPlugin(t *testing.T) {
@@ -44,9 +45,12 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	commit := git("rev-parse", "HEAD")
 
 	root := t.TempDir()
-	result, err := Materialize(context.Background(), adk.AgentPluginConfig{Plugins: []adk.AgentPluginBundle{{
+	result, err := materializeForADK(context.Background(), adk.AgentPluginConfig{Plugins: []adk.AgentPluginBundle{{
 		Source: adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: repository, Commit: commit}}, Skills: []string{"review"},
-	}}}, Paths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")})
+	}}}, ADKPaths{
+		SkillPaths: SkillPaths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills")},
+		Data:       filepath.Join(root, "data"),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,25 +68,21 @@ func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+	root, err := fetchSource(context.Background(), agentplugin.Source{Git: &agentplugin.GitSource{
 		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
 	}}, destination, "SKILL.md")
 	if err != nil {
 		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
 	}
-	wantRoot, err := filepath.EvalSymlinks(destination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if root != wantRoot {
-		t.Fatalf("fetchSource() root = %q, want %q", root, wantRoot)
+	if root != canonicalPath(destination) {
+		t.Fatalf("fetchSource() root = %q, want %q", root, canonicalPath(destination))
 	}
 }
 
 func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	destination := t.TempDir()
 
-	_, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+	_, err := fetchSource(context.Background(), agentplugin.Source{Git: &agentplugin.GitSource{
 		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
 	}}, destination, "SKILL.md")
 	if err == nil {
@@ -92,7 +92,10 @@ func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 
 func TestMaterializeAgentConfigIsolatesSubagentSkills(t *testing.T) {
 	root := t.TempDir()
-	paths := Paths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
+	paths := ADKPaths{
+		SkillPaths: SkillPaths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills")},
+		Data:       filepath.Join(root, "data"),
+	}
 	source := adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: "unused", Commit: strings.Repeat("a", 40)}}
 	config := &adk.AgentConfig{
 		AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "root", Source: source}}},
@@ -122,6 +125,42 @@ func TestMaterializeAgentConfigIsolatesSubagentSkills(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("materialized skill %q: %v", path, err)
 		}
+	}
+}
+
+func TestMaterializeSkillsCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
+	root := t.TempDir()
+	pluginRoot := filepath.Join(root, "plugins", "plugin-0")
+	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
+		"skills/review/SKILL.md": "# Review",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(pluginRoot, filepath.FromSlash(name)), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := SkillPaths{
+		Plugins: filepath.Join(root, "plugins"),
+		Skills:  filepath.Join(root, "skills"),
+	}
+	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
+		Skills: []string{"review"},
+	}}}
+	if err := MaterializeSkills(context.Background(), resources, paths); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
+	if err != nil || string(content) != "# Review" {
+		t.Fatalf("materialized skill = %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data")); !os.IsNotExist(err) {
+		t.Fatalf("plugin MCP data directory was created: %v", err)
 	}
 }
 
