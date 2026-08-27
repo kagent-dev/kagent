@@ -798,7 +798,6 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
     const parts = toParts(artifact.parts);
     const body = textOf(parts);
     if (parts.length === 0 || (body !== "" && shown.has(body))) continue;
-    if (body !== "") shown.add(body);
     agent.push({
       // Derived, for the reason given against the message id above: an unnamed
       // artifact renamed on every read is an artifact the merge cannot recognise.
