@@ -442,7 +442,11 @@ ui:
     proxyReadTimeout: 1800s
     # -- proxy_send_timeout: max time between two successive writes to the upstream.
     proxySendTimeout: 1800s
-  env: {} # Additional configuration key-value pairs for the ui ConfigMap
+  # -- Extra environment variables for the UI container, spliced into its `env:`
+  # list verbatim. A list of `{name, value}` entries, not a map. An installed app
+  # extension's own settings go here, named `EXTENSION_*`; the container's startup
+  # script copies those onto `window.environmentVariables` for the browser to read.
+  env: []
   # -- Identity headers the UI's nginx proxy will forward to the backend on
   # /api/ and /a2a/. Names are case-insensitive. Authorization is always
   # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
