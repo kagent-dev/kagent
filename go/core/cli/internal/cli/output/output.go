@@ -2,6 +2,7 @@
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -37,6 +38,14 @@ func WriteProto(w io.Writer, message proto.Message) error {
 		return fmt.Errorf("marshal JSON output: %w", err)
 	}
 	if _, err := fmt.Fprintln(w, string(data)); err != nil {
+		return fmt.Errorf("write JSON output: %w", err)
+	}
+	return nil
+}
+
+// WriteJSON writes one JSON value as a line.
+func WriteJSON(w io.Writer, value any) error {
+	if err := json.NewEncoder(w).Encode(value); err != nil {
 		return fmt.Errorf("write JSON output: %w", err)
 	}
 	return nil

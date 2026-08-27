@@ -11,6 +11,7 @@ import (
 
 	cli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agent"
 	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agentinstance"
+	agenttemplatecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agenttemplate"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
@@ -210,6 +211,22 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	getAgentInstanceCmd.Flags().Int32Var(&agentInstanceGetCfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
 	getAgentInstanceCmd.Flags().StringVar(&agentInstanceGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
+	agentTemplateGetCfg := &agenttemplatecli.GetCfg{Config: cfg}
+	getAgentTemplateCmd := &cobra.Command{
+		Use:   "agent-template [NAME]",
+		Short: "Get an AgentTemplate or list AgentTemplates",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentTemplateGetCfg.Name = ""
+			if len(args) == 1 {
+				agentTemplateGetCfg.Name = args[0]
+			}
+			return agenttemplatecli.GetCmd(cmd.Context(), agentTemplateGetCfg, cmd.OutOrStdout())
+		},
+	}
+	getAgentTemplateCmd.Flags().Int64Var(&agentTemplateGetCfg.PageSize, "page-size", 0, "Number of AgentTemplates to return (maximum 100)")
+	getAgentTemplateCmd.Flags().StringVar(&agentTemplateGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
+
 	getSessionCmd := &cobra.Command{
 		Use:   "session [session_id]",
 		Short: "Get a session or list all sessions",
@@ -269,7 +286,51 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		},
 	}
 
-	getCmd.AddCommand(getAgentInstanceCmd, getSessionCmd, getAgentCmd, getToolCmd)
+	getCmd.AddCommand(getAgentInstanceCmd, getAgentTemplateCmd, getSessionCmd, getAgentCmd, getToolCmd)
+
+	createCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a kagent resource",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("resource type is required")
+		},
+	}
+	createAgentInstanceCfg := &agentinstancecli.CreateCfg{Config: cfg}
+	createAgentInstanceCmd := &cobra.Command{
+		Use:   "agent-instance",
+		Short: "Create an AgentInstance",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return agentinstancecli.CreateCmd(cmd.Context(), createAgentInstanceCfg, cmd.OutOrStdout())
+		},
+	}
+	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.Harness, "harness", "", "Harness name")
+	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.AgentTemplate, "agent-template", "", "AgentTemplate name")
+	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.RequestID, "request-id", "", "Idempotency key (generated when omitted)")
+	_ = createAgentInstanceCmd.MarkFlagRequired("harness")
+	_ = createAgentInstanceCmd.MarkFlagRequired("agent-template")
+	createCmd.AddCommand(createAgentInstanceCmd)
+
+	deleteCmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a kagent resource",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("resource type is required")
+		},
+	}
+	deleteAgentInstanceCfg := &agentinstancecli.DeleteCfg{Config: cfg}
+	deleteAgentInstanceCmd := &cobra.Command{
+		Use:   "agent-instance ID",
+		Short: "Delete an AgentInstance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			deleteAgentInstanceCfg.InstanceID = args[0]
+			return agentinstancecli.DeleteCmd(cmd.Context(), deleteAgentInstanceCfg, cmd.OutOrStdout())
+		},
+	}
+	deleteCmd.AddCommand(deleteAgentInstanceCmd)
 
 	initCfg := &cli.InitCfg{
 		Config: cfg,
@@ -487,7 +548,7 @@ Examples:
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
 
 	return rootCmd
 }

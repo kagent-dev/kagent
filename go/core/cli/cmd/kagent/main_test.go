@@ -227,6 +227,39 @@ func TestRootCommandInvokeContract(t *testing.T) {
 	}
 }
 
+func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
+	cfg := &config.Config{
+		KAgentURL:     config.DefaultKAgentURL,
+		KAgentGRPCURL: config.DefaultKAgentGRPCURL,
+		OutputFormat:  "table",
+		UserID:        config.DefaultUserID,
+	}
+	rootCmd := newRootCommand(t.Context(), cfg)
+
+	getTemplateCmd, _, err := rootCmd.Find([]string{"get", "agent-template"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-template [NAME]", getTemplateCmd.Use)
+	for _, flag := range []string{"page-size", "page-token"} {
+		assert.NotNil(t, getTemplateCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+
+	createInstanceCmd, _, err := rootCmd.Find([]string{"create", "agent-instance"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-instance", createInstanceCmd.Use)
+	for _, flag := range []string{"harness", "agent-template", "request-id"} {
+		assert.NotNil(t, createInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+
+	deleteInstanceCmd, _, err := rootCmd.Find([]string{"delete", "agent-instance"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-instance ID", deleteInstanceCmd.Use)
+
+	for _, command := range []string{"suspend", "resume"} {
+		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
+		assert.Error(t, err, "%s must not be exposed by the CLI", command)
+	}
+}
+
 func resetConfigState(t *testing.T) {
 	t.Helper()
 
