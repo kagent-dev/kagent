@@ -33,6 +33,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
@@ -142,8 +143,17 @@ func main() {
 		// the only way to author a Harness or an AgentTemplate is kubectl.
 		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
-		CheckpointService:    checkpoints,
-		A2AHandler:           gateway,
+		// Namespaces and the substrate inventory. Without the inventory the system
+		// service holds no Kubernetes client, so every namespace read fails as an
+		// internal error — which the agents list reports as a page that cannot load.
+		SystemService: systemservice.NewService(systemservice.WithInventory(
+			manager.GetClient(),
+			namespaces(os.Getenv("WATCH_NAMESPACES")),
+			authorizer,
+			actors,
+		)),
+		CheckpointService: checkpoints,
+		A2AHandler:        gateway,
 	})
 	if err != nil {
 		log.Fatal(err)
