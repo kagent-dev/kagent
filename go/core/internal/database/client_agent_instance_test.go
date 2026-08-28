@@ -208,6 +208,55 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	}
 }
 
+// TestAgentInstanceTaskMessageWithoutTaskJoinsHistory pins what the gateway relies
+// on when it archives a parked question before the reply that replaces it: a bare
+// message event becomes history, in insertion order, without touching the task.
+func TestAgentInstanceTaskMessageWithoutTaskJoinsHistory(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, namespace, user_id)
+		VALUES ('instance-1', 'team-a', 'alice');
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'instance-1', 'READY', '\\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+	asked := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: "instance-1"}
+	parked := &a2a.Task{
+		ID: "task-1", ContextID: "instance-1", History: []*a2a.Message{asked},
+		Status: a2a.TaskStatus{State: a2a.TaskStateInputRequired},
+	}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), parked); err != nil {
+		t.Fatal(err)
+	}
+
+	question := &a2a.Message{ID: "question-1", Role: a2a.MessageRoleAgent, TaskID: "task-1", ContextID: "instance-1"}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", nil, question, nil); err != nil {
+		t.Fatal(err)
+	}
+	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: "instance-1"}
+	resumed := *parked
+	resumed.History = []*a2a.Message{asked, question, answer}
+	resumed.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", &resumed, answer, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(got.History))
+	for _, message := range got.History {
+		ids = append(ids, message.ID)
+	}
+	if strings.Join(ids, ",") != "message-1,question-1,answer-1" {
+		t.Fatalf("history = %v, want the question between the message it answers and its own answer", ids)
+	}
+}
+
 func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()

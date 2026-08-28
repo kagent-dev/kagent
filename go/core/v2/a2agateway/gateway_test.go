@@ -381,7 +381,8 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	if !ok || task.Status.State != a2atype.TaskStateCompleted || !runtime.sent {
 		t.Fatalf("reply result = %#v, runtime sent = %v", result, runtime.sent)
 	}
-	if authorizer.verb != auth.VerbUpdate || reply.ContextID != gatewayTestID || len(store.stored) != 2 {
+	// Three: the question the task was parked on, the reply, and the finished turn.
+	if authorizer.verb != auth.VerbUpdate || reply.ContextID != gatewayTestID || len(store.stored) != 3 {
 		t.Fatalf("reply authorization = %s, context = %q, stored events = %d", authorizer.verb, reply.ContextID, len(store.stored))
 	}
 	if runtime.privateTask == nil || runtime.privateTask.Status.State != a2atype.TaskStateInputRequired || runtime.privateTask.Status.Message == nil || runtime.privateTask.Status.Message.ID != status.ID {
@@ -389,6 +390,35 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	}
 	if len(reply.Metadata) != 0 {
 		t.Fatalf("private continuation state leaked into public metadata: %#v", reply.Metadata)
+	}
+}
+
+func TestGatewayArchivesInputRequiredMessageBeforeReply(t *testing.T) {
+	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?"))
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
+	}
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
+	reply.TaskID = waiting.ID
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+
+	prepared, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.task.History) != 2 || prepared.task.History[0] != question || prepared.task.History[1] != reply {
+		t.Fatalf("history = %#v, want question followed by reply", prepared.task.History)
+	}
+	// Archived, which the history above does not prove: a question that only reaches
+	// `prepared.task.History` is never written down, and the status that held it is
+	// gone. First, because history is ordered by insertion.
+	if len(store.stored) != 2 || store.stored[0] != question || store.stored[1] != reply {
+		t.Fatalf("stored events = %#v, want the question archived before the reply", store.stored)
+	}
+	if question.TaskID != waiting.ID || question.ContextID != waiting.ContextID {
+		t.Fatalf("archived question = task %q context %q, want the task it was asked in", question.TaskID, question.ContextID)
 	}
 }
 

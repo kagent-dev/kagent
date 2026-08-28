@@ -517,7 +517,21 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	message.ContextID = stored.ContextID
 	attempt := *stored
-	attempt.History = append(append([]*a2atype.Message{}, stored.History...), message)
+	attempt.History = append([]*a2atype.Message{}, stored.History...)
+	if question := stored.Status.Message; question != nil {
+		attempt.History = append(attempt.History, question)
+		// A parked task holds its question in the status this reply replaces, and the
+		// store writes down the messages an event names rather than the history of the
+		// task it is handed — so the question is stored in its own right, and before
+		// the reply, because history is ordered by insertion.
+		if question.ID != "" {
+			question.TaskID, question.ContextID = stored.ID, stored.ContextID
+			if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), nil, question, nil); err != nil {
+				return nil, g.storeError(ctx, err)
+			}
+		}
+	}
+	attempt.History = append(attempt.History, message)
 	now := time.Now()
 	attempt.Status = a2atype.TaskStatus{State: a2atype.TaskStateSubmitted, Timestamp: &now}
 	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), &attempt, message, nil); err != nil {
