@@ -1,4 +1,5 @@
 import { test, expect } from "../../fixtures/test";
+import { sendAndAwaitTurn } from "../../helpers/chat";
 import {
   agentChat,
   agentNewChat,
@@ -238,9 +239,7 @@ test("chat: a question the agent is waiting on is said, and can be given up", as
     // The proof that the turn really closed is a *new* turn running, not an alert
     // that disappeared: a task still parked would refuse this.
     await page.goto(`${AGENT_CHAT}?chat=ok`);
-    await page.getByTestId("chat-input").fill("How many pods are running?");
-    await page.getByTestId("chat-send").click();
-    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 30_000 });
+    await sendAndAwaitTurn(page, "How many pods are running?");
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
   });
 });
@@ -273,9 +272,7 @@ test("chat: a question can be discarded instead of answered", async ({ page }) =
 
   await test.step("3. and an unrelated message is accepted again", async () => {
     await page.goto(`${AGENT_CHAT}?chat=ok`);
-    await page.getByTestId("chat-input").fill("How many pods are running?");
-    await page.getByTestId("chat-send").click();
-    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 30_000 });
+    await sendAndAwaitTurn(page, "How many pods are running?");
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
   });
 });
