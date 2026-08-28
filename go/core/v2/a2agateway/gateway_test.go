@@ -15,7 +15,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -208,7 +208,7 @@ func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceP
 
 func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	r.sent = true
-	r.privateTask, _ = kagenta2a.TakeStoredTask(req.Message)
+	r.privateTask, _ = apia2a.TakeStoredTask(req.Message)
 	r.sendCalls++
 	r.sentTaskID = req.Message.TaskID
 	return &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil
@@ -295,8 +295,8 @@ func gatewayTestContext() context.Context {
 func gatewayTestContextWithRoute(namespace, id string) context.Context {
 	ctx := auth.AuthSessionTo(context.Background(), gatewayTestSession{})
 	return metadata.NewIncomingContext(ctx, metadata.Pairs(
-		kagenta2a.AgentInstanceNamespaceHeader, namespace,
-		kagenta2a.AgentInstanceIDHeader, id,
+		apia2a.AgentInstanceNamespaceHeader, namespace,
+		apia2a.AgentInstanceIDHeader, id,
 	))
 }
 
@@ -564,8 +564,8 @@ func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(
-		kagenta2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		kagenta2a.AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 	if _, err := a2apb.NewA2AServiceClient(connection).SendMessage(ctx, request); err != nil {
 		t.Fatal(err)
@@ -1053,8 +1053,8 @@ func TestGatewayHonoursAgentInstanceShare(t *testing.T) {
 		ReadOnly:        true,
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		kagenta2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		kagenta2a.AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err != nil {
@@ -1084,8 +1084,8 @@ func TestGatewayRefusesAShareForADifferentInstance(t *testing.T) {
 		AgentInstanceID: "00000000-0000-0000-0000-000000000000",
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		kagenta2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		kagenta2a.AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
@@ -1110,8 +1110,8 @@ func TestGatewayIgnoresASessionShare(t *testing.T) {
 		SessionID: instance.GetId(),
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		kagenta2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		kagenta2a.AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
