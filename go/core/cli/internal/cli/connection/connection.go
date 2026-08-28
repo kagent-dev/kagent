@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -81,22 +80,6 @@ func (o *Options) validate() error {
 	return nil
 }
 
-type connectionRuntime struct {
-	checkServer    func(context.Context, *client.ClientSet) error
-	commandContext func(context.Context, string, ...string) *exec.Cmd
-	stderr         io.Writer
-	readyTimeout   time.Duration
-	retryDelay     time.Duration
-}
-
-var defaultConnectionRuntime = connectionRuntime{
-	checkServer:    checkServer,
-	commandContext: exec.CommandContext,
-	stderr:         os.Stderr,
-	readyTimeout:   portForwardReadyTimeout,
-	retryDelay:     portForwardRetryDelay,
-}
-
 func checkServer(ctx context.Context, clientSet *client.ClientSet) error {
 	if clientSet == nil {
 		return errServerConnection
@@ -113,25 +96,21 @@ func checkServer(ctx context.Context, clientSet *client.ClientSet) error {
 // Connect checks the configured server and starts a port-forward only for an
 // unreachable default local endpoint.
 func Connect(ctx context.Context, cfg *Options) (*PortForward, error) {
-	return defaultConnectionRuntime.connect(ctx, cfg)
-}
-
-func (r connectionRuntime) connect(ctx context.Context, cfg *Options) (*PortForward, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	if cfg.Verbose {
-		fmt.Fprintf(r.stderr, "Using caller identity %q\n", cfg.UserID)
+		fmt.Fprintf(os.Stderr, "Using caller identity %q\n", cfg.UserID)
 	}
 
-	err := r.checkConfiguredServer(ctx, cfg)
+	err := checkConfiguredServer(ctx, cfg)
 	if err == nil {
 		return nil, nil
 	}
 	if !shouldPortForward(cfg, err) {
 		return nil, err
 	}
-	return r.newPortForward(ctx, cfg)
+	return NewPortForward(ctx, cfg)
 }
 
 func shouldPortForward(cfg *Options, err error) bool {
@@ -146,12 +125,12 @@ func shouldPortForward(cfg *Options, err error) bool {
 	return code == codes.Unavailable || code == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)
 }
 
-func (r connectionRuntime) checkConfiguredServer(ctx context.Context, cfg *Options) (err error) {
+func checkConfiguredServer(ctx context.Context, cfg *Options) (err error) {
 	clientSet := cfg.Client()
 	defer func() {
 		err = errors.Join(err, clientSet.Close())
 	}()
-	return r.checkServer(ctx, clientSet)
+	return checkServer(ctx, clientSet)
 }
 
 // PortForward is a running kubectl port-forward process.
@@ -164,12 +143,8 @@ type PortForward struct {
 
 // NewPortForward starts a port-forward and waits for the server to become reachable.
 func NewPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
-	return defaultConnectionRuntime.newPortForward(ctx, cfg)
-}
-
-func (r connectionRuntime) newPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := r.commandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
 	stderr := newBoundedBuffer(kubectlErrorLimit)
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
@@ -184,14 +159,14 @@ func (r connectionRuntime) newPortForward(ctx context.Context, cfg *Options) (*P
 	}()
 	portForward := &PortForward{cmd: cmd, cancel: cancel, wait: wait}
 
-	readyCtx, cancelReady := context.WithTimeout(ctx, r.readyTimeout)
+	readyCtx, cancelReady := context.WithTimeout(ctx, portForwardReadyTimeout)
 	defer cancelReady()
-	ticker := time.NewTicker(r.retryDelay)
+	ticker := time.NewTicker(portForwardRetryDelay)
 	defer ticker.Stop()
 
 	var lastErr error
 	for {
-		lastErr = r.checkConfiguredServer(readyCtx, cfg)
+		lastErr = checkConfiguredServer(readyCtx, cfg)
 		if lastErr == nil {
 			return portForward, nil
 		}

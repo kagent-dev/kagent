@@ -10,8 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -85,101 +83,6 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 	if !ok || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
 		t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
 	}
-}
-
-func TestCLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
-	target := interactionTarget(t)
-	fixture := newInteractionFixture(t, target, startInteractionMock(t))
-	binary := buildKagentCLI(t)
-	baseArgs := []string{
-		"--kagent-grpc-url", target,
-		"--kagent-grpc-tls=false",
-		"--namespace", "kagent",
-		"--user-id", "e2e",
-	}
-
-	listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "agent-instance")...)
-	if !strings.Contains(listOutput, fixture.instanceID) {
-		t.Fatalf("list AgentInstances stdout = %q, want instance %s", listOutput, fixture.instanceID)
-	}
-
-	getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "agent-instance", fixture.instanceID)
-	getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
-	if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.instanceID) {
-		t.Fatalf("get AgentInstance stdout = %q, want JSON for instance %s", getOutput, fixture.instanceID)
-	}
-
-	tests := []struct {
-		name   string
-		format string
-		stream bool
-	}{
-		{name: "table", format: "table"},
-		{name: "table stream", format: "table", stream: true},
-		{name: "json", format: "json"},
-		{name: "json stream", format: "json", stream: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := append(append([]string{}, baseArgs...),
-				"--output-format", tt.format,
-				"invoke",
-				"--agent-instance", fixture.instanceID,
-				"--task", "What is 2+2?",
-			)
-			if tt.stream {
-				args = append(args, "--stream")
-			}
-			stdout := runKagentCLI(t, fixture.ctx, binary, args...)
-			if tt.format == "table" {
-				if got := strings.TrimSpace(stdout); got != "The answer is 4." {
-					t.Fatalf("CLI stdout = %q, want final response once", got)
-				}
-				return
-			}
-			lines := strings.Split(strings.TrimSpace(stdout), "\n")
-			if !tt.stream && len(lines) != 1 {
-				t.Fatalf("non-streaming JSON stdout has %d lines, want 1", len(lines))
-			}
-			for _, line := range lines {
-				if !json.Valid([]byte(line)) {
-					t.Fatalf("CLI stdout line is not JSON: %q", line)
-				}
-			}
-		})
-	}
-}
-
-func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
-	t.Helper()
-	command := exec.CommandContext(ctx, binary, args...)
-	command.Env = append(os.Environ(), "HOME="+t.TempDir())
-	var stdout, stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
-		t.Fatalf("run CLI: %v\nstderr: %s", err, stderr.String())
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("CLI stderr = %q, want empty", stderr.String())
-	}
-	return stdout.String()
-}
-
-func buildKagentCLI(t *testing.T) string {
-	t.Helper()
-	_, source, _, ok := goruntime.Caller(0)
-	if !ok {
-		t.Fatal("locate interaction test source")
-	}
-	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(source), "../../.."))
-	binary := filepath.Join(t.TempDir(), "kagent")
-	command := exec.CommandContext(t.Context(), "go", "build", "-o", binary, "./core/cli/cmd/kagent")
-	command.Dir = moduleRoot
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build CLI: %v\n%s", err, output)
-	}
-	return binary
 }
 
 func TestAgentInstanceCheckpoint(t *testing.T) {

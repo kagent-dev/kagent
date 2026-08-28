@@ -30,10 +30,10 @@ func TestRootCommandUsesOptionValuesAsFlagDefaults(t *testing.T) {
 	rootCmd := newRootCommand(context.Background(), opts)
 
 	assert.Equal(t, "http://kagent.example.test", rootCmd.PersistentFlags().Lookup("kagent-url").DefValue)
-	assert.Equal(t, "grpc.kagent.example.test:443", rootCmd.PersistentFlags().Lookup("kagent-grpc-url").DefValue)
-	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("kagent-grpc-tls").DefValue)
-	assert.Equal(t, "/tmp/kagent-ca.pem", rootCmd.PersistentFlags().Lookup("kagent-grpc-ca-file").DefValue)
-	assert.Equal(t, "grpc.kagent.example.test", rootCmd.PersistentFlags().Lookup("kagent-grpc-server-name").DefValue)
+	assert.Equal(t, "grpc.kagent.example.test:443", rootCmd.PersistentFlags().Lookup("grpc-url").DefValue)
+	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("grpc-tls").DefValue)
+	assert.Equal(t, "/tmp/kagent-ca.pem", rootCmd.PersistentFlags().Lookup("grpc-ca-file").DefValue)
+	assert.Equal(t, "grpc.kagent.example.test", rootCmd.PersistentFlags().Lookup("grpc-server-name").DefValue)
 	assert.Equal(t, "configured-ns", rootCmd.PersistentFlags().Lookup("namespace").DefValue)
 	assert.Equal(t, "json", rootCmd.PersistentFlags().Lookup("output-format").DefValue)
 	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("verbose").DefValue)
@@ -57,10 +57,10 @@ func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
 	rootCmd := newRootCommand(context.Background(), opts)
 	require.NoError(t, rootCmd.ParseFlags([]string{
 		"--kagent-url", "http://flag.example.test",
-		"--kagent-grpc-url", "grpc.flag.example.test:8443",
-		"--kagent-grpc-tls",
-		"--kagent-grpc-ca-file", "/tmp/flag-ca.pem",
-		"--kagent-grpc-server-name", "grpc.flag.example.test",
+		"--grpc-url", "grpc.flag.example.test:8443",
+		"--grpc-tls",
+		"--grpc-ca-file", "/tmp/flag-ca.pem",
+		"--grpc-server-name", "grpc.flag.example.test",
 		"--namespace", "flag-ns",
 		"--output-format", "yaml",
 		"--verbose",

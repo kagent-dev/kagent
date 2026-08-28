@@ -141,6 +141,8 @@ jobs:
           test "$READY" = True
           export KAGENT_GRPC_URL="$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8084"
           echo "KAGENT_GRPC_URL: $KAGENT_GRPC_URL"
+          make core/bin/kagent-local
+          export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on
 
       - name: fail print info

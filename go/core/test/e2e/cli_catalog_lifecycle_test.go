@@ -1,9 +1,11 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -13,16 +15,16 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-func TestCLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
+func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
 	if os.Getenv("KUBECONFIG") == "" {
 		t.Setenv("KUBECONFIG", clientcmd.RecommendedHomeFile)
 	}
 	target := interactionTarget(t)
 	templateName := createInteractionTemplate(t, startInteractionMock(t))
-	binary := buildKagentCLI(t)
+	binary := kagentCLI(t)
 	baseArgs := []string{
-		"--kagent-grpc-url", target,
-		"--kagent-grpc-tls=false",
+		"--grpc-url", target,
+		"--grpc-tls=false",
 		"--namespace", "kagent",
 		"--user-id", "e2e",
 	}
@@ -88,4 +90,92 @@ func TestCLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
 	if deletedResponse.GetAgentInstance().GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
 		t.Fatalf("deleted AgentInstance state = %s, want DELETED", deletedResponse.GetAgentInstance().GetState())
 	}
+}
+
+func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
+	target := interactionTarget(t)
+	fixture := newInteractionFixture(t, target, startInteractionMock(t))
+	binary := kagentCLI(t)
+	baseArgs := []string{
+		"--grpc-url", target,
+		"--grpc-tls=false",
+		"--namespace", "kagent",
+		"--user-id", "e2e",
+	}
+
+	listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "get", "agent-instance")...)
+	if !strings.Contains(listOutput, fixture.instanceID) {
+		t.Fatalf("list AgentInstances stdout = %q, want instance %s", listOutput, fixture.instanceID)
+	}
+
+	getArgs := append(append([]string{}, baseArgs...), "--output-format", "json", "get", "agent-instance", fixture.instanceID)
+	getOutput := runKagentCLI(t, fixture.ctx, binary, getArgs...)
+	if !json.Valid([]byte(getOutput)) || !strings.Contains(getOutput, fixture.instanceID) {
+		t.Fatalf("get AgentInstance stdout = %q, want JSON for instance %s", getOutput, fixture.instanceID)
+	}
+
+	tests := []struct {
+		name   string
+		format string
+		stream bool
+	}{
+		{name: "table", format: "table"},
+		{name: "table stream", format: "table", stream: true},
+		{name: "json", format: "json"},
+		{name: "json stream", format: "json", stream: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append(append([]string{}, baseArgs...),
+				"--output-format", tt.format,
+				"invoke",
+				"--agent-instance", fixture.instanceID,
+				"--task", "What is 2+2?",
+			)
+			if tt.stream {
+				args = append(args, "--stream")
+			}
+			stdout := runKagentCLI(t, fixture.ctx, binary, args...)
+			if tt.format == "table" {
+				if got := strings.TrimSpace(stdout); got != "The answer is 4." {
+					t.Fatalf("CLI stdout = %q, want final response once", got)
+				}
+				return
+			}
+			lines := strings.Split(strings.TrimSpace(stdout), "\n")
+			if !tt.stream && len(lines) != 1 {
+				t.Fatalf("non-streaming JSON stdout has %d lines, want 1", len(lines))
+			}
+			for _, line := range lines {
+				if !json.Valid([]byte(line)) {
+					t.Fatalf("CLI stdout line is not JSON: %q", line)
+				}
+			}
+		})
+	}
+}
+
+func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
+	t.Helper()
+	command := exec.CommandContext(ctx, binary, args...)
+	command.Env = append(os.Environ(), "HOME="+t.TempDir())
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("run CLI: %v\nstderr: %s", err, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("CLI stderr = %q, want empty", stderr.String())
+	}
+	return stdout.String()
+}
+
+func kagentCLI(t *testing.T) string {
+	t.Helper()
+	binary := os.Getenv("KAGENT_E2E_CLI")
+	if binary == "" {
+		t.Fatal("KAGENT_E2E_CLI is not set; run E2E tests through `make -C go e2e`")
+	}
+	return binary
 }
