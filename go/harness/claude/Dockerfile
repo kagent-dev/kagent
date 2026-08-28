@@ -16,7 +16,7 @@ COPY harness/ harness/
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     --mount=type=cache,target=/root/.cache/go-build,rw \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -o /kagent-claude ./harness/claude/cmd/kagent-claude
+    go build -trimpath -o /kagent-claude ./harness/claude/cmd
 
 FROM alpine:3.22
 ARG CLAUDE_CODE_VERSION=2.1.217

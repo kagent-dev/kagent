@@ -25,9 +25,6 @@ type Store struct {
 }
 
 func New(durableDir string) (*Store, error) {
-	if durableDir == "" {
-		return nil, fmt.Errorf("durable directory is required")
-	}
 	if err := os.MkdirAll(durableDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create session state directory: %w", err)
 	}
