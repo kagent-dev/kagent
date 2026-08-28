@@ -32,7 +32,7 @@ RUN apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
         arm64) platform="linux-arm64-musl"; checksum="${CLAUDE_CODE_ARM64_SHA256}" ;; \
         *) echo "unsupported target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
-    && wget -q -O /usr/local/bin/claude \
+    && wget -T 60 -t 3 -O /usr/local/bin/claude \
         "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${platform}/claude" \
     && echo "${checksum}  /usr/local/bin/claude" | sha256sum -c - \
     && chmod 0755 /usr/local/bin/claude \
