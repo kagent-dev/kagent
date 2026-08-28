@@ -49,6 +49,8 @@ Every component has a single responsibility. If code reaches into another compon
 
 **Operations are atomic from the caller's perspective.** Database-only operations use transactions. Workflows that cross database and network boundaries use durable phases, idempotent retries, and compensating cleanup so partial work can be safely resumed or removed. Never hold a database transaction or lock across a network call.
 
+**Persist transitions atomically.** When one logical transition changes task state and history, compute it before persistence and commit it through one store transaction. Transport code must not perform preparatory writes. Reject malformed durable data rather than silently omitting it.
+
 **Internal mechanics are not API.** Locks, accounting counters, query sequencing, and cloned dependencies stay hidden from callers. An implementation change should not force callers to change.
 
 **Behavior lives where the knowledge is.** Do not move behavior sideways into a wrapper; push it down to the component that understands the domain.

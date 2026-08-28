@@ -33,11 +33,9 @@
  * The fixtures therefore need no transform handling of their own and cannot drift
  * from this.
  *
- * The concrete thing that protects: `withShareToken` sets `X-Share-Token` through
- * a request transform, and the sharing spec asserts the backend refuses a token it
- * never issued. If that header stopped reaching the transport, an unauthenticated
- * read would be served and the missing header would read as success — which has
- * happened here before.
+ * The concrete thing that protects: AgentInstance sharing sets `X-Share-Token`
+ * through a request transform. If that header stopped reaching the transport, a
+ * shared conversation would be refused even though its ordinary API calls worked.
  */
 
 import {

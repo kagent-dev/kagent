@@ -15,10 +15,9 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ApiError } from "@/api/ApiError";
-import { clearApiExtensions, registerApiTransform } from "@/api/extensionPoints";
+import { clearApiExtensions } from "@/api/extensionPoints";
 import { invoke, operationIds } from "@/api/operations";
 import type { OperationId, OperationInput } from "@/api/operations";
-import { withShareToken } from "@/api/shareToken";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
 import { MOCK_INSTANCE_CREATOR } from "./fixtures";
@@ -108,15 +107,6 @@ const INPUTS = {
     payload: { data: { tone: "brisker" } },
   },
   "prompts.delete": { namespace: "kagent", name: "swept-prompts" },
-
-  "sessions.listForAgent": { namespace: "kagent", name: "k8s-agent" },
-  "sessions.get": { id: "session-8f31" },
-  "sessions.create": { payload: { agent_ref: "kagent/k8s-agent", name: "swept" } },
-  "sessions.delete": { id: "session-2b07" },
-  "sessions.tasks": { id: "session-8f31" },
-  "sessions.shares.list": { id: "session-8f31" },
-  "sessions.shares.create": { id: "session-8f31" },
-  "sessions.shares.delete": { id: "session-8f31", token: "mock-share-token-1" },
 
   /*
    * Each of these acts on a different instance, because this sweep runs every
@@ -319,55 +309,6 @@ describe("the fixture backend", () => {
 
     const all = await invoke("prompts.list", {});
     expect(all.length).toBeGreaterThan(scoped.length);
-  });
-
-  it("lists only the conversations belonging to the agent asked about", async () => {
-    const mine = await invoke("sessions.listForAgent", {
-      namespace: "kagent",
-      name: "k8s-agent",
-    });
-    expect(mine.length).toBeGreaterThan(0);
-
-    const someone_elses = await invoke("sessions.listForAgent", {
-      namespace: "platform",
-      name: "incident-commander",
-    });
-    expect(someone_elses).toEqual([]);
-  });
-
-  describe("share links", () => {
-    /*
-     * The token is only a capability because the fake refuses one it did not issue.
-     * A fixture that served the conversation to anybody would make "the link works"
-     * a claim about the page rendering and nothing else.
-     */
-    it("refuses a token it never issued and honours one it did", async () => {
-      const share = await invoke("sessions.shares.create", { id: "session-8f31" });
-
-      spend("session-8f31", "not-a-real-token");
-      await expect(invoke("sessions.get", { id: "session-8f31" })).rejects.toMatchObject({
-        status: 403,
-      });
-
-      clearApiExtensions();
-      spend("session-8f31", share.token);
-      const session = await invoke("sessions.get", { id: "session-8f31" });
-      // Reported beside the record, because it describes this caller's access.
-      expect(session.share_read_only).toBe(true);
-
-      clearApiExtensions();
-      await invoke("sessions.shares.delete", { id: "session-8f31", token: share.token });
-      const remaining = await invoke("sessions.shares.list", { id: "session-8f31" });
-      expect(remaining.map((row) => row.token)).not.toContain(share.token);
-    });
-
-    /** Registers the production transform, so the header travels the real way. */
-    function spend(sessionId: string, token: string): void {
-      registerApiTransform({
-        name: "shareToken",
-        request: (context) => withShareToken(context, sessionId, token),
-      });
-    }
   });
 
   /*

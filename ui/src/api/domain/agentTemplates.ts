@@ -41,13 +41,12 @@ export interface ConfigMapKeyRef {
 /**
  * Tools selected from one MCP server.
  *
- * `tools` is required and must hold at least one name — unlike the tool bindings on
- * the older `Agent` kind, where an empty list meant *every* tool the server
- * exposes. The CRD here has `MinItems=1`, so "all of them" has to be spelled out.
+ * An omitted or empty `tools` list exposes every tool the server provides. A
+ * non-empty list limits the binding to those names.
  */
 export interface McpToolBinding {
   server: { kind: "RemoteMCPServer"; name: string };
-  tools: string[];
+  tools?: string[];
 }
 
 /** Another AgentTemplate exposed to this one as a tool it can route work to. */

@@ -57,6 +57,32 @@ const REQUEST_ID = "adk-mock-ask-1";
 const FAILURE_MESSAGE =
   "The agent stopped responding. The connection to the runtime was lost.";
 
+/**
+ * Where this fixture says what it is doing, for the browser suite to wait on — the
+ * same instrument `src/mocks/transport.ts` publishes for RPC calls, and for the same
+ * reason: under a substituted transport there is no request on the wire to watch.
+ * Counters rather than a boolean, so a waiter can name the turn it means.
+ */
+export const MOCK_CHAT_PROPERTY = "__kagentMockChat";
+
+export interface MockChatActivity {
+  /** Turns this fixture has begun streaming since the page loaded. */
+  started: number;
+  /** Turns it has stopped streaming — completed, failed, parked, or cancelled. */
+  finished: number;
+}
+
+const activity: MockChatActivity = { started: 0, finished: 0 };
+
+/**
+ * Called from the constructor rather than at module load: this module is imported in
+ * every build and instantiated only in mock mode.
+ */
+function publishActivity(): void {
+  if (typeof window === "undefined") return;
+  (window as unknown as Record<string, unknown>)[MOCK_CHAT_PROPERTY] = activity;
+}
+
 export class MockChatClient implements ChatClient {
   readonly protocolVersion = "mock";
 
@@ -72,6 +98,10 @@ export class MockChatClient implements ChatClient {
    * of the first turn before it, and React sees two children with the same key.
    */
   private readonly runId = Math.random().toString(36).slice(2, 10);
+
+  constructor() {
+    publishActivity();
+  }
 
   async history(
     conversation: ChatConversationRef,
@@ -94,7 +124,21 @@ export class MockChatClient implements ChatClient {
     };
   }
 
+  /**
+   * One turn, counted at both ends. Kept out of the script below because `finally` is
+   * the one place that sees every ending — completed, refused, failed, parked, or
+   * cancelled by a consumer that stopped iterating.
+   */
   async *send(input: SendMessageInput): AsyncIterable<ChatEvent> {
+    activity.started += 1;
+    try {
+      yield* this.stream(input);
+    } finally {
+      activity.finished += 1;
+    }
+  }
+
+  private async *stream(input: SendMessageInput): AsyncIterable<ChatEvent> {
     const { conversation, text, signal } = input;
     const sessionId = conversationKey(conversation);
     const scenario = currentChatScenario();

@@ -85,14 +85,7 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_temp
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import {
-  SessionService,
-  TaskStoreService,
-  type SessionSchema,
-  type SessionShareSchema,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
-import { Role as PbRole, TaskState as PbTaskState } from "@/generated/a2a_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -116,7 +109,6 @@ import type {
 } from "@/api/domain/agents";
 import type { ModelConfig, ModelConfigSpec } from "@/api/domain/models";
 import type { PromptTemplateDetail } from "@/api/domain/prompts";
-import type { Session, SessionShare } from "@/api/domain/sessions";
 import {
   SCENARIO_DELAY_MS,
   currentAuthScenario,
@@ -140,16 +132,12 @@ import {
   allModels,
   allPromptDetails,
   allPromptSummaries,
-  allSessions,
   allToolServers,
   buildAgentResponse,
-  createShare,
-  deleteShare,
   markDeleted,
   allHarnesses,
   saveHarness,
   promptRef,
-  readShares,
   saveAgent,
   saveAgentInstance,
   saveAgentTemplate,
@@ -158,7 +146,6 @@ import {
   revokeInstanceShare,
   saveModel,
   savePrompt,
-  saveSession,
   saveToolServer,
 } from "./state";
 
@@ -327,21 +314,6 @@ function headerRecord(header: HeadersInit | undefined): Record<string, string> {
     record[key] = value;
   });
   return record;
-}
-
-/**
- * One header, whatever case it was written in.
- *
- * A `Headers` object lowercases its keys and a transform's record does not, so a
- * fake that indexed the record directly would miss `X-Share-Token` exactly when a
- * transform had set it — which is the only time it is ever there.
- */
-function headerValue(headers: Record<string, string>, name: string): string | undefined {
-  const wanted = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === wanted) return value;
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -735,185 +707,6 @@ on(PromptTemplateService.method.deletePromptTemplate, (input) => {
   markDeleted(refString(input.ref));
   return {};
 });
-
-// ---------------------------------------------------------------------------
-// Sessions
-// ---------------------------------------------------------------------------
-
-function sessionMessage(session: Session): MessageInitShape<typeof SessionSchema> {
-  return {
-    id: session.id,
-    name: session.name,
-    userId: session.user_id,
-    agentId: session.agent_id,
-    createdAt: stamp(session.created_at),
-    updatedAt: stamp(session.updated_at),
-    deletedAt: stamp(session.deleted_at),
-    shareToken: session.share_token ?? undefined,
-    shareReadOnly: session.share_read_only ?? undefined,
-  };
-}
-
-function shareMessage(
-  share: SessionShare,
-): MessageInitShape<typeof SessionShareSchema> {
-  return {
-    // `int64` in the proto, so the generated type wants a bigint.
-    id: BigInt(share.id),
-    token: share.token,
-    sessionId: share.session_id,
-    userId: share.user_id,
-    readOnly: share.read_only,
-    createdAt: stamp(share.created_at),
-  };
-}
-
-on(SessionService.method.listSessionsByAgent, (input, call) => {
-  // The agent a conversation belongs to is carried as `namespace__NS__name`.
-  const wanted = `${input.agentRef?.namespace ?? ""}__NS__${input.agentRef?.name ?? ""}`;
-  return {
-    sessions:
-      call.scenario === "empty"
-        ? []
-        : allSessions()
-            .filter((session) => session.agent_id === wanted)
-            .map(sessionMessage),
-  };
-});
-
-/**
- * One conversation, and the only place a share token means anything here.
- *
- * A call carrying `X-Share-Token` is a visitor spending a share link, and a token
- * this tab never issued — or one revoked since — is refused the way the controller
- * refuses it. Without that check a client that sent no token, or the wrong one,
- * would be served the conversation and look correct.
- */
-on(SessionService.method.getSession, (input, call) => {
-  const token = headerValue(call.headers, "X-Share-Token");
-  const share = token
-    ? readShares().find(
-        (candidate) =>
-          candidate.token === token && candidate.session_id === input.sessionId,
-      )
-    : undefined;
-
-  if (token && !share) {
-    throw new ConnectError(
-      "Invalid or expired share token.",
-      Code.PermissionDenied,
-    );
-  }
-
-  const found =
-    call.scenario === "empty"
-      ? undefined
-      : allSessions().find((session) => session.id === input.sessionId);
-  if (!found) throw notFound(`conversation ${input.sessionId}`);
-
-  return {
-    session: sessionMessage(found),
-    // The transcript is the chat client's, not the task store's — see
-    // `TaskStoreService/ListTasks` below.
-    events: [],
-    // Reported beside the session rather than on it, because it describes *this
-    // caller's* access: whoever opened the link, not the record.
-    readOnly: share?.read_only,
-  };
-});
-
-on(SessionService.method.createSession, (input) => ({
-  session: sessionMessage(
-    saveSession({ id: input.id, agentRef: input.agentRef, name: input.name }),
-  ),
-}));
-
-on(SessionService.method.deleteSession, (input) => {
-  markDeleted(input.sessionId);
-  return {};
-});
-
-on(SessionService.method.listSessionShares, (input) => ({
-  shares: readShares()
-    .filter((share) => share.session_id === input.sessionId)
-    .map(shareMessage),
-}));
-
-on(SessionService.method.createSessionShare, (input) => ({
-  // The controller defaults `read_only` to true and treats false as a deliberate
-  // opt-in to read-write, which is the right way round for handing out access.
-  share: shareMessage(createShare(input.sessionId, input.readOnly ?? true)),
-}));
-
-on(SessionService.method.deleteSessionShare, (input) => {
-  deleteShare(input.token);
-  return {};
-});
-
-/**
- * No tasks, deliberately.
- *
- * In mock mode a conversation's transcript comes from `MockChatClient`, which
- * keeps its own per-session history — the task store is not where it lives. Making
- * up A2A `Task` messages here would put messages on screen that the chat client
- * never produced and cannot continue.
- */
-/**
- * The stored turns of a session, which only the shared-conversation page reads.
- *
- * Live chat replays itself from the A2A gateway and never comes through here — the
- * gateway knows about instances, not sessions. A share token names a session, so
- * this is the one path that still resolves one, and it needs something to render:
- * answering with no tasks made a working share look like a share of an empty
- * conversation.
- *
- * Built as protos rather than as A2A JSON, because that is what the wire carries and
- * what the client now reads. A `Part` is a **oneof** here with no `kind` field
- * anywhere — writing `{kind: "text", text}` produces a document that parses and
- * yields no messages, which is the exact trap this fixture would otherwise hide.
- */
-on(TaskStoreService.method.listTasks, (input) => {
-  if (input.sessionId !== SHARED_SESSION_ID) return { tasks: [] };
-  return {
-    tasks: [
-      {
-        id: "task-shared-1",
-        contextId: SHARED_SESSION_ID,
-        status: {
-          state: PbTaskState.COMPLETED,
-          // The turn's own instant. History messages carry no time of their own, so
-          // a page stamping them with the clock now would be wrong by however long
-          // ago the conversation was.
-          timestamp: timestampFromDate(new Date("2026-08-01T08:59:00Z")),
-        },
-        history: [
-          {
-            messageId: "shared-1-user",
-            role: PbRole.USER,
-            parts: [{ content: { case: "text" as const, value: "Why is checkout crashlooping?" } }],
-          },
-          {
-            messageId: "shared-1-agent",
-            role: PbRole.AGENT,
-            parts: [
-              {
-                content: {
-                  case: "text" as const,
-                  value:
-                    "The **checkout** pod is failing its liveness probe. Its last restart was 4 minutes ago.",
-                },
-              },
-            ],
-          },
-        ],
-        artifacts: [],
-      },
-    ],
-  };
-});
-
-/** The session the seeded share link points at. */
-const SHARED_SESSION_ID = "session-8f31";
 
 // ---------------------------------------------------------------------------
 // Agent instances

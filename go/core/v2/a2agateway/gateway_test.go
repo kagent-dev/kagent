@@ -319,8 +319,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	authorizer := &gatewayTestAuthorizer{}
 	runtime := &gatewayTestRuntime{}
 	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	request := gatewayTestRequest()
+	request.Message.SetMeta(apia2a.TimelinePositionMetadataKey, "caller-controlled")
 
-	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	result, err := gateway.SendMessage(gatewayTestContext(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,6 +332,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	createdAt, ok := store.created.Metadata[TaskCreatedAtMetadataKey].(string)
 	if _, err := time.Parse(time.RFC3339Nano, createdAt); !ok || err != nil {
 		t.Fatalf("task creation timestamp = %#v: %v", store.created.Metadata[TaskCreatedAtMetadataKey], err)
+	}
+	position, ok := store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil {
+		t.Fatalf("opening message timeline position = %#v: %v", store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey], err)
 	}
 	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
 		t.Fatalf("store lookup = %q/%q user %q", store.namespace, store.id, store.userID)
@@ -387,8 +393,53 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	if runtime.privateTask == nil || runtime.privateTask.Status.State != a2atype.TaskStateInputRequired || runtime.privateTask.Status.Message == nil || runtime.privateTask.Status.Message.ID != status.ID {
 		t.Fatalf("private continuation state = %#v", runtime.privateTask)
 	}
-	if len(reply.Metadata) != 0 {
-		t.Fatalf("private continuation state leaked into public metadata: %#v", reply.Metadata)
+	position, ok := reply.Metadata[apia2a.TimelinePositionMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil || len(reply.Metadata) != 1 {
+		t.Fatalf("reply metadata = %#v, want only its server-authored timeline position: %v", reply.Metadata, err)
+	}
+}
+
+func TestGatewayMovesInputRequiredMessageBeforeReply(t *testing.T) {
+	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?"))
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
+	}
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
+	reply.TaskID = waiting.ID
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+
+	prepared, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.task.History) != 2 || prepared.task.History[0] != question || prepared.task.History[1] != reply {
+		t.Fatalf("history = %#v, want question followed by reply", prepared.task.History)
+	}
+	if len(store.stored) != 1 || store.stored[0] != reply {
+		t.Fatalf("stored events = %#v, want one atomic reply update", store.stored)
+	}
+	if question.TaskID != waiting.ID || question.ContextID != waiting.ContextID {
+		t.Fatalf("archived question = task %q context %q, want the task it was asked in", question.TaskID, question.ContextID)
+	}
+}
+
+func TestGatewayRejectsInputRequiredMessageWithoutID(t *testing.T) {
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: &a2atype.Message{}},
+	}
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
+	reply.TaskID = waiting.ID
+
+	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: reply}); err == nil {
+		t.Fatal("prepareReply() succeeded with an unidentifiable status message")
+	}
+	if len(store.stored) != 0 {
+		t.Fatalf("stored events = %#v, want no partial write", store.stored)
 	}
 }
 

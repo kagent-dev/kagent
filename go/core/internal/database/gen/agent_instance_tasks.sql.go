@@ -8,6 +8,8 @@ package dbgen
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const countAgentInstanceTasks = `-- name: CountAgentInstanceTasks :one
@@ -19,7 +21,7 @@ WHERE context_id = $1
 `
 
 type CountAgentInstanceTasksParams struct {
-	ContextID            string
+	ContextID            uuid.UUID
 	State                string
 	StatusTimestampAfter *time.Time
 }
@@ -46,7 +48,7 @@ DO NOTHING
 `
 
 type CreateAgentInstanceTaskParams struct {
-	ContextID        string
+	ContextID        uuid.UUID
 	ID               string
 	State            string
 	StatusTimestamp  *time.Time
@@ -84,7 +86,7 @@ WHERE context_id = $1
   )
 `
 
-func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error) {
+func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error) {
 	row := q.db.QueryRow(ctx, getActiveAgentInstanceTask, contextID)
 	var i AgentInstanceTask
 	err := row.Scan(
@@ -112,7 +114,7 @@ WHERE context_id = $1 AND id = $2
 `
 
 type GetAgentInstanceTaskParams struct {
-	ContextID string
+	ContextID uuid.UUID
 	ID        string
 }
 
@@ -144,7 +146,7 @@ WHERE context_id = $1 AND initial_message_id = $2
 `
 
 type GetAgentInstanceTaskByMessageIDParams struct {
-	ContextID        string
+	ContextID        uuid.UUID
 	InitialMessageID *string
 }
 
@@ -187,7 +189,7 @@ LIMIT 1
 `
 
 type InsertAgentInstanceTaskEventParams struct {
-	ContextID string
+	ContextID uuid.UUID
 	TaskID    *string
 	MessageID *string
 	Data      []byte
@@ -214,7 +216,7 @@ INSERT INTO agent_instance_task (
 `
 
 type InsertCopiedAgentInstanceTaskParams struct {
-	ContextID            string
+	ContextID            uuid.UUID
 	ID                   string
 	State                string
 	StatusTimestamp      *time.Time
@@ -260,7 +262,7 @@ ORDER BY sequence
 `
 
 type ListAgentInstanceTaskHistoryParams struct {
-	ContextID string
+	ContextID uuid.UUID
 	TaskIds   []string
 }
 
@@ -301,7 +303,7 @@ LIMIT $5
 `
 
 type ListAgentInstanceTasksParams struct {
-	ContextID            string
+	ContextID            uuid.UUID
 	AfterID              string
 	State                string
 	StatusTimestampAfter *time.Time
@@ -365,7 +367,7 @@ FOR UPDATE
 
 // LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 // rest of the transaction so reclamation cannot overwrite concurrent progress.
-func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error) {
+func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error) {
 	row := q.db.QueryRow(ctx, lockActiveAgentInstanceTask, contextID)
 	var i AgentInstanceTask
 	err := row.Scan(
@@ -398,7 +400,7 @@ WHERE context_id = $1 AND id = $2
 `
 
 type SetAgentInstanceTaskSnapshotParams struct {
-	ContextID            string
+	ContextID            uuid.UUID
 	ID                   string
 	SnapshotAtespace     *string
 	SnapshotName         *string
@@ -431,7 +433,7 @@ ON CONFLICT (context_id, id) DO UPDATE SET
 `
 
 type UpsertAgentInstanceTaskParams struct {
-	ContextID       string
+	ContextID       uuid.UUID
 	ID              string
 	State           string
 	StatusTimestamp *time.Time
