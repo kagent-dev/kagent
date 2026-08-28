@@ -29,7 +29,7 @@ export interface ResourceMetadata {
   resourceVersion?: string;
   labels?: Record<string, string>;
   /**
-   * Where a vendor form field folds its value on the way to the controller.
+   * Where an extension form field folds its value on the way to the controller.
    *
    * Spelled out rather than left to a catch-all index signature: these are the
    * only extra keys `ObjectMeta` accepts, so an open record would type a typo as

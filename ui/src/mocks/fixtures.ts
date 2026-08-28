@@ -366,12 +366,12 @@ export const mockProviders: Provider[] = [
    * for a provider that came up rather than one merely created.
    */
   {
-    name: "acme-openai-proxy",
+    name: "example-openai-proxy",
     type: "OpenAI",
     requiredParams: [],
     optionalParams: [],
     source: "configured",
-    endpoint: "https://llm.acme.test/v1",
+    endpoint: "https://llm.example.test/v1",
   },
 ];
 

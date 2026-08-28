@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { UserRound } from "lucide-react";
 import { KagentLogoWithText } from "@/components/branding/KagentLogo";
 import { paths } from "@/router/routes";
-import { VendorSlot, useVendorExtensionConfig } from "@/vendorExtensions";
+import { ExtensionSlot, useExtensionBranding } from "@/appExtensions";
 import { useAuth } from "@/auth";
 
 const { Text } = Typography;
@@ -67,7 +67,7 @@ function CurrentUserBadge() {
 
 export function AppHeader() {
   const theme = useTheme();
-  const { branding } = useVendorExtensionConfig();
+  const branding = useExtensionBranding();
   const AppIcon = branding?.AppIcon;
 
   return (
@@ -134,7 +134,7 @@ export function AppHeader() {
         {/* Ahead of the app's own header controls, which is where a deployment
             puts something that scopes the whole page — an active-cluster or
             active-tenant selector, for instance. */}
-        <VendorSlot id="app_shell_appHeader_actions_leading" />
+        <ExtensionSlot id="app_shell_appHeader_actions_leading" />
         <CurrentUserBadge />
       </Space>
     </Header>

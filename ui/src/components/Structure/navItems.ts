@@ -20,7 +20,7 @@ export interface NavItem {
 }
 
 /**
- * The application's own navigation. Vendor extensions contribute additional
+ * The application's own navigation. App extensions contribute additional
  * items rather than editing this list — see the navigation extension point.
  */
 export const coreNavItems: NavItem[] = [

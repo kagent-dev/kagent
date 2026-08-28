@@ -65,23 +65,23 @@ which is convenient in a browser and a trap in a test.
 playwright/
   tests/           app-shell, routing, and <area>/<area>{,-errors}.spec.ts
   helpers/         app (navigation, tables, scenarios), nav (shell chrome),
-                   extensions (vendor slots)
+                   extensions (extension slots)
   fixtures/test.ts import { test, expect } from here — never @playwright/test
   live/            the live suite: specs, plus helpers/ of its own
   DEFERRED.md      the specs not yet portable, and what each one is waiting on
 ```
 
-## Vendor extensions: two servers, two projects
+## App extensions: two servers, two projects
 
-Which extension a build ships with is decided at build time, so "installed" and
+Which extensions a build installs is decided at build time, so "installed" and
 "not installed" cannot be two states of one server. The config boots two:
 
 | Project | Server | Specs |
 |---|---|---|
-| `chromium` | bare — no extension, on `UI_LOOP_PORT` | everything not matching `*.vendor.spec.ts` |
-| `chromium-vendor` | `VITE_VENDOR_EXTENSIONS=example`, on `UI_LOOP_PORT + 50` | `*.vendor.spec.ts` |
+| `chromium` | bare — no extension, on `UI_LOOP_PORT` | everything not matching `*.withExtension.spec.ts` |
+| `chromium-with-extension` | `VITE_EXAMPLE_EXTENSION=true`, on `UI_LOOP_PORT + 50` | `*.withExtension.spec.ts` |
 
-A spec opts into the extension-installed app by being named `*.vendor.spec.ts`.
+A spec opts into the extension-installed app by being named `*.withExtension.spec.ts`.
 
 The gap of 50 between the ports is deliberate. Vite falls forward to the next
 free port when the one it is told to use is busy, so with adjacent ports a
@@ -91,11 +91,11 @@ asserting on. `globalSetup` also checks that each port is serving the build its
 project expects, and fails the run immediately with that explanation if not, so
 a harness problem cannot be mistaken for a product one.
 
-**Assert the mechanism, never the example.** The bundled Example extension is
+**Assert the mechanism, never the example.** The bundled Example App Extension is
 documentation that happens to run, and it is expected to change. Specs go
-through the `vendor-slot-<id>` test id that `VendorSlot` emits — that a
+through the `extension-slot-<id>` test id that `ExtensionSlot` emits — that a
 configured component mounts at its point, in the DOM position the point promises,
-carrying the context the point declares. Nothing asserts Example's copy.
+carrying the context the point declares. Nothing asserts the example's copy.
 
 One assertion in there is subtler than it looks: every per-row badge renders
 *identical* text, so a contribution that ignored its context entirely would

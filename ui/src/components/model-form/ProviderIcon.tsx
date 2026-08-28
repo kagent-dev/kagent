@@ -8,7 +8,7 @@
 
 import { GlobeIcon } from "lucide-react";
 import type { ComponentType, ReactElement, ReactNode } from "react";
-import { useVendorExtensionConfig } from "@/vendorExtensions";
+import { useExtensionProviderIcons } from "@/appExtensions";
 
 // region Icon components
 
@@ -144,14 +144,14 @@ export const PROVIDER_ICONS: Record<string, ComponentType> = {
 /**
  * Returns a 16×16 provider icon for the given provider type, or null.
  *
- * Takes the contributed icons rather than reading the global config, so that
+ * Takes the contributed icons rather than reading the install itself, so that
  * the only thing here that needs a React tree is the component below.
  */
 export function getProviderIcon(
   type: string,
-  vendorIcons?: Readonly<Record<string, ComponentType>>,
+  extensionIcons?: Readonly<Record<string, ComponentType>>,
 ): ReactElement | null {
-  const Icon = { ...PROVIDER_ICONS, ...vendorIcons }[type];
+  const Icon = { ...PROVIDER_ICONS, ...extensionIcons }[type];
   if (!Icon) return null;
   return <Icon />;
 }
@@ -163,7 +163,7 @@ export function ProviderIconWithLabel({
   type: string;
   label: ReactNode;
 }) {
-  const { providerIcons } = useVendorExtensionConfig();
+  const providerIcons = useExtensionProviderIcons();
   return (
     <span
       css={{

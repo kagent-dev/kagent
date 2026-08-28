@@ -3,7 +3,7 @@
 React + TypeScript, built with Vite. Routing is React Router, data fetching is
 SWR, components are Ant Design styled with Emotion, and the UI is extensible
 through named extension points — see
-[docs/vendor-extensions.md](./docs/vendor-extensions.md).
+[docs/app-extensions.md](./docs/app-extensions.md).
 
 Node is pinned in [`.nvmrc`](.nvmrc); Yarn ships via corepack.
 
@@ -110,6 +110,6 @@ port-forward, and no provider credentials**. See
 | `src/mocks/` | in-browser mock backend and its fixtures |
 | `src/pages/` | one module per route |
 | `src/components/Structure/` | app shell — header, sidebar, page frame |
-| `src/vendorExtensions/` | extension framework, and a worked example |
+| `src/appExtensions/` | extension framework, and a worked example |
 | `src/theme/` | design tokens, in one place so styling can be overridden |
 | `playwright/` | end-to-end suite |

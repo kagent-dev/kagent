@@ -23,7 +23,7 @@ history, sending, streaming deltas, tool call and result rendering, a failed
 turn with retry, cancelling mid-stream, and the session list failing on its own.
 
 The chat-message extension point is covered too, now that the example mounts a
-component there: `extension-points.vendor.spec.ts` asserts one slot per message
+component there: `extension-points.withExtension.spec.ts` asserts one slot per message
 and four *distinguishable* contributions, so per-message context is proven rather
 than assumed. Every extension point the app declares now has a runtime
 assertion.
@@ -70,7 +70,7 @@ able to assert against a real round trip once the forms land.
 
 ## Not started by request
 
-Vendor extension-point specs. The framework is still being edited and its
+App extension-point specs. The framework is still being edited and its
 contract is not frozen; the team lead will ask for these once it lands.
 
 ## Ported since: MCP servers and prompt libraries

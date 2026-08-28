@@ -18,7 +18,7 @@
  *
  * Kept from the path table, and for the same reason: the id — not the RPC — is
  * what an override is keyed by, so sharing one between a list read and a create
- * would mean a vendor re-pointing its agent list silently re-pointed agent
+ * would mean an extension re-pointing its agent list silently re-pointed agent
  * creation with it, with no way to override one alone. Two ids resolving to the
  * same RPC is the cost of keeping those two things separately addressable.
  *

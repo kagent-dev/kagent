@@ -44,7 +44,7 @@ import {
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { useThemeMode } from "@/theme/themeMode";
-import { useVendorExtensionConfig } from "@/vendorExtensions/hooks";
+import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { iconControlStyles, rowStyles, searchInputStyles } from "./controlStyles";
@@ -207,7 +207,7 @@ export function AgentRail({
    * either way and only the destinations differ. Anything it does not redefine falls
    * back to this application's own route.
    */
-  const links = useVendorExtensionConfig().agentLinks;
+  const links = useExtensionAgentLinks();
   const url = {
     chat: (ref: AgentRef) => links?.chat?.(ref) ?? agentUrl.chat(ref),
     details: (ref: AgentRef) => links?.details?.(ref) ?? agentUrl.details(ref),

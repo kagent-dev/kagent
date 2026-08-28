@@ -9,7 +9,7 @@ import { useThemeMode } from "@/theme/themeMode";
  * render here, so returning nothing would only mean a logo that pops in.
  *
  * The purple is the brand's own `#942DE7` and is deliberately not the `primary`
- * token: a vendor extension may restyle the whole application, and the kagent mark
+ * token: an app extension may restyle the whole application, and the kagent mark
  * is not theirs to recolour. The lettering *is* mode-dependent, because it has to
  * stay legible on either background.
  */
