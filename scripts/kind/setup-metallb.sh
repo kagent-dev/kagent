@@ -7,6 +7,16 @@ set -o nounset
 METALLB_VERSION=${METALLB_VERSION:-v0.15.3}
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-kagent}
 
+# A just-created cluster can answer one request and stall on the next.
+for attempt in $(seq 1 30); do
+  kubectl --context "kind-${KIND_CLUSTER_NAME}" get --raw=/readyz >/dev/null 2>&1 && break
+  if [ "${attempt}" -eq 30 ]; then
+    echo "ERROR: apiserver for kind-${KIND_CLUSTER_NAME} was still not ready after 60s."
+    exit 1
+  fi
+  sleep 2
+done
+
 kubectl --context "kind-${KIND_CLUSTER_NAME}" apply -f https://raw.githubusercontent.com/metallb/metallb/${METALLB_VERSION}/config/manifests/metallb-native.yaml
 
 # Wait for MetalLB to become available.
