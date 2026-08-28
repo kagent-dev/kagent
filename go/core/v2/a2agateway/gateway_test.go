@@ -319,8 +319,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	authorizer := &gatewayTestAuthorizer{}
 	runtime := &gatewayTestRuntime{}
 	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	request := gatewayTestRequest()
+	request.Message.SetMeta(apia2a.TimelinePositionMetadataKey, "caller-controlled")
 
-	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	result, err := gateway.SendMessage(gatewayTestContext(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,6 +332,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	createdAt, ok := store.created.Metadata[TaskCreatedAtMetadataKey].(string)
 	if _, err := time.Parse(time.RFC3339Nano, createdAt); !ok || err != nil {
 		t.Fatalf("task creation timestamp = %#v: %v", store.created.Metadata[TaskCreatedAtMetadataKey], err)
+	}
+	position, ok := store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil {
+		t.Fatalf("opening message timeline position = %#v: %v", store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey], err)
 	}
 	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
 		t.Fatalf("store lookup = %q/%q user %q", store.namespace, store.id, store.userID)
@@ -387,8 +393,9 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	if runtime.privateTask == nil || runtime.privateTask.Status.State != a2atype.TaskStateInputRequired || runtime.privateTask.Status.Message == nil || runtime.privateTask.Status.Message.ID != status.ID {
 		t.Fatalf("private continuation state = %#v", runtime.privateTask)
 	}
-	if len(reply.Metadata) != 0 {
-		t.Fatalf("private continuation state leaked into public metadata: %#v", reply.Metadata)
+	position, ok := reply.Metadata[apia2a.TimelinePositionMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil || len(reply.Metadata) != 1 {
+		t.Fatalf("reply metadata = %#v, want only its server-authored timeline position: %v", reply.Metadata, err)
 	}
 }
 

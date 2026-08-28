@@ -469,6 +469,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetId() {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
+	delete(req.Message.Metadata, apia2a.TimelinePositionMetadataKey)
 	if req.Message.TaskID != "" {
 		return g.prepareReply(ctx, instance, req)
 	}
@@ -477,9 +478,11 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
 	}
+	receivedAt := time.Now().UTC()
+	req.Message.SetMeta(apia2a.TimelinePositionMetadataKey, receivedAt.Format(time.RFC3339Nano))
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
-	createdAt := time.Now().UTC()
+	createdAt := receivedAt
 	if submitted.Status.Timestamp != nil {
 		createdAt = submitted.Status.Timestamp.UTC()
 	}
@@ -516,6 +519,7 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "task is not waiting for input")
 	}
 	message.ContextID = stored.ContextID
+	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
 	attempt := *stored
 	attempt.History = append([]*a2atype.Message{}, stored.History...)
 	if question := stored.Status.Message; question != nil {

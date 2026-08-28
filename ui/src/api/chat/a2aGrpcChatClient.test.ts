@@ -554,6 +554,29 @@ describe("A2AGrpcChatClient.history", () => {
     });
   }
 
+  it("orders messages and artifacts by their timeline positions", async () => {
+    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          { messageId: "u0", role: Role.USER, parts: [text("start")], metadata: position("1") },
+          { messageId: "u1", role: Role.USER, parts: [text("answer")], metadata: position("4") },
+        ],
+        artifacts: [
+          { artifactId: "a0", parts: [data({ name: "ask_user" })], metadata: position("2") },
+          { artifactId: "a1", parts: [text("Which topic?")], metadata: position("3") },
+          { artifactId: "a2", parts: [text("Thanks")], metadata: position("5") },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual(["u0", "a0", "a1", "u1", "a2"]);
+  });
+
   it("keeps a tool call and its result apart when replaying", async () => {
     // Consecutive agent messages carrying data parts and no text at all: comparing
     // text made them look identical and dropped the result, so a replayed
