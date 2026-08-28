@@ -59,7 +59,7 @@ func testWorkspace(t *testing.T, lister instanceLister) *workspaceModel {
 	clientSet := conn.Client()
 	t.Cleanup(func() { _ = clientSet.Close() })
 
-	m := newWorkspaceModel(t.Context(), Options{Namespace: conn.Namespace}, clientSet, false)
+	m := newWorkspaceModel(t.Context(), Options{Namespace: conn.Namespace}, clientSet, nil, nil, false)
 	m.lister = lister
 	m.width, m.height = 120, 40
 	return m

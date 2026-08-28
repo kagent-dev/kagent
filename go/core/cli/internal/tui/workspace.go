@@ -52,7 +52,9 @@ type instanceLister interface {
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
 func RunWorkspace(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) error {
-	m := newWorkspaceModel(ctx, cfg, clientSet, verbose)
+	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
+	kubeCatalog, catalogErr := newKubeCatalog()
+	m := newWorkspaceModel(ctx, cfg, clientSet, kubeCatalog, catalogErr, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
@@ -124,13 +126,12 @@ type workspaceModel struct {
 	focus panelID
 }
 
-func newWorkspaceModel(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) *workspaceModel {
+// newWorkspaceModel builds the model from resolved dependencies; it reads no configuration of its own.
+func newWorkspaceModel(ctx context.Context, cfg Options, clientSet *client.ClientSet, kubeCatalog catalog, catalogErr error, verbose bool) *workspaceModel {
 	var lister instanceLister
 	if clientSet != nil {
 		lister = clientSet.AgentInstance
 	}
-	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
-	kubeCatalog, catalogErr := newKubeCatalog()
 
 	return &workspaceModel{
 		ctx:        ctx,
