@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -15,11 +16,11 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
-	runner, err := New(Input{
+	runner, err := New(context.Background(), Input{
 		ConfigJSON: []byte(`{"version":3,"claude_executable":"claude","expected_claude_version":"2.1.217","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
-		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_AUTOUPDATER=0"},
+		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_UPDATES=0"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +60,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	ephemeralDir := filepath.Join(t.TempDir(), "generated")
-	if _, err := New(Input{
+	if _, err := New(context.Background(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
 	}); err != nil {
@@ -78,7 +79,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 
 func TestNewRejectsInvalidInput(t *testing.T) {
 	input := Input{ConfigJSON: []byte(`{}`), Workspace: "relative", DurableDir: "relative", EphemeralDir: "relative"}
-	if _, err := New(input); err == nil {
+	if _, err := New(context.Background(), input); err == nil {
 		t.Fatal("New() accepted invalid input")
 	}
 }
@@ -98,7 +99,7 @@ func TestMaterializeGoogleCredentials(t *testing.T) {
 	if string(contents) != raw {
 		t.Fatalf("credentials = %q", contents)
 	}
-	if len(environment) != 2 || environment[0] != "A=1" || environment[1] != googleCredsEnv+"="+path {
+	if len(environment) != 2 || environment[0] != "A=1" || environment[1] != googleApplicationCredentialsEnv+"="+path {
 		t.Fatalf("environment = %v", environment)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {

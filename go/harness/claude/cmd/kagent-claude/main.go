@@ -28,12 +28,12 @@ const (
 func main() {
 	check := flag.Bool("check", false, "validate configuration and Claude version, then exit")
 	flag.Parse()
-	if err := run(*check, os.Getenv, os.Environ()); err != nil {
+	if err := run(context.Background(), *check, os.Getenv, os.Environ()); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(check bool, getenv func(string) string, environment []string) error {
+func run(ctx context.Context, check bool, getenv func(string) string, environment []string) error {
 	configJSON, err := requiredEnvironment(getenv, configEnv)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func run(check bool, getenv func(string) string, environment []string) error {
 		return fmt.Errorf("agent card name is required")
 	}
 
-	runner, err := adapter.New(adapter.Input{
+	runner, err := adapter.New(ctx, adapter.Input{
 		ConfigJSON: configJSON,
 		Workspace:  dataDir + "/workspace", DurableDir: dataDir,
 		EphemeralDir: "/tmp/kagent-claude",

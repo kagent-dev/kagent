@@ -45,8 +45,8 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	commit := git("rev-parse", "HEAD")
 
 	root := t.TempDir()
-	result, err := materializeForADK(context.Background(), adk.AgentPluginConfig{Plugins: []adk.AgentPluginBundle{{
-		Source: adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: repository, Commit: commit}}, Skills: []string{"review"},
+	result, err := materializeForADK(context.Background(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
 	}}}, ADKPaths{
 		SkillPaths: SkillPaths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills")},
 		Data:       filepath.Join(root, "data"),
@@ -96,10 +96,10 @@ func TestMaterializeAgentConfigIsolatesSubagentSkills(t *testing.T) {
 		SkillPaths: SkillPaths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills")},
 		Data:       filepath.Join(root, "data"),
 	}
-	source := adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: "unused", Commit: strings.Repeat("a", 40)}}
+	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
 	config := &adk.AgentConfig{
-		AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "root", Source: source}}},
-		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "child", Source: source}}}}},
+		AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}},
+		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}}}},
 	}
 	for _, path := range []string{
 		filepath.Join(paths.Plugins, "standalone-0"),

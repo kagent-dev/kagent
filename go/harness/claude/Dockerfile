@@ -18,17 +18,26 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -o /kagent-claude ./harness/claude/cmd/kagent-claude
 
-FROM node:22-trixie-slim
+FROM alpine:3.22
 ARG CLAUDE_CODE_VERSION=2.1.217
+ARG CLAUDE_CODE_AMD64_SHA256=7c44188927edbf7b918b41bc7a284292359b1ad556b7802db0148adb4b395732
+ARG CLAUDE_CODE_ARM64_SHA256=e219a631e194e71bccbea2f81f5678c75f745aa6e7a74e8a407610c906d1299b
+ARG TARGETARCH
 ARG VERSION
 
-ENV DISABLE_AUTOUPDATER=1
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
-    && groupadd --system --gid 65532 kagent \
-    && useradd --system --uid 65532 --gid 65532 --home-dir /data --shell /usr/sbin/nologin kagent \
+ENV USE_BUILTIN_RIPGREP=0
+RUN apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
+    && case "${TARGETARCH}" in \
+        amd64) platform="linux-x64-musl"; checksum="${CLAUDE_CODE_AMD64_SHA256}" ;; \
+        arm64) platform="linux-arm64-musl"; checksum="${CLAUDE_CODE_ARM64_SHA256}" ;; \
+        *) echo "unsupported target architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && wget -q -O /usr/local/bin/claude \
+        "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${platform}/claude" \
+    && echo "${checksum}  /usr/local/bin/claude" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/claude \
+    && addgroup -S -g 65532 kagent \
+    && adduser -S -D -H -u 65532 -G kagent -h /data -s /sbin/nologin kagent \
     && mkdir -p /data/adapter /data/claude /data/generated /data/workspace \
     && chown -R 65532:65532 /data
 

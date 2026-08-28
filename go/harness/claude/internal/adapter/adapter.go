@@ -16,15 +16,14 @@ import (
 )
 
 const (
-	claudeConfigDirEnv = "CLAUDE_CONFIG_DIR"
-	disableUpdaterEnv  = "DISABLE_AUTOUPDATER"
-	googleCredsEnv     = "GOOGLE_APPLICATION_CREDENTIALS"
+	claudeConfigDirEnv              = "CLAUDE_CONFIG_DIR"
+	disableUpdatesEnv               = "DISABLE_UPDATES"
+	googleApplicationCredentialsEnv = "GOOGLE_APPLICATION_CREDENTIALS"
 )
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Claude driver.
 type Input struct {
-	Context      context.Context
 	ConfigJSON   []byte
 	Workspace    string
 	DurableDir   string
@@ -33,7 +32,7 @@ type Input struct {
 }
 
 // New validates and materializes Claude-owned state, then constructs its driver.
-func New(input Input) (*driver.ProcessDriver, error) {
+func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	cfg, err := config.Parse(input.ConfigJSON)
 	if err != nil {
 		return nil, err
@@ -60,11 +59,7 @@ func New(input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	if cfg.SkillResources != nil {
-		materializeContext := input.Context
-		if materializeContext == nil {
-			materializeContext = context.Background()
-		}
-		if err := agentplugins.MaterializeSkills(materializeContext, *cfg.SkillResources, agentplugins.SkillPaths{
+		if err := agentplugins.MaterializeSkills(ctx, *cfg.SkillResources, agentplugins.SkillPaths{
 			Plugins: filepath.Join(claudeDir, "packages"),
 			Skills:  filepath.Join(claudeDir, "skills"),
 		}); err != nil {
@@ -72,7 +67,9 @@ func New(input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	environment := setEnvironment(input.Environment, claudeConfigDirEnv, claudeDir)
-	environment = setEnvironment(environment, disableUpdaterEnv, "1")
+	// The image and compiler pin an exact Claude version. Prevent both automatic
+	// and manual update paths from changing that runtime after validation.
+	environment = setEnvironment(environment, disableUpdatesEnv, "1")
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err
@@ -118,6 +115,9 @@ func replacePrivateFile(path string, contents []byte) error {
 }
 
 func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {
+	// The compiler injects the Secret value as JSON, while Google ADC expects a
+	// file path. Keep the credential in ephemeral Actor storage rather than the
+	// well-known path under /data, which is durable and may be snapshotted.
 	prefix := config.GoogleCredentialsJSONEnvName + "="
 	var credentials string
 	filtered := make([]string, 0, len(environment))
@@ -161,7 +161,7 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return nil, fmt.Errorf("replace Google credentials: %w", err)
 	}
-	return setEnvironment(filtered, googleCredsEnv, path), nil
+	return setEnvironment(filtered, googleApplicationCredentialsEnv, path), nil
 }
 
 func ensurePrivateDir(path string) error {

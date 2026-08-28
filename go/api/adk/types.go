@@ -550,20 +550,6 @@ type NetworkConfig struct {
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
 }
 
-// These aliases preserve the existing ADK configuration API while sharing one
-// runtime-neutral resource model with other Harness adapters.
-type AgentPluginConfig = agentplugin.Resources
-
-type StandaloneSkill = agentplugin.Skill
-
-type AgentPluginBundle = agentplugin.Bundle
-
-type AgentPluginSource = agentplugin.Source
-
-type AgentPluginGit = agentplugin.GitSource
-
-type AgentPluginS3 = agentplugin.S3Source
-
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
@@ -619,7 +605,7 @@ type AgentConfig struct {
 	Stream          *bool                  `json:"stream,omitempty"`
 	Memory          *MemoryConfig          `json:"memory,omitempty"`
 	Network         *NetworkConfig         `json:"network,omitempty"`
-	AgentPlugins    *AgentPluginConfig     `json:"agent_plugins,omitempty"`
+	AgentPlugins    *agentplugin.Resources `json:"agent_plugins,omitempty"`
 	ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
 	ShareTools      *bool                  `json:"share_tools,omitempty"`
 	SessionDBURL    string                 `json:"session_db_url,omitempty"`
@@ -648,7 +634,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream          *bool                  `json:"stream,omitempty"`
 		Memory          json.RawMessage        `json:"memory"`
 		Network         *NetworkConfig         `json:"network,omitempty"`
-		AgentPlugins    *AgentPluginConfig     `json:"agent_plugins,omitempty"`
+		AgentPlugins    *agentplugin.Resources `json:"agent_plugins,omitempty"`
 		ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
 		ShareTools      *bool                  `json:"share_tools,omitempty"`
 		SessionDBURL    string                 `json:"session_db_url,omitempty"`
