@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -21,6 +22,8 @@ const (
 	readMethod   = "/test.Service/Get"
 	createMethod = "/test.Service/Create"
 )
+
+var testInstanceID = uuid.MustParse("22222222-2222-4222-8222-222222222222")
 
 type testSession struct {
 	principal pkgauth.Principal
@@ -124,7 +127,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("an AgentInstance share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				ID: "share-1", Namespace: "kagent", InstanceID: "instance-1",
+				Namespace: "kagent", InstanceID: testInstanceID,
 				Permission: "READ_ONLY", OwnerUserID: "owner",
 			},
 		}
@@ -136,7 +139,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 				if !ok {
 					t.Fatal("no share context")
 				}
-				if !share.IsForAgentInstance("instance-1") {
+				if !share.IsForAgentInstance(testInstanceID.String()) {
 					t.Errorf("share is not for instance-1: %#v", share)
 				}
 				// The owner, not the visitor: the instance read runs as the owner or
@@ -158,7 +161,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: "instance-1", Permission: "READ_ONLY", OwnerUserID: "owner",
+				InstanceID: testInstanceID, Permission: "READ_ONLY", OwnerUserID: "owner",
 			},
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
@@ -177,7 +180,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: "instance-1", Permission: "READ_WRITE", OwnerUserID: "owner",
+				InstanceID: testInstanceID, Permission: "READ_WRITE", OwnerUserID: "owner",
 			},
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))

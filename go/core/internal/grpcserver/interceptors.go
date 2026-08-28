@@ -98,7 +98,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		// to what the owner can see, and the instance read runs as the owner.
 		UserID:          instanceShare.OwnerUserID,
 		ReadOnly:        readOnly,
-		AgentInstanceID: instanceShare.InstanceID,
+		AgentInstanceID: instanceShare.InstanceID.String(),
 	}), nil
 }
 
