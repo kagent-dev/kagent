@@ -82,8 +82,12 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 	if err != nil {
 		return nil, err
 	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
+	}
 	instance, _, err := s.store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
-		Id: uuid.NewString(), Namespace: namespace, Creator: creator, Name: name,
+		Id: id.String(), Namespace: namespace, Creator: creator, Name: name,
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: namespace, Name: harness},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: template},
 	}, requestID)
@@ -277,8 +281,12 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
 	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
+	}
 	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
-		ID: uuid.NewString(), Namespace: namespace, InstanceID: instanceID,
+		ID: id, Namespace: namespace, InstanceID: uuid.MustParse(instanceID),
 		Permission: permission, TokenHash: tokenHash,
 	})
 	if err != nil {
@@ -311,7 +319,7 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	}
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
-		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID)
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID.String())
 		result.Shares = result.Shares[:pageSize]
 	}
 	return result, nil

@@ -50,12 +50,9 @@ const LIFECYCLE_POLL_MS = 1_000;
  *
  * ## Sharing
  *
- * A share is over the instance, because the instance is the conversation. That
- * needed a server-side change to be honest and now has one: the gRPC interceptor
- * used to resolve `X-Share-Token` only through `GetSessionShareByToken`, producing a
- * context naming a *session*, while the A2A gateway authorises on the instance — so
- * a link created here would have been refused when opened. The interceptor now tries
- * both kinds of share and the gateway reads the instance as the share's owner.
+ * A share is over the instance, because the instance is the conversation. The gRPC
+ * interceptor validates its `X-Share-Token`, and the A2A gateway authorises access
+ * to that same instance as the share's owner.
  */
 /** Where the agent panel's open state is remembered, per reader. */
 const CONTEXT_OPEN = "kagent.chat.agentPanel.open";
@@ -695,4 +692,3 @@ export function AgentChatPage() {
     </div>
   );
 }
-

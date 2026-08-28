@@ -24,7 +24,6 @@ export type {
   PromptsApi,
   SubstrateApi,
   ReadOptions,
-  SessionsApi,
 } from "./client";
 
 export { invoke, operationIds } from "./operations";
@@ -77,7 +76,6 @@ export * from "./domain/models";
 export * from "./domain/namespaces";
 export * from "./domain/substrate";
 export * from "./domain/prompts";
-export * from "./domain/sessions";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
 export * from "./domain/agentPairs";
@@ -91,7 +89,6 @@ export {
   useProviders,
 } from "./hooks/useModels";
 export { usePrompt, usePrompts } from "./hooks/usePrompts";
-export { useAgentSessions, useSession } from "./hooks/useSessions";
 export { useNamespaces } from "./hooks/useNamespaces";
 export {
   useSubstrateActors,
@@ -107,7 +104,6 @@ export {
   useHarnesses,
   useHarnessesAcrossNamespaces,
 } from "./hooks/useAgentBuildingBlocks";
-export { useSessionTranscript } from "./hooks/useSessionTranscript";
 export {
   useAgentConversations,
   useAgentInstance,

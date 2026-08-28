@@ -52,7 +52,7 @@ SELECT i.* FROM agent_instance i
 LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 WHERE i.namespace = sqlc.arg(namespace)
   AND (sqlc.arg(all_users)::boolean OR i.user_id = sqlc.arg(user_id))
-  AND i.id > sqlc.arg(after_id)
+  AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR i.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
   AND i.labels @> sqlc.arg(match_labels)::jsonb
   AND (sqlc.arg(agent_template)::text = '' OR r.agent_template_name = sqlc.arg(agent_template))
   AND (sqlc.arg(harness)::text = '' OR r.harness_name = sqlc.arg(harness))
@@ -115,7 +115,7 @@ WHERE s.token_hash = $1;
 SELECT s.* FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
-  AND s.id > sqlc.arg(after_id)
+  AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR s.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
 ORDER BY s.id
 LIMIT sqlc.arg(page_size);
 

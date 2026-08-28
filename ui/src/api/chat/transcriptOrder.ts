@@ -1,7 +1,11 @@
 import type { ChatMessage } from "./types";
 
 /**
- * Putting one task's messages back in the order they happened.
+ * Putting a legacy task's messages back in the order they happened.
+ *
+ * New kagent records carry `kagent.dev/timeline-position`. This inference remains
+ * for older records until A2A's native timeline and artifact generation ranges land:
+ * https://github.com/a2aproject/A2A/pull/2129
  *
  * `ListTasks` answers with two parallel lists: every message the reader sent is in
  * `history`, every message the agent produced is in `artifacts`, and nothing in the

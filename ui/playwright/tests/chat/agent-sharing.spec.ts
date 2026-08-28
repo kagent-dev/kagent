@@ -4,19 +4,9 @@ import { agentChat, instances } from "../../helpers/app";
 /**
  * Sharing a conversation: create a link, see it listed, revoke it, open one.
  *
- * ## What changed to make this possible
- *
  * A share is over an `AgentInstance`, because the instance *is* the conversation.
- * `AgentInstanceService` always carried the three share RPCs, but nothing on the
- * read path honoured the token they minted: the gRPC interceptor resolved
- * `X-Share-Token` through `GetSessionShareByToken` and produced a context naming a
- * *session*, while the A2A gateway authorises on the instance. A dialog built on
- * those RPCs would have handed out links that could not be opened — which is why
- * this was deferred rather than shipped.
- *
- * The interceptor now tries both kinds of share, and the gateway reads the instance
- * as the share's *owner* when the token names it — which it must, since an instance
- * is scoped to its creator and reading it as the visitor finds nothing.
+ * The gRPC interceptor validates the share token, and the A2A gateway reads the
+ * instance as the share's owner; reading it as the visitor would find nothing.
  *
  * ## What a fixture can and cannot prove here
  *
@@ -149,4 +139,3 @@ test("sharing: a link that allows replies offers a way to reply", async ({ page 
   await expect(page.getByTestId("chat-input")).toBeVisible();
 
 });
-

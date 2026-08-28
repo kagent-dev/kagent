@@ -84,40 +84,95 @@ test("app shell: the sidebar's footer controls", async ({ page }) => {
   });
 });
 
-test("app shell: collapsed, every nav icon sits on the rail's centre line", async ({
+test("app shell: collapsed, every nav icon is centred in its row", async ({
   page,
 }) => {
   await page.goto("/agents");
   await expect(page.getByTestId("nav-agents")).toBeVisible();
-  await page.getByText("Collapse", { exact: true }).click();
+  await page.getByTestId("sidebar-collapse").click();
+
+  await expect(page.getByTestId("sidebar-collapse")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(page.locator(".ant-menu-inline-collapsed")).toHaveCount(1);
+
+  /*
+   * Then wait out the collapse, asked of the animations rather than of the clock: the
+   * rows' padding is genuinely asymmetric mid-transition, and it settles a frame or
+   * two after the width does. Not the fix for what was reported — a settled rail was
+   * still out against its own centre line — only the precondition for measuring.
+   */
+  await page.waitForFunction(() => {
+    const rail = document.querySelector('[data-testid="app-sidebar"]')!;
+    return rail
+      .getAnimations({ subtree: true })
+      .every((animation) => animation.playState !== "running");
+  });
 
   // Measured rather than eyeballed: the rows carry a left-measured padding for the label
   // they no longer show, which displaced the library's own collapsed centring and left
   // every icon a few pixels to the left — visible as sloppiness, invisible to a
   // screenshot test that only asks whether the rail rendered.
-  const offsets = await page.evaluate(() => {
+  const rows = await page.evaluate(() => {
     const rail = document.querySelector('[data-testid="app-sidebar"]')!;
-    const box = rail.getBoundingClientRect();
+    const railBox = rail.getBoundingClientRect();
     // Excluding the 1px right border, which is not part of the space icons sit in.
-    const centre = box.left + (box.width - 1) / 2;
+    const railCentre = railBox.left + (railBox.width - 1) / 2;
     return [...document.querySelectorAll('[data-testid^="nav-"]')].map((row) => {
+      const box = row.getBoundingClientRect();
       const icon = row.querySelector("svg")!.getBoundingClientRect();
-      return { key: (row as HTMLElement).dataset.testid, off: icon.left + icon.width / 2 - centre };
+      /*
+       * The row's whole content, margins included, rather than the icon alone: a
+       * collapsed row still holds the hidden label, whose width and margin are a font
+       * and engine question. Flex centres the outer boxes of what it is given, so
+       * measuring those is the form of the question with no renderer in the answer.
+       */
+      const children = [...row.children].map((child) => {
+        const rect = child.getBoundingClientRect();
+        const style = getComputedStyle(child);
+        return {
+          left: rect.left - Number.parseFloat(style.marginLeft),
+          right: rect.right + Number.parseFloat(style.marginRight),
+        };
+      });
+      const contentLeft = Math.min(...children.map((child) => child.left));
+      const contentRight = Math.max(...children.map((child) => child.right));
+      return {
+        key: (row as HTMLElement).dataset.testid,
+        iconWidth: icon.width,
+        before: contentLeft - box.left,
+        after: box.right - contentRight,
+        // And where the icon lands against the rail, which is the thing a reader
+        // actually sees. Kept loose, for the reason given below.
+        offCentre: icon.left + icon.width / 2 - railCentre,
+      };
     });
   });
 
-  expect(offsets.length).toBeGreaterThan(3);
-  for (const { key, off } of offsets) {
+  expect(rows.length).toBeGreaterThan(3);
+  for (const { key, iconWidth, before, after, offCentre } of rows) {
     /*
-     * Two pixels, which is a tolerance rather than a target.
-     *
-     * An icon of even width in a rail of odd width cannot land dead centre, and the
-     * leftover is rounded differently by each engine on each platform — Firefox on
-     * Linux lands 1.4px out where Chromium on macOS lands under 1. Neither is visible.
-     * The displacement this test exists to catch was the label's padding pushing every
-     * icon several pixels left, which 2px still fails on; tightening it further only
-     * makes the suite report the renderer rather than the layout.
+     * The strict half, and the one that catches the defect: the padding the collapsed
+     * row must not keep shows up here as the whole padding's worth of asymmetry,
+     * against a free space flex splits evenly. Measured against the rail instead there
+     * is a leftover nothing can settle — an even-width icon in an odd-width rail,
+     * rounded per engine — which is what the 2px tolerance had come to report.
      */
-    expect(Math.abs(off), `${key} is ${off.toFixed(1)}px off the centre line`).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(before - after),
+      `${key}'s contents sit ${before.toFixed(1)}px from one edge of its row and ` +
+        `${after.toFixed(1)}px from the other`,
+    ).toBeLessThanOrEqual(1);
+
+    /*
+     * The loose half, a different claim: the row itself is where it should be, which
+     * nothing above would notice. Half the icon's width, so the tolerance comes from
+     * the layout — it says the rail's centre line passes through the icon.
+     */
+    expect(
+      Math.abs(offCentre),
+      `${key} is ${offCentre.toFixed(1)}px off the rail's centre line`,
+    ).toBeLessThan(iconWidth / 2);
   }
 });

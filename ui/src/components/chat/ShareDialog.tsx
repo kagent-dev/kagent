@@ -14,16 +14,8 @@ const { Text } = Typography;
  *
  * An `AgentInstance`. The instance *is* the conversation — the A2A gateway files
  * every task under it as the task's `contextId` — so sharing one hands somebody what
- * was said. Shares used to be over a chat session, and the RPCs, the token's
- * validation and the link have all moved with the conversation itself.
- *
- * That move needed a server-side change to be honest, and it is worth saying which:
- * `AgentInstanceService` always carried the three share RPCs, but nothing on the
- * read path validated the token they minted — the interceptor resolved
- * `X-Share-Token` through `GetSessionShareByToken` and produced a context naming a
- * *session*, while the gateway authorises on the instance. So this dialog could have
- * existed at any point and would have handed out links that could not be opened. It
- * exists now because the interceptor understands both kinds of share.
+ * was said. The gRPC interceptor validates the instance token, and the A2A gateway
+ * authorises that same instance as the share's owner.
  *
  * ## A token is shown once, and the list never shows one
  *

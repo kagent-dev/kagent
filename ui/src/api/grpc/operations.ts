@@ -36,8 +36,7 @@
  * `ListProviderModels` (refresh one provider's catalogue),
  * `ListSupportedMemoryProviders`, `ListToolServerTypes`, the MCP-app RPCs
  * (`ListMCPAppTools`, `CallMCPAppTool`, `ReadMCPAppResource`), the
- * `AgentHarness` session-actor RPCs, `SessionService.ListSessions`,
- * `UpdateSession`, `AddSessionEvent`, and `SystemService`'s `GetVersion` and
+ * `AgentHarness` session-actor RPCs and `SystemService`'s `GetVersion` and
  * `GetCurrentUser` all exist on the controller and have no operation id, because
  * nothing in the app calls them yet. Adding one is a new id here, not a new path
  * anywhere else.
@@ -56,10 +55,6 @@ import { AgentKind, AgentService } from "@/generated/kagent/api/v1alpha1/agents_
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import {
-  SessionService,
-  TaskStoreService,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
@@ -74,8 +69,6 @@ import {
 import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { Agent as PbAgent } from "@/generated/kagent/api/v1alpha1/agents_pb";
-import type { Session as PbSession } from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
   GetSubstrateStatusResponse,
@@ -87,7 +80,6 @@ import type {
 import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
 import { ApiError, fromConnectError, isNotFound, rethrowIfAborted } from "../ApiError";
 import { operationContext, serviceClient } from "../transport";
-import { messagesFromTask } from "../chat/a2aGrpcChatClient";
 import {
   KAGENT_API_VERSION,
   isoFrom,
@@ -112,7 +104,6 @@ import type {
   ToolsResponse,
 } from "../domain/mcpServers";
 import type { PromptTemplateDetail, PromptTemplateSummary } from "../domain/prompts";
-import type { Session, SessionShare } from "../domain/sessions";
 import type {
   SubstrateActorEntry,
   SubstrateActorTemplateEntry,
@@ -745,168 +736,6 @@ function toPromptDetail(template: {
     data: template.data ?? {},
   };
 }
-
-// endregion
-
-// region Sessions
-
-/**
- * One session record, in the snake-cased shape the chat client and the pages read.
- *
- * The names are the database model's, not the proto's, and they are kept because
- * `Session.agent_id` carries the `namespace__NS__name` string the chat client
- * splits on — renaming the field would mean touching every reader for no gain.
- *
- * Timestamps come back as `google.protobuf.Timestamp` and go out as RFC3339
- * strings, which is what everything that formats a date here expects. A session
- * that has not been deleted has no `deleted_at` at all rather than the epoch: the
- * epoch renders as "1 January 1970" on a screen that only checks for truthiness.
- */
-function toSession(session: PbSession): Session {
-  return {
-    id: session.id,
-    name: session.name ?? "",
-    agent_id: session.agentId ?? "",
-    user_id: session.userId,
-    created_at: isoFrom(session.createdAt),
-    updated_at: isoFrom(session.updatedAt),
-    deleted_at: isoFrom(session.deletedAt),
-    share_token: session.shareToken ?? null,
-    share_read_only: session.shareReadOnly ?? null,
-  };
-}
-
-function toShare(share: PbSessionShare): SessionShare {
-  return {
-    // `int64` in the proto, so protobuf-es hands over a bigint. See `toNumber` for
-    // why that must not reach the app, and for the full inventory of these fields.
-    id: toNumber(share.id),
-    token: share.token,
-    session_id: share.sessionId,
-    user_id: share.userId,
-    read_only: share.readOnly,
-    created_at: isoFrom(share.createdAt),
-  };
-}
-
-const sessions: Pick<
-  ApiOperations,
-  | "sessions.listForAgent"
-  | "sessions.get"
-  | "sessions.create"
-  | "sessions.delete"
-  | "sessions.tasks"
-  | "sessions.shares.list"
-  | "sessions.shares.create"
-  | "sessions.shares.delete"
-> = {
-  "sessions.listForAgent": async (input, options) => {
-    const response = await rpc("SessionService/ListSessionsByAgent", options.signal, () =>
-      serviceClient(SessionService).listSessionsByAgent(
-        { agentRef: { namespace: input.namespace, name: input.name } },
-        call("sessions.listForAgent", options),
-      ),
-    );
-    return list(response.sessions).map(toSession);
-  },
-
-  "sessions.get": async (input, options) => {
-    const name = "SessionService/GetSession";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).getSession(
-        { sessionId: input.id },
-        call("sessions.get", options),
-      ),
-    );
-    const session = toSession(
-      required(response.session, name, `session ${input.id}`),
-    );
-    // `read_only` is reported beside the session rather than on it: it describes
-    // the *caller's* access, which is a property of this read and not of the
-    // record. It is folded in because that is where every reader looks for it, and
-    // only when the record itself is silent.
-    return session.share_read_only === null && response.readOnly !== undefined
-      ? { ...session, share_read_only: response.readOnly }
-      : session;
-  },
-
-  "sessions.create": async (input, options) => {
-    const name = "SessionService/CreateSession";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).createSession(
-        {
-          id: input.payload.id,
-          agentRef: input.payload.agent_ref ?? "",
-          name: input.payload.name,
-        },
-        call("sessions.create", options),
-      ),
-    );
-    return toSession(required(response.session, name, "created session"));
-  },
-
-  "sessions.delete": async (input, options) => {
-    await rpc("SessionService/DeleteSession", options.signal, () =>
-      serviceClient(SessionService).deleteSession(
-        { sessionId: input.id },
-        call("sessions.delete", options),
-      ),
-    );
-  },
-
-  "sessions.tasks": async (input, options) => {
-    const response = await rpc("TaskStoreService/ListTasks", options.signal, () =>
-      serviceClient(TaskStoreService).listTasks(
-        { sessionId: input.id },
-        call("sessions.tasks", options),
-      ),
-    );
-    // Read straight out of the proto, by the same function the live stream uses for
-    // a task frame. There used to be a translation to A2A JSON here, because the
-    // chat client parsed JSON off an SSE body and the two bindings of A2A disagree
-    // in three places — a `Part` is a oneof in the proto and a tagged object in
-    // JSON, enums are spelled differently, and the timestamp is a different type.
-    // With chat on gRPC both sides are proto, so the translation had nothing left to
-    // bridge and the file that did it is gone.
-    return list(response.tasks).flatMap(messagesFromTask);
-  },
-
-  "sessions.shares.list": async (input, options) => {
-    const response = await rpc("SessionService/ListSessionShares", options.signal, () =>
-      serviceClient(SessionService).listSessionShares(
-        { sessionId: input.id },
-        call("sessions.shares.list", options),
-      ),
-    );
-    return list(response.shares).map(toShare);
-  },
-
-  "sessions.shares.create": async (input, options) => {
-    const name = "SessionService/CreateSessionShare";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(SessionService).createSessionShare(
-        {
-          sessionId: input.id,
-          // Sent explicitly. The field is `optional bool`, so leaving it out means
-          // "the controller decides" — and it decides read-only, which is the right
-          // default for handing out access but not a thing to leave implicit.
-          readOnly: input.payload?.read_only ?? true,
-        },
-        call("sessions.shares.create", options),
-      ),
-    );
-    return toShare(required(response.share, name, "created share"));
-  },
-
-  "sessions.shares.delete": async (input, options) => {
-    await rpc("SessionService/DeleteSessionShare", options.signal, () =>
-      serviceClient(SessionService).deleteSessionShare(
-        { sessionId: input.id, token: input.token },
-        call("sessions.shares.delete", options),
-      ),
-    );
-  },
-};
 
 // endregion
 
@@ -1678,7 +1507,6 @@ export const defaultOperations: ApiOperations = {
   ...models,
   ...toolServers,
   ...prompts,
-  ...sessions,
   ...agentInstances,
   ...cluster,
 };

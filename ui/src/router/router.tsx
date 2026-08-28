@@ -33,7 +33,6 @@ import { PromptNewPage } from "@/pages/PromptNewPage";
 import { PromptDetailPage } from "@/pages/PromptDetailPage";
 import { SubstratePage } from "@/pages/SubstratePage";
 import { AppDetailPage } from "@/pages/AppDetailPage";
-import { SharedSessionPage } from "@/pages/SharedSessionPage";
 import { SharedAgentPage } from "@/pages/SharedAgentPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -83,7 +82,6 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },
   { key: "substrate", path: paths.substrate, element: <SubstratePage /> },
   { key: "appDetail", path: paths.appDetail, element: <AppDetailPage /> },
-  { key: "sharedSession", path: paths.sharedSession, element: <SharedSessionPage /> },
   { key: "sharedAgent", path: paths.sharedAgent, element: <SharedAgentPage /> },
 ];
 

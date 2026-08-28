@@ -116,6 +116,12 @@ const SHARE_HEADER = "X-Share-Token";
  */
 const HISTORY_PAGE_LIMIT = 50;
 
+/*
+ * Temporary bridge to A2A's ordered task timeline and artifact generation ranges:
+ * https://github.com/a2aproject/A2A/pull/2129
+ */
+const TIMELINE_POSITION_METADATA_KEY = "kagent.dev/timeline-position";
+
 /** Ids for the messages the wire did not name. */
 let counter = 0;
 function nextId(prefix: string): string {
@@ -731,6 +737,7 @@ export class A2AGrpcChatClient implements ChatClient {
  */
 export function messagesFromTask(task: A2ATask): ChatMessage[] {
   const messages: ChatMessage[] = [];
+  const positioned: { message: ChatMessage; position?: string }[] = [];
   const taken = new Set<string>();
   const createdAt = statusTime(task.status);
 
@@ -741,7 +748,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
       message.messageId || JSON.stringify(message.parts.map((part) => part.content));
     if (taken.has(identity)) return;
     taken.add(identity);
-    messages.push({
+    const converted: ChatMessage = {
       /*
        * Derived from the task and the position in it, never from a counter.
        *
@@ -762,7 +769,9 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
       parts,
       createdAt,
       taskId: task.id || undefined,
-    });
+    };
+    messages.push(converted);
+    positioned.push({ message: converted, position: timelinePosition(message.metadata) });
   };
 
   /*
@@ -798,7 +807,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
     const parts = toParts(artifact.parts);
     const body = textOf(parts);
     if (parts.length === 0 || (body !== "" && shown.has(body))) continue;
-    agent.push({
+    const converted: ChatMessage = {
       // Derived, for the reason given against the message id above: an unnamed
       // artifact renamed on every read is an artifact the merge cannot recognise.
       id: artifact.artifactId || `${task.id || "task"}-artifact-${messages.length + agent.length}`,
@@ -806,10 +815,25 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
       parts,
       createdAt,
       taskId: task.id || undefined,
-    });
+    };
+    agent.push(converted);
+    positioned.push({ message: converted, position: timelinePosition(artifact.metadata) });
+  }
+
+  // New records carry one server-authored order across history and artifacts.
+  // Keep the positional inference below for records written before this bridge.
+  if (positioned.length > 0 && positioned.every(({ position }) => position !== undefined)) {
+    return positioned
+      .sort((left, right) => left.position!.localeCompare(right.position!))
+      .map(({ message }) => message);
   }
 
   return interleaveTaskMessages(opening, answers, agent);
+}
+
+function timelinePosition(metadata: JsonObject | undefined): string | undefined {
+  const value = metadata?.[TIMELINE_POSITION_METADATA_KEY];
+  return typeof value === "string" ? value : undefined;
 }
 
 /** Whether a reader's turn is answering an `ask_user` rather than opening a task. */

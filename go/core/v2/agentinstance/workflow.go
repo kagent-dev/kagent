@@ -134,7 +134,7 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
-	tag := &ateapipb.ObjectRef{Atespace: checkpoint.SnapshotAtespace, Name: "checkpoint-" + checkpoint.ID}
+	tag := &ateapipb.ObjectRef{Atespace: checkpoint.SnapshotAtespace, Name: "checkpoint-" + checkpoint.ID.String()}
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActorFromSnapshotTag(ctx, atespace, name,

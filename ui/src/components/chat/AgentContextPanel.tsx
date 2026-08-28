@@ -118,11 +118,17 @@ export function AgentContextPanel({
               <Space size={4} wrap>
                 {tools.flatMap((binding, index) =>
                   binding.mcp
-                    ? binding.mcp.tools.map((tool) => (
-                        <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                          {tool}
-                        </Tag>
-                      ))
+                    ? binding.mcp.tools?.length
+                      ? binding.mcp.tools.map((tool) => (
+                          <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
+                            {tool}
+                          </Tag>
+                        ))
+                      : [
+                          <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
+                            {binding.mcp.server.name} (all tools)
+                          </Tag>,
+                        ]
                     : binding.agent
                       ? [
                           <Tag key={`${index}-agent`} color="processing">

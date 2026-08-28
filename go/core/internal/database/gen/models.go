@@ -7,13 +7,14 @@ package dbgen
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 type A2aContext struct {
-	ID        string
+	ID        uuid.UUID
 	Namespace string
 	UserID    string
 	CreatedAt time.Time
@@ -30,7 +31,7 @@ type Agent struct {
 }
 
 type AgentInstance struct {
-	ID                 string
+	ID                 uuid.UUID
 	Namespace          string
 	UserID             string
 	RequestID          string
@@ -39,15 +40,15 @@ type AgentInstance struct {
 	Labels             []byte
 	Data               []byte
 	Operation          string
-	ContextID          string
-	SourceCheckpointID *string
+	ContextID          uuid.UUID
+	SourceCheckpointID *uuid.UUID
 	Name               string
 }
 
 type AgentInstanceCheckpoint struct {
-	ID                   string
+	ID                   uuid.UUID
 	Namespace            string
-	SourceInstanceID     string
+	SourceInstanceID     uuid.UUID
 	UserID               string
 	RequestID            string
 	HeadTaskID           string
@@ -60,22 +61,22 @@ type AgentInstanceCheckpoint struct {
 	State                string
 	Failure              string
 	CreatedAt            time.Time
-	SourceContextID      string
+	SourceContextID      uuid.UUID
 	PreparedRevision     *string
 	SourceLabels         []byte
 }
 
 type AgentInstanceShare struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
+	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
 }
 
 type AgentInstanceTask struct {
-	ContextID            string
+	ContextID            uuid.UUID
 	ID                   string
 	State                string
 	StatusTimestamp      *time.Time
@@ -93,7 +94,7 @@ type AgentInstanceTask struct {
 
 type AgentInstanceTaskEvent struct {
 	Sequence  int64
-	ContextID string
+	ContextID uuid.UUID
 	TaskID    *string
 	Data      []byte
 	CreatedAt time.Time

@@ -112,7 +112,7 @@ func (s *grpcServer) RevokeAgentInstanceShare(ctx context.Context, request *apiv
 
 func agentInstanceShareProto(share *dbpkg.AgentInstanceShare) *apiv1alpha1.AgentInstanceShare {
 	return &apiv1alpha1.AgentInstanceShare{
-		Id: share.ID, Namespace: share.Namespace, AgentInstanceId: share.InstanceID,
+		Id: share.ID.String(), Namespace: share.Namespace, AgentInstanceId: share.InstanceID.String(),
 		Permission: agentInstanceSharePermission(share.Permission), CreatedAt: timestamppb.New(share.CreatedAt),
 	}
 }
