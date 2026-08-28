@@ -30,6 +30,17 @@ sql:
             go_type:
               type: "time.Time"
               pointer: true
+          - db_type: "uuid"
+            nullable: false
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              import: "github.com/google/uuid"
+              type: "UUID"
+              pointer: true
           # Use domain types for columns that would otherwise be plain strings/bytes.
           - column: "agent.config"
             go_type:
