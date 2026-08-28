@@ -326,6 +326,10 @@ MCP:
 
 - Discover ready AgentInstances.
 - Invoke them only through the public gateway A2A path.
+- Expose durable A2A turns through the MCP Tasks extension, including polling,
+  cancellation, and input-required continuation.
+- Keep synchronous `tools/call` fallback for clients without Tasks support.
+- Store no MCP-owned task or session state.
 - Never expose Actor or private MCP endpoints.
 
 Content:

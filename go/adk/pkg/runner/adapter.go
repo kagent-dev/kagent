@@ -11,7 +11,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
-	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	adkmemory "google.golang.org/adk/v2/memory"
 	adkplugin "google.golang.org/adk/v2/plugin"
@@ -46,23 +45,6 @@ func CreateRunnerConfig(
 			return runner.Config{}, fmt.Errorf("failed to create save_memory tool: %w", err)
 		}
 		extraTools = append(extraTools, saveTool)
-	}
-
-	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && controllerClient != nil {
-		createTool, err := tools.NewCreateShareLinkTool(controllerClient, appName)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create create_share_link tool: %w", err)
-		}
-		listTool, err := tools.NewListShareLinksTool(controllerClient, appName)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create list_share_links tool: %w", err)
-		}
-		deleteTool, err := tools.NewDeleteShareLinkTool(controllerClient, appName)
-		if err != nil {
-			return runner.Config{}, fmt.Errorf("failed to create delete_share_link tool: %w", err)
-		}
-		extraTools = append(extraTools, createTool, listTool, deleteTool)
-		log.Info("Share link tools enabled")
 	}
 
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)

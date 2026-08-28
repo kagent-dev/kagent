@@ -41,6 +41,7 @@ type gatewayTestStore struct {
 	revision              *dbpkg.RuntimeRevision
 	err                   error
 	task                  *a2atype.Task
+	created               *a2atype.Task
 	tasks                 []*a2atype.Task
 	total                 int
 	taskErr               error
@@ -48,6 +49,7 @@ type gatewayTestStore struct {
 	active                *a2atype.Task
 	interruptResult       bool
 	interrupted           bool
+	createdTasks          int
 	stored                []a2atype.Event
 	snapshot              *dbpkg.AgentInstanceTaskSnapshot
 	onStore               func()
@@ -90,7 +92,9 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 		return nil, false, dbpkg.ErrAgentInstanceTaskConflict
 	}
 	s.task = task
+	s.created = task
 	s.active = task
+	s.createdTasks++
 	s.stored = append(s.stored, task.History[0])
 	return task, true, nil
 }
@@ -111,8 +115,14 @@ func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _
 	return true, nil
 }
 
-func (s *gatewayTestStore) GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error) {
-	return s.task, s.taskErr
+func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string) (*a2atype.Task, error) {
+	if s.taskErr != nil {
+		return nil, s.taskErr
+	}
+	if s.task == nil || string(s.task.ID) != taskID {
+		return nil, dbpkg.ErrNotFound
+	}
+	return s.task, nil
 }
 
 func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error) {
@@ -165,6 +175,17 @@ type gatewayTestRuntime struct {
 	subscribeEvent a2atype.Event
 	subscribeErr   error
 	privateTask    *a2atype.Task
+	subscribeCalls int
+	cancelErr      error
+	sendCalls      int
+	sentTaskID     a2atype.TaskID
+}
+
+func (r *gatewayTestRuntime) CancelTask(context.Context, a2aclient.ServiceParams, *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+	if r.cancelErr != nil {
+		return nil, r.cancelErr
+	}
+	return r.task, nil
 }
 
 func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
@@ -177,6 +198,7 @@ func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *
 }
 
 func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceParams, *a2atype.SubscribeToTaskRequest) iter.Seq2[a2atype.Event, error] {
+	r.subscribeCalls++
 	return func(yield func(a2atype.Event, error) bool) {
 		if r.subscribeEvent != nil || r.subscribeErr != nil {
 			yield(r.subscribeEvent, r.subscribeErr)
@@ -187,6 +209,8 @@ func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceP
 func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	r.sent = true
 	r.privateTask, _ = apia2a.TakeStoredTask(req.Message)
+	r.sendCalls++
+	r.sentTaskID = req.Message.TaskID
 	return &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil
 }
 
@@ -295,19 +319,49 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	authorizer := &gatewayTestAuthorizer{}
 	runtime := &gatewayTestRuntime{}
 	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	request := gatewayTestRequest()
+	request.Message.SetMeta(apia2a.TimelinePositionMetadataKey, "caller-controlled")
 
-	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	result, err := gateway.SendMessage(gatewayTestContext(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.(*a2atype.Task).ID == "" || !runtime.sent || !runtime.destroyed {
 		t.Fatalf("runtime result = %#v, sent %v, destroyed %v", result, runtime.sent, runtime.destroyed)
 	}
+	createdAt, ok := store.created.Metadata[TaskCreatedAtMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, createdAt); !ok || err != nil {
+		t.Fatalf("task creation timestamp = %#v: %v", store.created.Metadata[TaskCreatedAtMetadataKey], err)
+	}
+	position, ok := store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil {
+		t.Fatalf("opening message timeline position = %#v: %v", store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey], err)
+	}
 	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
 		t.Fatalf("store lookup = %q/%q user %q", store.namespace, store.id, store.userID)
 	}
 	if authorizer.verb != auth.VerbCreate || authorizer.resource != (auth.Resource{Type: "AgentInstance", Name: "team-a/" + gatewayTestID}) {
 		t.Fatalf("authorization = %q %#v", authorizer.verb, authorizer.resource)
+	}
+}
+
+func TestGatewayReturnsStoredTaskIDOnReplay(t *testing.T) {
+	replayed := &a2atype.Task{
+		ID: "replayed-task", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+	}
+	request := gatewayTestRequest()
+	gateway := New(
+		&gatewayTestStore{instance: gatewayTestInstance(), replay: replayed},
+		&gatewayTestAuthorizer{}, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL,
+	)
+	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), request) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if request.Message.TaskID != replayed.ID {
+		t.Fatalf("request task ID = %q, want stored ID %q", request.Message.TaskID, replayed.ID)
 	}
 }
 
@@ -339,8 +393,53 @@ func TestGatewayContinuesInputRequiredTask(t *testing.T) {
 	if runtime.privateTask == nil || runtime.privateTask.Status.State != a2atype.TaskStateInputRequired || runtime.privateTask.Status.Message == nil || runtime.privateTask.Status.Message.ID != status.ID {
 		t.Fatalf("private continuation state = %#v", runtime.privateTask)
 	}
-	if len(reply.Metadata) != 0 {
-		t.Fatalf("private continuation state leaked into public metadata: %#v", reply.Metadata)
+	position, ok := reply.Metadata[apia2a.TimelinePositionMetadataKey].(string)
+	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil || len(reply.Metadata) != 1 {
+		t.Fatalf("reply metadata = %#v, want only its server-authored timeline position: %v", reply.Metadata, err)
+	}
+}
+
+func TestGatewayMovesInputRequiredMessageBeforeReply(t *testing.T) {
+	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?"))
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
+	}
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
+	reply.TaskID = waiting.ID
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+
+	prepared, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.task.History) != 2 || prepared.task.History[0] != question || prepared.task.History[1] != reply {
+		t.Fatalf("history = %#v, want question followed by reply", prepared.task.History)
+	}
+	if len(store.stored) != 1 || store.stored[0] != reply {
+		t.Fatalf("stored events = %#v, want one atomic reply update", store.stored)
+	}
+	if question.TaskID != waiting.ID || question.ContextID != waiting.ContextID {
+		t.Fatalf("archived question = task %q context %q, want the task it was asked in", question.TaskID, question.ContextID)
+	}
+}
+
+func TestGatewayRejectsInputRequiredMessageWithoutID(t *testing.T) {
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: &a2atype.Message{}},
+	}
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
+	reply.TaskID = waiting.ID
+
+	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: reply}); err == nil {
+		t.Fatal("prepareReply() succeeded with an unidentifiable status message")
+	}
+	if len(store.stored) != 0 {
+		t.Fatalf("stored events = %#v, want no partial write", store.stored)
 	}
 }
 
@@ -358,8 +457,25 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 		}
 		events++
 	}
-	if events != 1 || !runtime.destroyed || !destroyedAtQuiesce {
+	if events != 2 || !runtime.destroyed || !destroyedAtQuiesce {
 		t.Fatalf("stream events = %d, destroyed %v, destroyed at quiesce %v", events, runtime.destroyed, destroyedAtQuiesce)
+	}
+}
+
+func TestTaskForResultPreservesCreationTime(t *testing.T) {
+	submitted := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Metadata: map[string]any{TaskCreatedAtMetadataKey: "2026-08-26T10:00:00Z"},
+	}
+	result, err := taskForResult(submitted, &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metadata[TaskCreatedAtMetadataKey] != submitted.Metadata[TaskCreatedAtMetadataKey] {
+		t.Fatalf("creation timestamp = %#v", result.Metadata[TaskCreatedAtMetadataKey])
 	}
 }
 
@@ -489,6 +605,88 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 	}
 }
 
+/*
+ * A suspended conversation is still readable, and sending to it is still refused.
+ *
+ * Both halves matter and they used to be one rule. Every RPC resolved the instance
+ * through a helper that insisted on READY, which is right for anything needing the
+ * worker and wrong for a task list — that comes out of the store, which does not care
+ * whether a worker is attached.
+ *
+ * It became a real fault once conversations started giving their workers back at the
+ * end of every turn: opening one to re-read what was said reported "AgentInstance is
+ * AGENT_INSTANCE_STATE_SUSPENDED" as though the transcript had been lost. Resuming on
+ * open would have claimed a worker every time somebody glanced at one, which is the
+ * thing suspending them exists to avoid.
+ */
+func TestGatewayReadsTasksWhileSuspended(t *testing.T) {
+	instance := gatewayTestInstance()
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
+	task := &a2atype.Task{ID: gatewayTestID, ContextID: gatewayTestID}
+	store := &gatewayTestStore{instance: instance, task: task, tasks: []*a2atype.Task{task}, total: 1}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	if _, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{}); err != nil {
+		t.Fatalf("ListTasks() on a suspended instance = %v, want the stored transcript", err)
+	}
+	if _, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID}); err != nil {
+		t.Fatalf("GetTask() on a suspended instance = %v, want the stored task", err)
+	}
+
+	// The other half: what needs the worker is still refused, naming the state. Without
+	// this the change would read as "suspended no longer means anything".
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() to a suspended instance succeeded, want a refusal naming the state")
+	}
+}
+
+/*
+ * A runtime that has forgotten the conversation must not erase it.
+ *
+ * `ApplyUpdate` takes the runtime's task where one is sent, which is right for status
+ * and artifacts and wrong for history. A runtime that has been quiesced and resumed can
+ * answer with a task carrying no history at all — and persisting that replaces the
+ * transcript with an empty one, so the conversation opens blank on the next read while
+ * its events sit untouched in the store beside it.
+ *
+ * That is what a conversation parked on a question did after being answered: an
+ * eighty-byte task in place of everything that had been said.
+ */
+func TestGatewayKeepsHistoryARuntimeHasForgotten(t *testing.T) {
+	stored := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		History: []*a2atype.Message{{ID: "one"}, {ID: "two"}, {ID: "three"}},
+	}
+	forgetful := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed},
+	}
+
+	updated, err := taskForEvent(stored, forgetful)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.History) != len(stored.History) {
+		t.Fatalf("history = %d messages, want the stored %d kept", len(updated.History), len(stored.History))
+	}
+	// The rest of the runtime's answer is still believed — this keeps history, it does
+	// not ignore the update.
+	if updated.Status.State != a2atype.TaskStateFailed {
+		t.Fatalf("state = %s, want the runtime's %s", updated.Status.State, a2atype.TaskStateFailed)
+	}
+
+	// And a runtime with more to say is believed about that too, or an agent could
+	// never add to a transcript at all.
+	richer := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		History: []*a2atype.Message{{ID: "one"}, {ID: "two"}, {ID: "three"}, {ID: "four"}},
+	}
+	grown, err := taskForEvent(stored, richer)
+	if err != nil || len(grown.History) != 4 {
+		t.Fatalf("history = %d messages (%v), want the runtime's 4", len(grown.History), err)
+	}
+}
+
 func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	store := &gatewayTestStore{
 		instance: gatewayTestInstance(),
@@ -497,7 +695,7 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 			AgentCard: []byte(`{
 				"name":"assistant","description":"pinned description","version":"v1",
 				"supportedInterfaces":[{"url":"http://127.0.0.1:80","protocolBinding":"GRPC","protocolVersion":"1.0"}],
-				"capabilities":{"pushNotifications":true},"skills":[],
+				"capabilities":{"pushNotifications":true,"extensions":[{"uri":"https://kagent.dev/extensions/hitl/v1","required":false}]},"skills":[],
 				"defaultInputModes":["text"],"defaultOutputModes":["text"]
 			}`),
 		},
@@ -520,6 +718,13 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	if !card.Capabilities.Streaming || !card.Capabilities.ExtendedAgentCard || card.Capabilities.PushNotifications {
 		t.Fatalf("gateway capabilities = %#v", card.Capabilities)
 	}
+	// Transport and streaming are the gateway's to state, but extensions describe
+	// what the runtime can negotiate. Replacing the whole struct used to drop them,
+	// which left a client no way to discover that an agent's question is answerable
+	// while the card still looked complete.
+	if len(card.Capabilities.Extensions) != 1 || card.Capabilities.Extensions[0].URI != "https://kagent.dev/extensions/hitl/v1" {
+		t.Fatalf("runtime extensions = %#v, want the runtime's own preserved", card.Capabilities.Extensions)
+	}
 	if authorizer.verb != auth.VerbGet || dialer.instance != nil {
 		t.Fatalf("authorization verb = %q, runtime dialed = %v", authorizer.verb, dialer.instance != nil)
 	}
@@ -531,9 +736,12 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	workflow := &gatewayTestWorkflow{onQuiesce: func() { order = append(order, "suspend") }}
 	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, workflow, gatewayTestURL)
 
-	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+	for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
 		if err != nil {
 			t.Fatal(err)
+		}
+		if task, ok := event.(*a2atype.Task); ok && task.Status.State == a2atype.TaskStateSubmitted {
+			continue
 		}
 		if len(store.stored) != 2 {
 			t.Fatalf("published event after %d durable writes, want 2", len(store.stored))
@@ -677,12 +885,17 @@ func TestGatewayKeepsTaskActiveWhenQuiesceFails(t *testing.T) {
 	workflow := &gatewayTestWorkflow{err: errors.New("snapshot failed")}
 	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, workflow, gatewayTestURL)
 
+	sawError := false
 	for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
-		if event != nil || err == nil {
+		if task, ok := event.(*a2atype.Task); ok && task.Status.State == a2atype.TaskStateSubmitted && err == nil {
+			continue
+		}
+		if event != nil || err == nil || sawError {
 			t.Fatalf("stream result = %#v, %v", event, err)
 		}
+		sawError = true
 	}
-	if workflow.quiesceCalls != 1 || len(store.stored) != 1 || store.active == nil {
+	if !sawError || workflow.quiesceCalls != 1 || len(store.stored) != 1 || store.active == nil {
 		t.Fatalf("quiescence calls = %d, stored events = %d, active task = %#v", workflow.quiesceCalls, len(store.stored), store.active)
 	}
 }
@@ -803,3 +1016,116 @@ func TestGatewayRejectsConflictingMessageIDWithoutDialing(t *testing.T) {
 		t.Fatal("conflicting message dialed the private runtime")
 	}
 }
+
+// A denying authorizer, so "the share is what let this through" is provable rather
+// than merely consistent with the result.
+type gatewayDenyAuthorizer struct{ called bool }
+
+func (a *gatewayDenyAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
+	a.called = true
+	return errors.New("denied")
+}
+
+/*
+ * Share links over an AgentInstance.
+ *
+ * The instance *is* the conversation, so sharing one is sharing what was said. Two
+ * things have to hold, and neither is implied by the other:
+ *
+ *   - the share is authority over its own instance, and the record is read as the
+ *     *owner* — an instance is scoped to its creator, so reading it as the visitor
+ *     finds nothing and the link would 404;
+ *   - the share is authority over nothing else, so a token for one instance cannot
+ *     open another.
+ */
+func TestGatewayHonoursAgentInstanceShare(t *testing.T) {
+	instance := gatewayTestInstance()
+	store := &gatewayTestStore{instance: instance}
+	authorizer := &gatewayDenyAuthorizer{}
+	runtime := &gatewayTestRuntime{}
+	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
+		Token:           "share",
+		UserID:          "the-owner",
+		AgentInstanceID: instance.GetId(),
+		ReadOnly:        true,
+	})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+
+	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err != nil {
+		t.Fatalf("ListTasks() with a share for this instance = %v", err)
+	}
+	// Read as the owner: the visitor is somebody else, and an instance is scoped to
+	// its creator.
+	if store.userID != "the-owner" {
+		t.Fatalf("instance read as %q, want the share's owner", store.userID)
+	}
+	if authorizer.called {
+		t.Fatal("the ordinary authorization check should be skipped for a matching share")
+	}
+}
+
+func TestGatewayRefusesAShareForADifferentInstance(t *testing.T) {
+	instance := gatewayTestInstance()
+	store := &gatewayTestStore{instance: instance}
+	authorizer := &gatewayDenyAuthorizer{}
+	gateway := New(store, authorizer, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	// A perfectly valid share — for something else.
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
+		Token:           "share",
+		UserID:          "the-owner",
+		AgentInstanceID: "00000000-0000-0000-0000-000000000000",
+	})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+
+	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
+		t.Fatal("a share for another instance opened this one")
+	}
+	if !authorizer.called {
+		t.Fatal("a non-matching share must fall through to the ordinary check")
+	}
+}
+
+// A *session* share must not read as authority over an instance, however its id
+// happens to be spelled. The two are separate fields for exactly this reason.
+func TestGatewayIgnoresASessionShare(t *testing.T) {
+	instance := gatewayTestInstance()
+	authorizer := &gatewayDenyAuthorizer{}
+	gateway := New(&gatewayTestStore{instance: instance}, authorizer, &gatewayTestDialer{}, &gatewayTestWorkflow{}, gatewayTestURL)
+
+	ctx := auth.AuthSessionTo(t.Context(), gatewayTestSession{})
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{
+		Token:     "share",
+		UserID:    "the-owner",
+		SessionID: instance.GetId(),
+	})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+
+	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
+		t.Fatal("a session share opened an AgentInstance")
+	}
+	if !authorizer.called {
+		t.Fatal("a session share must fall through to the ordinary check")
+	}
+}
+
+// TestGatewayRefusesButPreservesAParkedTurn is the reproduced defect and the
+// decision about it. A turn that ends INPUT_REQUIRED holds the instance's single
+// active-task slot, so every later send was refused as "already has an active
+// task" — which reads as a broken agent. But that turn is a *valid pending
+// question* (`ask_user` is a long-running call), so the send must be refused with
+// a reason the reader can act on, and the question must survive: only the reader
+// may give it up.
