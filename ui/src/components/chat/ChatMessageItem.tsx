@@ -1,6 +1,6 @@
 import { Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { VendorSlot } from "@/vendorExtensions";
+import { ExtensionSlot } from "@/appExtensions";
 import type { ChatMessage } from "@/api";
 import { ToolCallCard } from "./ToolCallCard";
 import { MarkdownMessage } from "./MarkdownMessage";
@@ -53,7 +53,7 @@ export function ChatMessageItem({
         {/* Per-message point: a contribution gets this message's identity and content,
             so it can act on the message it is attached to — plus the turn and
             conversation it belongs to, which is what a backend keyed by turns needs. */}
-        <VendorSlot
+        <ExtensionSlot
           id="app_agents_agentChat_agentChatMessage_additionalActionsButton"
           context={{
             messageId: message.id,

@@ -164,14 +164,18 @@ is signed in correctly reports nobody — there is no backend to have signed in 
 
 ### Extension points
 
-One `VendorExtensionConfig` contributes navigation entries and overrides, routes and
+An `AppExtensionConfig` contributes navigation entries and overrides, routes and
 route handles, slots, form fields, table columns, API overrides, providers, theme
 tokens, shell regions, branding, provider icons and agent links. Components read
 every colour, radius and font from those tokens, so overriding them restyles
 components an extension never touches. When adding a feature, check whether it
 belongs behind an extension point rather than as a branch inside a shared component.
 
-The full guide is [ui/docs/vendor-extensions.md](ui/docs/vendor-extensions.md).
+Several are installed at once, as the ordered `activeAppExtensions` array. Additive
+contributions from every entry take effect in order; singular ones are merged with
+the later entry winning.
+
+The full guide is [ui/docs/app-extensions.md](ui/docs/app-extensions.md).
 
 ### Conventions specific to this codebase
 

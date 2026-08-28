@@ -7,7 +7,7 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { ReadinessMeter } from "@/components/dashboard/ReadinessMeter";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { ToolsPerServerChart } from "@/components/dashboard/ToolsPerServerChart";
-import { VendorSlot } from "@/vendorExtensions";
+import { ExtensionSlot } from "@/appExtensions";
 import { buildPath, paths } from "@/router/routes";
 import {
   useAgentInstancesAcrossNamespaces,
@@ -127,7 +127,7 @@ export function DashboardPage() {
         >
           {/* Ahead of the application's own figures, so a distribution can lead
               with something of its own without displacing any of them. */}
-          <VendorSlot id="app_dashboard_dashboardOverview_summaryGrid_leadingCard" />
+          <ExtensionSlot id="app_dashboard_dashboardOverview_summaryGrid_leadingCard" />
 
           <StatTile
             label="Agents"

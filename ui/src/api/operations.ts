@@ -18,7 +18,7 @@
  *
  * Kept from the path table, and for the same reason: the id — not the RPC — is
  * what an override is keyed by, so sharing one between a list read and a create
- * would mean a vendor re-pointing its agent list silently re-pointed agent
+ * would mean an extension re-pointing its agent list silently re-pointed agent
  * creation with it, with no way to override one alone. Two ids resolving to the
  * same RPC is the cost of keeping those two things separately addressable.
  *
@@ -50,13 +50,6 @@ import type {
   PromptTemplateSummary,
   UpdatePromptTemplateRequest,
 } from "./domain/prompts";
-import type {
-  CreateSessionRequest,
-  CreateSessionShareRequest,
-  Session,
-  SessionShare,
-} from "./domain/sessions";
-import type { ChatMessage } from "./chat/types";
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
@@ -199,26 +192,6 @@ export interface OperationMap {
     output: PromptTemplateDetail;
   };
   "prompts.delete": { input: ResourceRefInput; output: void };
-
-  "sessions.listForAgent": { input: ResourceRefInput; output: Session[] };
-  "sessions.get": { input: { id: string }; output: Session };
-  "sessions.create": { input: { payload: CreateSessionRequest }; output: Session };
-  "sessions.delete": { input: { id: string }; output: void };
-  /**
-   * The turns held in a session, for replaying a shared conversation.
-   *
-   * `ChatMessage[]` rather than the A2A documents this used to hand back. Chat
-   * itself no longer goes through sessions — an `AgentInstance` is the
-   * conversation — so the only caller left is the shared-conversation page, which
-   * wants messages to render and never wanted the protocol.
-   */
-  "sessions.tasks": { input: { id: string }; output: ChatMessage[] };
-  "sessions.shares.list": { input: { id: string }; output: SessionShare[] };
-  "sessions.shares.create": {
-    input: { id: string; payload?: CreateSessionShareRequest };
-    output: SessionShare;
-  };
-  "sessions.shares.delete": { input: { id: string; token: string }; output: void };
 
   /**
    * Every agent instance in one namespace.

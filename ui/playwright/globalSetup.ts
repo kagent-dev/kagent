@@ -31,7 +31,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
         });
 
         // The live project runs alone on its own port, so it cannot be the
-        // victim of the port swap checked for below, and the vendor check does not
+        // victim of the port swap checked for below, and the extension check does not
         // apply to it at all. What it has instead is a failure the mock projects
         // cannot have: coming up against fixtures and passing every assertion
         // without touching a backend.
@@ -45,18 +45,18 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
         // way round. Checked here so that failure reads as what it is, at the
         // start, instead of surfacing later as a spec that cannot find the
         // contribution it was asserting on.
-        const slots = await page.locator('[data-testid^="vendor-slot-"]').count();
-        const wantsVendor = project.name.includes("vendor");
+        const slots = await page.locator('[data-testid^="extension-slot-"]').count();
+        const wantsExtension = project.name.includes("extension");
 
-        if (wantsVendor && slots === 0) {
+        if (wantsExtension && slots === 0) {
           throw new Error(
             `${baseUrl} was expected to serve the app with the example extension ` +
               `installed (project "${project.name}"), but no extension points are ` +
               `mounted. The server on that port came up without ` +
-              `VITE_VENDOR_EXTENSIONS=example.`,
+              `VITE_EXAMPLE_EXTENSION=true.`,
           );
         }
-        if (!wantsVendor && slots > 0) {
+        if (!wantsExtension && slots > 0) {
           throw new Error(
             `${baseUrl} was expected to serve the app with no extension installed ` +
               `(project "${project.name}"), but ${slots} extension points are ` +

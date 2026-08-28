@@ -31,7 +31,6 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import { admitsLabels } from "@/api/domain/harnesses";
-import type { Session, SessionShare } from "@/api/domain/sessions";
 import {
   mockAgentInstances,
   mockAgentTemplates,
@@ -41,7 +40,6 @@ import {
   mockModels,
   mockPromptDetails,
   mockPrompts,
-  mockSessions,
 } from "./fixtures";
 
 /** What has been written during this browsing session. */
@@ -50,7 +48,6 @@ const created = {
   models: [] as ModelConfig[],
   mcpServers: [] as ToolServerResponse[],
   prompts: [] as PromptTemplateDetail[],
-  sessions: [] as Session[],
   agentInstances: [] as AgentInstance[],
   agentTemplates: [] as AgentTemplate[],
   harnesses: [] as Harness[],
@@ -278,110 +275,6 @@ export function savePrompt(detail: PromptTemplateDetail): PromptTemplateDetail {
   else created.prompts[at] = detail;
   deleted.delete(ref);
   return detail;
-}
-
-// ---------------------------------------------------------------------------
-// Sessions
-// ---------------------------------------------------------------------------
-
-export function allSessions(): Session[] {
-  return [...mockSessions, ...created.sessions].filter((row) => isLive(row.id));
-}
-
-export function saveSession(request: {
-  id?: string;
-  agentRef?: string;
-  name?: string;
-}): Session {
-  const now = new Date().toISOString();
-  const session: Session = {
-    id: request.id || `session-${created.sessions.length + 1}-mock`,
-    name: request.name ?? "New conversation",
-    // The `namespace__NS__name` form the chat client splits on, from the
-    // `namespace/name` ref a create sends.
-    agent_id: (request.agentRef || "kagent/k8s-agent").replace("/", "__NS__"),
-    user_id: "admin@kagent.dev",
-    created_at: now,
-    updated_at: now,
-    deleted_at: "",
-  };
-  created.sessions.push(session);
-  return session;
-}
-
-// ---------------------------------------------------------------------------
-// Share links
-// ---------------------------------------------------------------------------
-
-/**
- * Share links created in this tab.
- *
- * In `sessionStorage` rather than a module variable, which is what the other
- * writes here use. A share link is spent by *opening* it, and opening it is a full
- * page load — so a module variable meant the token stopped existing at the moment
- * it was used, and the one flow this fixture exists to support was the one flow it
- * could not serve. Still per-tab and still gone when the tab closes, so nothing
- * leaks between runs.
- */
-const SHARES_KEY = "kagent.mock.shares";
-
-/**
- * A share that was issued before this tab opened.
- *
- * Seeded because nothing in the UI mints one any more: chat is addressed by
- * `AgentInstance`, and an instance share would hand out a token no read path
- * validates (the interceptor resolves `X-Share-Token` through
- * `GetSessionShareByToken` and produces a share context naming a *session*). The
- * links already issued still have to open, so this is one of them — the fixture
- * equivalent of a link somebody was sent last week.
- */
-export const SEEDED_SHARE: SessionShare = {
-  id: 1,
-  token: "mock-share-token-1",
-  session_id: "session-8f31",
-  user_id: "alice",
-  read_only: true,
-  created_at: "2026-08-01T09:00:00Z",
-};
-
-export function readShares(): SessionShare[] {
-  try {
-    const stored = window.sessionStorage.getItem(SHARES_KEY);
-    // Absent, not empty: a tab that has revoked the seeded share stores `[]`, and
-    // re-seeding it there would make a revoke impossible to observe.
-    if (stored === null) return [SEEDED_SHARE];
-    return JSON.parse(stored) as SessionShare[];
-  } catch {
-    return [];
-  }
-}
-
-function writeShares(rows: SessionShare[]): void {
-  try {
-    window.sessionStorage.setItem(SHARES_KEY, JSON.stringify(rows));
-  } catch {
-    // Storage can be refused. The list is then empty for this load, which is the
-    // same answer as a tab that has created nothing.
-  }
-}
-
-export function createShare(sessionId: string, readOnly: boolean): SessionShare {
-  const existing = readShares();
-  const share: SessionShare = {
-    id: existing.length + 1,
-    // Long enough to look like the controller's hex, and obviously fake.
-    token: `mock-share-token-${existing.length + 1}`,
-    session_id: sessionId,
-    user_id: "alice",
-    read_only: readOnly,
-    created_at: new Date().toISOString(),
-  };
-  writeShares([...existing, share]);
-  return share;
-}
-
-export function deleteShare(token: string): void {
-  writeShares(readShares().filter((share) => share.token !== token));
 }
 
 // ---------------------------------------------------------------------------

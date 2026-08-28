@@ -3,8 +3,15 @@ import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
 import { coreNavItems } from "@/components/Structure/navItems";
 import { paths } from "./routes";
-import type { VendorExtensionConfig } from "@/vendorExtensions";
-import { applyNavOverrides } from "@/vendorExtensions";
+import type { AppExtensionConfig } from "@/appExtensions";
+import {
+  applyNavOverrides,
+  extensionNavItems,
+  extensionNavOverrides,
+  extensionRouteHandles,
+  extensionRoutes,
+  extensionShell,
+} from "@/appExtensions";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AgentsLandingPage } from "@/pages/agents/AgentsLandingPage";
 import { HarnessNewPage } from "@/pages/agents/HarnessNewPage";
@@ -26,7 +33,6 @@ import { PromptNewPage } from "@/pages/PromptNewPage";
 import { PromptDetailPage } from "@/pages/PromptDetailPage";
 import { SubstratePage } from "@/pages/SubstratePage";
 import { AppDetailPage } from "@/pages/AppDetailPage";
-import { SharedSessionPage } from "@/pages/SharedSessionPage";
 import { SharedAgentPage } from "@/pages/SharedAgentPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -76,11 +82,10 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },
   { key: "substrate", path: paths.substrate, element: <SubstratePage /> },
   { key: "appDetail", path: paths.appDetail, element: <AppDetailPage /> },
-  { key: "sharedSession", path: paths.sharedSession, element: <SharedSessionPage /> },
   { key: "sharedAgent", path: paths.sharedAgent, element: <SharedAgentPage /> },
 ];
 
-/** Every path the app claims, so a colliding vendor route is rejected. */
+/** Every path the app claims, so a colliding contributed route is rejected. */
 export const reservedRoutePaths: readonly string[] = [
   paths.login,
   ...coreLayoutRoutes.map((route) => route.path).filter((path) => path !== undefined),
@@ -90,40 +95,50 @@ export const reservedRoutePaths: readonly string[] = [
 export const coreRouteKeys: readonly string[] = coreLayoutRoutes.map((r) => r.key);
 
 /**
- * Builds the router with the vendor's pages merged in.
+ * Builds the router with every installed extension's pages merged in.
  *
- * Vendor routes are inserted ahead of the catch-all so `*` keeps meaning "not
- * found", and default to rendering inside the shell — a vendor page is a page
- * of this app, not a separate site. `standalone` opts out for full-screen
- * flows.
+ * Contributed routes are inserted ahead of the catch-all so `*` keeps meaning "not
+ * found", and default to rendering inside the shell — a contributed page is a page
+ * of this app, not a separate site. `standalone` opts out for full-screen flows.
+ *
+ * Takes the whole install rather than one config, and reads it only through the
+ * selectors, so nothing here has to know how many extensions there are: two
+ * extensions' routes are one list, and the singular choices — which shell, which
+ * nav overrides — are already reconciled by the time this sees them.
  */
-export function createAppRouter(config: VendorExtensionConfig) {
-  const vendorRoutes = config.routes ?? [];
+export function createAppRouter(extensions: readonly AppExtensionConfig[]) {
+  const contributedRoutes = extensionRoutes(extensions);
 
   // A contribution that declares `replaces` takes the named route's place, so
   // the original is dropped rather than both matching the same path.
   const replaced = new Set(
-    vendorRoutes.map((route) => route.replaces).filter((key) => key !== undefined),
+    contributedRoutes
+      .map((route) => route.replaces)
+      .filter((key) => key !== undefined),
   );
-  // Whatever the extension said about one of these routes (`routeHandles`, keyed
+  // Whatever an extension said about one of these routes (`routeHandles`, keyed
   // by route key) rides along on its `handle`, which is where `useMatches` hands
   // it back. Passed through unread: the application does not define the shape, so
   // it has nothing to say about it, and a route nobody described carries nothing.
+  const handles = extensionRouteHandles(extensions);
   const remainingCoreRoutes = coreLayoutRoutes
     .filter((route) => !replaced.has(route.key))
     .map((route) => {
-      const handle = config.routeHandles?.[route.key];
+      const handle = handles[route.key];
       return handle ? { ...route, handle } : route;
     });
 
   // A replacement owns the chrome AND the frame the pages render into, so it
   // stands in for `AppLayout` here rather than nesting inside it. It is handed
   // the navigation so it renders this application's pages rather than a copy.
-  const Layout = config.shell?.Layout;
+  const Layout = extensionShell(extensions).Layout;
   const shell = Layout ? (
     <Layout
-      coreNavItems={applyNavOverrides(coreNavItems, config.navOverrides)}
-      vendorNavItems={config.navItems ?? []}
+      coreNavItems={applyNavOverrides(
+        coreNavItems,
+        extensionNavOverrides(extensions),
+      )}
+      extensionNavItems={extensionNavItems(extensions)}
     />
   ) : (
     <AppLayout />
@@ -131,14 +146,14 @@ export function createAppRouter(config: VendorExtensionConfig) {
 
   return createBrowserRouter([
     { path: paths.login, element: <LoginPage /> },
-    ...vendorRoutes
+    ...contributedRoutes
       .filter((route) => route.standalone)
       .map(({ path, element }) => ({ path, element })),
     {
       element: shell,
       children: [
         ...remainingCoreRoutes,
-        ...vendorRoutes
+        ...contributedRoutes
           .filter((route) => !route.standalone)
           .map(({ path, element, handle }) => ({
             path,
