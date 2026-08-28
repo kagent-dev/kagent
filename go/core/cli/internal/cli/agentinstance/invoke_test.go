@@ -12,11 +12,23 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/metadata"
 )
+
+var errServiceParamsObserved = errors.New("service parameters observed")
+
+type serviceParamsObserver struct {
+	a2aclient.PassthroughInterceptor
+	authorization []string
+}
+
+func (o *serviceParamsObserver) Before(ctx context.Context, request *a2aclient.Request) (context.Context, any, error) {
+	o.authorization = request.ServiceParams.Get("authorization")
+	return ctx, nil, errServiceParamsObserved
+}
 
 func TestReadInvokeTask(t *testing.T) {
 	tests := []struct {
@@ -67,10 +79,18 @@ func TestNewInvokeRequestUsesAgentInstanceAsContext(t *testing.T) {
 }
 
 func TestWithModelToken(t *testing.T) {
+	observer := &serviceParamsObserver{}
+	client, err := a2aclient.NewFromEndpoints(t.Context(), []*a2atype.AgentInterface{{
+		URL:             "http://unused.invalid",
+		ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+		ProtocolVersion: a2atype.Version,
+	}}, a2aclient.WithCallInterceptors(observer))
+	require.NoError(t, err)
+
 	ctx := withModelToken(context.Background(), "model-key")
-	values, ok := metadata.FromOutgoingContext(ctx)
-	require.True(t, ok)
-	assert.Equal(t, []string{"Bearer model-key"}, values.Get("authorization"))
+	_, err = client.SendMessage(ctx, newInvokeRequest("hello", "instance-id"))
+	require.ErrorIs(t, err, errServiceParamsObserved)
+	assert.Equal(t, []string{"Bearer model-key"}, observer.authorization)
 }
 
 func TestWriteSendResultTable(t *testing.T) {

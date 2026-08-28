@@ -16,7 +16,6 @@ import (
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
-	"google.golang.org/grpc/metadata"
 )
 
 var errTruncatedA2AStream = errors.New("a2a stream ended before returning a final result")
@@ -84,7 +83,7 @@ func withModelToken(ctx context.Context, token string) context.Context {
 	if token == "" {
 		return ctx
 	}
-	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+	return a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{"authorization": {"Bearer " + token}})
 }
 
 func readInvokeTask(cfg *InvokeCfg, in io.Reader) (string, error) {

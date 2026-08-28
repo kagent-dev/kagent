@@ -9,6 +9,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -35,10 +36,11 @@ func (s *recordingAgentInstanceService) CreateAgentInstance(ctx context.Context,
 }
 
 type a2aCallObservation struct {
-	namespace   string
-	id          string
-	userID      string
-	hasDeadline bool
+	namespace     string
+	id            string
+	userID        string
+	authorization string
+	hasDeadline   bool
 }
 
 type recordingA2AService struct {
@@ -76,10 +78,11 @@ func (s *recordingA2AService) observe(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.observations = append(s.observations, a2aCallObservation{
-		namespace:   first(values.Get(kagenta2a.AgentInstanceNamespaceHeader)),
-		id:          first(values.Get(kagenta2a.AgentInstanceIDHeader)),
-		userID:      first(values.Get(userIDHeader)),
-		hasDeadline: hasDeadline,
+		namespace:     first(values.Get(kagenta2a.AgentInstanceNamespaceHeader)),
+		id:            first(values.Get(kagenta2a.AgentInstanceIDHeader)),
+		userID:        first(values.Get(userIDHeader)),
+		authorization: first(values.Get("authorization")),
+		hasDeadline:   hasDeadline,
 	})
 }
 
@@ -115,21 +118,24 @@ func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
 
 	a2aClient, err := clientSet.A2A.ForAgentInstance(context.Background(), "kagent", agentInstanceClientTestID)
 	require.NoError(t, err)
+	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
+		"authorization": {"Bearer model-key"},
+	})
 	request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi"))}
-	_, err = a2aClient.SendMessage(context.Background(), request)
+	_, err = a2aClient.SendMessage(a2aCtx, request)
 	require.NoError(t, err)
-	for _, streamErr := range a2aClient.SendStreamingMessage(context.Background(), request) {
+	for _, streamErr := range a2aClient.SendStreamingMessage(a2aCtx, request) {
 		require.NoError(t, streamErr)
 	}
-	for _, streamErr := range a2aClient.SubscribeToTask(context.Background(), &a2atype.SubscribeToTaskRequest{ID: "task-id"}) {
+	for _, streamErr := range a2aClient.SubscribeToTask(a2aCtx, &a2atype.SubscribeToTaskRequest{ID: "task-id"}) {
 		require.NoError(t, streamErr)
 	}
 
 	a2aService.mu.Lock()
 	require.Equal(t, []a2aCallObservation{
-		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", hasDeadline: true},
-		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", hasDeadline: false},
-		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", hasDeadline: false},
+		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
+		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(1), dialCount.Load())
