@@ -141,6 +141,15 @@ spec:
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
+            {{- with .Values.otel.tracing.contextHashKeySecret }}
+            {{- if .name }}
+            - name: KAGENT_TRACE_CONTEXT_HASH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .name | quote }}
+                  key: {{ .key | default "hmac-key" | quote }}
+            {{- end }}
+            {{- end }}
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: SUBSTRATE_ATE_API_ENDPOINT
               value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}

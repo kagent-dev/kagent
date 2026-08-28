@@ -94,16 +94,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// Which caller-supplied context reaches traces is cluster-wide operator
 	// policy, so a Harness must be able to neither widen nor enable it. Dropping
 	// any inherited entry before applying the operator's value is what makes that
-	// hold when the operator has configured nothing at all.
-	environment = slices.DeleteFunc(environment, func(variable corev1.EnvVar) bool {
-		return variable.Name == env.KagentTraceContextKeys.Name()
-	})
-	if traceContextKeys := env.KagentTraceContextKeys.Get(); traceContextKeys != "" {
-		environment = append(environment, corev1.EnvVar{
-			Name:  env.KagentTraceContextKeys.Name(),
-			Value: traceContextKeys,
-		})
-	}
+	// hold when the operator has configured nothing at all. The HMAC key is the
+	// same class of policy: a tenant must not supply it.
+	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
+	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextHashKey)
 	environment = dedupeEnv(environment)
 
 	// One provenance list covers every Kubernetes input, including hashed Secret
@@ -445,6 +439,17 @@ func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
 
 // dedupeEnv preserves first-seen ordering but gives the last value for a name
 // precedence, matching how compiler layers are applied.
+func applyOperatorOnlyEnv(values []corev1.EnvVar, variable env.StringVar) []corev1.EnvVar {
+	name := variable.Name()
+	values = slices.DeleteFunc(values, func(item corev1.EnvVar) bool {
+		return item.Name == name
+	})
+	if value := variable.Get(); value != "" {
+		values = append(values, corev1.EnvVar{Name: name, Value: value})
+	}
+	return values
+}
+
 func dedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 	result := make([]corev1.EnvVar, 0, len(values))
 	index := map[string]int{}

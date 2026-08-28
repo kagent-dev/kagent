@@ -2,6 +2,9 @@ package telemetry
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,28 +32,36 @@ func baggageContext(t *testing.T, members map[string]string) context.Context {
 	return baggage.ContextWithBaggage(context.Background(), bag)
 }
 
+func hmacSHA256Hex(t *testing.T, key, value string) string {
+	t.Helper()
+	mac := hmac.New(sha256.New, []byte(key))
+	_, _ = mac.Write([]byte(value))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func TestCallerContextAttributes(t *testing.T) {
 	tests := []struct {
 		name        string
 		allowlist   string
+		hashKey     string
 		baggageVals map[string]string
 		metadata    map[string]any
 		want        map[string]string
 	}{
 		{
-			name:        "disabled by default",
+			name:        "empty allowlist disables promotion",
 			allowlist:   "",
-			baggageVals: map[string]string{"user.email": "ada@example.com"},
+			baggageVals: map[string]string{"sub": "opaque-subject"},
 			metadata:    map[string]any{"thread_id": "T123"},
 			want:        nil,
 		},
 		{
 			name:        "promotes allowlisted baggage",
-			allowlist:   "user.email,user.name",
-			baggageVals: map[string]string{"user.email": "ada@example.com", "user.name": "Ada"},
+			allowlist:   "sub,thread_id",
+			baggageVals: map[string]string{"sub": "opaque-subject", "thread_id": "T123"},
 			want: map[string]string{
-				"kagent.context.user.email": "ada@example.com",
-				"kagent.context.user.name":  "Ada",
+				"kagent.context.sub":       "opaque-subject",
+				"kagent.context.thread_id": "T123",
 			},
 		},
 		{
@@ -64,16 +75,16 @@ func TestCallerContextAttributes(t *testing.T) {
 		},
 		{
 			name:        "message metadata overrides baggage",
-			allowlist:   "user.email",
-			baggageVals: map[string]string{"user.email": "from-baggage@example.com"},
-			metadata:    map[string]any{"user.email": "from-metadata@example.com"},
-			want:        map[string]string{"kagent.context.user.email": "from-metadata@example.com"},
+			allowlist:   "sub",
+			baggageVals: map[string]string{"sub": "from-baggage"},
+			metadata:    map[string]any{"sub": "from-metadata"},
+			want:        map[string]string{"kagent.context.sub": "from-metadata"},
 		},
 		{
 			name:        "ignores keys outside the allowlist",
 			allowlist:   "thread_id",
 			baggageVals: map[string]string{"secret.token": "s3cret"},
-			metadata:    map[string]any{"thread_id": "T1", "customer.pan": "4111111111111111"},
+			metadata:    map[string]any{"thread_id": "T1", "extra": "nope"},
 			want:        map[string]string{"kagent.context.thread_id": "T1"},
 		},
 		{
@@ -112,11 +123,62 @@ func TestCallerContextAttributes(t *testing.T) {
 			metadata:  map[string]any{"good": "yes", "bad key": "no"},
 			want:      map[string]string{"kagent.context.good": "yes"},
 		},
+		{
+			// Registry names pass through unprefixed so operators can use
+			// semantic convention attributes instead of inventing new ones.
+			name:      "registry attributes stay unprefixed",
+			allowlist: "user.id,enduser.id,session.id,channel",
+			metadata: map[string]any{
+				"user.id":    "opaque-subject",
+				"enduser.id": "end-user",
+				"session.id": "sess-1",
+				"channel":    "C0AB1",
+			},
+			want: map[string]string{
+				"user.id":                "opaque-subject",
+				"enduser.id":             "end-user",
+				"session.id":             "sess-1",
+				"kagent.context.channel": "C0AB1",
+			},
+		},
+		{
+			// session.id is the registry name; other session.* keys are not.
+			name:      "session.id is unprefixed but session.foo is not",
+			allowlist: "session.id,session.foo",
+			metadata:  map[string]any{"session.id": "sess-1", "session.foo": "other"},
+			want: map[string]string{
+				"session.id":                 "sess-1",
+				"kagent.context.session.foo": "other",
+			},
+		},
+		{
+			name:      "maps source keys onto registry and kagent names",
+			allowlist: `[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"kagent.thread_id"},"channel"]`,
+			metadata: map[string]any{
+				"sub":       "opaque-subject",
+				"thread_id": "T123",
+				"channel":   "C0AB1",
+			},
+			want: map[string]string{
+				"user.id":                "opaque-subject",
+				"kagent.thread_id":       "T123",
+				"kagent.context.channel": "C0AB1",
+			},
+		},
+		{
+			name:      "invalid JSON allowlist promotes nothing",
+			allowlist: `[{"from":"sub"`,
+			metadata:  map[string]any{"sub": "opaque-subject"},
+			want:      nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(traceContextKeysEnvVar, tt.allowlist)
+			if tt.hashKey != "" {
+				t.Setenv(traceContextHashKeyEnvVar, tt.hashKey)
+			}
 
 			got := CallerContextAttributes(baggageContext(t, tt.baggageVals), tt.metadata)
 
@@ -132,6 +194,51 @@ func TestCallerContextAttributes(t *testing.T) {
 	}
 }
 
+func TestCallerContextAttributes_HashesWithHMACSHA256(t *testing.T) {
+	const key = "test-hmac-key"
+	t.Setenv(traceContextKeysEnvVar, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
+	t.Setenv(traceContextHashKeyEnvVar, key)
+
+	got := CallerContextAttributes(context.Background(), map[string]any{
+		"email": "ada@example.com",
+	})
+
+	want := hmacSHA256Hex(t, key, "ada@example.com")
+	if got["user.hash"] != want {
+		t.Errorf("user.hash = %q, want %q", got["user.hash"], want)
+	}
+	for name, value := range got {
+		if strings.Contains(value, "@example.com") {
+			t.Errorf("plaintext leaked onto %s", name)
+		}
+	}
+}
+
+func TestCallerContextAttributes_HashWithoutKeyEmitsNothing(t *testing.T) {
+	// Missing HMAC key must not fall back to putting the original value on the span.
+	t.Setenv(traceContextKeysEnvVar, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
+	t.Setenv(traceContextHashKeyEnvVar, "")
+
+	got := CallerContextAttributes(context.Background(), map[string]any{
+		"email": "ada@example.com",
+	})
+	if got != nil {
+		t.Errorf("got %v, want nothing when the HMAC key is unset", got)
+	}
+}
+
+func TestCallerContextAttributes_UnknownHashEmitsNothing(t *testing.T) {
+	t.Setenv(traceContextKeysEnvVar, `[{"from":"email","to":"user.hash","hash":"md5"}]`)
+	t.Setenv(traceContextHashKeyEnvVar, "test-hmac-key")
+
+	got := CallerContextAttributes(context.Background(), map[string]any{
+		"email": "ada@example.com",
+	})
+	if got != nil {
+		t.Errorf("got %v, want nothing for an unsupported hash", got)
+	}
+}
+
 func TestCallerContextAttributes_TruncatesLongValues(t *testing.T) {
 	t.Setenv(traceContextKeysEnvVar, "note")
 
@@ -144,30 +251,30 @@ func TestCallerContextAttributes_TruncatesLongValues(t *testing.T) {
 	}
 }
 
-func TestAllowedContextKeys_CapsListLength(t *testing.T) {
+func TestAllowedContextMappings_CapsListLength(t *testing.T) {
 	keys := make([]string, 0, maxContextKeys*2)
 	for i := range maxContextKeys * 2 {
 		keys = append(keys, "key"+strconv.Itoa(i))
 	}
 	t.Setenv(traceContextKeysEnvVar, strings.Join(keys, ","))
 
-	if got := len(allowedContextKeys()); got != maxContextKeys {
+	if got := len(allowedContextMappings()); got != maxContextKeys {
 		t.Errorf("allowlist length = %d, want %d", got, maxContextKeys)
 	}
 }
 
-func TestAllowedContextKeys_DropsOverLongAndDuplicateKeys(t *testing.T) {
+func TestAllowedContextMappings_DropsOverLongAndDuplicateKeys(t *testing.T) {
 	t.Setenv(traceContextKeysEnvVar, "a,a,"+strings.Repeat("b", maxContextKeyLength+1)+",c")
 
-	got := allowedContextKeys()
+	got := allowedContextMappings()
 
 	want := []string{"a", "c"}
 	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
+		t.Fatalf("got %#v, want %v", got, want)
 	}
 	for i, key := range want {
-		if got[i] != key {
-			t.Errorf("key %d = %q, want %q", i, got[i], key)
+		if got[i].source != key {
+			t.Errorf("key %d = %q, want %q", i, got[i].source, key)
 		}
 	}
 }
@@ -175,7 +282,7 @@ func TestAllowedContextKeys_DropsOverLongAndDuplicateKeys(t *testing.T) {
 // Langfuse and comparable backends filter on attributes present on each span,
 // so the promoted values must reach descendants, not just the root span.
 func TestCallerContextAttributes_ReachEverySpan(t *testing.T) {
-	t.Setenv(traceContextKeysEnvVar, "user.email")
+	t.Setenv(traceContextKeysEnvVar, `[{"from":"sub","to":"user.id"}]`)
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
@@ -186,7 +293,7 @@ func TestCallerContextAttributes_ReachEverySpan(t *testing.T) {
 		_ = tp.Shutdown(context.Background())
 	})
 
-	ctx := baggageContext(t, map[string]string{"user.email": "ada@example.com"})
+	ctx := baggageContext(t, map[string]string{"sub": "opaque-subject"})
 	ctx = SetKAgentSpanAttributes(ctx, CallerContextAttributes(ctx, nil))
 
 	tracer := tp.Tracer("test")
@@ -203,8 +310,8 @@ func TestCallerContextAttributes_ReachEverySpan(t *testing.T) {
 	}
 	for _, name := range []string{"root", "execute_tool", "generate_content"} {
 		attrs := spanAttributesByName(t, spans, name)
-		if got := attrs["kagent.context.user.email"].AsString(); got != "ada@example.com" {
-			t.Errorf("span %q: kagent.context.user.email = %q, want %q", name, got, "ada@example.com")
+		if got := attrs["user.id"].AsString(); got != "opaque-subject" {
+			t.Errorf("span %q: user.id = %q, want %q", name, got, "opaque-subject")
 		}
 	}
 }
@@ -221,21 +328,22 @@ func TestCallerContextAttributes_DisabledLeavesSpansUnchanged(t *testing.T) {
 		_ = tp.Shutdown(context.Background())
 	})
 
-	ctx := baggageContext(t, map[string]string{"user.email": "ada@example.com"})
+	ctx := baggageContext(t, map[string]string{"sub": "opaque-subject"})
 	ctx = SetKAgentSpanAttributes(ctx, CallerContextAttributes(ctx, map[string]any{"thread_id": "T1"}))
 
 	_, span := tp.Tracer("test").Start(ctx, "root")
 	span.End()
 
 	for _, attr := range exporter.GetSpans()[0].Attributes {
-		if strings.HasPrefix(string(attr.Key), contextAttributePrefix) {
+		key := string(attr.Key)
+		if strings.HasPrefix(key, contextAttributePrefix) || key == "user.id" {
 			t.Errorf("unexpected promoted attribute %q", attr.Key)
 		}
 	}
 }
 
-// The kagent.context. prefix is what makes caller-supplied data unable to
-// shadow a semantic convention attribute, even if an operator allowlists one.
+// Custom keys still cannot shadow a semantic convention attribute such as
+// service.name. Registry names are the documented exception.
 func TestCallerContextAttributes_CannotShadowSemanticConventions(t *testing.T) {
 	t.Setenv(traceContextKeysEnvVar, "service.name")
 

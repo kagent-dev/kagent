@@ -208,9 +208,9 @@ def test_otel_sdk_default_propagator_includes_baggage():
     baggage from the default propagator, this test will fail and explicit
     configuration will be needed.
     """
-    ctx = get_global_textmap().extract({"baggage": "user.email=ada%40example.com"})
+    ctx = get_global_textmap().extract({"baggage": "sub=opaque-subject"})
 
-    assert get_baggage("user.email", ctx) == "ada@example.com"
+    assert get_baggage("sub", ctx) == "opaque-subject"
 
 
 @pytest.mark.parametrize(

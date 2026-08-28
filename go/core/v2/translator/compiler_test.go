@@ -263,10 +263,11 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
 }
 
-// KAGENT_TRACE_CONTEXT_KEYS is not an OTEL_ variable, so collectOtelEnvFromProcess
-// does not carry it and it needs forwarding of its own. It is also operator
-// policy, so a Harness must not be able to widen or enable it.
-func TestCompileAgentTemplateForwardsTraceContextKeys(t *testing.T) {
+// KAGENT_TRACE_CONTEXT_KEYS and KAGENT_TRACE_CONTEXT_HASH_KEY are not OTEL_
+// variables, so collectOtelEnvFromProcess does not carry them and they need
+// forwarding of their own. They are also operator policy, so a Harness must
+// not be able to widen, enable, or supply the HMAC key.
+func TestCompileAgentTemplateForwardsTraceContextPolicy(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}},
@@ -275,27 +276,47 @@ func TestCompileAgentTemplateForwardsTraceContextKeys(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		configured string
+		keys       string
+		hashKey    string
 		harnessEnv []v1alpha3.HarnessEnvVar
-		want       string
+		wantKeys   string
+		wantHash   string
 	}{
 		{name: "absent when unconfigured"},
-		{name: "forwarded when configured", configured: "user.email,thread_id", want: "user.email,thread_id"},
+		{name: "keys forwarded when configured", keys: "sub,thread_id", wantKeys: "sub,thread_id"},
+		{
+			name:     "hash key forwarded when configured",
+			keys:     `[{"from":"sub","to":"user.id"}]`,
+			hashKey:  "test-hmac-key",
+			wantKeys: `[{"from":"sub","to":"user.id"}]`,
+			wantHash: "test-hmac-key",
+		},
 		{
 			name:       "harness cannot widen the allowlist",
-			configured: "user.email",
+			keys:       "sub",
 			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
-			want:       "user.email",
+			wantKeys:   "sub",
 		},
 		{
 			name:       "harness cannot enable promotion",
 			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
 		},
+		{
+			name:       "harness cannot supply the HMAC key",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextHashKey.Name(), Value: &harnessSupplied}},
+		},
+		{
+			name:       "harness cannot replace the HMAC key",
+			hashKey:    "operator-hmac-key",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextHashKey.Name(), Value: &harnessSupplied}},
+			wantHash:   "operator-hmac-key",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(env.KagentTraceContextKeys.Name(), tt.configured)
+			t.Setenv(env.KagentTraceContextKeys.Name(), tt.keys)
+			t.Setenv(env.KagentTraceContextHashKey.Name(), tt.hashKey)
 			harness := &v1alpha3.Harness{
 				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 				Spec: v1alpha3.HarnessSpec{
@@ -312,15 +333,20 @@ func TestCompileAgentTemplateForwardsTraceContextKeys(t *testing.T) {
 			revision, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
 			require.NoError(t, err)
 
-			var got string
-			var seen int
+			gotKeys, seenKeys := "", 0
+			gotHash, seenHash := "", 0
 			for _, variable := range revision.Environment {
-				if variable.Name == env.KagentTraceContextKeys.Name() {
-					got, seen = variable.Value, seen+1
+				switch variable.Name {
+				case env.KagentTraceContextKeys.Name():
+					gotKeys, seenKeys = variable.Value, seenKeys+1
+				case env.KagentTraceContextHashKey.Name():
+					gotHash, seenHash = variable.Value, seenHash+1
 				}
 			}
-			require.LessOrEqual(t, seen, 1, "environment must not contain a duplicate entry")
-			require.Equal(t, tt.want, got)
+			require.LessOrEqual(t, seenKeys, 1, "environment must not contain a duplicate keys entry")
+			require.LessOrEqual(t, seenHash, 1, "environment must not contain a duplicate hash key entry")
+			require.Equal(t, tt.wantKeys, gotKeys)
+			require.Equal(t, tt.wantHash, gotHash)
 		})
 	}
 }

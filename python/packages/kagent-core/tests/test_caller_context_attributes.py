@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+
 import pytest
 from opentelemetry import baggage
 from opentelemetry import context as otel_context
@@ -11,8 +14,9 @@ from kagent.core.tracing._context_attributes import (
     MAX_CONTEXT_KEY_LENGTH,
     MAX_CONTEXT_KEYS,
     MAX_CONTEXT_VALUE_LENGTH,
+    TRACE_CONTEXT_HASH_KEY_ENV_VAR,
     TRACE_CONTEXT_KEYS_ENV_VAR,
-    _allowed_context_keys,
+    _allowed_context_mappings,
 )
 from kagent.core.tracing._span_processor import (
     KagentAttributesSpanProcessor,
@@ -28,26 +32,28 @@ def baggage_context(members: dict[str, str]) -> otel_context.Context:
     return context
 
 
+def hmac_sha256_hex(key: str, value: str) -> str:
+    return hmac.new(key.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 class TestCallerContextAttributes:
     """Tests for allowlist-driven promotion of caller context onto spans."""
 
-    def test_disabled_by_default(self, monkeypatch):
+    def test_empty_allowlist_disables_promotion(self, monkeypatch):
         monkeypatch.delenv(TRACE_CONTEXT_KEYS_ENV_VAR, raising=False)
         assert (
             caller_context_attributes(
                 {"thread_id": "T1"},
-                baggage_context({"user.email": "ada@example.com"}),
+                baggage_context({"sub": "opaque-subject"}),
             )
             == {}
         )
 
     def test_promotes_allowlisted_baggage(self, monkeypatch):
-        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "user.email,user.name")
-        assert caller_context_attributes(
-            None, baggage_context({"user.email": "ada@example.com", "user.name": "Ada"})
-        ) == {
-            "kagent.context.user.email": "ada@example.com",
-            "kagent.context.user.name": "Ada",
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "sub,thread_id")
+        assert caller_context_attributes(None, baggage_context({"sub": "opaque-subject", "thread_id": "T123"})) == {
+            "kagent.context.sub": "opaque-subject",
+            "kagent.context.thread_id": "T123",
         }
 
     def test_promotes_allowlisted_message_metadata(self, monkeypatch):
@@ -58,16 +64,16 @@ class TestCallerContextAttributes:
         }
 
     def test_message_metadata_overrides_baggage(self, monkeypatch):
-        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "user.email")
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "sub")
         assert caller_context_attributes(
-            {"user.email": "from-metadata@example.com"},
-            baggage_context({"user.email": "from-baggage@example.com"}),
-        ) == {"kagent.context.user.email": "from-metadata@example.com"}
+            {"sub": "from-metadata"},
+            baggage_context({"sub": "from-baggage"}),
+        ) == {"kagent.context.sub": "from-metadata"}
 
     def test_ignores_keys_outside_the_allowlist(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "thread_id")
         assert caller_context_attributes(
-            {"thread_id": "T1", "customer.pan": "4111111111111111"},
+            {"thread_id": "T1", "extra": "nope"},
             baggage_context({"secret.token": "s3cret"}),
         ) == {"kagent.context.thread_id": "T1"}
 
@@ -103,32 +109,99 @@ class TestCallerContextAttributes:
         assert len(promoted["kagent.context.note"]) == MAX_CONTEXT_VALUE_LENGTH
 
     def test_cannot_shadow_semantic_conventions(self, monkeypatch):
-        """The prefix is what stops caller data replacing service.name and friends."""
+        """Custom keys still cannot replace service.name. Registry names are the exception."""
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "service.name")
         promoted = caller_context_attributes({"service.name": "impostor"})
         assert "service.name" not in promoted
         assert promoted == {f"{CONTEXT_ATTRIBUTE_PREFIX}service.name": "impostor"}
 
+    def test_registry_attributes_stay_unprefixed(self, monkeypatch):
+        """user.*, enduser.*, and session.id are semantic convention names."""
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "user.id,enduser.id,session.id,channel")
+        assert caller_context_attributes(
+            {
+                "user.id": "opaque-subject",
+                "enduser.id": "end-user",
+                "session.id": "sess-1",
+                "channel": "C0AB1",
+            }
+        ) == {
+            "user.id": "opaque-subject",
+            "enduser.id": "end-user",
+            "session.id": "sess-1",
+            "kagent.context.channel": "C0AB1",
+        }
 
-class TestAllowedContextKeys:
+    def test_session_id_is_unprefixed_but_session_foo_is_not(self, monkeypatch):
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "session.id,session.foo")
+        assert caller_context_attributes({"session.id": "sess-1", "session.foo": "other"}) == {
+            "session.id": "sess-1",
+            "kagent.context.session.foo": "other",
+        }
+
+    def test_maps_source_keys_onto_registry_and_kagent_names(self, monkeypatch):
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"kagent.thread_id"},"channel"]',
+        )
+        assert caller_context_attributes({"sub": "opaque-subject", "thread_id": "T123", "channel": "C0AB1"}) == {
+            "user.id": "opaque-subject",
+            "kagent.thread_id": "T123",
+            "kagent.context.channel": "C0AB1",
+        }
+
+    def test_invalid_json_allowlist_promotes_nothing(self, monkeypatch):
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, '[{"from":"sub"')
+        assert caller_context_attributes({"sub": "opaque-subject"}) == {}
+
+    def test_hashes_with_hmac_sha256(self, monkeypatch):
+        key = "test-hmac-key"
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]',
+        )
+        monkeypatch.setenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, key)
+        promoted = caller_context_attributes({"email": "ada@example.com"})
+        assert promoted == {"user.hash": hmac_sha256_hex(key, "ada@example.com")}
+        assert not any("@example.com" in value for value in promoted.values())
+
+    def test_hash_without_key_emits_nothing(self, monkeypatch):
+        """Missing HMAC key must not fall back to putting the original value on the span."""
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]',
+        )
+        monkeypatch.delenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, raising=False)
+        assert caller_context_attributes({"email": "ada@example.com"}) == {}
+
+    def test_unknown_hash_emits_nothing(self, monkeypatch):
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"email","to":"user.hash","hash":"md5"}]',
+        )
+        monkeypatch.setenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, "test-hmac-key")
+        assert caller_context_attributes({"email": "ada@example.com"}) == {}
+
+
+class TestAllowedContextMappings:
     """Tests for allowlist parsing and its bounds."""
 
     def test_caps_list_length(self, monkeypatch):
         keys = ",".join(f"key{index}" for index in range(MAX_CONTEXT_KEYS * 2))
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, keys)
-        assert len(_allowed_context_keys()) == MAX_CONTEXT_KEYS
+        assert len(_allowed_context_mappings()) == MAX_CONTEXT_KEYS
 
     def test_drops_over_long_and_duplicate_keys(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, f"a,a,{'b' * (MAX_CONTEXT_KEY_LENGTH + 1)},c")
-        assert _allowed_context_keys() == ["a", "c"]
+        assert [mapping.source for mapping in _allowed_context_mappings()] == ["a", "c"]
 
     def test_drops_keys_that_are_not_valid_attribute_names(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "good, bad key ,\tanother\tbad")
-        assert _allowed_context_keys() == ["good"]
+        assert [mapping.source for mapping in _allowed_context_mappings()] == ["good"]
 
     def test_empty_allowlist_disables_promotion(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "   ,  ,")
-        assert _allowed_context_keys() == []
+        assert _allowed_context_mappings() == []
 
 
 class TestPromotedAttributesReachEverySpan:
@@ -156,20 +229,21 @@ class TestPromotedAttributesReachEverySpan:
         return {span.name: dict(span.attributes or {}) for span in exporter.get_finished_spans()}
 
     def test_flag_on_stamps_every_span(self, monkeypatch):
-        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "user.email")
-        promoted = caller_context_attributes(None, baggage_context({"user.email": "ada@example.com"}))
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, '[{"from":"sub","to":"user.id"}]')
+        promoted = caller_context_attributes(None, baggage_context({"sub": "opaque-subject"}))
 
         spans = self.record_spans(promoted)
 
         assert set(spans) == {"root", "execute_tool", "generate_content"}
         for attributes in spans.values():
-            assert attributes["kagent.context.user.email"] == "ada@example.com"
+            assert attributes["user.id"] == "opaque-subject"
 
     def test_flag_off_leaves_spans_unchanged(self, monkeypatch):
         monkeypatch.delenv(TRACE_CONTEXT_KEYS_ENV_VAR, raising=False)
-        promoted = caller_context_attributes({"thread_id": "T1"}, baggage_context({"user.email": "ada@example.com"}))
+        promoted = caller_context_attributes({"thread_id": "T1"}, baggage_context({"sub": "opaque-subject"}))
 
         spans = self.record_spans(promoted)
 
         for attributes in spans.values():
+            assert "user.id" not in attributes
             assert not [key for key in attributes if key.startswith(CONTEXT_ATTRIBUTE_PREFIX)]

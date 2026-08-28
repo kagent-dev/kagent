@@ -1,23 +1,47 @@
 """Promote allowlisted caller context onto every span of an agent request."""
 
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
 import os
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from opentelemetry import baggage
 from opentelemetry import context as otel_context
 
-# Comma-separated allowlist of caller-supplied context keys to promote onto
-# agent spans. Unset or empty (the default) disables promotion entirely.
+# Allowlist of caller-supplied context keys to promote onto agent spans.
+# Unset or empty (the default) disables promotion entirely.
+#
+# Accepts a comma-separated list of source keys, or a JSON array of strings
+# and {from, to, hash} objects.
 TRACE_CONTEXT_KEYS_ENV_VAR = "KAGENT_TRACE_CONTEXT_KEYS"
 
-# Namespaces every promoted value. Because the prefix is applied
-# unconditionally, caller-supplied data cannot shadow a semantic convention
-# attribute such as ``service.name``.
+# HMAC key used when a mapping sets hash: hmac-sha256. Required for those
+# entries; without it the hashed attribute is skipped rather than emitted
+# in plaintext.
+TRACE_CONTEXT_HASH_KEY_ENV_VAR = "KAGENT_TRACE_CONTEXT_HASH_KEY"
+
+# Namespaces custom promoted values so they cannot shadow a semantic
+# convention attribute such as ``service.name``. Registry names
+# (``user.*``, ``enduser.*``, ``session.id``) and names already in the
+# ``kagent.`` namespace are left unprefixed; see ``_span_attribute_name``.
 CONTEXT_ATTRIBUTE_PREFIX = "kagent.context."
+
+HASH_HMAC_SHA256 = "hmac-sha256"
 
 MAX_CONTEXT_KEYS = 32
 MAX_CONTEXT_KEY_LENGTH = 64
 MAX_CONTEXT_VALUE_LENGTH = 256
+
+
+@dataclass(frozen=True)
+class _ContextMapping:
+    source: str
+    attribute: str
+    hash: str = ""
 
 
 def caller_context_attributes(
@@ -35,35 +59,44 @@ def caller_context_attributes(
     metadata, which is the more specific source for a single message and
     therefore wins. Both are untrusted input, so keys must appear in the
     allowlist, values are stripped of control characters and truncated, and
-    every attribute is namespaced under ``CONTEXT_ATTRIBUTE_PREFIX``.
+    attribute names go through ``_span_attribute_name``.
 
     Args:
       metadata: A2A message metadata as a plain dict (may be ``None``).
       context: OTel context to read baggage from. Defaults to the current one.
 
     Returns:
-      Prefixed attribute name to sanitised value. Empty when the allowlist is
-      empty, which is the default.
+      Attribute name to sanitised value. Empty when the allowlist is empty,
+      which is the default.
     """
-    keys = _allowed_context_keys()
-    if not keys:
+    mappings = _allowed_context_mappings()
+    if not mappings:
         return {}
 
     bag = baggage.get_all(context)
     attributes: dict[str, str] = {}
-    for key in keys:
-        value = _sanitize_context_value(bag.get(key))
+    for mapping in mappings:
+        value = _sanitize_context_value(bag.get(mapping.source))
         if metadata is not None:
-            scalar = _scalar_string(metadata.get(key))
+            scalar = _scalar_string(metadata.get(mapping.source))
             if scalar is not None:
                 value = _sanitize_context_value(scalar)
         if not value:
             continue
-        attributes[CONTEXT_ATTRIBUTE_PREFIX + key] = value
+        if mapping.hash:
+            value = _hash_context_value(value, mapping.hash)
+            if not value:
+                continue
+        else:
+            value = _truncate_context_value(value)
+        name = _span_attribute_name(mapping.attribute)
+        if name in attributes:
+            continue
+        attributes[name] = value
     return attributes
 
 
-def _allowed_context_keys() -> list[str]:
+def _allowed_context_mappings() -> list[_ContextMapping]:
     """Parse the ``KAGENT_TRACE_CONTEXT_KEYS`` allowlist.
 
     Keys that are empty, over-long, or contain whitespace or control characters
@@ -73,18 +106,93 @@ def _allowed_context_keys() -> list[str]:
     raw = os.getenv(TRACE_CONTEXT_KEYS_ENV_VAR, "").strip()
     if not raw:
         return []
+    if raw.startswith("["):
+        return _cap_mappings(_parse_json_allowlist(raw))
+    return _cap_mappings(_parse_comma_allowlist(raw))
 
-    keys: list[str] = []
+
+def _parse_comma_allowlist(raw: str) -> list[_ContextMapping]:
+    mappings: list[_ContextMapping] = []
     for candidate in raw.split(","):
-        key = candidate.strip()
-        if not key or len(key) > MAX_CONTEXT_KEY_LENGTH or not _is_attribute_key(key):
+        mapping = _new_context_mapping(candidate.strip(), "", "")
+        if mapping is not None:
+            mappings.append(mapping)
+    return mappings
+
+
+def _parse_json_allowlist(raw: str) -> list[_ContextMapping]:
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(items, list):
+        return []
+    mappings: list[_ContextMapping] = []
+    for item in items:
+        if isinstance(item, str):
+            mapping = _new_context_mapping(item, "", "")
+        elif isinstance(item, dict):
+            from_key, to_key, hash_alg = item.get("from"), item.get("to"), item.get("hash")
+            if from_key is not None and not isinstance(from_key, str):
+                mapping = None
+            else:
+                mapping = _new_context_mapping(
+                    from_key or "",
+                    to_key if isinstance(to_key, str) else "",
+                    hash_alg if isinstance(hash_alg, str) else "",
+                )
+        else:
+            mapping = None
+        if mapping is not None:
+            mappings.append(mapping)
+    return mappings
+
+
+def _new_context_mapping(from_key: str, to_key: str, hash_alg: str) -> Optional[_ContextMapping]:
+    from_key = from_key.strip()
+    to_key = to_key.strip()
+    hash_alg = hash_alg.strip()
+    if not from_key or len(from_key) > MAX_CONTEXT_KEY_LENGTH or not _is_attribute_key(from_key):
+        return None
+    if not to_key:
+        to_key = from_key
+    if len(to_key) > MAX_CONTEXT_KEY_LENGTH or not _is_attribute_key(to_key):
+        return None
+    if hash_alg and hash_alg != HASH_HMAC_SHA256:
+        return None
+    return _ContextMapping(source=from_key, attribute=to_key, hash=hash_alg)
+
+
+def _cap_mappings(mappings: list[_ContextMapping]) -> list[_ContextMapping]:
+    out: list[_ContextMapping] = []
+    seen: set[tuple[str, str, str]] = set()
+    for mapping in mappings:
+        identity = (mapping.source, mapping.attribute, mapping.hash)
+        if identity in seen:
             continue
-        if key in keys:
-            continue
-        keys.append(key)
-        if len(keys) == MAX_CONTEXT_KEYS:
+        seen.add(identity)
+        out.append(mapping)
+        if len(out) == MAX_CONTEXT_KEYS:
             break
-    return keys
+    return out
+
+
+def _span_attribute_name(name: str) -> str:
+    """Return the name written onto the span.
+
+    ``user.*``, ``enduser.*``, and ``session.id`` pass through unprefixed so
+    operators can use the semantic convention names. Names already in the
+    ``kagent.`` namespace are left as-is. Everything else is placed under
+    ``kagent.context.`` so a caller-supplied ``service.name`` cannot shadow
+    the real one.
+    """
+    if _is_registry_attribute(name) or name.startswith("kagent."):
+        return name
+    return CONTEXT_ATTRIBUTE_PREFIX + name
+
+
+def _is_registry_attribute(name: str) -> bool:
+    return name.startswith("user.") or name.startswith("enduser.") or name == "session.id"
 
 
 def _is_attribute_key(key: str) -> bool:
@@ -119,13 +227,25 @@ def _scalar_string(value: Any) -> Optional[str]:
 
 
 def _sanitize_context_value(value: Any) -> str:
-    """Make an untrusted value safe to attach to a span.
-
-    Control characters are dropped so a value cannot forge structure in a
-    downstream trace or log renderer, and the result is truncated to bound the
-    size of exported spans.
-    """
+    """Drop control characters and trim space so a value cannot forge structure."""
     if not isinstance(value, str):
         return ""
-    cleaned = "".join(char for char in value if not _is_control(char)).strip()
-    return cleaned[:MAX_CONTEXT_VALUE_LENGTH]
+    return "".join(char for char in value if not _is_control(char)).strip()
+
+
+def _truncate_context_value(value: str) -> str:
+    return value[:MAX_CONTEXT_VALUE_LENGTH]
+
+
+def _hash_context_value(value: str, algorithm: str) -> str:
+    """Hash *value* with the requested algorithm.
+
+    Unknown algorithms and a missing HMAC key skip the attribute: never fall
+    back to putting the original value on the span.
+    """
+    if algorithm != HASH_HMAC_SHA256:
+        return ""
+    key = os.getenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, "")
+    if not key:
+        return ""
+    return hmac.new(key.encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()

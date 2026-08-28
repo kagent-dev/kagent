@@ -41,9 +41,19 @@ var (
 	KagentTraceContextKeys = RegisterStringVar(
 		"KAGENT_TRACE_CONTEXT_KEYS",
 		"",
-		"Comma-separated allowlist of caller-supplied context keys promoted onto every agent span as "+
-			"kagent.context.<key>. Values are read from W3C baggage and A2A message metadata. "+
-			"Empty (the default) disables promotion.",
+		"Allowlist of caller-supplied context keys promoted onto every agent span. "+
+			"Accepts a comma-separated list of source keys, or a JSON array of strings and "+
+			"{from, to, hash} objects. Registry names (user.*, enduser.*, session.id) are left "+
+			"unprefixed; everything else is emitted as kagent.context.<name> unless the name is "+
+			"already in the kagent. namespace. Empty (the default) disables promotion.",
+		ComponentAgentRuntime,
+	)
+
+	KagentTraceContextHashKey = RegisterStringVar(
+		"KAGENT_TRACE_CONTEXT_HASH_KEY",
+		"",
+		"HMAC-SHA256 key used when a KAGENT_TRACE_CONTEXT_KEYS mapping sets hash: hmac-sha256. "+
+			"Hashed attributes are omitted when this is unset, rather than emitting the original value.",
 		ComponentAgentRuntime,
 	)
 )

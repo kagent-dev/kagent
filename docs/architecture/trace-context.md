@@ -2,9 +2,9 @@
 
 Agent spans describe *what the agent did*, but they say nothing about *who asked
 for it*. Kagent can promote a configurable allowlist of caller-supplied values —
-the signed-in user's email, a Slack thread, a support ticket ID — onto every
-span of a request, so traces can be filtered and grouped by the caller in
-Langfuse, Jaeger, Grafana Tempo, or any other OTLP backend.
+an opaque user identifier, a conversation thread, a ticket ID — onto every span
+of a request, so traces can be filtered and grouped by the caller in Langfuse,
+Jaeger, Grafana Tempo, or any other OTLP backend.
 
 The feature is **off by default**. It turns on when an operator sets an
 allowlist.
@@ -15,19 +15,22 @@ allowlist.
 
 | Setting | Default | Description |
 |---|---|---|
-| Helm `otel.tracing.contextKeys` | `[]` | List of context keys to promote |
-| Env `KAGENT_TRACE_CONTEXT_KEYS` | `""` | Comma-separated form of the same list |
+| Helm `otel.tracing.contextKeys` | `[]` | List of context keys or `{from, to, hash}` mappings to promote |
+| Env `KAGENT_TRACE_CONTEXT_KEYS` | `""` | Comma-separated keys, or a JSON array of the same mappings |
+| Helm `otel.tracing.contextHashKeySecret` | unset | Secret providing `KAGENT_TRACE_CONTEXT_HASH_KEY` for `hash: hmac-sha256` |
 
 ```yaml
 otel:
   tracing:
     enabled: true
     contextKeys:
-      - user.email
-      - user.name
-      - thread_id
+      - {from: sub, to: user.id}
+      - {from: thread_id, to: kagent.thread_id}
       - channel
 ```
+
+Prefer an opaque identifier such as an OIDC `sub` for `user.id`. Do not put
+names or email addresses on spans; see [Sensitive values](#sensitive-values).
 
 The controller forwards `KAGENT_TRACE_CONTEXT_KEYS` to every agent it creates.
 Both the Go and the Python runtime read it, so behaviour is identical whichever
@@ -65,12 +68,20 @@ A key absent from both sources is simply not emitted.
 
 ## Where values land
 
-Every promoted value becomes a span attribute named `kagent.context.<key>`:
+Each mapping is read from `from` (defaulting to the entry itself) and written
+as span attribute `to` (defaulting to `from`) after the prefix rules below:
 
 ```
-baggage: user.email=ada@example.com   →   kagent.context.user.email = "ada@example.com"
-metadata: {"thread_id": "1717171.42"} →   kagent.context.thread_id  = "1717171.42"
+baggage: sub=opaque-subject          →   user.id              = "opaque-subject"
+metadata: {"thread_id": "1717171.42"} →   kagent.thread_id     = "1717171.42"
+metadata: {"channel": "C0AB1"}        →   kagent.context.channel = "C0AB1"
 ```
+
+| Destination name | Emitted as |
+|---|---|
+| `user.*`, `enduser.*`, `session.id` | Unprefixed (OpenTelemetry semantic conventions) |
+| Already in the `kagent.` namespace | Unprefixed |
+| Anything else | `kagent.context.<name>` |
 
 The attributes are merged into the **request-scoped attribute bag**, not set on
 a single span. The `KagentAttributesSpanProcessor` (Python) and
@@ -84,6 +95,35 @@ stamping only the root span would leave most views unfilterable.
 
 ---
 
+## Sensitive values
+
+[OpenTelemetry recommends](https://opentelemetry.io/docs/security/handling-sensitive-data/)
+against putting email addresses or names on telemetry at all. An OIDC `sub` is
+already an opaque identifier and is what `user.id` should use.
+
+If a stable identifier must be derived from a value that itself should not
+appear on a span, hash it with HMAC-SHA256 onto the registry attribute
+`user.hash`:
+
+```yaml
+contextKeys:
+  - {from: sub, to: user.id}
+  - {from: email, to: user.hash, hash: hmac-sha256}
+  - {from: thread_id, to: kagent.thread_id}
+```
+
+`hash: hmac-sha256` requires `KAGENT_TRACE_CONTEXT_HASH_KEY` (Helm:
+`otel.tracing.contextHashKeySecret`). If the key is missing, the hashed
+attribute is skipped — the original value is never written onto the span.
+
+Hashing at promotion time only affects the span. Baggage travels on HTTP
+headers, so a value placed in baggage is still visible to every downstream hop
+that receives those headers, including model providers and HTTP MCP servers.
+Do not put sensitive values in baggage; hash or replace them at the edge
+before the request enters the cluster.
+
+---
+
 ## Safety properties
 
 Caller-supplied context is untrusted input, so promotion is constrained on every
@@ -94,8 +134,8 @@ axis:
 | Attribute explosion / cardinality | Only allowlisted keys are read; the allowlist itself is capped at 32 entries |
 | Oversized spans | Values are truncated to 256 characters, keys to 64 |
 | Log or trace injection | Control characters are stripped from values |
-| Shadowing semantic conventions | Every attribute is namespaced under `kagent.context.`, so `service.name` and friends cannot be overwritten even if an operator allowlists them |
-| Leaking secrets into a trace backend | Nothing is promoted unless an operator names the key; raw values are never logged |
+| Shadowing semantic conventions | Custom keys are namespaced under `kagent.context.`; only `user.*`, `enduser.*`, and `session.id` pass through unprefixed |
+| Leaking secrets into a trace backend | Nothing is promoted unless an operator names the key; hashed entries are omitted when the HMAC key is unset |
 | A tenant widening the allowlist | The allowlist is cluster-wide operator configuration; an entry of the same name in a `Harness` environment is dropped rather than inherited |
 
 Non-scalar metadata (objects, arrays) is skipped: it is unbounded in size and
@@ -108,17 +148,16 @@ with access to the trace backend, and callers control the values.
 
 ## Renaming attributes for a backend
 
-Some backends expect specific attribute names — Langfuse, for instance, maps
-`user.id` and `session.id` onto its own trace fields. Rather than making the
-attribute namespace configurable, do the rename in the OTel Collector that
+Some backends expect names other than the ones kagent emits. Rather than making
+the attribute namespace configurable, do the rename in the OTel Collector that
 already sits between kagent and the backend:
 
 ```yaml
 processors:
   transform:
     trace_statements:
-      - set(span.attributes["user.id"], span.attributes["kagent.context.user.email"])
-        where span.attributes["kagent.context.user.email"] != nil
+      - set(span.attributes["session.id"], span.attributes["kagent.thread_id"])
+        where span.attributes["kagent.thread_id"] != nil
 ```
 
 ---
