@@ -9,6 +9,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
@@ -278,6 +279,11 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	if updates[1].Append || !updates[1].LastChunk || updates[1].Artifact.ID != updates[0].Artifact.ID || updates[1].Artifact.Parts[0].Text() != "hello" {
 		t.Fatalf("second artifact update = %#v, want content-bearing final replacement", updates[1])
 	}
+	for index, update := range updates {
+		if _, ok := update.Artifact.Metadata[apia2a.TimelinePositionMetadataKey].(string); !ok {
+			t.Fatalf("artifact update %d metadata = %#v, want timeline position", index, update.Artifact.Metadata)
+		}
+	}
 	if completed == nil || completed.Status.Message != nil {
 		t.Fatalf("completed status = %#v, want content-free completion", completed)
 	}
@@ -345,6 +351,9 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	req := GetToolApprovalRequest(pause.Status.Message)
 	if pause == nil || req == nil {
 		t.Fatalf("pause = %#v, want extension input-required", pause)
+	}
+	if _, ok := pause.Status.Message.Metadata[apia2a.TimelinePositionMetadataKey].(string); !ok {
+		t.Fatalf("pause metadata = %#v, want timeline position", pause.Status.Message.Metadata)
 	}
 	if len(req.Tools) != 1 || req.Tools[0].ID != "confirmation-call" {
 		t.Fatalf("pause tools = %#v, want per-approval correlation", req.Tools)
