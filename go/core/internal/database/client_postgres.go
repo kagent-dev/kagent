@@ -854,11 +854,18 @@ func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, i
 func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *dbpkg.AgentInstanceTaskSnapshot) error {
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		var sequence int64
+		var replacedStatusMessage *a2a.Message
 		if task != nil {
 			if row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: instanceID, ID: string(task.ID)}); err == nil {
 				previous, err := unmarshalAgentInstanceTask(row.Data)
 				if err != nil {
 					return err
+				}
+				// A reply replaces the current status message, so archive both atomically.
+				if _, ok := event.(*a2a.Message); ok && previous.Status.Message != nil {
+					message := *previous.Status.Message
+					message.TaskID, message.ContextID = task.ID, task.ContextID
+					replacedStatusMessage = &message
 				}
 				if len(previous.History) > 0 {
 					sequence, err = storeAgentInstanceTaskMessages(ctx, q, instanceID, string(task.ID), previous.History)
@@ -884,6 +891,9 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 			}
 		}
 		messages := agentInstanceTaskEventMessages(task, event)
+		if replacedStatusMessage != nil {
+			messages = append([]*a2a.Message{replacedStatusMessage}, messages...)
+		}
 		if len(messages) > 0 {
 			var err error
 			sequence, err = storeAgentInstanceTaskMessages(ctx, q, instanceID, string(event.TaskInfo().TaskID), messages)

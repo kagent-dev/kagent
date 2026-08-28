@@ -208,10 +208,7 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	}
 }
 
-// TestAgentInstanceTaskMessageWithoutTaskJoinsHistory pins what the gateway relies
-// on when it archives a parked question before the reply that replaces it: a bare
-// message event becomes history, in insertion order, without touching the task.
-func TestAgentInstanceTaskMessageWithoutTaskJoinsHistory(t *testing.T) {
+func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
@@ -224,18 +221,15 @@ func TestAgentInstanceTaskMessageWithoutTaskJoinsHistory(t *testing.T) {
 	}
 	client := NewClient(db)
 	asked := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: "instance-1"}
+	question := &a2a.Message{ID: "question-1", Role: a2a.MessageRoleAgent, TaskID: "task-1", ContextID: "instance-1"}
 	parked := &a2a.Task{
 		ID: "task-1", ContextID: "instance-1", History: []*a2a.Message{asked},
-		Status: a2a.TaskStatus{State: a2a.TaskStateInputRequired},
+		Status: a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question},
 	}
 	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), parked); err != nil {
 		t.Fatal(err)
 	}
 
-	question := &a2a.Message{ID: "question-1", Role: a2a.MessageRoleAgent, TaskID: "task-1", ContextID: "instance-1"}
-	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", nil, question, nil); err != nil {
-		t.Fatal(err)
-	}
 	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: "instance-1"}
 	resumed := *parked
 	resumed.History = []*a2a.Message{asked, question, answer}

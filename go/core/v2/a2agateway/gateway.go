@@ -519,17 +519,11 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	attempt := *stored
 	attempt.History = append([]*a2atype.Message{}, stored.History...)
 	if question := stored.Status.Message; question != nil {
-		attempt.History = append(attempt.History, question)
-		// A parked task holds its question in the status this reply replaces, and the
-		// store writes down the messages an event names rather than the history of the
-		// task it is handed — so the question is stored in its own right, and before
-		// the reply, because history is ordered by insertion.
-		if question.ID != "" {
-			question.TaskID, question.ContextID = stored.ID, stored.ContextID
-			if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), nil, question, nil); err != nil {
-				return nil, g.storeError(ctx, err)
-			}
+		if question.ID == "" {
+			return nil, a2atype.NewError(a2atype.ErrInternalError, "stored task status message has no ID")
 		}
+		question.TaskID, question.ContextID = stored.ID, stored.ContextID
+		attempt.History = append(attempt.History, question)
 	}
 	attempt.History = append(attempt.History, message)
 	now := time.Now()
