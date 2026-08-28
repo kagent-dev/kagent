@@ -103,7 +103,7 @@ The workspace uses a single `Dockerfile` parameterized with `BUILD_PACKAGE`:
 
 ```bash
 # Build controller image (default)
-docker build --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t controller .
+docker build --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go -t controller .
 
 # Build Go ADK image
 docker build --build-arg BUILD_PACKAGE=adk/cmd/main.go -t golang-adk .
@@ -119,7 +119,6 @@ The controller embeds OCI manifest digests for agent workload images at **link t
 |---|---|---|
 | `golang-adk` | `build-golang-adk` | `AgentImageDigest` |
 
-`scripts/controller-digest-ldflags.sh` inspects the runtime image digests from the registry and emits the matching `LDFLAGS` entries.
 
 `kagent-adk` remains available as a base for Python BYO images, but is not a declarative runtime.
 

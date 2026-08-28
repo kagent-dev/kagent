@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kagent</title>
+    <!--
+      The first paint, before any stylesheet or script has loaded.
+
+      Styling arrives with the bundle, so without this the browser paints its own
+      default white for as long as that takes and the app flashes white before
+      appearing — worst on a cold load, and captured on every screen recording.
+      `color-scheme` also darkens the scrollbars and form controls the UA draws
+      itself, which no stylesheet of ours can reach.
+
+      The colour is duplicated from `theme/tokens.color.bg` on purpose: nothing
+      generated can be involved this early. An extension that restyles the app
+      may briefly show this before its own background takes over, so it is the
+      neutral dark rather than anything product-specific.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #030712;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      Deployment configuration, written by the container from its own environment
+      on every start.
+
+      A classic script rather than a fetch, and placed before the module below,
+      because it must be readable *synchronously* by the first module that runs.
+      The base URL the API client is built on comes from here, and that client is
+      a module-level constant — there is no point at which an awaited fetch could
+      have landed in time. The dev server replaces this tag with an inline copy.
+    -->
+    <script src="/env-config.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

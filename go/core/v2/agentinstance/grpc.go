@@ -19,7 +19,7 @@ func RegisterGRPC(registrar grpc.ServiceRegistrar, service *Service) {
 }
 
 func (s *grpcServer) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error) {
-	instance, err := s.service.Create(ctx, request.GetNamespace(), request.GetHarness(), request.GetAgentTemplate(), request.GetRequestId())
+	instance, err := s.service.Create(ctx, request.GetNamespace(), request.GetHarness(), request.GetAgentTemplate(), request.GetRequestId(), request.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +37,7 @@ func (s *grpcServer) GetAgentInstance(ctx context.Context, request *apiv1alpha1.
 func (s *grpcServer) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
 	result, err := s.service.List(ctx, ListRequest{
 		Namespace: request.GetNamespace(), MatchLabels: request.GetMatchLabels(), AllCreators: request.GetAllCreators(),
+		AgentTemplate: request.GetAgentTemplate(), Harness: request.GetHarness(),
 		PageSize: int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
 	})
 	if err != nil {
@@ -46,6 +47,14 @@ func (s *grpcServer) ListAgentInstances(ctx context.Context, request *apiv1alpha
 		AgentInstances: result.Instances,
 		Page:           &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
 	}, nil
+}
+
+func (s *grpcServer) UpdateAgentInstanceName(ctx context.Context, request *apiv1alpha1.UpdateAgentInstanceNameRequest) (*apiv1alpha1.UpdateAgentInstanceNameResponse, error) {
+	instance, err := s.service.Rename(ctx, request.GetNamespace(), request.GetAgentInstanceId(), request.GetName())
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1alpha1.UpdateAgentInstanceNameResponse{AgentInstance: instance}, nil
 }
 
 func (s *grpcServer) SuspendAgentInstance(ctx context.Context, request *apiv1alpha1.SuspendAgentInstanceRequest) (*apiv1alpha1.SuspendAgentInstanceResponse, error) {
@@ -104,8 +113,7 @@ func (s *grpcServer) RevokeAgentInstanceShare(ctx context.Context, request *apiv
 func agentInstanceShareProto(share *dbpkg.AgentInstanceShare) *apiv1alpha1.AgentInstanceShare {
 	return &apiv1alpha1.AgentInstanceShare{
 		Id: share.ID.String(), Namespace: share.Namespace, AgentInstanceId: share.InstanceID.String(),
-		Creator: share.Creator, Permission: agentInstanceSharePermission(share.Permission),
-		CreatedAt: timestamppb.New(share.CreatedAt),
+		Permission: agentInstanceSharePermission(share.Permission), CreatedAt: timestamppb.New(share.CreatedAt),
 	}
 }
 

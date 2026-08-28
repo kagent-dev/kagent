@@ -297,7 +297,6 @@ func (c *BaseClient) decodeAgent(message *apiv1alpha1.Agent) (*api.AgentResponse
 		response.SubstrateAgentHarness = &api.SubstrateAgentHarnessListEntry{
 			Backend:        v1alpha3.AgentHarnessBackendType(harness.GetBackend()),
 			ActorID:        harness.GetActorId(),
-			AcpPath:        harness.GetAcpPath(),
 			ModelConfigRef: response.ModelConfigRef,
 			BackendRefID:   harness.GetBackendRefId(),
 			Endpoint:       harness.GetEndpoint(),

@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -93,272 +92,6 @@ func (c *postgresClient) ListAgents(ctx context.Context) ([]dbpkg.Agent, error) 
 
 func (c *postgresClient) DeleteAgent(ctx context.Context, agentID string) error {
 	return c.q.SoftDeleteAgent(ctx, agentID)
-}
-
-// ── Sessions ──────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Session) error {
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		params := dbgen.UpsertSessionParams{
-			ID:      session.ID,
-			UserID:  session.UserID,
-			Name:    session.Name,
-			AgentID: session.AgentID,
-		}
-		if session.Source != nil {
-			src := string(*session.Source)
-			params.Source = &src
-		}
-		return q.UpsertSession(ctx, params)
-	})
-}
-
-func (c *postgresClient) GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error) {
-	row, err := c.q.GetSession(ctx, dbgen.GetSessionParams{ID: sessionID, UserID: userID})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session %s: %w", sessionID, notFoundOr(err))
-	}
-	return toSession(row), nil
-}
-
-func (c *postgresClient) ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error) {
-	rows, err := c.q.ListSessions(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list sessions: %w", err)
-	}
-	sessions := make([]dbpkg.Session, len(rows))
-	for i, r := range rows {
-		sessions[i] = *toSession(r)
-	}
-	return sessions, nil
-}
-
-func (c *postgresClient) ListSessionsForAgent(ctx context.Context, agentID, userID string) ([]dbpkg.SessionWithShareToken, error) {
-	rows, err := c.q.ListSessionsForAgent(ctx, dbgen.ListSessionsForAgentParams{
-		AgentID: &agentID,
-		UserID:  userID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list sessions for agent: %w", err)
-	}
-	sessions := make([]dbpkg.SessionWithShareToken, len(rows))
-	for i, r := range rows {
-		sessions[i] = toSessionWithShareToken(r)
-	}
-	return sessions, nil
-}
-
-func (c *postgresClient) ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]dbpkg.Session, error) {
-	rows, err := c.q.ListSessionsForAgentAllUsers(ctx, &agentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list sessions for agent across all users: %w", err)
-	}
-	sessions := make([]dbpkg.Session, len(rows))
-	for i, r := range rows {
-		sessions[i] = *toSession(r)
-	}
-	return sessions, nil
-}
-
-func (c *postgresClient) DeleteSession(ctx context.Context, sessionID, userID string) error {
-	return c.q.SoftDeleteSession(ctx, dbgen.SoftDeleteSessionParams{ID: sessionID, UserID: userID})
-}
-
-// ── Session Shares ─────────────────────────────────────────────────────────────
-
-func toSessionShare(row dbgen.SessionShare) dbpkg.SessionShare {
-	return dbpkg.SessionShare{
-		ID:        row.ID,
-		Token:     row.Token,
-		SessionID: row.SessionID,
-		UserID:    row.UserID,
-		ReadOnly:  row.ReadOnly,
-		CreatedAt: row.CreatedAt.Time,
-	}
-}
-
-func (c *postgresClient) CreateSessionShare(ctx context.Context, share *dbpkg.SessionShare) (*dbpkg.SessionShare, error) {
-	row, err := c.q.CreateSessionShare(ctx, dbgen.CreateSessionShareParams{
-		Token:     share.Token,
-		SessionID: share.SessionID,
-		UserID:    share.UserID,
-		ReadOnly:  share.ReadOnly,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create session share: %w", err)
-	}
-	result := toSessionShare(row)
-	return &result, nil
-}
-
-func (c *postgresClient) GetSessionShareByToken(ctx context.Context, token string) (*dbpkg.SessionShare, error) {
-	row, err := c.q.GetSessionShareByToken(ctx, token)
-	if err != nil {
-		return nil, fmt.Errorf("get session share by token: %w", notFoundOr(err))
-	}
-	result := toSessionShare(row)
-	return &result, nil
-}
-
-func (c *postgresClient) ListSessionSharesBySession(ctx context.Context, sessionID string) ([]dbpkg.SessionShare, error) {
-	rows, err := c.q.ListSessionSharesBySession(ctx, sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("list session shares by session: %w", err)
-	}
-	shares := make([]dbpkg.SessionShare, 0, len(rows))
-	for _, row := range rows {
-		shares = append(shares, toSessionShare(row))
-	}
-	return shares, nil
-}
-
-func (c *postgresClient) DeleteSessionShare(ctx context.Context, token, sessionID, userID string) error {
-	if err := c.q.DeleteSessionShare(ctx, dbgen.DeleteSessionShareParams{
-		Token:     token,
-		SessionID: sessionID,
-		UserID:    userID,
-	}); err != nil {
-		return fmt.Errorf("delete session share: %w", err)
-	}
-	return nil
-}
-
-func (c *postgresClient) RecordShareAccess(ctx context.Context, userID string, shareID int64) error {
-	if err := c.q.UpsertShareAccess(ctx, dbgen.UpsertShareAccessParams{
-		UserID:  userID,
-		ShareID: shareID,
-	}); err != nil {
-		return fmt.Errorf("record share access: %w", err)
-	}
-	return nil
-}
-
-// ── Events ────────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreEvents(ctx context.Context, events ...*dbpkg.Event) error {
-	for _, e := range events {
-		if err := c.q.InsertEvent(ctx, dbgen.InsertEventParams{
-			ID:        e.ID,
-			UserID:    e.UserID,
-			SessionID: strPtrIfNotEmpty(e.SessionID),
-			Data:      e.Data,
-		}); err != nil {
-			return fmt.Errorf("failed to store event %s: %w", e.ID, err)
-		}
-	}
-	return nil
-}
-
-func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, userID string, opts dbpkg.QueryOptions) ([]*dbpkg.Event, error) {
-	var rows []dbgen.Event
-	var err error
-	sessionIDPtr := strPtrIfNotEmpty(sessionID)
-
-	switch {
-	case opts.OrderAsc && opts.Limit > 0:
-		rows, err = c.q.ListEventsForSessionAscLimit(ctx, dbgen.ListEventsForSessionAscLimitParams{
-			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After, Limit: int32(opts.Limit),
-		})
-	case opts.OrderAsc:
-		rows, err = c.q.ListEventsForSessionAsc(ctx, dbgen.ListEventsForSessionAscParams{
-			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After,
-		})
-	case opts.Limit > 0:
-		rows, err = c.q.ListEventsForSessionDescLimit(ctx, dbgen.ListEventsForSessionDescLimitParams{
-			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After, Limit: int32(opts.Limit),
-		})
-	default:
-		rows, err = c.q.ListEventsForSessionDesc(ctx, dbgen.ListEventsForSessionDescParams{
-			SessionID: sessionIDPtr, UserID: userID, Column3: opts.After,
-		})
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to list events for session: %w", err)
-	}
-
-	events := make([]*dbpkg.Event, len(rows))
-	for i, r := range rows {
-		events[i] = toEvent(r)
-	}
-	return events, nil
-}
-
-// ── Tasks ─────────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID string) error {
-	data, err := json.Marshal(task)
-	if err != nil {
-		return fmt.Errorf("failed to serialize task: %w", err)
-	}
-	protocolVersion := string(a2a.Version)
-	// UpsertTask returns no rows when the write was rejected: the id belongs
-	// to another user, or to a soft-deleted task (deleted ids stay burned).
-	if _, err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
-		ID:              string(task.ID),
-		Data:            string(data),
-		SessionID:       strPtrIfNotEmpty(task.ContextID),
-		ProtocolVersion: &protocolVersion,
-		UserID:          &userID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return dbpkg.ErrTaskOwnedByAnotherUser
-		}
-		return fmt.Errorf("failed to store task %s: %w", task.ID, err)
-	}
-	return nil
-}
-
-// checkTaskOwner returns ErrTaskOwnedByAnotherUser if taskID still exists but
-// does not belong to userID after an owner-scoped write. A NULL owner counts
-// as foreign too: a successful write always stamps the caller's user_id, so a
-// surviving NULL means the write was rejected. A missing task is not an
-// error: the caller decides what that means (nothing to own yet, or already
-// deleted).
-func (c *postgresClient) checkTaskOwner(ctx context.Context, taskID, userID string) error {
-	owner, err := c.q.GetTaskOwner(ctx, taskID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return fmt.Errorf("failed to check task owner for %s: %w", taskID, err)
-	}
-	if owner == nil || *owner != userID {
-		return dbpkg.ErrTaskOwnedByAnotherUser
-	}
-	return nil
-}
-
-func (c *postgresClient) GetTask(ctx context.Context, taskID, userID string) (*a2a.Task, error) {
-	row, err := c.q.GetTask(ctx, dbgen.GetTaskParams{ID: taskID, UserID: &userID})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task %s: %w", taskID, notFoundOr(err))
-	}
-	return parseVersionedTask(row.Data, row.ProtocolVersion)
-}
-
-func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID, userID string) ([]*a2a.Task, error) {
-	rows, err := c.q.ListTasksForSession(ctx, dbgen.ListTasksForSessionParams{SessionID: &sessionID, UserID: &userID})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks for session: %w", err)
-	}
-	tasks := make([]*a2a.Task, 0, len(rows))
-	for i, r := range rows {
-		task, err := parseVersionedTask(r.Data, r.ProtocolVersion)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse task row %d: %w", i, err)
-		}
-		tasks = append(tasks, task)
-	}
-	return tasks, nil
-}
-
-func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) error {
-	if err := c.q.SoftDeleteTask(ctx, dbgen.SoftDeleteTaskParams{ID: taskID, UserID: &userID}); err != nil {
-		return fmt.Errorf("failed to delete task %s: %w", taskID, err)
-	}
-	// The delete only takes effect if user_id matched; if the task is still
-	// there and owned by someone else, say so instead of a misleading success.
-	return c.checkTaskOwner(ctx, taskID, userID)
 }
 
 // ── AgentTemplate runtime revisions ──────────────────────────────────────────
@@ -480,6 +213,10 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	instance.State = apiv1alpha1.AgentInstanceState(state)
 	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
 	instance.Id = row.ID.String()
+	// The name is a column for the same reason, and because a rename writes only
+	// the column: reading it from the blob would serve the name the row was
+	// created with for the rest of the instance's life.
+	instance.Name = row.Name
 	return instance, nil
 }
 
@@ -544,7 +281,8 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 		}
 		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
 			ID: instanceID, Namespace: request.GetNamespace(), UserID: request.GetCreator(), RequestID: requestID,
-			ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels, Data: data,
+			ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
+			Name: request.GetName(), Data: data,
 		})
 		return err
 	})
@@ -810,7 +548,8 @@ func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, us
 	return toAgentInstance(row)
 }
 
-func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, userID string, allUsers bool, matchLabels map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
+func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+	matchLabels := query.MatchLabels
 	if matchLabels == nil {
 		matchLabels = map[string]string{}
 	}
@@ -819,8 +558,10 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, user
 		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
 	}
 	rows, err := c.q.ListAgentInstances(ctx, dbgen.ListAgentInstancesParams{
-		Namespace: namespace, UserID: userID, AllUsers: allUsers,
-		AfterID: afterID, MatchLabels: labels, PageSize: int32(limit),
+		Namespace: query.Namespace, UserID: query.UserID, AllUsers: query.AllUsers,
+		AfterID: query.AfterID, MatchLabels: labels,
+		AgentTemplate: query.AgentTemplate, Harness: query.Harness,
+		PageSize: int32(query.Limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstances: %w", err)
@@ -834,6 +575,18 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, user
 		result = append(result, instance)
 	}
 	return result, nil
+}
+
+// UpdateAgentInstanceName writes only the name column, scoped to the instance's
+// owner so a rename cannot reach another reader's conversation.
+func (c *postgresClient) UpdateAgentInstanceName(ctx context.Context, namespace, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.UpdateAgentInstanceName(ctx, dbgen.UpdateAgentInstanceNameParams{
+		Namespace: namespace, ID: uuid.MustParse(id), UserID: userID, Name: name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("rename AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+	}
+	return toAgentInstance(row)
 }
 
 func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
@@ -921,15 +674,14 @@ func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) err
 func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
 	return dbpkg.AgentInstanceShare{
 		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
-		Creator: row.Creator, Permission: row.Permission,
-		TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 	}
 }
 
 func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
 		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
-		Creator: share.Creator, Permission: share.Permission, TokenHash: share.TokenHash,
+		Permission: share.Permission, TokenHash: share.TokenHash,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create AgentInstance share: %w", err)
@@ -938,9 +690,25 @@ func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbp
 	return &result, nil
 }
 
-func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+// GetAgentInstanceShareByTokenHash resolves a share token to its share.
+//
+// Takes the hash rather than the token: only the digest is stored, which is what
+// keeps a database dump from being a set of working share links.
+func (c *postgresClient) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*dbpkg.AgentInstanceShare, error) {
+	row, err := c.q.GetAgentInstanceShareByTokenHash(ctx, tokenHash)
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
+	}
+	return &dbpkg.AgentInstanceShare{
+		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
+		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+		OwnerUserID: row.OwnerUserID,
+	}, nil
+}
+
+func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
-		Namespace: namespace, InstanceID: uuid.MustParse(instanceID), UserID: creator,
+		Namespace: namespace, InstanceID: uuid.MustParse(instanceID), UserID: userID,
 		AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
@@ -953,8 +721,8 @@ func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace,
 	return result, nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, creator string) error {
-	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: creator})
+func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, userID string) error {
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
 	}
@@ -1095,11 +863,18 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 	contextID := uuid.MustParse(instanceID)
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		var sequence int64
+		var replacedStatusMessage *a2a.Message
 		if task != nil {
 			if row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: string(task.ID)}); err == nil {
 				previous, err := unmarshalAgentInstanceTask(row.Data)
 				if err != nil {
 					return err
+				}
+				// A reply replaces the current status message, so archive both atomically.
+				if _, ok := event.(*a2a.Message); ok && previous.Status.Message != nil {
+					message := *previous.Status.Message
+					message.TaskID, message.ContextID = task.ID, task.ContextID
+					replacedStatusMessage = &message
 				}
 				if len(previous.History) > 0 {
 					sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(task.ID), previous.History)
@@ -1125,6 +900,9 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 			}
 		}
 		messages := agentInstanceTaskEventMessages(task, event)
+		if replacedStatusMessage != nil {
+			messages = append([]*a2a.Message{replacedStatusMessage}, messages...)
+		}
 		if len(messages) > 0 {
 			var err error
 			sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(event.TaskInfo().TaskID), messages)
@@ -1465,50 +1243,6 @@ func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
 		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
 	}
 	return task, nil
-}
-
-// ── Push Notifications ────────────────────────────────────────────────────────
-
-func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.PushConfig) error {
-	data, err := json.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to serialize push notification: %w", err)
-	}
-	protocolVersion := string(a2a.Version)
-	return c.q.UpsertPushNotification(ctx, dbgen.UpsertPushNotificationParams{
-		ID:              config.ID,
-		TaskID:          string(config.TaskID),
-		Data:            string(data),
-		ProtocolVersion: &protocolVersion,
-	})
-}
-
-func (c *postgresClient) GetPushNotification(ctx context.Context, taskID, configID string) (*a2a.PushConfig, error) {
-	row, err := c.q.GetPushNotification(ctx, dbgen.GetPushNotificationParams{TaskID: taskID, ID: configID})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get push notification: %w", notFoundOr(err))
-	}
-	return parseVersionedPushConfig(row.Data, row.ProtocolVersion)
-}
-
-func (c *postgresClient) ListPushNotifications(ctx context.Context, taskID string) ([]*a2a.PushConfig, error) {
-	rows, err := c.q.ListPushNotifications(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list push notifications: %w", err)
-	}
-	result := make([]*a2a.PushConfig, 0, len(rows))
-	for i, row := range rows {
-		cfg, err := parseVersionedPushConfig(row.Data, row.ProtocolVersion)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize push notification row %d: %w", i, err)
-		}
-		result = append(result, cfg)
-	}
-	return result, nil
-}
-
-func (c *postgresClient) DeletePushNotification(ctx context.Context, taskID string) error {
-	return c.q.SoftDeletePushNotification(ctx, taskID)
 }
 
 // ── Feedback ──────────────────────────────────────────────────────────────────
@@ -1941,37 +1675,6 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 	})
 }
 
-const sessionRetentionBatchSize int32 = 1000
-
-func (c *postgresClient) PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error) {
-	if retentionDays <= 0 {
-		return 0, nil
-	}
-	var total int64
-	for {
-		var n int64
-		err := c.withTx(ctx, func(q *dbgen.Queries) error {
-			var err error
-			n, err = q.DeleteExpiredSessionsBatch(ctx, dbgen.DeleteExpiredSessionsBatchParams{
-				RetentionDays: int32(retentionDays),
-				BatchSize:     sessionRetentionBatchSize,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to delete expired sessions batch: %w", err)
-			}
-			return nil
-		})
-		if err != nil {
-			return total, err
-		}
-		total += n
-		if n == 0 {
-			break
-		}
-	}
-	return total, nil
-}
-
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
 func toAgent(r dbgen.Agent) *dbpkg.Agent {
@@ -1983,80 +1686,6 @@ func toAgent(r dbgen.Agent) *dbpkg.Agent {
 		Type:         r.Type,
 		WorkloadType: v1alpha3.WorkloadMode(r.WorkloadType),
 		Config:       r.Config,
-	}
-}
-
-func toSession(r dbgen.Session) *dbpkg.Session {
-	s := &dbpkg.Session{
-		ID:        r.ID,
-		UserID:    r.UserID,
-		Name:      r.Name,
-		CreatedAt: derefTime(r.CreatedAt),
-		UpdatedAt: derefTime(r.UpdatedAt),
-		DeletedAt: r.DeletedAt,
-		AgentID:   r.AgentID,
-	}
-	if r.Source != nil {
-		src := dbpkg.SessionSource(*r.Source)
-		s.Source = &src
-	}
-	return s
-}
-
-func toSessionWithShareToken(r dbgen.ListSessionsForAgentRow) dbpkg.SessionWithShareToken {
-	s := dbpkg.SessionWithShareToken{
-		Session: *toSession(dbgen.Session{
-			ID:        r.ID,
-			UserID:    r.UserID,
-			Name:      r.Name,
-			CreatedAt: r.CreatedAt,
-			UpdatedAt: r.UpdatedAt,
-			DeletedAt: r.DeletedAt,
-			AgentID:   r.AgentID,
-			Source:    r.Source,
-		}),
-	}
-	switch v := r.ShareToken.(type) {
-	case string:
-		s.ShareToken = &v
-	case pgtype.Text:
-		if v.Valid {
-			s.ShareToken = &v.String
-		}
-	}
-	switch v := r.ShareReadOnly.(type) {
-	case bool:
-		s.ShareReadOnly = &v
-	case pgtype.Bool:
-		if v.Valid {
-			s.ShareReadOnly = &v.Bool
-		}
-	}
-	return s
-}
-
-func toEvent(r dbgen.Event) *dbpkg.Event {
-	return &dbpkg.Event{
-		ID:        r.ID,
-		UserID:    r.UserID,
-		SessionID: derefStr(r.SessionID),
-		CreatedAt: derefTime(r.CreatedAt),
-		UpdatedAt: derefTime(r.UpdatedAt),
-		DeletedAt: r.DeletedAt,
-		Data:      r.Data,
-	}
-}
-
-//nolint:unused // Kept for parity with other row mappers and future raw task DB APIs.
-func toTask(r dbgen.Task) *dbpkg.Task {
-	return &dbpkg.Task{
-		ID:              r.ID,
-		CreatedAt:       derefTime(r.CreatedAt),
-		UpdatedAt:       derefTime(r.UpdatedAt),
-		DeletedAt:       r.DeletedAt,
-		Data:            r.Data,
-		ProtocolVersion: r.ProtocolVersion,
-		SessionID:       derefStr(r.SessionID),
 	}
 }
 
@@ -2187,30 +1816,6 @@ func strPtrIfNotEmpty(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-// parseVersionedTask accepts only official A2A v1 rows during the v1-only cutover.
-func parseVersionedTask(data string, version *string) (*a2a.Task, error) {
-	if version == nil || *version != string(a2a.Version) {
-		return nil, fmt.Errorf("unsupported task protocol_version %q: expected %q", derefStr(version), a2a.Version)
-	}
-	var task a2a.Task
-	if err := json.Unmarshal([]byte(data), &task); err != nil {
-		return nil, fmt.Errorf("failed to deserialize task: %w", err)
-	}
-	return &task, nil
-}
-
-// parseVersionedPushConfig accepts only official A2A v1 rows during the v1-only cutover.
-func parseVersionedPushConfig(data string, version *string) (*a2a.PushConfig, error) {
-	if version == nil || *version != string(a2a.Version) {
-		return nil, fmt.Errorf("unsupported push_notification protocol_version %q: expected %q", derefStr(version), a2a.Version)
-	}
-	var cfg a2a.PushConfig
-	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to deserialize push notification: %w", err)
-	}
-	return &cfg, nil
 }
 
 func derefStr(s *string) string {

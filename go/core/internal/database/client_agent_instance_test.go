@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +27,7 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	}
 
 	instance, err := toAgentInstance(dbgen.AgentInstance{
-		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SUSPENDED", Operation: "RESUME",
+		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SUSPENDED", Operation: "RESUME", Name: "Renamed later",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +35,31 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED ||
 		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
+	}
+	// The name has to come from the column too: a rename writes only the column,
+	// so reading it from the blob would serve the original name forever.
+	if instance.GetName() != "Renamed later" {
+		t.Fatalf("name = %q, want the column's value", instance.GetName())
+	}
+}
+
+// TestToAgentInstanceLeavesAnEmptyNameEmpty pins the additive property: a row
+// written before the column existed reads as unnamed, not as its id and not as
+// some placeholder.
+func TestToAgentInstanceLeavesAnEmptyNameEmpty(t *testing.T) {
+	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
+		Id:    "instance-1",
+		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance, err := toAgentInstance(dbgen.AgentInstance{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "READY", Operation: "NONE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.GetName() != "" {
+		t.Fatalf("name = %q, want empty", instance.GetName())
 	}
 }
 
@@ -180,6 +206,50 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	}
 	if createdCount != 1 {
 		t.Fatalf("created count = %d, want 1", createdCount)
+	}
+}
+
+func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	instanceID := "11111111-1111-4111-8111-111111111111"
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, namespace, user_id)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice');
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+	asked := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: instanceID}
+	question := &a2a.Message{ID: "question-1", Role: a2a.MessageRoleAgent, TaskID: "task-1", ContextID: instanceID}
+	parked := &a2a.Task{
+		ID: "task-1", ContextID: instanceID, History: []*a2a.Message{asked},
+		Status: a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question},
+	}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("request-1"), parked); err != nil {
+		t.Fatal(err)
+	}
+
+	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: instanceID}
+	resumed := *parked
+	resumed.History = []*a2a.Message{asked, question, answer}
+	resumed.Status = a2a.TaskStatus{State: a2a.TaskStateSubmitted}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, instanceID, &resumed, answer, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := client.GetAgentInstanceTask(ctx, instanceID, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(got.History))
+	for _, message := range got.History {
+		ids = append(ids, message.ID)
+	}
+	if strings.Join(ids, ",") != "message-1,question-1,answer-1" {
+		t.Fatalf("history = %v, want the question between the message it answers and its own answer", ids)
 	}
 }
 
@@ -372,7 +442,9 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		fork.GetLabels()["app"] != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
-	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
+	instances, err := client.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
+		Namespace: "team-a", UserID: "alice", Limit: 10,
+	})
 	if err != nil || len(instances) != 1 || instances[0].GetId() != fork.GetId() {
 		t.Fatalf("listed forks = %+v, error %v", instances, err)
 	}
@@ -484,7 +556,9 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if len(replayed.GetLabels()) != 0 {
 		t.Fatalf("labels = %v", replayed.GetLabels())
 	}
-	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
+	instances, err := client.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
+		Namespace: "team-a", UserID: "alice", Limit: 10,
+	})
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
 	}
@@ -590,5 +664,176 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 	if events := countRows(t, db,
 		"SELECT COUNT(*) FROM agent_instance_task_event WHERE task_id = $1", "task-1"); events != 2 {
 		t.Fatalf("events recorded for the interrupted task = %d, want the send and the interruption", events)
+	}
+}
+
+// agentInstanceFixture installs a runnable agent — a template/harness pair with a
+// successful revision — so instances can be created against it.
+func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context, revisionID, template, harness string) {
+	t.Helper()
+	revision := dbpkg.RuntimeRevision{
+		Revision: revisionID, Namespace: "team-a",
+		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		HarnessName: harness, HarnessUID: harness + "-uid",
+		SourceSnapshot: []byte("{}"), AgentCard: []byte("{}"), EgressDestinations: []string{},
+		ActorTemplateNamespace: "team-a", ActorTemplateName: revisionID + "-actor-template",
+		ActorTemplateUID: revisionID + "-actor-uid", Phase: "Ready",
+	}
+	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
+		t.Fatal(err)
+	}
+	pair := dbpkg.AgentTemplateHarnessPair{
+		Namespace: "team-a", AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		HarnessName: harness, HarnessUID: harness + "-uid", DesiredRevision: revisionID,
+	}
+	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newAgentInstanceRequest(id, template, harness, name string) *apiv1alpha1.AgentInstance {
+	return &apiv1alpha1.AgentInstance{
+		Id: id, Namespace: "team-a", Creator: "alice", Name: name,
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: harness},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
+	}
+}
+
+func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	agentInstanceFixture(t, client, ctx, "revision-1", "assistant", "kagent")
+	namedID := "11111111-1111-4111-8111-111111111111"
+	unnamedID := "22222222-2222-4222-8222-222222222222"
+
+	for _, test := range []struct {
+		name     string
+		id       string
+		given    string
+		wantName string
+	}{
+		{name: "a name round-trips", id: namedID, given: "Debugging the ingress", wantName: "Debugging the ingress"},
+		// An instance created without a name must read back empty, which is how
+		// every row written before the column existed reads.
+		{name: "an omitted name stays empty", id: unnamedID, given: "", wantName: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			created, wasCreated, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(test.id, "assistant", "kagent", test.given), test.id)
+			if err != nil || !wasCreated {
+				t.Fatalf("CreateAgentInstance() = created %v, error %v", wasCreated, err)
+			}
+			if created.GetName() != test.wantName {
+				t.Fatalf("created name = %q, want %q", created.GetName(), test.wantName)
+			}
+			read, err := client.GetAgentInstance(ctx, "team-a", test.id, "alice")
+			if err != nil || read.GetName() != test.wantName {
+				t.Fatalf("re-read name = %q (%v), want %q", read.GetName(), err, test.wantName)
+			}
+		})
+	}
+
+	renamed, err := client.UpdateAgentInstanceName(ctx, "team-a", unnamedID, "alice", "Named afterwards")
+	if err != nil || renamed.GetName() != "Named afterwards" {
+		t.Fatalf("UpdateAgentInstanceName() = %+v, error %v", renamed, err)
+	}
+	// The rename has to survive a re-read, not just be echoed back: the name lives
+	// in a column while the rest of the message lives in a blob the rename does not
+	// rewrite, so an echoed value proves nothing about what was stored.
+	read, err := client.GetAgentInstance(ctx, "team-a", unnamedID, "alice")
+	if err != nil || read.GetName() != "Named afterwards" {
+		t.Fatalf("re-read after rename = %+v, error %v", read, err)
+	}
+	// Renaming back to empty must be possible, or a name can never be undone.
+	cleared, err := client.UpdateAgentInstanceName(ctx, "team-a", unnamedID, "alice", "")
+	if err != nil || cleared.GetName() != "" {
+		t.Fatalf("UpdateAgentInstanceName(\"\") = %+v, error %v", cleared, err)
+	}
+	// A rename is scoped to the owner, so it cannot reach another reader's row.
+	if _, err := client.UpdateAgentInstanceName(ctx, "team-a", namedID, "bob", "Stolen"); !errors.Is(err, dbpkg.ErrNotFound) {
+		t.Fatalf("UpdateAgentInstanceName() as another user error = %v, want %v", err, dbpkg.ErrNotFound)
+	}
+	if _, err := client.UpdateAgentInstanceName(ctx, "team-a", "33333333-3333-4333-8333-333333333333", "alice", "Nothing"); !errors.Is(err, dbpkg.ErrNotFound) {
+		t.Fatalf("UpdateAgentInstanceName() of a missing instance error = %v, want %v", err, dbpkg.ErrNotFound)
+	}
+}
+
+// TestListAgentInstancesFiltersByAgentPair covers the server-side filter behind
+// "this agent's conversations". The pair is resolved through the instance's
+// prepared revision rather than its labels, because the labels an instance
+// carries are the *template's* own Kubernetes labels and are identical for two
+// harnesses admitting one template.
+func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	agentInstanceFixture(t, client, ctx, "revision-1", "assistant", "kagent")
+	agentInstanceFixture(t, client, ctx, "revision-2", "assistant", "claude")
+	agentInstanceFixture(t, client, ctx, "revision-3", "researcher", "kagent")
+
+	for id, pair := range map[string][2]string{
+		"11111111-1111-4111-8111-111111111111": {"assistant", "kagent"},
+		"22222222-2222-4222-8222-222222222222": {"assistant", "claude"},
+		"33333333-3333-4333-8333-333333333333": {"researcher", "kagent"},
+	} {
+		if _, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(id, pair[0], pair[1], ""), id); err != nil {
+			t.Fatalf("CreateAgentInstance(%s) error %v", id, err)
+		}
+	}
+
+	for _, test := range []struct {
+		name  string
+		query dbpkg.AgentInstanceQuery
+		want  []string
+	}{
+		{
+			name:  "no filter lists every conversation",
+			query: dbpkg.AgentInstanceQuery{},
+			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"},
+		},
+		{
+			name:  "one agent, which is one pair",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant", Harness: "kagent"},
+			want:  []string{"11111111-1111-4111-8111-111111111111"},
+		},
+		{
+			// The case labels could never serve: one template, two harnesses, two
+			// agents, and identical labels on both instances.
+			name:  "the same template on a different harness is a different agent",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant", Harness: "claude"},
+			want:  []string{"22222222-2222-4222-8222-222222222222"},
+		},
+		{
+			name:  "template alone spans its harnesses",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant"},
+			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"},
+		},
+		{
+			name:  "harness alone spans its templates",
+			query: dbpkg.AgentInstanceQuery{Harness: "kagent"},
+			want:  []string{"11111111-1111-4111-8111-111111111111", "33333333-3333-4333-8333-333333333333"},
+		},
+		{
+			name:  "an unknown agent matches nothing rather than everything",
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: "absent", Harness: "kagent"},
+			want:  []string{},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query := test.query
+			query.Namespace, query.UserID, query.Limit = "team-a", "alice", 10
+			instances, err := client.ListAgentInstances(ctx, query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(instances))
+			for _, instance := range instances {
+				got = append(got, instance.GetId())
+			}
+			if strings.Join(got, ",") != strings.Join(test.want, ",") {
+				t.Fatalf("ListAgentInstances() = %v, want %v", got, test.want)
+			}
+		})
 	}
 }

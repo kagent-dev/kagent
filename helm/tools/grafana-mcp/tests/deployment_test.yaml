@@ -120,3 +120,40 @@ tests:
       - notMatchRegex:
           path: spec.template.spec.containers[0].image
           pattern: "^/"          # no leading slash
+
+  # =============================================================================
+  # Host allow-list
+  #
+  # The server rejects any Host it was not told about, and its own default covers only
+  # loopback — so without these args it answers the handshake with "forbidden: host not
+  # allowed" and the RemoteMCPServer reports no tools. The first assertion holds the
+  # allow-list to the URL in remotemcpserver.yaml: if that URL ever changes shape, the
+  # host it implies has to change with it.
+  # =============================================================================
+  - it: should allow the host the RemoteMCPServer URL dials
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: -allowed-hosts
+      - equal:
+          path: spec.template.spec.containers[0].args[3]
+          value: RELEASE-NAME-grafana-mcp:8000,RELEASE-NAME-grafana-mcp.NAMESPACE:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc.cluster.local:8000,localhost:8000,127.0.0.1:8000
+
+  - it: should follow the service port into the allow-list
+    template: deployment.yaml
+    set:
+      service.port: 9100
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[3]
+          pattern: RELEASE-NAME-grafana-mcp\.NAMESPACE:9100
+
+  - it: should let allowedHosts override the default
+    template: deployment.yaml
+    set:
+      allowedHosts: "*"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[3]
+          value: "*"

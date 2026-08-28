@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
@@ -43,6 +42,7 @@ type AgentInstance struct {
 	Operation          string
 	ContextID          uuid.UUID
 	SourceCheckpointID *uuid.UUID
+	Name               string
 }
 
 type AgentInstanceCheckpoint struct {
@@ -70,7 +70,6 @@ type AgentInstanceShare struct {
 	ID         uuid.UUID
 	Namespace  string
 	InstanceID uuid.UUID
-	Creator    string
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
@@ -135,16 +134,6 @@ type CrewaiFlowState struct {
 	StateData  string
 }
 
-type Event struct {
-	ID        string
-	UserID    string
-	SessionID *string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
-}
-
 type Feedback struct {
 	ID           int64
 	CreatedAt    *time.Time
@@ -199,16 +188,6 @@ type Memory struct {
 	AccessCount *int64
 }
 
-type PushNotification struct {
-	ID              string
-	TaskID          string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	ProtocolVersion *string
-}
-
 type RuntimeRevision struct {
 	Revision               string
 	Namespace              string
@@ -226,43 +205,6 @@ type RuntimeRevision struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	AgentCard              []byte
-}
-
-type Session struct {
-	ID        string
-	UserID    string
-	Name      *string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	AgentID   *string
-	Source    *string
-}
-
-type SessionShare struct {
-	ID        int64
-	Token     string
-	SessionID string
-	UserID    string
-	ReadOnly  bool
-	CreatedAt pgtype.Timestamp
-}
-
-type SessionShareAccess struct {
-	UserID     string
-	ShareID    int64
-	AccessedAt pgtype.Timestamp
-}
-
-type Task struct {
-	ID              string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	SessionID       *string
-	ProtocolVersion *string
-	UserID          *string
 }
 
 type Tool struct {
