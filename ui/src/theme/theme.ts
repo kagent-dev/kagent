@@ -1,7 +1,7 @@
 import type { ThemeConfig } from "antd";
 
 /**
- * Design tokens, in one place so a vendor extension can override the look
+ * Design tokens, in one place so an app extension can override the look
  * without reaching into components. antd consumes `antdTheme`; Emotion
  * consumes `appTheme` via the ThemeProvider.
  */
@@ -20,7 +20,7 @@ export type ThemeMode = "dark" | "light";
  * one (three or four steps of lightness) gives a panel some depth without becoming
  * a decoration in its own right. They live beside the colours because that is where
  * components look for a surface, and any of these may be a plain colour again if a
- * vendor overrides it.
+ * extension overrides it.
  */
 const darkColor = {
   primary: "#6d28d9",
@@ -31,7 +31,7 @@ const darkColor = {
    * Its own token because `text` is the foreground for the *page*, and on this theme
    * the two happen to agree — which is what hid the bug. On the light theme `text` is
    * near-black, and anything painted on the primary purple with it came out as dark on
-   * dark: the chat's own messages were the worst of it. A vendor overriding `primary`
+   * dark: the chat's own messages were the worst of it. An extension overriding `primary`
    * needs somewhere to say what goes on top of it, too.
    */
   textOnPrimary: "#f9fafb",

@@ -2,7 +2,7 @@ import { Button, Space, Tabs } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { VendorSlot } from "@/vendorExtensions";
+import { ExtensionSlot } from "@/appExtensions";
 import { paths } from "@/router/routes";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentsTab } from "@/pages/AgentsPage";
@@ -63,7 +63,7 @@ export function AgentsLandingPage() {
         <Space size={8}>
           {/* The point the agents list has always offered, kept where the controls
               now are rather than left behind in the tab they moved out of. */}
-          <VendorSlot id="app_agents_agentsList_pageHeader_actions" />
+          <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
           <Link to={paths.agentTemplateNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
               New template

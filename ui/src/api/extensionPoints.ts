@@ -1,14 +1,14 @@
 /**
- * The seam a vendor extension bundle hooks into.
+ * The seam an app extension bundle hooks into.
  *
- * The core UI never imports vendor code; a vendor bundle imports this module and
+ * The core UI never imports extension code; an extension bundle imports this module and
  * registers what it wants to change, once, before the first request is made
  * (from its own entry module, which the app loads ahead of rendering). Three
- * things can be changed without forking anything:
+ * things can be changed without editing the application:
  *
  * 1. **What a call actually does** — `registerOperationOverride` replaces one
  *    operation's implementation, so a deployment can serve `agents.list` from its
- *    own control plane, a different API version, or a different protocol
+ *    own backend, a different API version, or a different protocol
  *    entirely.
  * 2. **Where an HTTP call goes** — `registerEndpointOverride` swaps the path an
  *    endpoint id resolves to. Only the handful of endpoints still served over
@@ -32,7 +32,7 @@
  * interleaves.
  *
  * @example
- * // In a vendor bundle's entry module:
+ * // In an extension bundle's entry module:
  * registerOperationOverride("agents.list", () => managedAgents());
  * registerApiTransform({
  *   name: "tenant-header",
@@ -77,7 +77,7 @@ export interface ApiRequestContext {
    * The URL the call is going to.
    *
    * For an HTTP endpoint, rewriting this sends the request somewhere else — which
-   * is how a vendor base URL moves chat.
+   * is how an extension base URL moves chat.
    *
    * For an RPC it is **informational**. A gRPC method is addressed from its own
    * descriptor and the transport's base URL, so a rewritten URL here changes

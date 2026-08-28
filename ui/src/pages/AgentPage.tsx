@@ -9,11 +9,11 @@ import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
 import {
-  VendorSlot,
-  useVendorExtensionConfig,
-  useVendorTableColumns,
-  withVendorColumns,
-} from "@/vendorExtensions";
+  ExtensionSlot,
+  useExtensionAgentLinks,
+  useExtensionTableColumns,
+  withExtensionColumns,
+} from "@/appExtensions";
 import {
   agentPairsOf,
   apiClient,
@@ -158,7 +158,7 @@ export function AgentPage() {
    * a contribution that throws or answers with nothing falls back to this
    * application's own route rather than to a dead link.
    */
-  const fromAgentsList = useVendorExtensionConfig().agentLinks?.fromAgentsList;
+  const { fromAgentsList } = useExtensionAgentLinks();
   const chatPath = (row: AgentInstance) => {
     const own = agentUrl.chat({ namespace: row.namespace, id: row.id });
     if (!fromAgentsList) return own;
@@ -261,7 +261,7 @@ export function AgentPage() {
     }
   }
 
-  const vendorColumns = useVendorTableColumns<AgentInstance>(
+  const extensionColumns = useExtensionTableColumns<AgentInstance>(
     "app_agents_agentsList_table",
   );
 
@@ -309,7 +309,7 @@ export function AgentPage() {
                   </Text>
                 </Tooltip>
               )}
-              <VendorSlot
+              <ExtensionSlot
                 id="app_agents_agentsList_agentListItem_badge"
                 context={{ agentName: row.id, namespace: row.namespace }}
               />
@@ -361,7 +361,7 @@ export function AgentPage() {
             <ValueOrNotReported value={undefined} />
           ),
       },
-      ...withVendorColumns([], vendorColumns),
+      ...withExtensionColumns([], extensionColumns),
       {
         title: "",
         key: "actions",
@@ -386,11 +386,11 @@ export function AgentPage() {
         },
       },
     ],
-    // `chatPath` is rebuilt every render and closes only over the vendor link, which
+    // `chatPath` is rebuilt every render and closes only over the extension link, which
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations.refresh, openableIds, theme, vendorColumns, view],
+    [conversations.refresh, openableIds, theme, extensionColumns, view],
   );
 
   const othersCount = rows.filter(
