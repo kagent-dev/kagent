@@ -1,5 +1,6 @@
 """Google ADK-specific STS integration."""
 
+import hashlib
 import inspect
 import logging
 import time
@@ -31,11 +32,50 @@ logger = logging.getLogger(__name__)
 
 HEADERS_KEY = "headers"
 
+# Bounds an entry whose token carries no usable expiry. The cache holds one entry
+# per (session, subject), so a token without an expiry would otherwise pin an
+# entry per caller for the lifetime of the process.
+MAX_CACHE_TTL_SECONDS = 300
+
+
+def _acting_credential(state: dict) -> Optional[str]:
+    """Return the credential this caller presented, which the cache is keyed on.
+
+    Deliberately not ``get_subject_token``: that hook receives the whole session
+    state, so an implementation reading a session-scoped field would return one
+    value for every caller and collapse the key back to a single entry per
+    session. Only the inbound Authorization header is caller-scoped by
+    construction.
+    """
+    headers = state.get(HEADERS_KEY, None)
+    if not isinstance(headers, dict):
+        return None
+    return _extract_jwt_from_headers(headers, warn=False)
+
 
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
-    headers = state.get(HEADERS_KEY, None)
-    return _extract_jwt_from_headers(headers)
+    return _acting_credential(state)
+
+
+def _subject_key(token: Optional[str]) -> str:
+    """Derive a per-principal cache discriminator from a bearer token: a hash of
+    the raw token.
+
+    A cache hit hands the caller a delegated token without performing an
+    exchange, so the key decides who receives someone else's authority. Deriving
+    it from unverified ``iss``/``sub`` claims would let a forged, unsigned token
+    select a victim's entry and never reach the STS that would have rejected it.
+    Hashing the raw token instead makes a forged token a cache miss, so it goes
+    to the STS and fails there.
+
+    The cost is a re-exchange when a principal's bearer rotates mid-session,
+    which is wanted anyway: the delegated token's lifetime tracks the subject
+    token it was exchanged from.
+    """
+    if not token:
+        return ""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -125,6 +165,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
         self.audience = audience
         self.token_cache: Dict[str, _TokenCacheEntry] = {}
         self.actor_token_cache: Optional[_TokenCacheEntry] = None
+        # Earliest expiry across token_cache; None when no cached token expires.
+        self._earliest_expiry: Optional[int] = None
 
     def add_to_agent(self, agent: BaseAgent):
         """
@@ -149,9 +191,17 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"add_to_agent: updated MCP tool's header provider for agent {agent_name}")
 
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
-        # access saved token
-        cache_entry = self.token_cache.get(self.cache_key(readonly_context._invocation_context))
+        # Runs on every tool call, so it fails closed rather than raising into the
+        # invocation: without a context there is no acting subject to key on.
+        invocation_context = getattr(readonly_context, "_invocation_context", None)
+        if invocation_context is None:
+            logger.debug("no invocation context for tool call, leaving existing headers in place")
+            return {}
+
+        cache_key = self.cache_key(invocation_context)
+        cache_entry = self.token_cache.get(cache_key) if cache_key else None
         if not cache_entry:
+            logger.debug("no cached access token for this caller, leaving existing headers in place")
             return {}
 
         logger.debug("Using cached access token for tool invocation")
@@ -166,7 +216,18 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Propagate token to model before execution."""
-        cache_key = self.cache_key(invocation_context)
+        # Resolve the acting caller before the cache lookup: the cache is keyed by
+        # subject, and a session carrying messages from several subjects would
+        # otherwise reuse whichever caller arrived first.
+        state = invocation_context.session.state
+        credential = _acting_credential(state)
+        # The exchange payload comes from get_subject_token, which on its own is
+        # not caller-scoped: see _acting_credential.
+        subject_token = self._read_subject_token(state)
+        cache_key = self._cache_key_for(invocation_context.session.id, credential, subject_token)
+        if cache_key is None:
+            logger.debug("subject token not found in session state for token propagation")
+            return None
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
@@ -176,17 +237,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"Using cached subject token (expires in {cached_entry.expiry - current_time}s)")
             else:
                 logger.debug("Using cached subject token (no expiry)")
-            return None
-
-        # No valid cached token, need to get/exchange subject token
-        get_subject_token = (
-            self.sts_integration.get_subject_token
-            if self.sts_integration and self.sts_integration.get_subject_token
-            else _default_get_subject_token
-        )
-        subject_token = get_subject_token(invocation_context.session.state)
-        if not subject_token:
-            logger.debug("subject token not found in session state for token propagation")
             return None
 
         if self.sts_integration:
@@ -209,20 +259,87 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.warning(f"STS token exchange failed: {e}")
                 return None
 
-        # Extract expiry from the token
+        # Extract expiry from the token, bounding tokens that carry none so every
+        # entry stays evictable.
         expiry = _extract_jwt_expiry(subject_token)
+        if expiry is None:
+            expiry = int(time.time()) + MAX_CACHE_TTL_SECONDS
+        # The entry is keyed by the caller's credential, so it must not outlive
+        # it: replaying an expired bearer would otherwise keep hitting a cached
+        # delegated token instead of reaching the STS.
+        expiry = _earlier_expiry(expiry, _extract_jwt_expiry(credential))
 
         # Cache the token with metadata
         self.token_cache[cache_key] = _TokenCacheEntry(
             token=subject_token,
             expiry=expiry,
         )
+        self._earliest_expiry = _earlier_expiry(self._earliest_expiry, expiry)
         logger.debug("Cached new subject token")
         return None
 
-    def cache_key(self, invocation_context: InvocationContext) -> str:
-        """Generate a cache key based on the session ID."""
-        return invocation_context.session.id
+    def _read_subject_token(self, state: dict) -> Optional[str]:
+        """Resolve the acting caller's subject token from session state.
+
+        get_subject_token is caller-supplied, so a raising implementation fails
+        closed (no token propagated) instead of aborting the agent run.
+        """
+        get_subject_token = (
+            self.sts_integration.get_subject_token
+            if self.sts_integration and self.sts_integration.get_subject_token
+            else _default_get_subject_token
+        )
+        try:
+            return get_subject_token(state)
+        except Exception as e:
+            logger.warning(f"Failed to read subject token from session state: {e}")
+            return None
+
+    def _cache_key_for(
+        self,
+        session_id: str,
+        credential: Optional[str],
+        subject_token: Optional[str],
+    ) -> Optional[str]:
+        """Build the cache key for one caller in one session.
+
+        The key names the caller's own credential, so an entry can never be
+        handed to a caller other than the one it was minted for, whatever
+        get_subject_token returns.
+
+        Without an inbound credential there is nothing caller-scoped to key on,
+        so the hook's output stands in for it: that mode has no per-caller
+        identity to preserve, and one entry per session is correct for it.
+        """
+        if not session_id:
+            # Nothing identifies the conversation, so entries could only be
+            # shared between unrelated ones.
+            return None
+        if not subject_token:
+            # No token to exchange, so there is nothing to cache.
+            return None
+        caller = _subject_key(credential) or _subject_key(subject_token)
+        if not caller:
+            # An empty subject identifies no principal: an entry stored under it
+            # would be shared by every credential-less caller in the session.
+            return None
+        return f"{session_id}\0{caller}"
+
+    def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
+        """Key the cache on the session and the acting subject, so a session
+        carrying messages from several subjects keeps one token per subject
+        instead of collapsing onto whichever arrived first.
+
+        The caller's credential is read straight from the run's own state, so
+        the key is derivable on every tool call. get_subject_token is consulted
+        only when no inbound credential identifies the caller.
+        """
+        session = getattr(invocation_context, "session", None)
+        if session is None:
+            return None
+        credential = _acting_credential(session.state)
+        subject_token = credential or self._read_subject_token(session.state)
+        return self._cache_key_for(session.id, credential, subject_token)
 
     async def _get_actor_token(self) -> Optional[str]:
         """Get actor token from cache or fetch dynamically.
@@ -276,13 +393,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
-        cache_key = self.cache_key(invocation_context)
-        cache_entry = self.token_cache.get(cache_key)
-
-        # Clean up subject token cache - only remove if expired
-        if cache_entry and _has_token_expired(cache_entry.expiry):
-            logger.debug("Removing expired subject token from cache")
-            self.token_cache.pop(cache_key, None)
+        self._sweep_expired_subject_tokens()
 
         # Clean up expired actor token cache
         if self.actor_token_cache and _has_token_expired(self.actor_token_cache.expiry):
@@ -290,6 +401,37 @@ class ADKTokenPropagationPlugin(BasePlugin):
             self.actor_token_cache = None
 
         return None
+
+    def _sweep_expired_subject_tokens(self) -> None:
+        """Drop every expired subject token from the cache.
+
+        A session holds one entry per subject and only the acting subject's key
+        is derivable here, so entries belonging to other subjects and other
+        sessions are swept too; scoping the sweep to the current session would
+        keep the entries of sessions that never run again forever. The earliest
+        expiry gates the scan, so a growing cache is only walked when there is
+        something to evict.
+        """
+        if self._earliest_expiry is None or not _has_token_expired(self._earliest_expiry):
+            return
+
+        earliest_expiry: Optional[int] = None
+        for key, entry in list(self.token_cache.items()):
+            if _has_token_expired(entry.expiry):
+                logger.debug("Removing expired subject token from cache")
+                self.token_cache.pop(key, None)
+                continue
+            earliest_expiry = _earlier_expiry(earliest_expiry, entry.expiry)
+        self._earliest_expiry = earliest_expiry
+
+
+def _earlier_expiry(current: Optional[int], candidate: Optional[int]) -> Optional[int]:
+    """Return the earlier of two expiries; None means "does not expire"."""
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    return min(current, candidate)
 
 
 def _has_token_expired(expiry: Optional[int], buffer_seconds: int = 5) -> bool:
@@ -311,31 +453,38 @@ def _has_token_expired(expiry: Optional[int], buffer_seconds: int = 5) -> bool:
     return expiry <= (current_time + buffer_seconds)
 
 
-def _extract_jwt_from_headers(headers: dict[str, str]) -> Optional[str]:
+def _extract_jwt_from_headers(headers: dict[str, str], warn: bool = True) -> Optional[str]:
     """Extract JWT from request headers for STS token exchange.
 
     Args:
         headers: Dictionary of request headers
+        warn: Whether a missing or malformed header is worth a warning. The
+            cache-key probe reads the same header as the subject-token lookup,
+            so only one of the two reports it.
 
     Returns:
         JWT token string if found in Authorization header, None otherwise
     """
     if not headers:
-        logger.warning("No headers provided for JWT extraction")
+        if warn:
+            logger.warning("No headers provided for JWT extraction")
         return None
 
     auth_header = headers.get("Authorization") or headers.get("authorization")
     if not auth_header:
-        logger.warning("No Authorization header found in request")
+        if warn:
+            logger.warning("No Authorization header found in request")
         return None
 
     if not auth_header.startswith("Bearer "):
-        logger.warning("Authorization header must start with Bearer")
+        if warn:
+            logger.warning("Authorization header must start with Bearer")
         return None
 
     jwt_token = auth_header.removeprefix("Bearer ").strip()
     if not jwt_token:
-        logger.warning("Empty JWT token found in Authorization header")
+        if warn:
+            logger.warning("Empty JWT token found in Authorization header")
         return None
 
     logger.debug(f"Successfully extracted JWT token (length: {len(jwt_token)})")
