@@ -635,6 +635,9 @@ providers:
       azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
+      # Use responses for models that require the Azure OpenAI v1 Responses API
+      # instead of Chat Completions. Default is chatCompletions.
+      # apiFormat: responses
   gemini:
     provider: Gemini
     model: "gemini-2.5-flash-lite"

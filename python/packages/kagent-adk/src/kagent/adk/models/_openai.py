@@ -32,6 +32,7 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
+from ._openai_responses import generate_content_responses
 from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
 from ._utils import function_declaration_schema
@@ -348,6 +349,8 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     temperature: Optional[float] = None
     timeout: Optional[int] = None
     top_p: Optional[float] = None
+    # chatCompletions (default) or responses. Azure Responses uses /openai/v1/responses.
+    api_format: Optional[Literal["chatCompletions", "responses"]] = None
 
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: Optional[bool] = None
@@ -359,6 +362,9 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
         if self.api_key != token:
             self.api_key = token
             self.__dict__.pop("_client", None)  # invalidate cached client
+
+    def _uses_responses_api(self) -> bool:
+        return self.api_format == "responses"
 
     @classmethod
     def supported_models(cls) -> list[str]:
@@ -402,6 +408,11 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
             except Exception as exc:
                 yield LlmResponse(error_message=f"Failed to refresh token-exchange credential: {exc}")
                 return
+
+        if self._uses_responses_api():
+            async for resp in generate_content_responses(self, llm_request, stream):
+                yield resp
+            return
 
         # Convert messages
         system_instruction = None
@@ -588,29 +599,50 @@ class AzureOpenAI(BaseOpenAI):
     azure_endpoint: Optional[str] = None
     azure_deployment: Optional[str] = None
 
-    @cached_property
-    def _client(self) -> AsyncAzureOpenAI:
-        """Get the Azure OpenAI client with optional custom SSL configuration."""
-        api_version = self.api_version or os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
+    def _resolved_azure_endpoint(self) -> str:
         azure_endpoint = self.azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_key = self.api_key or os.environ.get("AZURE_OPENAI_API_KEY")
-
         if not azure_endpoint:
             raise ValueError(
                 "Azure endpoint must be provided either via azure_endpoint parameter or AZURE_OPENAI_ENDPOINT environment variable"
             )
+        return azure_endpoint
 
+    def _resolved_azure_api_key(self) -> str:
+        api_key = self.api_key or os.environ.get("AZURE_OPENAI_API_KEY")
         if not api_key:
             raise ValueError(
                 "API key must be provided either via api_key parameter or AZURE_OPENAI_API_KEY environment variable"
             )
+        return api_key
 
-        http_client = self._create_http_client()
+    def _responses_client(self) -> AsyncOpenAI:
+        """Azure OpenAI v1 Responses API client: {endpoint}/openai/v1/ without api-version."""
+        azure_endpoint = self._resolved_azure_endpoint().rstrip("/")
+        api_key = self._resolved_azure_api_key()
+        headers = dict(self.default_headers or {})
+        headers["Api-Key"] = api_key
+        return AsyncOpenAI(
+            api_key=api_key,
+            base_url=f"{azure_endpoint}/openai/v1/",
+            default_headers=headers,
+            timeout=self.timeout,
+            http_client=self._create_http_client(),
+        )
+
+    @cached_property
+    def _client(self) -> AsyncOpenAI:
+        """Get the Azure OpenAI client with optional custom SSL configuration."""
+        if self._uses_responses_api():
+            return self._responses_client()
+
+        api_version = self.api_version or os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
+        azure_endpoint = self._resolved_azure_endpoint()
+        api_key = self._resolved_azure_api_key()
 
         return AsyncAzureOpenAI(
             api_key=api_key,
             api_version=api_version,
             azure_endpoint=azure_endpoint,
             default_headers=self.default_headers,
-            http_client=http_client,
+            http_client=self._create_http_client(),
         )

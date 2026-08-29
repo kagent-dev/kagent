@@ -131,11 +131,12 @@ ModelConfigSpec
 │   ├── baseUrl, temperature, maxTokens, topP
 │   ├── frequencyPenalty, presencePenalty
 │   ├── seed, n, timeout
-│   └── reasoningEffort: none | minimal | low | medium | high
+│   ├── reasoningEffort: none | minimal | low | medium | high
+│   └── apiFormat: chatCompletions | responses
 ├── anthropic: AnthropicConfig
 │   └── baseUrl, maxTokens, temperature, topP, topK
 ├── azureOpenAI: AzureOpenAIConfig
-│   └── azureEndpoint, apiVersion, azureDeployment, etc.
+│   └── azureEndpoint, apiVersion, azureDeployment, apiFormat: chatCompletions | responses
 ├── ollama: OllamaConfig
 │   └── host, options
 ├── gemini: GeminiConfig

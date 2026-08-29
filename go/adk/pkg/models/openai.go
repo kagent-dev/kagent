@@ -186,7 +186,7 @@ func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfi
 		return nil, err
 	}
 	if logger.GetSink() != nil {
-		logger.Info("Initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "apiVersion", apiVersion)
+		logger.Info("Initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "apiVersion", apiVersion, "apiFormat", config.APIFormat)
 	}
 	return &OpenAIModel{
 		Config: &OpenAIConfig{

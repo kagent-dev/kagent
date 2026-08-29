@@ -1061,3 +1061,182 @@ class TestConvertOpenAIResponseToLlmResponse:
         tool_messages = [m for m in messages if m["role"] == "tool"]
         assert len(tool_messages) == 1
         assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
+
+
+def test_azure_openai_responses_client_uses_v1_base_url():
+    """Azure Responses mode uses {endpoint}/openai/v1/ without api-version."""
+    from kagent.adk.models import AzureOpenAI
+
+    with mock.patch("kagent.adk.models._openai.AsyncOpenAI") as mock_openai:
+        azure_llm = AzureOpenAI(
+            model="gpt-5",
+            type="azure_openai",
+            api_key="fake",
+            azure_endpoint="https://example.openai.azure.com",
+            api_version="2024-06-01",
+            api_format="responses",
+        )
+
+        _ = azure_llm._client
+
+        mock_openai.assert_called_once()
+        kwargs = mock_openai.call_args[1]
+        assert kwargs["base_url"] == "https://example.openai.azure.com/openai/v1/"
+        assert kwargs["default_headers"]["Api-Key"] == "fake"
+        assert "api_version" not in kwargs
+
+
+def test_azure_openai_chat_completions_client_uses_azure_sdk():
+    """Default Azure mode keeps the deployments-based AsyncAzureOpenAI client."""
+    from kagent.adk.models import AzureOpenAI
+
+    with mock.patch("kagent.adk.models._openai.AsyncAzureOpenAI") as mock_azure:
+        azure_llm = AzureOpenAI(
+            model="gpt-4o",
+            type="azure_openai",
+            api_key="fake",
+            azure_endpoint="https://example.openai.azure.com",
+            api_version="2024-06-01",
+        )
+
+        _ = azure_llm._client
+
+        mock_azure.assert_called_once()
+        kwargs = mock_azure.call_args[1]
+        assert kwargs["azure_endpoint"] == "https://example.openai.azure.com"
+        assert kwargs["api_version"] == "2024-06-01"
+
+
+@pytest.mark.asyncio
+async def test_azure_openai_responses_generate_content_calls_responses_api(llm_request):
+    from kagent.adk.models import AzureOpenAI
+
+    azure_llm = AzureOpenAI(
+        model="gpt-5",
+        type="azure_openai",
+        api_key="fake",
+        azure_endpoint="https://example.openai.azure.com",
+        api_format="responses",
+    )
+
+    class MockOutputText:
+        type = "output_text"
+        text = "ok"
+
+    class MockMessage:
+        type = "message"
+        content = [MockOutputText()]
+
+    class MockUsage:
+        input_tokens = 1
+        output_tokens = 1
+        total_tokens = 2
+
+    class MockResponse:
+        output = [MockMessage()]
+        usage = MockUsage()
+        status = "completed"
+
+    with mock.patch.object(azure_llm, "_client") as mock_client:
+        mock_client.responses.create = mock.AsyncMock(return_value=MockResponse())
+
+        results = [resp async for resp in azure_llm.generate_content_async(llm_request, stream=False)]
+
+    mock_client.responses.create.assert_called_once()
+    mock_client.chat.completions.create.assert_not_called()
+    kwargs = mock_client.responses.create.call_args.kwargs
+    assert kwargs["model"] == "gpt-3.5-turbo"
+    assert kwargs["input"][0]["role"] == "user"
+    assert "api_version" not in kwargs
+    assert len(results) == 1
+    assert results[0].content.parts[0].text == "ok"
+
+
+@pytest.mark.asyncio
+async def test_azure_openai_chat_completions_generate_content_calls_chat_api(llm_request, generate_content_response):
+    from kagent.adk.models import AzureOpenAI
+
+    azure_llm = AzureOpenAI(
+        model="gpt-4.1",
+        type="azure_openai",
+        api_key="fake",
+        azure_endpoint="https://example.openai.azure.com",
+        api_version="2024-06-01",
+        api_format="chatCompletions",
+    )
+
+    with mock.patch.object(azure_llm, "_client") as mock_client:
+        mock_client.chat.completions.create = mock.AsyncMock(return_value=generate_content_response)
+        mock_client.responses.create = mock.AsyncMock()
+
+        results = [resp async for resp in azure_llm.generate_content_async(llm_request, stream=False)]
+
+    mock_client.chat.completions.create.assert_called_once()
+    mock_client.responses.create.assert_not_called()
+    assert len(results) == 1
+    assert results[0].content.parts[0].text == "Hi! How can I help you today?"
+
+
+def test_azure_openai_agent_config_propagates_api_format():
+    from kagent.adk.types import AgentConfig
+
+    config = AgentConfig.model_validate(
+        {
+            "model": {
+                "type": "azure_openai",
+                "model": "gpt-4o-deploy",
+                "endpoint": "https://example.openai.azure.com/",
+                "deployment": "gpt-4o-deploy",
+                "api_version": "2024-06-01",
+                "api_format": "responses",
+                "temperature": 0.2,
+            },
+            "description": "d",
+            "instruction": "i",
+        }
+    )
+    agent = config.to_agent("test")
+    assert agent.model.api_format == "responses"
+    assert agent.model.azure_endpoint == "https://example.openai.azure.com/"
+    assert agent.model.azure_deployment == "gpt-4o-deploy"
+    assert agent.model.api_version == "2024-06-01"
+    assert agent.model.temperature == 0.2
+
+
+def test_contents_to_responses_input_pairs_function_calls():
+    from kagent.adk.models._openai_responses import contents_to_responses_input
+
+    contents = [
+        Content(role="user", parts=[Part.from_text(text="hello")]),
+        Content(
+            role="model",
+            parts=[
+                Part(
+                    function_call=types.FunctionCall(
+                        id="call_1",
+                        name="lookup",
+                        args={"q": "x"},
+                    )
+                )
+            ],
+        ),
+        Content(
+            role="user",
+            parts=[
+                Part(
+                    function_response=types.FunctionResponse(
+                        id="call_1",
+                        name="lookup",
+                        response={"result": "ok"},
+                    )
+                )
+            ],
+        ),
+    ]
+
+    items = contents_to_responses_input(contents)
+    assert items[0] == {"role": "user", "content": "hello"}
+    assert items[1]["type"] == "function_call"
+    assert items[1]["call_id"] == "call_1"
+    assert items[1]["name"] == "lookup"
+    assert items[2] == {"type": "function_call_output", "call_id": "call_1", "output": "ok"}

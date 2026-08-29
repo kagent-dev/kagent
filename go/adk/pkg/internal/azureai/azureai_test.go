@@ -2,6 +2,7 @@ package azureai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 type fakeCredential struct {
@@ -111,6 +114,54 @@ func TestNewOpenAIClientAPIKey(t *testing.T) {
 	}
 	if gotAuth != "" {
 		t.Fatalf("Authorization = %q, want empty", gotAuth)
+	}
+}
+
+func TestNewOpenAIClientResponses(t *testing.T) {
+	var gotPath, gotAPIVersion, gotAPIKey, gotAuth string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIVersion = r.URL.Query().Get("api-version")
+		gotAPIKey = r.Header.Get("Api-Key")
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"resp-test","object":"response","created_at":0,"status":"completed","model":"gpt-4o-deploy","output":[{"type":"message","id":"msg-1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAIClient(ClientConfig{
+		Endpoint:   server.URL,
+		Deployment: "gpt-4o-deploy",
+		APIVersion: "2024-06-01",
+		APIKey:     "secret",
+		Responses:  true,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAIClient() error = %v", err)
+	}
+	_, err = client.Responses.New(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("gpt-4o-deploy"),
+		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String("hello")},
+	})
+	if err != nil {
+		t.Fatalf("responses request error = %v", err)
+	}
+	if gotPath != "/openai/v1/responses" {
+		t.Fatalf("path = %q, want /openai/v1/responses", gotPath)
+	}
+	if gotAPIVersion != "" {
+		t.Fatalf("api-version = %q, want empty", gotAPIVersion)
+	}
+	if gotAPIKey != "secret" {
+		t.Fatalf("Api-Key = %q", gotAPIKey)
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization = %q, want empty", gotAuth)
+	}
+	if gotBody["model"] != "gpt-4o-deploy" {
+		t.Fatalf("body model = %#v, want gpt-4o-deploy", gotBody["model"])
 	}
 }
 

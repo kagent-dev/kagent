@@ -1,0 +1,30 @@
+# Azure OpenAI ModelConfig using the Responses API.
+#
+# Use this for Azure-hosted models that no longer accept Chat Completions
+# (for example newer GPT-5 deployments). The runtime posts to
+# /openai/v1/responses with the deployment name as `model` and without
+# the api-version query parameter.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-openai-api-key
+  namespace: kagent
+type: Opaque
+stringData:
+  AZUREOPENAI_API_KEY: your-azure-api-key-here
+---
+apiVersion: kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: azure-openai-responses
+  namespace: kagent
+spec:
+  provider: AzureOpenAI
+  model: gpt-5
+  apiKeySecret: azure-openai-api-key
+  apiKeySecretKey: AZUREOPENAI_API_KEY
+  azureOpenAI:
+    azureEndpoint: https://YOUR_RESOURCE.openai.azure.com
+    azureDeployment: gpt-5
+    apiVersion: "2024-06-01"
+    apiFormat: responses

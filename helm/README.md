@@ -19,6 +19,9 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ol
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
+
+# Azure OpenAI Responses API (for models that no longer accept Chat Completions):
+# --set providers.azureOpenAI.config.apiFormat=responses
 ```
 
 ### Using Make

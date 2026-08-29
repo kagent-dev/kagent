@@ -292,6 +292,13 @@ class OpenAI(BaseLLM):
 
 class AzureOpenAI(BaseLLM):
     type: Literal["azure_openai"]
+    endpoint: str | None = None
+    deployment: str | None = None
+    api_version: str | None = None
+    api_format: Literal["chatCompletions", "responses"] | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
 
 
 class Anthropic(BaseLLM):
@@ -705,6 +712,13 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             type="azure_openai",
             default_headers=extra_headers,
+            azure_endpoint=model_config.endpoint,
+            azure_deployment=model_config.deployment,
+            api_version=model_config.api_version,
+            api_format=model_config.api_format,
+            max_tokens=model_config.max_tokens,
+            temperature=model_config.temperature,
+            top_p=model_config.top_p,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini":

@@ -185,6 +185,40 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			wantReject: "reasoningEffort",
 		},
 		{
+			name: "Azure OpenAI omitted format accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-azure-default-format", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-4o",
+						Provider: ModelProviderAzureOpenAI,
+						AzureOpenAI: &AzureOpenAIConfig{
+							Endpoint:   "https://example.openai.azure.com",
+							APIVersion: "2024-06-01",
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "Azure OpenAI Chat Completions format accepted",
+			build: func() ctrl_client.Object {
+				format := OpenAIAPIFormatChatCompletions
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-azure-chat-completions", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-4o",
+						Provider: ModelProviderAzureOpenAI,
+						AzureOpenAI: &AzureOpenAIConfig{
+							Endpoint:   "https://example.openai.azure.com",
+							APIVersion: "2024-06-01",
+							APIFormat:  &format,
+						},
+					},
+				}
+			},
+		},
+		{
 			name: "Azure OpenAI Responses format accepted",
 			build: func() ctrl_client.Object {
 				format := OpenAIAPIFormatResponses

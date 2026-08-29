@@ -54,6 +54,33 @@ func TestTranslateModelAzureOpenAISettings(t *testing.T) {
 	assert.Equal(t, "2024-06-01", envVarValue(t, deploymentData.EnvVars, env.OpenAIAPIVersion.Name()))
 }
 
+func TestTranslateModelAzureOpenAIOmitsAPIFormatByDefault(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+
+	modelConfig := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "azure-model", Namespace: "default"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Model:    "gpt-4o",
+			Provider: v1alpha3.ModelProviderAzureOpenAI,
+			AzureOpenAI: &v1alpha3.AzureOpenAIConfig{
+				Endpoint:       "https://example.openai.azure.com/",
+				DeploymentName: "gpt-4o-deploy",
+				APIVersion:     "2024-06-01",
+			},
+		},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig).Build()
+	tr := &adkApiTranslator{kube: kubeClient}
+
+	model, _, _, err := tr.translateModel(context.Background(), "default", "azure-model")
+	require.NoError(t, err)
+
+	azureModel, ok := model.(*adk.AzureOpenAI)
+	require.True(t, ok)
+	assert.Empty(t, azureModel.APIFormat)
+}
+
 // TestModelToEmbeddingConfigAzureOpenAI verifies the Azure data-plane settings flow into
 // the embedding config so azure_openai memory embeddings resolve the same
 // data-plane URL as the chat model.

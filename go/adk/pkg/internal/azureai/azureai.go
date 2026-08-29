@@ -143,18 +143,18 @@ func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 		httpClient = http.DefaultClient
 	}
 
-	baseURL := strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/v1/"
 	opts := []option.RequestOption{
-		option.WithBaseURL(baseURL),
 		option.WithHTTPClient(httpClient),
 	}
-	if !cfg.Responses {
-		baseURL = strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/deployments/" + url.PathEscape(cfg.Deployment) + "/"
-		opts = []option.RequestOption{
-			option.WithBaseURL(baseURL),
+	if cfg.Responses {
+		// Azure OpenAI v1 Responses API: {endpoint}/openai/v1/responses
+		// with the deployment name in the request body. No api-version query.
+		opts = append(opts, option.WithBaseURL(strings.TrimSuffix(cfg.Endpoint, "/")+"/openai/v1/"))
+	} else {
+		opts = append(opts,
+			option.WithBaseURL(strings.TrimSuffix(cfg.Endpoint, "/")+"/openai/deployments/"+url.PathEscape(cfg.Deployment)+"/"),
 			option.WithQueryAdd("api-version", cfg.APIVersion),
-			option.WithHTTPClient(httpClient),
-		}
+		)
 	}
 	if cfg.APIKey != "" {
 		// Azure authenticates via the Api-Key header. openai-go otherwise derives

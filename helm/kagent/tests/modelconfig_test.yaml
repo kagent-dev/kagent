@@ -67,6 +67,34 @@ tests:
           path: spec.apiKeySecretKey
           value: AZUREOPENAI_API_KEY
 
+  - it: should render azure openai apiFormat when configured
+    set:
+      providers:
+        default: azureOpenAI
+        azureOpenAI:
+          provider: AzureOpenAI
+          model: "gpt-5"
+          apiKeySecretRef: kagent-azure-openai
+          apiKeySecretKey: AZUREOPENAI_API_KEY
+          config:
+            apiVersion: "2024-06-01"
+            azureEndpoint: "https://example.openai.azure.com"
+            azureDeployment: "gpt-5"
+            apiFormat: responses
+    asserts:
+      - equal:
+          path: spec.provider
+          value: "AzureOpenAI"
+      - equal:
+          path: spec.azureOpenAI.apiFormat
+          value: responses
+      - equal:
+          path: spec.azureOpenAI.azureEndpoint
+          value: "https://example.openai.azure.com"
+      - equal:
+          path: spec.azureOpenAI.azureDeployment
+          value: "gpt-5"
+
   - it: should configure ollama provider
     set:
       providers:

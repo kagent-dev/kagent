@@ -200,6 +200,10 @@ go/bin/
 # SQLite in-memory WAL artifacts from tests
 file::memory:*
 .vscode/
+.history/
+# Local Kind/Azure smoke artifacts only (values.local.yaml, live reports,
+# Substrate clone, helper binaries). Never commit API keys or cluster dumps.
+.local/
 .cursor/rules
 *.omc
 .DS_Store

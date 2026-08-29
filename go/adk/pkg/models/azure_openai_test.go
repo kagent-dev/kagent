@@ -2,7 +2,9 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,8 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
+	adkmodel "google.golang.org/adk/v2/model"
+	"google.golang.org/genai"
 )
 
 func TestNewAzureOpenAIModelWithLoggerRequiresEndpoint(t *testing.T) {
@@ -154,6 +158,55 @@ func TestAzureOpenAIResponsesUsesV1Endpoint(t *testing.T) {
 	}
 	if gotAPIVersion != "" {
 		t.Fatalf("api-version = %q, want empty", gotAPIVersion)
+	}
+}
+
+func TestAzureOpenAIGenerateContentResponsesUsesV1Endpoint(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_API_KEY", "test-key")
+
+	var gotPath, gotAPIVersion string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIVersion = r.URL.Query().Get("api-version")
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"resp-test","object":"response","created_at":0,"status":"completed","model":"gpt-4o-deploy","output":[{"type":"message","id":"msg-1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	model, err := NewAzureOpenAIModelWithLogger(context.Background(), &AzureOpenAIConfig{
+		Model:      "gpt-4o-deploy",
+		Endpoint:   server.URL,
+		Deployment: "gpt-4o-deploy",
+		APIVersion: "2024-06-01",
+		APIFormat:  OpenAIAPIFormatResponses,
+	}, logr.Discard())
+	if err != nil {
+		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v", err)
+	}
+
+	var got *adkmodel.LLMResponse
+	for resp, genErr := range model.GenerateContent(context.Background(), &adkmodel.LLMRequest{
+		Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hello"}}}},
+	}, false) {
+		if genErr != nil {
+			t.Fatalf("GenerateContent error = %v", genErr)
+		}
+		got = resp
+	}
+	if gotPath != "/openai/v1/responses" {
+		t.Fatalf("path = %q, want /openai/v1/responses", gotPath)
+	}
+	if gotAPIVersion != "" {
+		t.Fatalf("api-version = %q, want empty", gotAPIVersion)
+	}
+	if gotBody["model"] != "gpt-4o-deploy" {
+		t.Fatalf("body model = %#v, want gpt-4o-deploy", gotBody["model"])
+	}
+	if got == nil || got.Content == nil || len(got.Content.Parts) != 1 || got.Content.Parts[0].Text != "ok" {
+		t.Fatalf("response = %#v", got)
 	}
 }
 
