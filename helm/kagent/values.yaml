@@ -278,6 +278,31 @@ controller:
     repository: kagent-dev/kagent/controller
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+
+  # -- Manifest digest (sha256:...) of the golang-adk image, passed to the
+  # controller as --image-digest. Required for SandboxAgent compilation to
+  # succeed against a self-built controller image: the intended build-time
+  # stamping (scripts/controller-digest-ldflags.sh) is not wired into
+  # `make build-controller` or any CI workflow, so it's always empty unless
+  # set here. Resolve it with:
+  #   docker buildx imagetools inspect <golang-adk-image-ref> | grep Digest
+  # @default -- "" (no --image-digest arg passed; fails at SandboxAgent compile time
+  # unless the controller image was built with the digest already stamped)
+  imageDigest: ""
+
+  # -- Registry for the golang-adk runtime image (--image-registry). Compiled-in
+  # default is "ghcr.io". Set this together with agentImageRepository and
+  # imageDigest to point every declarative SandboxAgent at your own build
+  # instead of upstream's.
+  # @default -- "" (uses the compiled-in default, ghcr.io)
+  agentImageRegistry: ""
+
+  # -- Repository for the golang-adk runtime image (--image-repository).
+  # Compiled-in default is "kagent-dev/kagent/golang-adk". e.g. set to
+  # "yourfork/kagent/golang-adk" to test against your own fork's release.
+  # @default -- "" (uses the compiled-in default)
+  agentImageRepository: ""
+
   resources:
     requests:
       cpu: 100m

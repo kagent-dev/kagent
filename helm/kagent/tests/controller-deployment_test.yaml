@@ -813,6 +813,42 @@ tests:
           content:
             name: metrics
 
+  # =============================================================================
+  # Agent Image Digest / Registry / Repository Override Tests
+  # =============================================================================
+
+  - it: should not set args when imageDigest, agentImageRegistry, and agentImageRepository are unset
+    template: controller-deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].args
+
+  - it: should set only --image-digest when controller.imageDigest is set
+    template: controller-deployment.yaml
+    set:
+      controller:
+        imageDigest: "sha256:deadbeef1234"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - "--image-digest=sha256:deadbeef1234"
+
+  - it: should set all three flags when imageDigest, agentImageRegistry, and agentImageRepository are set
+    template: controller-deployment.yaml
+    set:
+      controller:
+        imageDigest: "sha256:deadbeef1234"
+        agentImageRegistry: "myregistry.io"
+        agentImageRepository: "myorg/golang-adk"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - "--image-digest=sha256:deadbeef1234"
+            - "--image-registry=myregistry.io"
+            - "--image-repository=myorg/golang-adk"
+
   - it: should let controller.env override the chart-supplied metrics env
     template: controller-deployment.yaml
     set:
