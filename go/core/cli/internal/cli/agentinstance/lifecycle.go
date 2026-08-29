@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -43,9 +42,7 @@ func CreateCmd(ctx context.Context, cfg *CreateCfg, out io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	if err := prepareCreateCfg(cfg); err != nil {
-		return err
-	}
+	ensureRequestID(cfg)
 
 	portForward, err := connection.Connect(ctx, cfg.Connection)
 	if err != nil {
@@ -62,30 +59,16 @@ func CreateCmd(ctx context.Context, cfg *CreateCfg, out io.Writer) (err error) {
 	return create(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
 }
 
-func prepareCreateCfg(cfg *CreateCfg) error {
-	if cfg.Harness == "" {
-		return errors.New("harness is required")
-	}
-	if cfg.AgentTemplate == "" {
-		return errors.New("agent template is required")
-	}
+func ensureRequestID(cfg *CreateCfg) {
 	if cfg.RequestID == "" {
 		cfg.RequestID = uuid.NewString()
-		return nil
 	}
-	if strings.TrimSpace(cfg.RequestID) != cfg.RequestID || len(cfg.RequestID) > 128 {
-		return errors.New("request ID must be 1-128 characters without surrounding whitespace")
-	}
-	return nil
 }
 
 // DeleteCmd deletes an AgentInstance.
 func DeleteCmd(ctx context.Context, cfg *DeleteCfg, out io.Writer) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
-		return err
-	}
-	if err := validateDeleteCfg(cfg); err != nil {
 		return err
 	}
 	portForward, err := connection.Connect(ctx, cfg.Connection)
@@ -101,15 +84,6 @@ func DeleteCmd(ctx context.Context, cfg *DeleteCfg, out io.Writer) (err error) {
 		err = errors.Join(err, clientSet.Close())
 	}()
 	return deleteAgentInstance(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
-}
-
-func validateDeleteCfg(cfg *DeleteCfg) error {
-	instanceID, err := uuid.Parse(cfg.InstanceID)
-	if err != nil {
-		return fmt.Errorf("invalid AgentInstance ID %q: %w", cfg.InstanceID, err)
-	}
-	cfg.InstanceID = instanceID.String()
-	return nil
 }
 
 func create(

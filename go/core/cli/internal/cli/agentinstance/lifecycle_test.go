@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -16,36 +15,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestPrepareCreateCfgValidation(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  CreateCfg
-		wantErr string
-	}{
-		{name: "valid", config: CreateCfg{Harness: "kagent", AgentTemplate: "smoke", RequestID: "replay-1"}},
-		{name: "missing harness", config: CreateCfg{AgentTemplate: "smoke"}, wantErr: "harness is required"},
-		{name: "missing template", config: CreateCfg{Harness: "kagent"}, wantErr: "agent template is required"},
-		{name: "request ID whitespace", config: CreateCfg{Harness: "kagent", AgentTemplate: "smoke", RequestID: " replay-1"}, wantErr: "request ID"},
-		{name: "request ID too long", config: CreateCfg{Harness: "kagent", AgentTemplate: "smoke", RequestID: strings.Repeat("a", 129)}, wantErr: "request ID"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := prepareCreateCfg(&tt.config)
-			if tt.wantErr != "" {
-				require.ErrorContains(t, err, tt.wantErr)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
 func TestCreateAgentInstanceGeneratedRequestIDIsStable(t *testing.T) {
 	cfg := &CreateCfg{Harness: "kagent", AgentTemplate: "smoke"}
-	require.NoError(t, prepareCreateCfg(cfg))
+	ensureRequestID(cfg)
 	requestID := cfg.RequestID
 	require.NoError(t, uuid.Validate(requestID))
-	require.NoError(t, prepareCreateCfg(cfg))
+	ensureRequestID(cfg)
 	assert.Equal(t, requestID, cfg.RequestID)
 
 	client := &lifecycleAgentInstanceClient{createInstance: testInstance()}
@@ -96,11 +71,6 @@ func TestDeleteAgentInstance(t *testing.T) {
 	}, client.deleteRequest)
 	assert.Contains(t, output.String(), testInstanceID)
 	assert.Contains(t, output.String(), "DELETED")
-}
-
-func TestValidateDeleteCfg(t *testing.T) {
-	cfg := &DeleteCfg{InstanceID: "not-an-id"}
-	require.ErrorContains(t, validateDeleteCfg(cfg), "invalid AgentInstance ID")
 }
 
 func TestDeleteAgentInstanceAborted(t *testing.T) {
