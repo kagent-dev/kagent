@@ -253,6 +253,24 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		return models.NewOpenAIModelWithLogger(cfg, log)
 
+	case *adk.OrcaRouter:
+		baseURL := m.BaseUrl
+		if baseURL == "" {
+			baseURL = "https://api.orcarouter.ai/v1"
+		}
+		cfg := &models.OpenAIConfig{
+			TransportConfig:     transportConfigFromBase(m.BaseModel, m.Timeout),
+			Model:               m.Model,
+			BaseUrl:             baseURL,
+			MaxTokens:           m.MaxTokens,
+			MaxCompletionTokens: m.MaxCompletionTokens,
+			Temperature:         m.Temperature,
+			TopP:                m.TopP,
+			ReasoningEffort:     m.ReasoningEffort,
+			APIFormat:           m.APIFormat,
+		}
+		return models.NewOrcaRouterModelWithLogger(cfg, log)
+
 	case *adk.AzureOpenAI:
 		cfg := &models.AzureOpenAIConfig{
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),

@@ -116,7 +116,7 @@ Configures LLM provider credentials and model parameters.
 ```
 ModelConfigSpec
 ├── model: string (e.g. "gpt-4o", "claude-sonnet-4-5-20250514")
-├── provider: Anthropic | OpenAI | AzureOpenAI | Ollama | Gemini | GeminiVertexAI | AnthropicVertexAI | Bedrock | SAPAICore | Foundry
+├── provider: Anthropic | OpenAI | AzureOpenAI | Ollama | Gemini | GeminiVertexAI | AnthropicVertexAI | Bedrock | SAPAICore | Foundry | OrcaRouter
 ├── apiKeySecret: string (Secret name)
 ├── apiKeySecretKey: string (key within Secret)
 ├── apiKeyPassthrough: bool (use Bearer token from A2A request)
@@ -146,9 +146,10 @@ ModelConfigSpec
 ├── bedrock: BedrockConfig
 ├── sapAICore: SAPAICoreConfig
 │   └── baseUrl, resourceGroup, authUrl
-└── foundry: FoundryConfig            # Go runtime only
-    └── endpoint, endpointFrom, deployment, apiVersion
-    └── region
+├── foundry: FoundryConfig            # Go runtime only
+│   └── endpoint, endpointFrom, deployment, apiVersion
+└── orcaRouter: OrcaRouterConfig      # OpenAI-compatible gateway
+    └── baseUrl, temperature, maxTokens, maxCompletionTokens, topP, reasoningEffort, apiFormat, timeout
 ```
 
 ### Key Validation Rules

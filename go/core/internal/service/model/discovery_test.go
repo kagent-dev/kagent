@@ -55,7 +55,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 	service := model.NewService(nil, nil, "default")
 
 	modelProviders := service.ListSupportedModelProviders(context.Background())
-	require.Len(t, modelProviders, 10)
+	require.Len(t, modelProviders, 11)
 	assert.Equal(t, []string{
 		"OpenAI",
 		"Anthropic",
@@ -67,6 +67,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 		"AnthropicVertexAI",
 		"Bedrock",
 		"SAPAICore",
+		"OrcaRouter",
 	}, providerNames(modelProviders))
 	assert.Empty(t, modelProviders[0].RequiredParams)
 	assert.Equal(t, []string{
@@ -103,12 +104,13 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	service := model.NewService(nil, nil, "default")
 	models := service.ListSupportedModels(context.Background())
 
-	require.Len(t, models, 10)
+	require.Len(t, models, 11)
 	require.NotEmpty(t, models[v1alpha3.ModelProviderOpenAI])
 	assert.Equal(t, "gpt-5.6-terra", models[v1alpha3.ModelProviderOpenAI][0].Name)
 	assert.True(t, models[v1alpha3.ModelProviderOpenAI][0].FunctionCalling)
 	assert.Equal(t, model.ModelInfo{Name: "deepseek-r1", FunctionCalling: false}, models[v1alpha3.ModelProviderOllama][5])
 	assert.Equal(t, model.ModelInfo{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false}, models[v1alpha3.ModelProviderBedrock][10])
+	assert.Equal(t, "orcarouter/auto", models[v1alpha3.ModelProviderOrcaRouter][0].Name)
 
 	encoded, err := json.Marshal(models[v1alpha3.ModelProviderOpenAI][0])
 	require.NoError(t, err)

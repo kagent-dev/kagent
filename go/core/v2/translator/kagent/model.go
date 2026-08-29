@@ -748,6 +748,54 @@ func (c *Compiler) translateModel(ctx context.Context, model *v1alpha3.ModelConf
 		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return foundry, modelDeploymentData, nil
+	case v1alpha3.ModelProviderOrcaRouter:
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.OrcaRouterAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+
+		orcaRouter := &adk.OrcaRouter{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+		}
+		// Populate TLS fields in BaseModel
+		populateTLSFields(&orcaRouter.BaseModel, model.Spec.TLS)
+		orcaRouter.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		if model.Spec.OrcaRouter != nil {
+			spec := model.Spec.OrcaRouter
+			orcaRouter.BaseUrl = spec.BaseURL
+			orcaRouter.Temperature = utils.ParseStringToFloat64(spec.Temperature)
+			orcaRouter.TopP = utils.ParseStringToFloat64(spec.TopP)
+			if spec.MaxTokens > 0 {
+				orcaRouter.MaxTokens = &spec.MaxTokens
+			}
+			if spec.MaxCompletionTokens > 0 {
+				orcaRouter.MaxCompletionTokens = &spec.MaxCompletionTokens
+			}
+			if spec.ReasoningEffort != nil {
+				effort := string(*spec.ReasoningEffort)
+				orcaRouter.ReasoningEffort = &effort
+			}
+			if spec.APIFormat != nil && *spec.APIFormat != "" {
+				orcaRouter.APIFormat = string(*spec.APIFormat)
+			}
+			if spec.Timeout != nil {
+				orcaRouter.Timeout = spec.Timeout
+			}
+		}
+		return orcaRouter, modelDeploymentData, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}

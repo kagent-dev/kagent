@@ -28,7 +28,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry;OrcaRouter
 type ModelProvider string
 
 const (
@@ -42,6 +42,7 @@ const (
 	ModelProviderBedrock           ModelProvider = "Bedrock"
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 	ModelProviderFoundry           ModelProvider = "Foundry"
+	ModelProviderOrcaRouter        ModelProvider = "OrcaRouter"
 )
 
 type BaseVertexAIConfig struct {
@@ -432,6 +433,53 @@ type FoundryConfig struct {
 	APIVersion string `json:"apiVersion,omitempty"`
 }
 
+// OrcaRouterConfig contains OrcaRouter-specific configuration options.
+//
+// OrcaRouter is an OpenAI-compatible AI gateway (https://www.orcarouter.ai) that
+// routes to many upstream models behind a single endpoint. Like the OpenAI
+// provider, it speaks the chat completions wire format; the default base URL is
+// the OrcaRouter gateway endpoint.
+//
+// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
+type OrcaRouterConfig struct {
+	// Base URL for the OrcaRouter API (overrides default https://api.orcarouter.ai/v1)
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+
+	// Temperature for sampling
+	// +optional
+	Temperature string `json:"temperature,omitempty"`
+
+	// Maximum tokens to generate
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxTokens int `json:"maxTokens,omitempty"`
+
+	// Maximum completion tokens to generate
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxCompletionTokens int `json:"maxCompletionTokens,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP string `json:"topP,omitempty"`
+
+	// Reasoning effort
+	// +optional
+	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
+
+	// APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+	// chatCompletions (default) posts to /v1/chat/completions.
+	// responses posts to /v1/responses.
+	// +optional
+	// +kubebuilder:default=chatCompletions
+	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
+
+	// Timeout
+	// +optional
+	Timeout *int `json:"timeout,omitempty"`
+}
+
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
 // connections from the agent (model provider, RemoteMCPServer). The
 // XValidation rules below apply at admission to every CRD field that
@@ -500,6 +548,7 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
+// +kubebuilder:validation:XValidation:message="provider.orcaRouter must be nil if the provider is not OrcaRouter",rule="!(has(self.orcaRouter) && self.provider != 'OrcaRouter')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
@@ -576,6 +625,10 @@ type ModelConfigSpec struct {
 	// Azure AI Foundry-specific configuration
 	// +optional
 	Foundry *FoundryConfig `json:"foundry,omitempty"`
+
+	// OrcaRouter-specific configuration
+	// +optional
+	OrcaRouter *OrcaRouterConfig `json:"orcaRouter,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers

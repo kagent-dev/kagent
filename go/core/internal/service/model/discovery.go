@@ -230,8 +230,7 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 		},
 		v1alpha3.ModelProviderSAPAICore: {
 			// Anthropic (via SAP Generative AI Hub proxy naming)
-			{Name: "anthropic--claude-4.7-opus", FunctionCalling: true},
-			{Name: "anthropic--claude-4.6-sonnet", FunctionCalling: true},
+			{Name: "anthropic--claude-4.7-opus", FunctionCalling: true}, {Name: "anthropic--claude-4.6-sonnet", FunctionCalling: true},
 			{Name: "anthropic--claude-4.6-opus", FunctionCalling: true},
 			{Name: "anthropic--claude-4.5-sonnet", FunctionCalling: true},
 			{Name: "anthropic--claude-4.5-opus", FunctionCalling: true},
@@ -285,6 +284,18 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			// SAP
 			{Name: "sap-abap-1", FunctionCalling: false},
 		},
+		v1alpha3.ModelProviderOrcaRouter: {
+			// OrcaRouter routes to many upstream models behind one endpoint; these
+			// are curated suggestions and the model field accepts any OrcaRouter
+			// model id (full catalog at https://www.orcarouter.ai/models).
+			{Name: "orcarouter/auto", FunctionCalling: true},
+			{Name: "openai/gpt-5.5", FunctionCalling: true},
+			{Name: "anthropic/claude-opus-4.8", FunctionCalling: true},
+			{Name: "google/gemini-3.5-flash", FunctionCalling: true},
+			{Name: "grok/grok-4.3", FunctionCalling: true},
+			{Name: "deepseek/deepseek-v4-pro", FunctionCalling: true},
+			{Name: "qwen/qwen3.7-max", FunctionCalling: true},
+		},
 	}
 }
 
@@ -303,6 +314,7 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 		{v1alpha3.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha3.AnthropicVertexAIConfig]()},
 		{v1alpha3.ModelProviderBedrock, reflect.TypeFor[v1alpha3.BedrockConfig]()},
 		{v1alpha3.ModelProviderSAPAICore, reflect.TypeFor[v1alpha3.SAPAICoreConfig]()},
+		{v1alpha3.ModelProviderOrcaRouter, reflect.TypeFor[v1alpha3.OrcaRouterConfig]()},
 	}
 
 	providers := []ProviderDefinition{}
@@ -423,7 +435,7 @@ func getRequiredKeysForModelProvider(providerType v1alpha3.ModelProvider) []stri
 		return []string{"baseUrl"}
 	case v1alpha3.ModelProviderFoundry:
 		return []string{"deployment", "endpoint"}
-	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderOllama:
+	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderOllama, v1alpha3.ModelProviderOrcaRouter:
 		return []string{}
 	default:
 		return []string{}

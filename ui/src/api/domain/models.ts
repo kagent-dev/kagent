@@ -79,6 +79,17 @@ export interface SAPAICoreConfig {
   authUrl?: string;
 }
 
+export interface OrcaRouterConfig {
+  baseUrl?: string;
+  temperature?: string;
+  maxTokens?: number;
+  maxCompletionTokens?: number;
+  topP?: string;
+  reasoningEffort?: string;
+  apiFormat?: string;
+  timeout?: number;
+}
+
 export interface ModelConfigSpec {
   model: string;
   provider: string;
@@ -96,6 +107,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfig;
+  orcaRouter?: OrcaRouterConfig;
 }
 
 /** One row of `ModelService.ListModelConfigs`: `ref` is `namespace/name`. */

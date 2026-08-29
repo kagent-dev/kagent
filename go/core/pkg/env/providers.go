@@ -201,3 +201,13 @@ var (
 		ComponentAgentRuntime,
 	)
 )
+
+// OrcaRouter
+var (
+	OrcaRouterAPIKey = RegisterStringVar(
+		"ORCAROUTER_API_KEY",
+		"",
+		"API key for OrcaRouter.",
+		ComponentAgentRuntime,
+	)
+)
