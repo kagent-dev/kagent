@@ -22,6 +22,7 @@ jobs:
           - kagent-adk
           - golang-adk
           - claude-harness
+          - codex-harness
     runs-on: ubuntu-latest
     permissions:
       contents: read

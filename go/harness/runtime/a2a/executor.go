@@ -12,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	a2alog "github.com/a2aproject/a2a-go/v2/log"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -106,6 +107,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		if runErr != nil {
+			a2alog.Error(ctx, "Harness runtime execution failed", runErr)
 			finish()
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
