@@ -69,6 +69,22 @@ func NewOpenAIModelWithLogger(config *OpenAIConfig, logger logr.Logger) (*OpenAI
 	return newOpenAIModelFromConfig(config, apiKey, logger)
 }
 
+// NewOrcaRouterModelWithLogger creates an OpenAI-compatible model for the
+// OrcaRouter gateway. The wire protocol matches OpenAI chat completions, so it
+// reuses the OpenAI client pointed at the OrcaRouter base URL; the API key is
+// read from ORCAROUTER_API_KEY (or forwarded per-request when APIKeyPassthrough
+// is enabled).
+func NewOrcaRouterModelWithLogger(config *OpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
+	apiKey := "passthrough" // placeholder; real auth set per-request by transport
+	if !config.APIKeyPassthrough {
+		apiKey = os.Getenv("ORCAROUTER_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("ORCAROUTER_API_KEY environment variable is not set")
+		}
+	}
+	return newOpenAIModelFromConfig(config, apiKey, logger)
+}
+
 // NewOpenAICompatibleModelWithLogger creates an OpenAI-compatible model (e.g. LiteLLM, Ollama).
 // baseURL is the API base (e.g. http://localhost:11434/v1 for Ollama). apiKey is optional; if empty,
 // OPENAI_API_KEY is used, then a placeholder for endpoints that do not require a key.

@@ -283,6 +283,11 @@ export const mockProviderModels: ProviderModelsResponse = {
     { name: "claude-haiku-4", function_calling: true },
   ],
   Ollama: [{ name: "llama3.2", function_calling: false }],
+  OrcaRouter: [
+    { name: "orcarouter/auto", function_calling: true },
+    { name: "openai/gpt-5.5", function_calling: true },
+    { name: "anthropic/claude-opus-4.8", function_calling: true },
+  ],
 };
 
 /**
@@ -347,6 +352,21 @@ export const mockProviders: Provider[] = [
     type: "SAPAICore",
     requiredParams: ["baseUrl"],
     optionalParams: ["resourceGroup", "authUrl"],
+  },
+  {
+    name: "OrcaRouter",
+    type: "OrcaRouter",
+    requiredParams: [],
+    optionalParams: [
+      "baseUrl",
+      "temperature",
+      "maxTokens",
+      "maxCompletionTokens",
+      "topP",
+      "reasoningEffort",
+      "apiFormat",
+      "timeout",
+    ],
   },
   /*
    * One provider an operator added, rather than one the controller ships with.

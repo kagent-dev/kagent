@@ -36,6 +36,8 @@ func GetModelProvider() v1alpha3.ModelProvider {
 		return v1alpha3.ModelProviderAnthropicVertexAI
 	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderBedrock):
 		return v1alpha3.ModelProviderBedrock
+	case GetModelProviderHelmValuesKey(v1alpha3.ModelProviderOrcaRouter):
+		return v1alpha3.ModelProviderOrcaRouter
 	default:
 		return v1alpha3.ModelProviderOpenAI
 	}
@@ -68,6 +70,8 @@ func GetProviderAPIKey(provider v1alpha3.ModelProvider) string {
 			return env.GoogleAPIKey.Name()
 		}
 		return "GEMINI_API_KEY"
+	case v1alpha3.ModelProviderOrcaRouter:
+		return env.OrcaRouterAPIKey.Name()
 	default:
 		// Ollama, Bedrock, GeminiVertexAI, AnthropicVertexAI use cloud
 		// credentials rather than a simple API key, so no check is needed.

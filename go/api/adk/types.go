@@ -116,6 +116,7 @@ const (
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
 	ModelTypeFoundry         = "foundry"
+	ModelTypeOrcaRouter      = "orcarouter"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -359,6 +360,37 @@ func (f *Foundry) GetType() string {
 	return ModelTypeFoundry
 }
 
+// OrcaRouter is the OrcaRouter OpenAI-compatible gateway model type. The wire
+// format is identical to OpenAI chat completions, so the runtime builds an
+// OpenAI-compatible client pointed at api.orcarouter.ai.
+type OrcaRouter struct {
+	BaseModel
+	BaseUrl             string   `json:"base_url,omitempty"`
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64 `json:"temperature,omitempty"`
+	TopP                *float64 `json:"top_p,omitempty"`
+	ReasoningEffort     *string  `json:"reasoning_effort,omitempty"`
+	Timeout             *int     `json:"timeout,omitempty"`
+	// APIFormat selects chatCompletions (default) or responses.
+	APIFormat string `json:"api_format,omitempty"`
+}
+
+func (o *OrcaRouter) MarshalJSON() ([]byte, error) {
+	type Alias OrcaRouter
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeOrcaRouter,
+		Alias: (*Alias)(o),
+	})
+}
+
+func (o *OrcaRouter) GetType() string {
+	return ModelTypeOrcaRouter
+}
+
 // GenericModel is a catch-all model type used by the Go ADK when the model
 // type doesn't match any known constant.
 type GenericModel struct {
@@ -433,6 +465,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &foundry, nil
+	case ModelTypeOrcaRouter:
+		var orcaRouter OrcaRouter
+		if err := json.Unmarshal(bytes, &orcaRouter); err != nil {
+			return nil, err
+		}
+		return &orcaRouter, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }

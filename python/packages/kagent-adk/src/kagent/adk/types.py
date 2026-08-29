@@ -23,6 +23,7 @@ from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
+from kagent.adk.models._openai import OrcaRouterOpenAI
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
@@ -348,7 +349,18 @@ class SAPAICore(BaseLLM):
     type: Literal["sap_ai_core"]
 
 
-ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore]
+class OrcaRouter(BaseLLM):
+    base_url: str | None = None
+    max_tokens: int | None = Field(default=None, ge=1)
+    max_completion_tokens: int | None = Field(default=None, ge=1)
+    reasoning_effort: str | None = None
+    temperature: float | None = None
+    timeout: int | None = None
+    top_p: float | None = None
+    type: Literal["orcarouter"]
+
+
+ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore, OrcaRouter]
 
 
 class ContextCompressionSettings(BaseModel):
@@ -731,6 +743,21 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             base_url=base_url,
             resource_group=model_config.resource_group,
             auth_url=model_config.auth_url,
+            **_transport_kwargs(model_config),
+        )
+    if model_config.type == "orcarouter":
+        # OrcaRouter is OpenAI wire-compatible; default to its gateway base URL.
+        return OrcaRouterOpenAI(
+            type="orcarouter",
+            base_url=base_url or "https://api.orcarouter.ai/v1",
+            default_headers=extra_headers,
+            max_completion_tokens=model_config.max_completion_tokens,
+            max_tokens=model_config.max_tokens,
+            model=model_config.model,
+            reasoning_effort=model_config.reasoning_effort,
+            temperature=model_config.temperature,
+            timeout=model_config.timeout,
+            top_p=model_config.top_p,
             **_transport_kwargs(model_config),
         )
     raise ValueError(f"Invalid model type: {model_config.type}")

@@ -65,6 +65,11 @@ export const PROVIDER_INFO: Record<string, ProviderInfo> = {
     modelDocsLink:
       "https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/models-and-scenarios-in-generative-ai-hub",
   },
+  OrcaRouter: {
+    displayName: "OrcaRouter",
+    apiKeyLink: "https://www.orcarouter.ai/console",
+    modelDocsLink: "https://www.orcarouter.ai/models",
+  },
 };
 
 /** The provider's friendly name, or its raw type if unknown. */
@@ -87,6 +92,7 @@ export const PASSTHROUGH_ALLOWED_PROVIDERS = new Set([
   "Ollama",
   "Bedrock",
   "SAPAICore",
+  "OrcaRouter",
 ]);
 
 export function supportsPassthrough(providerType: string | undefined): boolean {

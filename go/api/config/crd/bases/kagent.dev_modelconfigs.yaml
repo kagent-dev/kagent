@@ -791,6 +791,55 @@ spec:
                 x-kubernetes-validations:
                 - message: maxTokens and maxCompletionTokens are mutually exclusive
                   rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+              orcaRouter:
+                description: OrcaRouter-specific configuration
+                properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+                      chatCompletions (default) posts to /v1/chat/completions.
+                      responses posts to /v1/responses.
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
+                  baseUrl:
+                    description: Base URL for the OrcaRouter API (overrides default
+                      https://api.orcarouter.ai/v1)
+                    type: string
+                  maxCompletionTokens:
+                    description: Maximum completion tokens to generate
+                    minimum: 1
+                    type: integer
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    minimum: 1
+                    type: integer
+                  reasoningEffort:
+                    description: Reasoning effort
+                    enum:
+                    - none
+                    - minimal
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    - max
+                    type: string
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  timeout:
+                    description: Timeout
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: maxTokens and maxCompletionTokens are mutually exclusive
+                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
               provider:
                 default: OpenAI
                 description: The provider of the model
@@ -805,6 +854,7 @@ spec:
                 - Bedrock
                 - SAPAICore
                 - Foundry
+                - OrcaRouter
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -902,6 +952,8 @@ spec:
               rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
             - message: provider.foundry must be nil if the provider is not Foundry
               rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
+            - message: provider.orcaRouter must be nil if the provider is not OrcaRouter
+              rule: '!(has(self.orcaRouter) && self.provider != ''OrcaRouter'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except
@@ -1444,6 +1496,54 @@ spec:
                 x-kubernetes-validations:
                 - message: maxTokens and maxCompletionTokens are mutually exclusive
                   rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+              orcaRouter:
+                description: OrcaRouter-specific configuration
+                properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+                      chatCompletions (default) posts to /v1/chat/completions.
+                      responses posts to /v1/responses.
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
+                  baseUrl:
+                    description: Base URL for the OrcaRouter API (overrides default
+                      https://api.orcarouter.ai/v1)
+                    type: string
+                  maxCompletionTokens:
+                    description: Maximum completion tokens to generate
+                    minimum: 1
+                    type: integer
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    minimum: 1
+                    type: integer
+                  reasoningEffort:
+                    description: Reasoning effort
+                    enum:
+                    - none
+                    - minimal
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    type: string
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  timeout:
+                    description: Timeout
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: maxTokens and maxCompletionTokens are mutually exclusive
+                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
               provider:
                 default: OpenAI
                 description: The provider of the model
@@ -1458,6 +1558,7 @@ spec:
                 - Bedrock
                 - SAPAICore
                 - Foundry
+                - OrcaRouter
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -1555,6 +1656,8 @@ spec:
               rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
             - message: provider.foundry must be nil if the provider is not Foundry
               rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
+            - message: provider.orcaRouter must be nil if the provider is not OrcaRouter
+              rule: '!(has(self.orcaRouter) && self.provider != ''OrcaRouter'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except

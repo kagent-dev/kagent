@@ -580,6 +580,16 @@ class OpenAI(BaseOpenAI):
     type: Literal["openai"]
 
 
+class OrcaRouterOpenAI(BaseOpenAI):
+    """OrcaRouter gateway model implementation (OpenAI wire-compatible).
+
+    The model type discriminator keeps the serialized config distinct from
+    OpenAI so the controller can inject the OrcaRouter API key and base URL.
+    """
+
+    type: Literal["orcarouter"]
+
+
 class AzureOpenAI(BaseOpenAI):
     """Azure OpenAI model implementation."""
 

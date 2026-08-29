@@ -44,6 +44,8 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 		return "https://generativelanguage.googleapis.com"
 	case ModelProviderOllama:
 		return "http://localhost:11434"
+	case ModelProviderOrcaRouter:
+		return "https://api.orcarouter.ai/v1"
 	default:
 		// Azure, Bedrock, Vertex AI require user-specific endpoints
 		return ""

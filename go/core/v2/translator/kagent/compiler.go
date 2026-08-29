@@ -469,6 +469,8 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		destinations = append(destinations, "api.anthropic.com")
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "generativelanguage.googleapis.com")
+	case v1alpha3.ModelProviderOrcaRouter:
+		destinations = append(destinations, "api.orcarouter.ai")
 	}
 	slices.Sort(destinations)
 	return slices.Compact(destinations)

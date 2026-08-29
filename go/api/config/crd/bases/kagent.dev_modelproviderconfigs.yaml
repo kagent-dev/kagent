@@ -92,6 +92,7 @@ spec:
                 - Bedrock
                 - SAPAICore
                 - Foundry
+                - OrcaRouter
                 type: string
             required:
             - type
@@ -272,6 +273,7 @@ spec:
                 - Bedrock
                 - SAPAICore
                 - Foundry
+                - OrcaRouter
                 type: string
             required:
             - type
