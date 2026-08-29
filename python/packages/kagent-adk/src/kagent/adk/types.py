@@ -17,6 +17,7 @@ from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
+from kagent.adk._tool_pairing import repair_tool_call_pairing_callback
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
@@ -536,7 +537,12 @@ class AgentConfig(BaseModel):
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
         # ADK 2.x filters its synthetic confirmation events before model calls.
-        before_model_callbacks = [make_mcp_app_model_result_callback(mcp_app_tool_names)]
+        # Pairing repair runs last so it also covers anything the earlier
+        # callbacks leave unpaired.
+        before_model_callbacks = [
+            make_mcp_app_model_result_callback(mcp_app_tool_names),
+            repair_tool_call_pairing_callback,
+        ]
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
