@@ -7,7 +7,9 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.types import Message, Part, Role, SendMessageRequest
 from google.adk.a2a.converters.request_converter import AgentRunRequest
+from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.runners import InMemoryRunner
 
 import kagent.adk._agent_executor as executor_module
 from kagent.adk._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -72,7 +74,7 @@ def test_convert_request_clears_bearer_token_when_no_auth_header():
 async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(monkeypatch):
     context = _request_context()
     event_queue = object()
-    runner = object()
+    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
     run_request = AgentRunRequest(
         user_id="user-1",
         session_id="context-1",

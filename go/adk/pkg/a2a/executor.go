@@ -57,7 +57,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		runnerConfig.SessionService = cfg.SessionService
 	}
 	builtin := adka2a.NewExecutor(adka2a.ExecutorConfig{
-		RunnerConfig:       runnerConfig,
+		RunnerProvider:     usageObservingRunnerProvider(runnerConfig),
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: genAIPartConverter,
@@ -75,6 +75,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 				}
 				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
+			return nil
+		},
+		// The aggregate rides on the terminal status update (completed,
+		// input-required or failed), whose metadata a2a-go merges into the
+		// stored task.
+		AfterExecuteCallback: func(ctx adka2a.ExecutorContext, finalEvent *a2atype.TaskStatusUpdateEvent, _ error) error {
+			turnUsageFrom(ctx).stampEvent(finalEvent)
 			return nil
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
@@ -133,6 +140,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = auth.WithUserID(ctx, userID)
+
+		// Resumed tasks (HITL cycles, follow-up messages) carry the previously
+		// persisted total, so kagent_usage_total stays a task-lifetime sum.
+		usage := &turnUsage{}
+		usage.seedFromTask(reqCtx.StoredTask)
+		ctx = withTurnUsage(ctx, usage)
 		spanAttributes := map[string]string{
 			"kagent.user_id":         userID,
 			"gen_ai.task.id":         string(reqCtx.TaskID),
