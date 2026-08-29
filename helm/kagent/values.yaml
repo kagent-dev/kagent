@@ -376,6 +376,9 @@ substrateWorkerPool:
   create: false
   name: kagent-default
   replicas: 1
+  # -- ateom worker image. Empty defaults to
+  # ghcr.io/kagent-dev/substrate/ateom-gvisor at the version of this chart's
+  # "substrate" dependency (see templates/substrate-workerpool.yaml)
   ateomImage: ""
   # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
   # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
