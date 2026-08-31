@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"google.golang.org/protobuf/encoding/protojson"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -88,6 +93,95 @@ func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
 	if deletedResponse.GetAgentInstance().GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
 		t.Fatalf("deleted AgentInstance state = %s, want DELETED", deletedResponse.GetAgentInstance().GetState())
 	}
+}
+
+func TestE2ECLIAgentTemplateLifecycle(t *testing.T) {
+	target := interactionTarget(t)
+	kube := interactionKubeClient(t)
+	model := createInteractionModel(t, kube, startInteractionMock(t), nil)
+	templateName := "cli-lifecycle-" + uuid.NewString()
+	manifestPath := filepath.Join(t.TempDir(), "agent-template.yaml")
+	binary := kagentCLI(t)
+	baseArgs := []string{
+		"--grpc-url", target,
+		"--grpc-tls=false",
+		"--namespace", "kagent",
+		"--user-id", "e2e",
+	}
+	run := func(args ...string) string {
+		return runKagentCLI(t, t.Context(), binary, append(append([]string{}, baseArgs...), args...)...)
+	}
+	writeManifest := func(systemPrompt string) {
+		t.Helper()
+		manifest := fmt.Sprintf(`apiVersion: kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: %s
+  labels:
+    kagent.dev/e2e-runtime: kagent
+spec:
+  modelConfig:
+    name: %s
+  systemPrompt: %q
+`, templateName, model.Name, systemPrompt)
+		if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+			t.Fatalf("write AgentTemplate manifest: %v", err)
+		}
+	}
+	assertPrompt := func(want string) {
+		t.Helper()
+		template := &v1alpha3.AgentTemplate{}
+		if err := kube.Get(t.Context(), types.NamespacedName{Namespace: "kagent", Name: templateName}, template); err != nil {
+			t.Fatalf("get AgentTemplate %q: %v", templateName, err)
+		}
+		if template.Spec.SystemPrompt != want {
+			t.Fatalf("AgentTemplate systemPrompt = %q, want %q", template.Spec.SystemPrompt, want)
+		}
+	}
+	deleteTemplate := func() {
+		t.Helper()
+		output := run("--output-format", "json", "delete", "agent-template", templateName)
+		if !json.Valid([]byte(output)) {
+			t.Fatalf("delete AgentTemplate stdout = %q, want JSON", output)
+		}
+		template := &v1alpha3.AgentTemplate{}
+		err := kube.Get(t.Context(), types.NamespacedName{Namespace: "kagent", Name: templateName}, template)
+		if !apierrors.IsNotFound(err) {
+			t.Fatalf("get deleted AgentTemplate error = %v, want NotFound", err)
+		}
+	}
+	t.Cleanup(func() {
+		template := &v1alpha3.AgentTemplate{}
+		if err := kube.Get(context.Background(), types.NamespacedName{Namespace: "kagent", Name: templateName}, template); err == nil {
+			if err := kube.Delete(context.Background(), template); err != nil {
+				t.Errorf("cleanup AgentTemplate %q: %v", templateName, err)
+			}
+		}
+	})
+
+	writeManifest("created through the CLI")
+	created := run("--output-format", "json", "create", "agent-template", "-f", manifestPath)
+	if !json.Valid([]byte(created)) || !strings.Contains(created, `"name":"`+templateName+`"`) {
+		t.Fatalf("create AgentTemplate stdout = %q, want JSON for %q", created, templateName)
+	}
+	assertPrompt("created through the CLI")
+
+	writeManifest("updated through the CLI")
+	run("update", "agent-template", "-f", manifestPath)
+	assertPrompt("updated through the CLI")
+
+	writeManifest("applied through the CLI")
+	run("apply", "-f", manifestPath)
+	assertPrompt("applied through the CLI")
+
+	deleteTemplate()
+
+	applied := run("--output-format", "json", "apply", "-f", manifestPath)
+	if !json.Valid([]byte(applied)) || !strings.Contains(applied, `"name":"`+templateName+`"`) {
+		t.Fatalf("apply AgentTemplate stdout = %q, want JSON for %q", applied, templateName)
+	}
+	assertPrompt("applied through the CLI")
+	deleteTemplate()
 }
 
 func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
