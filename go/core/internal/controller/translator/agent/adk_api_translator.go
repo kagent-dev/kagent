@@ -108,6 +108,52 @@ func normalizeImageDigest(digest string) string {
 	return "sha256:" + strings.TrimPrefix(digest, "sha256:")
 }
 
+// splitImageTag splits a controller image-tag value into a name and an optional
+// digest. IMAGE_TAG is the tag component of registry/repository:IMAGE_TAG, and
+// operators sometimes embed a digest as "tag@sha256:hex". A digest-only value
+// ("sha256:hex" or "@sha256:hex") has an empty name.
+func splitImageTag(tag string) (name, digest string, err error) {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return "", "", fmt.Errorf("image tag is empty")
+	}
+	name, rawDigest, hasDigest := strings.Cut(tag, "@")
+	name = strings.TrimSpace(name)
+	if !hasDigest {
+		if strings.HasPrefix(name, "sha256:") {
+			return "", normalizeImageDigest(name), nil
+		}
+		return name, "", nil
+	}
+	rawDigest = strings.TrimSpace(rawDigest)
+	if rawDigest == "" {
+		return "", "", fmt.Errorf("image tag %q has an empty digest", tag)
+	}
+	return name, normalizeImageDigest(rawDigest), nil
+}
+
+func fullVariantTag(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("image tag has no name")
+	}
+	if strings.HasSuffix(name, "-full") {
+		return name, nil
+	}
+	return name + "-full", nil
+}
+
+func formatImageRef(registry, repository, tag, digest string) string {
+	base := fmt.Sprintf("%s/%s", registry, repository)
+	if tag != "" && digest != "" {
+		return fmt.Sprintf("%s:%s@%s", base, tag, digest)
+	}
+	if digest != "" {
+		return fmt.Sprintf("%s@%s", base, digest)
+	}
+	return fmt.Sprintf("%s:%s", base, tag)
+}
+
 var DefaultImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
@@ -119,10 +165,13 @@ var DefaultImageConfig = ImageConfig{
 // PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
 // default to the pushed runtime image manifest digests baked in at controller link time, and
 // can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
-// flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
-// agents — Substrate requires digest-pinned refs — while regular agents reference images by tag.
-// The "full" variants bundle the sandbox runtime (code execution / bash tools); the slim
-// variants do not.
+// flags (for mirrored registries that re-assign digests).
+//
+// Sandbox agents always pin by these digests (Substrate rejects tag refs). Regular agents
+// reference images by tag so mirrored registries that rewrite digests still resolve.
+// When IMAGE_TAG embeds a digest (tag@sha256:...), the full variant also consults the
+// dedicated full digest rather than reusing the slim digest. The "full" variants bundle
+// the sandbox runtime (code execution / bash tools); the slim variants do not.
 var PythonADKImageDigest string
 var PythonADKFullImageDigest string
 var GoADKImageDigest string
