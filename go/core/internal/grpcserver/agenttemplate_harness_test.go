@@ -119,9 +119,11 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
 	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "a-created"}
 
+	createdTemplate := testAgentTemplate("team", "a-created", "gpt")
+	createdTemplate.Labels = map[string]string{"runtime": "kagent"}
 	created, err := client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{
 		Ref:      ref,
-		Resource: structured(t, testAgentTemplate("team", "a-created", "gpt"), agentTemplateKind),
+		Resource: structured(t, createdTemplate, agentTemplateKind),
 	})
 	if err != nil {
 		t.Fatalf("CreateAgentTemplate() error = %v", err)
@@ -147,15 +149,24 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 		t.Fatalf("GetAgentTemplate() description = %q", got.GetAgentTemplate().GetDescription())
 	}
 
+	updatedTemplate := testAgentTemplate("team", "a-created", "claude")
+	updatedTemplate.Labels = map[string]string{"runtime": "codex"}
 	updated, err := client.UpdateAgentTemplate(ctx, &apiv1alpha1.UpdateAgentTemplateRequest{
 		Ref:      ref,
-		Resource: structured(t, testAgentTemplate("team", "a-created", "claude"), agentTemplateKind),
+		Resource: structured(t, updatedTemplate, agentTemplateKind),
 	})
 	if err != nil {
 		t.Fatalf("UpdateAgentTemplate() error = %v", err)
 	}
 	if updated.GetAgentTemplate().GetModelConfigRef().GetName() != "claude" {
 		t.Fatalf("UpdateAgentTemplate() modelConfigRef = %+v", updated.GetAgentTemplate().GetModelConfigRef())
+	}
+	updatedResource := &v1alpha3.AgentTemplate{}
+	if err := structuredobject.ToGo(updated.GetAgentTemplate().GetResource(), agentTemplateKind, updatedResource, DefaultMaxMessageSize); err != nil {
+		t.Fatalf("decode UpdateAgentTemplate() resource: %v", err)
+	}
+	if got := updatedResource.Labels["runtime"]; got != "codex" {
+		t.Fatalf("UpdateAgentTemplate() label runtime = %q, want codex", got)
 	}
 
 	listed, err := client.ListAgentTemplates(ctx, &apiv1alpha1.ListAgentTemplatesRequest{Namespace: "team"})
