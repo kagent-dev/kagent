@@ -28,7 +28,7 @@ import type {
 export interface McpToolDraft {
   /** `namespace/name` of the RemoteMCPServer, as the tool list reports it. */
   serverRef: string;
-  /** The tool names selected. The CRD requires at least one. */
+  /** The tool names selected. Empty means every tool the server exposes. */
   tools: string[];
 }
 
@@ -135,14 +135,14 @@ export function specFromDraft(
 ): AgentTemplateSpec {
   const tools: ToolBinding[] = [
     ...draft.mcpTools
-      // A binding with no tools selected is rejected by the CRD (`MinItems=1`), so
-      // an empty row is dropped here rather than sent to be refused.
-      .filter((tool) => tool.serverRef.trim() !== "" && tool.tools.length > 0)
+      // A named server with no explicit selection exposes all of its tools. Only an
+      // unfinished row with no server is dropped.
+      .filter((tool) => tool.serverRef.trim() !== "")
       .map((tool) => ({
         mcp: {
           // The only kind the CRD's enum allows.
           server: { kind: "RemoteMCPServer" as const, name: bareName(tool.serverRef) },
-          tools: [...tool.tools],
+          ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
         },
       })),
     ...draft.agentTools

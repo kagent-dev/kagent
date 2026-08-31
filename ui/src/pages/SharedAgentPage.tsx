@@ -23,17 +23,9 @@ const { Text } = Typography;
  * what one account may read, it does not replace authentication, and an
  * unauthenticated request carrying a token is refused.
  *
- * ## Why this page could not exist until now
- *
- * `AgentInstanceService` has carried `CreateAgentInstanceShare` all along, but
- * nothing on the read path honoured what it minted: the gRPC interceptor resolved
- * `X-Share-Token` through `GetSessionShareByToken` and built a share context naming
- * a *session*, while the A2A gateway authorises on the instance. A link created from
- * the dialog would have been refused here.
- *
- * The interceptor now tries both kinds of share, and the gateway reads the instance
- * as the share's owner when the token names that instance — which it has to, because
- * an instance is scoped to its creator and reading it as the visitor finds nothing.
+ * The gRPC interceptor validates the instance share token, and the A2A gateway reads
+ * that instance as the share's owner. That is required because instances are scoped
+ * to their creator; reading one as the visitor would find nothing.
  *
  * ## Replying, when the share allows it
  *

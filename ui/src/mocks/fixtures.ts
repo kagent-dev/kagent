@@ -15,7 +15,6 @@ import type {
   ProviderModelsResponse,
 } from "@/api/domain/models";
 import type { PromptTemplateDetail, PromptTemplateSummary } from "@/api/domain/prompts";
-import type { Session } from "@/api/domain/sessions";
 import type { NamespaceResponse } from "@/api/domain/namespaces";
 import type { SubstrateStatusResponse } from "@/api/domain/substrate";
 import type { Harness } from "@/api/domain/harnesses";
@@ -450,27 +449,6 @@ export const mockPromptDetails: Record<string, PromptTemplateDetail> = {
     },
   },
 };
-
-export const mockSessions: Session[] = [
-  {
-    id: "session-8f31",
-    name: "Why is checkout crashlooping?",
-    agent_id: "kagent__NS__k8s-agent",
-    user_id: "admin@kagent.dev",
-    created_at: "2026-07-28T09:12:00Z",
-    updated_at: "2026-07-28T09:31:00Z",
-    deleted_at: "",
-  },
-  {
-    id: "session-2b07",
-    name: "Node pressure on the analytics pool",
-    agent_id: "kagent__NS__k8s-agent",
-    user_id: "admin@kagent.dev",
-    created_at: "2026-07-29T14:02:00Z",
-    updated_at: "2026-07-29T14:20:00Z",
-    deleted_at: "",
-  },
-];
 
 /** The namespaces the fixtures' agents and models actually live in, plus a couple more. */
 export const mockNamespaces: NamespaceResponse[] = [

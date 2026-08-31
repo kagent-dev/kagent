@@ -34,9 +34,29 @@ import { dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpe
 /** Opens a filter's popup and ticks one option by the label the reader sees. */
 async function chooseFilter(page: Page, filterTestId: string, label: string) {
   await page.getByTestId(filterTestId).click();
-  await page.locator(`.ant-select-item-option[title="${label}"]`).click();
+  const option = page.locator(`.ant-select-item-option[title="${label}"]`);
+  await option.click();
+  // The click, confirmed where it happened: a click on a popup that has moved or
+  // closed under it selects nothing, silently, and is reported much later as a pill
+  // that never appeared.
+  await expect(option).toHaveAttribute("aria-selected", "true");
   // Otherwise the popup covers the pill row the next step asserts on.
   await page.keyboard.press("Escape");
+}
+
+/**
+ * The same choice, made from the keyboard.
+ *
+ * For the step that deliberately does not wait: a popup is hit-tested where it is
+ * drawn, so clicking one while another write is re-rendering the page underneath is a
+ * race of the test's own making, on top of the race it is trying to observe. Typing
+ * and pressing Enter goes to the control's own input, which does not move.
+ */
+async function typeFilter(page: Page, filterTestId: string, label: string) {
+  const input = page.getByTestId(filterTestId).locator("input");
+  await input.fill(label);
+  await input.press("Enter");
+  await input.press("Escape");
 }
 
 test("lists: a page's filter narrows that page's own rows", async ({ page }) => {
@@ -82,8 +102,19 @@ test("lists: a page's filter narrows that page's own rows", async ({ page }) => 
      */
     await loadPage(page, routes.models, { title: "Models" });
     await expectSettled(page);
+
     await page.getByTestId("models-filters-search").fill("model");
-    await chooseFilter(page, "models-filters-filter-ns", "kagent");
+    await typeFilter(page, "models-filters-filter-ns", "kagent");
+
+    // Read from the address first: not a longer wait, a more specific one. Stopping
+    // here names the write that went missing, where a pill that never appeared could
+    // be that or a page that failed to draw what it had.
+    await expect(page, "the search term should survive the filter write").toHaveURL(
+      /[?&]q=model(&|$)/,
+    );
+    await expect(page, "the filter should survive the search write").toHaveURL(
+      /[?&]ns=kagent(&|$)/,
+    );
 
     await expect(page.getByTestId("models-filters-pill-search")).toBeVisible();
     await expect(page.getByTestId("models-filters-pill-ns-kagent")).toBeVisible();
@@ -97,11 +128,12 @@ test("lists: a narrowed view is an address, so it survives a reload", async ({ p
     await expectSettled(page);
 
     await page.getByTestId("models-filters-search").fill("config");
-    await chooseFilter(page, "models-filters-filter-ns", "kagent");
+    await typeFilter(page, "models-filters-filter-ns", "kagent");
 
-    const url = new URL(page.url());
-    expect(url.searchParams.get("q")).toBe("config");
-    expect(url.searchParams.getAll("ns")).toEqual(["kagent"]);
+    // `page.url()` was a bare read with no retry, so it reported the address as it
+    // was a tick before the second write reached it.
+    await expect(page).toHaveURL(/[?&]q=config(&|$)/);
+    await expect(page).toHaveURL(/[?&]ns=kagent(&|$)/);
   });
 
   await test.step("2. sorting is in the address too, and the header shows it", async () => {

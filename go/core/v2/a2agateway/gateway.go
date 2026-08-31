@@ -35,14 +35,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	// AgentInstanceNamespaceHeader selects the Kubernetes namespace containing the AgentInstance.
-	AgentInstanceNamespaceHeader = "x-kagent-agent-instance-namespace"
-	// AgentInstanceIDHeader selects the AgentInstance within that namespace.
-	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
-	// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
-	TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
-)
+// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
+const TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
 
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -195,17 +189,17 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 }
 
 func route(ctx context.Context) (namespace, id string, err error) {
-	namespaces := metadata.ValueFromIncomingContext(ctx, AgentInstanceNamespaceHeader)
-	ids := metadata.ValueFromIncomingContext(ctx, AgentInstanceIDHeader)
+	namespaces := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceNamespaceHeader)
+	ids := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceIDHeader)
 	if len(namespaces) != 1 || len(ids) != 1 {
-		return "", "", fmt.Errorf("exactly one %s and %s header is required", AgentInstanceNamespaceHeader, AgentInstanceIDHeader)
+		return "", "", fmt.Errorf("exactly one %s and %s header is required", apia2a.AgentInstanceNamespaceHeader, apia2a.AgentInstanceIDHeader)
 	}
 	if problems := utilvalidation.IsDNS1123Label(namespaces[0]); len(problems) > 0 {
-		return "", "", fmt.Errorf("invalid %s header: %s", AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
+		return "", "", fmt.Errorf("invalid %s header: %s", apia2a.AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
 	}
 	parsedID, err := uuid.Parse(ids[0])
 	if err != nil {
-		return "", "", fmt.Errorf("invalid %s header: %w", AgentInstanceIDHeader, err)
+		return "", "", fmt.Errorf("invalid %s header: %w", apia2a.AgentInstanceIDHeader, err)
 	}
 	return namespaces[0], parsedID.String(), nil
 }
@@ -469,6 +463,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetId() {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
+	delete(req.Message.Metadata, apia2a.TimelinePositionMetadataKey)
 	if req.Message.TaskID != "" {
 		return g.prepareReply(ctx, instance, req)
 	}
@@ -477,9 +472,11 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
 	}
+	receivedAt := time.Now().UTC()
+	req.Message.SetMeta(apia2a.TimelinePositionMetadataKey, receivedAt.Format(time.RFC3339Nano))
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
-	createdAt := time.Now().UTC()
+	createdAt := receivedAt
 	if submitted.Status.Timestamp != nil {
 		createdAt = submitted.Status.Timestamp.UTC()
 	}
@@ -516,8 +513,17 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "task is not waiting for input")
 	}
 	message.ContextID = stored.ContextID
+	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
 	attempt := *stored
-	attempt.History = append(append([]*a2atype.Message{}, stored.History...), message)
+	attempt.History = append([]*a2atype.Message{}, stored.History...)
+	if question := stored.Status.Message; question != nil {
+		if question.ID == "" {
+			return nil, a2atype.NewError(a2atype.ErrInternalError, "stored task status message has no ID")
+		}
+		question.TaskID, question.ContextID = stored.ID, stored.ContextID
+		attempt.History = append(attempt.History, question)
+	}
+	attempt.History = append(attempt.History, message)
 	now := time.Now()
 	attempt.Status = a2atype.TaskStatus{State: a2atype.TaskStateSubmitted, Timestamp: &now}
 	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), &attempt, message, nil); err != nil {

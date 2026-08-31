@@ -33,13 +33,6 @@ import type {
   PromptTemplateSummary,
   UpdatePromptTemplateRequest,
 } from "./domain/prompts";
-import type {
-  CreateSessionRequest,
-  CreateSessionShareRequest,
-  Session,
-  SessionShare,
-} from "./domain/sessions";
-import type { ChatMessage } from "./chat/types";
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
@@ -154,37 +147,6 @@ export interface PromptsApi {
     payload: UpdatePromptTemplateRequest,
   ): Promise<PromptTemplateDetail>;
   remove(namespace: string, name: string): Promise<void>;
-}
-
-export interface SessionsApi {
-  listForAgent(
-    namespace: string,
-    name: string,
-    options?: ReadOptions,
-  ): Promise<Session[]>;
-  get(id: string, options?: ReadOptions): Promise<Session>;
-  create(payload: CreateSessionRequest): Promise<Session>;
-  remove(id: string): Promise<void>;
-  /**
-   * Share links for a conversation.
-   *
-   * Only the owner may list or revoke: the controller checks the session belongs
-   * to the caller before doing either, so a `NotFound` here means "not yours" as
-   * much as "not there".
-   */
-  shares: {
-    list(id: string, options?: ReadOptions): Promise<SessionShare[]>;
-    create(id: string, payload?: CreateSessionShareRequest): Promise<SessionShare>;
-    remove(id: string, token: string): Promise<void>;
-  };
-  /**
-   * The turns held in a session, as messages to render.
-   *
-   * Only the shared-conversation page reads this now: live chat is addressed by
-   * `AgentInstance` and replays itself from the A2A gateway. A share token names a
-   * session, though, so the links already issued still resolve through here.
-   */
-  tasks(id: string, options?: ReadOptions): Promise<ChatMessage[]>;
 }
 
 export interface NamespacesApi {
@@ -371,7 +333,6 @@ export interface KagentApiClient {
   models: ModelsApi;
   mcpServers: McpServersApi;
   prompts: PromptsApi;
-  sessions: SessionsApi;
   namespaces: NamespacesApi;
   substrate: SubstrateApi;
   agentInstances: AgentInstancesApi;
@@ -426,20 +387,6 @@ export function createApiClient(): KagentApiClient {
       update: (namespace, name, payload) =>
         invoke("prompts.update", { namespace, name, payload }),
       remove: (namespace, name) => invoke("prompts.delete", { namespace, name }),
-    },
-
-    sessions: {
-      listForAgent: (namespace, name, options) =>
-        invoke("sessions.listForAgent", { namespace, name }, options),
-      get: (id, options) => invoke("sessions.get", { id }, options),
-      create: (payload) => invoke("sessions.create", { payload }),
-      remove: (id) => invoke("sessions.delete", { id }),
-      shares: {
-        list: (id, options) => invoke("sessions.shares.list", { id }, options),
-        create: (id, payload) => invoke("sessions.shares.create", { id, payload }),
-        remove: (id, token) => invoke("sessions.shares.delete", { id, token }),
-      },
-      tasks: (id, options) => invoke("sessions.tasks", { id }, options),
     },
 
     namespaces: {
