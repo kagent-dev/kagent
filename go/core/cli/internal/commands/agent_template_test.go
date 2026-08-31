@@ -1,4 +1,4 @@
-package agenttemplate
+package commands
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 
 	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,23 +16,23 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-func TestValidateGetCfg(t *testing.T) {
+func TestValidateAgentTemplateGetCfg(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     GetCfg
+		cfg     AgentTemplateGetCfg
 		wantErr string
 	}{
 		{name: "list"},
-		{name: "list page", cfg: GetCfg{PageSize: 10, PageToken: "next"}},
-		{name: "get", cfg: GetCfg{Name: "template"}},
-		{name: "negative page size", cfg: GetCfg{PageSize: -1}, wantErr: "page size"},
-		{name: "large page size", cfg: GetCfg{PageSize: 101}, wantErr: "page size"},
-		{name: "get with pagination", cfg: GetCfg{Name: "template", PageSize: 10}, wantErr: "pagination"},
+		{name: "list page", cfg: AgentTemplateGetCfg{PageSize: 10, PageToken: "next"}},
+		{name: "get", cfg: AgentTemplateGetCfg{Name: "template"}},
+		{name: "negative page size", cfg: AgentTemplateGetCfg{PageSize: -1}, wantErr: "page size"},
+		{name: "large page size", cfg: AgentTemplateGetCfg{PageSize: 101}, wantErr: "page size"},
+		{name: "get with pagination", cfg: AgentTemplateGetCfg{Name: "template", PageSize: 10}, wantErr: "pagination"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateGetCfg(&tt.cfg)
+			err := validateAgentTemplateGetCfg(&tt.cfg)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -60,7 +60,7 @@ func TestGetAgentTemplatesTableReportsHarnessReadiness(t *testing.T) {
 	})
 	var output bytes.Buffer
 
-	err := get(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &GetCfg{
+	err := getAgentTemplates(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &AgentTemplateGetCfg{
 		Namespace: "kagent", PageSize: 3, PageToken: "previous-page",
 	}, clioutput.FormatTable, &output)
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
 	clientSet := clientfake.NewSimpleClientset()
 	clientSet.PrependReactor("list", "agenttemplates", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		options := action.(interface{ GetListOptions() metav1.ListOptions }).GetListOptions()
-		assert.Equal(t, int64(maxPageSize), options.Limit)
+		assert.Equal(t, int64(agentTemplateMaxPageSize), options.Limit)
 		return true, &apiv1alpha3.AgentTemplateList{
 			ListMeta: metav1.ListMeta{Continue: "next-page"},
 			Items: []apiv1alpha3.AgentTemplate{
@@ -91,7 +91,7 @@ func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
 	})
 	var output bytes.Buffer
 
-	err := get(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &GetCfg{
+	err := getAgentTemplates(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &AgentTemplateGetCfg{
 		Namespace: "kagent",
 	}, clioutput.FormatJSON, &output)
 	require.NoError(t, err)

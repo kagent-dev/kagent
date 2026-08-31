@@ -6,9 +6,18 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
+
+// FlagName is the root persistent flag that selects the output format.
+const FlagName = "output-format"
+
+// FromCommand reads the output format a command was invoked with.
+func FromCommand(cmd *cobra.Command) (string, error) {
+	return cmd.Flags().GetString(FlagName)
+}
 
 // Format selects the CLI payload encoding.
 type Format string
