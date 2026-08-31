@@ -52,14 +52,6 @@ func (c *Compiler) compileMCP(
 		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
-		if server.Spec.SseReadTimeout != nil {
-			result.warnings = append(result.warnings, fmt.Sprintf(
-				"Claude RemoteMCPServer %q ignores sseReadTimeout %s because Claude does not expose that transport setting",
-				server.Name,
-				server.Spec.SseReadTimeout.Duration,
-			))
-		}
-
 		transport, err := claudeMCPTransport(server)
 		if err != nil {
 			return mcpCompilation{}, err

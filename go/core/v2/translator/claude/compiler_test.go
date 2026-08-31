@@ -239,7 +239,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "ignores sseReadTimeout 5m0s") {
+	if len(revision.Warnings) != 0 {
 		t.Fatalf("MCP compatibility warnings = %v", revision.Warnings)
 	}
 	var cfg claudeconfig.Config
