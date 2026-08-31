@@ -368,7 +368,7 @@ jobs:
         run: corepack enable
 
       - name: Cache Yarn downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ui/.yarn/cache
           key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
