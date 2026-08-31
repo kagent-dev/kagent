@@ -854,13 +854,12 @@ otel:
     #
     # Entries may be a source key or a mapping. Prefer an opaque identifier
     # such as an OIDC subject for user.id; do not put names or email addresses
-    # on spans. Registry names (user.*, enduser.*, session.id) are left
-    # unprefixed; names already in the kagent. namespace are left as-is;
-    # everything else is emitted as kagent.context.<name>.
+    # on spans. Registry names (user.id, user.hash, enduser.id, session.id)
+    # are left unprefixed; everything else is emitted as kagent.context.<name>.
     #
     #   contextKeys:
     #     - {from: sub, to: user.id}
-    #     - {from: thread_id, to: kagent.thread_id}
+    #     - thread_id
     #     - channel
     #
     # To derive a stable identifier without putting the original value on the

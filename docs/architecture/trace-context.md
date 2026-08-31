@@ -25,7 +25,7 @@ otel:
     enabled: true
     contextKeys:
       - {from: sub, to: user.id}
-      - {from: thread_id, to: kagent.thread_id}
+      - thread_id
       - channel
 ```
 
@@ -60,7 +60,9 @@ further plumbing.
 **A2A `message.metadata` is the complement** for callers that cannot set a
 header — for example, a bot that speaks A2A over an SDK that exposes message
 metadata but not transport headers. It is scoped to a single message, and
-because it is the more specific source, it overrides baggage for the same key.
+because it is the more specific source, it overrides baggage for the same key
+when the sanitised metadata value is non-empty. A blank metadata entry cannot
+wipe a baggage value.
 
 A key absent from both sources is simply not emitted.
 
@@ -72,16 +74,20 @@ Each mapping is read from `from` (defaulting to the entry itself) and written
 as span attribute `to` (defaulting to `from`) after the prefix rules below:
 
 ```
-baggage: sub=opaque-subject          →   user.id              = "opaque-subject"
-metadata: {"thread_id": "1717171.42"} →   kagent.thread_id     = "1717171.42"
-metadata: {"channel": "C0AB1"}        →   kagent.context.channel = "C0AB1"
+baggage: sub=opaque-subject          →   user.id                 = "opaque-subject"
+metadata: {"thread_id": "1717171.42"} →   kagent.context.thread_id = "1717171.42"
+metadata: {"channel": "C0AB1"}        →   kagent.context.channel   = "C0AB1"
 ```
 
 | Destination name | Emitted as |
 |---|---|
-| `user.*`, `enduser.*`, `session.id` | Unprefixed (OpenTelemetry semantic conventions) |
-| Already in the `kagent.` namespace | Unprefixed |
+| `user.id`, `user.hash`, `enduser.id`, `session.id` | Unprefixed (OpenTelemetry semantic conventions) |
 | Anything else | `kagent.context.<name>` |
+
+Invented names such as `user.asdasd` or `kagent.user_id` are prefixed. Promoted
+values fill the request-scoped bag only when the key is not already set, so
+caller context cannot override `kagent.user_id`, `kagent.app_name`, or
+`gen_ai.*` attributes the runtime stamped.
 
 The attributes are merged into the **request-scoped attribute bag**, not set on
 a single span. The `KagentAttributesSpanProcessor` (Python) and
@@ -109,7 +115,7 @@ appear on a span, hash it with HMAC-SHA256 onto the registry attribute
 contextKeys:
   - {from: sub, to: user.id}
   - {from: email, to: user.hash, hash: hmac-sha256}
-  - {from: thread_id, to: kagent.thread_id}
+  - thread_id
 ```
 
 `hash: hmac-sha256` requires `KAGENT_TRACE_CONTEXT_HASH_KEY` (Helm:
@@ -134,7 +140,7 @@ axis:
 | Attribute explosion / cardinality | Only allowlisted keys are read; the allowlist itself is capped at 32 entries |
 | Oversized spans | Values are truncated to 256 characters, keys to 64 |
 | Log or trace injection | Control characters are stripped from values |
-| Shadowing semantic conventions | Custom keys are namespaced under `kagent.context.`; only `user.*`, `enduser.*`, and `session.id` pass through unprefixed |
+| Shadowing semantic conventions | Custom keys are namespaced under `kagent.context.`; only `user.id`, `user.hash`, `enduser.id`, and `session.id` pass through unprefixed. Caller context fills missing keys only. |
 | Leaking secrets into a trace backend | Nothing is promoted unless an operator names the key; hashed entries are omitted when the HMAC key is unset |
 | A tenant widening the allowlist | The allowlist is cluster-wide operator configuration; an entry of the same name in a `Harness` environment is dropped rather than inherited |
 
@@ -156,8 +162,8 @@ already sits between kagent and the backend:
 processors:
   transform:
     trace_statements:
-      - set(span.attributes["session.id"], span.attributes["kagent.thread_id"])
-        where span.attributes["kagent.thread_id"] != nil
+      - set(span.attributes["session.id"], span.attributes["kagent.context.thread_id"])
+        where span.attributes["kagent.context.thread_id"] != nil
 ```
 
 ---

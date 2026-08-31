@@ -43,9 +43,9 @@ var (
 		"",
 		"Allowlist of caller-supplied context keys promoted onto every agent span. "+
 			"Accepts a comma-separated list of source keys, or a JSON array of strings and "+
-			"{from, to, hash} objects. Registry names (user.*, enduser.*, session.id) are left "+
-			"unprefixed; everything else is emitted as kagent.context.<name> unless the name is "+
-			"already in the kagent. namespace. Empty (the default) disables promotion.",
+			"{from, to, hash} objects. Registry names (user.id, user.hash, enduser.id, session.id) "+
+			"are left unprefixed; everything else is emitted as kagent.context.<name>. "+
+			"Empty (the default) disables promotion.",
 		ComponentAgentRuntime,
 	)
 

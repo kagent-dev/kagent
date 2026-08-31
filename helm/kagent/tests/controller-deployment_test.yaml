@@ -857,12 +857,12 @@ tests:
         - from: sub
           to: user.id
         - from: thread_id
-          to: kagent.thread_id
+          to: session.id
         - channel
     asserts:
       - equal:
           path: data.KAGENT_TRACE_CONTEXT_KEYS
-          value: '[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"kagent.thread_id"},"channel"]'
+          value: '[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"session.id"},"channel"]'
 
   - it: should omit KAGENT_TRACE_CONTEXT_HASH_KEY by default
     template: controller-deployment.yaml

@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+from unittest.mock import MagicMock, patch
 
 import pytest
 from opentelemetry import baggage
@@ -8,7 +9,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from kagent.core.tracing import caller_context_attributes
+from kagent.core.tracing import caller_context_attributes, merge_caller_context_attributes
 from kagent.core.tracing._context_attributes import (
     CONTEXT_ATTRIBUTE_PREFIX,
     MAX_CONTEXT_KEY_LENGTH,
@@ -70,6 +71,13 @@ class TestCallerContextAttributes:
             baggage_context({"sub": "from-baggage"}),
         ) == {"kagent.context.sub": "from-metadata"}
 
+    def test_empty_metadata_does_not_override_baggage(self, monkeypatch):
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "sub")
+        assert caller_context_attributes(
+            {"sub": "   "},
+            baggage_context({"sub": "from-baggage"}),
+        ) == {"kagent.context.sub": "from-baggage"}
+
     def test_ignores_keys_outside_the_allowlist(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "thread_id")
         assert caller_context_attributes(
@@ -86,6 +94,7 @@ class TestCallerContextAttributes:
             # protobuf Struct has one numeric type, so JSON integers arrive as floats.
             (3.0, "3"),
             (2.5, "2.5"),
+            (1e20, "100000000000000000000"),
         ],
     )
     def test_renders_scalar_metadata_types(self, monkeypatch, value, expected):
@@ -116,20 +125,32 @@ class TestCallerContextAttributes:
         assert promoted == {f"{CONTEXT_ATTRIBUTE_PREFIX}service.name": "impostor"}
 
     def test_registry_attributes_stay_unprefixed(self, monkeypatch):
-        """user.*, enduser.*, and session.id are semantic convention names."""
-        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "user.id,enduser.id,session.id,channel")
+        """Only the explicit registry set is left unprefixed."""
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "user.id,user.hash,enduser.id,session.id,channel")
         assert caller_context_attributes(
             {
                 "user.id": "opaque-subject",
+                "user.hash": "abc",
                 "enduser.id": "end-user",
                 "session.id": "sess-1",
                 "channel": "C0AB1",
             }
         ) == {
             "user.id": "opaque-subject",
+            "user.hash": "abc",
             "enduser.id": "end-user",
             "session.id": "sess-1",
             "kagent.context.channel": "C0AB1",
+        }
+
+    def test_unknown_user_attributes_are_prefixed(self, monkeypatch):
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"x","to":"user.asdasd"},{"from":"y","to":"user.email"}]',
+        )
+        assert caller_context_attributes({"x": "nope", "y": "also-nope"}) == {
+            "kagent.context.user.asdasd": "nope",
+            "kagent.context.user.email": "also-nope",
         }
 
     def test_session_id_is_unprefixed_but_session_foo_is_not(self, monkeypatch):
@@ -139,15 +160,25 @@ class TestCallerContextAttributes:
             "kagent.context.session.foo": "other",
         }
 
-    def test_maps_source_keys_onto_registry_and_kagent_names(self, monkeypatch):
+    def test_maps_source_keys_onto_registry_names(self, monkeypatch):
         monkeypatch.setenv(
             TRACE_CONTEXT_KEYS_ENV_VAR,
-            '[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"kagent.thread_id"},"channel"]',
+            '[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"session.id"},"channel"]',
         )
         assert caller_context_attributes({"sub": "opaque-subject", "thread_id": "T123", "channel": "C0AB1"}) == {
             "user.id": "opaque-subject",
-            "kagent.thread_id": "T123",
+            "session.id": "T123",
             "kagent.context.channel": "C0AB1",
+        }
+
+    def test_kagent_destination_names_are_prefixed(self, monkeypatch):
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"uid","to":"kagent.user_id"},{"from":"tid","to":"kagent.thread_id"}]',
+        )
+        assert caller_context_attributes({"uid": "attacker", "tid": "T123"}) == {
+            "kagent.context.kagent.user_id": "attacker",
+            "kagent.context.kagent.thread_id": "T123",
         }
 
     def test_invalid_json_allowlist_promotes_nothing(self, monkeypatch):
@@ -182,6 +213,43 @@ class TestCallerContextAttributes:
         monkeypatch.setenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, "test-hmac-key")
         assert caller_context_attributes({"email": "ada@example.com"}) == {}
 
+    def test_skips_message_decode_when_allowlist_empty(self, monkeypatch):
+        monkeypatch.delenv(TRACE_CONTEXT_KEYS_ENV_VAR, raising=False)
+        with patch(
+            "kagent.core.tracing._context_attributes.read_message_metadata",
+            return_value={"thread_id": "T1"},
+        ) as decode:
+            assert caller_context_attributes(message=MagicMock()) == {}
+            decode.assert_not_called()
+
+    def test_decodes_message_when_allowlist_is_set(self, monkeypatch):
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "thread_id")
+        message = MagicMock()
+        with patch(
+            "kagent.core.tracing._context_attributes.read_message_metadata",
+            return_value={"thread_id": "T1"},
+        ) as decode:
+            assert caller_context_attributes(message=message) == {"kagent.context.thread_id": "T1"}
+            decode.assert_called_once_with(message)
+
+
+class TestMergeCallerContextAttributes:
+    def test_does_not_override_existing_keys(self, monkeypatch):
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"sub","to":"user.id"},"thread_id"]',
+        )
+        existing = {"user.id": "runtime-user", "kagent.user_id": "runtime-user"}
+        merge_caller_context_attributes(
+            existing,
+            {"sub": "attacker", "thread_id": "T1"},
+        )
+        assert existing == {
+            "user.id": "runtime-user",
+            "kagent.user_id": "runtime-user",
+            "kagent.context.thread_id": "T1",
+        }
+
 
 class TestAllowedContextMappings:
     """Tests for allowlist parsing and its bounds."""
@@ -195,13 +263,27 @@ class TestAllowedContextMappings:
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, f"a,a,{'b' * (MAX_CONTEXT_KEY_LENGTH + 1)},c")
         assert [mapping.source for mapping in _allowed_context_mappings()] == ["a", "c"]
 
+    def test_counts_key_length_in_code_points(self, monkeypatch):
+        kept = "键" * 40
+        dropped = "键" * 65
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, f"{kept},{dropped}")
+        assert [mapping.source for mapping in _allowed_context_mappings()] == [kept]
+
     def test_drops_keys_that_are_not_valid_attribute_names(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "good, bad key ,\tanother\tbad")
         assert [mapping.source for mapping in _allowed_context_mappings()] == ["good"]
 
     def test_empty_allowlist_disables_promotion(self, monkeypatch):
         monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "   ,  ,")
-        assert _allowed_context_mappings() == []
+        assert _allowed_context_mappings() == ()
+
+    def test_cache_survives_env_change_until_cleared(self, monkeypatch):
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "a")
+        assert [mapping.source for mapping in _allowed_context_mappings()] == ["a"]
+        monkeypatch.setenv(TRACE_CONTEXT_KEYS_ENV_VAR, "b")
+        assert [mapping.source for mapping in _allowed_context_mappings()] == ["a"]
+        _allowed_context_mappings.cache_clear()
+        assert [mapping.source for mapping in _allowed_context_mappings()] == ["b"]
 
 
 class TestPromotedAttributesReachEverySpan:

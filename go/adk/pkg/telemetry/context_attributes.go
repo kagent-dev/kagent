@@ -9,29 +9,18 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/otel/baggage"
 )
 
 const (
-	// traceContextKeysEnvVar holds the allowlist of caller-supplied context
-	// keys to promote onto agent spans. Unset or empty (the default) disables
-	// promotion entirely.
-	//
-	// Accepts a comma-separated list of source keys, or a JSON array of strings
-	// and {from, to, hash} objects. See allowedContextMappings.
-	traceContextKeysEnvVar = "KAGENT_TRACE_CONTEXT_KEYS"
-
-	// traceContextHashKeyEnvVar is the HMAC key used when a mapping sets
-	// hash: hmac-sha256. Required for those entries; without it the hashed
-	// attribute is skipped rather than emitted in plaintext.
-	traceContextHashKeyEnvVar = "KAGENT_TRACE_CONTEXT_HASH_KEY"
-
 	// contextAttributePrefix namespaces custom promoted values so they cannot
-	// shadow a semantic convention attribute such as service.name. Registry
-	// names (user.*, enduser.*, session.id) and names already in the kagent.
-	// namespace are left unprefixed; see spanAttributeName.
+	// shadow a semantic convention attribute such as service.name. Only the
+	// explicit registry names in unprefixedAttributes pass through as-is;
+	// see spanAttributeName.
 	contextAttributePrefix = "kagent.context."
 
 	hashHMACSHA256 = "hmac-sha256"
@@ -41,12 +30,42 @@ const (
 	maxContextValueLength = 256
 )
 
+// Names come from env.KagentTraceContextKeys / HashKey so the controller and
+// the runtime share one source of truth.
+var (
+	traceContextKeysEnvVar    = env.KagentTraceContextKeys.Name()
+	traceContextHashKeyEnvVar = env.KagentTraceContextHashKey.Name()
+)
+
+// unprefixedAttributes is the OpenTelemetry registry names callers may emit
+// without a kagent.context. prefix. It is an explicit set so an invented
+// name such as user.asdasd cannot masquerade as a semantic convention.
+var unprefixedAttributes = map[string]struct{}{
+	"user.id":    {},
+	"user.hash":  {},
+	"enduser.id": {},
+	"session.id": {},
+}
+
 // contextMapping is one allowlisted promotion: read source from baggage or
 // A2A metadata and emit it as span attribute attribute (after prefix rules).
 type contextMapping struct {
 	source    string
 	attribute string
 	hash      string
+}
+
+// loadAllowedContextMappings parses KAGENT_TRACE_CONTEXT_KEYS once. The
+// allowlist cannot change without a process restart; tests call
+// resetAllowedContextMappings after t.Setenv.
+var loadAllowedContextMappings = sync.OnceValue(parseAllowedContextMappings)
+
+func resetAllowedContextMappings() {
+	loadAllowedContextMappings = sync.OnceValue(parseAllowedContextMappings)
+}
+
+func allowedContextMappings() []contextMapping {
+	return loadAllowedContextMappings()
 }
 
 // CallerContextAttributes returns the caller-supplied context values that an
@@ -57,9 +76,10 @@ type contextMapping struct {
 //
 // Values are read from W3C baggage first and then from the A2A message
 // metadata, which is the more specific source for a single message and
-// therefore wins. Both are untrusted input, so keys must appear in the
-// allowlist, values are stripped of control characters and truncated, and
-// attribute names go through spanAttributeName.
+// therefore wins — but only when the sanitised metadata scalar is non-empty,
+// so a blank metadata entry cannot wipe a baggage value. Both are untrusted
+// input, so keys must appear in the allowlist, values are stripped of control
+// characters and truncated, and attribute names go through spanAttributeName.
 //
 // Returns nil when the allowlist is empty, which is the default.
 func CallerContextAttributes(ctx context.Context, metadata map[string]any) map[string]string {
@@ -73,7 +93,9 @@ func CallerContextAttributes(ctx context.Context, metadata map[string]any) map[s
 	for _, mapping := range mappings {
 		value := sanitizeContextValue(bag.Member(mapping.source).Value())
 		if scalar, ok := scalarString(metadata[mapping.source]); ok {
-			value = sanitizeContextValue(scalar)
+			if cleaned := sanitizeContextValue(scalar); cleaned != "" {
+				value = cleaned
+			}
 		}
 		if value == "" {
 			continue
@@ -98,11 +120,19 @@ func CallerContextAttributes(ctx context.Context, metadata map[string]any) map[s
 	return attrs
 }
 
-// allowedContextMappings parses the KAGENT_TRACE_CONTEXT_KEYS allowlist.
-// Entries that are empty, over-long, or contain whitespace or control
-// characters are dropped, and the list is capped at maxContextKeys so a
-// misconfigured allowlist cannot inflate span cardinality without bound.
-func allowedContextMappings() []contextMapping {
+// MergeCallerContextAttributes copies promoted caller context into dst without
+// replacing keys that are already set, so caller-supplied data cannot override
+// kagent.user_id, kagent.app_name, or other attributes the runtime already
+// stamped.
+func MergeCallerContextAttributes(dst map[string]string, ctx context.Context, metadata map[string]any) {
+	for key, value := range CallerContextAttributes(ctx, metadata) {
+		if _, exists := dst[key]; !exists {
+			dst[key] = value
+		}
+	}
+}
+
+func parseAllowedContextMappings() []contextMapping {
 	raw := strings.TrimSpace(os.Getenv(traceContextKeysEnvVar))
 	if raw == "" {
 		return nil
@@ -156,13 +186,13 @@ func newContextMapping(from, to, hash string) (contextMapping, bool) {
 	from = strings.TrimSpace(from)
 	to = strings.TrimSpace(to)
 	hash = strings.TrimSpace(hash)
-	if from == "" || len(from) > maxContextKeyLength || !isAttributeKey(from) {
+	if from == "" || len([]rune(from)) > maxContextKeyLength || !isAttributeKey(from) {
 		return contextMapping{}, false
 	}
 	if to == "" {
 		to = from
 	}
-	if len(to) > maxContextKeyLength || !isAttributeKey(to) {
+	if len([]rune(to)) > maxContextKeyLength || !isAttributeKey(to) {
 		return contextMapping{}, false
 	}
 	if hash != "" && hash != hashHMACSHA256 {
@@ -190,21 +220,15 @@ func capMappings(mappings []contextMapping) []contextMapping {
 
 // spanAttributeName is the name written onto the span.
 //
-// user.*, enduser.*, and session.id pass through unprefixed so operators can
-// use the semantic convention names. Names already in the kagent. namespace
-// are left as-is. Everything else is placed under kagent.context. so a
-// caller-supplied service.name cannot shadow the real one.
+// user.id, user.hash, enduser.id, and session.id pass through unprefixed so
+// operators can use the semantic convention names. Everything else is placed
+// under kagent.context. so a caller-supplied service.name or kagent.user_id
+// cannot shadow the real one.
 func spanAttributeName(name string) string {
-	if isRegistryAttribute(name) || strings.HasPrefix(name, "kagent.") {
+	if _, ok := unprefixedAttributes[name]; ok {
 		return name
 	}
 	return contextAttributePrefix + name
-}
-
-func isRegistryAttribute(name string) bool {
-	return strings.HasPrefix(name, "user.") ||
-		strings.HasPrefix(name, "enduser.") ||
-		name == "session.id"
 }
 
 // isAttributeKey reports whether key is safe to use as a span attribute name.
@@ -216,7 +240,8 @@ func isAttributeKey(key string) bool {
 
 // scalarString renders a JSON scalar from A2A message metadata as a string.
 // Objects and arrays are skipped: they are unbounded in size and carry no
-// useful meaning as a span attribute value.
+// useful meaning as a span attribute value. JSON and protobuf Struct decode
+// numbers as float64, so that is the only numeric case.
 func scalarString(value any) (string, bool) {
 	switch v := value.(type) {
 	case string:
@@ -224,11 +249,7 @@ func scalarString(value any) (string, bool) {
 	case bool:
 		return strconv.FormatBool(v), true
 	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64), true
-	case int:
-		return strconv.Itoa(v), true
-	case int64:
-		return strconv.FormatInt(v, 10), true
+		return strconv.FormatFloat(v, 'f', -1, 64), true
 	default:
 		return "", false
 	}
