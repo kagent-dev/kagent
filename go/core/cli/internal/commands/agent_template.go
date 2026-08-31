@@ -5,21 +5,31 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 )
 
-const agentTemplateMaxPageSize = 100
+const (
+	agentTemplateKind        = "AgentTemplate"
+	agentTemplateMaxPageSize = 100
+)
 
 // AgentTemplateGetCfg configures AgentTemplate get and list operations.
 type AgentTemplateGetCfg struct {
@@ -28,6 +38,161 @@ type AgentTemplateGetCfg struct {
 	Name         string
 	PageSize     int64
 	PageToken    string
+}
+
+// AgentTemplateManifestCfg configures an AgentTemplate manifest operation.
+type AgentTemplateManifestCfg struct {
+	OutputFormat string
+	File         string
+}
+
+// AgentTemplateDeleteCfg configures AgentTemplate deletion.
+type AgentTemplateDeleteCfg struct {
+	OutputFormat string
+	Name         string
+}
+
+type agentTemplateLifecycleClient interface {
+	CreateAgentTemplate(context.Context, *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error)
+	UpdateAgentTemplate(context.Context, *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error)
+	DeleteAgentTemplate(context.Context, *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error)
+}
+
+type agentTemplateManifestOperation func(context.Context, agentTemplateLifecycleClient, *apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, clioutput.Format, io.Writer) error
+
+func runAgentTemplateManifest(
+	ctx context.Context,
+	options connection.Options,
+	cfg *AgentTemplateManifestCfg,
+	out io.Writer,
+	operation agentTemplateManifestOperation,
+) (err error) {
+	format, err := clioutput.Parse(cfg.OutputFormat)
+	if err != nil {
+		return err
+	}
+	ref, resource, err := readAgentTemplateManifest(cfg.File, options.Namespace)
+	if err != nil {
+		return err
+	}
+	session, err := connection.Open(ctx, options)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, session.Close())
+	}()
+	return operation(ctx, session.Client.AgentTemplate, ref, resource, format, out)
+}
+
+func readAgentTemplateManifest(filename, namespace string) (*apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read AgentTemplate manifest %q: %w", filename, err)
+	}
+	manifest := &apiv1alpha3.AgentTemplate{}
+	if err := yaml.UnmarshalStrict(data, manifest); err != nil {
+		return nil, nil, fmt.Errorf("parse AgentTemplate manifest %q: %w", filename, err)
+	}
+	if manifest.APIVersion != apiv1alpha3.GroupVersion.String() || manifest.Kind != agentTemplateKind {
+		return nil, nil, fmt.Errorf("AgentTemplate manifest %q must have apiVersion %q and kind %q", filename, apiv1alpha3.GroupVersion.String(), agentTemplateKind)
+	}
+	if manifest.Name == "" {
+		return nil, nil, fmt.Errorf("AgentTemplate manifest %q must have metadata.name", filename)
+	}
+	if manifest.Namespace != "" && manifest.Namespace != namespace {
+		return nil, nil, fmt.Errorf("AgentTemplate manifest namespace %q does not match --namespace %q", manifest.Namespace, namespace)
+	}
+	resource, err := structuredobject.FromGo(manifest, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode AgentTemplate manifest %q: %w", filename, err)
+	}
+	return &apiv1alpha1.ResourceReference{Namespace: namespace, Name: manifest.Name}, resource, nil
+}
+
+func createAgentTemplate(
+	ctx context.Context,
+	client agentTemplateLifecycleClient,
+	ref *apiv1alpha1.ResourceReference,
+	resource *apiv1alpha1.StructuredObject,
+	format clioutput.Format,
+	out io.Writer,
+) error {
+	response, err := client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource})
+	if err != nil {
+		return fmt.Errorf("create AgentTemplate: %w", err)
+	}
+	return writeAgentTemplateResult(out, format, response, response.GetAgentTemplate())
+}
+
+func updateAgentTemplate(
+	ctx context.Context,
+	client agentTemplateLifecycleClient,
+	ref *apiv1alpha1.ResourceReference,
+	resource *apiv1alpha1.StructuredObject,
+	format clioutput.Format,
+	out io.Writer,
+) error {
+	response, err := client.UpdateAgentTemplate(ctx, &apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource})
+	if err != nil {
+		return fmt.Errorf("update AgentTemplate: %w", err)
+	}
+	return writeAgentTemplateResult(out, format, response, response.GetAgentTemplate())
+}
+
+func applyAgentTemplate(
+	ctx context.Context,
+	client agentTemplateLifecycleClient,
+	ref *apiv1alpha1.ResourceReference,
+	resource *apiv1alpha1.StructuredObject,
+	format clioutput.Format,
+	out io.Writer,
+) error {
+	created, err := client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource})
+	if status.Code(err) != codes.AlreadyExists {
+		if err != nil {
+			return fmt.Errorf("apply AgentTemplate: %w", err)
+		}
+		return writeAgentTemplateResult(out, format, created, created.GetAgentTemplate())
+	}
+	updated, err := client.UpdateAgentTemplate(ctx, &apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource})
+	if err != nil {
+		return fmt.Errorf("apply AgentTemplate: %w", err)
+	}
+	return writeAgentTemplateResult(out, format, updated, updated.GetAgentTemplate())
+}
+
+func deleteAgentTemplate(ctx context.Context, client agentTemplateLifecycleClient, namespace string, cfg *AgentTemplateDeleteCfg, format clioutput.Format, out io.Writer) error {
+	response, err := client.DeleteAgentTemplate(ctx, &apiv1alpha1.DeleteAgentTemplateRequest{
+		Ref: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Name},
+	})
+	if err != nil {
+		return fmt.Errorf("delete AgentTemplate: %w", err)
+	}
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteProto(out, response)
+	}
+	tw := table.NewWriter()
+	tw.AppendHeader(table.Row{"NAME", "STATUS"})
+	tw.AppendRow(table.Row{cfg.Name, "DELETED"})
+	if _, err := fmt.Fprintln(out, tw.Render()); err != nil {
+		return fmt.Errorf("write AgentTemplate output: %w", err)
+	}
+	return nil
+}
+
+func writeAgentTemplateResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1alpha1.AgentTemplate) error {
+	if result == nil {
+		return errors.New("AgentTemplate operation returned no AgentTemplate")
+	}
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteProto(w, response)
+	}
+	template := &apiv1alpha3.AgentTemplate{}
+	if err := structuredobject.ToGo(result.GetResource(), agentTemplateKind, template, 0); err != nil {
+		return fmt.Errorf("decode AgentTemplate result: %w", err)
+	}
+	return writeAgentTemplatesTable(w, []apiv1alpha3.AgentTemplate{*template}, false, "")
 }
 
 // runGetAgentTemplate gets one AgentTemplate or lists AgentTemplates through Kubernetes.
@@ -153,4 +318,82 @@ func NewGetAgentTemplateCmd() *cobra.Command {
 	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
 	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
 	return cmd
+}
+
+// NewCreateAgentTemplateCmd constructs the AgentTemplate create command.
+func NewCreateAgentTemplateCmd() *cobra.Command {
+	return newAgentTemplateManifestCmd("agent-template", "Create an AgentTemplate", createAgentTemplate)
+}
+
+// NewUpdateAgentTemplateCmd constructs the AgentTemplate update command.
+func NewUpdateAgentTemplateCmd() *cobra.Command {
+	return newAgentTemplateManifestCmd("agent-template", "Update an AgentTemplate", updateAgentTemplate)
+}
+
+// NewApplyAgentTemplateCmd constructs the AgentTemplate apply command.
+func NewApplyAgentTemplateCmd() *cobra.Command {
+	return newAgentTemplateManifestCmd("apply -f FILE", "Create or update an AgentTemplate", applyAgentTemplate)
+}
+
+func newAgentTemplateManifestCmd(use, short string, operation agentTemplateManifestOperation) *cobra.Command {
+	cfg := &AgentTemplateManifestCfg{}
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			cfg.OutputFormat = format
+			return runAgentTemplateManifest(cmd.Context(), options, cfg, cmd.OutOrStdout(), operation)
+		},
+	}
+	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Path to AgentTemplate manifest")
+	_ = cmd.MarkFlagRequired("file")
+	return cmd
+}
+
+// NewDeleteAgentTemplateCmd constructs the AgentTemplate delete command.
+func NewDeleteAgentTemplateCmd() *cobra.Command {
+	cfg := &AgentTemplateDeleteCfg{}
+	cmd := &cobra.Command{
+		Use:   "agent-template NAME",
+		Short: "Delete an AgentTemplate",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			cfg.OutputFormat = format
+			cfg.Name = args[0]
+			return runDeleteAgentTemplate(cmd.Context(), options, cfg, cmd.OutOrStdout())
+		},
+	}
+	return cmd
+}
+
+func runDeleteAgentTemplate(ctx context.Context, options connection.Options, cfg *AgentTemplateDeleteCfg, out io.Writer) (err error) {
+	format, err := clioutput.Parse(cfg.OutputFormat)
+	if err != nil {
+		return err
+	}
+	session, err := connection.Open(ctx, options)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, session.Close())
+	}()
+	return deleteAgentTemplate(ctx, session.Client.AgentTemplate, session.Namespace, cfg, format, out)
 }

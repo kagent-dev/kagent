@@ -4,13 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
@@ -114,4 +121,114 @@ func templateWithReadyCondition(name, harness string, status metav1.ConditionSta
 			}},
 		}}},
 	}
+}
+
+func TestReadAgentTemplateManifest(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "template.yaml")
+	require.NoError(t, os.WriteFile(manifestPath, []byte(`
+apiVersion: kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: researcher
+spec:
+  modelConfig:
+    name: default
+`), 0o600))
+
+	ref, resource, err := readAgentTemplateManifest(manifestPath, "team-a")
+	require.NoError(t, err)
+	assert.Equal(t, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "researcher"}, ref)
+	decoded := &apiv1alpha3.AgentTemplate{}
+	require.NoError(t, structuredobject.ToGo(resource, agentTemplateKind, decoded, 0))
+	assert.Equal(t, "default", decoded.Spec.ModelConfig.Name)
+
+	require.NoError(t, os.WriteFile(manifestPath, []byte(`
+apiVersion: kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: researcher
+  namespace: other
+spec:
+  modelConfig:
+    name: default
+`), 0o600))
+	_, _, err = readAgentTemplateManifest(manifestPath, "team-a")
+	require.ErrorContains(t, err, `does not match --namespace`)
+}
+
+func TestAgentTemplateLifecycleCommands(t *testing.T) {
+	template := testAgentTemplateMessage(t)
+	ref := template.GetRef()
+	resource := template.GetResource()
+
+	t.Run("create", func(t *testing.T) {
+		client := &recordingAgentTemplateClient{template: template}
+		var output bytes.Buffer
+		require.NoError(t, createAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &output))
+		assert.True(t, proto.Equal(&apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource}, client.createRequest))
+		assert.Contains(t, output.String(), "researcher")
+	})
+
+	t.Run("update", func(t *testing.T) {
+		client := &recordingAgentTemplateClient{template: template}
+		require.NoError(t, updateAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatJSON, &bytes.Buffer{}))
+		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
+	})
+
+	t.Run("apply updates existing", func(t *testing.T) {
+		client := &recordingAgentTemplateClient{template: template, createErr: status.Error(codes.AlreadyExists, "exists")}
+		require.NoError(t, applyAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &bytes.Buffer{}))
+		assert.NotNil(t, client.createRequest)
+		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		client := &recordingAgentTemplateClient{}
+		var output bytes.Buffer
+		require.NoError(t, deleteAgentTemplate(t.Context(), client, "team-a", &AgentTemplateDeleteCfg{Name: "researcher"}, clioutput.FormatTable, &output))
+		assert.True(t, proto.Equal(&apiv1alpha1.DeleteAgentTemplateRequest{Ref: ref}, client.deleteRequest))
+		assert.Contains(t, output.String(), "researcher")
+		assert.Contains(t, output.String(), "DELETED")
+	})
+}
+
+func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
+	t.Helper()
+	template := &apiv1alpha3.AgentTemplate{
+		TypeMeta:   metav1.TypeMeta{APIVersion: apiv1alpha3.GroupVersion.String(), Kind: agentTemplateKind},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "researcher"},
+		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: apiv1alpha3.AgentTemplateLocalReference{Name: "default"}},
+	}
+	resource, err := structuredobject.FromGo(template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
+	require.NoError(t, err)
+	return &apiv1alpha1.AgentTemplate{
+		Ref:      &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
+		Resource: resource,
+	}
+}
+
+type recordingAgentTemplateClient struct {
+	template      *apiv1alpha1.AgentTemplate
+	createErr     error
+	createRequest *apiv1alpha1.CreateAgentTemplateRequest
+	updateRequest *apiv1alpha1.UpdateAgentTemplateRequest
+	deleteRequest *apiv1alpha1.DeleteAgentTemplateRequest
+}
+
+func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error) {
+	c.createRequest = request
+	if c.createErr != nil {
+		return nil, c.createErr
+	}
+	return &apiv1alpha1.CreateAgentTemplateResponse{AgentTemplate: c.template}, nil
+}
+
+func (c *recordingAgentTemplateClient) UpdateAgentTemplate(_ context.Context, request *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error) {
+	c.updateRequest = request
+	return &apiv1alpha1.UpdateAgentTemplateResponse{AgentTemplate: c.template}, nil
+}
+
+func (c *recordingAgentTemplateClient) DeleteAgentTemplate(_ context.Context, request *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error) {
+	c.deleteRequest = request
+	return &apiv1alpha1.DeleteAgentTemplateResponse{}, nil
 }
