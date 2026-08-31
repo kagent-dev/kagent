@@ -28,17 +28,23 @@ func Root() *cobra.Command {
 
 	getCmd := newResourceGroupCmd("get", "Get a kagent resource")
 	createCmd := newResourceGroupCmd("create", "Create a kagent resource")
+	updateCmd := newResourceGroupCmd("update", "Update a kagent resource")
 	deleteCmd := newResourceGroupCmd("delete", "Delete a kagent resource")
 
 	getCmd.AddCommand(agentinstancecli.NewGetCmd())
 	getCmd.AddCommand(commands.NewGetAgentTemplateCmd())
 	createCmd.AddCommand(agentinstancecli.NewCreateCmd())
+	createCmd.AddCommand(commands.NewCreateAgentTemplateCmd())
+	updateCmd.AddCommand(commands.NewUpdateAgentTemplateCmd())
 	deleteCmd.AddCommand(agentinstancecli.NewDeleteCmd())
+	deleteCmd.AddCommand(commands.NewDeleteAgentTemplateCmd())
 
 	rootCmd.AddCommand(
 		getCmd,
 		createCmd,
+		updateCmd,
 		deleteCmd,
+		commands.NewApplyAgentTemplateCmd(),
 		agentinstancecli.NewInvokeCmd(),
 		commands.NewInstallCmd(),
 		commands.NewUninstallCmd(),
