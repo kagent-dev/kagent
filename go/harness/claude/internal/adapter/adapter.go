@@ -59,9 +59,9 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	if cfg.SkillResources != nil {
-		if err := agentplugins.MaterializeSkills(ctx, *cfg.SkillResources, agentplugins.SkillPaths{
-			Plugins: filepath.Join(claudeDir, "packages"),
-			Skills:  filepath.Join(claudeDir, "skills"),
+		if _, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
+			Packages: filepath.Join(claudeDir, "packages"),
+			Skills:   filepath.Join(claudeDir, "skills"),
 		}); err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}

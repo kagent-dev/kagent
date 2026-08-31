@@ -14,15 +14,11 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 )
 
 const (
-	DefaultPluginRoot = "/plugins"
-	DefaultSkillsRoot = "/skills"
-	DefaultDataRoot   = "/data/plugins"
 	maxPackageBytes   = 100 << 20
 	maxPackageEntries = 10_000
 	pluginSchema      = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
@@ -31,84 +27,73 @@ const (
 
 var pluginNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
-// SkillPaths contains the package cache and selected-skill destinations shared
-// by Harness adapters.
-type SkillPaths struct {
-	Plugins string
-	Skills  string
+// Paths contains the package cache and selected-skill destinations.
+type Paths struct {
+	Packages string
+	Skills   string
 }
 
-// ADKPaths adds the plugin data destination needed by ADK MCP servers.
-type ADKPaths struct {
-	SkillPaths
-	Data string
+// Materialization is the runtime-neutral result of materializing Agent Plugin
+// resources. Its plugin package locations remain private to this package.
+type Materialization struct {
+	SkillsDirectory string
+	plugins         []materializedPlugin
 }
 
-type mcpConfig struct {
-	HTTP  []adk.HttpMcpServerConfig
-	SSE   []adk.SseMcpServerConfig
-	Stdio []adk.StdioMcpServerConfig
+// MCPConfig contains MCP servers resolved from materialized plugins.
+type MCPConfig struct {
+	StreamableHTTP []RemoteMCPServer
+	SSE            []RemoteMCPServer
+	Stdio          []StdioMCPServer
 }
 
-// MaterializeAgentConfig materializes plugins independently for every agent.
-func MaterializeAgentConfig(ctx context.Context, config *adk.AgentConfig, paths ADKPaths) error {
-	if config.AgentPlugins != nil {
-		plugins, err := materializeForADK(ctx, *config.AgentPlugins, paths)
-		if err != nil {
-			return err
-		}
-		config.HttpTools = append(config.HttpTools, plugins.HTTP...)
-		config.SseTools = append(config.SseTools, plugins.SSE...)
-		config.StdioTools = append(config.StdioTools, plugins.Stdio...)
-		config.SkillsDirectory = paths.Skills
-	}
-	for i, child := range config.SubAgents {
-		childRoot := filepath.Join("subagents", fmt.Sprintf("%d", i))
-		if err := MaterializeAgentConfig(ctx, child, ADKPaths{
-			SkillPaths: SkillPaths{
-				Plugins: filepath.Join(paths.Plugins, childRoot),
-				Skills:  filepath.Join(paths.Skills, childRoot),
-			},
-			Data: filepath.Join(paths.Data, childRoot),
-		}); err != nil {
-			return fmt.Errorf("materialize sub-agent %q: %w", child.Name, err)
-		}
-	}
-	return nil
+// RemoteMCPServer is an HTTP-based MCP server resolved from mcp.json.
+type RemoteMCPServer struct {
+	URL     string
+	Headers map[string]string
 }
 
-// MaterializeSkills materializes standalone and plugin-selected skills without
-// loading any plugin-provided MCP configuration. Runtimes that support only
-// Agent Skills should use this narrower entrypoint.
-func MaterializeSkills(ctx context.Context, resources agentplugin.Resources, paths SkillPaths) error {
-	_, err := materializeResources(ctx, resources, paths)
-	return err
+// StdioMCPServer is a local MCP server resolved from mcp.json.
+type StdioMCPServer struct {
+	Command string
+	Args    []string
+	Env     map[string]string
+	Dir     string
 }
 
-func materializeForADK(ctx context.Context, resources agentplugin.Resources, paths ADKPaths) (mcpConfig, error) {
-	plugins, err := materializeResources(ctx, resources, paths.SkillPaths)
+// MaterializedPlugin is a plugin that has been materialized.
+type materializedPlugin struct {
+	name string
+	root string
+}
+
+// Materialize fetches Agent Plugin resources and copies explicitly selected
+// skills into their runtime directory. It does not load runtime configuration.
+func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
+	plugins, err := materializeResources(ctx, resources, paths)
 	if err != nil {
-		return mcpConfig{}, err
+		return Materialization{}, err
 	}
-	if err := os.MkdirAll(paths.Data, 0o755); err != nil {
-		return mcpConfig{}, fmt.Errorf("create plugin data directory: %w", err)
+	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+}
+
+// LoadMCP resolves standard MCP configuration from a materialization. The
+// caller chooses the runtime-owned root for mutable plugin data.
+func LoadMCP(ctx context.Context, materialization Materialization, dataRoot string) (MCPConfig, error) {
+	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
+		return MCPConfig{}, fmt.Errorf("create plugin data directory: %w", err)
 	}
-	var result mcpConfig
-	for _, plugin := range plugins {
-		mcp := loadMCP(ctx, plugin.root, filepath.Join(paths.Data, plugin.name))
-		result.HTTP = append(result.HTTP, mcp.HTTP...)
+	var result MCPConfig
+	for _, plugin := range materialization.plugins {
+		mcp := loadMCP(ctx, plugin.root, filepath.Join(dataRoot, plugin.name))
+		result.StreamableHTTP = append(result.StreamableHTTP, mcp.StreamableHTTP...)
 		result.SSE = append(result.SSE, mcp.SSE...)
 		result.Stdio = append(result.Stdio, mcp.Stdio...)
 	}
 	return result, nil
 }
 
-type materializedPlugin struct {
-	name string
-	root string
-}
-
-func materializeResources(ctx context.Context, resources agentplugin.Resources, paths SkillPaths) ([]materializedPlugin, error) {
+func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
 	selectedSkills := make([]string, 0, len(resources.Skills))
 	for _, skill := range resources.Skills {
 		selectedSkills = append(selectedSkills, skill.Name)
@@ -123,12 +108,12 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
 		return nil, fmt.Errorf("create skills directory: %w", err)
 	}
-	if err := os.MkdirAll(paths.Plugins, 0o755); err != nil {
-		return nil, fmt.Errorf("create plugins directory: %w", err)
+	if err := os.MkdirAll(paths.Packages, 0o755); err != nil {
+		return nil, fmt.Errorf("create package directory: %w", err)
 	}
 
 	for i, skill := range resources.Skills {
-		root := filepath.Join(paths.Plugins, fmt.Sprintf("standalone-%d", i))
+		root := filepath.Join(paths.Packages, fmt.Sprintf("standalone-%d", i))
 		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
 		if err != nil {
 			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
@@ -141,7 +126,7 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 	pluginNames := make(map[string]struct{})
 	plugins := make([]materializedPlugin, 0, len(resources.Plugins))
 	for i, plugin := range resources.Plugins {
-		root := filepath.Join(paths.Plugins, fmt.Sprintf("plugin-%d", i))
+		root := filepath.Join(paths.Packages, fmt.Sprintf("plugin-%d", i))
 		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json")
 		if err != nil {
 			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
@@ -449,36 +434,36 @@ type mcpServer struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-func loadMCP(ctx context.Context, root, dataRoot string) mcpConfig {
+func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 	raw, err := os.ReadFile(filepath.Join(root, "mcp.json"))
 	if os.IsNotExist(err) {
-		return mcpConfig{}
+		return MCPConfig{}
 	}
 	log := logr.FromContextOrDiscard(ctx)
 	if err != nil {
 		log.Error(err, "Unable to read plugin MCP configuration", "pluginRoot", root)
-		return mcpConfig{}
+		return MCPConfig{}
 	}
 	var document mcpDocument
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&document); err != nil {
 		log.Error(err, "Invalid plugin MCP configuration", "pluginRoot", root)
-		return mcpConfig{}
+		return MCPConfig{}
 	}
 	if document.Schema != mcpSchema {
 		log.Error(fmt.Errorf("unsupported MCP schema %q", document.Schema), "Invalid plugin MCP configuration", "pluginRoot", root)
-		return mcpConfig{}
+		return MCPConfig{}
 	}
 	if document.Servers == nil {
 		log.Error(fmt.Errorf("mcpServers is required"), "Invalid plugin MCP configuration", "pluginRoot", root)
-		return mcpConfig{}
+		return MCPConfig{}
 	}
 	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
 		log.Error(err, "Unable to create plugin data directory", "pluginRoot", root)
-		return mcpConfig{}
+		return MCPConfig{}
 	}
-	var result mcpConfig
+	var result MCPConfig
 	names := make([]string, 0, len(document.Servers))
 	for name := range document.Servers {
 		names = append(names, name)
@@ -493,11 +478,11 @@ func loadMCP(ctx context.Context, root, dataRoot string) mcpConfig {
 		}
 		switch server.Type {
 		case "stdio":
-			result.Stdio = append(result.Stdio, adk.StdioMcpServerConfig{Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
+			result.Stdio = append(result.Stdio, StdioMCPServer{Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
 		case "streamable-http":
-			result.HTTP = append(result.HTTP, adk.HttpMcpServerConfig{Params: adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers}})
+			result.StreamableHTTP = append(result.StreamableHTTP, RemoteMCPServer{URL: server.URL, Headers: server.Headers})
 		case "sse":
-			result.SSE = append(result.SSE, adk.SseMcpServerConfig{Params: adk.SseConnectionParams{Url: server.URL, Headers: server.Headers}})
+			result.SSE = append(result.SSE, RemoteMCPServer{URL: server.URL, Headers: server.Headers})
 		}
 	}
 	return result

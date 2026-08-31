@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
@@ -45,12 +44,16 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	commit := git("rev-parse", "HEAD")
 
 	root := t.TempDir()
-	result, err := materializeForADK(context.Background(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+	materialization, err := Materialize(context.Background(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{
 		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
-	}}}, ADKPaths{
-		SkillPaths: SkillPaths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills")},
-		Data:       filepath.Join(root, "data"),
+	}}}, Paths{
+		Packages: filepath.Join(root, "packages"),
+		Skills:   filepath.Join(root, "skills"),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadMCP(context.Background(), materialization, filepath.Join(root, "data"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,45 +93,7 @@ func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	}
 }
 
-func TestMaterializeAgentConfigIsolatesSubagentSkills(t *testing.T) {
-	root := t.TempDir()
-	paths := ADKPaths{
-		SkillPaths: SkillPaths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills")},
-		Data:       filepath.Join(root, "data"),
-	}
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
-	config := &adk.AgentConfig{
-		AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}},
-		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}}}},
-	}
-	for _, path := range []string{
-		filepath.Join(paths.Plugins, "standalone-0"),
-		filepath.Join(paths.Plugins, "subagents", "0", "standalone-0"),
-	} {
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := MaterializeAgentConfig(context.Background(), config, paths); err != nil {
-		t.Fatal(err)
-	}
-	if config.SkillsDirectory == config.SubAgents[0].SkillsDirectory {
-		t.Fatalf("root and child share skills directory %q", config.SkillsDirectory)
-	}
-	for _, path := range []string{
-		filepath.Join(config.SkillsDirectory, "root", "SKILL.md"),
-		filepath.Join(config.SubAgents[0].SkillsDirectory, "child", "SKILL.md"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("materialized skill %q: %v", path, err)
-		}
-	}
-}
-
-func TestMaterializeSkillsCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
+func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
 	root := t.TempDir()
 	pluginRoot := filepath.Join(root, "plugins", "plugin-0")
 	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "review"), 0o755); err != nil {
@@ -144,15 +109,15 @@ func TestMaterializeSkillsCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	paths := SkillPaths{
-		Plugins: filepath.Join(root, "plugins"),
-		Skills:  filepath.Join(root, "skills"),
+	paths := Paths{
+		Packages: filepath.Join(root, "plugins"),
+		Skills:   filepath.Join(root, "skills"),
 	}
 	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
 		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
 		Skills: []string{"review"},
 	}}}
-	if err := MaterializeSkills(context.Background(), resources, paths); err != nil {
+	if _, err := Materialize(context.Background(), resources, paths); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
