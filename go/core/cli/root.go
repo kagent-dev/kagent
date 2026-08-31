@@ -6,9 +6,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands"
 	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/agentinstance"
-	agenttemplatecli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/agenttemplate"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/db"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
@@ -33,7 +31,7 @@ func Root() *cobra.Command {
 	deleteCmd := newResourceGroupCmd("delete", "Delete a kagent resource")
 
 	getCmd.AddCommand(agentinstancecli.NewGetCmd())
-	getCmd.AddCommand(agenttemplatecli.NewGetCmd())
+	getCmd.AddCommand(commands.NewGetAgentTemplateCmd())
 	createCmd.AddCommand(agentinstancecli.NewCreateCmd())
 	deleteCmd.AddCommand(agentinstancecli.NewDeleteCmd())
 
@@ -48,7 +46,7 @@ func Root() *cobra.Command {
 		commands.NewVersionCmd(),
 		commands.NewDashboardCmd(),
 		mcp.NewMCPCmd(),
-		envdoc.NewEnvCmd(),
+		commands.NewEnvCmd(),
 		dbcli.NewDBCmd(),
 	)
 	return rootCmd

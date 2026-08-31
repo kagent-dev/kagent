@@ -1,5 +1,4 @@
-// Package agenttemplate implements AgentTemplate CLI commands.
-package agenttemplate
+package commands
 
 import (
 	"context"
@@ -20,10 +19,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const maxPageSize = 100
+const agentTemplateMaxPageSize = 100
 
-// GetCfg configures AgentTemplate get and list operations.
-type GetCfg struct {
+// AgentTemplateGetCfg configures AgentTemplate get and list operations.
+type AgentTemplateGetCfg struct {
 	Namespace    string
 	OutputFormat string
 	Name         string
@@ -31,13 +30,13 @@ type GetCfg struct {
 	PageToken    string
 }
 
-// runGet gets one AgentTemplate or lists AgentTemplates through Kubernetes.
-func runGet(ctx context.Context, cfg *GetCfg, out io.Writer) error {
+// runGetAgentTemplate gets one AgentTemplate or lists AgentTemplates through Kubernetes.
+func runGetAgentTemplate(ctx context.Context, cfg *AgentTemplateGetCfg, out io.Writer) error {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
-	if err := validateGetCfg(cfg); err != nil {
+	if err := validateAgentTemplateGetCfg(cfg); err != nil {
 		return err
 	}
 
@@ -45,12 +44,12 @@ func runGet(ctx context.Context, cfg *GetCfg, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return get(ctx, clients.ApiV1alpha3().AgentTemplates(cfg.Namespace), cfg, format, out)
+	return getAgentTemplates(ctx, clients.ApiV1alpha3().AgentTemplates(cfg.Namespace), cfg, format, out)
 }
 
-func validateGetCfg(cfg *GetCfg) error {
-	if cfg.PageSize < 0 || cfg.PageSize > maxPageSize {
-		return fmt.Errorf("page size must be between 1 and %d, or 0 for the default of %d", maxPageSize, maxPageSize)
+func validateAgentTemplateGetCfg(cfg *AgentTemplateGetCfg) error {
+	if cfg.PageSize < 0 || cfg.PageSize > agentTemplateMaxPageSize {
+		return fmt.Errorf("page size must be between 1 and %d, or 0 for the default of %d", agentTemplateMaxPageSize, agentTemplateMaxPageSize)
 	}
 	if cfg.Name != "" && (cfg.PageSize != 0 || cfg.PageToken != "") {
 		return errors.New("pagination flags cannot be used when getting one AgentTemplate")
@@ -58,10 +57,10 @@ func validateGetCfg(cfg *GetCfg) error {
 	return nil
 }
 
-func get(
+func getAgentTemplates(
 	ctx context.Context,
 	client typedapiv1alpha3.AgentTemplateInterface,
-	cfg *GetCfg,
+	cfg *AgentTemplateGetCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
@@ -73,12 +72,12 @@ func get(
 		if format == clioutput.FormatJSON {
 			return clioutput.WriteJSON(out, template)
 		}
-		return writeTemplatesTable(out, []apiv1alpha3.AgentTemplate{*template}, false, "")
+		return writeAgentTemplatesTable(out, []apiv1alpha3.AgentTemplate{*template}, false, "")
 	}
 
 	pageSize := cfg.PageSize
 	if pageSize == 0 {
-		pageSize = maxPageSize
+		pageSize = agentTemplateMaxPageSize
 	}
 	templates, err := client.List(ctx, metav1.ListOptions{Limit: pageSize, Continue: cfg.PageToken})
 	if err != nil {
@@ -87,10 +86,10 @@ func get(
 	if format == clioutput.FormatJSON {
 		return clioutput.WriteJSON(out, templates)
 	}
-	return writeTemplatesTable(out, templates.Items, true, templates.Continue)
+	return writeAgentTemplatesTable(out, templates.Items, true, templates.Continue)
 }
 
-func writeTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, list bool, nextPageToken string) error {
+func writeAgentTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, list bool, nextPageToken string) error {
 	tw := table.NewWriter()
 	tw.AppendHeader(table.Row{"NAME", "HARNESS", "READY", "CREATED"})
 	for i := range templates {
@@ -125,9 +124,9 @@ func writeTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, lis
 	return nil
 }
 
-// NewGetCmd constructs the AgentTemplate get/list command.
-func NewGetCmd() *cobra.Command {
-	cfg := &GetCfg{}
+// NewGetAgentTemplateCmd constructs the AgentTemplate get/list command.
+func NewGetAgentTemplateCmd() *cobra.Command {
+	cfg := &AgentTemplateGetCfg{}
 	cmd := &cobra.Command{
 		Use:   "agent-template [NAME]",
 		Short: "Get an AgentTemplate or list AgentTemplates",
@@ -148,7 +147,7 @@ func NewGetCmd() *cobra.Command {
 			cfg.Namespace = options.Namespace
 			cfg.OutputFormat = format
 			cfg.Name = name
-			return runGet(cmd.Context(), cfg, cmd.OutOrStdout())
+			return runGetAgentTemplate(cmd.Context(), cfg, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")

@@ -1,4 +1,4 @@
-package envdoc
+package commands
 
 import (
 	"fmt"
