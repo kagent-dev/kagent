@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"iter"
 	"sync"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
@@ -42,10 +44,11 @@ type activeTask struct {
 }
 
 type executionSink struct {
-	reqCtx       *a2asrv.ExecutorContext
-	yield        func(a2atype.Event, error) bool
-	continuation ContinuationStore
-	artifactID   a2atype.ArtifactID
+	reqCtx         *a2asrv.ExecutorContext
+	yield          func(a2atype.Event, error) bool
+	continuation   ContinuationStore
+	textArtifactID a2atype.ArtifactID
+	lastPosition   time.Time
 }
 
 var (
@@ -92,9 +95,10 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if !yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil), nil) {
 			return
 		}
+		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
 		outcome, runErr := e.runner.Run(runCtx, runtime.Turn{
 			Prompt: prompt, ContinuationID: continuationID,
-		}, &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation})
+		}, sink)
 		if errors.Is(runErr, errYieldStopped) {
 			return
 		}
@@ -104,6 +108,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if runErr != nil {
 			finish()
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
+			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
@@ -117,6 +122,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
+		message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 	}
 }
@@ -136,11 +142,12 @@ func (s *executionSink) TextDelta(event runtime.TextDelta) error {
 		return nil
 	}
 	var update *a2atype.TaskArtifactUpdateEvent
-	if s.artifactID == "" {
+	if s.textArtifactID == "" {
 		update = a2atype.NewArtifactEvent(s.reqCtx, a2atype.NewTextPart(event.Text))
-		s.artifactID = update.Artifact.ID
+		s.textArtifactID = update.Artifact.ID
+		update.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, s.nextTimelinePosition())
 	} else {
-		update = a2atype.NewArtifactUpdateEvent(s.reqCtx, s.artifactID, a2atype.NewTextPart(event.Text))
+		update = a2atype.NewArtifactUpdateEvent(s.reqCtx, s.textArtifactID, a2atype.NewTextPart(event.Text))
 	}
 	if !s.yield(update, nil) {
 		return errYieldStopped
@@ -149,28 +156,45 @@ func (s *executionSink) TextDelta(event runtime.TextDelta) error {
 }
 
 func (s *executionSink) ToolCall(event runtime.ToolCall) error {
-	message, err := toolCallMessage(s.reqCtx, event)
+	part, err := toolCallPart(event)
 	if err != nil {
 		return err
 	}
-	if !s.yield(a2atype.NewStatusUpdateEvent(s.reqCtx, a2atype.TaskStateWorking, message), nil) {
-		return errYieldStopped
-	}
-	return nil
+	return s.emitToolArtifact(part)
 }
 
 func (s *executionSink) ToolResult(event runtime.ToolResult) error {
-	message, err := toolResultMessage(s.reqCtx, event)
+	part, err := toolResultPart(event)
 	if err != nil {
 		return err
 	}
-	if !s.yield(a2atype.NewStatusUpdateEvent(s.reqCtx, a2atype.TaskStateWorking, message), nil) {
+	return s.emitToolArtifact(part)
+}
+
+func (s *executionSink) emitToolArtifact(part *a2atype.Part) error {
+	// Append relates deltas within one contiguous text run. Tool activity closes
+	// that run and is an agent-produced artifact of its own, matching the Go ADK's
+	// OutputArtifactPerEvent representation.
+	s.textArtifactID = ""
+	update := a2atype.NewArtifactEvent(s.reqCtx, part)
+	update.LastChunk = true
+	update.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, s.nextTimelinePosition())
+	if !s.yield(update, nil) {
 		return errYieldStopped
 	}
 	return nil
 }
 
-func toolCallMessage(reqCtx *a2asrv.ExecutorContext, event runtime.ToolCall) (*a2atype.Message, error) {
+func (s *executionSink) nextTimelinePosition() string {
+	position := time.Now().UTC()
+	if !position.After(s.lastPosition) {
+		position = s.lastPosition.Add(time.Nanosecond)
+	}
+	s.lastPosition = position
+	return position.Format(time.RFC3339Nano)
+}
+
+func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {
 	if event.ID == "" || event.Name == "" {
 		return nil, fmt.Errorf("runtime tool call requires an ID and name")
 	}
@@ -178,12 +202,12 @@ func toolCallMessage(reqCtx *a2asrv.ExecutorContext, event runtime.ToolCall) (*a
 	if args == nil {
 		args = map[string]any{}
 	}
-	return toolActivityMessage(reqCtx, "function_call", map[string]any{
+	return toolActivityPart("function_call", map[string]any{
 		"id": event.ID, "name": event.Name, "args": args,
 	}), nil
 }
 
-func toolResultMessage(reqCtx *a2asrv.ExecutorContext, event runtime.ToolResult) (*a2atype.Message, error) {
+func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	if event.ID == "" || event.Name == "" {
 		return nil, fmt.Errorf("runtime tool result requires an ID and name")
 	}
@@ -191,17 +215,15 @@ func toolResultMessage(reqCtx *a2asrv.ExecutorContext, event runtime.ToolResult)
 	if event.IsError {
 		response["isError"] = true
 	}
-	return toolActivityMessage(reqCtx, "function_response", map[string]any{
+	return toolActivityPart("function_response", map[string]any{
 		"id": event.ID, "name": event.Name, "response": response,
 	}), nil
 }
 
-func toolActivityMessage(reqCtx *a2asrv.ExecutorContext, partType string, data map[string]any) *a2atype.Message {
+func toolActivityPart(partType string, data map[string]any) *a2atype.Part {
 	part := a2atype.NewDataPart(data)
 	part.Metadata = map[string]any{"kagent_type": partType}
-	message := a2atype.NewMessage(a2atype.MessageRoleAgent, part)
-	message.TaskID, message.ContextID = reqCtx.TaskID, reqCtx.ContextID
-	return message
+	return part
 }
 
 func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {

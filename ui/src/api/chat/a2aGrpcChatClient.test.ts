@@ -457,6 +457,63 @@ describe("A2AGrpcChatClient.send", () => {
     ).toEqual(["two"]);
   });
 
+  it("keeps text runs on opposite sides of tool activity separate", async () => {
+    const artifact = (
+      id: string,
+      parts: (ReturnType<typeof text> | ReturnType<typeof data>)[],
+    ) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: id, parts },
+        },
+      },
+    });
+    const events = await turn([
+      artifact("text-before", [text("I will inspect it.")]),
+      artifact("call-1", [
+        data({ name: "command_execution", args: { command: "pwd" } }),
+      ]),
+      artifact("result-1", [
+        data({ name: "command_execution", response: { result: "/workspace" } }),
+      ]),
+      artifact("text-after", [text("The workspace is ready.")]),
+    ]);
+
+    const messages = transcript(events).filter((message) => message.role === "agent");
+    expect(messages.map((message) => message.id)).toEqual([
+      "text-before",
+      "call-1",
+      "result-1",
+      "text-after",
+    ]);
+    expect(
+      messages.flatMap((message) =>
+        message.parts.map((part) => (part.kind === "data" ? part.dataKind : part.kind)),
+      ),
+    ).toEqual(["text", "tool_call", "tool_result", "text"]);
+  });
+
+  it("keeps distinct artifacts even when their text is identical", async () => {
+    const artifact = (id: string) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: id, parts: [text("same text")] },
+        },
+      },
+    });
+    const events = await turn([artifact("first"), artifact("second")]);
+
+    expect(
+      transcript(events)
+        .filter((message) => message.role === "agent")
+        .map((message) => message.id),
+    ).toEqual(["first", "second"]);
+  });
+
   it("labels a tool call and its result distinguishably", async () => {
     const events = await turn([
       statusFrame({
@@ -575,6 +632,64 @@ describe("A2AGrpcChatClient.history", () => {
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
     expect(messages.map((message) => message.id)).toEqual(["u0", "a0", "a1", "u1", "a2"]);
+  });
+
+  it("replays text on both sides of tool activity in its original order", async () => {
+    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          { messageId: "user", role: Role.USER, parts: [text("inspect")], metadata: position("1") },
+        ],
+        artifacts: [
+          { artifactId: "text-before", parts: [text("I will inspect it.")], metadata: position("2") },
+          {
+            artifactId: "call",
+            parts: [data({ name: "command_execution", args: { command: "pwd" } })],
+            metadata: position("3"),
+          },
+          {
+            artifactId: "result",
+            parts: [data({ name: "command_execution", response: { result: "/workspace" } })],
+            metadata: position("4"),
+          },
+          { artifactId: "text-after", parts: [text("The workspace is ready.")], metadata: position("5") },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual([
+      "user",
+      "text-before",
+      "call",
+      "result",
+      "text-after",
+    ]);
+  });
+
+  it("does not use text as identity for positioned artifacts", async () => {
+    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          { messageId: "user", role: Role.USER, parts: [text("repeat")], metadata: position("1") },
+        ],
+        artifacts: [
+          { artifactId: "first", parts: [text("same text")], metadata: position("2") },
+          { artifactId: "second", parts: [text("same text")], metadata: position("3") },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual(["user", "first", "second"]);
   });
 
   it("keeps a tool call and its result apart when replaying", async () => {
