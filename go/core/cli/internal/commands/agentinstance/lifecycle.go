@@ -8,8 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -22,7 +23,6 @@ type lifecycleClient interface {
 
 // CreateCfg configures AgentInstance creation.
 type CreateCfg struct {
-	Connection    *connection.Options
 	OutputFormat  string
 	Harness       string
 	AgentTemplate string
@@ -31,32 +31,31 @@ type CreateCfg struct {
 
 // DeleteCfg configures AgentInstance deletion.
 type DeleteCfg struct {
-	Connection   *connection.Options
 	OutputFormat string
 	InstanceID   string
 }
 
-// CreateCmd creates an AgentInstance.
-func CreateCmd(ctx context.Context, cfg *CreateCfg, out io.Writer) (err error) {
+// runCreate creates an AgentInstance.
+func runCreate(
+	ctx context.Context,
+	options connection.Options,
+	cfg *CreateCfg,
+	out io.Writer,
+) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
 	ensureRequestID(cfg)
 
-	portForward, err := connection.Connect(ctx, cfg.Connection)
+	session, err := connection.Open(ctx, options)
 	if err != nil {
-		return fmt.Errorf("connect to kagent: %w", err)
+		return err
 	}
-	if portForward != nil {
-		defer portForward.Stop()
-	}
-
-	clientSet := cfg.Connection.Client()
 	defer func() {
-		err = errors.Join(err, clientSet.Close())
+		err = errors.Join(err, session.Close())
 	}()
-	return create(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
+	return create(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func ensureRequestID(cfg *CreateCfg) {
@@ -65,25 +64,25 @@ func ensureRequestID(cfg *CreateCfg) {
 	}
 }
 
-// DeleteCmd deletes an AgentInstance.
-func DeleteCmd(ctx context.Context, cfg *DeleteCfg, out io.Writer) (err error) {
+// runDelete deletes an AgentInstance.
+func runDelete(
+	ctx context.Context,
+	options connection.Options,
+	cfg *DeleteCfg,
+	out io.Writer,
+) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
 	}
-	portForward, err := connection.Connect(ctx, cfg.Connection)
+	session, err := connection.Open(ctx, options)
 	if err != nil {
-		return fmt.Errorf("connect to kagent: %w", err)
+		return err
 	}
-	if portForward != nil {
-		defer portForward.Stop()
-	}
-
-	clientSet := cfg.Connection.Client()
 	defer func() {
-		err = errors.Join(err, clientSet.Close())
+		err = errors.Join(err, session.Close())
 	}()
-	return deleteAgentInstance(ctx, clientSet.AgentInstance, cfg.Connection.Namespace, cfg, format, out)
+	return deleteAgentInstance(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func create(
@@ -140,4 +139,56 @@ func writeLifecycleResult(
 		return clioutput.WriteProto(w, response)
 	}
 	return writeInstancesTable(w, []*apiv1alpha1.AgentInstance{instance}, "")
+}
+
+// NewCreateCmd constructs the AgentInstance create command.
+func NewCreateCmd() *cobra.Command {
+	cfg := &CreateCfg{}
+	cmd := &cobra.Command{
+		Use:   "agent-instance",
+		Short: "Create an AgentInstance",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			cfg.OutputFormat = format
+			return runCreate(cmd.Context(), options, cfg, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&cfg.Harness, "harness", "", "Harness name")
+	cmd.Flags().StringVar(&cfg.AgentTemplate, "agent-template", "", "AgentTemplate name")
+	cmd.Flags().StringVar(&cfg.RequestID, "request-id", "", "Idempotency key (generated when omitted)")
+	_ = cmd.MarkFlagRequired("harness")
+	_ = cmd.MarkFlagRequired("agent-template")
+	return cmd
+}
+
+// NewDeleteCmd constructs the AgentInstance delete command.
+func NewDeleteCmd() *cobra.Command {
+	cfg := &DeleteCfg{}
+	cmd := &cobra.Command{
+		Use:   "agent-instance ID",
+		Short: "Delete an AgentInstance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			format, err := clioutput.FromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			cfg.OutputFormat = format
+			cfg.InstanceID = args[0]
+			return runDelete(cmd.Context(), options, cfg, cmd.OutOrStdout())
+		},
+	}
+	return cmd
 }

@@ -1,6 +1,6 @@
 //go:build darwin
 
-package cli
+package commands
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func DashboardCmd(ctx context.Context, namespace string) {
+func runDashboard(ctx context.Context, namespace string) {
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", namespace, "port-forward", "service/kagent-ui", "8082:8080")
 

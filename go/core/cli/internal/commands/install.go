@@ -1,4 +1,4 @@
-package cli
+package commands
 
 import (
 	"context"
@@ -12,15 +12,15 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/spf13/cobra"
 
 	"github.com/briandowns/spinner"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 )
 
 type InstallCfg struct {
-	Connection *connection.Options
-	Profile    string
+	Profile string
 }
 
 // installChart installs or upgrades a Helm chart with the given parameters
@@ -64,7 +64,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
+func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg) *connection.PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -101,7 +101,7 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
 		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
 	}
 
-	return install(ctx, cfg.Connection, helmConfig, modelProvider)
+	return install(ctx, &options, helmConfig, modelProvider)
 }
 
 // helmConfig is the config for the kagent chart
@@ -231,7 +231,7 @@ func deleteCRDs(ctx context.Context) error {
 	return nil
 }
 
-func UninstallCmd(ctx context.Context, namespace string) {
+func runUninstall(ctx context.Context, namespace string) {
 	// Check if helm is available
 	if err := checkHelmAvailable(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -302,4 +302,44 @@ func checkHelmAvailable() error {
 		return fmt.Errorf("helm not found in PATH. Please install helm first: https://helm.sh/docs/intro/install/")
 	}
 	return nil
+}
+
+// NewInstallCmd constructs the kagent install command.
+func NewInstallCmd() *cobra.Command {
+	cfg := &InstallCfg{}
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install kagent",
+		Long:  `Install kagent`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			runInstall(cmd.Context(), options, cfg)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal|demo)")
+	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
+	})
+	return cmd
+}
+
+// NewUninstallCmd constructs the kagent uninstall command.
+func NewUninstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall kagent",
+		Long:  `Uninstall kagent`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			runUninstall(cmd.Context(), options.Namespace)
+			return nil
+		},
+	}
 }

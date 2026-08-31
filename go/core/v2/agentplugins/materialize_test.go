@@ -70,8 +70,12 @@ func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
 	}
-	if root != destination {
-		t.Fatalf("fetchSource() root = %q, want %q", root, destination)
+	wantRoot, err := filepath.EvalSymlinks(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != wantRoot {
+		t.Fatalf("fetchSource() root = %q, want %q", root, wantRoot)
 	}
 }
 

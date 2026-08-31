@@ -1,4 +1,4 @@
-package cli
+package commands
 
 import (
 	"fmt"
@@ -8,9 +8,11 @@ import (
 	"time"
 
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	"github.com/spf13/cobra"
 )
 
-func BugReportCmd(namespace string, verbose bool) {
+func runBugReport(namespace string, verbose bool) {
 	// Create a temporary directory for bug report
 	timestamp := time.Now().Format("20060102-150405")
 	reportDir := fmt.Sprintf("kagent-bug-report-%s", timestamp)
@@ -115,4 +117,27 @@ func BugReportCmd(namespace string, verbose bool) {
 
 	fmt.Printf("Bug report generated in directory: %s\n", reportDir)
 	fmt.Println("WARNING: Please review and scrub any sensitive information from agent.yaml before sharing the bug report.")
+}
+
+// NewBugReportCmd constructs the kagent bug-report command.
+func NewBugReportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "bug-report",
+		Short: "Generate a bug report",
+		Long:  `Generate a bug report`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			options, err := connection.OptionsFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+			session, err := connection.Open(cmd.Context(), options)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+				return nil
+			}
+			defer session.Close() //nolint:errcheck
+			runBugReport(options.Namespace, options.Verbose)
+			return nil
+		},
+	}
 }

@@ -1,6 +1,6 @@
 //go:build !darwin
 
-package cli
+package commands
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-func DashboardCmd(ctx context.Context, namespace string) {
+func runDashboard(ctx context.Context, namespace string) {
 	fmt.Fprintln(os.Stderr, "Dashboard is not available on this platform")
 	fmt.Fprintln(os.Stderr, "You can easily start the dashboard by running:")
 	fmt.Fprintf(os.Stderr, "kubectl port-forward -n %s service/kagent-ui 8082:8080\n", namespace)
