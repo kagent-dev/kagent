@@ -536,7 +536,17 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
     message(
       "seed-1-reply",
       "agent",
-      "The checkout deployment is failing its liveness probe on port 8080. The container starts, but /healthz never returns 200, so the kubelet restarts it.",
+      [
+        "The checkout deployment is failing its liveness probe on port 8080. The container starts, but /healthz never returns 200, so the kubelet restarts it.",
+        "",
+        "```mermaid",
+        "flowchart TD",
+        "  A[Container starts] --> B{/healthz returns 200?}",
+        "  B -- yes --> C[Ready]",
+        "  B -- no --> D[Kubelet restarts container]",
+        "  D --> A",
+        "```",
+      ].join("\n"),
       "seed-task-1",
     ),
   ],
