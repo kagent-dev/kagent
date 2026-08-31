@@ -34,12 +34,13 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/kagent-dev/kmcp v0.3.0
-	github.com/kagent-dev/mockllm v0.0.6
+	github.com/kagent-dev/mockllm v0.0.7
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/reflow v0.3.0
 	github.com/ollama/ollama v0.32.15
 	github.com/openai/openai-go/v3 v3.52.0
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pgvector/pgvector-go v0.4.1
 	github.com/pgvector/pgvector-go/pgx v0.4.1
 	github.com/prometheus/client_golang v1.24.1
@@ -345,7 +346,6 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
-	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
