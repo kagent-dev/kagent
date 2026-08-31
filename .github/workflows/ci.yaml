@@ -40,7 +40,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.0.20
+      SUBSTRATE_VERSION: 0.0.22
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -111,7 +111,7 @@ jobs:
             --set controller.substrate.defaultWorkerPool.name=kagent-default
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=1
-            --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
+            --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e

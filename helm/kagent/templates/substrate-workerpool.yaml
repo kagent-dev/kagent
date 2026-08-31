@@ -1,6 +1,6 @@
 {{- if and .Values.controller.substrate.enabled .Values.substrateWorkerPool.create }}
-{{- if not .Values.substrateWorkerPool.ateomImage }}
-{{- fail "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true" }}
+{{- if not .Values.substrateWorkerPool.workerImage }}
+{{- fail "substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true" }}
 {{- end }}
 apiVersion: ate.dev/v1alpha1
 kind: WorkerPool
@@ -15,7 +15,7 @@ metadata:
     {{- end }}
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
-  ateomImage: {{ .Values.substrateWorkerPool.ateomImage | quote }}
+  workerImage: {{ .Values.substrateWorkerPool.workerImage | quote }}
   sandboxClass: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
   {{- with .Values.substrateWorkerPool.template }}
   template:

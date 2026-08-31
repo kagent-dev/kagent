@@ -131,7 +131,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store)
+	actors, err := substrate.Dial(ctx, substrate.Config{
+		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
+		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
+		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
+		CallTimeout:    30 * time.Second,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer actors.Close()
+	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -147,17 +157,6 @@ func main() {
 	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
 		log.Fatalf("set up MCPServer discovery: %v", err)
 	}
-
-	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
-		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
-		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
-		CallTimeout:    30 * time.Second,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer actors.Close()
 
 	authenticator := &authimpl.UnsecureAuthenticator{}
 	authorizer := &authimpl.NoopAuthorizer{}

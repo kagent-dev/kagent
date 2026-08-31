@@ -5,7 +5,9 @@ import (
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -71,7 +73,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		ConfigMaps:       krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
 		Secrets:          krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...),
 		WorkerPools:      krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
-		ActorTemplates:   krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+		ActorTemplates:   krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
 	}
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
 	collections.Reconciliations = newPairReconciliations(
@@ -97,11 +99,10 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		return ready != nil && ready.Status == metav1.ConditionFalse
 	})
 
-	observed := state.DesiredActorTemplate.DeepCopy()
-	observed.UID = "actor-template-uid"
-	observed.Status.Phase = atev1alpha1.PhaseReady
-	observed.Status.GoldenSnapshot = "golden"
-	collections.ActorTemplates.(krt.StaticCollection[*atev1alpha1.ActorTemplate]).UpdateObject(observed)
+	observed := proto.CloneOf(state.DesiredActorTemplate)
+	observed.Metadata.Uid = "actor-template-uid"
+	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
+	collections.ActorTemplates.UpdateObject(ObservedActorTemplate{Template: observed})
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
 		updates := collections.AgentTemplateStatuses.List()
@@ -148,7 +149,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 		krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
 		krt.NewStaticCollection(nil, []*corev1.Secret{secret}, opts.WithName("Secrets")...),
 		krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
-		krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
+		krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -158,8 +159,8 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != "secret" {
 		t.Fatalf("Claude revision environment = %#v", state.Revision)
 	}
-	if state.DesiredActorTemplate.Spec.Containers[0].Readyz.HTTPGet.Port != 8081 {
-		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.Spec.Containers[0].Readyz)
+	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetReadyz())
 	}
 }
 
@@ -193,7 +194,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 		krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
 		krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...),
 		krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
-		krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
+		krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
 	)
 	var initial string
 	waitFor(t, func() bool {

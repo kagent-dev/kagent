@@ -77,15 +77,6 @@
   - update
   - patch
   - delete
-- apiGroups:
-  - ate.dev
-  resources:
-  - actortemplates
-  verbs:
-  - create
-  - update
-  - patch
-  - delete
 {{- end -}}
 
 {{- include "kagent.rbac.validate" . -}}
