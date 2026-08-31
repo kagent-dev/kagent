@@ -17,9 +17,11 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
@@ -37,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json
+//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json
 var interactionMocks embed.FS
 
 // TestAgentInstanceInteraction verifies the complete public interaction path:
@@ -50,6 +52,128 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	}
 	if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
 		t.Fatalf("A2A response text = %q, want mock LLM response", text)
+	}
+	_, _, task = fixture.send(t, "What is 2+2?")
+	if task.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("second A2A task state = %s, want COMPLETED", task.Status.State)
+	}
+}
+
+func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
+	_, _, waiting := fixture.send(t, "Which database should we use for storage?")
+	if waiting.Status.State != a2atype.TaskStateInputRequired {
+		t.Fatalf("A2A task state = %s, want INPUT_REQUIRED", waiting.Status.State)
+	}
+	request := adka2a.GetAskUserRequest(waiting.Status.Message)
+	if request == nil {
+		t.Fatal("INPUT_REQUIRED task has no ask_user request")
+	}
+	reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL")), &adka2a.AskUserResponse{
+		Type: adka2a.HITLTypeAskUserResponse, ID: request.ID,
+		Answers: []adka2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+	})
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatalf("resume A2A task: %v", err)
+	}
+	completed, ok := response.(*a2atype.Task)
+	if !ok || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
+		t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
+	}
+}
+
+func TestAgentInstanceCheckpoint(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	_, _, task := fixture.send(t, "What is 2+2?")
+	created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
+		Namespace: "kagent", AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("create checkpoint: %v", err)
+	}
+	checkpoint := created.GetCheckpoint()
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		defer cleanupCancel()
+		_, cleanupErr := fixture.checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1alpha1.DeleteCheckpointRequest{
+			Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+		})
+		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
+			t.Errorf("delete checkpoint: %v", cleanupErr)
+		}
+	})
+	if checkpoint.GetState() != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY ||
+		checkpoint.GetHeadTaskId() != string(task.ID) || checkpoint.GetHistorySequence() == 0 {
+		t.Fatalf("checkpoint = %+v, want ready boundary for task %s", checkpoint, task.ID)
+	}
+
+	got, err := fixture.checkpoints.GetCheckpoint(fixture.ctx, &apiv1alpha1.GetCheckpointRequest{
+		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+	})
+	if err != nil || got.GetCheckpoint().GetId() != checkpoint.GetId() {
+		t.Fatalf("get checkpoint = %+v, error %v", got.GetCheckpoint(), err)
+	}
+	listed, err := fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
+		Namespace: "kagent", AgentInstanceId: fixture.instanceID,
+	})
+	if err != nil || len(listed.GetCheckpoints()) != 1 || listed.GetCheckpoints()[0].GetId() != checkpoint.GetId() {
+		t.Fatalf("list checkpoints = %+v, error %v", listed.GetCheckpoints(), err)
+	}
+	forked, err := fixture.checkpoints.ForkAgentInstance(fixture.ctx, &apiv1alpha1.ForkAgentInstanceRequest{
+		Namespace: "kagent", CheckpointId: checkpoint.GetId(), RequestId: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("fork AgentInstance: %v", err)
+	}
+	fork := forked.GetAgentInstance()
+	if fork.GetId() == fixture.instanceID || fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
+		t.Fatalf("fork = %+v", fork)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		defer cleanupCancel()
+		_, cleanupErr := fixture.instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
+			Namespace: "kagent", AgentInstanceId: fork.GetId(),
+		})
+		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
+			t.Errorf("delete fork AgentInstance: %v", cleanupErr)
+		}
+	})
+	forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
+		"x-user-id", "e2e",
+		"x-kagent-agent-instance-namespace", "kagent",
+		"x-kagent-agent-instance-id", fork.GetId(),
+	), 4*time.Minute)
+	t.Cleanup(forkCancel)
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fork.GetId(), PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	copiedResponse, err := fixture.client.ListTasks(forkCtx, listRequest)
+	if err != nil {
+		t.Fatalf("list fork tasks: %v", err)
+	}
+	copied, err := pbconv.FromProtoListTasksResponse(copiedResponse)
+	if err != nil || len(copied.Tasks) != 1 || copied.Tasks[0].ID == task.ID || copied.Tasks[0].ContextID != fork.GetId() {
+		t.Fatalf("copied fork tasks = %+v, error %v", copied, err)
+	}
+	forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client}
+	_, _, forkTask := forkFixture.send(t, "What is 2+2?")
+	if forkTask.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("fork A2A task state = %s, want COMPLETED", forkTask.Status.State)
+	}
+	if _, err := fixture.instances.DeleteAgentInstance(forkCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
+		Namespace: "kagent", AgentInstanceId: fork.GetId(),
+	}); err != nil {
+		t.Fatalf("delete fork AgentInstance: %v", err)
+	}
+	if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
+		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+	}); err != nil {
+		t.Fatalf("delete checkpoint: %v", err)
 	}
 }
 
@@ -251,10 +375,11 @@ func TestAgentInstanceActiveTask(t *testing.T) {
 }
 
 type interactionFixture struct {
-	ctx        context.Context
-	client     a2apb.A2AServiceClient
-	instances  apiv1alpha1.AgentInstanceServiceClient
-	instanceID string
+	ctx         context.Context
+	client      a2apb.A2AServiceClient
+	instances   apiv1alpha1.AgentInstanceServiceClient
+	checkpoints apiv1alpha1.CheckpointServiceClient
+	instanceID  string
 }
 
 type sharedInteractionFixture struct {
@@ -322,9 +447,10 @@ func newInteractionFixtureForTemplate(t *testing.T, target, templateName string)
 			"x-kagent-agent-instance-namespace", "kagent",
 			"x-kagent-agent-instance-id", instance.GetId(),
 		),
-		client:     a2apb.NewA2AServiceClient(conn),
-		instances:  instances,
-		instanceID: instance.GetId(),
+		client:      a2apb.NewA2AServiceClient(conn),
+		instances:   instances,
+		checkpoints: apiv1alpha1.NewCheckpointServiceClient(conn),
+		instanceID:  instance.GetId(),
 	}
 }
 
@@ -509,7 +635,7 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
@@ -544,7 +670,7 @@ func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string 
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "mcp-interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
@@ -568,7 +694,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-child-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: childModel.Name},
@@ -580,7 +706,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-root-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: rootModel.Name},

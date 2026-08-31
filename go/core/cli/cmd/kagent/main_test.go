@@ -1,129 +1,174 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadConfigReadsConfigFileValues(t *testing.T) {
-	resetConfigState(t)
-
-	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
-
-	configDir := filepath.Join(homeDir, ".kagent")
-	require.NoError(t, os.MkdirAll(configDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`
-kagent_url: http://kagent.example.test
-kagent_grpc_url: grpc.kagent.example.test:443
-kagent_grpc_tls: true
-kagent_grpc_ca_file: /tmp/kagent-ca.pem
-kagent_grpc_server_name: grpc.kagent.example.test
-namespace: configured-ns
-output_format: json
-verbose: true
-timeout: 45s
-`), 0600))
-
-	cfg, err := loadConfig()
-	require.NoError(t, err)
-
-	assert.Equal(t, "http://kagent.example.test", cfg.KAgentURL)
-	assert.Equal(t, "grpc.kagent.example.test:443", cfg.KAgentGRPCURL)
-	assert.True(t, cfg.KAgentGRPCTLS)
-	assert.Equal(t, "/tmp/kagent-ca.pem", cfg.KAgentGRPCCAFile)
-	assert.Equal(t, "grpc.kagent.example.test", cfg.KAgentGRPCServerName)
-	assert.Equal(t, "configured-ns", cfg.Namespace)
-	assert.Equal(t, "json", cfg.OutputFormat)
-	assert.True(t, cfg.Verbose)
-	assert.Equal(t, 45*time.Second, cfg.Timeout)
-}
-
-func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
-	cfg := &config.Config{
-		KAgentURL:            "http://kagent.example.test",
-		KAgentGRPCURL:        "grpc.kagent.example.test:443",
-		KAgentGRPCTLS:        true,
-		KAgentGRPCCAFile:     "/tmp/kagent-ca.pem",
-		KAgentGRPCServerName: "grpc.kagent.example.test",
-		Namespace:            "configured-ns",
-		OutputFormat:         "json",
-		Verbose:              true,
-		Timeout:              45 * time.Second,
+func TestRootCommandUsesOptionValuesAsFlagDefaults(t *testing.T) {
+	opts := &rootOptions{
+		Connection: connection.Options{
+			KAgentURL:            "http://kagent.example.test",
+			KAgentGRPCURL:        "grpc.kagent.example.test:443",
+			KAgentGRPCTLS:        true,
+			KAgentGRPCCAFile:     "/tmp/kagent-ca.pem",
+			KAgentGRPCServerName: "grpc.kagent.example.test",
+			Namespace:            "configured-ns",
+			Verbose:              true,
+			Timeout:              45 * time.Second,
+			UserID:               "configured-user",
+		},
+		OutputFormat: "json",
 	}
 
-	rootCmd := newRootCommand(context.Background(), cfg)
+	rootCmd := newRootCommand(context.Background(), opts)
 
 	assert.Equal(t, "http://kagent.example.test", rootCmd.PersistentFlags().Lookup("kagent-url").DefValue)
-	assert.Equal(t, "grpc.kagent.example.test:443", rootCmd.PersistentFlags().Lookup("kagent-grpc-url").DefValue)
-	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("kagent-grpc-tls").DefValue)
-	assert.Equal(t, "/tmp/kagent-ca.pem", rootCmd.PersistentFlags().Lookup("kagent-grpc-ca-file").DefValue)
-	assert.Equal(t, "grpc.kagent.example.test", rootCmd.PersistentFlags().Lookup("kagent-grpc-server-name").DefValue)
+	assert.Equal(t, "grpc.kagent.example.test:443", rootCmd.PersistentFlags().Lookup("grpc-url").DefValue)
+	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("grpc-tls").DefValue)
+	assert.Equal(t, "/tmp/kagent-ca.pem", rootCmd.PersistentFlags().Lookup("grpc-ca-file").DefValue)
+	assert.Equal(t, "grpc.kagent.example.test", rootCmd.PersistentFlags().Lookup("grpc-server-name").DefValue)
 	assert.Equal(t, "configured-ns", rootCmd.PersistentFlags().Lookup("namespace").DefValue)
 	assert.Equal(t, "json", rootCmd.PersistentFlags().Lookup("output-format").DefValue)
 	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("verbose").DefValue)
 	assert.Equal(t, "45s", rootCmd.PersistentFlags().Lookup("timeout").DefValue)
+	assert.Equal(t, "configured-user", rootCmd.PersistentFlags().Lookup("user-id").DefValue)
 
-	deployCmd, _, err := rootCmd.Find([]string{"deploy"})
-	require.NoError(t, err)
-	require.NotNil(t, deployCmd)
-
-	assert.Equal(t, "configured-ns", deployCmd.Flags().Lookup("namespace").DefValue)
-	assert.Equal(t, "configured-ns", cfg.Namespace)
+	assert.Equal(t, "configured-ns", opts.Connection.Namespace)
 }
 
-func TestRootCommandFlagsOverrideConfigValues(t *testing.T) {
-	cfg := &config.Config{
-		KAgentURL:     "http://kagent.example.test",
-		KAgentGRPCURL: "grpc.kagent.example.test:443",
-		Namespace:     "configured-ns",
-		OutputFormat:  "json",
-		Verbose:       false,
-		Timeout:       45 * time.Second,
+func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
+	opts := &rootOptions{
+		Connection: connection.Options{
+			KAgentURL:     "http://kagent.example.test",
+			KAgentGRPCURL: "grpc.kagent.example.test:443",
+			Namespace:     "configured-ns",
+			Timeout:       45 * time.Second,
+		},
+		OutputFormat: "json",
 	}
 
-	rootCmd := newRootCommand(context.Background(), cfg)
+	rootCmd := newRootCommand(context.Background(), opts)
 	require.NoError(t, rootCmd.ParseFlags([]string{
 		"--kagent-url", "http://flag.example.test",
-		"--kagent-grpc-url", "grpc.flag.example.test:8443",
-		"--kagent-grpc-tls",
-		"--kagent-grpc-ca-file", "/tmp/flag-ca.pem",
-		"--kagent-grpc-server-name", "grpc.flag.example.test",
+		"--grpc-url", "grpc.flag.example.test:8443",
+		"--grpc-tls",
+		"--grpc-ca-file", "/tmp/flag-ca.pem",
+		"--grpc-server-name", "grpc.flag.example.test",
 		"--namespace", "flag-ns",
 		"--output-format", "yaml",
 		"--verbose",
 		"--timeout", "10s",
+		"--user-id", "flag-user",
 	}))
 
-	assert.Equal(t, "http://flag.example.test", cfg.KAgentURL)
-	assert.Equal(t, "grpc.flag.example.test:8443", cfg.KAgentGRPCURL)
-	assert.True(t, cfg.KAgentGRPCTLS)
-	assert.Equal(t, "/tmp/flag-ca.pem", cfg.KAgentGRPCCAFile)
-	assert.Equal(t, "grpc.flag.example.test", cfg.KAgentGRPCServerName)
-	assert.Equal(t, "flag-ns", cfg.Namespace)
-	assert.Equal(t, "yaml", cfg.OutputFormat)
-	assert.True(t, cfg.Verbose)
-	assert.Equal(t, 10*time.Second, cfg.Timeout)
+	assert.Equal(t, "http://flag.example.test", opts.Connection.KAgentURL)
+	assert.Equal(t, "grpc.flag.example.test:8443", opts.Connection.KAgentGRPCURL)
+	assert.True(t, opts.Connection.KAgentGRPCTLS)
+	assert.Equal(t, "/tmp/flag-ca.pem", opts.Connection.KAgentGRPCCAFile)
+	assert.Equal(t, "grpc.flag.example.test", opts.Connection.KAgentGRPCServerName)
+	assert.Equal(t, "flag-ns", opts.Connection.Namespace)
+	assert.Equal(t, "yaml", opts.OutputFormat)
+	assert.True(t, opts.Connection.Verbose)
+	assert.Equal(t, 10*time.Second, opts.Connection.Timeout)
+	assert.Equal(t, "flag-user", opts.Connection.UserID)
 }
 
-func resetConfigState(t *testing.T) {
-	t.Helper()
+func TestRootCommandDoesNotValidateClientFlagsForIndependentCommand(t *testing.T) {
+	rootCmd := newRootCommand(t.Context(), defaultRootOptions())
+	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "env"})
+	rootCmd.SetOut(&bytes.Buffer{})
 
-	oldCommandLine := pflag.CommandLine
-	viper.Reset()
-	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
+	require.NoError(t, rootCmd.ExecuteContext(t.Context()))
+}
 
-	t.Cleanup(func() {
-		viper.Reset()
-		pflag.CommandLine = oldCommandLine
-	})
+func TestRootCommandInvokeContract(t *testing.T) {
+	rootCmd := newRootCommand(t.Context(), defaultRootOptions())
+	assert.True(t, rootCmd.SilenceErrors)
+	assert.True(t, rootCmd.SilenceUsage)
+
+	invokeCmd, _, err := rootCmd.Find([]string{"invoke"})
+	require.NoError(t, err)
+	for _, flag := range []string{"agent-instance", "task", "file", "stream", "token"} {
+		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+	for _, legacyFlag := range []string{"agent", "session", "url-override"} {
+		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
+	}
+
+	getInstanceCmd, _, err := rootCmd.Find([]string{"get", "agent-instance"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-instance [ID]", getInstanceCmd.Use)
+	for _, flag := range []string{"page-size", "page-token"} {
+		assert.NotNil(t, getInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+}
+
+func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
+	rootCmd := newRootCommand(t.Context(), defaultRootOptions())
+
+	getTemplateCmd, _, err := rootCmd.Find([]string{"get", "agent-template"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-template [NAME]", getTemplateCmd.Use)
+	for _, flag := range []string{"page-size", "page-token"} {
+		assert.NotNil(t, getTemplateCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+
+	createInstanceCmd, _, err := rootCmd.Find([]string{"create", "agent-instance"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-instance", createInstanceCmd.Use)
+	for _, flag := range []string{"harness", "agent-template", "request-id"} {
+		assert.NotNil(t, createInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+
+	deleteInstanceCmd, _, err := rootCmd.Find([]string{"delete", "agent-instance"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-instance ID", deleteInstanceCmd.Use)
+
+	for _, command := range []string{"suspend", "resume"} {
+		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
+		assert.Error(t, err, "%s must not be exposed by the CLI", command)
+	}
+}
+
+func TestRootCommandRemovesLegacyPaths(t *testing.T) {
+	rootCmd := newRootCommand(t.Context(), defaultRootOptions())
+
+	rootCommands := make([]string, 0, len(rootCmd.Commands()))
+	for _, command := range rootCmd.Commands() {
+		rootCommands = append(rootCommands, command.Name())
+	}
+	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp"} {
+		assert.NotContains(t, rootCommands, command)
+	}
+	assert.Contains(t, rootCommands, "mcp")
+
+	getCmd, _, err := rootCmd.Find([]string{"get"})
+	require.NoError(t, err)
+	getCommands := make([]string, 0, len(getCmd.Commands()))
+	for _, command := range getCmd.Commands() {
+		getCommands = append(getCommands, command.Name())
+	}
+	for _, command := range []string{"agent", "session", "tool"} {
+		assert.NotContains(t, getCommands, command)
+	}
+}
+
+func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
+	rootCmd := newRootCommand(t.Context(), defaultRootOptions())
+	rootCmd.SetArgs(nil)
+	rootCmd.SetIn(&bytes.Buffer{})
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := rootCmd.ExecuteContext(t.Context())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "kagent requires a terminal")
+	assert.Contains(t, err.Error(), "kagent invoke")
 }

@@ -10,7 +10,6 @@ import (
 
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/builder"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 )
@@ -23,14 +22,10 @@ type BuildCfg struct {
 	ProjectDir      string
 	Platform        string
 	KindLoadCluster string
+	Verbose         bool
 }
 
 func BuildMcp(cfg *BuildCfg) error {
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
 	// Determine build directory
 	buildDirectory := cfg.ProjectDir
 	if buildDirectory == "" {
@@ -70,7 +65,7 @@ func BuildMcp(cfg *BuildCfg) error {
 		ProjectDir: buildDirectory,
 		Tag:        imageName,
 		Platform:   cfg.Platform,
-		Verbose:    appCfg.Verbose,
+		Verbose:    cfg.Verbose,
 	}
 
 	if err := mcpBuilder.Build(opts); err != nil {
@@ -79,7 +74,7 @@ func BuildMcp(cfg *BuildCfg) error {
 
 	if cfg.Push {
 		fmt.Printf("Pushing Docker image %s...\n", imageName)
-		docker := commonexec.NewDockerExecutor(appCfg.Verbose, "")
+		docker := commonexec.NewDockerExecutor(cfg.Verbose, "")
 		if err := docker.Push(imageName); err != nil {
 			return fmt.Errorf("docker push failed: %w", err)
 		}
@@ -92,7 +87,7 @@ func BuildMcp(cfg *BuildCfg) error {
 			var err error
 			clusterName, err = commonk8s.GetCurrentKindClusterName()
 			if err != nil {
-				if appCfg.Verbose {
+				if cfg.Verbose {
 					fmt.Printf("could not detect kind cluster name: %v, using default\n", err)
 				}
 				clusterName = "kind" // default to kind cluster
@@ -101,7 +96,7 @@ func BuildMcp(cfg *BuildCfg) error {
 
 		kindArgs = append(kindArgs, "--name", clusterName)
 
-		if err := runKind(kindArgs...); err != nil {
+		if err := runKind(cfg.Verbose, kindArgs...); err != nil {
 			return fmt.Errorf("kind load failed: %w", err)
 		}
 		fmt.Printf("✅ Docker image loaded into kind cluster %s\n", clusterName)
@@ -110,12 +105,8 @@ func BuildMcp(cfg *BuildCfg) error {
 	return nil
 }
 
-func runKind(args ...string) error {
-	cfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-	if cfg.Verbose {
+func runKind(verbose bool, args ...string) error {
+	if verbose {
 		fmt.Printf("Running: kind %s\n", strings.Join(args, " "))
 	}
 	cmd := exec.Command("kind", args...)

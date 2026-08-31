@@ -7,11 +7,18 @@ package dbgen
 import (
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
+
+type A2aContext struct {
+	ID        uuid.UUID
+	Namespace string
+	UserID    string
+	CreatedAt time.Time
+}
 
 type Agent struct {
 	ID           string
@@ -24,45 +31,74 @@ type Agent struct {
 }
 
 type AgentInstance struct {
-	ID               string
-	Namespace        string
-	UserID           string
-	RequestID        string
-	PreparedRevision *string
-	State            string
-	Labels           []byte
-	Data             []byte
-	Operation        string
+	ID                 uuid.UUID
+	Namespace          string
+	UserID             string
+	RequestID          string
+	PreparedRevision   *string
+	State              string
+	Labels             []byte
+	Data               []byte
+	Operation          string
+	ContextID          uuid.UUID
+	SourceCheckpointID *uuid.UUID
+	Name               string
+}
+
+type AgentInstanceCheckpoint struct {
+	ID                   uuid.UUID
+	Namespace            string
+	SourceInstanceID     uuid.UUID
+	UserID               string
+	RequestID            string
+	HeadTaskID           string
+	HistorySequence      int64
+	SnapshotAtespace     string
+	SnapshotName         string
+	SnapshotUid          string
+	SnapshotContentScope string
+	TagUid               string
+	State                string
+	Failure              string
+	CreatedAt            time.Time
+	SourceContextID      uuid.UUID
+	PreparedRevision     *string
+	SourceLabels         []byte
 }
 
 type AgentInstanceShare struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
-	Creator    string
+	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
 }
 
 type AgentInstanceTask struct {
-	InstanceID       string
-	ID               string
-	State            string
-	StatusTimestamp  *time.Time
-	Data             []byte
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	InitialMessageID *string
-	RequestHash      []byte
+	ContextID            uuid.UUID
+	ID                   string
+	State                string
+	StatusTimestamp      *time.Time
+	Data                 []byte
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	InitialMessageID     *string
+	RequestHash          []byte
+	SnapshotAtespace     *string
+	SnapshotName         *string
+	SnapshotUid          *string
+	SnapshotContentScope *string
+	HistorySequence      *int64
 }
 
 type AgentInstanceTaskEvent struct {
-	Sequence   int64
-	InstanceID string
-	TaskID     *string
-	Data       []byte
-	CreatedAt  time.Time
+	Sequence  int64
+	ContextID uuid.UUID
+	TaskID    *string
+	Data      []byte
+	CreatedAt time.Time
+	MessageID *string
 }
 
 type AgentTemplateHarnessPair struct {
@@ -96,16 +132,6 @@ type CrewaiFlowState struct {
 	UpdatedAt  *time.Time
 	DeletedAt  *time.Time
 	StateData  string
-}
-
-type Event struct {
-	ID        string
-	UserID    string
-	SessionID *string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
 }
 
 type Feedback struct {
@@ -162,16 +188,6 @@ type Memory struct {
 	AccessCount *int64
 }
 
-type PushNotification struct {
-	ID              string
-	TaskID          string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	ProtocolVersion *string
-}
-
 type RuntimeRevision struct {
 	Revision               string
 	Namespace              string
@@ -189,43 +205,6 @@ type RuntimeRevision struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	AgentCard              []byte
-}
-
-type Session struct {
-	ID        string
-	UserID    string
-	Name      *string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	AgentID   *string
-	Source    *string
-}
-
-type SessionShare struct {
-	ID        int64
-	Token     string
-	SessionID string
-	UserID    string
-	ReadOnly  bool
-	CreatedAt pgtype.Timestamp
-}
-
-type SessionShareAccess struct {
-	UserID     string
-	ShareID    int64
-	AccessedAt pgtype.Timestamp
-}
-
-type Task struct {
-	ID              string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	SessionID       *string
-	ProtocolVersion *string
-	UserID          *string
 }
 
 type Tool struct {

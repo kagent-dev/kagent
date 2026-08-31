@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,15 +11,18 @@ import (
 	"time"
 
 	cli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agent"
+	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agentinstance"
+	agenttemplatecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agenttemplate"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
 	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,13 +44,7 @@ func main() {
 
 		cancel()
 	}()
-	cfg, err := loadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing config: %v\n", err)
-		os.Exit(1)
-	}
-
-	rootCmd := newRootCommand(ctx, cfg)
+	rootCmd := newRootCommand(ctx, defaultRootOptions())
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 
@@ -54,35 +52,41 @@ func main() {
 	}
 }
 
-func loadConfig() (*config.Config, error) {
-	if err := config.Init(); err != nil {
-		return nil, err
-	}
-	return config.Get()
+type rootOptions struct {
+	Connection   connection.Options
+	OutputFormat string
 }
 
-func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
+func defaultRootOptions() *rootOptions {
+	return &rootOptions{Connection: connection.DefaultOptions(), OutputFormat: "table"}
+}
+
+func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
+	cfg := &opts.Connection
 	rootCmd := &cobra.Command{
-		Use:   "kagent",
-		Short: "kagent is a CLI and TUI for kagent",
-		Long:  "kagent is a CLI and TUI for kagent",
-		Run: func(cmd *cobra.Command, args []string) {
-			runInteractive(cmd, args, cfg)
+		Use:           "kagent",
+		Short:         "kagent is a CLI for kagent",
+		Long:          "kagent is a CLI for kagent",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runInteractive(cmd, cfg)
 		},
 	}
 	rootCmd.SetContext(ctx)
 
 	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", cfg.KAgentURL, "KAgent REST URL")
-	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCURL, "kagent-grpc-url", cfg.KAgentGRPCURL, "KAgent gRPC target")
-	rootCmd.PersistentFlags().BoolVar(&cfg.KAgentGRPCTLS, "kagent-grpc-tls", cfg.KAgentGRPCTLS, "Use TLS for KAgent gRPC")
-	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCCAFile, "kagent-grpc-ca-file", cfg.KAgentGRPCCAFile, "CA certificate file for KAgent gRPC")
-	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCServerName, "kagent-grpc-server-name", cfg.KAgentGRPCServerName, "TLS server name for KAgent gRPC")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCURL, "grpc-url", cfg.KAgentGRPCURL, "KAgent gRPC target")
+	rootCmd.PersistentFlags().BoolVar(&cfg.KAgentGRPCTLS, "grpc-tls", cfg.KAgentGRPCTLS, "Use TLS for KAgent gRPC")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCCAFile, "grpc-ca-file", cfg.KAgentGRPCCAFile, "CA certificate file for KAgent gRPC")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCServerName, "grpc-server-name", cfg.KAgentGRPCServerName, "TLS server name for KAgent gRPC")
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", cfg.Namespace, "Namespace")
-	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", cfg.OutputFormat, "Output format")
+	rootCmd.PersistentFlags().StringVarP(&opts.OutputFormat, "output-format", "o", opts.OutputFormat, "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "Timeout")
+	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", cfg.UserID, "Caller identity used to select the server-side data partition")
 	installCfg := &cli.InstallCfg{
-		Config: cfg,
+		Connection: cfg,
 	}
 
 	installCmd := &cobra.Command{
@@ -103,47 +107,49 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Uninstall kagent",
 		Long:  `Uninstall kagent`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.UninstallCmd(cmd.Context(), cfg)
+			cli.UninstallCmd(cmd.Context(), cfg.Namespace)
 		},
 	}
 
-	invokeCfg := &cli.InvokeCfg{
-		Config: cfg,
+	invokeCfg := &agentinstancecli.InvokeCfg{
+		Connection: cfg,
 	}
 
 	invokeCmd := &cobra.Command{
 		Use:   "invoke",
-		Short: "Invoke a kagent agent",
-		Long:  `Invoke a kagent agent`,
-		Run: func(cmd *cobra.Command, args []string) {
-			cli.InvokeCmd(cmd.Context(), invokeCfg)
+		Short: "Invoke an AgentInstance",
+		Long:  `Invoke an existing AgentInstance through the A2A API.`,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			invokeCfg.OutputFormat = opts.OutputFormat
+			return agentinstancecli.InvokeCmd(cmd.Context(), invokeCfg, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
-		Example: `kagent invoke --agent "k8s-agent" --task "Get all the pods in the kagent namespace"`,
+		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
 	}
 
-	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task")
-	invokeCmd.Flags().StringVarP(&invokeCfg.Session, "session", "s", "", "Session")
-	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
+	invokeCmd.Flags().StringVar(&invokeCfg.AgentInstance, "agent-instance", "", "AgentInstance ID")
+	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task text")
+	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
-	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "File to read the task from")
-	invokeCmd.Flags().StringVarP(&invokeCfg.URLOverride, "url-override", "u", "", "URL override")
-	invokeCmd.Flags().MarkHidden("url-override") //nolint:errcheck
-	invokeCmd.Flags().StringVar(&invokeCfg.Token, "token", "", "Bearer token to include in A2A requests (for API key passthrough)")
+	invokeCmd.Flags().StringVar(&invokeCfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
+	_ = invokeCmd.MarkFlagRequired("agent-instance")
+	invokeCmd.MarkFlagsOneRequired("task", "file")
+	invokeCmd.MarkFlagsMutuallyExclusive("task", "file")
 
 	bugReportCmd := &cobra.Command{
 		Use:   "bug-report",
 		Short: "Generate a bug report",
 		Long:  `Generate a bug report`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
+			pf, err := connection.Connect(cmd.Context(), cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+				return
+			}
+			if pf != nil {
 				defer pf.Stop()
 			}
-			cli.BugReportCmd(cfg)
+			cli.BugReportCmd(cfg.Namespace, cfg.Verbose)
 		},
 	}
 
@@ -154,12 +160,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			// print out kagent CLI version regardless if a port-forward to kagent server succeeds
 			// versions unable to obtain from the remote kagent will be reported as "unknown"
-			defer cli.VersionCmd(cfg)
+			clientSet := cfg.Client()
+			defer clientSet.Close() //nolint:errcheck
+			defer cli.VersionCmd(clientSet)
 
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				if pf, e := cli.NewPortForward(cmd.Context(), cfg); e == nil {
-					defer pf.Stop()
-				}
+			if pf, _ := connection.Connect(cmd.Context(), cfg); pf != nil {
+				defer pf.Stop()
 			}
 		},
 	}
@@ -169,7 +175,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Open the kagent dashboard",
 		Long:  `Open the kagent dashboard`,
 		Run: func(cmd *cobra.Command, args []string) {
-			cli.DashboardCmd(cmd.Context(), cfg)
+			cli.DashboardCmd(cmd.Context(), cfg.Namespace)
 		},
 	}
 
@@ -177,290 +183,95 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Use:   "get",
 		Short: "Get a kagent resource",
 		Long:  `Get a kagent resource`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(os.Stderr, "No resource type provided\n\n")
-			cmd.Help() //nolint:errcheck
-			os.Exit(1)
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("resource type is required")
 		},
 	}
-
-	getSessionCmd := &cobra.Command{
-		Use:   "session [session_id]",
-		Short: "Get a session or list all sessions",
-		Long:  `Get a session by ID or list all sessions`,
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
-				defer pf.Stop()
+	agentInstanceGetCfg := &agentinstancecli.GetCfg{Connection: cfg}
+	getAgentInstanceCmd := &cobra.Command{
+		Use:   "agent-instance [ID]",
+		Short: "Get an AgentInstance or list your AgentInstances",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentInstanceGetCfg.OutputFormat = opts.OutputFormat
+			agentInstanceGetCfg.InstanceID = ""
+			if len(args) == 1 {
+				agentInstanceGetCfg.InstanceID = args[0]
 			}
-			resourceName := ""
-			if len(args) > 0 {
-				resourceName = args[0]
-			}
-			cli.GetSessionCmd(cfg, resourceName)
+			return agentinstancecli.GetCmd(cmd.Context(), agentInstanceGetCfg, cmd.OutOrStdout())
 		},
 	}
+	getAgentInstanceCmd.Flags().Int32Var(&agentInstanceGetCfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
+	getAgentInstanceCmd.Flags().StringVar(&agentInstanceGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
-	getAgentCmd := &cobra.Command{
-		Use:   "agent [agent_name]",
-		Short: "Get an agent or list all agents",
-		Long:  `Get an agent by name or list all agents`,
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					return
-				}
-				defer pf.Stop()
+	agentTemplateGetCfg := &agenttemplatecli.GetCfg{}
+	getAgentTemplateCmd := &cobra.Command{
+		Use:   "agent-template [NAME]",
+		Short: "Get an AgentTemplate or list AgentTemplates",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentTemplateGetCfg.Namespace = cfg.Namespace
+			agentTemplateGetCfg.OutputFormat = opts.OutputFormat
+			agentTemplateGetCfg.Name = ""
+			if len(args) == 1 {
+				agentTemplateGetCfg.Name = args[0]
 			}
-			resourceName := ""
-			if len(args) > 0 {
-				resourceName = args[0]
-			}
-			cli.GetAgentCmd(cfg, resourceName)
+			return agenttemplatecli.GetCmd(cmd.Context(), agentTemplateGetCfg, cmd.OutOrStdout())
 		},
 	}
+	getAgentTemplateCmd.Flags().Int64Var(&agentTemplateGetCfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
+	getAgentTemplateCmd.Flags().StringVar(&agentTemplateGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
-	getToolCmd := &cobra.Command{
-		Use:   "tool",
-		Short: "Get tools",
-		Long:  `List all available tools`,
-		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
-				defer pf.Stop()
-			}
-			cli.GetToolCmd(cfg)
+	getCmd.AddCommand(getAgentInstanceCmd, getAgentTemplateCmd)
+
+	createCmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a kagent resource",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("resource type is required")
 		},
 	}
-
-	getCmd.AddCommand(getSessionCmd, getAgentCmd, getToolCmd)
-
-	initCfg := &cli.InitCfg{
-		Config: cfg,
-	}
-
-	initCmd := &cobra.Command{
-		Use:   "init [framework] [language] [agent-name]",
-		Short: "Initialize a new agent project",
-		Long: `Initialize a new agent project using the specified framework and language.
-
-You can customize the root agent instructions using the --instruction-file flag.
-You can select a specific model using --model-provider and --model-name flags.
-If no custom instruction file is provided, a default dice-rolling instruction will be used.
-If no model is specified, the agent will need to be configured later.
-
-Examples:
-  kagent init adk python dice
-  kagent init adk python dice --instruction-file instructions.md
-  kagent init adk python dice --model-provider Gemini --model-name gemini-2.5-flash`,
-		Args: cobra.ExactArgs(3),
-		Run: func(cmd *cobra.Command, args []string) {
-			initCfg.Framework = args[0]
-			initCfg.Language = args[1]
-			initCfg.AgentName = args[2]
-
-			if err := cli.InitCmd(initCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent init adk python dice`,
-	}
-
-	// Add flags for custom instructions and model selection
-	initCmd.Flags().StringVar(&initCfg.InstructionFile, "instruction-file", "", "Path to file containing custom instructions for the root agent")
-	initCmd.Flags().StringVar(&initCfg.ModelProvider, "model-provider", "Gemini", "Model provider (OpenAI, Anthropic, Gemini)")
-	initCmd.Flags().StringVar(&initCfg.ModelName, "model-name", "gemini-2.5-flash", "Model name (e.g., gpt-4, claude-3-5-sonnet, gemini-2.5-flash)")
-	initCmd.Flags().StringVar(&initCfg.Description, "description", "", "Description for the agent")
-
-	buildCfg := &cli.BuildCfg{
-		Config: cfg,
-	}
-
-	buildCmd := &cobra.Command{
-		Use:   "build [project-directory]",
-		Short: "Build a Docker images for an agent project",
-		Long: `Build Docker images for an agent project created with the init command.
-
-This command will look for a kagent.yaml file in the specified project directory and build Docker images using docker build. The images can optionally be pushed to a registry.
-
-Image naming:
-- If --image is provided, it will be used as the full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)
-- Otherwise, defaults to localhost:5001/{agentName}:latest where agentName is loaded from kagent.yaml
-
-Examples:
-  kagent build ./my-agent
-  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0
-  kagent build ./my-agent --image ghcr.io/myorg/my-agent:v1.0.0 --push`,
-		Args: cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			buildCfg.ProjectDir = args[0]
-
-			if err := cli.BuildCmd(buildCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent build ./my-agent`,
-	}
-
-	// Add flags for build command
-	buildCmd.Flags().StringVar(&buildCfg.Image, "image", "", "Full image specification (e.g., ghcr.io/myorg/my-agent:v1.0.0)")
-	buildCmd.Flags().BoolVar(&buildCfg.Push, "push", false, "Push the image to the registry")
-	buildCmd.Flags().StringVar(&buildCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
-
-	deployCfg := &cli.DeployCfg{
-		Config: cfg,
-	}
-
-	deployCmd := &cobra.Command{
-		Use:   "deploy [project-directory]",
-		Short: "Deploy an agent to Kubernetes",
-		Long: `Deploy an agent to Kubernetes.
-
-This command will read the kagent.yaml file from the specified project directory,
-load environment variables from a .env file, and create an Agent CRD with necessary secrets.
-
-The command will:
-1. Load the agent configuration from kagent.yaml
-2. Load environment variables from a .env file (including the model provider API key)
-3. Create Kubernetes secrets for environment variables and API keys
-4. Create an Agent CRD with the appropriate configuration
-
-API Key Requirements:
-  The .env file MUST contain the API key for your model provider:
-  - Anthropic: ANTHROPIC_API_KEY=your-key-here
-  - OpenAI: OPENAI_API_KEY=your-key-here
-  - Gemini: GOOGLE_API_KEY=your-key-here
-
-Environment Variables:
-  --env-file: REQUIRED. Path to a .env file containing environment variables (including API keys).
-              Variables will be stored in a Kubernetes secret and mounted as environment variables.
-
-Dry-Run Mode:
-  --dry-run: Output YAML manifests without applying them to the cluster. This is useful
-             for previewing changes or for use with GitOps workflows.
-
-Examples:
-  kagent deploy ./my-agent --env-file .env
-  kagent deploy ./my-agent --env-file .env --image "myregistry/myagent:v1.0"
-  kagent deploy ./my-agent --env-file .env --namespace "my-namespace"
-  kagent deploy ./my-agent --env-file .env --dry-run > manifests.yaml`,
-		Args: cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			deployCfg.ProjectDir = args[0]
-
-			// Create Kubernetes client (skip in dry-run mode)
-			var k8sClient client.Client
-			var err error
-			if !deployCfg.DryRun {
-				k8sClient, err = cli.CreateKubernetesClient()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error creating Kubernetes client: %v\n", err)
-					os.Exit(1)
-				}
-			}
-
-			if err := cli.DeployCmd(cmd.Context(), k8sClient, deployCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
-		Example: `kagent deploy ./my-agent --env-file .env`,
-	}
-
-	// Add flags for deploy command
-	deployCmd.Flags().StringVarP(&deployCfg.Image, "image", "i", "", "Image to use (defaults to localhost:5001/{agentName}:latest)")
-	deployCmd.Flags().StringVar(&deployCfg.EnvFile, "env-file", "", "Path to .env file containing environment variables (including API keys)")
-	deployCmd.Flags().StringVar(&deployCfg.Config.Namespace, "namespace", cfg.Namespace, "Kubernetes namespace to deploy to")
-	deployCmd.Flags().BoolVar(&deployCfg.DryRun, "dry-run", false, "Output YAML manifests without applying them to the cluster")
-	deployCmd.Flags().StringVar(&deployCfg.Platform, "platform", "", "Target platform for Docker build (e.g., linux/amd64, linux/arm64)")
-
-	// add-mcp command
-	addMcpCfg := &cli.AddMcpCfg{Config: cfg}
-	addMcpCmd := &cobra.Command{
-		Use:   "add-mcp [name] [args...]",
-		Short: "Add an MCP server entry to kagent.yaml",
-		Long:  `Add an MCP server entry to kagent.yaml. Use flags for non-interactive setup or run without flags to open the wizard.`,
-		Args:  cobra.ArbitraryArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) > 0 {
-				addMcpCfg.Name = args[0]
-				if len(args) > 1 && addMcpCfg.Command != "" {
-					addMcpCfg.Args = append(addMcpCfg.Args, args[1:]...)
-				}
-			}
-			if err := cli.AddMcpCmd(addMcpCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
+	createAgentInstanceCfg := &agentinstancecli.CreateCfg{Connection: cfg}
+	createAgentInstanceCmd := &cobra.Command{
+		Use:   "agent-instance",
+		Short: "Create an AgentInstance",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			createAgentInstanceCfg.OutputFormat = opts.OutputFormat
+			return agentinstancecli.CreateCmd(cmd.Context(), createAgentInstanceCfg, cmd.OutOrStdout())
 		},
 	}
+	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.Harness, "harness", "", "Harness name")
+	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.AgentTemplate, "agent-template", "", "AgentTemplate name")
+	createAgentInstanceCmd.Flags().StringVar(&createAgentInstanceCfg.RequestID, "request-id", "", "Idempotency key (generated when omitted)")
+	_ = createAgentInstanceCmd.MarkFlagRequired("harness")
+	_ = createAgentInstanceCmd.MarkFlagRequired("agent-template")
+	createCmd.AddCommand(createAgentInstanceCmd)
 
-	// Flags for non-interactive usage
-	addMcpCmd.Flags().StringVar(&addMcpCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.RemoteURL, "remote", "", "Remote MCP server URL (http/https)")
-	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Headers, "header", nil, "HTTP header for remote MCP in KEY=VALUE format (repeatable, supports ${VAR} for env vars)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.Command, "command", "", "Command to run MCP server (e.g., npx, uvx, kmcp, or a binary)")
-	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Args, "arg", nil, "Command argument (repeatable)")
-	addMcpCmd.Flags().StringSliceVar(&addMcpCfg.Env, "env", nil, "Environment variable in KEY=VALUE format (repeatable)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.Image, "image", "", "Container image (optional; mutually exclusive with --build)")
-	addMcpCmd.Flags().StringVar(&addMcpCfg.Build, "build", "", "Container build (optional; mutually exclusive with --image)")
-
-	runCfg := &cli.RunCfg{
-		Config: cfg,
-	}
-
-	runCmd := &cobra.Command{
-		Use:   "run [project-directory]",
-		Short: "Run agent project locally with docker-compose and launch chat interface",
-		Long: `Run an agent project locally using docker-compose and launch an interactive chat session.
-
-Examples:
-  kagent run ./my-agent
-  kagent run .`,
-		Args: cobra.MaximumNArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			if len(args) > 0 {
-				runCfg.ProjectDir = args[0]
-			} else {
-				runCfg.ProjectDir = "."
-			}
-
-			if runCfg.Build {
-				fmt.Fprintf(os.Stderr, "Building image before running...\n")
-
-				buildCfg := &cli.BuildCfg{
-					Config:     runCfg.Config,
-					ProjectDir: runCfg.ProjectDir,
-				}
-
-				if err := cli.BuildCmd(buildCfg); err != nil {
-					fmt.Fprintf(os.Stderr, "Build failed: %v\n", err)
-					os.Exit(1)
-				}
-			}
-			if err := cli.RunCmd(cmd.Context(), runCfg); err != nil {
-				fmt.Fprintf(os.Stderr, "Error running agent: %v\n", err)
-				os.Exit(1)
-			}
+	deleteCmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a kagent resource",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("resource type is required")
 		},
-		Example: `kagent run ./my-agent`,
 	}
+	deleteAgentInstanceCfg := &agentinstancecli.DeleteCfg{Connection: cfg}
+	deleteAgentInstanceCmd := &cobra.Command{
+		Use:   "agent-instance ID",
+		Short: "Delete an AgentInstance",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			deleteAgentInstanceCfg.OutputFormat = opts.OutputFormat
+			deleteAgentInstanceCfg.InstanceID = args[0]
+			return agentinstancecli.DeleteCmd(cmd.Context(), deleteAgentInstanceCfg, cmd.OutOrStdout())
+		},
+	}
+	deleteCmd.AddCommand(deleteAgentInstanceCmd)
 
-	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
-	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
-
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(cfg)))
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, createCmd, deleteCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommandFromFunc(migrationSources(opts)))
 
 	return rootCmd
 }
@@ -478,7 +289,7 @@ const vectorEnabledKey = "DATABASE_VECTOR_ENABLED"
 // environment (explicit operator intent, works without a cluster), the
 // controller's configmap on the live cluster (the same value the server
 // reads), and finally the controller's default (enabled).
-func migrationSources(cfg *config.Config) dbmigrate.SourcesFunc {
+func migrationSources(opts *rootOptions) dbmigrate.SourcesFunc {
 	return func(ctx context.Context) ([]migrations.Source, error) {
 		vectorEnabled := true
 		if v := os.Getenv(vectorEnabledKey); v != "" {
@@ -488,7 +299,7 @@ func migrationSources(cfg *config.Config) dbmigrate.SourcesFunc {
 			} else {
 				vectorEnabled = b
 			}
-		} else if b, ok := clusterVectorEnabled(ctx, cfg.Namespace); ok {
+		} else if b, ok := clusterVectorEnabled(ctx, opts.Connection.Namespace); ok {
 			vectorEnabled = b
 		}
 		return migrations.BuiltinSources(vectorEnabled), nil
@@ -505,7 +316,14 @@ func migrationSources(cfg *config.Config) dbmigrate.SourcesFunc {
 // ok=false when no cluster is reachable, the configmap is absent, or the
 // value doesn't parse — callers fall back to the default.
 func clusterVectorEnabled(ctx context.Context, namespace string) (enabled, ok bool) {
-	k8sClient, err := cli.CreateKubernetesClient()
+	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
+	if err != nil {
+		return false, false
+	}
+	k8sClient, err := client.New(restConfig, client.Options{})
 	if err != nil {
 		return false, false
 	}
@@ -536,22 +354,34 @@ func currentKubeContext() string {
 	return raw.CurrentContext
 }
 
-func runInteractive(cmd *cobra.Command, args []string, cfg *config.Config) {
+// runInteractive launches the workspace; the TUI reads raw keys, so a redirected stream is an error.
+func runInteractive(cmd *cobra.Command, cfg *connection.Options) (err error) {
+	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
+		return errors.New("kagent requires a terminal; use `kagent get agent-instance` and `kagent invoke` for non-interactive use")
+	}
+
 	client := cfg.Client()
-	defer client.Close() //nolint:errcheck
+	defer func() {
+		err = errors.Join(err, client.Close())
+	}()
 
-	// Start port forward and ensure it is healthy.
-	var pf *cli.PortForward
-	if err := cli.CheckServerConnection(cmd.Context(), client); err != nil {
-		pf, err = cli.NewPortForward(cmd.Context(), cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			return
-		}
-		defer pf.Stop()
+	portForward, connectErr := connection.Connect(cmd.Context(), cfg)
+	if connectErr != nil {
+		return fmt.Errorf("connect to kagent: %w", connectErr)
+	}
+	if portForward != nil {
+		defer portForward.Stop()
 	}
 
-	if err := tui.RunWorkspace(cfg, client, cfg.Verbose); err != nil {
-		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+	workspace := tui.Options{Namespace: cfg.Namespace}
+	if runErr := tui.RunWorkspace(cmd.Context(), workspace, client, cfg.Verbose); runErr != nil {
+		return fmt.Errorf("run kagent workspace: %w", runErr)
 	}
+	return nil
+}
+
+// isTerminal reports whether a stream is backed by a TTY; a non-*os.File never is.
+func isTerminal(stream any) bool {
+	file, ok := stream.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }

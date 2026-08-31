@@ -11,7 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -126,7 +126,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 			&atev1alpha1.ActorTemplate{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "template", Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "kagent",
-					substrate.HarnessLabelKey:      "harness",
+					substrate.RevisionHarnessLabel: "agent",
 				}},
 				Spec:   atev1alpha1.ActorTemplateSpec{SandboxClass: atev1alpha1.SandboxClassGvisor},
 				Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady},
@@ -160,7 +160,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.WorkerPools, 1)
 		assert.Equal(t, int32(2), result.WorkerPools[0].Replicas)
 		require.Len(t, result.ActorTemplates, 1)
-		assert.Equal(t, "harness", result.ActorTemplates[0].HarnessName)
+		assert.Equal(t, "agent", result.ActorTemplates[0].HarnessName)
 		require.Len(t, result.Actors, 1)
 		assert.Equal(t, "Running", result.Actors[0].Status)
 		require.Len(t, result.Workers, 1)

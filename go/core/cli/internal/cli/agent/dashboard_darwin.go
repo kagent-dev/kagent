@@ -9,13 +9,11 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
-func DashboardCmd(ctx context.Context, cfg *config.Config) {
+func DashboardCmd(ctx context.Context, namespace string) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-ui", "8082:8080")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", namespace, "port-forward", "service/kagent-ui", "8082:8080")
 
 	defer func() {
 		cancel()

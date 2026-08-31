@@ -6,13 +6,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
-func DashboardCmd(ctx context.Context, cfg *config.Config) {
+func DashboardCmd(ctx context.Context, namespace string) {
 	fmt.Fprintln(os.Stderr, "Dashboard is not available on this platform")
 	fmt.Fprintln(os.Stderr, "You can easily start the dashboard by running:")
-	fmt.Fprintln(os.Stderr, "kubectl port-forward -n kagent service/kagent-ui 8082:8080")
+	fmt.Fprintf(os.Stderr, "kubectl port-forward -n %s service/kagent-ui 8082:8080\n", namespace)
 	fmt.Fprintln(os.Stderr, "and then opening http://localhost:8082 in your browser")
 }

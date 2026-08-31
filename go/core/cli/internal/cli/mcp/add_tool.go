@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	commonfs "github.com/kagent-dev/kagent/go/core/cli/internal/common/fs"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/frameworks"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
@@ -20,14 +19,10 @@ type AddToolCfg struct {
 	Force       bool
 	Interactive bool
 	ProjectDir  string
+	Verbose     bool
 }
 
 func AddToolMcp(cfg *AddToolCfg, toolName string) error {
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-
 	// Validate tool name
 	if err := validateToolName(toolName); err != nil {
 		return fmt.Errorf("invalid tool name: %w", err)
@@ -63,7 +58,7 @@ func AddToolMcp(cfg *AddToolCfg, toolName string) error {
 	toolPath := filepath.Join("src", "tools", toolName+".py")
 	toolExists := commonfs.FileExists(toolPath)
 
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Tool file path: %s\n", toolPath)
 		fmt.Printf("Tool exists: %v\n", toolExists)
 	}
@@ -148,11 +143,7 @@ func createToolInteractive(cfg *AddToolCfg, toolName, projectRoot, framework str
 }
 
 func createTool(cfg *AddToolCfg, toolName, projectRoot, framework string) error {
-	appCfg, err := config.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
-	}
-	if appCfg.Verbose {
+	if cfg.Verbose {
 		fmt.Printf("Creating tool: %s\n", toolName)
 	}
 

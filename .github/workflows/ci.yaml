@@ -105,7 +105,6 @@ jobs:
             --set ui.replicas=0
             --set kagent-tools.enabled=false
             --set grafana-mcp.enabled=false
-            --set querydoc.enabled=false
             --set controller.substrate.enabled=true
             --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443
             --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
@@ -142,6 +141,8 @@ jobs:
           test "$READY" = True
           export KAGENT_GRPC_URL="$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8084"
           echo "KAGENT_GRPC_URL: $KAGENT_GRPC_URL"
+          make core/bin/kagent-local
+          export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on
 
       - name: fail print info
@@ -310,6 +311,11 @@ jobs:
 
       - name: Run Go unit tests
         working-directory: go
+        env:
+          # Runners are ephemeral, so Ryuk's leaked-container cleanup buys nothing,
+          # and its single session-scoped reaper is contended by the parallel package
+          # processes of `go test ./...`, intermittently timing out the Postgres tests.
+          TESTCONTAINERS_RYUK_DISABLED: "true"
         run: |
           make setup-envtest
           export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
@@ -339,7 +345,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/querydoc
           helm unittest helm/tools/grafana-mcp
 
   ui-tests:
@@ -355,33 +360,45 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version-file: ui/.nvmrc
-          cache: "npm"
-          cache-dependency-path: ui/package-lock.json
 
-      # Honor the pinned npm from ui/package.json "packageManager" so npm ci
-      # resolves the lock file with the same npm version it was generated with.
+      # Before any cache step that shells out to yarn: the pinned version in
+      # ui/package.json "packageManager" is Yarn 4, and without corepack the shim
+      # on the runner is a different one that cannot read this lock file.
       - name: Enable Corepack
         run: corepack enable
 
+      - name: Cache Yarn downloads
+        uses: actions/cache@v4
+        with:
+          path: ui/.yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
       - name: Install dependencies
         working-directory: ./ui
-        run: npm ci
+        run: yarn install --immutable
+
+      - name: Typecheck
+        working-directory: ./ui
+        run: yarn typecheck
 
       - name: Run lint
         working-directory: ./ui
-        run: npm run lint
+        run: yarn lint
 
-      - name: Run unit tests (Jest)
+      - name: Run unit tests
         working-directory: ./ui
-        run: npm run test
+        run: yarn test
 
-      - name: Install Playwright browser (Chromium)
+      # Both engines the suite declares. Installing only one leaves that project
+      # failing to launch, which reads as a broken app rather than a missing browser.
+      - name: Install Playwright browsers
         working-directory: ./ui
-        run: npx playwright install --with-deps chromium
+        run: yarn playwright install --with-deps chromium firefox
 
-      - name: Run Storybook tests (Vitest + Playwright)
+      - name: Run browser tests
         working-directory: ./ui
-        run: npm run test:vitest
+        run: yarn test:pw
 
   # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
   build:
@@ -396,9 +413,6 @@ jobs:
           - kagent-adk
           - cli
           - golang-adk
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
-          - acp-sandbox-claude
     runs-on: ubuntu-latest
     services:
       registry:
