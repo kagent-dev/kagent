@@ -111,31 +111,34 @@ func TestE2ECLIAgentTemplateLifecycle(t *testing.T) {
 	run := func(args ...string) string {
 		return runKagentCLI(t, t.Context(), binary, append(append([]string{}, baseArgs...), args...)...)
 	}
-	writeManifest := func(systemPrompt string) {
+	writeManifest := func(systemPrompt, runtime string) {
 		t.Helper()
 		manifest := fmt.Sprintf(`apiVersion: kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata:
   name: %s
   labels:
-    kagent.dev/e2e-runtime: kagent
+    kagent.dev/e2e-runtime: %s
 spec:
   modelConfig:
     name: %s
   systemPrompt: %q
-`, templateName, model.Name, systemPrompt)
+`, templateName, runtime, model.Name, systemPrompt)
 		if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
 			t.Fatalf("write AgentTemplate manifest: %v", err)
 		}
 	}
-	assertPrompt := func(want string) {
+	assertTemplate := func(wantPrompt, wantRuntime string) {
 		t.Helper()
 		template := &v1alpha3.AgentTemplate{}
 		if err := kube.Get(t.Context(), types.NamespacedName{Namespace: "kagent", Name: templateName}, template); err != nil {
 			t.Fatalf("get AgentTemplate %q: %v", templateName, err)
 		}
-		if template.Spec.SystemPrompt != want {
-			t.Fatalf("AgentTemplate systemPrompt = %q, want %q", template.Spec.SystemPrompt, want)
+		if template.Spec.SystemPrompt != wantPrompt {
+			t.Fatalf("AgentTemplate systemPrompt = %q, want %q", template.Spec.SystemPrompt, wantPrompt)
+		}
+		if got := template.Labels["kagent.dev/e2e-runtime"]; got != wantRuntime {
+			t.Fatalf("AgentTemplate runtime label = %q, want %q", got, wantRuntime)
 		}
 	}
 	deleteTemplate := func() {
@@ -159,20 +162,20 @@ spec:
 		}
 	})
 
-	writeManifest("created through the CLI")
+	writeManifest("created through the CLI", "kagent")
 	created := run("--output-format", "json", "create", "agent-template", "-f", manifestPath)
 	if !json.Valid([]byte(created)) || !strings.Contains(created, `"name":"`+templateName+`"`) {
 		t.Fatalf("create AgentTemplate stdout = %q, want JSON for %q", created, templateName)
 	}
-	assertPrompt("created through the CLI")
+	assertTemplate("created through the CLI", "kagent")
 
-	writeManifest("updated through the CLI")
+	writeManifest("updated through the CLI", "codex")
 	run("update", "agent-template", "-f", manifestPath)
-	assertPrompt("updated through the CLI")
+	assertTemplate("updated through the CLI", "codex")
 
-	writeManifest("applied through the CLI")
+	writeManifest("applied through the CLI", "kagent")
 	run("apply", "-f", manifestPath)
-	assertPrompt("applied through the CLI")
+	assertTemplate("applied through the CLI", "kagent")
 
 	deleteTemplate()
 
@@ -180,7 +183,7 @@ spec:
 	if !json.Valid([]byte(applied)) || !strings.Contains(applied, `"name":"`+templateName+`"`) {
 		t.Fatalf("apply AgentTemplate stdout = %q, want JSON for %q", applied, templateName)
 	}
-	assertPrompt("applied through the CLI")
+	assertTemplate("applied through the CLI", "kagent")
 	deleteTemplate()
 }
 
