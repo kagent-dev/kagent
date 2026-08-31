@@ -150,9 +150,23 @@ func extractFunctionResponseContent(resp any) string {
 		if c, ok := m["content"].([]any); ok && len(c) > 0 {
 			var parts []string
 			for _, item := range c {
-				if itemMap, ok := item.(map[string]any); ok {
-					if t, ok := itemMap["text"].(string); ok {
-						parts = append(parts, t)
+				itemMap, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				if t, ok := itemMap["text"].(string); ok {
+					parts = append(parts, t)
+					continue
+				}
+				// "resource" content (e.g. GitHub MCP's get_file_contents) carries
+				// its payload nested under resource.text rather than a top-level
+				// text key; without this the caller only ever sees the sibling
+				// placeholder text item.
+				if itemMap["type"] == "resource" {
+					if resource, ok := itemMap["resource"].(map[string]any); ok {
+						if t, ok := resource["text"].(string); ok {
+							parts = append(parts, t)
+						}
 					}
 				}
 			}
