@@ -18,6 +18,7 @@ require (
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zapr v1.3.0
@@ -159,7 +160,6 @@ require (
 	github.com/charithe/durationcheck v0.0.11 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20251205161215-1948445e3318 // indirect
-	github.com/charmbracelet/x/ansi v0.11.8 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -487,3 +487,7 @@ require (
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
 replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.20
+
+// wk8/go-ordered-map is unmaintained; pb33f/ordered-map is the maintained fork
+// with the same package path and API (same approach as lima-vm/lima#4916).
+replace github.com/wk8/go-ordered-map/v2 => github.com/pb33f/ordered-map/v2 v2.1.8
