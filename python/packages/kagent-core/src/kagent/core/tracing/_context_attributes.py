@@ -171,20 +171,37 @@ def _parse_json_allowlist(raw: str) -> list[_ContextMapping]:
         if isinstance(item, str):
             mapping = _new_context_mapping(item, "", "")
         elif isinstance(item, dict):
-            from_key, to_key, hash_alg = item.get("from"), item.get("to"), item.get("hash")
-            if from_key is not None and not isinstance(from_key, str):
+            from_key, from_ok = _json_string_field(item, "from")
+            to_key, to_ok = _json_string_field(item, "to")
+            hash_alg, hash_ok = _json_string_field(item, "hash")
+            if not from_ok or not to_ok or not hash_ok:
+                # Non-string hash/to must drop the mapping. Coercing hash: 123
+                # to "no hash" would emit the original value in plaintext.
                 mapping = None
             else:
-                mapping = _new_context_mapping(
-                    from_key or "",
-                    to_key if isinstance(to_key, str) else "",
-                    hash_alg if isinstance(hash_alg, str) else "",
-                )
+                mapping = _new_context_mapping(from_key, to_key, hash_alg)
         else:
             mapping = None
         if mapping is not None:
             mappings.append(mapping)
     return mappings
+
+
+def _json_string_field(item: dict[str, Any], name: str) -> tuple[str, bool]:
+    """Return a JSON string field, or reject it when the type is invalid.
+
+    Missing keys and JSON null are unset (empty string), matching Go's
+    encoding/json behaviour for string fields. Any other non-string type is
+    a malformed mapping and must fail closed.
+    """
+    if name not in item:
+        return "", True
+    raw = item[name]
+    if raw is None:
+        return "", True
+    if isinstance(raw, str):
+        return raw, True
+    return "", False
 
 
 def _new_context_mapping(from_key: str, to_key: str, hash_alg: str) -> Optional[_ContextMapping]:
@@ -259,11 +276,45 @@ def _scalar_string(value: Any) -> Optional[str]:
 
 
 def _format_float(value: float) -> str:
-    """Match Go ``strconv.FormatFloat(v, 'f', -1, 64)``: never scientific notation."""
-    formatted = format(value, ".16f")
-    if "." in formatted:
-        formatted = formatted.rstrip("0").rstrip(".")
-    return formatted or "0"
+    """Match Go ``strconv.FormatFloat(v, 'f', -1, 64)``: never scientific notation.
+
+    ``format(value, '.16f')`` rounds values such as ``1e-20`` to ``0``. Expand
+    Python's shortest unique repr from scientific form into fixed-point
+    instead, so tiny values keep their digits.
+    """
+    return _fixed_point_from_shortest(repr(value))
+
+
+def _fixed_point_from_shortest(text: str) -> str:
+    lower = text.lower()
+    negative = lower.startswith("-")
+    if negative:
+        lower = lower[1:]
+    if "e" not in lower:
+        if "." in lower:
+            lower = lower.rstrip("0").rstrip(".")
+        out = lower or "0"
+        return f"-{out}" if negative and out != "0" else out
+    mantissa, exp_s = lower.split("e")
+    exp = int(exp_s)
+    if "." in mantissa:
+        whole, frac = mantissa.split(".")
+        digits = whole + frac
+        exp -= len(frac)
+    else:
+        digits = mantissa
+    digits = digits.lstrip("0") or "0"
+    if exp >= 0:
+        out = digits + "0" * exp
+    else:
+        shift = -exp
+        if len(digits) <= shift:
+            out = "0." + "0" * (shift - len(digits)) + digits
+        else:
+            idx = len(digits) - shift
+            frac = digits[idx:].rstrip("0")
+            out = digits[:idx] + (("." + frac) if frac else "")
+    return f"-{out}" if negative and out != "0" else out
 
 
 def _sanitize_context_value(value: Any) -> str:

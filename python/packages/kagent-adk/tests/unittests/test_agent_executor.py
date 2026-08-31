@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from a2a.server.agent_execution.context import RequestContext
@@ -104,3 +104,46 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
     assert calls["config"].request_converter == executor._convert_request
     executor._prepare_session.assert_awaited_once_with(context, run_request, runner)
     executor._safe_close_runner.assert_awaited_once_with(runner)
+
+
+@pytest.mark.asyncio
+async def test_execute_merges_caller_context_without_eager_decode(monkeypatch):
+    context = _request_context()
+    event_queue = object()
+    runner = object()
+    run_request = AgentRunRequest(
+        user_id="user-1",
+        session_id="context-1",
+        run_config=RunConfig(),
+    )
+    executor = A2aAgentExecutor(runner=lambda: None)
+    executor._resolve_runner = AsyncMock(return_value=runner)
+    executor._convert_request = lambda request_context, part_converter: run_request
+    executor._prepare_session = AsyncMock()
+    executor._safe_close_runner = AsyncMock()
+
+    recorded = {}
+
+    def fake_merge(existing, metadata=None, context=None, message=None):
+        recorded["existing"] = dict(existing)
+        recorded["message"] = message
+
+    monkeypatch.setattr(executor_module, "merge_caller_context_attributes", fake_merge)
+    decode = MagicMock(return_value={"thread_id": "T1"})
+    if hasattr(executor_module, "read_message_metadata"):
+        monkeypatch.setattr(executor_module, "read_message_metadata", decode)
+
+    class FakeUpstreamExecutor:
+        def __init__(self, *, runner, config, force_new_version):
+            pass
+
+        async def execute(self, request_context, queue):
+            return None
+
+    monkeypatch.setattr(executor_module, "UpstreamA2aAgentExecutor", FakeUpstreamExecutor)
+
+    await executor.execute(context, event_queue)
+
+    assert recorded["message"] is context.message
+    assert recorded["existing"]["kagent.user_id"] == "user-1"
+    decode.assert_not_called()

@@ -95,6 +95,7 @@ class TestCallerContextAttributes:
             (3.0, "3"),
             (2.5, "2.5"),
             (1e20, "100000000000000000000"),
+            (1e-20, "0.00000000000000000001"),
         ],
     )
     def test_renders_scalar_metadata_types(self, monkeypatch, value, expected):
@@ -212,6 +213,24 @@ class TestCallerContextAttributes:
         )
         monkeypatch.setenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, "test-hmac-key")
         assert caller_context_attributes({"email": "ada@example.com"}) == {}
+
+    def test_non_string_hash_does_not_emit_plaintext(self, monkeypatch):
+        """A numeric hash field must drop the mapping, not skip hashing."""
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"email","to":"user.hash","hash":123}]',
+        )
+        monkeypatch.setenv(TRACE_CONTEXT_HASH_KEY_ENV_VAR, "test-hmac-key")
+        promoted = caller_context_attributes({"email": "ada@example.com"})
+        assert promoted == {}
+        assert not any("ada@example.com" in value for value in promoted.values())
+
+    def test_non_string_to_drops_the_mapping(self, monkeypatch):
+        monkeypatch.setenv(
+            TRACE_CONTEXT_KEYS_ENV_VAR,
+            '[{"from":"thread_id","to":123}]',
+        )
+        assert caller_context_attributes({"thread_id": "T1"}) == {}
 
     def test_skips_message_decode_when_allowlist_empty(self, monkeypatch):
         monkeypatch.delenv(TRACE_CONTEXT_KEYS_ENV_VAR, raising=False)

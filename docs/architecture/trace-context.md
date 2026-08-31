@@ -173,7 +173,11 @@ processors:
 | Component | Path |
 |---|---|
 | Go ADK | `go/adk/pkg/telemetry/context_attributes.go` |
-| Python | `python/packages/kagent-core/src/kagent/core/tracing/_context_attributes.py` |
+| Python core | `python/packages/kagent-core/src/kagent/core/tracing/_context_attributes.py` |
+| Python ADK | `python/packages/kagent-adk/src/kagent/adk/_agent_executor.py` |
+| Python LangGraph | `python/packages/kagent-langgraph/src/kagent/langgraph/_executor.py` |
+| Python CrewAI | `python/packages/kagent-crewai/src/kagent/crewai/_executor.py` |
+| Python OpenAI | `python/packages/kagent-openai/src/kagent/openai/_agent_executor.py` |
 | Controller forwarding | `go/core/v2/translator/kagent/compiler.go` |
 | Helm | `helm/kagent/templates/controller-configmap.yaml` |
 

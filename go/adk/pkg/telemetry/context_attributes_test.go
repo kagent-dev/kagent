@@ -122,6 +122,12 @@ func TestCallerContextAttributes(t *testing.T) {
 			want:      map[string]string{"kagent.context.value": "100000000000000000000"},
 		},
 		{
+			name:      "formats tiny floats without rounding to zero",
+			allowlist: "value",
+			metadata:  map[string]any{"value": float64(1e-20)},
+			want:      map[string]string{"kagent.context.value": "0.00000000000000000001"},
+		},
+		{
 			name:      "skips non-scalar and empty metadata values",
 			allowlist: "nested,list,blank",
 			metadata: map[string]any{
@@ -206,6 +212,19 @@ func TestCallerContextAttributes(t *testing.T) {
 			name:      "invalid JSON allowlist promotes nothing",
 			allowlist: `[{"from":"sub"`,
 			metadata:  map[string]any{"sub": "opaque-subject"},
+			want:      nil,
+		},
+		{
+			name:      "non-string hash does not emit plaintext",
+			allowlist: `[{"from":"email","to":"user.hash","hash":123}]`,
+			hashKey:   "test-hmac-key",
+			metadata:  map[string]any{"email": "ada@example.com"},
+			want:      nil,
+		},
+		{
+			name:      "non-string to drops the mapping",
+			allowlist: `[{"from":"thread_id","to":123}]`,
+			metadata:  map[string]any{"thread_id": "T1"},
 			want:      nil,
 		},
 	}
