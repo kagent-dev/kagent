@@ -51,12 +51,15 @@ jobs:
         DOCKER_BUILDER: "docker buildx build"
         DOCKER_REGISTRY: "ghcr.io" # prod for releases, local for dev
       run: |
-        # if workflow_dispatch is used, use the version input
+        # Resolve the release version from the dispatch input or the pushed tag.
         if [ -n "${{ github.event.inputs.version }}" ]; then
-          export VERSION=${{ github.event.inputs.version }}
+          VERSION="${{ github.event.inputs.version }}"
         else
-          export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
+          VERSION="${GITHUB_REF#refs/tags/}"
         fi
+        # Tags are vX.Y.Z but image tags, chart versions and Go ldflags all want
+        # bare semver, so strip the prefix here — on both paths, not just one.
+        export VERSION="${VERSION#v}"
         make build-${{ matrix.image }}
   push-helm-chart:
     needs:
@@ -78,12 +81,15 @@ jobs:
 
     - name: 'Build Helm Chart'
       run: |
-        # if workflow_dispatch is used, use the version input
+        # Resolve the release version from the dispatch input or the pushed tag.
         if [ -n "${{ github.event.inputs.version }}" ]; then
-          export VERSION=${{ github.event.inputs.version }}
+          VERSION="${{ github.event.inputs.version }}"
         else
-          export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
+          VERSION="${GITHUB_REF#refs/tags/}"
         fi
+        # Tags are vX.Y.Z but image tags, chart versions and Go ldflags all want
+        # bare semver, so strip the prefix here — on both paths, not just one.
+        export VERSION="${VERSION#v}"
         make helm-publish
   release-python-packages:
     runs-on: ubuntu-latest
@@ -98,12 +104,15 @@ jobs:
     - name: 'Release Python Packages'
       working-directory: python
       run: |
-        # if workflow_dispatch is used, use the version input
+        # Resolve the release version from the dispatch input or the pushed tag.
         if [ -n "${{ github.event.inputs.version }}" ]; then
-          export VERSION=${{ github.event.inputs.version }}
+          VERSION="${{ github.event.inputs.version }}"
         else
-          export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
+          VERSION="${GITHUB_REF#refs/tags/}"
         fi
+        # Tags are vX.Y.Z but image tags, chart versions and Go ldflags all want
+        # bare semver, so strip the prefix here — on both paths, not just one.
+        export VERSION="${VERSION#v}"
         uv sync --all-extras
         # Bump every package version to $VERSION first
         uv version $VERSION --package kagent-core
@@ -148,12 +157,15 @@ jobs:
       uses: actions/checkout@v6
     - name: Build
       run: |
-        # if workflow_dispatch is used, use the version input
+        # Resolve the release version from the dispatch input or the pushed tag.
         if [ -n "${{ github.event.inputs.version }}" ]; then
-          export VERSION=${{ github.event.inputs.version }}
+          VERSION="${{ github.event.inputs.version }}"
         else
-          export VERSION=$(echo "$GITHUB_REF" | cut -c12-)
+          VERSION="${GITHUB_REF#refs/tags/}"
         fi
+        # Tags are vX.Y.Z but image tags, chart versions and Go ldflags all want
+        # bare semver, so strip the prefix here — on both paths, not just one.
+        export VERSION="${VERSION#v}"
         make build-cli
         make helm-version
     - name: Release
