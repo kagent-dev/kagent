@@ -55,17 +55,82 @@ type contextMapping struct {
 	hash      string
 }
 
-// loadAllowedContextMappings parses KAGENT_TRACE_CONTEXT_KEYS once. The
-// allowlist cannot change without a process restart; tests call
+// contextPolicy is the parsed allowlist plus every source key named in it.
+// Source keys are tracked even when a mapping is rejected (for example
+// hash: 123), so generic metadata stamping cannot leak a value the operator
+// asked to hash or omit.
+type contextPolicy struct {
+	mappings []contextMapping
+	sources  map[string]struct{}
+}
+
+// loadContextPolicy parses KAGENT_TRACE_CONTEXT_KEYS once. The allowlist
+// cannot change without a process restart; tests call
 // resetAllowedContextMappings after t.Setenv.
-var loadAllowedContextMappings = sync.OnceValue(parseAllowedContextMappings)
+var loadContextPolicy = sync.OnceValue(parseContextPolicy)
 
 func resetAllowedContextMappings() {
-	loadAllowedContextMappings = sync.OnceValue(parseAllowedContextMappings)
+	loadContextPolicy = sync.OnceValue(parseContextPolicy)
 }
 
 func allowedContextMappings() []contextMapping {
-	return loadAllowedContextMappings()
+	return loadContextPolicy().mappings
+}
+
+func policyCoveredContextSources() map[string]struct{} {
+	return loadContextPolicy().sources
+}
+
+func parseContextPolicy() contextPolicy {
+	return contextPolicy{
+		mappings: parseAllowedContextMappings(),
+		sources:  parseContextPolicySources(),
+	}
+}
+
+func parseContextPolicySources() map[string]struct{} {
+	raw := strings.TrimSpace(os.Getenv(traceContextKeysEnvVar))
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "[") {
+		return jsonAllowlistSourceKeys(raw)
+	}
+	sources := make(map[string]struct{})
+	for key := range strings.SplitSeq(raw, ",") {
+		if key = strings.TrimSpace(key); key != "" {
+			sources[key] = struct{}{}
+		}
+	}
+	return sources
+}
+
+func jsonAllowlistSourceKeys(raw string) map[string]struct{} {
+	var items []json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	sources := make(map[string]struct{})
+	for _, item := range items {
+		var key string
+		if err := json.Unmarshal(item, &key); err == nil {
+			if key = strings.TrimSpace(key); key != "" {
+				sources[key] = struct{}{}
+			}
+			continue
+		}
+		// Only bind from so a non-string hash/to cannot hide the source key.
+		var spec struct {
+			From string `json:"from"`
+		}
+		if err := json.Unmarshal(item, &spec); err != nil {
+			continue
+		}
+		if key := strings.TrimSpace(spec.From); key != "" {
+			sources[key] = struct{}{}
+		}
+	}
+	return sources
 }
 
 // CallerContextAttributes returns the caller-supplied context values that an

@@ -137,6 +137,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 		ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
 		defer invocationSpan.End()
+		// Allowlisted sources are skipped here so hashed or omitted values
+		// cannot leak as a2a.message.metadata.<from> plaintext.
 		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 
 		e.logger.Info("Execute",
