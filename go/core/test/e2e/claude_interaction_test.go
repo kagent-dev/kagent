@@ -31,7 +31,7 @@ const claudeE2EHarness = "claude-e2e"
 //go:embed mocks/invoke_claude_agent.json mocks/invoke_claude_builtin_tools.json mocks/invoke_claude_local_subagent.json mocks/invoke_claude_resources.json
 var claudeInteractionMocks embed.FS
 
-func TestClaudeMockInteractionResumeAndPersistence(t *testing.T) {
+func TestE2EClaudeMockInteractionResumeAndPersistence(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
 	template := createClaudeMockTemplate(t, modelURL)
@@ -62,7 +62,7 @@ func TestClaudeMockInteractionResumeAndPersistence(t *testing.T) {
 	assertClaudeTaskHistory(t, fixture, first.ID, resumed.ID)
 }
 
-func TestClaudeMockCheckpointForkAndResume(t *testing.T) {
+func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
 	template := createClaudeMockTemplate(t, modelURL)
@@ -139,7 +139,7 @@ func TestClaudeMockCheckpointForkAndResume(t *testing.T) {
 	}
 }
 
-func TestClaudeMockActiveTaskCancellation(t *testing.T) {
+func TestE2EClaudeMockActiveTaskCancellation(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL, started := startBlockingClaudeMock(t)
 	template := createClaudeMockTemplate(t, modelURL)
@@ -147,7 +147,7 @@ func TestClaudeMockActiveTaskCancellation(t *testing.T) {
 	testActiveTaskCancellation(t, fixture, started)
 }
 
-func TestClaudeMockBuiltinToolEvents(t *testing.T) {
+func TestE2EClaudeMockBuiltinToolEvents(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_builtin_tools.json"), "")
 	template := createClaudeMockTemplate(t, modelURL)
@@ -162,7 +162,7 @@ func TestClaudeMockBuiltinToolEvents(t *testing.T) {
 	assertClaudeToolEvents(t, claudeTaskToolEvents(persisted), "Bash", "Read")
 }
 
-func TestClaudeMockLocalSubagentRouting(t *testing.T) {
+func TestE2EClaudeMockLocalSubagentRouting(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_local_subagent.json"), "")
 	kube := interactionKubeClient(t)
@@ -490,7 +490,7 @@ func assertNoClaudeChildInstance(t *testing.T, fixture *interactionFixture, chil
 	}
 }
 
-func TestClaudeMockWholeServerMCP(t *testing.T) {
+func TestE2EClaudeMockWholeServerMCP(t *testing.T) {
 	target := interactionTarget(t)
 	mcpURL, mcpMock := startMCPMock(t)
 
