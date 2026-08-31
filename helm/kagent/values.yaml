@@ -658,6 +658,12 @@ providers:
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""
+  mistral:
+    provider: Mistral
+    model: "mistral-large-latest"
+    apiKeySecretRef: kagent-mistral
+    apiKeySecretKey: MISTRAL_API_KEY
+    # apiKey: ""
 
 # ==============================================================================
 # KMCP

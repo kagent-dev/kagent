@@ -319,6 +319,18 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		return models.NewAnthropicModelWithLogger(cfg, log)
 
+	case *adk.Mistral:
+		cfg := &models.MistralConfig{
+			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout),
+			Model:           m.Model,
+			BaseUrl:         m.BaseUrl,
+			MaxTokens:       m.MaxTokens,
+			Temperature:     m.Temperature,
+			TopP:            m.TopP,
+			Timeout:         m.Timeout,
+		}
+		return models.NewMistralModelWithLogger(cfg, log)
+
 	case *adk.Ollama:
 		baseURL := os.Getenv("OLLAMA_API_BASE")
 		if baseURL == "" {

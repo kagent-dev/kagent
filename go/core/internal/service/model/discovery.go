@@ -285,6 +285,18 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			// SAP
 			{Name: "sap-abap-1", FunctionCalling: false},
 		},
+		v1alpha3.ModelProviderMistral: {
+			{Name: "mistral-large-latest", FunctionCalling: true},
+			{Name: "mistral-medium-latest", FunctionCalling: true},
+			{Name: "mistral-small-latest", FunctionCalling: true},
+			{Name: "magistral-medium-latest", FunctionCalling: true},
+			{Name: "magistral-small-latest", FunctionCalling: true},
+			{Name: "codestral-latest", FunctionCalling: true},
+			{Name: "ministral-8b-latest", FunctionCalling: true},
+			{Name: "ministral-3b-latest", FunctionCalling: true},
+			{Name: "pixtral-large-latest", FunctionCalling: true},
+			{Name: "open-mistral-nemo", FunctionCalling: true},
+		},
 	}
 }
 
@@ -303,6 +315,7 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 		{v1alpha3.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha3.AnthropicVertexAIConfig]()},
 		{v1alpha3.ModelProviderBedrock, reflect.TypeFor[v1alpha3.BedrockConfig]()},
 		{v1alpha3.ModelProviderSAPAICore, reflect.TypeFor[v1alpha3.SAPAICoreConfig]()},
+		{v1alpha3.ModelProviderMistral, reflect.TypeFor[v1alpha3.MistralConfig]()},
 	}
 
 	providers := []ProviderDefinition{}

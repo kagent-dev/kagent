@@ -254,6 +254,57 @@ func TestModelName_ReturnsModelNotProvider(t *testing.T) {
 	})
 }
 
+// TestCreateLLMConfig_Mistral verifies that createLLM wires an *adk.Mistral
+// into a MistralModel whose inner OpenAI client keeps the model name (not the
+// type discriminator "mistral") and inherits the Mistral base URL.
+func TestCreateLLMConfig_Mistral(t *testing.T) {
+	t.Setenv("MISTRAL_API_KEY", "test-key")
+	t.Setenv("MISTRAL_API_BASE", "")
+
+	configJSON := `{
+		"model": {
+			"type": "mistral",
+			"model": "mistral-large-latest",
+			"base_url": "https://api.mistral.ai/v1",
+			"temperature": 0.5,
+			"max_tokens": 1024
+		},
+		"description": "test",
+		"instruction": "test"
+	}`
+
+	var cfg adk.AgentConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	mistral, ok := cfg.Model.(*adk.Mistral)
+	if !ok {
+		t.Fatalf("model is %T, want *adk.Mistral", cfg.Model)
+	}
+	if mistral.Model != "mistral-large-latest" {
+		t.Errorf("model = %q, want %q", mistral.Model, "mistral-large-latest")
+	}
+	if mistral.BaseUrl != "https://api.mistral.ai/v1" {
+		t.Errorf("base_url = %q, want %q", mistral.BaseUrl, "https://api.mistral.ai/v1")
+	}
+
+	llm, err := CreateLLM(context.Background(), cfg.Model, logr.Discard())
+	if err != nil {
+		t.Fatalf("CreateLLM returned error: %v", err)
+	}
+	mm, ok := llm.(*models.MistralModel)
+	if !ok {
+		t.Fatalf("CreateLLM returned %T, want *models.MistralModel", llm)
+	}
+	if mm.Name() != "mistral-large-latest" {
+		t.Errorf("Name() = %q, want %q", mm.Name(), "mistral-large-latest")
+	}
+	if mm.Name() == "mistral" {
+		t.Error("Name() returns provider name 'mistral' instead of model name — this causes 404s from the Mistral API")
+	}
+}
+
 // TestConfigDeserialization_Bedrock verifies that a Bedrock config deserializes
 // correctly with the model name and region preserved.
 func TestConfigDeserialization_Bedrock(t *testing.T) {
