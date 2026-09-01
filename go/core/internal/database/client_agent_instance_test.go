@@ -367,8 +367,8 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid",
 		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
-		ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
-		ActorTemplateUID: "actor-template-uid", Phase: "Ready",
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+		ActorTemplateUID: "actor-template-uid",
 	}
 	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
@@ -511,8 +511,8 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid",
 		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
-		ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
-		ActorTemplateUID: "actor-template-uid", Phase: "Ready",
+		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+		ActorTemplateUID: "actor-template-uid",
 	}
 	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
@@ -676,8 +676,8 @@ func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context
 		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
 		HarnessName: harness, HarnessUID: harness + "-uid",
 		SourceSnapshot: []byte("{}"), AgentCard: []byte("{}"), EgressDestinations: []string{},
-		ActorTemplateNamespace: "team-a", ActorTemplateName: revisionID + "-actor-template",
-		ActorTemplateUID: revisionID + "-actor-uid", Phase: "Ready",
+		ActorTemplateAtespace: "team-a", ActorTemplateName: revisionID + "-actor-template",
+		ActorTemplateUID: revisionID + "-actor-uid",
 	}
 	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)

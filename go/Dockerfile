@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 COPY api/ api/
 COPY core/ core/
 COPY adk/ adk/
+COPY harness/ harness/
 
 # Build
 ARG LDFLAGS

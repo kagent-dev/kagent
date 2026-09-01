@@ -189,22 +189,20 @@ type Memory struct {
 }
 
 type RuntimeRevision struct {
-	Revision               string
-	Namespace              string
-	AgentTemplateName      string
-	AgentTemplateUid       string
-	HarnessName            string
-	HarnessUid             string
-	SourceSnapshot         []byte
-	EgressDestinations     []string
-	ActorTemplateNamespace string
-	ActorTemplateName      string
-	ActorTemplateUid       string
-	Phase                  string
-	GoldenSnapshot         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	AgentCard              []byte
+	Revision              string
+	Namespace             string
+	AgentTemplateName     string
+	AgentTemplateUid      string
+	HarnessName           string
+	HarnessUid            string
+	SourceSnapshot        []byte
+	EgressDestinations    []string
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUid      string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	AgentCard             []byte
 }
 
 type Tool struct {
