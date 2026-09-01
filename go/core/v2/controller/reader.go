@@ -80,7 +80,7 @@ func (r collectionReader) Get(_ context.Context, key types.NamespacedName, objec
 }
 
 func (r collectionReader) fetchObject[T controllers.ComparableObject](collection krt.Collection[T], key types.NamespacedName, resource schema.GroupResource) (T, error) {
-	object := krt.FetchOne(r.ctx, collection, krt.FilterObjectName(key))
+	object := krt.FetchOne(r.ctx, collection, krt.FilterNamespace(key.Namespace), krt.FilterName(key.Name))
 	if object == nil {
 		var zero T
 		return zero, apierrors.NewNotFound(resource, key.Name)
