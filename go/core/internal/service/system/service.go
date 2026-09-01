@@ -64,15 +64,12 @@ type SubstrateWorkerPool struct {
 }
 
 type SubstrateActorTemplate struct {
-	Namespace       string
-	Name            string
-	Phase           string
-	GoldenActorID   string
-	GoldenSnapshot  string
-	SandboxClass    string
-	WorkerSelector  string
-	HarnessName     string
-	ManagedByKagent bool
+	Namespace      string
+	Name           string
+	Phase          string
+	GoldenSnapshot string
+	SandboxClass   string
+	WorkerSelector string
 }
 
 type SubstrateActor struct {

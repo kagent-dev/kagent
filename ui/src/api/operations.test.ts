@@ -688,7 +688,7 @@ describe("the cluster", () => {
             { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
           ],
           actorTemplates: [
-            { namespace: "kagent", name: "tpl", managedByKagent: true, phase: "Ready" },
+            { namespace: "kagent", name: "tpl", phase: "Ready" },
           ],
           actors: [{ actorId: "a1", atespace: "kagent", status: "Running", version: 3n }],
           workers: [],
@@ -703,7 +703,6 @@ describe("the cluster", () => {
     expect(status.ateApiError).toMatch(/ate-api/);
     expect(status.actors[0].atespace).toBe("kagent");
     expect(status.actors[0].version).toBe(3);
-    expect(status.actorTemplates[0].managedByKagent).toBe(true);
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning

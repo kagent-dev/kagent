@@ -65,14 +65,11 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(templates).toContainText("kagent/coder-template");
     await expect(templates).toContainText("platform/external-template");
 
-    // The golden actor, beneath the name: it is the snapshot every new actor of this
-    // template is cut from, and the one identifier worth carrying beside the name.
-    await expect(templates).toContainText("golden: actor-golden-001");
-
     // The rest of what decides where and how a template runs.
     await expect(templates).toContainText("standard");
     await expect(templates).toContainText("pool=default-pool");
-    await expect(templates).toContainText("openclaw");
+    await expect(templates.getByRole("columnheader", { name: "Harness" })).toHaveCount(0);
+    await expect(templates).not.toContainText("golden:");
 
     // Both phases, and coloured by what they mean rather than all alike: a Ready template
     // reads as healthy, a Pending one does not.

@@ -1510,12 +1510,9 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
       namespace: template.namespace,
       name: template.name,
       phase: template.phase ?? "",
-      goldenActorId: template.goldenActorId ?? "",
       goldenSnapshot: template.goldenSnapshot ?? "",
       sandboxClass: template.sandboxClass ?? "",
       workerSelector: template.workerSelector ?? "",
-      harnessName: template.harnessName ?? "",
-      managedByKagent: template.managedByKagent ?? false,
     })),
     actors: actors.map((actor) => ({
       actorId: actor.actorId,

@@ -769,11 +769,9 @@ export function SubstratePage() {
         [
           template.namespace,
           template.name,
-          template.goldenActorId,
           template.phase,
           template.sandboxClass,
           template.workerSelector,
-          template.harnessName,
         ]
           .filter(Boolean)
           .join(" "),
@@ -864,16 +862,7 @@ export function SubstratePage() {
         key: "template",
         sorter: { compare: byText((t) => `${t.namespace}/${t.name}`), multiple: 5 },
         render: (_, template) => (
-          <div>
-            {qualified(template.namespace, template.name)}
-            {/* The golden actor is the snapshot every new actor of this template is
-                cut from, so it is the one identifier worth carrying beside the name. */}
-            {template.goldenActorId ? (
-              <Text css={{ ...mono, ...muted, display: "block" }}>
-                golden: {template.goldenActorId}
-              </Text>
-            ) : null}
-          </div>
+          qualified(template.namespace, template.name)
         ),
       },
       {
@@ -900,15 +889,6 @@ export function SubstratePage() {
           ) : (
             "—"
           ),
-      },
-      {
-        // Text and not a link: the agents list has no namespace filter to send a
-        // reader to, so a link here would land them on an unfiltered page and imply
-        // otherwise.
-        title: "Harness",
-        key: "harness",
-        sorter: { compare: byText((t) => t.harnessName ?? ""), multiple: 1 },
-        render: (_, template) => template.harnessName ?? "—",
       },
     ],
     [mono, muted, qualified],

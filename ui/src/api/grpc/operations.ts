@@ -1292,12 +1292,9 @@ function toActorTemplateEntry(
     namespace: template.namespace,
     name: template.name,
     phase: orUndefined(template.phase),
-    goldenActorId: orUndefined(template.goldenActorId),
     goldenSnapshot: orUndefined(template.goldenSnapshot),
     sandboxClass: orUndefined(template.sandboxClass),
     workerSelector: orUndefined(template.workerSelector),
-    harnessName: orUndefined(template.harnessName),
-    managedByKagent: template.managedByKagent,
   };
 }
 

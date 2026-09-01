@@ -77,15 +77,12 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 	}
 	for _, actorTemplate := range result.ActorTemplates {
 		response.ActorTemplates = append(response.ActorTemplates, &apiv1alpha1.SubstrateActorTemplate{
-			Namespace:       actorTemplate.Namespace,
-			Name:            actorTemplate.Name,
-			Phase:           actorTemplate.Phase,
-			GoldenActorId:   actorTemplate.GoldenActorID,
-			GoldenSnapshot:  actorTemplate.GoldenSnapshot,
-			SandboxClass:    actorTemplate.SandboxClass,
-			WorkerSelector:  actorTemplate.WorkerSelector,
-			HarnessName:     actorTemplate.HarnessName,
-			ManagedByKagent: actorTemplate.ManagedByKagent,
+			Namespace:      actorTemplate.Namespace,
+			Name:           actorTemplate.Name,
+			Phase:          actorTemplate.Phase,
+			GoldenSnapshot: actorTemplate.GoldenSnapshot,
+			SandboxClass:   actorTemplate.SandboxClass,
+			WorkerSelector: actorTemplate.WorkerSelector,
 		})
 	}
 	for _, actor := range result.Actors {

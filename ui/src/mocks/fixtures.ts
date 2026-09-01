@@ -479,18 +479,14 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       namespace: "kagent",
       name: "coder-template",
       phase: "Ready",
-      goldenActorId: "actor-golden-001",
       goldenSnapshot: "snap-2026-07-28",
       sandboxClass: "standard",
       workerSelector: "pool=default-pool",
-      harnessName: "openclaw",
-      managedByKagent: true,
     },
     {
       namespace: "platform",
       name: "external-template",
       phase: "Pending",
-      managedByKagent: false,
     },
   ],
   actors: [

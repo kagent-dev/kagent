@@ -42,12 +42,9 @@ export interface SubstrateActorTemplateEntry {
   namespace: string;
   name: string;
   phase?: string;
-  goldenActorId?: string;
   goldenSnapshot?: string;
   sandboxClass?: string;
   workerSelector?: string;
-  harnessName?: string;
-  managedByKagent: boolean;
 }
 
 /** Runtime actor state, from ate-api rather than from Kubernetes. */
