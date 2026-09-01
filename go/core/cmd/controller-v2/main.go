@@ -30,6 +30,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
@@ -130,7 +131,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store)
+	actors, err := substrate.Dial(ctx, substrate.Config{
+		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
+		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
+		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
+		CallTimeout:    30 * time.Second,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer actors.Close()
+	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -142,17 +153,10 @@ func main() {
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		log.Fatalf("set up RemoteMCPServer discovery: %v", err)
 	}
-
-	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
-		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
-		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
-		CallTimeout:    30 * time.Second,
-	})
-	if err != nil {
-		log.Fatal(err)
+	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
+	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
+		log.Fatalf("set up MCPServer discovery: %v", err)
 	}
-	defer actors.Close()
 
 	authenticator := &authimpl.UnsecureAuthenticator{}
 	authorizer := &authimpl.NoopAuthorizer{}

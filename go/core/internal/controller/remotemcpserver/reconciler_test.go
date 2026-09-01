@@ -150,23 +150,6 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 	}
 }
 
-func TestNormalizeToolsRejectsInvalidCatalog(t *testing.T) {
-	tests := []struct {
-		name  string
-		tools []toolservice.MCPAppTool
-	}{
-		{name: "empty name", tools: []toolservice.MCPAppTool{{Name: " "}}},
-		{name: "duplicate name", tools: []toolservice.MCPAppTool{{Name: "lookup"}, {Name: "lookup"}}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := normalizeTools(test.tools); err == nil {
-				t.Fatal("normalizeTools() error = nil")
-			}
-		})
-	}
-}
-
 func TestReferencesDependency(t *testing.T) {
 	server := testServer()
 	server.Spec.HeadersFrom = []v1alpha3.ValueRef{

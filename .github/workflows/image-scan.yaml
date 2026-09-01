@@ -42,6 +42,9 @@ jobs:
           - build_target: golang-adk
             image_name: golang-adk
             tag_suffix: ""
+          - build_target: claude-harness
+            image_name: claude-harness
+            tag_suffix: ""
     runs-on: ubuntu-latest
     services:
       registry:

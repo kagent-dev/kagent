@@ -112,6 +112,79 @@ type createAtespaceFake struct {
 	err      error
 }
 
+type createActorFake struct {
+	ateapipb.ControlClient
+	actor *ateapipb.Actor
+}
+
+type listActorTemplatesFake struct {
+	ateapipb.ControlClient
+	pageTokens []string
+}
+
+type deleteActorTemplateFake struct {
+	ateapipb.ControlClient
+	template *ateapipb.ObjectRef
+	actor    *ateapipb.DeleteActorRequest
+}
+
+func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	f.actor = in.GetActor()
+	return f.actor, nil
+}
+
+func TestCreateActorUsesStableTemplateRef(t *testing.T) {
+	fake := &createActorFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
+	require.NoError(t, err)
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Empty(t, fake.actor.GetActorTemplateNamespace())
+	require.Empty(t, fake.actor.GetActorTemplateName())
+}
+
+func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {
+	f.pageTokens = append(f.pageTokens, in.GetPageToken())
+	name := "first"
+	next := "next"
+	if in.GetPageToken() != "" {
+		name = "second"
+		next = ""
+	}
+	return &ateapipb.ListActorTemplatesResponse{
+		ActorTemplates: []*ateapipb.ActorTemplate{{Metadata: &ateapipb.ResourceMetadata{Atespace: in.GetAtespace(), Name: name}}},
+		NextPageToken:  next,
+	}, nil
+}
+
+func TestListActorTemplatesFollowsPagination(t *testing.T) {
+	fake := &listActorTemplatesFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	templates, err := client.ListActorTemplates(t.Context(), "team-a")
+	require.NoError(t, err)
+	require.Equal(t, []string{"first", "second"}, []string{templates[0].GetMetadata().GetName(), templates[1].GetMetadata().GetName()})
+	require.Equal(t, []string{"", "next"}, fake.pageTokens)
+}
+
+func (f *deleteActorTemplateFake) DeleteActorTemplate(_ context.Context, in *ateapipb.DeleteActorTemplateRequest, _ ...grpc.CallOption) (*ateapipb.ActorTemplate, error) {
+	f.template = in.GetActorTemplate()
+	return nil, status.Error(codes.NotFound, "already deleted")
+}
+
+func (f *deleteActorTemplateFake) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	f.actor = in
+	return &ateapipb.Actor{}, nil
+}
+
+func TestDeleteActorTemplateAlsoDeletesGoldenActorOnRetry(t *testing.T) {
+	fake := &deleteActorTemplateFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	require.NoError(t, client.DeleteActorTemplate(t.Context(), "team-a", "template", "template-uid"))
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.template)
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "template-uid"}, fake.actor.GetActor())
+	require.True(t, fake.actor.GetAnyState())
+}
+
 func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
 	f.lastName = in.GetAtespace().GetMetadata().GetName()
 	if f.err != nil {

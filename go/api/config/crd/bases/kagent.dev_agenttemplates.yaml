@@ -317,7 +317,7 @@ spec:
                       - templateRef
                       type: object
                     mcp:
-                      description: MCPToolBinding selects tools from a same-namespace
+                      description: MCPToolBinding binds tools from a same-namespace
                         MCP server.
                       properties:
                         server:
@@ -337,16 +337,18 @@ spec:
                           - name
                           type: object
                         tools:
+                          description: |-
+                            Tools optionally limits which server tools are exposed. An omitted or empty
+                            list exposes every tool. Harnesses that cannot enforce a partial selection
+                            may expose the whole server and report a warning.
                           items:
                             minLength: 1
                             type: string
                           maxItems: 50
-                          minItems: 1
                           type: array
                           x-kubernetes-list-type: set
                       required:
                       - server
-                      - tools
                       type: object
                   type: object
                   x-kubernetes-validations:

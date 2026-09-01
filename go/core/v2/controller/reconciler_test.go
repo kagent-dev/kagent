@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	atefake "github.com/agent-substrate/substrate/pkg/client/clientset/versioned/fake"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -19,7 +20,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
-	desiredActor := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant-kagent-revision"}}
+	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
 	revision := &v2translator.Revision{}
 	revisionID, err := revision.Digest()
 	if err != nil {
@@ -35,16 +36,15 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}}}
 	statuses := krt.NewStaticCollection(nil, []krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]{{Obj: template, Status: status}}, opts.WithName("Statuses")...)
 	store := &fakeRuntimeRevisionStore{}
-	// Substrate does not generate apply configurations, so its suggested
-	// NewClientset replacement is unavailable.
-	actors := atefake.NewSimpleClientset().ApiV1alpha1() //nolint:staticcheck
+	templates := &fakeActorTemplates{}
 	var statusWrite *kagentv1alpha3.AgentTemplate
 	reconciler := &Reconciler{
 		collections: Collections{
 			AgentTemplates:  krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{template}, opts.WithName("AgentTemplates")...),
+			ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
 			Reconciliations: reconciliations, AgentTemplateStatuses: statuses,
 		},
-		actors: actors, store: store,
+		templates: templates, store: store,
 		updateStatus: func(_ context.Context, template *kagentv1alpha3.AgentTemplate) error {
 			statusWrite = template
 			return nil
@@ -57,19 +57,15 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	if store.pair == nil {
 		t.Fatal("pair was not stored")
 	}
-	created, err := actors.ActorTemplates("team-a").Get(context.Background(), desiredActor.Name, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("ActorTemplate was not created: %v", err)
+	created := templates.template
+	if created == nil {
+		t.Fatal("ActorTemplate was not created")
 	}
-	if store.revision != nil {
-		t.Fatal("revision was stored before its ActorTemplate was observed")
+	if store.revision == nil || store.markedSuccessful {
+		t.Fatal("pending revision was not stored correctly")
 	}
 
-	observed := created.DeepCopy()
-	observed.UID = "actor-uid"
-	observed.Status.Phase = atev1alpha1.PhaseReady
-	state.ObservedActorTemplate = observed
-	reconciliations.UpdateObject(state)
+	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +87,30 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	if store.retired != state.ResourceName() {
 		t.Fatalf("retired pair = %q, want %q", store.retired, state.ResourceName())
 	}
+}
+
+type fakeActorTemplates struct {
+	template *ateapipb.ActorTemplate
+}
+
+func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return nil }
+
+func (f *fakeActorTemplates) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
+	if f.template == nil {
+		return nil, status.Error(codes.NotFound, "not found")
+	}
+	return f.template, nil
+}
+
+func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
+	f.template = template
+	f.template.Metadata.Uid = "actor-uid"
+	return f.template, nil
+}
+
+func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string, string) error {
+	f.template = nil
+	return nil
 }
 
 type fakeRuntimeRevisionStore struct {

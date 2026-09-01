@@ -131,6 +131,39 @@ func (c *Client) GetActor(ctx context.Context, atespace, actorID string) (*ateap
 	return resp, nil
 }
 
+func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*ateapipb.ActorTemplate, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	return c.ControlClient.GetActorTemplate(ctx, &ateapipb.GetActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
+}
+
+func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	return c.ControlClient.CreateActorTemplate(ctx, &ateapipb.CreateActorTemplateRequest{ActorTemplate: template})
+}
+
+// DeleteActorTemplate also removes the template's golden Actor. Substrate
+// v0.0.22 documents that behavior but does not implement it yet.
+func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	_, err := c.ControlClient.DeleteActorTemplate(ctx, &ateapipb.DeleteActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
+	if err != nil && status.Code(err) != codes.NotFound {
+		return err
+	}
+	// ponytail: this two-RPC cleanup cannot share Substrate's template lease;
+	// remove it when DeleteActorTemplate fulfills its golden-Actor contract.
+	_, err = c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
+		Actor:    actorRef("ate-golden", uid),
+		AnyState: true,
+	})
+	if status.Code(err) == codes.NotFound {
+		return nil
+	}
+	return err
+}
+
 func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
 	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil)
 }
@@ -144,10 +177,9 @@ func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmp
 	defer cancel()
 	resp, err := c.ControlClient.CreateActor(ctx, &ateapipb.CreateActorRequest{
 		Actor: &ateapipb.Actor{
-			Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
-			ActorTemplateNamespace: tmplNS,
-			ActorTemplateName:      tmplName,
-			SourceSnapshotTag:      source,
+			Metadata:          &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
+			ActorTemplate:     actorRef(tmplNS, tmplName),
+			SourceSnapshotTag: source,
 		},
 	})
 	if err != nil {
@@ -179,13 +211,13 @@ func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*a
 func (c *Client) GetActorSnapshot(ctx context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	return c.ControlClient.GetActorSnapshot(ctx, &ateapipb.GetActorSnapshotRequest{Snapshot: actorRef(atespace, name)})
+	return c.ControlClient.GetActorSnapshot(ctx, &ateapipb.GetActorSnapshotRequest{ActorSnapshot: actorRef(atespace, name)})
 }
 
 func (c *Client) GetActorSnapshotTag(ctx context.Context, atespace, name string) (*ateapipb.ActorSnapshotTag, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	return c.ControlClient.GetActorSnapshotTag(ctx, &ateapipb.GetActorSnapshotTagRequest{Tag: actorRef(atespace, name)})
+	return c.ControlClient.GetActorSnapshotTag(ctx, &ateapipb.GetActorSnapshotTagRequest{ActorSnapshotTag: actorRef(atespace, name)})
 }
 
 func (c *Client) CreateActorSnapshotTag(ctx context.Context, atespace, name, snapshotName string) (*ateapipb.ActorSnapshotTag, error) {
@@ -203,7 +235,7 @@ func (c *Client) CreateActorSnapshotTag(ctx context.Context, atespace, name, sna
 func (c *Client) DeleteActorSnapshotTag(ctx context.Context, atespace, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActorSnapshotTag(ctx, &ateapipb.DeleteActorSnapshotTagRequest{Tag: actorRef(atespace, name)})
+	_, err := c.ControlClient.DeleteActorSnapshotTag(ctx, &ateapipb.DeleteActorSnapshotTagRequest{ActorSnapshotTag: actorRef(atespace, name)})
 	return err
 }
 
