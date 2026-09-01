@@ -19,13 +19,20 @@ import (
 // against a clean cluster. The cluster installation owns the fixed kagent/smoke
 // Harness and AgentTemplate fixtures; this test owns only the AgentInstance it
 // creates through the public API.
-func TestAgentInstanceLifecycle(t *testing.T) {
+func TestE2EAgentInstanceLifecycle(t *testing.T) {
 	target := os.Getenv("KAGENT_E2E_GRPC_TARGET")
 	if target == "" {
 		target = os.Getenv("KAGENT_GRPC_URL")
 	}
 	if target == "" {
-		t.Skip("KAGENT_E2E_GRPC_TARGET is not set")
+		t.Fatalf("KAGENT_E2E_GRPC_TARGET or KAGENT_GRPC_URL must be set to run e2e tests.\n" +
+			"To run e2e tests locally:\n" +
+			"  1. Create a Kind cluster: make create-kind-cluster\n" +
+			"  2. Install Substrate and Kagent (see CI workflow in .github/workflows/ci.yaml)\n" +
+			"  3. Set the gRPC target:\n" +
+			"     export KAGENT_E2E_GRPC_TARGET=<controller-address>:8084\n" +
+			"  4. Run tests: go test -v ./core/test/e2e/...\n" +
+			"See go/core/test/e2e/README.md for full instructions.")
 	}
 
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))

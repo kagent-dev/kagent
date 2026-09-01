@@ -44,7 +44,7 @@ var interactionMocks embed.FS
 
 // TestAgentInstanceInteraction verifies the complete public interaction path:
 // gateway routing, Substrate Actor transport, Go ADK execution, and the model call.
-func TestAgentInstanceInteraction(t *testing.T) {
+func TestE2ECreateInteraction(t *testing.T) {
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	_, _, task := fixture.send(t, "What is 2+2?")
 	if task.Status.State != a2atype.TaskStateCompleted {
@@ -59,7 +59,7 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	}
 }
 
-func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
+func TestE2EAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
 	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
 	_, _, waiting := fixture.send(t, "Which database should we use for storage?")
@@ -85,7 +85,7 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 	}
 }
 
-func TestAgentInstanceCheckpoint(t *testing.T) {
+func TestE2EAgentInstanceCheckpoint(t *testing.T) {
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	_, _, task := fixture.send(t, "What is 2+2?")
 	created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
@@ -177,7 +177,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	}
 }
 
-func TestMCPInteraction(t *testing.T) {
+func TestE2EMCPInteraction(t *testing.T) {
 	target := interactionTarget(t)
 	mcpURL, mcpServer := startMCPMock(t)
 	template := createMCPInteractionTemplate(t, startMockLLM(t, "mocks/invoke_mcp_agent.json"), mcpURL)
@@ -194,7 +194,7 @@ func TestMCPInteraction(t *testing.T) {
 	t.Fatal("mock MCP server did not receive an add_numbers tool call")
 }
 
-func TestSharedAgentInteraction(t *testing.T) {
+func TestE2ESharedAgentInteraction(t *testing.T) {
 	fixture := newSharedInteractionFixture(t, interactionTarget(t))
 	_, _, task := fixture.send(t, "Ask the specialist")
 	if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "Answer from the shared specialist.") {
@@ -223,7 +223,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 	}
 }
 
-func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
+func TestE2EAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	message, request, task := fixture.send(t, "What is 2+2?")
 
@@ -283,7 +283,7 @@ func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
 	}
 }
 
-func TestAgentInstanceActiveTask(t *testing.T) {
+func TestE2EAgentInstanceActiveTask(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL, started := startBlockingInteractionMock(t)
 	fixture := newInteractionFixture(t, target, modelURL)
@@ -394,7 +394,14 @@ func interactionTarget(t *testing.T) string {
 		target = os.Getenv("KAGENT_GRPC_URL")
 	}
 	if target == "" {
-		t.Skip("KAGENT_E2E_GRPC_TARGET is not set")
+		t.Fatalf("KAGENT_E2E_GRPC_TARGET or KAGENT_GRPC_URL must be set to run e2e tests.\n" +
+			"To run e2e tests locally:\n" +
+			"  1. Create a Kind cluster: make create-kind-cluster\n" +
+			"  2. Install Substrate and Kagent (see CI workflow in .github/workflows/ci.yaml)\n" +
+			"  3. Set the gRPC target:\n" +
+			"     export KAGENT_E2E_GRPC_TARGET=<controller-address>:8084\n" +
+			"  4. Run tests: go test -v ./core/test/e2e/...\n" +
+			"See go/core/test/e2e/README.md for full instructions.")
 	}
 	return target
 }
