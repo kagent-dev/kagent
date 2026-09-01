@@ -326,7 +326,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		Template: &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
 			Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "child-model"},
+				ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "child-model"},
 				Description: "template description", SystemPrompt: "specialize",
 			},
 		},
@@ -399,7 +399,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 				Agent: &v2translator.AgentInput{
 					Template: &v1alpha3.AgentTemplate{
 						ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"},
-						Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "child-model"}},
+						Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "child-model"}},
 					},
 					ModelConfig: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec},
 					Instruction: "specialize",
@@ -425,7 +425,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
-		ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
+		ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
 	}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model-uid"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret-uid"}, Data: secretData}

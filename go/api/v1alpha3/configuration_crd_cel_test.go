@@ -57,7 +57,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "Harness requires one runtime",
 			object:     validHarness(namespace, "harness-no-runtime", HarnessSpec{}),
-			wantReject: "exactly one of kagent, codex, or claude must be specified",
+			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
 		},
 		{
 			name: "Harness rejects multiple runtimes",
@@ -65,7 +65,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Kagent: &KagentHarness{},
 				Codex:  &CodexHarness{},
 			}),
-			wantReject: "exactly one of kagent, codex, or claude must be specified",
+			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
 		},
 		{
 			name: "Harness rejects tag-only image",
@@ -103,6 +103,19 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			}),
 		},
 		{
+			name: "valid BYO Harness",
+			object: validHarness(namespace, "valid-byo-harness", HarnessSpec{
+				BYO: &BYOHarness{},
+			}),
+		},
+		{
+			name: "BYO Harness rejects URL egress destination",
+			object: validHarness(namespace, "byo-url-egress", HarnessSpec{
+				BYO: &BYOHarness{EgressDestinations: []string{"https://api.example.com"}},
+			}),
+			wantReject: "spec.byo.egressDestinations",
+		},
+		{
 			name:       "AgentTemplate tool requires one source",
 			object:     validAgentTemplate(namespace, "template-empty-tool", []ToolBinding{{}}),
 			wantReject: "exactly one of mcp or agent must be specified",
@@ -123,6 +136,10 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:   "valid AgentTemplate",
 			object: validAgentTemplate(namespace, "valid-template", nil),
+		},
+		{
+			name:   "AgentTemplate permits omitted ModelConfig",
+			object: &AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "model-free-template", Namespace: namespace}},
 		},
 	}
 
@@ -155,7 +172,7 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 	return &AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: AgentTemplateSpec{
-			ModelConfig: AgentTemplateLocalReference{Name: "default"},
+			ModelConfig: &AgentTemplateLocalReference{Name: "default"},
 			Tools:       tools,
 		},
 	}

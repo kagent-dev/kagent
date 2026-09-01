@@ -27,6 +27,7 @@ const (
 	HarnessTypeKagent HarnessType = "kagent"
 	HarnessTypeCodex  HarnessType = "codex"
 	HarnessTypeClaude HarnessType = "claude"
+	HarnessTypeBYO    HarnessType = "byo"
 )
 
 // HarnessCompiler converts resolved, harness-neutral inputs into one runtime revision.
@@ -112,6 +113,8 @@ func harnessType(harness *v1alpha3.Harness) HarnessType {
 		return HarnessTypeCodex
 	case harness.Spec.Claude != nil:
 		return HarnessTypeClaude
+	case harness.Spec.BYO != nil:
+		return HarnessTypeBYO
 	default:
 		return ""
 	}
@@ -192,9 +195,12 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 	var build func(*ResolvedAgent) (*AgentInput, error)
 	build = func(agent *ResolvedAgent) (*AgentInput, error) {
 		template := agent.Template
-		model := &v1alpha3.ModelConfig{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, model); err != nil {
-			return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
+		var model *v1alpha3.ModelConfig
+		if template.Spec.ModelConfig != nil {
+			model = &v1alpha3.ModelConfig{}
+			if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, model); err != nil {
+				return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
+			}
 		}
 		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
 		if err != nil {

@@ -1,4 +1,4 @@
-package kagent
+package adkconfig
 
 import (
 	"github.com/kagent-dev/kagent/go/api/adk"

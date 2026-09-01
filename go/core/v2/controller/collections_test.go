@@ -51,7 +51,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig:  kagentv1alpha3.AgentTemplateLocalReference{Name: "model"},
+			ModelConfig:  &kagentv1alpha3.AgentTemplateLocalReference{Name: "model"},
 			SystemPrompt: "help",
 		},
 	}
@@ -127,7 +127,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 
 	template := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "claude"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: kagentv1alpha3.AgentTemplateLocalReference{Name: "model"}, SystemPrompt: "help"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.AgentTemplateLocalReference{Name: "model"}, SystemPrompt: "help"},
 	}
 	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
 	claudeHarness.UID = "harness-uid"
@@ -170,12 +170,12 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	child := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "child", Labels: map[string]string{"runtime": "python"}},
-		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: kagentv1alpha3.AgentTemplateLocalReference{Name: "model"}, SystemPrompt: "before"},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.AgentTemplateLocalReference{Name: "model"}, SystemPrompt: "before"},
 	}
 	root := &kagentv1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "root", Labels: map[string]string{"runtime": "python"}},
 		Spec: kagentv1alpha3.AgentTemplateSpec{
-			ModelConfig: kagentv1alpha3.AgentTemplateLocalReference{Name: "model"},
+			ModelConfig: &kagentv1alpha3.AgentTemplateLocalReference{Name: "model"},
 			Tools: []kagentv1alpha3.ToolBinding{{Agent: &kagentv1alpha3.AgentToolBinding{
 				Name: "child", Description: "delegate", TemplateRef: kagentv1alpha3.AgentTemplateLocalReference{Name: child.Name},
 			}}},

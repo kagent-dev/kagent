@@ -19,6 +19,8 @@ atelet:
 
 ```bash
 KAGENT_E2E_RUNTIME_IMAGE=<registry>/kagent-dev/kagent/golang-adk@sha256:<digest> \
+KAGENT_E2E_BYO_IMAGE=<registry>/kagent-dev/kagent/byo-a2a@sha256:<digest> \
+KAGENT_E2E_CLAUDE_IMAGE=<registry>/kagent-dev/kagent/claude-harness@sha256:<digest> \
   envsubst < go/core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
 KAGENT_E2E_GRPC_TARGET=<controller-address>:8084 make -C go e2e
 ```
@@ -30,6 +32,9 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
+
+`TestOpaqueBYOAgentInteraction` uses the fixture built by `make build-byo-a2a`;
+`TestConfiguredBYOMCPInteraction` runs the Go ADK image through the BYO adapter.
 
 The `TestMCPAgentInstanceInteraction`, `TestMCPAskUserContinuation`, and
 `TestMCPCancelTask` cases exercise the controller's public `/mcp` endpoint on

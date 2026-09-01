@@ -1,11 +1,23 @@
 package kagent
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+func TestCompilerRequiresModelConfig(t *testing.T) {
+	_, err := NewCompiler(nil).Compile(context.Background(), &v2translator.HarnessInput{Root: &v2translator.AgentInput{
+		Template: &v1alpha3.AgentTemplate{},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "kagent ModelConfig is required") {
+		t.Fatalf("Compile() error = %v", err)
+	}
+}
 
 // TestAgentTemplateCardDeclaresHumanInTheLoop pins discoverability. The compiled
 // card is a snapshot stored with the revision, not the runtime's live card, so a

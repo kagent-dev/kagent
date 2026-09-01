@@ -48,8 +48,8 @@ spec:
               description:
                 type: string
               modelConfig:
-                description: AgentTemplateLocalReference identifies a resource in
-                  the AgentTemplate's namespace.
+                description: ModelConfig is required by managed harnesses and optional
+                  for BYO harnesses.
                 properties:
                   name:
                     minLength: 1
@@ -356,8 +356,6 @@ spec:
                     rule: has(self.mcp) != has(self.agent)
                 maxItems: 50
                 type: array
-            required:
-            - modelConfig
             type: object
             x-kubernetes-validations:
             - message: systemPrompt and systemPromptFrom are mutually exclusive

@@ -197,8 +197,9 @@ type PluginBundle struct {
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
 type AgentTemplateSpec struct {
-	// +required
-	ModelConfig AgentTemplateLocalReference `json:"modelConfig"`
+	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
+	// +optional
+	ModelConfig *AgentTemplateLocalReference `json:"modelConfig,omitempty"`
 	// +optional
 	Description string `json:"description,omitempty"`
 	// +optional

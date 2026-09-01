@@ -20,6 +20,44 @@ spec:
 apiVersion: kagent.dev/v1alpha3
 kind: Harness
 metadata:
+  name: byo-e2e
+  namespace: kagent
+spec:
+  byo: {}
+  workload:
+    image: ${KAGENT_E2E_BYO_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/e2e-runtime: byo
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: byo-adk-e2e
+  namespace: kagent
+spec:
+  byo: {}
+  workload:
+    image: ${KAGENT_E2E_RUNTIME_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/e2e-runtime: byo-adk
+---
+apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
   name: claude-e2e
   namespace: kagent
 spec:
@@ -48,3 +86,13 @@ spec:
   modelConfig:
     name: default-model-config
   systemPrompt: Reply briefly.
+---
+apiVersion: kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: byo-smoke
+  namespace: kagent
+  labels:
+    kagent.dev/e2e-runtime: byo
+spec:
+  description: Opaque BYO A2A fixture without managed configuration

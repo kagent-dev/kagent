@@ -117,11 +117,15 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 	for _, status := range template.Status.Harnesses {
 		admitting = append(admitting, status.Harness)
 	}
+	var modelConfigRef *apiv1alpha1.ResourceReference
+	if template.Spec.ModelConfig != nil {
+		modelConfigRef = &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}
+	}
 	return &apiv1alpha1.AgentTemplate{
 		Ref: &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
 		// The model config lives in the template's own namespace: the CRD's
 		// reference is name-only and same-namespace by construction.
-		ModelConfigRef:     &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name},
+		ModelConfigRef:     modelConfigRef,
 		Resource:           resource,
 		Description:        template.Spec.Description,
 		AdmittingHarnesses: admitting,

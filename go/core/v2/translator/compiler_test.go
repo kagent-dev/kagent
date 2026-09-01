@@ -43,7 +43,7 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
+			ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
 			Skills: []v1alpha3.AgentTemplateSkill{
 				{Name: "review", Source: v1alpha3.ArtifactSource{
 					OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -128,7 +128,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
 	}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "default-model"}}}
 
 	revision, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
@@ -136,6 +136,22 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
+}
+
+func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
+	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).Build()
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		BYO: &v1alpha3.BYOHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+	}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
+
+	_, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeBYO: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.NoError(t, err)
+	require.Nil(t, adapter.input.Root.ModelConfig)
 }
 
 func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
@@ -176,7 +192,7 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
+			ModelConfig:  &v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
 			SystemPrompt: "help",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
 				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name},
@@ -229,7 +245,7 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "researcher", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
+			ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
 				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: "search"}, Tools: []string{"lookup"},
 			}}},
@@ -241,7 +257,7 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, SystemPrompt: "coordinate",
 			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
 				Name: "web_researcher", Description: "research the web", TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: child.Name},
 			}}},
@@ -271,7 +287,7 @@ func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {
 		return v1alpha3.ToolBinding{Agent: &v1alpha3.AgentToolBinding{Name: name, Description: name, TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: target}}}
 	}
 	template := func(name string, tools ...v1alpha3.ToolBinding) *v1alpha3.AgentTemplate {
-		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Tools: tools}}
+		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Tools: tools}}
 	}
 
 	t.Run("shared DAG", func(t *testing.T) {

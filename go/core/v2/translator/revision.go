@@ -33,6 +33,8 @@ type Revision struct {
 
 	// Image and Environment describe the runtime container.
 	Image       string
+	Command     []string
+	Args        []string
 	Environment []corev1.EnvVar
 	// ConfigJSON and AgentCardJSON are injected into that container verbatim.
 	ConfigJSON    []byte
@@ -61,6 +63,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentTemplateName  string          `json:"agentTemplateName"`
 		HarnessName        string          `json:"harnessName"`
 		Image              string          `json:"image"`
+		Command            []string        `json:"command,omitempty"`
+		Args               []string        `json:"args,omitempty"`
 		Environment        []corev1.EnvVar `json:"environment"`
 		ConfigJSON         json.RawMessage `json:"config"`
 		AgentCardJSON      json.RawMessage `json:"agentCard"`
@@ -70,7 +74,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		EgressDestinations []string        `json:"egressDestinations"`
 	}{
 		Namespace: r.Namespace, AgentTemplateName: r.AgentTemplateName, HarnessName: r.HarnessName,
-		Image: r.Image, Environment: r.Environment, ConfigJSON: r.ConfigJSON, AgentCardJSON: r.AgentCardJSON,
+		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON, AgentCardJSON: r.AgentCardJSON,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		EgressDestinations: r.EgressDestinations,
 	})

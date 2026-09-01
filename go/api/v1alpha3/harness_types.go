@@ -31,6 +31,27 @@ type CodexHarness struct{}
 // ClaudeHarness selects the Claude runtime adapter.
 type ClaudeHarness struct{}
 
+// BYOHarness configures an image that implements kagent's private A2A contract.
+type BYOHarness struct {
+	// Command overrides the image entrypoint when set.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Args overrides the image command arguments when set.
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Args []string `json:"args,omitempty"`
+
+	// EgressDestinations permits image-owned dependencies that cannot be inferred
+	// from AgentTemplate configuration.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +listType=set
+	// +optional
+	EgressDestinations []string `json:"egressDestinations,omitempty"`
+}
+
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
 	// Image is an OCI image reference pinned by sha256 digest.
@@ -88,7 +109,7 @@ type HarnessAgentTemplateAdmission struct {
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) == 1",message="exactly one of kagent, codex, or claude must be specified"
+// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`
@@ -98,6 +119,9 @@ type HarnessSpec struct {
 
 	// +optional
 	Claude *ClaudeHarness `json:"claude,omitempty"`
+
+	// +optional
+	BYO *BYOHarness `json:"byo,omitempty"`
 
 	// +required
 	Workload HarnessWorkload `json:"workload"`

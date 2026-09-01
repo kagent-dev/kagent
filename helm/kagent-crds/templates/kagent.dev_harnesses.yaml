@@ -104,6 +104,33 @@ spec:
                 required:
                 - selector
                 type: object
+              byo:
+                description: BYOHarness configures an image that implements kagent's
+                  private A2A contract.
+                properties:
+                  args:
+                    description: Args overrides the image command arguments when set.
+                    items:
+                      type: string
+                    maxItems: 64
+                    type: array
+                  command:
+                    description: Command overrides the image entrypoint when set.
+                    items:
+                      type: string
+                    maxItems: 32
+                    type: array
+                  egressDestinations:
+                    description: |-
+                      EgressDestinations permits image-owned dependencies that cannot be inferred
+                      from AgentTemplate configuration.
+                    items:
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: set
+                type: object
               claude:
                 description: ClaudeHarness selects the Claude runtime adapter.
                 type: object
@@ -216,9 +243,9 @@ spec:
             - workload
             type: object
             x-kubernetes-validations:
-            - message: exactly one of kagent, codex, or claude must be specified
+            - message: exactly one of kagent, codex, claude, or byo must be specified
               rule: '(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude)
-                ? 1 : 0) == 1'
+                ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1'
           status:
             description: HarnessStatus reports controller-derived capabilities and
               current health.
