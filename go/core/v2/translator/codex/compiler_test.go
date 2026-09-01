@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
@@ -126,6 +127,9 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(revision.Warnings) != 0 {
+		t.Fatalf("MCP compatibility warnings = %v", revision.Warnings)
+	}
 	var cfg codexconfig.Config
 	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
@@ -138,6 +142,53 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "mcp.example.com"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+}
+
+func TestCompileMCPCompatibilityWarnings(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-root",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	terminateOnClose := false
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", UID: "mcp"},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Protocol:         v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			URL:              "https://mcp.example.com/mcp",
+			TLS:              &v1alpha3.TLSConfig{DisableVerify: true},
+			Timeout:          &metav1.Duration{Duration: time.Minute},
+			TerminateOnClose: &terminateOnClose,
+		},
+	}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Server: server}}
+
+	compilation, err := NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(compilation.Warnings) != 1 {
+		t.Fatalf("MCP compatibility warnings = %v", compilation.Warnings)
+	}
+	for _, field := range []string{"custom TLS configuration", "timeout", "terminateOnClose"} {
+		if !strings.Contains(compilation.Warnings[0], field) {
+			t.Errorf("MCP compatibility warning %q omits %q", compilation.Warnings[0], field)
+		}
+	}
+	var cfg codexconfig.Config
+	if err := json.Unmarshal(compilation.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := cfg.MCPServers[server.Name]; !exists {
+		t.Fatalf("config omits MCP server after compatibility warning: %#v", cfg.MCPServers)
+	}
+
+	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
+	if _, err := NewCompiler(reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
+		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 }
 

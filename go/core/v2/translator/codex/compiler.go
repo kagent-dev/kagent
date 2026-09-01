@@ -109,12 +109,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	template, harness := input.Root.Template, input.Harness
-	return &v2translator.Compilation{Revision: v2translator.Revision{
-		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
-		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance: provenance, EgressDestinations: egress,
-	},
+	return &v2translator.Compilation{
+		Revision: v2translator.Revision{
+			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
+			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
+			Provenance: provenance, EgressDestinations: egress,
+		},
+		Warnings: mcp.warnings,
 	}, nil
 }
 
