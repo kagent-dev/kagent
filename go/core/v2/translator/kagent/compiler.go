@@ -67,7 +67,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		if failure := resolved.Failure(); failure != nil {
 			return nil, fmt.Errorf("resolve memory ModelConfig %q: %s", name, failure.Message)
 		}
-		model, data, err := renderModel(resolved)
+		model, data, err := c.renderModel(ctx, resolved)
 		if err != nil {
 			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 		}
@@ -158,7 +158,7 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 	if modelConfig == nil {
 		return nil, fmt.Errorf("resolved ModelConfig configuration is required")
 	}
-	model, data, err := renderModel(input.ResolvedModelConfig)
+	model, data, err := c.renderModel(ctx, input.ResolvedModelConfig)
 	if err != nil {
 		return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 	}

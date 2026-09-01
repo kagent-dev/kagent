@@ -134,7 +134,7 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	return collections
 }
 
-func TestResolveModelConfigExposesResolvedFoundryEndpoint(t *testing.T) {
+func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
 	model := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
 		Spec: v1alpha3.ModelConfigSpec{
