@@ -20,34 +20,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-const (
-	useBedrockEnv       = "CLAUDE_CODE_USE_BEDROCK"
-	useVertexEnv        = "CLAUDE_CODE_USE_VERTEX"
-	awsRegionEnv        = "AWS_REGION"
-	awsAccessKeyEnv     = "AWS_ACCESS_KEY_ID"
-	awsSecretKeyEnv     = "AWS_SECRET_ACCESS_KEY"
-	awsSessionTokenEnv  = "AWS_SESSION_TOKEN"
-	awsBedrockTokenEnv  = "AWS_BEARER_TOKEN_BEDROCK"
-	anthropicAPIKeyEnv  = "ANTHROPIC_API_KEY"
-	anthropicBaseURLEnv = "ANTHROPIC_BASE_URL"
-	vertexProjectEnv    = "ANTHROPIC_VERTEX_PROJECT_ID"
-	vertexRegionEnv     = "CLOUD_ML_REGION"
-	sandboxEnv          = "IS_SANDBOX"
-	preResponseFlushEnv = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
-)
-
-var ownedEnvironment = map[string]struct{}{
-	useBedrockEnv: {}, useVertexEnv: {}, awsRegionEnv: {}, awsAccessKeyEnv: {},
-	awsSecretKeyEnv: {}, awsSessionTokenEnv: {}, awsBedrockTokenEnv: {},
-	anthropicAPIKeyEnv: {}, anthropicBaseURLEnv: {}, vertexProjectEnv: {}, vertexRegionEnv: {},
-	sandboxEnv: {}, claudeconfig.GoogleCredentialsJSONEnvName: {},
-}
-
 type Compiler struct{ kube v2translator.Reader }
 
 func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
+func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
 		return nil, fmt.Errorf("claude compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
@@ -74,11 +51,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if _, reserved := ownedEnvironment[variable.Name]; reserved {
-			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude's compiled provider configuration", variable.Name)
-		}
-		if strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
-			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude's compiled MCP credentials", variable.Name)
+		if claudeconfig.OwnsEnvironment(variable.Name) {
+			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
 		if variable.Value != nil {
@@ -91,8 +65,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
 	environment = append(environment,
-		corev1.EnvVar{Name: sandboxEnv, Value: "1"},
-		corev1.EnvVar{Name: preResponseFlushEnv, Value: "true"},
+		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
+		corev1.EnvVar{Name: claudeconfig.PreResponseTraceFlushEnvName, Value: "true"},
 	)
 
 	localAgents, err := c.compileLocalAgents(input.Root)
@@ -130,13 +104,16 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	template, harness := input.Root.Template, input.Harness
-	return &v2translator.Revision{
-		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Environment: environment,
-		ConfigJSON: configJSON, AgentCardJSON: cardJSON,
-		WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
-		SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance:       provenance, EgressDestinations: egress, Warnings: mcp.warnings,
+	return &v2translator.Compilation{
+		Revision: v2translator.Revision{
+			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
+			Image: harness.Spec.Workload.Image, Environment: environment,
+			ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
+			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
+			Provenance:       provenance, EgressDestinations: egress,
+		},
+		Warnings: mcp.warnings,
 	}, nil
 }
 
@@ -195,14 +172,14 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
 			return nil, nil, err
 		}
-		environment := []corev1.EnvVar{secretEnvironment(anthropicAPIKeyEnv, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}
+		environment := []corev1.EnvVar{secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}
 		egress := []string{"api.anthropic.com"}
 		if baseURL != "" {
 			hostname, err := anthropicBaseURLHostname(baseURL)
 			if err != nil {
 				return nil, nil, err
 			}
-			environment = append(environment, corev1.EnvVar{Name: anthropicBaseURLEnv, Value: baseURL})
+			environment = append(environment, corev1.EnvVar{Name: claudeconfig.AnthropicBaseURLEnvName, Value: baseURL})
 			egress = []string{hostname}
 		}
 		return environment, egress, nil
@@ -230,18 +207,18 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		if err != nil {
 			return nil, nil, err
 		}
-		environment := []corev1.EnvVar{{Name: useBedrockEnv, Value: "1"}, {Name: awsRegionEnv, Value: model.Spec.Bedrock.Region}}
-		if value := secret.Data[awsBedrockTokenEnv]; len(value) != 0 {
-			environment = append(environment, secretEnvironment(awsBedrockTokenEnv, secret.Name, awsBedrockTokenEnv))
+		environment := []corev1.EnvVar{{Name: claudeconfig.UseBedrockEnvName, Value: "1"}, {Name: claudeconfig.AWSRegionEnvName, Value: model.Spec.Bedrock.Region}}
+		if value := secret.Data[claudeconfig.AWSBedrockTokenEnvName]; len(value) != 0 {
+			environment = append(environment, secretEnvironment(claudeconfig.AWSBedrockTokenEnvName, secret.Name, claudeconfig.AWSBedrockTokenEnvName))
 		} else {
-			for _, key := range []string{awsAccessKeyEnv, awsSecretKeyEnv} {
+			for _, key := range []string{claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName} {
 				if len(secret.Data[key]) == 0 {
-					return nil, nil, v2translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, awsAccessKeyEnv, awsSecretKeyEnv, awsBedrockTokenEnv)
+					return nil, nil, v2translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName, claudeconfig.AWSBedrockTokenEnvName)
 				}
 				environment = append(environment, secretEnvironment(key, secret.Name, key))
 			}
-			if len(secret.Data[awsSessionTokenEnv]) != 0 {
-				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
+			if len(secret.Data[claudeconfig.AWSSessionTokenEnvName]) != 0 {
+				environment = append(environment, secretEnvironment(claudeconfig.AWSSessionTokenEnvName, secret.Name, claudeconfig.AWSSessionTokenEnvName))
 			}
 		}
 		return environment, []string{"bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com"}, nil
@@ -260,7 +237,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		}
 		cfg := model.Spec.AnthropicVertexAI
 		return []corev1.EnvVar{
-			{Name: useVertexEnv, Value: "1"}, {Name: vertexProjectEnv, Value: cfg.ProjectID}, {Name: vertexRegionEnv, Value: cfg.Location},
+			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
 		}, []string{vertexHostname(cfg.Location), "oauth2.googleapis.com"}, nil
 	default:

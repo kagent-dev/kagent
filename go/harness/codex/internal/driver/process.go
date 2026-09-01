@@ -1,3 +1,5 @@
+// Package driver translates the Codex App Server protocol into the
+// runtime-neutral events consumed by the shared A2A executor.
 package driver
 
 import (
@@ -17,7 +19,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/harness/runtime/processgroup"
+	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
 )
 
 type ProcessConfig struct {
@@ -67,7 +69,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	command := exec.Command(executable, "app-server", "--strict-config", "--stdio")
 	command.Dir, command.Env = d.config.Workspace, append([]string(nil), d.config.Environment...)
-	processgroup.Configure(command)
+	utils.ConfigureProcessGroup(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Codex stdin: %w", err)
@@ -76,7 +78,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Codex stdout: %w", err)
 	}
-	stderr := &boundedBuffer{limit: d.config.MaxStderrBytes}
+	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Codex App Server: %w", err)
@@ -86,11 +88,11 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	client := newRPCClient(stdin, stdout, d.config.MaxFrameBytes)
 	defer func() {
 		_ = stdin.Close()
-		_ = processgroup.Terminate(command.Process)
+		_ = utils.TerminateProcessGroup(command.Process)
 		select {
 		case <-wait:
 		case <-time.After(d.config.InterruptGrace):
-			_ = processgroup.Kill(command.Process)
+			_ = utils.KillProcessGroup(command.Process)
 			<-wait
 		}
 	}()
@@ -146,7 +148,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	return d.consume(ctx, client, command, wait, stderr, threadID, turnID, sink)
 }
 
-func (d *ProcessDriver) consume(ctx context.Context, client *rpcClient, command *exec.Cmd, wait <-chan error, stderr *boundedBuffer, threadID, turnID string, sink runtime.EventSink) (runtime.Outcome, error) {
+func (d *ProcessDriver) consume(ctx context.Context, client *rpcClient, command *exec.Cmd, wait <-chan error, stderr *utils.BoundedBuffer, threadID, turnID string, sink runtime.EventSink) (runtime.Outcome, error) {
 	tools := make(map[string]string)
 	for {
 		select {
@@ -155,20 +157,20 @@ func (d *ProcessDriver) consume(ctx context.Context, client *rpcClient, command 
 			_, err := client.call(interruptCtx, 4, "turn/interrupt", map[string]string{"threadId": threadID, "turnId": turnID})
 			cancel()
 			if err != nil {
-				_ = processgroup.Kill(command.Process)
+				_ = utils.KillProcessGroup(command.Process)
 			} else {
-				_ = processgroup.Terminate(command.Process)
+				_ = utils.TerminateProcessGroup(command.Process)
 			}
 			select {
 			case <-wait:
 			case <-time.After(d.config.InterruptGrace):
-				_ = processgroup.Kill(command.Process)
+				_ = utils.KillProcessGroup(command.Process)
 				<-wait
 			}
 			return runtime.Outcome{}, ctx.Err()
 		case waitErr := <-wait:
 			if waitErr != nil {
-				return runtime.Outcome{}, fmt.Errorf("codex App Server exited: %w: %s", waitErr, stderr.String())
+				return runtime.Outcome{}, fmt.Errorf("codex App Server exited: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
 			}
 			return runtime.Outcome{}, fmt.Errorf("codex App Server exited without a terminal event")
 		case frame, ok := <-client.frames:
@@ -424,11 +426,12 @@ func responseTurnID(raw json.RawMessage) (string, error) {
 	return response.Turn.ID, nil
 }
 
-func (d *ProcessDriver) protocolError(err error, stderr *boundedBuffer) error {
-	if stderr.String() == "" {
+func (d *ProcessDriver) protocolError(err error, stderr *utils.BoundedBuffer) error {
+	message := strings.TrimSpace(stderr.String())
+	if message == "" {
 		return err
 	}
-	return fmt.Errorf("%w: %s", err, stderr.String())
+	return fmt.Errorf("%w: %s", err, message)
 }
 
 type rpcMessage struct {
@@ -550,26 +553,4 @@ func (c *rpcClient) write(message rpcMessage, params any) error {
 		return fmt.Errorf("write Codex JSON-RPC frame: %w", err)
 	}
 	return nil
-}
-
-type boundedBuffer struct {
-	mu    sync.Mutex
-	data  []byte
-	limit int
-}
-
-func (b *boundedBuffer) Write(data []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	remaining := b.limit - len(b.data)
-	if remaining > 0 {
-		b.data = append(b.data, data[:min(len(data), remaining)]...)
-	}
-	return len(data), nil
-}
-
-func (b *boundedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return strings.TrimSpace(string(b.data))
 }

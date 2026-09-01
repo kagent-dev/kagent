@@ -43,6 +43,7 @@ func statusForPair(state PairReconciliation, generation int64, latestSuccessful 
 	status := kagentv1alpha3.AgentTemplateHarnessStatus{
 		Harness: state.Pair.Harness.Name, DesiredRevision: desired, LatestSuccessfulRevision: latestSuccessful,
 	}
+	status.Warnings = append([]string(nil), state.Warnings...)
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionAccepted, metav1.ConditionTrue, "Accepted", "Harness admission selector matches the AgentTemplate")
 	if state.Failure != nil {
 		if state.Failure.Condition != kagentv1alpha3.AgentTemplateConditionResolvedRefs {

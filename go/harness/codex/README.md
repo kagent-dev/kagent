@@ -5,7 +5,22 @@ compiler-owned Codex configuration and runs one Codex App Server `0.148.0`
 process for each public A2A Task. Its native thread and workspace are retained
 in the Actor's `DurableDir`.
 
-Implemented support:
+## Code structure
+
+The controller and Actor share only the versioned config contract. Kubernetes
+resolution stays in the controller; Codex App Server behavior stays in this
+harness.
+
+| Path | Look here for |
+| --- | --- |
+| [`../../core/v2/translator/codex`](../../core/v2/translator/codex) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision |
+| [`config`](config) | The versioned JSON contract shared by the compiler and runtime, including defaults and validation |
+| [`cmd/main.go`](cmd/main.go) | Actor startup, environment inputs, Codex version validation, continuation-store wiring, and private A2A startup |
+| [`internal/adapter`](internal/adapter) | Materializing `CODEX_HOME`, native TOML, shared agents, skills, and MCP configuration |
+| [`internal/driver`](internal/driver) | App Server lifecycle, JSON-RPC framing, event translation, thread resume, cancellation, and process supervision |
+| [`protocol/schema`](protocol/schema) | Generated App Server schema used as a development reference; regenerate it from the pinned CLI rather than hand-editing it |
+
+## Implemented support
 
 - OpenAI through a Secret-backed API key, the Responses API, and an optional
   absolute HTTP(S) base URL.
@@ -29,15 +44,15 @@ Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 
 ## Development
 
-Codex driver launches the App Server and communicates with it using JSON-RPC 2.0.
-For development, it would often be helpful to generate the schema it uses.
-You can run the following command with codex and get it in `schema/` folder.
+The Codex driver launches App Server and communicates with it using JSON-RPC
+2.0. To refresh the reference schemas from the pinned Codex CLI, run:
 
 ```text
 codex app-server generate-json-schema --out go/harness/codex/protocol/schema
 ```
 
-For more information, see [https://learn.chatgpt.com/docs/app-server#message-schema](https://learn.chatgpt.com/docs/app-server#message-schema)
+For protocol details, see the [Codex App Server message
+schema](https://learn.chatgpt.com/docs/app-server#message-schema).
 
 ## Example
 

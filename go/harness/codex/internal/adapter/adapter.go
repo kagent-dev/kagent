@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
+	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -33,7 +34,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	codexHome := filepath.Join(input.DurableDir, "codex")
 	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), filepath.Join(codexHome, "skills")} {
-		if err := ensurePrivateDir(directory); err != nil {
+		if err := utils.EnsurePrivateDir(directory); err != nil {
 			return nil, fmt.Errorf("prepare Codex directory %q: %w", directory, err)
 		}
 	}
@@ -58,7 +59,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := replacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
+	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
 	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
@@ -164,7 +165,7 @@ func materializeAgents(codexHome string, agents map[string]config.Agent) error {
 		if err != nil {
 			return fmt.Errorf("encode Codex agent %q configuration: %w", name, err)
 		}
-		if err := replacePrivateFile(filepath.Join(codexHome, "agents", name+".toml"), contents); err != nil {
+		if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "agents", name+".toml"), contents); err != nil {
 			return fmt.Errorf("materialize Codex agent %q: %w", name, err)
 		}
 	}
@@ -201,45 +202,6 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 		}
 	}
 	return nil
-}
-
-func ensurePrivateDir(path string) error {
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("%q is not a directory", path)
-	}
-	return os.Chmod(path, 0o700)
-}
-
-func replacePrivateFile(path string, contents []byte) error {
-	directory := filepath.Dir(path)
-	if err := ensurePrivateDir(directory); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+"-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
 }
 
 func setEnvironment(environment []string, name, value string) []string {

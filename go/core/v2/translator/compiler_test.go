@@ -157,9 +157,9 @@ func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
 
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
 
-func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
+func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
 	c.input = input
-	return &v2translator.Revision{AgentTemplateName: input.Root.Template.Name}, nil
+	return &v2translator.Compilation{Revision: v2translator.Revision{AgentTemplateName: input.Root.Template.Name}}, nil
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {

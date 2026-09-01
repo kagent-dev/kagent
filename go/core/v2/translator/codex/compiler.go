@@ -39,7 +39,7 @@ type Compiler struct{ kube v2translator.Reader }
 
 func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
+func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ModelConfig == nil {
 		return nil, fmt.Errorf("codex compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
@@ -109,11 +109,12 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	template, harness := input.Root.Template, input.Harness
-	return &v2translator.Revision{
+	return &v2translator.Compilation{Revision: v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Provenance: provenance, EgressDestinations: egress,
+	},
 	}, nil
 }
 

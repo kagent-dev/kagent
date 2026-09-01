@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // PairReconciliation is the complete desired and observed state for one
@@ -36,6 +35,7 @@ import (
 type PairReconciliation struct {
 	Pair                  AgentTemplateHarnessPair
 	Revision              *v2translator.Revision
+	Warnings              []string
 	RevisionID            v2translator.RevisionID
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
@@ -68,7 +68,7 @@ func newPairReconciliations(
 			ctx: ctx, agentTemplates: agentTemplates, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
 			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
 		}
-		revision, err := v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		compilation, err := v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
 			v2translator.HarnessTypeCodex:  codextranslator.NewCompiler(reader),
 			v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(reader),
@@ -82,7 +82,9 @@ func newPairReconciliations(
 			state.Failure = &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
 			return state
 		}
+		revision := &compilation.Revision
 		state.Revision = revision
+		state.Warnings = append([]string(nil), compilation.Warnings...)
 		state.RevisionID, err = revision.Digest()
 		if err != nil {
 			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
@@ -267,15 +269,6 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if state.Revision == nil || state.RevisionID.IsZero() {
 		return r.cleanupUnreferencedRevisions(ctx)
 	}
-	for _, warning := range state.Revision.Warnings {
-		ctrllog.FromContext(ctx).Info("runtime configuration warning",
-			"namespace", state.Pair.AgentTemplate.Namespace,
-			"agentTemplate", state.Pair.AgentTemplate.Name,
-			"harness", state.Pair.Harness.Name,
-			"warning", warning,
-		)
-	}
-
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,

@@ -37,7 +37,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv:    map[string]string{anthropicAPIKeyEnv: credentialValue},
+			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue},
 			wantEgress: []string{"api.anthropic.com"},
 		},
 		{
@@ -46,25 +46,25 @@ func TestCompileSupportedProviders(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic"}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv: map[string]string{anthropicAPIKeyEnv: credentialValue,
-				anthropicBaseURLEnv: "http://host.docker.internal:8090/anthropic"},
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue,
+				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
 			wantEgress: []string{"host.docker.internal"},
 		},
 		{
 			name: "Bedrock IAM",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secretData: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")},
-			wantEnv: map[string]string{useBedrockEnv: "1", awsRegionEnv: "us-east-1", awsAccessKeyEnv: "access",
-				awsSecretKeyEnv: credentialValue, awsSessionTokenEnv: "session"},
+			secretData: map[string][]byte{claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte(credentialValue), claudeconfig.AWSSessionTokenEnvName: []byte("session")},
+			wantEnv: map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-east-1", claudeconfig.AWSAccessKeyEnvName: "access",
+				claudeconfig.AWSSecretKeyEnvName: credentialValue, claudeconfig.AWSSessionTokenEnvName: "session"},
 			wantEgress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
 		},
 		{
 			name: "Bedrock API key",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
-			secretData: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)},
-			wantEnv:    map[string]string{useBedrockEnv: "1", awsRegionEnv: "us-west-2", awsBedrockTokenEnv: credentialValue},
+			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
+			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: credentialValue},
 			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
 		},
 		{
@@ -73,7 +73,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
 				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
 			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
-			wantEnv: map[string]string{useVertexEnv: "1", vertexProjectEnv: "project", vertexRegionEnv: "us-east5",
+			wantEnv: map[string]string{claudeconfig.UseVertexEnvName: "1", claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5",
 				claudeconfig.GoogleCredentialsJSONEnvName: `{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`},
 			wantEgress: []string{"oauth2.googleapis.com", "us-east5-aiplatform.googleapis.com"},
 		},
@@ -105,8 +105,8 @@ func TestCompileSupportedProviders(t *testing.T) {
 					t.Errorf("environment[%s] = %q, want %q", name, gotEnvironment[name], value)
 				}
 			}
-			if gotEnvironment[sandboxEnv] != "1" {
-				t.Errorf("environment[%s] = %q, want %q", sandboxEnv, gotEnvironment[sandboxEnv], "1")
+			if gotEnvironment[claudeconfig.SandboxEnvName] != "1" {
+				t.Errorf("environment[%s] = %q, want %q", claudeconfig.SandboxEnvName, gotEnvironment[claudeconfig.SandboxEnvName], "1")
 			}
 			if !reflect.DeepEqual(revision.EgressDestinations, tt.wantEgress) {
 				t.Errorf("egress = %v", revision.EgressDestinations)
@@ -142,7 +142,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			input, reader := testInput(t, tt.model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret"), "credentials.json": []byte(`{"type":"service_account"}`)})
+			input, reader := testInput(t, tt.model, map[string][]byte{"api-key": []byte("secret"), claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte("secret"), "credentials.json": []byte(`{"type":"service_account"}`)})
 			_, err := NewCompiler(reader).Compile(context.Background(), input)
 			var validation *v2translator.ValidationError
 			if !errors.As(err, &validation) {
@@ -159,7 +159,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: anthropicBaseURLEnv, Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: &value}}
 	_, err := NewCompiler(reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
 	if !errors.As(err, &validation) {
@@ -248,7 +248,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 	compiled := cfg.MCPServers["math-server"]
 	if compiled.Type != "http" || compiled.URL != server.Spec.URL || compiled.Headers["X-Tenant"] != "test" ||
-		!strings.HasPrefix(compiled.Headers["Authorization"], "${"+mcpCredentialPrefix) {
+		!strings.HasPrefix(compiled.Headers["Authorization"], "${"+claudeconfig.MCPCredentialEnvPrefix) {
 		t.Fatalf("compiled MCP = %#v", cfg.MCPServers)
 	}
 	if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
@@ -256,7 +256,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 	foundSecret := false
 	for _, variable := range revision.Environment {
-		if strings.HasPrefix(variable.Name, mcpCredentialPrefix) && variable.Value == credentialValue {
+		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == credentialValue {
 			foundSecret = true
 		}
 	}
@@ -310,6 +310,30 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "no current discovered tool set") {
 		t.Fatalf("stale discovery warnings = %v", revision.Warnings)
+	}
+
+	server.Status.ObservedGeneration = server.Generation
+	input.Root.MCPTools[0].Binding.Tools = nil
+	terminateOnClose := false
+	server.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
+	server.Spec.Timeout = &metav1.Duration{Duration: time.Minute}
+	server.Spec.TerminateOnClose = &terminateOnClose
+	revision, err = NewCompiler(reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unsupported MCP options Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 1 {
+		t.Fatalf("unsupported MCP option warnings = %v", revision.Warnings)
+	}
+	for _, field := range []string{"custom TLS configuration", "timeout", "terminateOnClose"} {
+		if !strings.Contains(revision.Warnings[0], field) {
+			t.Errorf("unsupported MCP option warning %q omits %q", revision.Warnings[0], field)
+		}
+	}
+
+	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocol("STDIO")
+	if _, err := NewCompiler(reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
+		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 }
 

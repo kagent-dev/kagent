@@ -445,6 +445,15 @@ spec:
                     latestSuccessfulRevision:
                       minLength: 1
                       type: string
+                    warnings:
+                      description: |-
+                        Warnings reports non-blocking compatibility decisions made while compiling
+                        this AgentTemplate for the Harness.
+                      items:
+                        type: string
+                      maxItems: 100
+                      type: array
+                      x-kubernetes-list-type: set
                   required:
                   - desiredRevision
                   - harness

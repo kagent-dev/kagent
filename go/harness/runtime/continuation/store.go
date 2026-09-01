@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
 )
 
 const stateVersion = 2
@@ -32,11 +34,8 @@ type Store struct {
 
 // New loads or creates a continuation store for runtime.
 func New(durableDir, runtime string, validate Validator) (*Store, error) {
-	if err := os.MkdirAll(durableDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create continuation state directory: %w", err)
-	}
-	if err := os.Chmod(durableDir, 0o700); err != nil {
-		return nil, fmt.Errorf("secure continuation state directory: %w", err)
+	if err := utils.EnsurePrivateDir(durableDir); err != nil {
+		return nil, fmt.Errorf("prepare continuation state directory: %w", err)
 	}
 	s := &Store{
 		path: filepath.Join(durableDir, "state.json"), runtime: runtime,
@@ -88,29 +87,8 @@ func (s *Store) Bind(id string) error {
 	if err != nil {
 		return fmt.Errorf("encode continuation state: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".continuation-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary continuation state: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("secure temporary continuation state: %w", err)
-	}
-	if _, err := tmp.Write(b); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temporary continuation state: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("sync temporary continuation state: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temporary continuation state: %w", err)
-	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		return fmt.Errorf("replace continuation state: %w", err)
+	if err := utils.ReplacePrivateFile(s.path, b); err != nil {
+		return fmt.Errorf("persist continuation state: %w", err)
 	}
 	s.data = next
 	return nil

@@ -24,14 +24,17 @@ func TestRevisionDigestIncludesProvenance(t *testing.T) {
 	}
 }
 
-func TestRevisionDigestExcludesWarnings(t *testing.T) {
-	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude"}
-	first, err := revision.Digest()
+func TestCompilationWarningsDoNotAffectRevisionDigest(t *testing.T) {
+	compilation := &Compilation{Revision: Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude"}}
+	first, err := compilation.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision.Warnings = []string{"partial MCP selection is not enforced"}
-	second, err := revision.Digest()
+	compilation.Warnings = []string{"partial MCP selection is not enforced"}
+	if len(compilation.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one warning", compilation.Warnings)
+	}
+	second, err := compilation.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}

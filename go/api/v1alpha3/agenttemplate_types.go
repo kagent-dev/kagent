@@ -241,6 +241,12 @@ type AgentTemplateHarnessStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
+	// Warnings reports non-blocking compatibility decisions made while compiling
+	// this AgentTemplate for the Harness.
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=set
+	// +optional
+	Warnings []string `json:"warnings,omitempty"`
 	// +kubebuilder:validation:MaxItems=4
 	// +listType=map
 	// +listMapKey=type

@@ -45,7 +45,7 @@ type compiledAgent struct {
 	egress      []string
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
+func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
 	compiled, err := c.compileAgent(ctx, input.Root)
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	slices.Sort(egressDestinations)
 	egressDestinations = slices.Compact(egressDestinations)
 
-	return &v2translator.Revision{
+	return &v2translator.Compilation{Revision: v2translator.Revision{
 		Namespace:          template.Namespace,
 		AgentTemplateName:  template.Name,
 		HarnessName:        harness.Name,
@@ -138,6 +138,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		SnapshotLocation:   harness.Spec.Substrate.SnapshotPolicy.Location,
 		Provenance:         provenance,
 		EgressDestinations: egressDestinations,
+	},
 	}, nil
 }
 

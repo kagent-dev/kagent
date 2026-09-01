@@ -195,7 +195,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 		krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
 		krt.NewStaticCollection(nil, []*corev1.Secret{secret}, opts.WithName("Secrets")...),
 		krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
-		krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
+		krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -205,8 +205,8 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	if state.Revision == nil || state.Revision.Environment[0].Name != "OPENAI_API_KEY" || state.Revision.Environment[0].Value != "secret" {
 		t.Fatalf("Codex revision environment = %#v", state.Revision)
 	}
-	if state.DesiredActorTemplate.Spec.Containers[0].Readyz.HTTPGet.Port != 8081 {
-		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.Spec.Containers[0].Readyz)
+	if state.DesiredActorTemplate.GetContainers()[0].GetReadyz().GetHttpGet().GetPort() != 8081 {
+		t.Fatalf("Codex ActorTemplate readiness = %#v", state.DesiredActorTemplate.GetContainers()[0].GetReadyz())
 	}
 }
 
