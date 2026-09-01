@@ -48,6 +48,20 @@ jobs:
         uses: actions/checkout@v6
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: false
+      - name: Cache E2E Go dependencies and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: e2e-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go/go.mod', 'go/go.sum') }}
+          restore-keys: |
+            e2e-go-${{ runner.os }}-${{ runner.arch }}-
       - name: Allow unprivileged user namespaces
         # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
@@ -110,18 +124,15 @@ jobs:
             --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
             --set controller.substrate.defaultWorkerPool.name=kagent-default
             --set substrateWorkerPool.create=true
-            --set substrateWorkerPool.replicas=1
+            --set substrateWorkerPool.replicas=4
             --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
-          DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
-            --platform=linux/amd64
-            --push
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          jobs=$(nproc)
-          make -j"$(( jobs < 4 ? jobs : 4 ))" build-controller build-golang-adk build-claude-harness build-byo-a2a
+          printf '%s\n' controller golang-adk claude-harness byo-a2a | xargs -P4 -n1 bash -c '
+            image="$1"
+            DOCKER_BUILD_ARGS="--cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-${image} --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e-${image} --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-${image},mode=max --platform=linux/amd64 --push" \
+              make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
+          ' _
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
@@ -150,7 +161,7 @@ jobs:
           echo "KAGENT_GRPC_URL: $KAGENT_GRPC_URL"
           make core/bin/kagent-local
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
-          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on -parallel 4
 
       - name: fail print info
         if: failure()

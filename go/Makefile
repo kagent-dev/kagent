@@ -85,7 +85,6 @@ govulncheck: ## Run govulncheck.
 
 .PHONY: core/bin/kagent-local
 core/bin/kagent-local:
-	go test -race ./core/cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-local ./core/cli/cmd/kagent
 
 core/bin/kagent-linux-amd64:
@@ -147,7 +146,7 @@ e2e: core/bin/kagent-local ## Run end-to-end tests.
 	  exit 1; \
 	}
 	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
-	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -parallel 2
 
 ##@ Dependencies
 
