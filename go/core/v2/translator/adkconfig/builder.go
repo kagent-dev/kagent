@@ -343,9 +343,6 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 		slices.Sort(destinations)
 		return slices.Compact(destinations)
 	}
-	if modelConfig == nil {
-		return slices.Compact(destinations)
-	}
 	switch modelConfig.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
 		destinations = append(destinations, "api.openai.com")
