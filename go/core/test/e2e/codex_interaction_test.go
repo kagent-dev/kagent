@@ -31,7 +31,7 @@ const codexE2EHarness = "codex-e2e"
 //go:embed mocks/invoke_codex_agent.json mocks/invoke_codex_builtin_tools.json mocks/invoke_codex_resources.json
 var codexInteractionMocks embed.FS
 
-func TestCodexMockInteractionResumeAndPersistence(t *testing.T) {
+func TestE2ECodexMockInteractionResumeAndPersistence(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -62,7 +62,7 @@ func TestCodexMockInteractionResumeAndPersistence(t *testing.T) {
 	assertCodexTaskHistory(t, fixture, first.ID, resumed.ID)
 }
 
-func TestCodexMockCheckpointForkAndResume(t *testing.T) {
+func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -139,7 +139,7 @@ func TestCodexMockCheckpointForkAndResume(t *testing.T) {
 	}
 }
 
-func TestCodexMockBuiltinToolEvents(t *testing.T) {
+func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_builtin_tools.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -153,7 +153,7 @@ func TestCodexMockBuiltinToolEvents(t *testing.T) {
 	assertCodexToolEvents(t, codexTaskToolEvents(getCodexTask(t, fixture, streamed.taskID)), "command_execution")
 }
 
-func TestCodexMockWholeServerMCP(t *testing.T) {
+func TestE2ECodexMockWholeServerMCP(t *testing.T) {
 	target := interactionTarget(t)
 	mcpURL, mcpMock := startMCPMock(t)
 
@@ -244,6 +244,7 @@ func sendCodexStreaming(t *testing.T, fixture *interactionFixture, text string) 
 		case *a2atype.TaskArtifactUpdateEvent:
 			result.sawArtifact = true
 			if event.Artifact != nil {
+				result.toolEvents = append(result.toolEvents, codexToolEvents(event.Artifact.Parts)...)
 				for _, part := range event.Artifact.Parts {
 					output.WriteString(part.Text())
 				}
@@ -260,7 +261,9 @@ func sendCodexStreaming(t *testing.T, fixture *interactionFixture, text string) 
 				}
 				result.failureText = strings.Join(parts, "\n")
 			}
-			result.toolEvents = append(result.toolEvents, codexToolEvents(event.Status.Message)...)
+			if event.Status.Message != nil {
+				result.toolEvents = append(result.toolEvents, codexToolEvents(event.Status.Message.Parts)...)
+			}
 		}
 		if result.state.Terminal() {
 			terminalEvents++
@@ -268,12 +271,9 @@ func sendCodexStreaming(t *testing.T, fixture *interactionFixture, text string) 
 	}
 }
 
-func codexToolEvents(message *a2atype.Message) []codexToolEvent {
-	if message == nil {
-		return nil
-	}
+func codexToolEvents(parts []*a2atype.Part) []codexToolEvent {
 	var events []codexToolEvent
-	for _, part := range message.Parts {
+	for _, part := range parts {
 		partType, _ := part.Metadata["kagent_type"].(string)
 		if partType != "function_call" && partType != "function_response" {
 			continue
@@ -292,9 +292,18 @@ func codexToolEvents(message *a2atype.Message) []codexToolEvent {
 func codexTaskToolEvents(task *a2atype.Task) []codexToolEvent {
 	var events []codexToolEvent
 	for _, message := range task.History {
-		events = append(events, codexToolEvents(message)...)
+		if message != nil {
+			events = append(events, codexToolEvents(message.Parts)...)
+		}
 	}
-	events = append(events, codexToolEvents(task.Status.Message)...)
+	if task.Status.Message != nil {
+		events = append(events, codexToolEvents(task.Status.Message.Parts)...)
+	}
+	for _, artifact := range task.Artifacts {
+		if artifact != nil {
+			events = append(events, codexToolEvents(artifact.Parts)...)
+		}
+	}
 	return events
 }
 
