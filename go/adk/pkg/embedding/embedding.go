@@ -115,9 +115,8 @@ func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.Embe
 	log := logr.FromContextOrDiscard(ctx)
 
 	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
-		Model:      openai.EmbeddingModel(cfg.Model),
-		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
-		Dimensions: openai.Int(int64(TargetDimension)),
+		Model: openai.EmbeddingModel(cfg.Model),
+		Input: openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
 	}, embeddingPassthroughOpts(ctx, cfg, isAzureFamily)...)
 	if err != nil {
 		return nil, fmt.Errorf("%s embeddings request failed: %w", provider, err)
