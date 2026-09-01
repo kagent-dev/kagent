@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestVisibilityAllowsApp(t *testing.T) {
+func TestE2EVisibilityAllowsApp(t *testing.T) {
 	tests := []struct {
 		name string
 		meta map[string]any
@@ -36,7 +36,7 @@ func TestVisibilityAllowsApp(t *testing.T) {
 	}
 }
 
-func TestValidateMCPAppResource(t *testing.T) {
+func TestE2EValidateMCPAppResource(t *testing.T) {
 	tests := []struct {
 		name      string
 		result    *mcp.ReadResourceResult
@@ -77,7 +77,7 @@ func TestValidateMCPAppResource(t *testing.T) {
 	}
 }
 
-func TestRuntimeMCPClientResolveServerMatrix(t *testing.T) {
+func TestE2ERuntimeMCPClientResolveServerMatrix(t *testing.T) {
 	remote := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "remote", Namespace: "default"},
 		Spec: v1alpha3.RemoteMCPServerSpec{
