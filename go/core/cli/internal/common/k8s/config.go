@@ -5,8 +5,26 @@ import (
 	"fmt"
 	"strings"
 
+	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// NewKagentClientset builds the generated kagent clientset from the ambient
+// kubeconfig. Harness and AgentTemplate are CRDs, so every reader goes through here.
+func NewKagentClientset() (clientset.Interface, error) {
+	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{},
+	).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load Kubernetes client config: %w", err)
+	}
+	clients, err := clientset.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create Kubernetes client: %w", err)
+	}
+	return clients, nil
+}
 
 // GetCurrentNamespace returns the current namespace from the kubeconfig.
 // If no namespace is configured, it returns an error.

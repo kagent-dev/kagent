@@ -52,7 +52,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	template, harness := input.Root.Template, input.Harness
 	cfg := compiled.config
-	cfg.SessionDBURL = "sqlite:////data/sessions.db"
+	// The async driver is named, because the Python runtime cannot infer it and the Go
+	// one does not need it. `DatabaseSessionService` builds an asyncio engine and
+	// refuses a bare `sqlite:` URL with "the asyncio extension requires an async
+	// driver" — so a kagent-adk actor never opened its readiness port, and the harness
+	// sat in ResumeGoldenActor until the golden actor timed out. The Go ADK accepts
+	// `sqlite+<driver>` and strips the driver (see adk/pkg/session.sqlitePathFromURL),
+	// so one URL serves both.
+	cfg.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
 
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
@@ -126,7 +133,7 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 	}
 	stream := true
 	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
-	pluginConfig, err := agentPluginConfig(input.Template)
+	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +161,7 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 	result := &compiledAgent{
 		config: cfg, models: []*v1alpha3.ModelConfig{input.ModelConfig}, templates: []*v1alpha3.AgentTemplate{input.Template},
 		environment: modelRuntime.Environment,
-		egress:      append(agentConfigDestinations(cfg, input.ModelConfig, modelRuntime.Model), agentPluginSourceDestinations(pluginConfig)...),
+		egress:      append(agentConfigDestinations(cfg, input.ModelConfig, modelRuntime.Model), pluginEgress...),
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)
@@ -169,72 +176,6 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 		result.egress = append(result.egress, child.egress...)
 	}
 	return result, nil
-}
-
-func agentPluginSourceDestinations(config adk.AgentPluginConfig) []string {
-	var result []string
-	appendSource := func(source adk.AgentPluginSource) {
-		switch {
-		case source.Git != nil:
-			result = appendURLHost(result, source.Git.URL)
-		case source.OCI != "":
-			repository := strings.SplitN(source.OCI, "@", 2)[0]
-			first, _, found := strings.Cut(repository, "/")
-			if found && (strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost") {
-				result = append(result, first)
-			} else {
-				result = append(result, "registry-1.docker.io")
-			}
-		case source.S3 != nil:
-			result = appendURLHost(result, source.S3.Endpoint)
-		}
-	}
-	for _, skill := range config.Skills {
-		appendSource(skill.Source)
-	}
-	for _, plugin := range config.Plugins {
-		appendSource(plugin.Source)
-	}
-	return result
-}
-
-func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig, error) {
-	result := adk.AgentPluginConfig{
-		Skills:  make([]adk.StandaloneSkill, 0, len(template.Spec.Skills)),
-		Plugins: make([]adk.AgentPluginBundle, 0, len(template.Spec.Plugins)),
-	}
-	names := make(map[string]struct{})
-	for _, skill := range template.Spec.Skills {
-		if _, exists := names[skill.Name]; exists {
-			return adk.AgentPluginConfig{}, v2translator.NewValidationError("duplicate skill name %q", skill.Name)
-		}
-		names[skill.Name] = struct{}{}
-		result.Skills = append(result.Skills, adk.StandaloneSkill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
-	}
-	for _, plugin := range template.Spec.Plugins {
-		for _, name := range plugin.Skills {
-			if _, exists := names[name]; exists {
-				return adk.AgentPluginConfig{}, v2translator.NewValidationError("duplicate skill name %q", name)
-			}
-			names[name] = struct{}{}
-		}
-		result.Plugins = append(result.Plugins, adk.AgentPluginBundle{Source: agentPluginSource(plugin.Source), Skills: append([]string(nil), plugin.Skills...)})
-	}
-	return result, nil
-}
-
-func agentPluginSource(source v1alpha3.ArtifactSource) adk.AgentPluginSource {
-	result := adk.AgentPluginSource{OCI: source.OCI, Path: source.Path}
-	if source.Git != nil {
-		result.Git = &adk.AgentPluginGit{URL: source.Git.URL, Commit: source.Git.Commit}
-	}
-	if source.Bucket != nil {
-		result.S3 = &adk.AgentPluginS3{
-			Endpoint: source.Bucket.S3.Endpoint, Bucket: source.Bucket.S3.Bucket, Key: source.Bucket.S3.Key,
-			VersionID: source.Bucket.S3.VersionID, Region: source.Bucket.S3.Region,
-		}
-	}
-	return result
 }
 
 // resolveEnvironment replaces Kubernetes Secret references with literals
@@ -386,6 +327,12 @@ func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1
 }
 
 // agentTemplateCard describes the runtime-local A2A server. Substrate routes
+// hitlExtensionURI is the human-in-the-loop A2A extension the kagent runtime
+// negotiates. Spelled here rather than imported from the ADK package so the
+// controller does not depend on the runtime's module for one constant; the two
+// must agree, and `agentcard.go` is the definition.
+const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
+
 // public traffic to this loopback interface; the card must not advertise a
 // cluster-specific external address.
 func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
@@ -398,7 +345,19 @@ func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
 			ProtocolBinding: a2atype.TransportProtocolGRPC,
 			ProtocolVersion: a2atype.Version,
 		}},
-		Capabilities:       a2atype.AgentCapabilities{Streaming: true},
+		// This compiler builds cards for the kagent runtime specifically, whose A2A
+		// layer always negotiates human-in-the-loop (see adk/pkg/a2a/agentcard.go,
+		// which appends this extension unconditionally). Declaring it here is what
+		// makes an agent's question discoverably answerable: a client reads the card
+		// to learn it may request the extension and render the choices. Other
+		// harnesses compile their own cards and make no such claim.
+		Capabilities: a2atype.AgentCapabilities{
+			Streaming: true,
+			Extensions: []a2atype.AgentExtension{{
+				URI:         hitlExtensionURI,
+				Description: "Human in the loop for tool approval, ask user, and nested subagents",
+			}},
+		},
 		Skills:             []a2atype.AgentSkill{},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},

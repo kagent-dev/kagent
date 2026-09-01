@@ -80,8 +80,9 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
+	instanceUUID := uuid.MustParse(instanceID)
 	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: id.String(), Namespace: namespace, SourceInstanceID: instanceID, UserID: userID,
+		ID: id, Namespace: namespace, SourceInstanceID: instanceUUID, UserID: userID,
 		RequestID: requestID,
 	})
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
@@ -102,13 +103,13 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 
 	tag, err := s.ensureTag(ctx, checkpoint)
 	if err != nil {
-		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID))
+		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String()))
 		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
-			_, _ = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID, "", err.Error())
+			_, _ = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "", err.Error())
 		}
 		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", err)
 	}
-	checkpoint, err = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID, tag.GetMetadata().GetUid(), "")
+	checkpoint, err = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), tag.GetMetadata().GetUid(), "")
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to publish checkpoint", err)
 	}
@@ -119,7 +120,7 @@ func (s *Service) ensureTag(ctx context.Context, checkpoint *dbpkg.AgentInstance
 	if err := s.verifySnapshot(ctx, checkpoint); err != nil {
 		return nil, err
 	}
-	name := tagName(checkpoint.ID)
+	name := tagName(checkpoint.ID.String())
 	tag, err := s.tags.CreateActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name, checkpoint.SnapshotName)
 	if err != nil {
 		tag, err = s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name)
@@ -200,7 +201,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		result.Checkpoints[i] = checkpointProto(&rows[i])
 	}
 	if len(rows) > pageSize {
-		result.NextPageToken = encodePageToken(rows[pageSize-1].ID)
+		result.NextPageToken = encodePageToken(rows[pageSize-1].ID.String())
 	}
 	return result, nil
 }
@@ -220,7 +221,7 @@ func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) er
 	if err != nil {
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
-	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID))
+	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String()))
 	if err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
 	}
@@ -228,7 +229,7 @@ func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) er
 		tag.GetSnapshot().GetAtespace() != checkpoint.SnapshotAtespace || tag.GetSnapshot().GetName() != checkpoint.SnapshotName) {
 		return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
 	}
-	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID)); err != nil && status.Code(err) != codes.NotFound {
+	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String())); err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 	}
 	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID); err != nil {
@@ -290,7 +291,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, n
 
 func checkpointProto(checkpoint *dbpkg.AgentInstanceCheckpoint) *apiv1alpha1.Checkpoint {
 	result := &apiv1alpha1.Checkpoint{
-		Id: checkpoint.ID, Namespace: checkpoint.Namespace, AgentInstanceId: checkpoint.SourceInstanceID,
+		Id: checkpoint.ID.String(), Namespace: checkpoint.Namespace, AgentInstanceId: checkpoint.SourceInstanceID.String(),
 		HeadTaskId: checkpoint.HeadTaskID, HistorySequence: uint64(checkpoint.HistorySequence),
 		State: checkpointState(checkpoint.State), CreatedAt: timestamppb.New(checkpoint.CreatedAt),
 	}

@@ -87,17 +87,4 @@ func registerTypes() {
 			return c.(Client).Substrate().ApiV1alpha1().WorkerPools(namespace)
 		},
 	)
-	kubeclient.Register(
-		atev1alpha1.GroupVersion.WithResource("actortemplates"),
-		atev1alpha1.GroupVersion.WithKind("ActorTemplate"),
-		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
-			return c.(Client).Substrate().ApiV1alpha1().ActorTemplates(namespace).List(context.Background(), options)
-		},
-		func(c kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
-			return c.(Client).Substrate().ApiV1alpha1().ActorTemplates(namespace).Watch(context.Background(), options)
-		},
-		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*atev1alpha1.ActorTemplate] {
-			return c.(Client).Substrate().ApiV1alpha1().ActorTemplates(namespace)
-		},
-	)
 }

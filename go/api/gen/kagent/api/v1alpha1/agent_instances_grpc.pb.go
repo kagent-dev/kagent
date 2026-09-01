@@ -22,6 +22,7 @@ const (
 	AgentInstanceService_CreateAgentInstance_FullMethodName      = "/kagent.api.v1alpha1.AgentInstanceService/CreateAgentInstance"
 	AgentInstanceService_GetAgentInstance_FullMethodName         = "/kagent.api.v1alpha1.AgentInstanceService/GetAgentInstance"
 	AgentInstanceService_ListAgentInstances_FullMethodName       = "/kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances"
+	AgentInstanceService_UpdateAgentInstanceName_FullMethodName  = "/kagent.api.v1alpha1.AgentInstanceService/UpdateAgentInstanceName"
 	AgentInstanceService_SuspendAgentInstance_FullMethodName     = "/kagent.api.v1alpha1.AgentInstanceService/SuspendAgentInstance"
 	AgentInstanceService_ResumeAgentInstance_FullMethodName      = "/kagent.api.v1alpha1.AgentInstanceService/ResumeAgentInstance"
 	AgentInstanceService_DeleteAgentInstance_FullMethodName      = "/kagent.api.v1alpha1.AgentInstanceService/DeleteAgentInstance"
@@ -37,6 +38,7 @@ type AgentInstanceServiceClient interface {
 	CreateAgentInstance(ctx context.Context, in *CreateAgentInstanceRequest, opts ...grpc.CallOption) (*CreateAgentInstanceResponse, error)
 	GetAgentInstance(ctx context.Context, in *GetAgentInstanceRequest, opts ...grpc.CallOption) (*GetAgentInstanceResponse, error)
 	ListAgentInstances(ctx context.Context, in *ListAgentInstancesRequest, opts ...grpc.CallOption) (*ListAgentInstancesResponse, error)
+	UpdateAgentInstanceName(ctx context.Context, in *UpdateAgentInstanceNameRequest, opts ...grpc.CallOption) (*UpdateAgentInstanceNameResponse, error)
 	SuspendAgentInstance(ctx context.Context, in *SuspendAgentInstanceRequest, opts ...grpc.CallOption) (*SuspendAgentInstanceResponse, error)
 	ResumeAgentInstance(ctx context.Context, in *ResumeAgentInstanceRequest, opts ...grpc.CallOption) (*ResumeAgentInstanceResponse, error)
 	DeleteAgentInstance(ctx context.Context, in *DeleteAgentInstanceRequest, opts ...grpc.CallOption) (*DeleteAgentInstanceResponse, error)
@@ -77,6 +79,16 @@ func (c *agentInstanceServiceClient) ListAgentInstances(ctx context.Context, in 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListAgentInstancesResponse)
 	err := c.cc.Invoke(ctx, AgentInstanceService_ListAgentInstances_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentInstanceServiceClient) UpdateAgentInstanceName(ctx context.Context, in *UpdateAgentInstanceNameRequest, opts ...grpc.CallOption) (*UpdateAgentInstanceNameResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateAgentInstanceNameResponse)
+	err := c.cc.Invoke(ctx, AgentInstanceService_UpdateAgentInstanceName_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +162,7 @@ type AgentInstanceServiceServer interface {
 	CreateAgentInstance(context.Context, *CreateAgentInstanceRequest) (*CreateAgentInstanceResponse, error)
 	GetAgentInstance(context.Context, *GetAgentInstanceRequest) (*GetAgentInstanceResponse, error)
 	ListAgentInstances(context.Context, *ListAgentInstancesRequest) (*ListAgentInstancesResponse, error)
+	UpdateAgentInstanceName(context.Context, *UpdateAgentInstanceNameRequest) (*UpdateAgentInstanceNameResponse, error)
 	SuspendAgentInstance(context.Context, *SuspendAgentInstanceRequest) (*SuspendAgentInstanceResponse, error)
 	ResumeAgentInstance(context.Context, *ResumeAgentInstanceRequest) (*ResumeAgentInstanceResponse, error)
 	DeleteAgentInstance(context.Context, *DeleteAgentInstanceRequest) (*DeleteAgentInstanceResponse, error)
@@ -174,6 +187,9 @@ func (UnimplementedAgentInstanceServiceServer) GetAgentInstance(context.Context,
 }
 func (UnimplementedAgentInstanceServiceServer) ListAgentInstances(context.Context, *ListAgentInstancesRequest) (*ListAgentInstancesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListAgentInstances not implemented")
+}
+func (UnimplementedAgentInstanceServiceServer) UpdateAgentInstanceName(context.Context, *UpdateAgentInstanceNameRequest) (*UpdateAgentInstanceNameResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAgentInstanceName not implemented")
 }
 func (UnimplementedAgentInstanceServiceServer) SuspendAgentInstance(context.Context, *SuspendAgentInstanceRequest) (*SuspendAgentInstanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SuspendAgentInstance not implemented")
@@ -264,6 +280,24 @@ func _AgentInstanceService_ListAgentInstances_Handler(srv interface{}, ctx conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentInstanceServiceServer).ListAgentInstances(ctx, req.(*ListAgentInstancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentInstanceService_UpdateAgentInstanceName_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateAgentInstanceNameRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentInstanceServiceServer).UpdateAgentInstanceName(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentInstanceService_UpdateAgentInstanceName_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentInstanceServiceServer).UpdateAgentInstanceName(ctx, req.(*UpdateAgentInstanceNameRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -394,6 +428,10 @@ var AgentInstanceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAgentInstances",
 			Handler:    _AgentInstanceService_ListAgentInstances_Handler,
+		},
+		{
+			MethodName: "UpdateAgentInstanceName",
+			Handler:    _AgentInstanceService_UpdateAgentInstanceName_Handler,
 		},
 		{
 			MethodName: "SuspendAgentInstance",

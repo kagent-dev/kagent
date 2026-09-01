@@ -7,14 +7,14 @@ package dbgen
 import (
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
 type A2aContext struct {
-	ID        string
+	ID        uuid.UUID
 	Namespace string
 	UserID    string
 	CreatedAt time.Time
@@ -31,7 +31,7 @@ type Agent struct {
 }
 
 type AgentInstance struct {
-	ID                 string
+	ID                 uuid.UUID
 	Namespace          string
 	UserID             string
 	RequestID          string
@@ -40,14 +40,15 @@ type AgentInstance struct {
 	Labels             []byte
 	Data               []byte
 	Operation          string
-	ContextID          string
-	SourceCheckpointID *string
+	ContextID          uuid.UUID
+	SourceCheckpointID *uuid.UUID
+	Name               string
 }
 
 type AgentInstanceCheckpoint struct {
-	ID                   string
+	ID                   uuid.UUID
 	Namespace            string
-	SourceInstanceID     string
+	SourceInstanceID     uuid.UUID
 	UserID               string
 	RequestID            string
 	HeadTaskID           string
@@ -60,23 +61,22 @@ type AgentInstanceCheckpoint struct {
 	State                string
 	Failure              string
 	CreatedAt            time.Time
-	SourceContextID      string
+	SourceContextID      uuid.UUID
 	PreparedRevision     *string
 	SourceLabels         []byte
 }
 
 type AgentInstanceShare struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
-	Creator    string
+	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
 }
 
 type AgentInstanceTask struct {
-	ContextID            string
+	ContextID            uuid.UUID
 	ID                   string
 	State                string
 	StatusTimestamp      *time.Time
@@ -94,7 +94,7 @@ type AgentInstanceTask struct {
 
 type AgentInstanceTaskEvent struct {
 	Sequence  int64
-	ContextID string
+	ContextID uuid.UUID
 	TaskID    *string
 	Data      []byte
 	CreatedAt time.Time
@@ -132,16 +132,6 @@ type CrewaiFlowState struct {
 	UpdatedAt  *time.Time
 	DeletedAt  *time.Time
 	StateData  string
-}
-
-type Event struct {
-	ID        string
-	UserID    string
-	SessionID *string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
 }
 
 type Feedback struct {
@@ -198,70 +188,21 @@ type Memory struct {
 	AccessCount *int64
 }
 
-type PushNotification struct {
-	ID              string
-	TaskID          string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	ProtocolVersion *string
-}
-
 type RuntimeRevision struct {
-	Revision               string
-	Namespace              string
-	AgentTemplateName      string
-	AgentTemplateUid       string
-	HarnessName            string
-	HarnessUid             string
-	SourceSnapshot         []byte
-	EgressDestinations     []string
-	ActorTemplateNamespace string
-	ActorTemplateName      string
-	ActorTemplateUid       string
-	Phase                  string
-	GoldenSnapshot         string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	AgentCard              []byte
-}
-
-type Session struct {
-	ID        string
-	UserID    string
-	Name      *string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	AgentID   *string
-	Source    *string
-}
-
-type SessionShare struct {
-	ID        int64
-	Token     string
-	SessionID string
-	UserID    string
-	ReadOnly  bool
-	CreatedAt pgtype.Timestamp
-}
-
-type SessionShareAccess struct {
-	UserID     string
-	ShareID    int64
-	AccessedAt pgtype.Timestamp
-}
-
-type Task struct {
-	ID              string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	SessionID       *string
-	ProtocolVersion *string
-	UserID          *string
+	Revision              string
+	Namespace             string
+	AgentTemplateName     string
+	AgentTemplateUid      string
+	HarnessName           string
+	HarnessUid            string
+	SourceSnapshot        []byte
+	EgressDestinations    []string
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUid      string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	AgentCard             []byte
 }
 
 type Tool struct {

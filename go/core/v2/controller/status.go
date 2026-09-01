@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,7 +56,7 @@ func statusForPair(state PairReconciliation, generation int64, latestSuccessful 
 	}
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All runtime references resolved")
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
-	if state.ObservedActorTemplate == nil || state.ObservedActorTemplate.Status.Phase != atev1alpha1.PhaseReady {
+	if state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() == nil {
 		setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionReady, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
 		return status
 	}

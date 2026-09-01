@@ -31,6 +31,11 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
+The `TestMCPAgentInstanceInteraction`, `TestMCPAskUserContinuation`, and
+`TestMCPCancelTask` cases exercise the controller's public `/mcp` endpoint on
+port 8083, including MCP Tasks polling, synchronous fallback, A2A task identity,
+input continuation, and cancellation.
+
 `mocks/` contains the deterministic LLM responses used by interaction tests.
 
 For local interaction debugging, start any retained response fixture from the

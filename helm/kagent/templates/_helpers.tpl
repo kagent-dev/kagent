@@ -51,17 +51,6 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
-Namespaces where Substrate ate-api-server needs read access to Secrets and ConfigMaps
-referenced by generated ActorTemplates (install namespace plus rbac.namespaces).
-*/}}
-{{- define "kagent.substrate.envSourceNamespaces" -}}
-{{- $installNs := include "kagent.namespace" . -}}
-{{- $extra := .Values.rbac.namespaces | default list -}}
-{{- $all := append $extra $installNs | uniq | sortAlpha -}}
-{{- join "," $all -}}
-{{- end }}
-
-{{/*
 Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
 Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > empty (watch all).
 */}}
@@ -201,7 +190,7 @@ container port, env vars) should render, empty otherwise. Honours both
 disable signals: `controller.metrics.enabled=false` and the binary's
 own `--metrics-bind-address=0` sentinel reached through `bindAddress`.
 The two are equivalent so the field name keeps faith with the binary's
-documented contract (see go/core/pkg/app/app.go).
+documented contract.
 */}}
 {{- define "kagent.controller.metricsEnabled" -}}
 {{- $port := include "kagent.controller.metricsPort" . -}}
@@ -245,10 +234,6 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/*
-A2A Base URL - computes the default URL based on the controller service name if not explicitly set.
-The `name.namespace.svc` short form is used so the URL resolves regardless of the cluster's DNS domain.
-*/}}
 {{/* Public gRPC endpoint advertised by AgentInstance Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}
@@ -263,21 +248,6 @@ Controller Service host:port for nginx upstream (no scheme).
 */}}
 {{- define "kagent.controllerServiceAuthority" -}}
 {{- printf "%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
-{{- end -}}
-
-{{/*
-In-cluster HTTP base for the Next.js A2A and other protocol-native routes (includes /api).
-The kagent application API uses kagent.controllerInternalGrpcBase instead.
-*/}}
-{{- define "kagent.controllerInternalHttpApiBase" -}}
-{{- printf "http://%s/api" (include "kagent.controllerServiceAuthority" .) -}}
-{{- end -}}
-
-{{/*
-In-cluster native gRPC base URL for Next.js server-side calls.
-*/}}
-{{- define "kagent.controllerInternalGrpcBase" -}}
-{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.grpc | int) -}}
 {{- end -}}
 
 {{/*

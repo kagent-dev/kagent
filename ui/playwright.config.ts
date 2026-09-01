@@ -1,102 +1,233 @@
 import { defineConfig, devices } from "@playwright/test";
-import { KAGENT_BACKEND_URL } from "./playwright/backend";
 
 /**
- * Playwright E2E config for the kagent UI.
- *
- * Data is fetched server-side (Next.js server actions), so browser-level
- * `page.route` cannot intercept `/api/**`. Instead we boot a standalone stub
- * backend (playwright/mocks/server.mjs) and point Next at it via
- * BACKEND_INTERNAL_URL — `getBackendUrl()` (src/lib/utils.ts) checks that env
- * var first. Both servers are started by the `webServer` block below.
- *
- * See playwright/README.md for the full test strategy.
+ * Overridable so concurrent runs can each own a port — but fixed, and
+ * deliberately not derived from the process: Playwright loads this file in the
+ * main process and again in every worker, so anything varying per process gives
+ * each worker a different base URL from the one the servers were started on.
  */
+const PORT = Number(process.env.UI_LOOP_PORT ?? 8001);
+const BASE_URL = `http://localhost:${PORT}`;
 
-const CI = !!process.env.CI;
+/**
+ * A second app, booted with the Example App Extension installed.
+ *
+ * Which extensions a build installs is decided at build time
+ * (`src/appExtensions/activeExtensions.ts` is an array, and reads an env var to
+ * append the example), so "installed" and "not installed" cannot be two states of
+ * one server — they are two servers. That split is also what lets the default suite
+ * assert the app is bare, which is the shape a build with no extension takes.
+ */
+// Deliberately not PORT + 1: Vite falls forward to the next free port when the
+// one it is told to use is busy, so adjacent ports let a slow-to-die server from
+// a previous run push one app onto the other's port.
+const EXTENSION_PORT = Number(process.env.UI_LOOP_EXTENSION_PORT ?? PORT + 50);
+const EXTENSION_BASE_URL = `http://localhost:${EXTENSION_PORT}`;
 
-const STUB_PORT = 8899;
-const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
-const APP_URL = "http://localhost:8001";
-// KAGENT_BACKEND_URL — origin of the REAL kagent backend the proxy forwards to —
-// is defined in playwright/backend.ts alongside the port-forward config in
-// playwright/setup.ts, so the proxy target and the port-forward stay in sync.
+/** Specs that need an extension installed opt in by filename. */
+const EXTENSION_SPECS = /\.withExtension\.spec\.ts$/;
 
-// `slowMo` adds an idle delay between every Playwright action (click, fill,
-// goto). The recorded videos play at real time, so without slowMo the test
-// runs fast enough that a human can't follow what's happening. 250ms feels
-// natural in the recording without bloating wall-clock test time too much.
-// Coerce + validate the env override so a malformed value (non-numeric → NaN,
-// or negative) falls back to the default instead of reaching Playwright.
-const DEFAULT_SLOW_MO_MS = 250;
-const parsedSlowMo = Number(process.env.E2E_SLOW_MO_MS);
-const SLOW_MO_MS =
-  Number.isFinite(parsedSlowMo) && parsedSlowMo >= 0
-    ? parsedSlowMo
-    : DEFAULT_SLOW_MO_MS;
+/**
+ * The suite is the acceptance bar, so what it runs against cannot depend on the
+ * shell it was started from: both servers are pinned to the in-browser mock
+ * backend. An inherited VITE_API_MODE=live would otherwise point a whole run at
+ * a real cluster.
+ */
+const MOCK_BACKEND = { VITE_API_MODE: "mock" };
+
+/**
+ * What each of the three servers is pinned to.
+ *
+ * Named here, rather than written inline below, so that what a server serves is
+ * stated in one place — and so a branch that installs an extension changes a
+ * value instead of restructuring the `projects`/`webServer` blocks.
+ *
+ * `VITE_EXAMPLE_EXTENSION` is pinned on the bare server for the same reason
+ * `VITE_API_MODE` is: an inherited value must not be able to decide what a run
+ * measures. Left unpinned, the bare project measures whatever the shell happened
+ * to export.
+ */
+const BARE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "false" };
+const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "true" };
+
+/**
+ * The third mode: one app, wired to a real backend.
+ *
+ * Selected by an environment variable rather than added as a third project
+ * alongside the mock two, because the two modes have incompatible requirements
+ * and each would break the other:
+ *
+ * - A live run needs a cluster and a port-forward. Adding it to the default
+ *   project list would make `yarn test:pw` — which is meant to need nothing but a
+ *   machine that can run the dev server — fail on any laptop without a cluster in
+ *   front of it.
+ * - A live run has no use for the two mock servers, and starting them would cost
+ *   every live run the time to boot two more Vite instances.
+ *
+ * So `LIVE` swaps the whole `projects`/`webServer` pair rather than appending to
+ * it. `yarn test:pw` and `yarn test:pw:live` are two disjoint runs.
+ */
+const LIVE = process.env.UI_LOOP_LIVE === "true";
+
+/**
+ * Its own port, far from the mock servers' 8001/8051, for the same reason those
+ * two are 50 apart: Vite falls forward to the next free port when the one it is
+ * told to use is busy, so a live run must not be able to land on a port a mock
+ * server is about to want, or vice versa.
+ */
+const LIVE_PORT = Number(process.env.UI_LOOP_LIVE_PORT ?? 8301);
+const LIVE_BASE_URL = `http://localhost:${LIVE_PORT}`;
+
+/** Read by `playwright/globalSetup.ts` to decide what to verify about a server. */
+export const LIVE_PROJECT = "chromium-live";
+
+/**
+ * A live run reaches the backend through Vite's proxy, exactly as a deployed
+ * build reaches it through nginx — so the app uses the same relative URLs either
+ * way and this mode tests the addressing a real deployment uses.
+ *
+ * `VITE_API_MODE` is pinned as well as the runtime flag: the build-time pin is
+ * the one thing an inherited `.env` cannot override, and a live suite that
+ * silently answered from fixtures would be worse than a red one.
+ */
+const LIVE_APP = { VITE_API_MODE: "live", ENABLE_MOCK_UI: "false" };
+
+/**
+ * How the live server is started.
+ *
+ * Named for the same reason the three env pins above are: a branch whose backend
+ * needs more than a dev server — a credential minted per run, a port-forward
+ * probed before Vite starts — replaces this line rather than the block below.
+ */
+const LIVE_COMMAND = `yarn dev --port ${LIVE_PORT}`;
 
 export default defineConfig({
   testDir: "./playwright/tests",
-  outputDir: "./playwright/test-results",
-  // Port-forward the real controller before the run, tear it down after.
-  globalSetup: "./playwright/setup.ts",
-  globalTeardown: "./playwright/teardown.ts",
-  // Parallelism stays off until Stage 1 per-test data isolation lands: one
-  // shared stub backend + one Next server means concurrent tests would race
-  // against shared state (see README). Flip both `fullyParallel` and `workers`
-  // together when isolation is in place.
-  fullyParallel: false,
-  forbidOnly: CI,
-  retries: CI ? 1 : 0,
-  workers: 1,
-  // Real-backend flows do create/list/delete round trips, so allow headroom.
-  timeout: 60_000,
-  expect: { timeout: 10_000 },
-  reporter: [["html", { open: "never" }], ["list"]],
+  // Both servers have to be rendering, not merely listening, before any test
+  // navigates — see the file for what goes wrong otherwise.
+  globalSetup: "./playwright/globalSetup.ts",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  /*
+   * Parallel in CI too, at a share of the runner rather than a count.
+   *
+   * It was one worker, and that was buying real stability: at high concurrency this
+   * suite produced roughly one failure per two full runs, always a different test.
+   * Two of those were the suite's own fault and are fixed — see `helpers/style` for
+   * the press-state reads that compared unpainted frames. The rest were starvation
+   * rather than logic: a mock-backed click that normally settles in under a second
+   * timing out at fifteen, because two dev servers and two browser engines on one
+   * machine leave the servers transforming modules for whoever asks first.
+   *
+   * A share, not a number, because that failure mode is about how much machine there
+   * is: `ubuntu-latest` is four cores, where a flat `4` would thrash with two engines
+   * running, and a runner that grows should get the benefit without another edit.
+   *
+   * `retries` stays at two deliberately. Raising concurrency without keeping the net
+   * would trade a slow suite for a suite that fails on other people's pull requests,
+   * and the starvation above is not fixed — only made less likely by asking for less
+   * of the machine than the local runs that provoked it.
+   */
+  workers: process.env.CI ? "50%" : undefined,
+  reporter: process.env.CI ? "github" : "list",
+  /*
+   * A real backend behind a port-forward answers in tens of seconds where the
+   * in-browser mock answers in milliseconds, so the defaults that suit the mock
+   * suite are too tight to distinguish "slow cluster" from "broken page".
+   *
+   * The mock suite keeps Playwright's default thirty. It was briefly given sixty, on
+   * the reading that a six-step journey timing out was a report about contention — and
+   * that was wrong twice over. The step in question was waiting on a URL a redirect
+   * replaces in the same tick, so it was never going to arrive however long the budget;
+   * and a mock-backed suite that needs more than thirty seconds for one test is saying
+   * something is stuck, which is worth hearing rather than absorbing.
+   */
+  ...(LIVE ? { timeout: 120_000, expect: { timeout: 30_000 } } : {}),
   use: {
-    baseURL: APP_URL,
+    trace: "on-first-retry",
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
-    video: "retain-on-failure",
-    launchOptions: {
-      slowMo: SLOW_MO_MS,
-    },
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: [
-    {
-      command: "node playwright/mocks/server.mjs",
-      url: `${STUB_URL}/__mock/health`,
-      reuseExistingServer: !CI,
-      timeout: 30_000,
-      stdout: "pipe",
-      stderr: "pipe",
-      // Pin the proxy port (health-check / BACKEND_INTERNAL_URL address) and tell
-      // it where the real backend is (the port-forward from playwright/setup.ts).
-      env: { STUB_PORT: String(STUB_PORT), KAGENT_BACKEND_URL },
-    },
-    {
-      // Force the webpack dev server (the default `npm run dev` uses Turbopack).
-      // Turbopack's dev server corrupts the RSC client manifest when a route is
-      // recompiled after a full-page navigation cycle (`evalManifest` throws
-      // "Invalid or unexpected token"), which surfaces as a Runtime Error overlay
-      // on the *second* cold load of "/" in a session and breaks every test that
-      // re-navigates there (onboarding variants, the app-shell error state). The
-      // bug is dev-only and Turbopack-specific, so we opt this run out of it while
-      // leaving local `npm run dev` on Turbopack for day-to-day speed.
-      command: "npm run dev -- --webpack",
-      url: APP_URL,
-      // Never reuse an existing dev server: the BACKEND_INTERNAL_URL below is
-      // only applied to a server Playwright starts. A reused server (e.g. a
-      // hand-started `npm run dev`) would silently bypass the stub. Always
-      // boot our own so the redirect is guaranteed; a busy port fails loudly.
-      reuseExistingServer: false,
-      timeout: 120_000,
-      env: {
-        // Route the UI's server-side backend fetches (and the /a2a route handler)
-        // through the proxy, which forwards to the real backend and mocks chat.
-        BACKEND_INTERNAL_URL: `${STUB_URL}/api`,
-      },
-    },
-  ],
+  projects: LIVE
+    ? [
+        {
+          name: LIVE_PROJECT,
+          testDir: "./playwright/live",
+          use: {
+            ...devices["Desktop Chrome"],
+            baseURL: LIVE_BASE_URL,
+            // Worth keeping for a live failure: unlike the mock suite there is
+            // no fixed fixture to re-read, so the trace is the only record of what
+            // the cluster actually answered.
+            trace: "retain-on-failure",
+          },
+        },
+      ]
+    : [
+        {
+          name: "chromium",
+          testIgnore: EXTENSION_SPECS,
+          use: { ...devices["Desktop Chrome"], baseURL: BASE_URL },
+        },
+        {
+          // The same suite in a second engine, against the same server.
+          //
+          // Not redundancy: the two disagree about things this app depends on —
+          // flex and grid sizing, scroll metrics, focus and selection, and how
+          // streamed responses are delivered. A chat that pins to the bottom and
+          // a rail that stays put are exactly the kind of thing one engine gets
+          // right by accident.
+          //
+          // The extension split below is a build-time difference, not a browser one,
+          // so it stays on one engine rather than doubling for no new signal.
+          name: "firefox",
+          testIgnore: EXTENSION_SPECS,
+          use: { ...devices["Desktop Firefox"], baseURL: BASE_URL },
+        },
+        {
+          name: "chromium-with-extension",
+          testMatch: EXTENSION_SPECS,
+          use: { ...devices["Desktop Chrome"], baseURL: EXTENSION_BASE_URL },
+        },
+      ],
+  // Never adopt a server this config did not start. Adopting one skips the `env`
+  // below, so a dev server left over from an earlier run — or one a developer has
+  // open — silently serves a build with the wrong extension config, and the
+  // extension specs then fail looking for contributions that were never installed.
+  // That was an intermittent failure whose frequency depended only on whether
+  // something happened to linger. Refusing to adopt makes an occupied port a
+  // loud startup error instead; set UI_LOOP_PORT / UI_LOOP_EXTENSION_PORT to run
+  // alongside a dev server you want to keep.
+  webServer: LIVE
+    ? [
+        {
+          command: LIVE_COMMAND,
+          url: LIVE_BASE_URL,
+          reuseExistingServer: false,
+          timeout: 120_000,
+          // Whatever starts the live server is the most useful output a failed
+          // live run has — something that cannot reach the backend says so there,
+          // and Playwright discards a web server's stdout unless asked to pass it
+          // through.
+          stdout: "pipe",
+          stderr: "pipe",
+          env: LIVE_APP,
+        },
+      ]
+    : [
+        {
+          command: `yarn dev --port ${PORT}`,
+          url: BASE_URL,
+          reuseExistingServer: false,
+          timeout: 120_000,
+          env: BARE_APP,
+        },
+        {
+          command: `yarn dev --port ${EXTENSION_PORT}`,
+          url: EXTENSION_BASE_URL,
+          reuseExistingServer: false,
+          timeout: 120_000,
+          env: EXAMPLE_APP,
+        },
+      ],
 });

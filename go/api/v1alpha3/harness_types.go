@@ -161,6 +161,11 @@ type HarnessCapabilities struct {
 	Checkpoint bool `json:"checkpoint"`
 }
 
+// HarnessConditionType enumerates the condition types a Harness may report.
+const (
+	HarnessConditionTypeReady = "Ready"
+)
+
 // HarnessStatus reports controller-derived capabilities and current health.
 type HarnessStatus struct {
 	// ObservedGeneration is the latest Harness generation observed by the controller.

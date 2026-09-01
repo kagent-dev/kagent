@@ -53,6 +53,11 @@ resources:
 # Additional Arguments for the mcp server
 args: []
 
+# Host header values the MCP server answers to, comma separated. Empty means the service's
+# own in-cluster names and loopback, which is what the RemoteMCPServer URL uses. Set "*"
+# only behind a proxy that rewrites Host.
+allowedHosts: ""
+
 # Additional volumes on the output Deployment definition.
 volumes: []
 # - name: foo
