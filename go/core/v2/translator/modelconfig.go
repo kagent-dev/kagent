@@ -34,27 +34,6 @@ type ResolvedModelConfig struct {
 	ReferenceFailures []ModelConfigFailure
 }
 
-// Usable reports whether every intrinsic configuration requirement and every
-// referenced Kubernetes input was resolved.
-func (r *ResolvedModelConfig) Usable() bool {
-	return r != nil && r.Config != nil && len(r.SemanticFailures) == 0 && len(r.ReferenceFailures) == 0
-}
-
-// Failure returns the first diagnostic suitable for reporting at a compilation
-// boundary. Reconciliation should inspect both failure lists to report status.
-func (r *ResolvedModelConfig) Failure() *ModelConfigFailure {
-	if r == nil || r.Config == nil {
-		return &ModelConfigFailure{Reason: "ModelConfigMissing", Message: "model config is required"}
-	}
-	if len(r.SemanticFailures) > 0 {
-		return &r.SemanticFailures[0]
-	}
-	if len(r.ReferenceFailures) > 0 {
-		return &r.ReferenceFailures[0]
-	}
-	return nil
-}
-
 // ResolveModelConfig validates and resolves ModelConfig data shared by every
 // harness. It does not expose secret values or produce runtime-specific inputs.
 func ResolveModelConfig(ctx context.Context, kube Reader, config *v1alpha3.ModelConfig) (*ResolvedModelConfig, error) {
