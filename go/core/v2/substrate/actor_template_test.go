@@ -3,8 +3,9 @@ package substrate
 import (
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/v2/translator"
+	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -24,21 +25,39 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if template.Name != "helper-kagent-"+revisionID.Short() {
+	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-kagent-"+revisionID.Short() {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
-	container := template.Spec.Containers[0]
-	if template.Spec.SandboxClass != atev1alpha1.SandboxClassGvisor || container.Readyz.HTTPGet.Path != "/readyz" || container.Readyz.HTTPGet.Port != 8081 || container.Readyz.TimeoutSeconds != 30 {
-		t.Fatalf("unexpected runtime contract: %+v", template.Spec)
+	container := template.GetContainers()[0]
+	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetReadyz().GetHttpGet().GetPath() != "/readyz" || container.GetReadyz().GetHttpGet().GetPort() != 8081 || container.GetReadyz().GetTimeoutSeconds() != 30 {
+		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.Spec.SnapshotsConfig.OnResume.FromData != atev1alpha1.ResumeSourceColdBoot {
-		t.Fatalf("unexpected snapshot resume default: %+v", template.Spec.SnapshotsConfig.OnResume)
+	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_COLD_BOOT {
+		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotsConfig().GetOnResume())
 	}
-	environment := map[string]atev1alpha1.EnvVar{}
+	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
 	}
 	if environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
 		t.Fatal("config was not embedded as a non-secret literal")
+	}
+}
+
+func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
+	left := &ateapipb.ActorTemplate{
+		Metadata:   &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "template"},
+		Containers: []*ateapipb.Container{{Name: "agent", Image: "agent:v1"}},
+	}
+	right := proto.CloneOf(left)
+	right.Metadata.Uid = "uid"
+	right.Metadata.Version = 2
+	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Name: "golden"}}}
+	if !ActorTemplateSpecEqual(left, right) {
+		t.Fatal("server-owned fields changed the immutable spec comparison")
+	}
+	right.Containers[0].Image = "agent:v2"
+	if ActorTemplateSpecEqual(left, right) {
+		t.Fatal("different container image was accepted")
 	}
 }

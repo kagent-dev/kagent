@@ -47,6 +47,9 @@ type Revision struct {
 	Provenance json.RawMessage
 	// EgressDestinations is the hostname allowlist required by this revision.
 	EgressDestinations []string
+	// Warnings are non-blocking compilation diagnostics. They are deliberately
+	// excluded from Digest because they do not change runtime behavior.
+	Warnings []string
 }
 
 // Digest returns the immutable identity of every input that affects runtime

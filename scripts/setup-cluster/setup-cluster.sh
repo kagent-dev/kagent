@@ -9,7 +9,7 @@ set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SUBSTRATE_VERSION=0.0.20
+SUBSTRATE_VERSION=0.0.22
 cd "$REPO"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
@@ -73,7 +73,7 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.defaultWorkerPool.name=kagent-default \
   --set substrateWorkerPool.create=true \
   --set substrateWorkerPool.replicas=8 \
-  --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
+  --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 
 step "7/10  The controller and the UI, both built from this checkout"
 # The chart installs published images, so without this the cluster would run somebody

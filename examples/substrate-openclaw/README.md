@@ -56,7 +56,7 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set substrateWorkerPool.create=true \
-  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
+  --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 ```
 
 When `substrateWorkerPool.create=true`, the kagent chart installs a namespace-scoped `WorkerPool` with:

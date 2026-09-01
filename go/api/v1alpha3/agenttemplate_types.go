@@ -70,16 +70,18 @@ type AgentTemplatePromptSource struct {
 	Alias string `json:"alias,omitempty"`
 }
 
-// MCPToolBinding selects tools from a same-namespace MCP server.
+// MCPToolBinding binds tools from a same-namespace MCP server.
 type MCPToolBinding struct {
 	// +required
 	Server AgentTemplateTypedLocalReference `json:"server"`
-	// +kubebuilder:validation:MinItems=1
+	// Tools optionally limits which server tools are exposed. An omitted or empty
+	// list exposes every tool. Harnesses that cannot enforce a partial selection
+	// may expose the whole server and report a warning.
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:items:MinLength=1
 	// +listType=set
-	// +required
-	Tools []string `json:"tools"`
+	// +optional
+	Tools []string `json:"tools,omitempty"`
 }
 
 // AgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.

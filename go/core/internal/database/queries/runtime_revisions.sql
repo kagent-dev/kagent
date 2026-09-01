@@ -15,17 +15,14 @@ ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
 INSERT INTO runtime_revision (
     revision, namespace, agent_template_name, agent_template_uid,
     harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
-    actor_template_namespace, actor_template_name, actor_template_uid,
-    phase, golden_snapshot
+    actor_template_atespace, actor_template_name, actor_template_uid
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, $12, $13, $14
+    $9, $10, $11, $12
 )
 ON CONFLICT (revision) DO UPDATE SET
     agent_card = EXCLUDED.agent_card,
     actor_template_uid = EXCLUDED.actor_template_uid,
-    phase = EXCLUDED.phase,
-    golden_snapshot = EXCLUDED.golden_snapshot,
     updated_at = NOW();
 
 -- name: MarkRuntimeRevisionSuccessful :exec

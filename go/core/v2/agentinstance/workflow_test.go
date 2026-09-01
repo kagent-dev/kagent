@@ -21,7 +21,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	store := &lifecycleTestStore{
 		instance: instance,
 		revision: &dbpkg.RuntimeRevision{
-			Revision: "revision-1", ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+			Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
@@ -84,7 +84,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	store := &lifecycleTestStore{
 		instance: instance,
 		revision: &dbpkg.RuntimeRevision{
-			Revision: "revision-1", ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+			Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
@@ -156,9 +156,9 @@ func (a *lifecycleTestActors) GetActor(_ context.Context, atespace, name string)
 
 func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, templateNamespace, templateName string) (*ateapipb.Actor, error) {
 	actor := &ateapipb.Actor{
-		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
-		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
-		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
+		ActorTemplate: &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
+		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 	}
 	a.actors[actorKey(atespace, name)] = actor
 	return actor, nil
@@ -166,8 +166,8 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 
 func (a *lifecycleTestActors) CreateActorFromSnapshotTag(_ context.Context, atespace, name, templateNamespace, templateName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
 	actor := &ateapipb.Actor{
-		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
-		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
+		Metadata:          &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
+		ActorTemplate:     &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
 		SourceSnapshotTag: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
 		Status: &ateapipb.ActorStatus{
 			State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
