@@ -48,11 +48,11 @@ K6 + K10 + K16 ─ K17 checkpoints ─ K18 fork
 
 K12 + K13 + K14 + K15 + K18 ─ K19 legacy removal ─ K20 release conformance
 
-S0 ate-api ActorTemplate/ActorTemplateVersion ────────────┐
-K3 + K5 ─────────────────────────────────────┴─ K5A backing-resource cutover (when ready)
+S0 ate-api ActorTemplate resources ───────────────────────┐
+K3 + K5 ─────────────────────────────────────┴─ K5A backing-resource cutover
 ```
 
-K7 and K8 can run in parallel after K3. The external Substrate track can run alongside all kagent work. K3 and K5 initially use Substrate's existing Kubernetes `ActorTemplate` API; adoption of the future ate-api `ActorTemplate`/`ActorTemplateVersion` resources is a later, isolated cutover.
+K7 and K8 can run in parallel after K3. The external Substrate track can run alongside all kagent work. K3 and K5 initially use Substrate's Kubernetes `ActorTemplate` API; K5A replaces that temporary bridge with Substrate's database-backed ate-api `ActorTemplate` resource.
 
 ## PRs
 
@@ -175,18 +175,22 @@ Deletion fences interaction, deletes owned Actors, releases its prepared-revisio
 
 Start with single-member prepared revisions; K9 extends the same state machine to multiple members without changing the public API.
 
-### K5A — Adopt ate-api ActorTemplate versions when available
+### K5A — Adopt ate-api ActorTemplate resources 🚧
 
-After Substrate ships the stable ate-api ActorTemplate, immutable ActorTemplateVersion, exact-version Actor creation, and required credential handling:
+Substrate models each immutable prepared runtime as one uniquely named, Atespace-owned `ActorTemplate`; there is no separate `ActorTemplateVersion` resource. The template's metadata version is an optimistic-concurrency version that advances as Substrate records golden-snapshot status, not a selectable runtime version.
 
-- Replace K3's Kubernetes ActorTemplate creation and watches with one stable ate-api ActorTemplate per attachment and one immutable ActorTemplateVersion per prepared revision.
-- Use the Kubernetes namespace as the Atespace, leave the ActorTemplate default version unset, and select the fixed `gvisor-default` SandboxConfig.
-- Replace K5's Kubernetes template reference with the exact prepared ActorTemplateVersion reference.
-- Keep the compiler boundary, prepared-revision semantics and retention rules, latest-successful selection, and public APIs unchanged; replace only the stored backing-resource identity and its provisioning path.
-- Require existing AgentInstances to be recreated during the cutover. Do not add dual-write, backfill, or a legacy compatibility path.
-- Delete the Kubernetes ActorTemplate bridge in the same cutover.
+- Preserve the compiler, prepared-revision digest and deterministic template name. Translate each revision directly into one ate-api `ActorTemplate`.
+- Use the Kubernetes namespace as the Atespace, ensure that Atespace exists before template creation, and select the fixed `gvisor-default` SandboxConfig.
+- Resolve credentials before this boundary and send literal environment values. Do not grant ate-api access to kagent Secret or ConfigMap sources.
+- Replace the Kubernetes ActorTemplate informer and write client with ate-api create/get/delete calls. Since ate-api has no template watch, poll only non-terminal templates until `golden_snapshot` is present or `error_message` reports failure.
+- Store the stable template Atespace, name, and server-assigned UID on the prepared revision. Do not persist Substrate's mutable resource version or duplicate golden-snapshot status.
+- Create Actors with `Actor.actor_template` set to the exact prepared template `ObjectRef`; stop populating the legacy Kubernetes template namespace/name fields.
+- Keep prepared-revision retention, latest-successful selection, AgentInstance/checkpoint/fork behavior, and public APIs unchanged.
+- Require existing AgentInstances to be recreated. Do not add dual-write, backfill, or a legacy compatibility path.
+- Delete the Kubernetes ActorTemplate construction, collection, reconciliation, diagnostics, and RBAC bridge in the same cutover. WorkerPool remains a Kubernetes resource.
+- Delete each unreferenced template and its golden Actor. Until Substrate implements that documented behavior, the kagent adapter deletes `ate-golden/<template UID>` explicitly; snapshot reclamation remains Substrate GC's responsibility.
 
-This step is intentionally not on the critical path for the initial vertical slice.
+Completion requires clean-install preparation, lifecycle, checkpoint, fork, conflict, failed-golden, and unreferenced-revision cleanup coverage against ate-api resources.
 
 ### K6 — Suspend, resume, and failure reconciliation
 
@@ -326,6 +330,10 @@ MCP:
 
 - Discover ready AgentInstances.
 - Invoke them only through the public gateway A2A path.
+- Expose durable A2A turns through the MCP Tasks extension, including polling,
+  cancellation, and input-required continuation.
+- Keep synchronous `tools/call` fallback for clients without Tasks support.
+- Store no MCP-owned task or session state.
 - Never expose Actor or private MCP endpoints.
 
 Content:

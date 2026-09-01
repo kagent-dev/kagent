@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const beginDeleteAgentInstanceCheckpoint = `-- name: BeginDeleteAgentInstanceCheckpoint :one
@@ -22,7 +24,7 @@ RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, 
 
 type BeginDeleteAgentInstanceCheckpointParams struct {
 	Namespace string
-	ID        string
+	ID        uuid.UUID
 	UserID    string
 }
 
@@ -59,7 +61,7 @@ WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'DELETING'
 
 type DeleteAgentInstanceCheckpointParams struct {
 	Namespace string
-	ID        string
+	ID        uuid.UUID
 	UserID    string
 }
 
@@ -86,7 +88,7 @@ RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, 
 `
 
 type FinalizeAgentInstanceCheckpointParams struct {
-	ID      string
+	ID      uuid.UUID
 	TagUid  string
 	Failure string
 }
@@ -124,7 +126,7 @@ WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'READY'
 
 type GetAgentInstanceCheckpointParams struct {
 	Namespace string
-	ID        string
+	ID        uuid.UUID
 	UserID    string
 }
 
@@ -213,7 +215,7 @@ WHERE NOT EXISTS (
 )
 `
 
-func (q *Queries) GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error) {
+func (q *Queries) GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error) {
 	row := q.db.QueryRow(ctx, getLatestQuiescentAgentInstanceTask, contextID)
 	var i AgentInstanceTask
 	err := row.Scan(
@@ -246,9 +248,9 @@ RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, 
 `
 
 type InsertAgentInstanceCheckpointParams struct {
-	ID                   string
+	ID                   uuid.UUID
 	Namespace            string
-	SourceInstanceID     string
+	SourceInstanceID     uuid.UUID
 	UserID               string
 	RequestID            string
 	HeadTaskID           string
@@ -257,7 +259,7 @@ type InsertAgentInstanceCheckpointParams struct {
 	SnapshotName         string
 	SnapshotUid          string
 	SnapshotContentScope string
-	SourceContextID      string
+	SourceContextID      uuid.UUID
 	PreparedRevision     *string
 	SourceLabels         []byte
 }
@@ -313,7 +315,7 @@ WHERE c.id = $1
 ORDER BY e.sequence
 `
 
-func (q *Queries) ListAgentInstanceCheckpointEvents(ctx context.Context, checkpointID string) ([]AgentInstanceTaskEvent, error) {
+func (q *Queries) ListAgentInstanceCheckpointEvents(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceTaskEvent, error) {
 	rows, err := q.db.Query(ctx, listAgentInstanceCheckpointEvents, checkpointID)
 	if err != nil {
 		return nil, err
@@ -352,7 +354,7 @@ WHERE c.id = $1
 ORDER BY t.created_at, t.id
 `
 
-func (q *Queries) ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID string) ([]AgentInstanceTask, error) {
+func (q *Queries) ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceTask, error) {
 	rows, err := q.db.Query(ctx, listAgentInstanceCheckpointTasks, checkpointID)
 	if err != nil {
 		return nil, err
@@ -393,14 +395,14 @@ WHERE namespace = $1
   AND source_instance_id = $2
   AND user_id = $3
   AND state = 'READY'
-  AND id > $4
+  AND (NULLIF($4::text, '') IS NULL OR id > NULLIF($4::text, '')::uuid)
 ORDER BY id
 LIMIT $5
 `
 
 type ListAgentInstanceCheckpointsParams struct {
 	Namespace        string
-	SourceInstanceID string
+	SourceInstanceID uuid.UUID
 	UserID           string
 	AfterID          string
 	PageSize         int32
@@ -459,7 +461,7 @@ FOR UPDATE
 
 type LockReadyAgentInstanceCheckpointParams struct {
 	Namespace string
-	ID        string
+	ID        uuid.UUID
 	UserID    string
 }
 
