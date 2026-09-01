@@ -29,6 +29,7 @@ from a2a.types import (
 )
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
+    AskUserRequest,
     HitlTool,
     ToolApprovalRequest,
     attach_hitl_extension,
@@ -39,6 +40,7 @@ from kagent.core.a2a import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
+    hitl_status_text,
     now_timestamp,
     require_ask_user_response,
     require_tool_approval_response,
@@ -67,6 +69,14 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
     # Whether to stream intermediate results
     enable_streaming: bool = True
+
+
+def _hitl_request(tools: list[HitlTool], text: str) -> AskUserRequest | ToolApprovalRequest:
+    """An ask_user interrupt becomes a question; anything else becomes an approval."""
+    if len(tools) == 1 and tools[0].name == "ask_user":
+        questions = tools[0].args.get("questions")
+        return AskUserRequest(id=tools[0].id, questions=questions if isinstance(questions, list) else [])
+    return ToolApprovalRequest(hint=text, tools=tools)
 
 
 class LangGraphAgentExecutor(AgentExecutor):
@@ -224,29 +234,38 @@ class LangGraphAgentExecutor(AgentExecutor):
                     action,
                 )
                 continue
-            tool_name = action["name"]
-            tool_args = action["args"]
+            tool_name = str(action.get("name") or "")
             # id is the opaque HITL correlation id; call_id is the tool call id.
             # Graphs typically set both to the LangChain tool call id.
-            correlation_id = action["id"]
-            call_id = action.get("call_id") or correlation_id
-            tools.append(HitlTool(id=correlation_id, call_id=call_id, name=tool_name, args=tool_args))
+            correlation_id = str(action.get("id") or "")
+            if not tool_name or not correlation_id:
+                logger.warning("Skipping an action_request without a tool name or id: %r", action)
+                continue
+            tool_args = action.get("args")
+            call_id = str(action.get("call_id") or correlation_id)
+            tools.append(
+                HitlTool(
+                    id=correlation_id,
+                    call_id=call_id,
+                    name=tool_name,
+                    args=tool_args if isinstance(tool_args, dict) else {},
+                )
+            )
 
+        # The text part names the tools so a client that did not activate the
+        # extension still learns what it is being asked.
+        text = hitl_status_text(tools)
         status_message = Message(
             message_id=str(uuid.uuid4()),
             role=Role.ROLE_AGENT,
             task_id=task_id,
             context_id=context_id,
-            parts=[Part(text="Human approval is required before the agent can continue.")],
+            parts=[Part(text=text)],
         )
-        if hitl_enabled:
-            attach_hitl_extension(
-                status_message,
-                ToolApprovalRequest(
-                    hint="Human approval is required before the agent can continue.",
-                    tools=tools,
-                ),
-            )
+        # With no usable action request there is nothing for a client to decide on,
+        # so the pause stays text-only rather than carrying an empty request.
+        if hitl_enabled and tools:
+            attach_hitl_extension(status_message, _hitl_request(tools, text))
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(

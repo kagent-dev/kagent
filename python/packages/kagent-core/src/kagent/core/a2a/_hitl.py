@@ -184,6 +184,43 @@ def require_ask_user_response(
     return response
 
 
+GENERIC_HITL_TEXT = "Human input is required before the agent can continue."
+
+
+def _ask_user_question_text(tool: HitlTool) -> str:
+    """Join the questions an ask_user call is waiting on."""
+    questions = tool.args.get("questions")
+    if not isinstance(questions, list):
+        return ""
+    texts = [
+        question["question"]
+        for question in questions
+        if isinstance(question, dict) and isinstance(question.get("question"), str) and question["question"]
+    ]
+    return "; ".join(texts)
+
+
+def hitl_status_text(tools: list[HitlTool], hints: list[str] | None = None) -> str:
+    """Render a pause as one human-readable line.
+
+    An ask_user pause speaks for itself; every other pause names its tools so no
+    pending tool stays hidden, and keeps the hints the tools supplied.
+    """
+    hints = [hint for hint in (hints or []) if hint]
+    if len(tools) == 1 and tools[0].name == "ask_user":
+        questions = _ask_user_question_text(tools[0])
+        if questions:
+            return questions
+    names = [tool.name for tool in tools if tool.name]
+    if hints and names:
+        return f"{'; '.join(hints)} ({', '.join(names)})"
+    if hints:
+        return "; ".join(hints)
+    if names:
+        return f"Approval is required for tool(s): {', '.join(names)}"
+    return GENERIC_HITL_TEXT
+
+
 def hitl_activated(headers: Mapping[str, Any] | None) -> bool:
     """True when the client opted in with the exact hitl/v1 URI in A2A-Extensions."""
     if not headers:

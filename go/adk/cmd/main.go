@@ -228,9 +228,7 @@ func main() {
 			},
 		}
 	}
-	agentCard.Capabilities = a2atype.AgentCapabilities{
-		Streaming: stream,
-	}
+	agentCard.Capabilities.Streaming = stream
 
 	// Delegate the actor-local A2A server and task store to app.New.
 	kagentApp, err := app.New(app.AppConfig{
