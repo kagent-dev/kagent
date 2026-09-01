@@ -120,7 +120,8 @@ jobs:
             --push
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          make build-controller build-golang-adk build-claude-harness build-byo-a2a
+          jobs=$(nproc)
+          make -j"$(( jobs < 4 ? jobs : 4 ))" build-controller build-golang-adk build-claude-harness build-byo-a2a
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
