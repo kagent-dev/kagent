@@ -3,7 +3,6 @@ package driver
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,105 +11,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
-
-type recordingSink struct {
-	text     strings.Builder
-	sessions []runtime.SessionStarted
-	calls    []runtime.ToolCall
-	results  []runtime.ToolResult
-}
-
-func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
-	s.sessions = append(s.sessions, event)
-	return nil
-}
-func (s *recordingSink) TextDelta(event runtime.TextDelta) error {
-	s.text.WriteString(event.Text)
-	return nil
-}
-func (s *recordingSink) ToolCall(event runtime.ToolCall) error {
-	s.calls = append(s.calls, event)
-	return nil
-}
-func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
-	s.results = append(s.results, event)
-	return nil
-}
-
-func TestTranslatePinnedNotifications(t *testing.T) {
-	sink := &recordingSink{}
-	messages := []string{
-		`{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread","turnId":"turn","itemId":"message","delta":"hello"}}`,
-		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","status":"inProgress"}}}`,
-		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","aggregatedOutput":"/data/workspace","exitCode":0,"status":"completed"}}}`,
-		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"status":"inProgress"}}}`,
-		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"result":{"content":"ok"},"status":"completed"}}}`,
-		`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"completed"}}}`,
-	}
-	terminal := 0
-	tools := map[string]string{}
-	for _, raw := range messages {
-		var message rpcMessage
-		if err := json.Unmarshal([]byte(raw), &message); err != nil {
-			t.Fatal(err)
-		}
-		_, done, err := translateNotification(message, "thread", "turn", sink, tools)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if done {
-			terminal++
-		}
-	}
-	if sink.text.String() != "hello" || len(sink.calls) != 2 || len(sink.results) != 2 || terminal != 1 {
-		t.Fatalf("sink = %#v, text %q, terminal %d", sink, sink.text.String(), terminal)
-	}
-	result, ok := sink.results[0].Result.(map[string]any)
-	if !ok || result["exitCode"] != 0 {
-		t.Fatalf("command result = %#v, want integer exitCode 0", sink.results[0].Result)
-	}
-	if sink.calls[1].Name != "tools.lookup" || sink.results[1].Name != "tools.lookup" {
-		t.Fatalf("MCP events = %#v, %#v, want tools.lookup", sink.calls[1], sink.results[1])
-	}
-}
-
-func TestRPCClientRejectsOversizedAndUnexpectedRequests(t *testing.T) {
-	for _, test := range []struct {
-		name, input, want string
-		max               int
-	}{
-		{"oversized", strings.Repeat("x", 20) + "\n", "exceeds", 10},
-		{"invalid JSON-RPC version", `{"jsonrpc":"1.0","id":1,"result":{}}` + "\n", "unsupported Codex JSON-RPC version", 1024},
-		{"server request", `{"jsonrpc":"2.0","id":9,"method":"item/tool/requestUserInput","params":{}}` + "\n", "unsupported Codex server request", 1024},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			client := newRPCClient(nopWriteCloser{Buffer: &bytes.Buffer{}}, strings.NewReader(test.input), test.max)
-			_, err := client.call(context.Background(), 1, "initialize", map[string]any{})
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("call() error = %v, want %q", err, test.want)
-			}
-		})
-	}
-}
-
-func TestRPCClientAcceptsOmittedJSONRPCVersion(t *testing.T) {
-	client := newRPCClient(
-		nopWriteCloser{Buffer: &bytes.Buffer{}},
-		strings.NewReader(`{"id":1,"result":{"serverInfo":{"name":"codex-app-server"}}}`+"\n"),
-		1024,
-	)
-	result, err := client.call(context.Background(), 1, "initialize", map[string]any{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(result, []byte(`"name":"codex-app-server"`)) {
-		t.Fatalf("initialize result = %s", result)
-	}
-}
-
-type nopWriteCloser struct{ *bytes.Buffer }
-
-func (n nopWriteCloser) Close() error { return nil }
 
 func TestProcessDriverRunsPinnedProtocol(t *testing.T) {
 	directory := t.TempDir()

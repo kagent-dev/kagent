@@ -17,6 +17,8 @@ import (
 
 const codexHomeEnv = "CODEX_HOME"
 
+// Input contains compiler output and Actor-owned locations used to construct
+// the Codex driver.
 type Input struct {
 	ConfigJSON  []byte
 	Workspace   string
@@ -24,6 +26,7 @@ type Input struct {
 	Environment []string
 }
 
+// New validates and materializes Codex-owned state, then constructs its driver.
 func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	cfg, err := config.Parse(input.ConfigJSON)
 	if err != nil {
@@ -111,6 +114,8 @@ type nativeAgentConfig struct {
 	DeveloperInstructions string `toml:"developer_instructions"`
 }
 
+// renderConfig translates the versioned Kagent contract into the pinned
+// Codex CLI's native TOML without copying credential values into durable state.
 func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
@@ -159,6 +164,7 @@ func nativeProviderName(name string) string {
 	return name
 }
 
+// materializeAgents writes the per-agent config files referenced by config.toml.
 func materializeAgents(codexHome string, agents map[string]config.Agent) error {
 	for name, agent := range agents {
 		contents, err := toml.Marshal(nativeAgentConfig{Model: agent.Model, DeveloperInstructions: agent.Instruction})
@@ -180,6 +186,8 @@ func agentFileNames(agents map[string]config.Agent) map[string]struct{} {
 	return files
 }
 
+// reconcileGeneratedDir removes compiler-owned files that are no longer in the
+// desired config. Symlinks are rejected so cleanup cannot escape the directory.
 func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
