@@ -15,7 +15,7 @@ env:
 jobs:
   close-stale-issues:
     name: Close Stale Issues
-    runs-on: ubuntu-22.04
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     permissions:
       issues: write
     steps:
@@ -37,7 +37,7 @@ jobs:
 
   close-stale-prs:
     name: Close Stale PRs
-    runs-on: ubuntu-22.04
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     permissions:
       pull-requests: write
       issues: write

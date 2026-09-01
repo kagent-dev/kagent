@@ -23,7 +23,7 @@ jobs:
           - golang-adk
           - claude-harness
           - codex-harness
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -63,7 +63,7 @@ jobs:
   push-helm-chart:
     needs:
     - push-images
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -88,7 +88,7 @@ jobs:
         fi
         make helm-publish
   release-python-packages:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -142,7 +142,7 @@ jobs:
     needs:
     - push-helm-chart
     - release-python-packages
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
