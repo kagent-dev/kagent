@@ -15,6 +15,8 @@ type ClientSet struct {
 	Model               Model
 	Namespace           Namespace
 	Feedback            Feedback
+	AgentInstance       *AgentInstanceClient
+	A2A                 *A2AClient
 }
 
 // New creates a new KAgent client set
@@ -34,6 +36,8 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 		Model:               NewModelClient(baseClient),
 		Namespace:           NewNamespaceClient(baseClient),
 		Feedback:            NewFeedbackClient(baseClient),
+		AgentInstance:       NewAgentInstanceClient(baseClient),
+		A2A:                 NewA2AClient(baseClient),
 	}
 }
 

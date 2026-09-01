@@ -6,6 +6,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 type Querier interface {
@@ -13,53 +15,35 @@ type Querier interface {
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
-	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
-	DeleteAgentInstance(ctx context.Context, id string) error
+	DeleteAgentInstance(ctx context.Context, id uuid.UUID) error
 	DeleteAgentInstanceCheckpoint(ctx context.Context, arg DeleteAgentInstanceCheckpointParams) (int64, error)
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
-	// DeleteExpiredSessionsBatch hard-deletes up to batch_size idle sessions whose
-	// updated_at is older than retention_days, plus cascaded conversation state.
-	// Soft-deleted sessions are included so tombstones still reclaim disk.
-	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
-	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
-	GetActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
+	GetActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
-	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
+	GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
+	// Resolves a share token to the share and the instance's owner.
+	//
+	// The owner is joined in because that is what the share grants: the reader is
+	// authenticated as themselves, and the token widens what that account may read to
+	// what the *owner* can see. Without the owner's user id the instance lookup would
+	// run as the visitor and find nothing.
+	GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (GetAgentInstanceShareByTokenHashRow, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
-	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
-	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
+	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
-	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
-	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
-	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
-	// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
-	// before the owner column existed, or by a pre-upgrade pod during a rolling
-	// upgrade) is only visible to, and claimable by, a caller whose session id
-	// maps to exactly one user across its whole history (deleted sessions
-	// included) and that user is the caller. Anything ambiguous stays hidden
-	// rather than guessed. This mirrors the backfill rule in migration
-	// 000007_task_owner.
-	//
-	// The resolving session must also have existed at or before the task was
-	// written (s.created_at <= task.created_at). Without that bound, a task
-	// whose original session is gone entirely (hard deleted, or never migrated)
-	// would become claimable by whoever is first to create a brand new session
-	// reusing that same id after the fact, handing them a stranger's task.
-	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
-	GetTaskOwner(ctx context.Context, id string) (*string, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
@@ -70,43 +54,38 @@ type Querier interface {
 	InsertAgentInstanceCheckpoint(ctx context.Context, arg InsertAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error)
 	InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertCopiedAgentInstanceTaskParams) error
-	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error)
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
-	ListAgentInstanceCheckpointEvents(ctx context.Context, checkpointID string) ([]AgentInstanceTaskEvent, error)
-	ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID string) ([]AgentInstanceTask, error)
+	ListAgentInstanceCheckpointEvents(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceTaskEvent, error)
+	ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceTask, error)
 	ListAgentInstanceCheckpoints(ctx context.Context, arg ListAgentInstanceCheckpointsParams) ([]AgentInstanceCheckpoint, error)
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
+	// Lists the conversations an instance is, optionally narrowed to one agent.
+	//
+	// An agent is an (AgentTemplate, Harness) pair, and the instance row carries
+	// neither name as a column -- both live inside `data`. They are resolved through
+	// `prepared_revision`, which is a foreign key to `runtime_revision` and does
+	// carry them, so the filter needs no new column and matches rows written before
+	// it existed. An instance with no prepared revision belongs to no pair and
+	// therefore matches no template or harness filter.
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error)
 	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
 	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
-	ListEventsByContextID(ctx context.Context, sessionID *string) ([]Event, error)
-	ListEventsByContextIDLimit(ctx context.Context, arg ListEventsByContextIDLimitParams) ([]Event, error)
-	ListEventsForSessionAsc(ctx context.Context, arg ListEventsForSessionAscParams) ([]Event, error)
-	ListEventsForSessionAscLimit(ctx context.Context, arg ListEventsForSessionAscLimitParams) ([]Event, error)
-	ListEventsForSessionDesc(ctx context.Context, arg ListEventsForSessionDescParams) ([]Event, error)
-	ListEventsForSessionDescLimit(ctx context.Context, arg ListEventsForSessionDescLimitParams) ([]Event, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
-	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
-	ListSessions(ctx context.Context, userID string) ([]Session, error)
-	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
-	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
-	ListTasksForSession(ctx context.Context, arg ListTasksForSessionParams) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
 	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 	// rest of the transaction so reclamation cannot overwrite concurrent progress.
-	LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
-	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
+	LockActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
+	LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error)
 	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
@@ -122,14 +101,14 @@ type Querier interface {
 	SoftDeleteAgent(ctx context.Context, id string) error
 	SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error
 	SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error
-	SoftDeleteEvent(ctx context.Context, id string) error
-	SoftDeletePushNotification(ctx context.Context, taskID string) error
-	SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error
-	SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
-	TaskExists(ctx context.Context, id string) (bool, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
+	// Renames an instance in place. The row's `data` blob also carries the message,
+	// but `toAgentInstance` reads the name from this column, exactly as it does for
+	// `state` and `operation`, so the column is the single authority and the two
+	// cannot drift.
+	UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
 	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
@@ -137,15 +116,7 @@ type Querier interface {
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
-	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
-	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
-	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
-	// UpsertTask returns the upserted id, or no rows when the write was rejected:
-	// the id belongs to another user, or it belongs to a soft-deleted task (a
-	// deleted id is never updated or resurrected, it stays burned). Callers map
-	// "no rows" to a conflict error.
-	UpsertTask(ctx context.Context, arg UpsertTaskParams) (string, error)
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)
 }

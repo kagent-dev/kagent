@@ -549,12 +549,18 @@ func podNameForSelector(t *testing.T, env upgradeEnv, selector string) string {
 
 // podNameForSelectorE is the error-returning core of podNameForSelector, for use
 // inside require.Eventually conditions (see pgQueryE).
+//
+// Newest pod: an upgrade that changes the bundled Postgres pod spec (e.g. an
+// image tag bump) recreates the pod, and the old Terminating pod can still
+// match the selector for its whole grace period. Sorting by creation time and
+// taking the last entry always targets the replacement pod.
 func podNameForSelectorE(t *testing.T, env upgradeEnv, selector string) (string, error) {
 	out, err := kubectlOutput(t, env, time.Minute,
 		"get", "pods",
 		"-n", env.namespace,
 		"-l", selector,
-		"-o", "jsonpath={.items[0].metadata.name}",
+		"--sort-by=.metadata.creationTimestamp",
+		"-o", "jsonpath={.items[-1].metadata.name}",
 	)
 	if err != nil {
 		return "", err

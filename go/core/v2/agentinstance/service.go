@@ -25,7 +25,8 @@ const (
 type store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
+	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
@@ -42,8 +43,12 @@ type ListRequest struct {
 	Namespace   string
 	MatchLabels map[string]string
 	AllCreators bool
-	PageSize    int
-	PageToken   string
+	// AgentTemplate and Harness narrow the page to one agent's conversations.
+	// Either may be given alone.
+	AgentTemplate string
+	Harness       string
+	PageSize      int
+	PageToken     string
 }
 
 type ListResult struct {
@@ -66,7 +71,10 @@ func NewService(store store, authorizer auth.Authorizer, workflow instanceWorkfl
 	return &Service{store: store, authorizer: authorizer, workflow: workflow}
 }
 
-func (s *Service) Create(ctx context.Context, namespace, harness, template, requestID string) (*apiv1alpha1.AgentInstance, error) {
+// Create reserves and converges a new conversation. name is optional; an empty
+// name leaves the conversation identified by its id, which is how every instance
+// created before names existed behaves.
+func (s *Service) Create(ctx context.Context, namespace, harness, template, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
 	if err := validateCreate(namespace, harness, template, requestID); err != nil {
 		return nil, err
 	}
@@ -74,8 +82,12 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 	if err != nil {
 		return nil, err
 	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
+	}
 	instance, _, err := s.store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
-		Id: uuid.NewString(), Namespace: namespace, Creator: creator,
+		Id: id.String(), Namespace: namespace, Creator: creator, Name: name,
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: namespace, Name: harness},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: template},
 	}, requestID)
@@ -113,6 +125,24 @@ func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.A
 	return instance, nil
 }
 
+// Rename sets the conversation's display name. Unlike every other read on this
+// service this is a write, and it authorizes as one: a reader who may list and
+// open a conversation must not be able to retitle it.
+func (s *Service) Rename(ctx context.Context, namespace, id, name string) (*apiv1alpha1.AgentInstance, error) {
+	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.store.UpdateAgentInstanceName(ctx, namespace, id, creator, name)
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to rename AgentInstance", err)
+	}
+	return instance, nil
+}
+
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
 	if err := validateNamespace(request.Namespace); err != nil {
 		return ListResult{}, err
@@ -137,7 +167,12 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	instances, err := s.store.ListAgentInstances(ctx, request.Namespace, userID, request.AllCreators, request.MatchLabels, afterID, pageSize+1)
+	instances, err := s.store.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
+		Namespace: request.Namespace, UserID: userID, AllUsers: request.AllCreators,
+		MatchLabels:   request.MatchLabels,
+		AgentTemplate: request.AgentTemplate, Harness: request.Harness,
+		AfterID: afterID, Limit: pageSize + 1,
+	})
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list AgentInstances", err)
 	}
@@ -231,11 +266,11 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if permission != "READ_ONLY" && permission != "READ_WRITE" {
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
 	if err != nil {
 		return nil, "", err
 	}
-	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, creator)
+	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, userID)
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
@@ -246,9 +281,13 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
 	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
+	}
 	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
-		ID: uuid.NewString(), Namespace: namespace, InstanceID: instanceID,
-		Creator: creator, Permission: permission, TokenHash: tokenHash,
+		ID: id, Namespace: namespace, InstanceID: uuid.MustParse(instanceID),
+		Permission: permission, TokenHash: tokenHash,
 	})
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
@@ -260,7 +299,7 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	if err := validateIdentity(namespace, instanceID); err != nil {
 		return ShareListResult{}, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+instanceID+"/shares")
 	if err != nil {
 		return ShareListResult{}, err
 	}
@@ -274,13 +313,13 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, creator, afterID, pageSize+1)
+	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInternal("Failed to list AgentInstance shares", err)
 	}
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
-		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID)
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID.String())
 		result.Shares = result.Shares[:pageSize]
 	}
 	return result, nil
@@ -290,11 +329,11 @@ func (s *Service) RevokeShare(ctx context.Context, namespace, shareID string) er
 	if err := validateIdentity(namespace, shareID); err != nil {
 		return err
 	}
-	creator, err := s.authorize(ctx, auth.VerbDelete, namespace+"/shares/"+shareID)
+	userID, err := s.authorize(ctx, auth.VerbDelete, namespace+"/shares/"+shareID)
 	if err != nil {
 		return err
 	}
-	if err := s.store.DeleteAgentInstanceShare(ctx, namespace, shareID, creator); err != nil {
+	if err := s.store.DeleteAgentInstanceShare(ctx, namespace, shareID, userID); err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return serviceerrors.NewNotFound("AgentInstance share not found", err)
 		}
@@ -303,7 +342,33 @@ func (s *Service) RevokeShare(ctx context.Context, namespace, shareID string) er
 	return nil
 }
 
+/*
+ * Resolves who an AgentInstance call is made as, honouring a share over that instance.
+ *
+ * The same rule the A2A gateway already applies, and it has to be the same: a share
+ * token is authority over one instance, the visitor stays authenticated as themselves,
+ * and the record is then read as the share's owner — because an instance is scoped to
+ * its creator and reading it as the visitor finds nothing at all.
+ *
+ * Without this, everything a shared conversation offers beyond reading and sending was
+ * refused: the visitor could talk to the agent through the gateway, which understands
+ * shares, and could not suspend or resume it through this service, which did not. The
+ * shared page ended up offering a live conversation with no way to give its worker
+ * back — on a pool that is the reason suspending exists.
+ *
+ * Read-only shares are not a concern here and deliberately not re-checked: the
+ * interceptor refuses any non-read RPC for one before this is reached, which is where
+ * that rule belongs and where it is tested.
+ */
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
+	if share, ok := auth.ShareContextFrom(ctx); ok {
+		if _, id, found := strings.Cut(name, "/"); found && share.IsForAgentInstance(id) {
+			if _, ok := auth.AuthSessionFrom(ctx); !ok {
+				return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+			}
+			return share.UserID, nil
+		}
+	}
 	return s.authorizeType(ctx, verb, "AgentInstance", name)
 }
 

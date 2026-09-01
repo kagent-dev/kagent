@@ -91,6 +91,7 @@ govulncheck: ## Run govulncheck.
 
 ##@ Build (core module — CLI binaries)
 
+.PHONY: core/bin/kagent-local
 core/bin/kagent-local:
 	go test -race ./core/cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-local ./core/cli/cmd/kagent
@@ -136,7 +137,7 @@ build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 cor
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run ./core/cmd/controller/main.go
+	go run ./core/cmd/controller-v2/main.go
 
 .PHONY: test
 test: ## Run all unit tests.
@@ -148,13 +149,13 @@ test: ## Run all unit tests.
 KIND_CLUSTER_NAME ?= kagent
 
 .PHONY: e2e
-e2e: ## Run end-to-end tests.
+e2e: core/bin/kagent-local ## Run end-to-end tests.
 	@kind get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER_NAME)' || { \
 	  echo "Error: kind cluster '$(KIND_CLUSTER_NAME)' not found. Run 'make create-kind-cluster' first." >&2; \
 	  exit 1; \
 	}
 	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
-	KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
 ##@ Dependencies
 

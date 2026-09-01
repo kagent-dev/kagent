@@ -5,6 +5,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
@@ -270,14 +271,38 @@ type RuntimeRevision struct {
 	GoldenSnapshot         string
 }
 
+// AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
+// filter on this", so an empty query lists the caller's own instances in the
+// namespace.
+type AgentInstanceQuery struct {
+	Namespace   string
+	UserID      string
+	AllUsers    bool
+	MatchLabels map[string]string
+	// AgentTemplate and Harness name the agent whose conversations are wanted.
+	// They are matched against the (AgentTemplate, Harness) pair the instance's
+	// prepared revision was built from, not against its labels, so they select
+	// instances stored before either field existed.
+	AgentTemplate string
+	Harness       string
+	AfterID       string
+	Limit         int
+}
+
 type AgentInstanceShare struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
-	Creator    string
+	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
+	// OwnerUserID is the user the shared AgentInstance belongs to.
+	//
+	// Populated only by the token lookup, which joins it in — that is what the
+	// share grants. A visitor is authenticated as themselves and the token widens
+	// what their account may reach to what the *owner* can see, so the instance
+	// read has to run as the owner or it finds nothing.
+	OwnerUserID string
 }
 
 // AgentInstanceTaskSnapshot identifies the immutable Substrate snapshot at a
@@ -290,10 +315,10 @@ type AgentInstanceTaskSnapshot struct {
 }
 
 type AgentInstanceCheckpoint struct {
-	ID                   string
+	ID                   uuid.UUID
 	Namespace            string
-	SourceInstanceID     string
-	SourceContextID      string
+	SourceInstanceID     uuid.UUID
+	SourceContextID      uuid.UUID
 	UserID               string
 	RequestID            string
 	HeadTaskID           string

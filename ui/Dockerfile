@@ -1,4 +1,4 @@
-### STAGE 1: Dependencies and Build
+### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
@@ -10,21 +10,24 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" node-gyp \
+    && apk add --no-cache curl bash openssl unzip ca-certificates "nodejs~${TOOLS_NODE_VERSION}" npm node-gyp \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
-ENV NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app/ui
 
-# Pin npm to package.json's "packageManager" version; the wolfi-base default
-# npm is a newer major that rejects the committed package-lock.json.
-COPY package*.json ./
+# Yarn 4, pinned to package.json's "packageManager" so the image and a developer
+# machine resolve the lockfile identically. Corepack is the supported way to get
+# it, but wolfi's nodejs package does not bundle corepack, so it comes from npm
+# first. `--immutable` fails the build if yarn.lock would have to change.
+COPY package.json yarn.lock .yarnrc.yml ./
 RUN --mount=type=cache,target=/root/.npm,rw \
-    NPM_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"npm@\([0-9.]*\)".*/\1/p' package.json)" \
-    && apk add --no-cache "npm=~${NPM_VERSION}" \
-    && npm ci
+    YARN_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"yarn@\([0-9.]*\)".*/\1/p' package.json)" \
+    && npm install -g corepack \
+    && corepack enable \
+    && corepack prepare "yarn@${YARN_VERSION}" --activate \
+    && yarn install --immutable
 
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
@@ -32,47 +35,54 @@ FROM --platform=$BUILDPLATFORM deps AS builder
 # Copy source files
 COPY . .
 
-# Build the application (native compilation for speed)
-RUN --mount=type=cache,target=/root/.npm,rw \
-    --mount=type=cache,target=/app/ui/.next/cache,rw \
-    export NEXT_TELEMETRY_DEBUG=1 \
-    && npm run build \
-    && mkdir -p /app/ui/public
+# Produces a static bundle in dist/. `yarn build` type-checks first, so a type
+# error fails the image build rather than shipping.
+#
+# The mock service worker is a development and e2e fixture. It is dropped here
+# rather than in the runtime COPY so it cannot reach the image at all: a worker
+# sitting at the production web root is one build-mode mistake away from being
+# registered and serving fixtures to real users. It stays in the repo, where dev
+# and Playwright need it.
+RUN yarn build \
+    && rm -f dist/mockServiceWorker.js
 
 ### STAGE 3: Runtime
+# nginx only — the UI is a static bundle now, so there is no node process and no
+# node runtime in the final image.
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-ENV NODE_ENV=production
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
-ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" \
+    && apk add --no-cache curl bash openssl ca-certificates nginx \
     && update-ca-certificates
 
-RUN mkdir -p /app/ui/public /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp  \
-    && addgroup -g 1001 nginx                        \
-    && adduser  -u 1001 -G nginx -s /bin/bash -D nextjs \
-    && adduser  -u 1002 -G nginx -s /bin/bash -D nginx  \
-    && chown    -vR nextjs:nginx /app/ui                \
-    && chown    -vR nextjs:nginx /tmp/nginx/
+# `kagent` owns both the static root and the writable runtime dirs. /tmp/kagent
+# holds env-config.js, which init.sh renders from env on every start — it lives
+# under /tmp because the container is expected to run with a read-only root
+# filesystem, where /tmp is the mounted emptyDir.
+RUN addgroup -g 1001 kagent                          \
+    && adduser -u 1001 -G kagent -s /bin/bash -D kagent \
+    && mkdir -p /usr/share/nginx/html                \
+                /tmp/kagent                          \
+                /tmp/nginx/client_temp               \
+                /tmp/nginx/proxy_temp                \
+                /tmp/nginx/fastcgi_temp              \
+                /tmp/nginx/uwsgi_temp                \
+                /tmp/nginx/scgi_temp                 \
+    && chown -R kagent:kagent /usr/share/nginx/html /tmp/kagent /tmp/nginx \
+    # nginx opens its compiled-in default error log before it parses the config
+    # that redirects logging to stderr. On a read-only root filesystem that open
+    # fails and every start logs an alert, so point the default at stderr too.
+    && mkdir -p /var/lib/nginx/logs \
+    && ln -sf /dev/stderr /var/lib/nginx/logs/error.log
 
-WORKDIR /app
 COPY scripts/init.sh /usr/local/bin/init.sh
+COPY --from=builder --chown=kagent:kagent /app/ui/dist /usr/share/nginx/html
 
-WORKDIR /app/ui
-COPY --from=builder /app/ui/next.config.ts ./
-COPY --from=builder /app/ui/public ./public
-COPY --from=builder /app/ui/package.json ./package.json
-COPY --from=builder --chown=nextjs:nginx /app/ui/.next/standalone ./
-COPY --from=builder --chown=nextjs:nginx /app/ui/.next/static ./.next/static
-
-# Ensure correct permissions
-RUN chown -R nextjs:nginx /app/ui && \
-    chmod -R 755 /app && \
-    chmod +x /usr/local/bin/init.sh
+RUN chmod +x /usr/local/bin/init.sh
 
 EXPOSE 8080
 ARG VERSION

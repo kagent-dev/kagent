@@ -12,6 +12,10 @@ service AgentService {
   rpc CreateSandboxAgent(CreateSandboxAgentRequest) returns (CreateSandboxAgentResponse);
   rpc UpdateSandboxAgent(UpdateSandboxAgentRequest) returns (UpdateSandboxAgentResponse);
   rpc DeleteSandboxAgent(DeleteSandboxAgentRequest) returns (DeleteSandboxAgentResponse);
+  // The AgentHarness RPCs below operate on the AgentHarness CRD — one agent
+  // bound to an external ACP backend. They are unrelated to the Harness CRD
+  // that AgentInstance pairs with an AgentTemplate; that one is served by
+  // HarnessService in harnesses.proto.
   rpc GetAgentHarness(GetAgentHarnessRequest) returns (GetAgentHarnessResponse);
   rpc CreateAgentHarness(CreateAgentHarnessRequest) returns (CreateAgentHarnessResponse);
   rpc DeleteAgentHarness(DeleteAgentHarnessRequest) returns (DeleteAgentHarnessResponse);

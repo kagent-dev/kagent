@@ -40,6 +40,8 @@ spec:
           args:
             - --transport
             - streamable-http
+            - -allowed-hosts
+            - {{ include "grafana-mcp.allowedHosts" . | quote }}
             {{- with .Values.args }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

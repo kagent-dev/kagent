@@ -5,6 +5,10 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,10 +24,12 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/google/uuid"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	v2substrate "github.com/kagent-dev/kagent/go/core/v2/substrate"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/grpc"
@@ -31,6 +37,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -96,7 +103,7 @@ func TestE2EAgentInstanceCheckpoint(t *testing.T) {
 	}
 	checkpoint := created.GetCheckpoint()
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), 2*time.Minute)
 		defer cleanupCancel()
 		_, cleanupErr := fixture.checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1alpha1.DeleteCheckpointRequest{
 			Namespace: "kagent", CheckpointId: checkpoint.GetId(),
@@ -287,6 +294,11 @@ func TestE2EAgentInstanceActiveTask(t *testing.T) {
 	target := interactionTarget(t)
 	modelURL, started := startBlockingInteractionMock(t)
 	fixture := newInteractionFixture(t, target, modelURL)
+	testActiveTaskCancellation(t, fixture, started)
+}
+
+func testActiveTaskCancellation(t *testing.T, fixture *interactionFixture, started <-chan struct{}) {
+	t.Helper()
 	_, request := newMessageRequest(t, "Wait for cancellation")
 	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
 	if err != nil {
@@ -357,6 +369,8 @@ func TestE2EAgentInstanceActiveTask(t *testing.T) {
 	}
 	waitForTaskState(t, subscription, a2atype.TaskStateCanceled)
 	waitForTaskState(t, stream, a2atype.TaskStateCanceled)
+	assertTaskStreamClosed(t, subscription)
+	assertTaskStreamClosed(t, stream)
 	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
 	if err != nil {
 		t.Fatalf("build GetTask request: %v", err)
@@ -413,6 +427,11 @@ func newInteractionFixture(t *testing.T, target, modelURL string) *interactionFi
 
 func newInteractionFixtureForTemplate(t *testing.T, target, templateName string) *interactionFixture {
 	t.Helper()
+	return newInteractionFixtureForHarnessTemplate(t, target, "kagent", templateName)
+}
+
+func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, templateName string) *interactionFixture {
+	t.Helper()
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("connect to kagent gRPC API: %v", err)
@@ -422,7 +441,7 @@ func newInteractionFixtureForTemplate(t *testing.T, target, templateName string)
 	t.Cleanup(cancel)
 	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 	request := &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace: "kagent", AgentTemplate: templateName, Harness: "kagent", RequestId: uuid.NewString(),
+		Namespace: "kagent", AgentTemplate: templateName, Harness: harnessName, RequestId: uuid.NewString(),
 	}
 	var created *apiv1alpha1.CreateAgentInstanceResponse
 	err = wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
@@ -439,6 +458,8 @@ func newInteractionFixtureForTemplate(t *testing.T, target, templateName string)
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
+		// DeleteAgentInstance returns only after its Substrate Actor has been
+		// suspended and deleted, so this cleanup covers both resources.
 		_, cleanupErr := instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
 			Namespace: "kagent", AgentInstanceId: instance.GetId(),
 		})
@@ -526,16 +547,34 @@ func waitForTaskState(t *testing.T, stream streamReceiver, want a2atype.TaskStat
 	}
 }
 
+func assertTaskStreamClosed(t *testing.T, stream streamReceiver) {
+	t.Helper()
+	response, err := stream.Recv()
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("task stream emitted after its terminal boundary: response=%#v error=%v", response, err)
+	}
+}
+
 func startInteractionMock(t *testing.T) string {
 	return startMockLLM(t, "mocks/invoke_golang_adk_agent.json")
 }
 
 func startMockLLM(t *testing.T, fixture string) string {
 	t.Helper()
-	cfg, err := mockllm.LoadConfigFromFile(fixture, interactionMocks)
+	return reachableModelURL(t, startMockLLMServer(t, interactionMocks, fixture))
+}
+
+func startMockLLMServer(t *testing.T, fixtures fs.ReadFileFS, fixture string) string {
+	t.Helper()
+	cfg, err := mockllm.LoadConfigFromFile(fixture, fixtures)
 	if err != nil {
 		t.Fatalf("load mock LLM response: %v", err)
 	}
+	return startMockLLMConfig(t, cfg)
+}
+
+func startMockLLMConfig(t *testing.T, cfg mockllm.Config) string {
+	t.Helper()
 	server := mockllm.NewServer(cfg)
 	baseURL, err := server.Start(t.Context())
 	if err != nil {
@@ -546,7 +585,7 @@ func startMockLLM(t *testing.T, fixture string) string {
 			t.Errorf("stop mock LLM: %v", err)
 		}
 	})
-	return reachableModelURL(t, baseURL)
+	return baseURL
 }
 
 func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
@@ -555,6 +594,12 @@ func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
 	if err != nil {
 		t.Fatalf("load mock LLM response: %v", err)
 	}
+	baseURL, started := startBlockingMockServer(t, cfg.OpenAI[0].Response)
+	return reachableModelURL(t, baseURL), started
+}
+
+func startBlockingMockServer(t *testing.T, response any) (string, <-chan struct{}) {
+	t.Helper()
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var startedOnce, releaseOnce sync.Once
@@ -566,21 +611,22 @@ func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
 		case <-release:
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(cfg.OpenAI[0].Response); err != nil {
+		if err := json.NewEncoder(w).Encode(response); err != nil {
 			t.Errorf("write mock LLM response: %v", err)
 		}
 	}))
 	_ = server.Listener.Close()
-	server.Listener, err = net.Listen("tcp", "0.0.0.0:0")
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		t.Fatalf("listen for blocking mock LLM: %v", err)
 	}
+	server.Listener = listener
 	server.Start()
 	t.Cleanup(func() {
 		releaseOnce.Do(func() { close(release) })
 		server.Close()
 	})
-	return reachableModelURL(t, server.URL), started
+	return server.URL, started
 }
 
 func startSharedInteractionMock(t *testing.T) string {
@@ -642,7 +688,7 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
@@ -677,7 +723,7 @@ func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string 
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "mcp-interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
@@ -701,7 +747,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-child-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: childModel.Name},
@@ -713,7 +759,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-root-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: rootModel.Name},
@@ -737,6 +783,12 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 		t.Fatalf("load Kubernetes config: %v", err)
 	}
 	clientScheme := k8sruntime.NewScheme()
+	if err := atev1alpha1.AddToScheme(clientScheme); err != nil {
+		t.Fatalf("register Substrate API: %v", err)
+	}
+	if err := corev1.AddToScheme(clientScheme); err != nil {
+		t.Fatalf("register Kubernetes core API: %v", err)
+	}
 	if err := v1alpha3.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register kagent API: %v", err)
 	}
@@ -770,32 +822,91 @@ func createInteractionModel(t *testing.T, kube ctrlclient.Client, modelURL strin
 
 func createAndWaitInteractionTemplate(t *testing.T, kube ctrlclient.Client, template *v1alpha3.AgentTemplate) {
 	t.Helper()
+	createAndWaitInteractionTemplateForHarness(t, kube, template, "kagent")
+}
+
+func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Client, template *v1alpha3.AgentTemplate, harnessName string) {
+	t.Helper()
 	if err := kube.Create(t.Context(), template); err != nil {
 		t.Fatalf("create interaction AgentTemplate: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := kube.Delete(context.Background(), template); err != nil && !apierrors.IsNotFound(err) {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cleanupCancel()
+		if err := kube.Delete(cleanupCtx, template); err != nil && !apierrors.IsNotFound(err) {
 			t.Errorf("delete interaction AgentTemplate: %v", err)
+			return
+		}
+		if err := wait.PollUntilContextTimeout(cleanupCtx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			current := &v1alpha3.AgentTemplate{}
+			if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), current); err == nil {
+				return false, nil
+			} else if !apierrors.IsNotFound(err) {
+				return false, err
+			}
+			return true, nil
+		}); err != nil {
+			t.Errorf("wait for interaction AgentTemplate %s/%s to be deleted: %v", template.Namespace, template.Name, err)
+			return
+		}
+
+		labels := ctrlclient.MatchingLabels{
+			v2substrate.RevisionAgentTemplateLabel: template.Name,
+			v2substrate.RevisionHarnessLabel:       harnessName,
+		}
+		actorTemplates := &atev1alpha1.ActorTemplateList{}
+		if err := kube.List(cleanupCtx, actorTemplates, ctrlclient.InNamespace(template.Namespace), labels); err != nil {
+			t.Errorf("list generated ActorTemplates for %s/%s harness %q: %v", template.Namespace, template.Name, harnessName, err)
+			return
+		}
+		for index := range actorTemplates.Items {
+			if err := kube.Delete(cleanupCtx, &actorTemplates.Items[index]); err != nil && !apierrors.IsNotFound(err) {
+				t.Errorf("delete generated ActorTemplate %s/%s: %v", actorTemplates.Items[index].Namespace, actorTemplates.Items[index].Name, err)
+			}
+		}
+		if err := wait.PollUntilContextTimeout(cleanupCtx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			actorTemplates := &atev1alpha1.ActorTemplateList{}
+			if err := kube.List(ctx, actorTemplates, ctrlclient.InNamespace(template.Namespace), labels); err != nil {
+				return false, err
+			}
+			return len(actorTemplates.Items) == 0, nil
+		}); err != nil {
+			t.Errorf("wait for generated ActorTemplates for %s/%s harness %q to be deleted: %v",
+				template.Namespace, template.Name, harnessName, err)
 		}
 	})
 
+	var lastReady *metav1.Condition
 	err := wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(template), template); err != nil {
 			return false, err
 		}
 		for _, harness := range template.Status.Harnesses {
-			if harness.Harness != "kagent" {
+			if harness.Harness != harnessName {
 				continue
 			}
-			for _, condition := range harness.Conditions {
-				if condition.Type == v1alpha3.AgentTemplateConditionReady && condition.Status == metav1.ConditionTrue {
-					return true, nil
+			for index := range harness.Conditions {
+				condition := &harness.Conditions[index]
+				if condition.Status == metav1.ConditionFalse &&
+					(condition.Type != v1alpha3.AgentTemplateConditionReady || condition.Reason != "ActorTemplatePending") {
+					return false, fmt.Errorf("AgentTemplate %s/%s harness %q condition %s failed: %s: %s",
+						template.Namespace, template.Name, harnessName, condition.Type, condition.Reason, condition.Message)
+				}
+				if condition.Type == v1alpha3.AgentTemplateConditionReady {
+					lastReady = condition.DeepCopy()
+					if condition.Status == metav1.ConditionTrue {
+						return true, nil
+					}
 				}
 			}
 		}
 		return false, nil
 	})
 	if err != nil {
+		if lastReady != nil {
+			t.Fatalf("wait for interaction AgentTemplate %s/%s on harness %q: %v; last Ready condition: status=%s reason=%s message=%q",
+				template.Namespace, template.Name, harnessName, err, lastReady.Status, lastReady.Reason, lastReady.Message)
+		}
 		t.Fatalf("wait for interaction AgentTemplate: %v", err)
 	}
 }
