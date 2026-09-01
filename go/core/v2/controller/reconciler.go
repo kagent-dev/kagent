@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
@@ -20,7 +19,6 @@ import (
 	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,24 +50,15 @@ type ReconciliationFailure struct {
 
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
-	agentTemplates krt.Collection[*kagentv1alpha3.AgentTemplate],
-	modelConfigs krt.Collection[*kagentv1alpha3.ModelConfig],
-	remoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer],
-	configMaps krt.Collection[*corev1.ConfigMap],
-	secrets krt.Collection[*corev1.Secret],
-	workerPools krt.Collection[*atev1alpha1.WorkerPool],
+	collections v2translator.Collections,
 	actorTemplates krt.Collection[ObservedActorTemplate],
 	opts krt.OptionsBuilder,
 ) krt.Collection[PairReconciliation] {
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
 		state := &PairReconciliation{Pair: pair}
-		reader := collectionReader{
-			ctx: ctx, agentTemplates: agentTemplates, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
-			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
-		}
-		revision, err := v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
-			v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(reader),
+		revision, err := v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
+			v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
 		}).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
@@ -87,10 +76,9 @@ func newPairReconciliations(
 			return state
 		}
 
-		workerPool := &atev1alpha1.WorkerPool{}
 		workerKey := types.NamespacedName{Namespace: revision.Namespace, Name: revision.WorkerPoolName}
-		if err := reader.Get(context.Background(), workerKey, workerPool); err != nil {
-			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: err.Error()}
+		if krt.FetchOne(ctx, collections.WorkerPools, krt.FilterObjectName(workerKey)) == nil {
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: fmt.Sprintf("WorkerPool %q not found", workerKey.String())}
 			return state
 		}
 		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID)
@@ -195,7 +183,7 @@ func newReconciler(
 		}
 		r.agentTemplateStatuses.Add(status.ResourceName())
 	})
-	r.modelConfigStatusHandler = collections.ModelConfigReconciliations.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]]) {
+	r.modelConfigStatusHandler = collections.ModelConfigStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]]) {
 		status := event.Latest()
 		if apiequality.Semantic.DeepEqual(modelConfigStatusWithTransitionTimes(status.Status, status.Obj.Status), status.Obj.Status) {
 			return
@@ -344,7 +332,7 @@ func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key strin
 }
 
 func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string) error {
-	desired := r.collections.ModelConfigReconciliations.GetKey(key)
+	desired := r.collections.ModelConfigStatuses.GetKey(key)
 	modelConfig := r.collections.ModelConfigs.GetKey(key)
 	if desired == nil || modelConfig == nil {
 		return nil

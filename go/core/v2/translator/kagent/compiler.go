@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -32,10 +33,15 @@ type provenanceEntry struct {
 }
 
 // Compiler translates resolved inputs into a kagent runtime revision.
-type Compiler struct{ kube v2translator.Reader }
+type Compiler struct {
+	ctx         krt.HandlerContext
+	collections v2translator.Collections
+}
 
 // NewCompiler constructs a kagent harness compiler.
-func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
+func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections}
+}
 
 type compiledAgent struct {
 	config      *adk.AgentConfig
@@ -53,22 +59,25 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	template, harness := input.Root.Template, input.Harness
 	cfg := compiled.config
 	if memory := harness.Spec.Kagent.Memory; memory != nil {
-		modelConfig := &v1alpha3.ModelConfig{}
 		name := memory.ModelConfigRef.Name
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, modelConfig); err != nil {
-			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
+		resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
+		if resolved == nil {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: not found", name)
 		}
-		modelRuntime, err := c.resolveModel(ctx, modelConfig)
+		if failure := resolved.Failure(); failure != nil {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: %s", name, failure.Message)
+		}
+		model, data, err := renderModel(resolved)
 		if err != nil {
 			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 		}
-		if modelRuntime.HasUnsupportedVolumes {
+		if len(data.Volumes) > 0 || len(data.VolumeMounts) > 0 {
 			return nil, v2translator.NewValidationError("memory ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 		}
-		cfg.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(modelRuntime.Model)}
-		compiled.models = append(compiled.models, modelConfig)
-		compiled.environment = append(compiled.environment, modelRuntime.Environment...)
-		compiled.egress = append(compiled.egress, agentConfigDestinations(&adk.AgentConfig{}, modelConfig, modelRuntime.Model)...)
+		cfg.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model)}
+		compiled.models = append(compiled.models, resolved.Config)
+		compiled.environment = append(compiled.environment, data.EnvVars...)
+		compiled.egress = append(compiled.egress, agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, model)...)
 	}
 	// The async driver is named, because the Python runtime cannot infer it and the Go
 	// one does not need it. `DatabaseSessionService` builds an asyncio engine and
@@ -149,7 +158,7 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 	if modelConfig == nil {
 		return nil, fmt.Errorf("resolved ModelConfig configuration is required")
 	}
-	model, data, err := c.renderModel(ctx, input.ResolvedModelConfig)
+	model, data, err := renderModel(input.ResolvedModelConfig)
 	if err != nil {
 		return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 	}
@@ -220,10 +229,11 @@ func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, env
 			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
 		}
 		ref := variable.ValueFrom.SecretKeyRef
-		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
-			return nil, err
+		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
+		if fetched == nil {
+			return nil, fmt.Errorf("Secret %q not found", ref.Name)
 		}
+		secret := *fetched
 		value, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
@@ -254,10 +264,11 @@ func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harnes
 		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, configMap); err != nil {
-			return nil, err
+		fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
+		if fetched == nil {
+			return nil, fmt.Errorf("ConfigMap %q not found", name)
 		}
+		configMap := *fetched
 		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
 	for _, template := range templates {
@@ -267,10 +278,11 @@ func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harnes
 			}
 			switch binding.MCP.Server.Kind {
 			case "RemoteMCPServer":
-				server := &v1alpha3.RemoteMCPServer{}
-				if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
-					return nil, err
+				fetched := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}))
+				if fetched == nil {
+					return nil, fmt.Errorf("RemoteMCPServer %q not found", binding.MCP.Server.Name)
 				}
+				server := *fetched
 				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
 			}
 		}
@@ -288,10 +300,11 @@ func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harnes
 			continue
 		}
 		seenSecrets[identity] = struct{}{}
-		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}, secret); err != nil {
-			return nil, err
+		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}))
+		if fetched == nil {
+			return nil, fmt.Errorf("Secret %q not found", ref.Name)
 		}
+		secret := *fetched
 		value, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
@@ -345,10 +358,11 @@ func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1
 	if ref.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
 		return "", "", fmt.Errorf("unsupported value source type %q", ref.ValueFrom.Type)
 	}
-	configMap := &corev1.ConfigMap{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}, configMap); err != nil {
-		return "", "", err
+	fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}))
+	if fetched == nil {
+		return "", "", fmt.Errorf("ConfigMap %q not found", ref.ValueFrom.Name)
 	}
+	configMap := *fetched
 	value, found := configMap.Data[ref.ValueFrom.Key]
 	if !found {
 		return "", "", fmt.Errorf("ConfigMap %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)

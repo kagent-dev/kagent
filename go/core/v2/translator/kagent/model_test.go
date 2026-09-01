@@ -1,7 +1,6 @@
 package kagent
 
 import (
-	"context"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -15,23 +14,21 @@ import (
 func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	secret := types.NamespacedName{Namespace: "test", Name: "credentials"}
 	tests := []struct {
-		name       string
-		references []v2translator.ModelConfigReference
-		want       []string
+		name           string
+		authentication v2translator.BedrockAuthentication
+		sessionToken   bool
+		want           []string
 	}{
 		{
-			name:       "bearer",
-			references: []v2translator.ModelConfigReference{{NamespacedName: secret, Kind: "Secret", Key: env.AWSBearerTokenBedrock.Name()}},
-			want:       []string{env.AWSRegion.Name(), env.AWSBearerTokenBedrock.Name()},
+			name:           "bearer",
+			authentication: v2translator.BedrockAuthenticationBearer,
+			want:           []string{env.AWSRegion.Name(), env.AWSBearerTokenBedrock.Name()},
 		},
 		{
-			name: "IAM with session token",
-			references: []v2translator.ModelConfigReference{
-				{NamespacedName: secret, Kind: "Secret", Key: env.AWSAccessKeyID.Name()},
-				{NamespacedName: secret, Kind: "Secret", Key: env.AWSSecretAccessKey.Name()},
-				{NamespacedName: secret, Kind: "Secret", Key: env.AWSSessionToken.Name()},
-			},
-			want: []string{env.AWSRegion.Name(), env.AWSAccessKeyID.Name(), env.AWSSecretAccessKey.Name(), env.AWSSessionToken.Name()},
+			name:           "IAM with session token",
+			authentication: v2translator.BedrockAuthenticationIAM,
+			sessionToken:   true,
+			want:           []string{env.AWSRegion.Name(), env.AWSAccessKeyID.Name(), env.AWSSecretAccessKey.Name(), env.AWSSessionToken.Name()},
 		},
 	}
 	for _, tt := range tests {
@@ -44,9 +41,10 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 						Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"},
 					},
 				},
-				References: tt.references,
+				BedrockAuthentication: tt.authentication,
+				BedrockSessionToken:   tt.sessionToken,
 			}
-			_, data, err := (&Compiler{}).renderModel(context.Background(), resolved)
+			_, data, err := renderModel(resolved)
 			require.NoError(t, err)
 			names := make([]string, 0, len(data.EnvVars))
 			for _, variable := range data.EnvVars {

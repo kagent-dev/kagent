@@ -12,13 +12,11 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"github.com/stretchr/testify/require"
+	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	schemev1 "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func modelConfig() *v1alpha3.ModelConfig {
@@ -106,32 +104,37 @@ func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
 	}}
 }
 
-func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
+func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
 	t.Helper()
-	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
-	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	reader := testReader{kube}
-	return v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+	collections := mockCollections(t, objects...)
+	ctx := krt.TestingDummyContext{}
+	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
 	})
 }
 
-type testReader struct{ client.Client }
-
-func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
-	return r.Client.Get(ctx, key, object.(client.Object))
-}
-
-func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
-	model := &v1alpha3.ModelConfig{}
-	if err := r.Get(ctx, key, model); err != nil {
-		return nil, err
+func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
+	t.Helper()
+	mock := krttest.NewMock(t, objects)
+	collections := v2translator.Collections{
+		AgentTemplates:   krttest.GetMockCollection[*v1alpha3.AgentTemplate](mock),
+		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
+		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
+		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
 	}
-	return v2translator.ResolveModelConfig(ctx, r, model)
+	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
+	resolved := make([]any, 0, len(models.List()))
+	for _, model := range models.List() {
+		value, err := v2translator.ResolveModelConfig(krt.TestingDummyContext{}, collections, model)
+		require.NoError(t, err)
+		resolved = append(resolved, *value)
+	}
+	resolvedMock := krttest.NewMock(t, resolved)
+	collections.ResolvedModelConfigs = krttest.GetMockCollection[v2translator.ResolvedModelConfig](resolvedMock)
+	return collections
 }
 
-func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
-	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+func TestResolveModelConfigExposesResolvedFoundryEndpoint(t *testing.T) {
 	model := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
 		Spec: v1alpha3.ModelConfigSpec{
@@ -145,10 +148,8 @@ func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
 		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
 	}
-	reader := testReader{fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(model, configMap).Build()}
-
-	resolved, err := reader.GetResolvedModelConfig(context.Background(), types.NamespacedName{Namespace: "test", Name: "foundry"})
-	require.NoError(t, err)
+	collections := mockCollections(t, model, configMap)
+	resolved := collections.ResolvedModelConfigs.List()[0]
 	require.Equal(t, model.Spec, resolved.Config.Spec)
 	require.Equal(t, []v2translator.ModelConfigReference{{
 		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
@@ -163,8 +164,7 @@ func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.Har
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
-	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
-	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(modelConfig()).Build()
+	collections := mockCollections(t, modelConfig())
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
@@ -172,7 +172,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}}}
 
-	revision, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	revision, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
 	}).CompileAgentTemplate(context.Background(), harness, template)
 	require.NoError(t, err)
@@ -182,11 +182,10 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 }
 
 func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
-	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	model := modelConfig()
 	model.Spec.APIKeySecret = "missing"
 	model.Spec.APIKeySecretKey = "key"
-	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(model).Build()
+	collections := mockCollections(t, model)
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
@@ -194,7 +193,7 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: model.Name}}}
 
-	_, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
 	}).CompileAgentTemplate(context.Background(), harness, template)
 	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)

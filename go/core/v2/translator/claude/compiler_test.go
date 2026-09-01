@@ -13,13 +13,10 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	schemev1 "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 const credentialValue = "credential-must-not-be-serialized"
@@ -82,7 +79,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
-			revision, err := NewCompiler(reader).Compile(context.Background(), input)
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -118,7 +115,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 				t.Fatalf("provenance omits credential Secret: %s", revision.Provenance)
 			}
 
-			again, err := NewCompiler(reader).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
@@ -143,7 +140,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret"), "credentials.json": []byte(`{"type":"service_account"}`)})
-			_, err := NewCompiler(reader).Compile(context.Background(), input)
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 			var validation *v2translator.ValidationError
 			if !errors.As(err, &validation) {
 				t.Fatalf("Compile() error = %v, want validation error", err)
@@ -160,7 +157,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
 	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: anthropicBaseURLEnv, Value: &value}}
-	_, err := NewCompiler(reader).Compile(context.Background(), input)
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	var validation *v2translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
@@ -183,7 +180,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		Skills: []string{"deploy"},
 	}}
 
-	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +198,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 	}
 
 	input.Root.Template.Spec.Plugins[0].Skills = []string{"review"}
-	if _, err := NewCompiler(reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
 		t.Fatalf("duplicate skill Compile() error = %v", err)
 	}
 }
@@ -235,7 +232,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}}}
 	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
-	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +283,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 	binding := v1alpha3.MCPToolBinding{Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name}}
 	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: binding, Server: server}}
-	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("omitted selection Compile() error = %v", err)
 	}
@@ -295,7 +292,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
-	revision, err = NewCompiler(reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("partial selection Compile() error = %v", err)
 	}
@@ -304,7 +301,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Status.ObservedGeneration = 0
-	revision, err = NewCompiler(reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("stale discovery Compile() error = %v", err)
 	}
@@ -345,7 +342,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,
 	}}
 
-	revision, err := NewCompiler(reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +404,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			}
 			tt.mutate(&binding)
 			input.Root.Shared = []v2translator.AgentInputBinding{binding}
-			_, err := NewCompiler(reader).Compile(context.Background(), input)
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Compile() error = %v, want containing %q", err, tt.want)
 			}
@@ -415,11 +412,8 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 	}
 }
 
-func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Reader) {
+func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
 	t.Helper()
-	if err := v1alpha3.AddToScheme(schemev1.Scheme); err != nil {
-		t.Fatal(err)
-	}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
@@ -429,21 +423,10 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 	}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model-uid"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret-uid"}, Data: secretData}
-	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(secret).Build()
-	reader := testReader{kube}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, reader
-}
-
-type testReader struct{ client.Client }
-
-func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
-	return r.Client.Get(ctx, key, object.(client.Object))
-}
-
-func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
-	model := &v1alpha3.ModelConfig{}
-	if err := r.Get(ctx, key, model); err != nil {
-		return nil, err
+	mock := krttest.NewMock(t, []any{secret})
+	collections := v2translator.Collections{
+		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
+		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return v2translator.ResolveModelConfig(ctx, r, model)
+	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
 }

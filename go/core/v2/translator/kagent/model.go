@@ -1,7 +1,6 @@
 package kagent
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,7 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // modelDeploymentData collects the Kubernetes inputs required by a provider.
@@ -195,7 +193,7 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 // are intentionally local rather than calling the legacy translator: v2 can
 // now evolve and eventually replace that code without a compatibility layer.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func (c *Compiler) renderModel(ctx context.Context, resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
+func renderModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
 	if resolved == nil || resolved.Config == nil {
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}
@@ -512,16 +510,8 @@ func (c *Compiler) renderModel(ctx context.Context, resolved *v2translator.Resol
 		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
 		// Otherwise, use IAM credentials
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
-			secret := types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}
-			hasSecretKey := func(key string) bool {
-				for _, ref := range resolved.References {
-					if ref.Kind == "Secret" && ref.NamespacedName == secret && ref.Key == key {
-						return true
-					}
-				}
-				return false
-			}
-			if hasSecretKey(env.AWSBearerTokenBedrock.Name()) {
+			switch resolved.BedrockAuthentication {
+			case v2translator.BedrockAuthenticationBearer:
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name: env.AWSBearerTokenBedrock.Name(),
 					ValueFrom: &corev1.EnvVarSource{
@@ -533,7 +523,7 @@ func (c *Compiler) renderModel(ctx context.Context, resolved *v2translator.Resol
 						},
 					},
 				})
-			} else {
+			case v2translator.BedrockAuthenticationIAM:
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name: env.AWSAccessKeyID.Name(),
 					ValueFrom: &corev1.EnvVarSource{
@@ -556,7 +546,7 @@ func (c *Compiler) renderModel(ctx context.Context, resolved *v2translator.Resol
 						},
 					},
 				})
-				if hasSecretKey(env.AWSSessionToken.Name()) {
+				if resolved.BedrockSessionToken {
 					modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 						Name: env.AWSSessionToken.Name(),
 						ValueFrom: &corev1.EnvVarSource{
@@ -652,10 +642,7 @@ func (c *Compiler) renderModel(ctx context.Context, resolved *v2translator.Resol
 
 		// Resolve the endpoint, which may come from an inline value or from a
 		// ConfigMap written by Azure Service Operator (endpointFrom).
-		endpoint, err := c.resolveFoundryEndpoint(ctx, model.Namespace, cfg)
-		if err != nil {
-			return nil, nil, err
-		}
+		endpoint := resolved.FoundryEndpoint
 		if endpoint == "" {
 			return nil, nil, fmt.Errorf("foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
 		}
@@ -710,19 +697,4 @@ func (c *Compiler) renderModel(ctx context.Context, resolved *v2translator.Resol
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
-}
-
-func (c *Compiler) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
-	if cfg.Endpoint != "" {
-		return cfg.Endpoint, nil
-	}
-	if cfg.EndpointFrom == nil {
-		return "", nil
-	}
-	ref := cfg.EndpointFrom
-	configMap := &corev1.ConfigMap{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, configMap); err != nil {
-		return "", fmt.Errorf("get Foundry endpoint ConfigMap %q: %w", ref.Name, err)
-	}
-	return configMap.Data[ref.Key], nil
 }

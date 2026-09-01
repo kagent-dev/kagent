@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"slices"
@@ -11,41 +10,17 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-type ModelConfigReconciliation struct {
-	ModelConfigName krt.Named
-	// If Translation is nil, Failure is non-nil and describes why the ModelConfig could not be translated.
-	// note that failure may be not nil even if Translation is non-nil.
-	Translation *v2translator.ResolvedModelConfig
-}
-
-func (r ModelConfigReconciliation) Equals(other ModelConfigReconciliation) bool {
-	if r.ModelConfigName != other.ModelConfigName {
-		return false
-	}
-	if !apiequality.Semantic.DeepEqual(r.Translation, other.Translation) {
-		return false
-	}
-	return true
-}
-
-func (r ModelConfigReconciliation) ResourceName() string {
-	return r.ModelConfigName.ResourceName()
-}
 
 func newModelConfigReconciliations(
 	modelConfigs krt.Collection[*kagentv1alpha3.ModelConfig],
 	configMaps krt.Collection[*corev1.ConfigMap],
 	secrets krt.Collection[*corev1.Secret],
 	opts krt.OptionsBuilder,
-) krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus] {
-	statuses, _ := krt.NewStatusCollection(modelConfigs, func(ctx krt.HandlerContext, modelConfig *kagentv1alpha3.ModelConfig) (*kagentv1alpha3.ModelConfigStatus, *ModelConfigReconciliation) {
-		state := &ModelConfigReconciliation{ModelConfigName: krt.Named{Namespace: modelConfig.Namespace, Name: modelConfig.Name}}
-		reader := collectionReader{ctx: ctx, configMaps: configMaps, secrets: secrets, modelConfigs: modelConfigs}
-		translation, err := v2translator.ResolveModelConfig(context.Background(), reader, modelConfig)
+) (krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus], krt.Collection[v2translator.ResolvedModelConfig]) {
+	statuses, reconciliations := krt.NewStatusCollection(modelConfigs, func(ctx krt.HandlerContext, modelConfig *kagentv1alpha3.ModelConfig) (*kagentv1alpha3.ModelConfigStatus, *v2translator.ResolvedModelConfig) {
+		translation, err := v2translator.ResolveModelConfig(ctx, v2translator.Collections{ConfigMaps: configMaps, Secrets: secrets}, modelConfig)
 		if err != nil {
 			return nil, nil
 		}
@@ -60,7 +35,6 @@ func newModelConfigReconciliations(
 			failure := translation.ReferenceFailures[0]
 			resolvedRefsFailure = &ReconciliationFailure{Condition: kagentv1alpha3.ModelConfigConditionTypeResolvedRefs, Reason: failure.Reason, Message: failure.Message}
 		}
-		state.Translation = translation
 		seenSecrets := map[string]struct{}{}
 		for _, reference := range translation.References {
 			switch reference.Kind {
@@ -122,9 +96,9 @@ func newModelConfigReconciliations(
 			ObservedGeneration: modelConfig.Generation,
 			SecretHash:         hashModelConfigValues(values),
 			Conditions:         conditions,
-		}, state
+		}, translation
 	}, opts.WithName("ModelConfigReconciliations")...)
-	return statuses
+	return statuses, reconciliations
 }
 
 type hashValue struct {
