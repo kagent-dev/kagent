@@ -30,6 +30,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
@@ -141,6 +142,10 @@ func main() {
 	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		log.Fatalf("set up RemoteMCPServer discovery: %v", err)
+	}
+	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
+	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
+		log.Fatalf("set up MCPServer discovery: %v", err)
 	}
 
 	actors, err := substrate.Dial(ctx, substrate.Config{

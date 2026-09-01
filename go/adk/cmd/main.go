@@ -20,9 +20,14 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+)
+
+const (
+	defaultPluginPackagesRoot = "/plugins"
+	defaultSkillsRoot         = "/skills"
+	defaultPluginDataRoot     = "/data/plugins"
 )
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
@@ -93,9 +98,13 @@ func main() {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
 		os.Exit(1)
 	}
-	if err := agentplugins.MaterializeAgentConfig(
+	if err := config.MaterializeAgentPlugins(
 		logr.NewContext(context.Background(), logger), agentConfig,
-		agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
+		config.AgentPluginPaths{
+			Packages: defaultPluginPackagesRoot,
+			Skills:   defaultSkillsRoot,
+			Data:     defaultPluginDataRoot,
+		},
 	); err != nil {
 		logger.Error(err, "Failed to materialize Agent Plugins")
 		os.Exit(1)

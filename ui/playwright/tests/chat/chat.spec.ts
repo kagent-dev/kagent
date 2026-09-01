@@ -205,6 +205,10 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     await page.reload();
     await expect(page.getByTestId("chat-input")).toBeVisible();
     await expect(messages).toHaveCount(before.length);
+    // The seeded reply carries a mermaid diagram, which renders asynchronously
+    // after the reload — the inner-text comparison below would otherwise catch
+    // it mid-render, showing the raw source where the SVG will be.
+    await expect(page.getByTestId("chat-mermaid").locator("svg")).toBeVisible();
     expect(
       await messages.allInnerTexts(),
       "the reloaded conversation should be the one that was on screen",
@@ -417,4 +421,28 @@ test("chat: an agent's Markdown renders as elements, not as characters", async (
   // And the source characters are gone: this is what fails when the renderer is
   // bypassed and the raw Markdown is printed instead.
   await expect(answer).not.toContainText("**");
+});
+
+/**
+ * A fenced ` ```mermaid ` block is a diagram, not a listing.
+ *
+ * The seeded conversation's reply carries one, so this opens the page and waits
+ * for the real renderer (mermaid runs in the browser, not in jsdom) to turn it
+ * into an SVG. The failure mode this guards is the one the page had: the block
+ * printed as raw text, which reads as an answer and passes any text assertion.
+ */
+test("chat: a mermaid block renders as a diagram, not as source text", async ({ page }) => {
+  await loadPage(page, AGENT_CHAT);
+  await expect(page.getByTestId("chat-message")).toHaveCount(4);
+
+  // The seeded reply's diagram, rendered to an SVG by mermaid.
+  const diagram = page.getByTestId("chat-mermaid");
+  await expect(diagram).toHaveCount(1);
+  await expect(diagram.locator("svg")).toBeVisible();
+
+  // The diagram is a diagram: the source text is gone, and the nodes it drew
+  // are in the SVG's own text rather than in a code frame.
+  await expect(diagram).not.toContainText("flowchart TD");
+  await expect(diagram).toContainText("Container starts");
+  await expect(diagram).toContainText("Kubelet restarts container");
 });

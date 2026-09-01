@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
 	want := []StdioMcpServerConfig{{Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
-	wantPlugins := &AgentPluginConfig{Skills: []StandaloneSkill{{
+	wantPlugins := &agentplugin.Resources{Skills: []agentplugin.Skill{{
 		Name: "review",
-		Source: AgentPluginSource{Git: &AgentPluginGit{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{
 			URL: "https://example.com/plugin.git", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		}},
 	}}}
