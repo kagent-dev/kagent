@@ -28,11 +28,11 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-// Compiler translates resolved inputs into an ADK agent configuration.
-type Compiler struct{ kube v2translator.Reader }
+// Builder assembles resolved inputs into an ADK agent configuration.
+type Builder struct{ kube v2translator.Reader }
 
-// NewCompiler constructs an ADK configuration compiler.
-func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
+// NewBuilder constructs an ADK configuration builder.
+func NewBuilder(kube v2translator.Reader) *Builder { return &Builder{kube: kube} }
 
 type Result struct {
 	Config      *adk.AgentConfig
@@ -57,11 +57,11 @@ func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
 	return environment
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
+func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
 	return c.compileAgent(ctx, input)
 }
 
-func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
+func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
 	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
 	if input.ModelConfig != nil {
 		var err error
@@ -125,7 +125,7 @@ func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentIn
 
 // ResolveEnvironment replaces Kubernetes Secret references with literals
 // because Substrate ActorTemplates accept only literal environment values.
-func (c *Compiler) ResolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
+func (c *Builder) ResolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
 	resolved := append([]corev1.EnvVar(nil), environment...)
 	for i, variable := range resolved {
 		if variable.ValueFrom == nil {
@@ -151,7 +151,7 @@ func (c *Compiler) ResolveEnvironment(ctx context.Context, namespace string, env
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Compiler) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
 	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
@@ -232,7 +232,7 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 // resolveAgentTemplateHeaders keeps Secret values out of serialized agent
 // config. The runtime expands __KAGENT_ENV[...]__ from the corresponding
 // Secret-backed environment variable when it constructs the MCP request.
-func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
+func (c *Builder) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
 	headers := make(map[string]string, len(refs))
 	var environment []corev1.EnvVar
 	for _, ref := range refs {
@@ -253,7 +253,7 @@ func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace st
 	return headers, environment, nil
 }
 
-func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1alpha3.ValueRef) (string, string, error) {
+func (c *Builder) resolveValueRef(ctx context.Context, namespace string, ref v1alpha3.ValueRef) (string, string, error) {
 	if ref.ValueFrom == nil {
 		return ref.Name, ref.Value, nil
 	}

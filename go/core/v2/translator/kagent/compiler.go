@@ -20,20 +20,20 @@ const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
 
 // Compiler translates resolved inputs into a kagent runtime revision.
 type Compiler struct {
-	adk *adkconfig.Compiler
+	config *adkconfig.Builder
 }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)
 
 func NewCompiler(kube v2translator.Reader) *Compiler {
-	return &Compiler{adk: adkconfig.NewCompiler(kube)}
+	return &Compiler{config: adkconfig.NewBuilder(kube)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
 	if err := requireModels(input.Root); err != nil {
 		return nil, err
 	}
-	compiled, err := c.adk.Compile(ctx, input.Root)
+	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +61,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
 	environment = adkconfig.DedupeEnv(environment)
-	provenance, err := c.adk.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
+	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, err = c.adk.ResolveEnvironment(ctx, template.Namespace, environment)
+	environment, err = c.config.ResolveEnvironment(ctx, template.Namespace, environment)
 	if err != nil {
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}

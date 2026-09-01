@@ -40,7 +40,7 @@ type modelRuntime struct {
 
 // resolveModel collapses provider-specific translation output into the subset
 // needed to compile a runtime revision.
-func (c *Compiler) resolveModel(ctx context.Context, config *v1alpha3.ModelConfig) (*modelRuntime, error) {
+func (c *Builder) resolveModel(ctx context.Context, config *v1alpha3.ModelConfig) (*modelRuntime, error) {
 	model, data, err := c.translateModel(ctx, config)
 	if err != nil {
 		return nil, err
@@ -207,7 +207,7 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 // resolveFoundryEndpoint returns the Foundry endpoint, preferring the inline
 // value and otherwise resolving it from the referenced ConfigMap (endpointFrom),
 // which lets Azure Service Operator own the account endpoint.
-func (c *Compiler) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
+func (c *Builder) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
 	if cfg.Endpoint != "" {
 		return cfg.Endpoint, nil
 	}
@@ -233,7 +233,7 @@ func (c *Compiler) resolveFoundryEndpoint(ctx context.Context, namespace string,
 // are intentionally local rather than calling the legacy translator: v2 can
 // now evolve and eventually replace that code without a compatibility layer.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func (c *Compiler) translateModel(ctx context.Context, model *v1alpha3.ModelConfig) (adk.Model, *modelDeploymentData, error) {
+func (c *Builder) translateModel(ctx context.Context, model *v1alpha3.ModelConfig) (adk.Model, *modelDeploymentData, error) {
 	modelDeploymentData := &modelDeploymentData{}
 
 	// Add TLS configuration if present

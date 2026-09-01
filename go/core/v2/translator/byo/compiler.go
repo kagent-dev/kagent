@@ -14,16 +14,16 @@ import (
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
-type Compiler struct{ adk *adkconfig.Compiler }
+type Compiler struct{ config *adkconfig.Builder }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)
 
 func NewCompiler(kube v2translator.Reader) *Compiler {
-	return &Compiler{adk: adkconfig.NewCompiler(kube)}
+	return &Compiler{config: adkconfig.NewBuilder(kube)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
-	compiled, err := c.adk.Compile(ctx, input.Root)
+	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
 		return nil, err
 	}
@@ -37,11 +37,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("marshal agent card: %w", err)
 	}
 	environment := adkconfig.DedupeEnv(append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...))
-	provenance, err := c.adk.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
+	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, err = c.adk.ResolveEnvironment(ctx, template.Namespace, environment)
+	environment, err = c.config.ResolveEnvironment(ctx, template.Namespace, environment)
 	if err != nil {
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}

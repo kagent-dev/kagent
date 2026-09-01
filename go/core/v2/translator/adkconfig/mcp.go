@@ -7,7 +7,7 @@ import (
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
 // This path intentionally has no proxy URL or egress-gateway indirection.
-func (c *Compiler) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRuntime, server *v1alpha3.RemoteMCPServer, tool *v1alpha3.McpServerTool, headers map[string]string) error {
+func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRuntime, server *v1alpha3.RemoteMCPServer, tool *v1alpha3.McpServerTool, headers map[string]string) error {
 	targetURL := server.Spec.URL
 
 	switch server.Spec.Protocol {
