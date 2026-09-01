@@ -9,7 +9,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Compiler resolves public API objects into a complete, immutable runtime
@@ -202,11 +201,11 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 		if err != nil {
 			return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
 		}
-		for _, failure := range input.ResolvedModelConfig.SemanticFailures {
-			ctrllog.FromContext(ctx).Info("ModelConfig has invalid configuration", "modelConfig", template.Spec.ModelConfig.Name, "reason", failure.Reason, "message", failure.Message)
+		if failures := input.ResolvedModelConfig.SemanticFailures; len(failures) > 0 {
+			return nil, NewValidationError("ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
 		}
-		for _, failure := range input.ResolvedModelConfig.ReferenceFailures {
-			ctrllog.FromContext(ctx).Info("ModelConfig has unresolved reference", "modelConfig", template.Spec.ModelConfig.Name, "reason", failure.Reason, "message", failure.Message)
+		if failures := input.ResolvedModelConfig.ReferenceFailures; len(failures) > 0 {
+			return nil, fmt.Errorf("resolve ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
 		}
 		toolNames := make([]string, 0)
 		for _, tool := range template.Spec.Tools {

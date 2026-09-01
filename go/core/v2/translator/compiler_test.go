@@ -173,6 +173,26 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
 }
 
+func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
+	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+	model := modelConfig()
+	model.Spec.APIKeySecret = "missing"
+	model.Spec.APIKeySecretKey = "key"
+	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(model).Build()
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+	}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: model.Name}}}
+
+	_, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
+	require.Nil(t, adapter.input)
+}
+
 func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mcp-auth", Namespace: "test"},

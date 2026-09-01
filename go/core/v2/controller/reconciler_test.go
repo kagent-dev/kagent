@@ -186,7 +186,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 	statusUpdates := make(chan *kagentv1alpha3.ModelConfig, 10)
 	reconciler := newReconciler(
 		collections,
-		atefake.NewSimpleClientset().ApiV1alpha1(), //nolint:staticcheck
+		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
 		func(_ context.Context, _ *kagentv1alpha3.AgentTemplate) error { return nil },
 		func(_ context.Context, mc *kagentv1alpha3.ModelConfig) error {

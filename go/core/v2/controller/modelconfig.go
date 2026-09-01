@@ -149,10 +149,3 @@ func hashModelConfigValues(values []hashValue) string {
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }
-
-func appendModelConfigFailure(current *ReconciliationFailure, condition, reason, message string) *ReconciliationFailure {
-	if current != nil {
-		return current
-	}
-	return &ReconciliationFailure{Condition: condition, Reason: reason, Message: message}
-}
