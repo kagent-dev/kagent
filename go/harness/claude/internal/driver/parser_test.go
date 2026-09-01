@@ -39,6 +39,36 @@ func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	}
 }
 
+func TestParseJSONLBedrockTextAfterThinkingIsNotDuplicated(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_bdrk"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"..."}}}`,
+		`{"type":"assistant","message":{"id":"msg_bdrk","content":[{"type":"thinking","thinking":"..."}]}}`,
+		`{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"alpha"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" beta gamma"}}}`,
+		`{"type":"assistant","message":{"id":"msg_bdrk","content":[{"type":"text","text":"alpha beta gamma"}]}}`,
+		`{"type":"stream_event","event":{"type":"content_block_stop","index":1}}`,
+		`{"type":"stream_event","event":{"type":"message_stop"}}`,
+		`{"type":"result","subtype":"success","result":"alpha beta gamma"}`,
+	}, "\n") + "\n"
+
+	var text strings.Builder
+	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+		if event.Kind == EventTextDelta {
+			text.WriteString(event.Text)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if text.String() != "alpha beta gamma" {
+		t.Fatalf("streamed text = %q, want alpha beta gamma", text.String())
+	}
+}
+
 func TestParseJSONLTerminalFailure(t *testing.T) {
 	b, err := os.ReadFile("../../testdata/stream-error.jsonl")
 	if err != nil {

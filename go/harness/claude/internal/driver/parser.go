@@ -12,10 +12,16 @@ import (
 type parser struct {
 	emitted          map[string]string
 	currentMessageID string
+	activeBlock      *contentBlockRef
 	tools            map[string]string
 	emittedToolCalls map[string]struct{}
 	emittedResults   map[string]struct{}
 	terminal         bool
+}
+
+type contentBlockRef struct {
+	messageID string
+	index     int
 }
 
 func ParseJSONL(r io.Reader, maxEventBytes int, emit func(Event) error) error {
@@ -132,6 +138,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, emit func(Event) error) e
 	switch event.Type {
 	case "message_start":
 		p.currentMessageID = event.Message.ID
+		p.activeBlock = nil
 	case "content_block_delta":
 		if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
 			key := p.blockKey(event.Index)
@@ -139,6 +146,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, emit func(Event) error) e
 			return emit(Event{Kind: EventTextDelta, Text: event.Delta.Text})
 		}
 	case "content_block_start":
+		p.activeBlock = &contentBlockRef{messageID: p.currentMessageID, index: event.Index}
 		if event.ContentBlock.Type == "tool_use" {
 			if event.ContentBlock.ID == "" || event.ContentBlock.Name == "" {
 				return fmt.Errorf("claude tool_use start requires an id and name")
@@ -148,6 +156,12 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, emit func(Event) error) e
 			}
 			p.tools[event.ContentBlock.ID] = event.ContentBlock.Name
 		}
+	case "content_block_stop":
+		if p.activeBlock != nil && p.activeBlock.messageID == p.currentMessageID && p.activeBlock.index == event.Index {
+			p.activeBlock = nil
+		}
+	case "message_stop":
+		p.activeBlock = nil
 	}
 	return nil
 }
@@ -171,6 +185,11 @@ func (p *parser) parseAssistant(raw json.RawMessage, emit func(Event) error) err
 	}
 	for i, content := range message.Content {
 		key := p.blockKey(i)
+		// Claude Code emits an assistant envelope for the currently open content
+		// block. See https://code.claude.com/docs/en/agent-sdk/streaming-output
+		if len(message.Content) == 1 && p.activeBlock != nil && p.activeBlock.messageID == p.currentMessageID {
+			key = p.blockKey(p.activeBlock.index)
+		}
 		switch content.Type {
 		case "text":
 			previous := p.emitted[key]
