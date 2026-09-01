@@ -13,6 +13,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	claudetranslator "github.com/kagent-dev/kagent/go/core/v2/translator/claude"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
@@ -23,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // PairReconciliation is the complete desired and observed state for one
@@ -65,6 +67,7 @@ func newPairReconciliations(
 		}
 		revision, err := v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+			v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(reader),
 		}).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
@@ -221,6 +224,14 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	}
 	if state.Revision == nil || state.RevisionID.IsZero() {
 		return r.cleanupUnreferencedRevisions(ctx)
+	}
+	for _, warning := range state.Revision.Warnings {
+		ctrllog.FromContext(ctx).Info("runtime configuration warning",
+			"namespace", state.Pair.AgentTemplate.Namespace,
+			"agentTemplate", state.Pair.AgentTemplate.Name,
+			"harness", state.Pair.Harness.Name,
+			"warning", warning,
+		)
 	}
 
 	pair := dbpkg.AgentTemplateHarnessPair{

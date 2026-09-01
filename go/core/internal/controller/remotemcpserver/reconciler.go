@@ -23,12 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
-	"strings"
 	"time"
 
 	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -105,7 +104,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		)
 	}
 
-	discovered, err := normalizeTools(tools)
+	discovered, err := toolcatalog.NormalizeTools(tools)
 	if err != nil {
 		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, "InvalidDiscovery", err.Error())
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
@@ -155,25 +154,6 @@ func wrapError(action string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", action, err)
-}
-
-func normalizeTools(tools []toolservice.MCPAppTool) ([]*v1alpha3.MCPTool, error) {
-	discovered := make([]*v1alpha3.MCPTool, 0, len(tools))
-	seen := make(map[string]struct{}, len(tools))
-	for _, tool := range tools {
-		if strings.TrimSpace(tool.Name) == "" {
-			return nil, fmt.Errorf("MCP discovery returned a tool with an empty name")
-		}
-		if _, exists := seen[tool.Name]; exists {
-			return nil, fmt.Errorf("MCP discovery returned duplicate tool %q", tool.Name)
-		}
-		seen[tool.Name] = struct{}{}
-		discovered = append(discovered, &v1alpha3.MCPTool{Name: tool.Name, Description: tool.Description})
-	}
-	slices.SortFunc(discovered, func(a, b *v1alpha3.MCPTool) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	return discovered, nil
 }
 
 func (r *Reconciler) updateStatus(

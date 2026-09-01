@@ -119,6 +119,50 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	})
 }
 
+func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test-claude", nil)
+
+	template := &kagentv1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "claude"}},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: kagentv1alpha3.AgentTemplateLocalReference{Name: "model"}, SystemPrompt: "help"},
+	}
+	claudeHarness := harness("team-a", "claude", map[string]string{"runtime": "claude"})
+	claudeHarness.UID = "harness-uid"
+	claudeHarness.Spec.Claude = &kagentv1alpha3.ClaudeHarness{}
+	claudeHarness.Spec.Workload.Image = "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	claudeHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
+		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	}
+	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
+		Provider: kagentv1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model-auth", UID: "secret-uid"}, Data: map[string][]byte{"api-key": []byte("secret")}}
+	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{template}, opts.WithName("AgentTemplates")...)
+	pairs := newPairCollection(templates, krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{claudeHarness}, opts.WithName("Harnesses")...), opts)
+	reconciliations := newPairReconciliations(
+		pairs, templates,
+		krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{model}, opts.WithName("ModelConfigs")...),
+		krt.NewStaticCollection[*kagentv1alpha3.RemoteMCPServer](nil, nil, opts.WithName("RemoteMCPServers")...),
+		krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
+		krt.NewStaticCollection(nil, []*corev1.Secret{secret}, opts.WithName("Secrets")...),
+		krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
+		krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
+	)
+	waitFor(t, func() bool {
+		states := reconciliations.List()
+		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
+	})
+	state := reconciliations.List()[0]
+	if state.Revision == nil || state.Revision.Environment[0].Name != "ANTHROPIC_API_KEY" || state.Revision.Environment[0].Value != "secret" {
+		t.Fatalf("Claude revision environment = %#v", state.Revision)
+	}
+	if state.DesiredActorTemplate.Spec.Containers[0].Readyz.HTTPGet.Port != 8081 {
+		t.Fatalf("Claude ActorTemplate readiness = %#v", state.DesiredActorTemplate.Spec.Containers[0].Readyz)
+	}
+}
+
 func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })

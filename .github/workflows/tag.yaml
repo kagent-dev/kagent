@@ -21,6 +21,7 @@ jobs:
           - ui
           - kagent-adk
           - golang-adk
+          - claude-harness
     runs-on: ubuntu-latest
     permissions:
       contents: read
