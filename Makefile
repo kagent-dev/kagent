@@ -54,24 +54,18 @@ CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
-ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
-ACP_SANDBOX_HERMES_IMAGE_NAME ?= acp-sandbox-hermes
-ACP_SANDBOX_OPENCLAW_IMAGE_NAME ?= acp-sandbox-openclaw
-ACP_SANDBOX_CLAUDE_IMAGE_NAME ?= acp-sandbox-claude
 
+CLAUDE_HARNESS_IMAGE_NAME ?= claude-harness
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
-ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
+CLAUDE_HARNESS_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
-ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
-ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
-ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
-ACP_SANDBOX_CLAUDE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_CLAUDE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+CLAUDE_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CLAUDE_HARNESS_IMAGE_NAME):$(CLAUDE_HARNESS_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -228,17 +222,19 @@ build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
 build-all: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
+	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/claude/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-kagent-adk build-golang-adk build-controller
+build: buildx-create build-ui build-kagent-adk build-golang-adk build-claude-harness build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
+	@echo "Claude Harness Image: $(CLAUDE_HARNESS_IMG)"
 
 .PHONY: build-monitor
 build-monitor: ## Watch BuildKit process list inside the buildx container
@@ -266,10 +262,7 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo ui=$(UI_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
-	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
-	@echo acp-sandbox-hermes=$(ACP_SANDBOX_HERMES_IMG)
-	@echo acp-sandbox-openclaw=$(ACP_SANDBOX_OPENCLAW_IMG)
-	@echo acp-sandbox-claude=$(ACP_SANDBOX_CLAUDE_IMG)
+	@echo claude-harness=$(CLAUDE_HARNESS_IMG)
 
 .PHONY: controller-manifests
 controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
@@ -302,33 +295,11 @@ build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
-.PHONY: build-acp-sandbox
-build-acp-sandbox: ## Build and push all ACP sandbox agent images (hermes, openclaw, claude)
-build-acp-sandbox: build-acp-sandbox-hermes build-acp-sandbox-openclaw build-acp-sandbox-claude
-
-.PHONY: build-acp-sandbox-base
-build-acp-sandbox-base: ## Build and push the ACP sandbox base image (acp-shim only, no agent)
-build-acp-sandbox-base: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target base -t $(ACP_SANDBOX_BASE_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_BASE_IMG)
-
-.PHONY: build-acp-sandbox-hermes
-build-acp-sandbox-hermes: ## Build and push the ACP sandbox Hermes image
-build-acp-sandbox-hermes: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target hermes -t $(ACP_SANDBOX_HERMES_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_HERMES_IMG)
-
-.PHONY: build-acp-sandbox-openclaw
-build-acp-sandbox-openclaw: ## Build and push the ACP sandbox OpenClaw image
-build-acp-sandbox-openclaw: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target openclaw -t $(ACP_SANDBOX_OPENCLAW_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_OPENCLAW_IMG)
-
-.PHONY: build-acp-sandbox-claude
-build-acp-sandbox-claude: ## Build and push the ACP sandbox Claude image
-build-acp-sandbox-claude: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target claude -t $(ACP_SANDBOX_CLAUDE_IMG) -f docker/acp-sandbox/Dockerfile ./go
-	$(DOCKER_PUSH) $(ACP_SANDBOX_CLAUDE_IMG)
+.PHONY: build-claude-harness
+build-claude-harness: ## Build and push the native Claude Harness image
+build-claude-harness: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CLAUDE_HARNESS_IMG) -f go/harness/claude/Dockerfile ./go
+	$(DOCKER_PUSH) $(CLAUDE_HARNESS_IMG)
 
 .PHONY: push
 push: ## Push all component images (controller, ui, ADKs)
@@ -385,8 +356,6 @@ helm-test: helm-version
 helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
-	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
@@ -431,7 +400,6 @@ helm-install-provider: helm-version check-api-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		--set database.postgres.bundled.image.repository=pgvector \
 		--set database.postgres.bundled.image.name=pgvector \
 		--set database.postgres.bundled.image.tag=pg18-trixie \

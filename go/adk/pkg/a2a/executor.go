@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -12,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -59,9 +61,19 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: genAIPartConverter,
-		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, _ *a2atype.TaskArtifactUpdateEvent) error {
+		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
+			}
+			// Preserve the artifact's protocol type while giving current A2A clients a
+			// common ordering key. A2A #2129 will replace this with native artifact
+			// start/end generations and a task timeline.
+			if processed.Artifact != nil {
+				position := event.Timestamp
+				if position.IsZero() {
+					position = time.Now()
+				}
+				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
 			return nil
 		},
@@ -101,7 +113,7 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	}
 	// Set the authenticated user so downstream code picks up the real identity.
 	callCtx.User = a2asrv.NewAuthenticatedUser(vals[0], nil)
-	return ctx, nil, nil
+	return auth.WithUserID(ctx, vals[0]), nil, nil
 }
 
 // Execute applies kagent-specific request setup and delegates event generation
@@ -174,6 +186,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
+				position := time.Now().UTC()
+				if update.Status.Timestamp != nil {
+					position = update.Status.Timestamp.UTC()
+				}
+				update.Status.Message.SetMeta(apia2a.TimelinePositionMetadataKey, position.Format(time.RFC3339Nano))
 			}
 			if !yield(event, err) {
 				return

@@ -19,6 +19,7 @@ func (e *ValidationError) Unwrap() error {
 	return e.Err
 }
 
-func newValidationError(format string, args ...any) error {
+// NewValidationError reports invalid public API configuration.
+func NewValidationError(format string, args ...any) error {
 	return &ValidationError{Err: fmt.Errorf(format, args...)}
 }

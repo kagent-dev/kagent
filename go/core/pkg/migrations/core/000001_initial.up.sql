@@ -16,57 +16,6 @@ CREATE TABLE IF NOT EXISTS agent (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_deleted_at ON agent(deleted_at);
 
-CREATE TABLE IF NOT EXISTS session (
-    id         TEXT        NOT NULL,
-    user_id    TEXT        NOT NULL,
-    name       TEXT,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ,
-    deleted_at TIMESTAMPTZ,
-    agent_id   TEXT,
-    source     TEXT,
-    PRIMARY KEY (id, user_id)
-);
-CREATE INDEX IF NOT EXISTS idx_session_name       ON session(name);
-CREATE INDEX IF NOT EXISTS idx_session_agent_id   ON session(agent_id);
-CREATE INDEX IF NOT EXISTS idx_session_deleted_at ON session(deleted_at);
-CREATE INDEX IF NOT EXISTS idx_session_source     ON session(source);
-
-CREATE TABLE IF NOT EXISTS event (
-    id         TEXT        NOT NULL,
-    user_id    TEXT        NOT NULL,
-    session_id TEXT,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ,
-    deleted_at TIMESTAMPTZ,
-    data       TEXT        NOT NULL,
-    PRIMARY KEY (id, user_id)
-);
-CREATE INDEX IF NOT EXISTS idx_event_session_id ON event(session_id);
-CREATE INDEX IF NOT EXISTS idx_event_deleted_at ON event(deleted_at);
-
-CREATE TABLE IF NOT EXISTS task (
-    id         TEXT        PRIMARY KEY,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ,
-    deleted_at TIMESTAMPTZ,
-    data       TEXT        NOT NULL,
-    session_id TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_task_session_id ON task(session_id);
-CREATE INDEX IF NOT EXISTS idx_task_deleted_at ON task(deleted_at);
-
-CREATE TABLE IF NOT EXISTS push_notification (
-    id         TEXT        PRIMARY KEY,
-    task_id    TEXT        NOT NULL,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ,
-    deleted_at TIMESTAMPTZ,
-    data       TEXT        NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_push_notification_task_id    ON push_notification(task_id);
-CREATE INDEX IF NOT EXISTS idx_push_notification_deleted_at ON push_notification(deleted_at);
-
 CREATE TABLE IF NOT EXISTS feedback (
     id            BIGSERIAL   PRIMARY KEY,
     created_at    TIMESTAMPTZ,

@@ -61,6 +61,7 @@ vet: ## Run go vet.
 	go vet ./...
 
 KAL_SO = $(LOCALBIN)/kube-api-linter.so
+GO_TOOLCHAIN := $(shell go env GOVERSION)
 
 .PHONY: lint
 lint: golangci-lint $(KAL_SO) ## Run golangci-lint.
@@ -79,8 +80,8 @@ $(KAL_SO):
 	@echo "Building kube-api-linter plugin..."
 	@rm -rf $(LOCALBIN)/golangci-lint-src
 	@git clone --depth 1 --branch $(GOLANGCI_LINT_VERSION) --quiet https://github.com/golangci/golangci-lint.git $(LOCALBIN)/golangci-lint-src
-	@cd $(LOCALBIN)/golangci-lint-src && go get sigs.k8s.io/kube-api-linter@$(KAL_VERSION)
-	@cd $(LOCALBIN)/golangci-lint-src && go build -buildmode=plugin -o $(KAL_SO) sigs.k8s.io/kube-api-linter/pkg/plugin
+	@cd $(LOCALBIN)/golangci-lint-src && GOTOOLCHAIN=$(GO_TOOLCHAIN) go get sigs.k8s.io/kube-api-linter@$(KAL_VERSION)
+	@cd $(LOCALBIN)/golangci-lint-src && GOTOOLCHAIN=$(GO_TOOLCHAIN) go build -buildmode=plugin -o $(KAL_SO) sigs.k8s.io/kube-api-linter/pkg/plugin
 	@rm -rf $(LOCALBIN)/golangci-lint-src
 
 .PHONY: govulncheck
@@ -90,6 +91,7 @@ govulncheck: ## Run govulncheck.
 
 ##@ Build (core module — CLI binaries)
 
+.PHONY: core/bin/kagent-local
 core/bin/kagent-local:
 	go test -race ./core/cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-local ./core/cli/cmd/kagent
@@ -135,7 +137,7 @@ build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 cor
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run ./core/cmd/controller/main.go
+	go run ./core/cmd/controller-v2/main.go
 
 .PHONY: test
 test: ## Run all unit tests.
@@ -147,13 +149,13 @@ test: ## Run all unit tests.
 KIND_CLUSTER_NAME ?= kagent
 
 .PHONY: e2e
-e2e: ## Run end-to-end tests.
+e2e: core/bin/kagent-local ## Run end-to-end tests.
 	@kind get clusters 2>/dev/null | grep -qx '$(KIND_CLUSTER_NAME)' || { \
 	  echo "Error: kind cluster '$(KIND_CLUSTER_NAME)' not found. Run 'make create-kind-cluster' first." >&2; \
 	  exit 1; \
 	}
 	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
-	KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
 
 ##@ Dependencies
 
@@ -175,7 +177,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.13.0
 KAL_VERSION ?= v0.0.0-20260423112246-3fa174937a6b
 SQLC_VERSION ?= v1.30.0
 

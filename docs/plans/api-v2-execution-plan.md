@@ -7,7 +7,7 @@ Land API v2 through four milestones:
 1. Merge #2362 and freeze final CRD/gRPC contracts.
 2. Deliver a usable single-agent vertical slice with the existing kagent runtime.
 3. Add composition, Codex, Claude, UI/CLI/MCP cutover, and remove legacy APIs.
-4. Add checkpoint/fork after upstream Substrate snapshot support.
+4. Add single-member checkpoint/fork using released Substrate snapshot support.
 
 API v2 is not complete until checkpoint/fork and their Substrate dependencies pass E2E coverage.
 
@@ -18,6 +18,9 @@ Public invariants:
 - One AgentInstance owns one rooted template tree and one A2A context.
 - `A2A context_id == AgentInstance.id`.
 - A2A owns interaction and history; AgentInstanceService owns catalog, lifecycle, metadata, and sharing.
+- Every quiescent A2A turn is durably suspended to an exact snapshot before its
+  final state is published; physical Actor suspension does not change a ready
+  AgentInstance's logical state.
 - Substrate is the only compute backend.
 - No public scheduling, service-account, Deployment, channel, profile, or BYO fields.
 - V1 release-blocking adapters are kagent, Codex, and Claude.
@@ -27,7 +30,7 @@ Public invariants:
 ```text
 K0 #2362
  ├─ K1 CRDs ─ K3 Preparation ─┬─ K7 Plugins
- │                            ├─ K8 Shared tools ─ K9 Dedicated tools
+ │                            ├─ K8 Shared tools
  │                            └──────────────┐
  ├─ K2 gRPC contracts ───────────────┐     │
  └─ K4 Runtime A2A gRPC ─────────────┴─ K5 AgentInstance create/delete
@@ -37,10 +40,10 @@ K0 #2362
                                                 ├─ K12 UI
                                                 └─ K13 CLI/MCP/content
 
-K3 + K4 + K8 + K9 ─┬─ K14 Codex adapter
-                     └─ K15 Claude adapter
+K3 + K4 + K8 ─┬─ K14 Codex adapter
+               └─ K15 Claude adapter
 
-S1 Substrate snapshots ─ S2 snapshot-sourced actors ─ K16 dependency adoption
+Substrate v0.0.20 snapshots + snapshot-sourced actors ─ K16 dependency adoption
 K6 + K10 + K16 ─ K17 checkpoints ─ K18 fork
 
 K12 + K13 + K14 + K15 + K18 ─ K19 legacy removal ─ K20 release conformance
@@ -162,10 +165,10 @@ Creation:
 
 - Select the latest successful prepared revision.
 - Reserve caller/namespace/request ID transactionally.
-- Execute create and delete as imperative Substrate workflows within their RPCs.
-- Create and resume the deterministic Substrate Actor through Substrate's imperative APIs; a successful resume returns it `RUNNING`, with ActorTemplate `/readyz` as the readiness contract.
+- Execute AgentInstance create and delete synchronously within their RPCs.
+- Create the deterministic Substrate Actor in its initial suspended state; Substrate establishes runtime readiness while preparing the ActorTemplate.
 - Publish the logical A2A authority and transition to `READY`.
-- Retrying a canceled create with the same request ID resumes the same deterministic workflow.
+- Retrying a canceled create with the same request ID re-enters the same deterministic workflow.
 - Never duplicate a member while creation outcome is unknown.
 
 Deletion fences interaction, deletes owned Actors, releases its prepared-revision foreign key, triggers cleanup when that was the final reference, and leaves an indefinitely retained V1 tombstone. No retention configuration is added until scale requires one.
@@ -187,10 +190,11 @@ This step is intentionally not on the critical path for the initial vertical sli
 
 ### K6 — Suspend, resume, and failure reconciliation
 
-Implement lifecycle across the complete member set:
+Implement lifecycle for the root runtime:
 
-- Suspend rejects active public or private work, fences ingress, and suspends every Actor.
-- Resume restores every Actor, private bindings, and health before returning `READY`.
+- Explicit suspend rejects active work, fences ingress, ensures the Actor is
+  suspended, and changes the AgentInstance's logical state to `SUSPENDED`.
+- Resume restores the Actor and health before returning logical `READY`.
 - Conflicting lifecycle operations return `ABORTED`.
 - Missing or mismatched Actors transition the instance to `FAILED`; reconciliation never silently replaces them.
 - Public history remains readable while suspended or failed.
@@ -230,15 +234,22 @@ Extend preparation and the kagent adapter:
 
 ### K9 — Dedicated tools and multi-member topology
 
-Add Dedicated boundaries:
+Once the single-member lifecycle and its core E2E coverage are in place, add Dedicated boundaries:
 
 - Produce a prepared runtime bundle and ActorTemplate per Dedicated boundary.
 - Provision every member through K5’s existing state machine.
-- Generate a binding-scoped private MCP server exposing only `invoke(task)`.
+- Give each Dedicated binding a private A2A endpoint and credentials scoped to
+  exactly that binding and child.
+- Stream child A2A events through the parent Task, including progress and
+  cancellation, while returning terminal child output to the parent model as
+  the tool result.
+- Let harness adapters expose the binding through their native mechanism. Use
+  an MCP-to-A2A adapter only for harnesses that cannot invoke A2A directly.
 - Hide Actor identity, credentials, and arbitrary target selection.
 - Persist private binding and conversation handles inside snapshot-covered storage.
 - Apply lifecycle and deletion atomically to the complete member set.
-- Keep child interaction terminal and tool-shaped; child streaming Tasks and child `INPUT_REQUIRED` remain deferred.
+- Extend checkpoint and fork atomically across the complete member set.
+- Keep child interaction tool-shaped; child `INPUT_REQUIRED` remains deferred.
 
 ### K10 — Public AgentInstance A2A gateway
 
@@ -247,6 +258,12 @@ Make the controller the authoritative public A2A v1 gRPC server:
 - Route by authenticated AgentInstance authority; never accept Actor addresses.
 - Persist public Tasks, messages, artifacts, and an ordered append-only event log.
 - Commit every update before publishing it.
+- When a Task reaches a terminal or interrupting state (`INPUT_REQUIRED` or
+  `AUTH_REQUIRED`), persist its history boundary, suspend the root Actor, and
+  record the exact returned snapshot identity and UID before publishing that
+  quiescent state.
+- Keep the AgentInstance logically `READY` after automatic post-turn
+  suspension; the next interaction resumes the Actor transparently.
 - Enforce one non-terminal Task per AgentInstance transactionally.
 - Implement message idempotency, conflicting-ID rejection, cancellation, reconnect, get/list, filtering, and history/artifact shaping.
 - Perform Task filtering, stable ordering, total counting, and pagination in PostgreSQL with queries scoped by AgentInstance; Go validates page tokens and shapes history/artifacts but does not load, filter, or sort complete Task sets in memory or inherit session-backed query semantics.
@@ -260,7 +277,11 @@ The old session-backed A2A handler remains only until UI cutover.
 K10 progress:
 
 - Completed: authenticated routing and runtime proxying; durable Task and event persistence; database-backed get/list/filter/count/pagination and history/artifact shaping; the one-active-Task constraint; and message idempotency with conflicting-ID rejection.
-- Remaining parallel slices: cancellation and reconnect/subscription; generated Agent Card; creator/operator/share authorization coverage; and Kind end-to-end coverage.
+- Remaining parallel slices: cancellation and reconnect/subscription;
+  automatic post-turn suspension; generated Agent Card; creator/operator/share
+  authorization coverage; consolidate each Task/event/snapshot persistence
+  boundary into one PostgreSQL statement (2→1 queries for regular events and
+  3→1 for quiescent snapshot events); and Kind end-to-end coverage.
 
 ### K11 — Agent-to-Agent delegation and approval profile
 
@@ -305,6 +326,10 @@ MCP:
 
 - Discover ready AgentInstances.
 - Invoke them only through the public gateway A2A path.
+- Expose durable A2A turns through the MCP Tasks extension, including polling,
+  cancellation, and input-required continuation.
+- Keep synchronous `tools/call` fallback for clients without Tasks support.
+- Store no MCP-owned task or session state.
 - Never expose Actor or private MCP endpoints.
 
 Content:
@@ -320,7 +345,7 @@ Content:
 Implement the second release-blocking adapter:
 
 - Render Shared children into private `CODEX_HOME/agents/*.toml`.
-- Render explicit MCP and Dedicated bindings into Codex configuration.
+- Render explicit MCP bindings into Codex configuration.
 - Materialize selected skills into the pinned runtime layout.
 - Drive `codex exec --json` and `codex exec resume`.
 - Preserve threads, workspace, MCP handles, and adapter state in DurableDir.
@@ -333,52 +358,58 @@ OpenClaw, Hermes, hosted profiles, and shared-host topology are separate future 
 
 Implement the third release-blocking adapter:
 
-- Render Shared children, explicit MCP bindings, and Dedicated bindings into Claude's native configuration.
+- Render Shared children and explicit MCP bindings into Claude's native
+  configuration.
 - Materialize selected skills into the pinned runtime layout.
 - Drive the pinned Claude runtime through its non-interactive streaming interface.
 - Preserve conversations, workspace, MCP handles, and adapter state in DurableDir.
 - Map Claude output, tool calls, approvals, cancellation, and failures to the private upstream A2A service.
 - Publish only capabilities proven by the conformance suite.
 
-### S1 — Upstream Substrate immutable ActorSnapshot API
+### S1 — Upstream Substrate immutable ActorSnapshot API ✅
 
-External Substrate PR:
+Released in Substrate v0.0.20:
 
-- Add immutable ActorSnapshot identity and Get/List/Delete APIs.
-- Make durable suspend return the exact snapshot created.
-- Add expected Actor UID/version fencing.
-- Define FULL and DATA scope semantics.
-- Add reference tracking and deletion protection.
-- Test supported sandbox/storage implementations.
+- Immutable ActorSnapshot identity and Get/List APIs.
+- Durable suspend returns the Actor with its exact latest snapshot.
+- FULL and DATA scope semantics.
+- Immutable snapshot tags provide retention and deletion protection.
+- Coverage for supported sandbox/storage implementations.
 
-### S2 — Upstream snapshot-sourced Actor creation
+### S2 — Upstream snapshot-sourced Actor creation ✅
 
-Stacked external Substrate PR:
+Released in Substrate v0.0.20:
 
-- Allow `CreateActor` from an immutable source snapshot.
+- Allow `CreateActor` from an immutable source snapshot tag.
 - Create the target initially suspended with a new Actor identity.
 - Validate ActorTemplate and snapshot compatibility.
 - Ensure FULL restoration includes process and filesystem state.
-- Preserve source snapshot and Actor immutability on partial failure.
+- Record the exact resolved snapshot identity and UID on the new Actor.
 - Add clone, resume, deletion, and incompatibility conformance tests.
 
 ### K16 — Adopt released Substrate snapshot APIs
 
-- Replace the temporary kagent Substrate fork/version.
-- Add client wrappers for fenced suspend, snapshots, and source-snapshot creation.
-- Record exact snapshot identities for every runtime member.
+- Add client wrappers for suspend, snapshot tags, and snapshot-sourced Actor creation.
+- Record the root runtime's exact snapshot identity and UID at each quiescent
+  turn boundary.
 - Verify kagent does not infer snapshot identity from “latest” state.
-- Add integration tests for partial multi-member failure and reference cleanup.
+- Add integration tests for failure and tag/reference cleanup.
 
 ### K17 — Checkpoint service
 
-Implement persisted long-running operations:
+Implement checkpoints as retained turn boundaries:
 
-- Fence the AgentInstance and reject active public, Shared, or Dedicated work.
-- Capture the committed public history head and sequence.
-- Suspend every member with UID/version preconditions.
-- Publish a Checkpoint only after every member snapshot and history boundary commit.
-- Restore the source instance to its prior running/suspended state.
+- Fence the AgentInstance and require a quiescent turn boundary.
+- Create an immutable retention tag for that boundary's recorded snapshot,
+  verifying its identity and UID.
+- Publish a Checkpoint only after its snapshot tag and matching history head
+  and sequence are committed.
+- Keep the source AgentInstance ID as provenance rather than checkpoint ownership;
+  deleting the source must not delete its retained checkpoint or tag.
+- Record the immutable snapshot content scope. Future sharing may publish only
+  `DATA` snapshots, which contain durable data without process memory or root
+  filesystem changes.
+- Do not suspend or resume the Actor as part of checkpoint creation.
 - Keep partial checkpoints invisible and mark ambiguous failures explicitly.
 - Delete only when no fork or retained lineage references its snapshots.
 - Make repeated request IDs idempotent.
@@ -390,13 +421,12 @@ Checkpoint contents exclude external MCP-owned mutable state.
 Implement `ForkAgentInstance`:
 
 - Require same-namespace target ownership.
-- Create new Actor identities from every checkpoint snapshot.
-- Rewire Dedicated bindings to the cloned members.
+- Create a new Actor identity from the checkpoint's retained snapshot tag.
 - Create a new AgentInstance, A2A authority, creator ownership, and labels.
 - Keep source instance, history, and snapshots immutable.
 - Represent inherited history through copy-on-write projections: deterministic fork-local Task IDs and the new context ID reference immutable source payloads and lineage without duplicating content.
 - New Tasks append only to the fork.
-- Return ready only after all members resume and pass health.
+- Return ready only after the cloned Actor resumes and passes health.
 
 In-place restore is not added.
 
@@ -420,12 +450,15 @@ Enable blocking clean-install coverage:
 
 - kagent, Codex, and Claude Harnesses.
 - Prompt/model/MCP/skills/plugins.
-- Shared and Dedicated tools.
+- Shared tools.
 - Create idempotency and controller restart at each provisioning step.
 - Public A2A send/stream/get/list/cancel/reconnect and busy rejection.
+- Automatic suspend after every quiescent turn, transparent resume on the next
+  interaction, and recovery across crashes between runtime completion,
+  snapshot creation, and final event publication.
 - Read-only/read-write shares.
 - Suspend/resume with durable private state.
-- Multi-member checkpoint consistency and fork independence.
+- Single-member checkpoint consistency and fork independence.
 - Snapshot failure, missing Actor, source deletion, and cleanup behavior.
 - Browser BFF and UI workflows.
 - CRD generation, Helm lint/render, Buf lint/breaking/generation, Go/Python/UI tests.
@@ -436,12 +469,12 @@ Substrate Kind E2E may remain disabled during earlier PRs, but it is blocking he
 
 After K0:
 
-- API lane: K1 → K3 → K7/K8 → K9.
+- API lane: K1 → K3 → K7/K8. K9 follows the single-member lifecycle and core E2E coverage.
 - Control-plane lane: K2, then prepare K5 database/service work.
 - Runtime lane: K4 independently.
 - External lane: S0 can unlock K5A at any time after K5; S1 → S2 independently.
 - UI lane: begin K12 against K2 mocks; integrate after K10.
-- Codex and Claude lanes: begin after K3’s resolved-bundle contract; integrate independently after K8/K9.
+- Codex and Claude lanes: begin after K3’s resolved-bundle contract; integrate independently after K8.
 
 High-conflict integration files should have one owner at a time:
 
@@ -455,7 +488,7 @@ K7 and K8 should branch from K3 and avoid editing each other’s source-specific
 ## Milestone gates
 
 - Preview 1: K0–K6 — single kagent AgentTemplate can prepare, instantiate, chat, suspend, resume, and delete through final APIs.
-- Preview 2: K7–K15 — full configuration, composition, Codex, Claude, UI, CLI, and MCP behavior.
+- Preview 2: K7–K8 and K10–K15 — full configuration, Shared composition, Codex, Claude, UI, CLI, and MCP behavior.
 - Release candidate: S1–S2 and K16–K19 — checkpoint/fork complete and legacy surface deleted.
 - API v2 complete: K20 passes with all three release-blocking adapters and Substrate E2E.
 

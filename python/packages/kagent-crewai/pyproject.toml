@@ -17,7 +17,7 @@ dependencies = [
   "a2a-sdk[http-server]>=1.1.0",
   "kagent-core>=0.1.0",
   "opentelemetry-instrumentation-crewai>=0.47.3",
-  "google-genai>=2.17.0,<3"
+  "google-genai>=2.20.0,<3"
 ]
 
 

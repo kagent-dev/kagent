@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
@@ -18,7 +19,10 @@ message ResourceReference {
 }
 
 message PageRequest {
-  int32 limit = 1;
+  int32 limit = 1 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
   string page_token = 2;
 }
 

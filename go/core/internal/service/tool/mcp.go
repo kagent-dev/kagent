@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -205,11 +205,21 @@ func (c *RuntimeMCPClient) getMCPServerEndpoint(ctx context.Context, key client.
 		}
 		return nil, false, fmt.Errorf("failed to get MCPServer %s: %w", key.String(), err)
 	}
-	converted, err := agenttranslator.ConvertMCPServerToRemoteMCPServer(server)
-	if err != nil {
-		return nil, true, fmt.Errorf("failed to resolve MCPServer %s endpoint: %w", key.String(), err)
+	if server.Spec.Deployment.Port == 0 {
+		return nil, true, fmt.Errorf("cannot determine port for MCPServer %s", key.String())
 	}
-	return converted, true, nil
+	timeout := server.Spec.Timeout
+	if timeout == nil {
+		timeout = &metav1.Duration{Duration: 30 * time.Second}
+	}
+	return &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: server.Name, Namespace: server.Namespace},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			URL:      fmt.Sprintf("http://%s.%s:%d/mcp", server.Name, server.Namespace, server.Spec.Deployment.Port),
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			Timeout:  timeout,
+		},
+	}, true, nil
 }
 
 func mcpServerCRDKind(groupKind string) string {

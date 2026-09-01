@@ -354,6 +354,7 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 		{
 			name: "all_fields_populated",
 			config: &adk.AgentConfig{
+				Name: "root",
 				Model: &adk.OpenAI{
 					BaseModel: adk.BaseModel{
 						Type:  "openai",
@@ -361,9 +362,13 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 					},
 					BaseUrl: "https://api.openai.com/v1",
 				},
-				Description: "Test agent with all fields",
-				Instruction: "You are a helpful test assistant",
-				Stream:      new(true),
+				Description:     "Test agent with all fields",
+				Instruction:     "You are a helpful test assistant",
+				SkillsDirectory: "/skills",
+				SubAgents: []*adk.AgentConfig{{
+					Name: "helper", Model: &adk.OpenAI{BaseModel: adk.BaseModel{Type: "openai", Model: "gpt-4o-mini"}},
+				}},
+				Stream: new(true),
 				Memory: &adk.MemoryConfig{
 					TTLDays: 15,
 					Embedding: &adk.EmbeddingConfig{
@@ -437,5 +442,25 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 			// and running models. The real validation happens in E2E tests.
 			// This test primarily validates the AgentConfig structure itself.
 		})
+	}
+}
+
+func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("KAGENT_SKILLS_FOLDER", "/does/not/exist")
+	model := func() adk.Model {
+		return &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4o"}, BaseUrl: "https://api.openai.com/v1"}
+	}
+	config := &adk.AgentConfig{
+		Model: model(), Description: "root", Instruction: "coordinate", SkillsDirectory: t.TempDir(),
+		SubAgents: []*adk.AgentConfig{{Name: "researcher", Model: model(), Description: "research", Instruction: "investigate"}},
+	}
+
+	root, err := CreateGoogleADKAgent(context.Background(), config, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.SubAgents()) != 1 || root.SubAgents()[0].Name() != "researcher" || root.SubAgents()[0].Description() != "research" {
+		t.Fatalf("sub-agents = %#v", root.SubAgents())
 	}
 }

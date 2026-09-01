@@ -1,0 +1,68 @@
+{
+  "anthropic": [
+    {
+      "name": "first_claude_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Return exactly CLAUDE_MOCK_FIRST."
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "msg_claude_mock_first",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "CLAUDE_MOCK_FIRST"
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4
+        }
+      }
+    },
+    {
+      "name": "resumed_claude_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Return exactly CLAUDE_MOCK_SECOND."
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "msg_claude_mock_second",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "CLAUDE_MOCK_SECOND"
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 4
+        }
+      }
+    }
+  ]
+}

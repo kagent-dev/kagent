@@ -12,7 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -330,10 +330,8 @@ func (s *Service) listSubstrateCRs(ctx context.Context, namespace string) ([]Sub
 			WorkerSelector:  labelSelectorString(ctx, actorTemplate.Spec.WorkerSelector),
 			ManagedByKagent: actorTemplate.Labels["app.kubernetes.io/managed-by"] == "kagent",
 		}
-		if harness := strings.TrimSpace(actorTemplate.Labels[substrate.HarnessLabelKey]); harness != "" {
-			entry.HarnessName = harness
-		} else if agentName := substrate.SandboxAgentNameFromLabels(actorTemplate.Labels); agentName != "" {
-			entry.HarnessName = agentName
+		if harnessName := actorTemplate.Labels[substrate.RevisionHarnessLabel]; harnessName != "" {
+			entry.HarnessName = harnessName
 		}
 		actorTemplates = append(actorTemplates, entry)
 	}
@@ -407,15 +405,16 @@ func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 }
 
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
+	assignment := worker.GetStatus().GetAssignment()
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  worker.GetAssignment().GetActorTemplate().GetNamespace(),
-		ActorTemplate:   worker.GetAssignment().GetActorTemplate().GetName(),
-		ActorID:         worker.GetAssignment().GetActor().GetName(),
+		ActorNamespace:  assignment.GetActorTemplate().GetNamespace(),
+		ActorTemplate:   assignment.GetActorTemplate().GetName(),
+		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
-		Version:         worker.GetVersion(),
+		Version:         worker.GetMetadata().GetVersion(),
 	}
 }
 

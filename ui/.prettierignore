@@ -1,0 +1,2 @@
+# Disable Prettier for the UI workspace when opened directly in an editor. ESLint is the formatter source of truth.
+**/*

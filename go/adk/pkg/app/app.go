@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -9,14 +10,12 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
-	"github.com/kagent-dev/kagent/go/adk/pkg/session"
-	"github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -39,10 +38,6 @@ type AppConfig struct {
 	// Port is the port to listen on. Defaults to the PORT env var, then "8080".
 	Port string
 
-	// KAgentGRPCURL is the KAgent controller gRPC target for remote session/task persistence.
-	// Defaults to the KAGENT_GRPC_URL env var. When empty, the app uses no remote persistence.
-	KAgentGRPCURL string
-
 	// AppName identifies this application for session and tracing purposes.
 	// Defaults to KAGENT_NAMESPACE__NS__KAGENT_NAME from env, then AgentCard.Name,
 	// then "go-adk-agent".
@@ -54,11 +49,6 @@ type AppConfig struct {
 	// Logger is the structured logger. If nil, a production zap logger is created.
 	Logger logr.Logger
 
-	// ControllerClient overrides the authenticated gRPC client used for KAgent
-	// persistence. When nil and KAgentGRPCURL is set, the builder creates and owns
-	// a client with Kubernetes token authentication.
-	ControllerClient *controllerclient.Client
-
 	// HandlerOpts are additional a2asrv.RequestHandlerOption values appended
 	// after the ones the builder creates (task store, push notifications, etc.).
 	HandlerOpts []a2asrv.RequestHandlerOption
@@ -68,15 +58,41 @@ type AppConfig struct {
 	Agent adkagent.Agent
 }
 
-// KAgentApp wires an AgentExecutor with kagent infrastructure (auth, session,
-// task store, A2A server) so that BYO users only need to provide their executor.
+// KAgentApp wires an AgentExecutor with kagent's A2A server.
 type KAgentApp struct {
-	server               *server.A2AServer
-	tokenService         *auth.KAgentTokenService
-	controllerClient     *controllerclient.Client
-	ownsControllerClient bool
-	sessionService       *session.KAgentSessionService
-	logger               logr.Logger
+	server *server.A2AServer
+	logger logr.Logger
+}
+
+type seedTaskInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+	store a2ataskstore.Store
+}
+
+func (i seedTaskInterceptor) Before(ctx context.Context, _ *a2asrv.CallContext, req *a2asrv.Request) (context.Context, any, error) {
+	if req == nil {
+		return ctx, nil, nil
+	}
+	send, ok := req.Payload.(*a2atype.SendMessageRequest)
+	if !ok || send.Message == nil || send.Message.TaskID == "" {
+		return ctx, nil, nil
+	}
+	storedTask, err := apia2a.TakeStoredTask(send.Message)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if _, err := i.store.Get(ctx, send.Message.TaskID); err == nil {
+		return ctx, nil, nil
+	} else if !errors.Is(err, a2atype.ErrTaskNotFound) {
+		return ctx, nil, fmt.Errorf("load actor task: %w", err)
+	}
+	if storedTask == nil {
+		storedTask = a2atype.NewSubmittedTask(send.Message, send.Message)
+	}
+	if _, err := i.store.Create(ctx, storedTask); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
+		return ctx, nil, fmt.Errorf("seed actor task: %w", err)
+	}
+	return ctx, nil, nil
 }
 
 // New creates a KAgentApp by wiring the provided executor with kagent
@@ -90,54 +106,16 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 
 	log := cfg.Logger
 
-	app := &KAgentApp{
-		logger: log,
-	}
+	app := &KAgentApp{logger: log}
+	tasks := a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
+	handlerOpts := []a2asrv.RequestHandlerOption{a2asrv.WithTaskStore(tasks)}
 
-	// Wire remote infrastructure when a controller gRPC target or client is configured.
-	var handlerOpts []a2asrv.RequestHandlerOption
-	controllerClient := cfg.ControllerClient
-	if controllerClient != nil || cfg.KAgentGRPCURL != "" {
-		if controllerClient == nil {
-			tokenService := auth.NewKAgentTokenService(cfg.AppName)
-			if err := tokenService.Start(context.Background()); err != nil {
-				log.Error(err, "Failed to start token service")
-			} else {
-				log.Info("Token service started")
-			}
-			app.tokenService = tokenService
-			var err error
-			controllerClient, err = controllerclient.New(controllerclient.Config{
-				Target:        cfg.KAgentGRPCURL,
-				AgentName:     cfg.AppName,
-				TokenProvider: tokenService,
-			})
-			if err != nil {
-				app.stop()
-				return nil, fmt.Errorf("create controller gRPC client: %w", err)
-			}
-			app.controllerClient = controllerClient
-			app.ownsControllerClient = true
-		}
-
-		sessionSvc := session.NewKAgentSessionService(controllerClient)
-		app.sessionService = sessionSvc
-		log.Info("Using KAgent gRPC session service", "target", cfg.KAgentGRPCURL)
-	} else {
-		log.Info("No KAgent gRPC target configured, using in-memory session")
-	}
-
-	if controllerClient != nil {
-		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskstore.NewKAgentTaskStore(controllerClient)))
-		log.Info("Using KAgent gRPC task store", "target", cfg.KAgentGRPCURL)
-	} else {
-		log.Info("No task store configured, using in-memory task storage")
-	}
-
-	// Activate the optional HITL extension and resolve the authenticated user.
+	// The private runtime receives a gateway-assigned ID for a new task. Seed it
+	// locally so upstream A2A does not mistake that ID for a continuation.
 	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
 		a2a.HITLActivationInterceptor(),
 		a2a.UserIDCallInterceptor(),
+		seedTaskInterceptor{store: tasks},
 	))
 
 	// Append any caller-supplied handler options.
@@ -156,7 +134,6 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 
 	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)
 	if err != nil {
-		app.stop()
 		return nil, fmt.Errorf("failed to create A2A server: %w", err)
 	}
 	app.server = a2aServer
@@ -166,31 +143,12 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 
 // Run starts the A2A server and blocks until a shutdown signal is received.
 func (a *KAgentApp) Run() error {
-	defer a.stop()
 	return a.server.Run()
-}
-
-// SessionService returns the wired session service. BYO executors that need
-// session persistence can use this. Returns nil when controller gRPC is not configured.
-func (a *KAgentApp) SessionService() *session.KAgentSessionService {
-	return a.sessionService
 }
 
 // Logger returns the logger used by this app.
 func (a *KAgentApp) Logger() logr.Logger {
 	return a.logger
-}
-
-// stop cleans up resources.
-func (a *KAgentApp) stop() {
-	if a.ownsControllerClient && a.controllerClient != nil {
-		if err := a.controllerClient.Close(); err != nil {
-			a.logger.Error(err, "Failed to close controller gRPC client")
-		}
-	}
-	if a.tokenService != nil {
-		a.tokenService.Stop()
-	}
 }
 
 // applyDefaults fills in zero-value fields with sensible defaults.
@@ -200,10 +158,6 @@ func applyDefaults(cfg AppConfig) AppConfig {
 	}
 	if cfg.Port == "" {
 		cfg.Port = defaultPort
-	}
-
-	if cfg.KAgentGRPCURL == "" {
-		cfg.KAgentGRPCURL = os.Getenv("KAGENT_GRPC_URL")
 	}
 
 	if cfg.AppName == "" {
