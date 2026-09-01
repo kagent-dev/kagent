@@ -72,7 +72,6 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		modelRuntime := &modelRuntime{
 			Model: model, Environment: data.EnvVars,
 			HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
-			data:                  data,
 		}
 		if modelRuntime.HasUnsupportedVolumes {
 			return nil, v2translator.NewValidationError("memory ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
