@@ -1,4 +1,4 @@
-package telemetry
+package telemetry_test
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 )
 
 // restoreGlobals puts the process-wide OTEL registrations back after a test.
@@ -26,7 +28,7 @@ func TestInitTracerProviderDisabled(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "false")
 
 	before := otel.GetTracerProvider()
-	shutdown, err := InitTracerProvider(context.Background(), "test")
+	shutdown, err := telemetry.InitTracerProvider(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func TestInitTracerProviderRegistersGlobals(t *testing.T) {
 	// "none" selects a noop exporter, so the test dials no collector.
 	t.Setenv("OTEL_TRACES_EXPORTER", "none")
 
-	shutdown, err := InitTracerProvider(context.Background(), "test")
+	shutdown, err := telemetry.InitTracerProvider(context.Background(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}

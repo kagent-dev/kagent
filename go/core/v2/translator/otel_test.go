@@ -1,9 +1,11 @@
-package translator
+package translator_test
 
 import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/core/v2/translator"
 )
 
 func TestOtelEnvFromProcess(t *testing.T) {
@@ -11,7 +13,7 @@ func TestOtelEnvFromProcess(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
 	t.Setenv("KAGENT_NOT_FORWARDED", "value")
 
-	got := OtelEnvFromProcess()
+	got := translator.OtelEnvFromProcess()
 
 	values := map[string]string{}
 	for _, variable := range got {

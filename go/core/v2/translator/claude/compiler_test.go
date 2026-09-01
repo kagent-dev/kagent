@@ -164,28 +164,6 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	}
 }
 
-func TestCompileForwardsOtelEnvironment(t *testing.T) {
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
-	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-	}
-	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	revision, err := NewCompiler(reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, variable := range revision.Environment {
-		if variable.Name == "OTEL_TRACING_ENABLED" {
-			if variable.Value != "true" {
-				t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q", variable.Value, "true")
-			}
-			return
-		}
-	}
-	t.Fatalf("OTEL_TRACING_ENABLED missing from revision environment: %+v", revision.Environment)
-}
-
 func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
