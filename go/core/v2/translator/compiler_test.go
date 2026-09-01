@@ -292,6 +292,42 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	}
 }
 
+func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:                &v1alpha3.KagentHarness{},
+			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.HarnessSubstratePolicy{
+				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+				SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
+			SystemPrompt: "help",
+		},
+	}
+	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variable := range spec.Environment {
+		if variable.Name == "OTEL_TRACING_ENABLED" {
+			if variable.Value != "true" {
+				t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q", variable.Value, "true")
+			}
+			return
+		}
+	}
+	t.Fatalf("OTEL_TRACING_ENABLED missing from runtime revision environment: %+v", spec.Environment)
+}
+
 func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	selector := &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{MatchLabels: map[string]string{"runtime": "kagent"}}}
 	harness := &v1alpha3.Harness{

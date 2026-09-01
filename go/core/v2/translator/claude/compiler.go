@@ -74,6 +74,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
 		corev1.EnvVar{Name: claudeconfig.PreResponseTraceFlushEnvName, Value: "true"},
 	)
+	environment = append(environment, v2translator.OtelEnvFromProcess()...)
 
 	localAgents, err := c.compileLocalAgents(input.Root)
 	if err != nil {
