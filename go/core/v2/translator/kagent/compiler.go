@@ -231,7 +231,7 @@ func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, env
 		ref := variable.ValueFrom.SecretKeyRef
 		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
 		if fetched == nil {
-			return nil, fmt.Errorf("Secret %q not found", ref.Name)
+			return nil, fmt.Errorf("secret %q not found", ref.Name)
 		}
 		secret := *fetched
 		value, ok := secret.Data[ref.Key]
@@ -302,7 +302,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harnes
 		seenSecrets[identity] = struct{}{}
 		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}))
 		if fetched == nil {
-			return nil, fmt.Errorf("Secret %q not found", ref.Name)
+			return nil, fmt.Errorf("secret %q not found", ref.Name)
 		}
 		secret := *fetched
 		value, ok := secret.Data[ref.Key]
