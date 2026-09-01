@@ -31,8 +31,16 @@ type CodexHarness struct{}
 // ClaudeHarness selects the Claude runtime adapter.
 type ClaudeHarness struct{}
 
-// BYOHarness configures an image that implements kagent's private A2A contract.
-type BYOHarness struct {
+// BYOHarness selects an image that implements kagent's private A2A contract.
+type BYOHarness struct{}
+
+// HarnessWorkload identifies the immutable runtime image used by a Harness.
+type HarnessWorkload struct {
+	// Image is an OCI image reference pinned by sha256 digest.
+	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
+	// +required
+	Image string `json:"image"`
+
 	// Command overrides the image entrypoint when set.
 	// +kubebuilder:validation:MaxItems=32
 	// +optional
@@ -42,22 +50,6 @@ type BYOHarness struct {
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
 	Args []string `json:"args,omitempty"`
-
-	// EgressDestinations permits image-owned dependencies that cannot be inferred
-	// from AgentTemplate configuration.
-	// +kubebuilder:validation:MaxItems=32
-	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	// +listType=set
-	// +optional
-	EgressDestinations []string `json:"egressDestinations,omitempty"`
-}
-
-// HarnessWorkload identifies the immutable runtime image used by a Harness.
-type HarnessWorkload struct {
-	// Image is an OCI image reference pinned by sha256 digest.
-	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
-	// +required
-	Image string `json:"image"`
 }
 
 // HarnessEnvVar configures one runtime environment variable.
@@ -110,6 +102,7 @@ type HarnessAgentTemplateAdmission struct {
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || size(self.workload.command) > 0",message="BYO harnesses must specify workload.command"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`

@@ -26,6 +26,7 @@ spec:
   byo: {}
   workload:
     image: ${KAGENT_E2E_BYO_IMAGE}
+    command: ["/app"]
   substrate:
     workerPoolRef:
       name: kagent-default
@@ -45,6 +46,7 @@ spec:
   byo: {}
   workload:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
+    command: ["/app"]
   substrate:
     workerPoolRef:
       name: kagent-default

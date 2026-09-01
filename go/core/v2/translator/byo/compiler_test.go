@@ -21,11 +21,8 @@ func (reader) Get(context.Context, types.NamespacedName, runtime.Object) error {
 
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		BYO: &v1alpha3.BYOHarness{
-			Command: []string{"/agent"}, Args: []string{"serve"},
-			EgressDestinations: []string{"api.example.com"},
-		},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		BYO:      &v1alpha3.BYOHarness{},
+		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
 		Env:      []v1alpha3.HarnessEnvVar{{Name: "MODE", Value: new("production")}},
 		Substrate: v1alpha3.HarnessSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
@@ -39,9 +36,9 @@ func TestCompileOpaqueImage(t *testing.T) {
 		Harness: harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
 	require.NoError(t, err)
-	require.Equal(t, harness.Spec.BYO.Command, revision.Command)
-	require.Equal(t, harness.Spec.BYO.Args, revision.Args)
-	require.Equal(t, []string{"api.example.com"}, revision.EgressDestinations)
+	require.Equal(t, harness.Spec.Workload.Command, revision.Command)
+	require.Equal(t, harness.Spec.Workload.Args, revision.Args)
+	require.Empty(t, revision.EgressDestinations)
 	require.Equal(t, []corev1.EnvVar{{Name: "MODE", Value: "production"}}, revision.Environment)
 
 	var config adk.AgentConfig

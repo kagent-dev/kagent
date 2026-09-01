@@ -45,12 +45,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}
-	compiled.Egress = append(compiled.Egress, harness.Spec.BYO.EgressDestinations...)
 	slices.Sort(compiled.Egress)
 
 	return &v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Command: harness.Spec.BYO.Command, Args: harness.Spec.BYO.Args,
+		Image: harness.Spec.Workload.Image, Command: harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),

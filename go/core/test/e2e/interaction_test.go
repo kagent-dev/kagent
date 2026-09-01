@@ -709,7 +709,7 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.AgentTemplateLocalReference{Name: model.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},
@@ -748,11 +748,11 @@ func createMCPInteractionTemplateForHarness(t *testing.T, modelURL, mcpURL, harn
 			Labels: map[string]string{"kagent.dev/e2e-runtime": runtimeLabel, "kagent.dev/harness": harnessName},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.AgentTemplateLocalReference{Name: model.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
 			Description:  "MCP interaction E2E fixture",
 			SystemPrompt: "Use add_numbers to answer arithmetic questions.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"add_numbers"},
 			}}},
 		},
@@ -772,7 +772,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.AgentTemplateLocalReference{Name: childModel.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: childModel.Name},
 			Description:  "Shared specialist",
 			SystemPrompt: "Answer as the shared specialist.",
 		},
@@ -784,12 +784,12 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.AgentTemplateLocalReference{Name: rootModel.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
 				Name: "specialist", Description: "Handles specialist requests",
-				TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: child.Name},
+				TemplateRef: corev1.LocalObjectReference{Name: child.Name},
 				Isolation:   v1alpha3.AgentToolIsolationShared,
 			}}},
 		},

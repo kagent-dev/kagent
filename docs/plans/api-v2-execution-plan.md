@@ -375,12 +375,12 @@ Implement the third release-blocking adapter:
 
 Allow users with Harness write access to supply a digest-pinned image that implements the private A2A runtime contract:
 
-- Add a typed `byo` Harness variant. Keep the image, optional command and args, environment, credentials, WorkerPool, snapshot policy, and admission selector on the Harness; do not put arbitrary images on AgentTemplate.
+- Add a typed `byo` Harness variant. Keep the image, command, args, environment, credentials, WorkerPool, snapshot policy, and admission selector on the Harness; do not put arbitrary images on AgentTemplate. Command and args are generic workload fields; BYO requires an explicit command because Substrate does not use the image entrypoint.
 - Require A2A v1 gRPC through the standard Actor ingress, streaming, `/readyz` on port 8081, and durable private state under `/data`. Keep ports, routing, Actor identity, and Substrate mechanics fixed and private.
 - Make AgentTemplate model, prompt, tools, skills, and plugins optional for BYO attachments. Compile every provided field into the existing ADK `AgentConfig` shape and inject it through `KAGENT_CONFIG_JSON` with the generated card in `KAGENT_AGENT_CARD_JSON`; a BYO image may consume that configuration or ignore it.
 - Extract the shared ADK-config construction into a semantic helper used by the kagent and BYO compilers. Do not create a second configuration format or make either compiler depend on the other.
 - Keep the public Agent Card derived from the pinned AgentTemplate revision and gateway capabilities. Do not wake the Actor or trust runtime-provided interfaces, security, or routing metadata to construct it.
-- Infer egress destinations from configured models and MCP servers. Allow the Harness owner to declare an additional typed destination allowlist for image-owned dependencies that cannot be inferred; default to no additional egress.
+- Infer egress destinations from configured models and MCP servers. Do not expose image-owned egress configuration until its policy model is designed.
 - Preserve the existing AgentInstance lifecycle, automatic suspension, checkpoint, fork, authorization, task persistence, and public A2A gateway without BYO-specific branches outside compilation.
 - Cover an opaque A2A image that ignores ADK configuration and an ADK-config-aware image that consumes optional model, prompt, MCP, skill, and plugin inputs. Exercise send/stream, cancellation, suspension, checkpoint, fork, credential redaction, and egress denial in Kind.
 
