@@ -53,14 +53,26 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	template, harness := input.Root.Template, input.Harness
 	cfg := compiled.config
 	if memory := harness.Spec.Kagent.Memory; memory != nil {
-		modelConfig := &v1alpha3.ModelConfig{}
 		name := memory.ModelConfigRef.Name
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, modelConfig); err != nil {
-			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
-		}
-		modelRuntime, err := c.resolveModel(ctx, modelConfig)
+		resolvedModelConfig, err := c.kube.GetResolvedModelConfig(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name})
 		if err != nil {
 			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
+		}
+		if failures := resolvedModelConfig.SemanticFailures; len(failures) > 0 {
+			return nil, v2translator.NewValidationError("memory ModelConfig %q: %s", name, failures[0].Message)
+		}
+		if failures := resolvedModelConfig.ReferenceFailures; len(failures) > 0 {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: %s", name, failures[0].Message)
+		}
+		modelConfig := resolvedModelConfig.Config
+		model, data, err := c.renderModel(ctx, resolvedModelConfig)
+		if err != nil {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
+		}
+		modelRuntime := &modelRuntime{
+			Model: model, Environment: data.EnvVars,
+			HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
+			data:                  data,
 		}
 		if modelRuntime.HasUnsupportedVolumes {
 			return nil, v2translator.NewValidationError("memory ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")

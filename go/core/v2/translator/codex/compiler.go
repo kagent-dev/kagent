@@ -40,10 +40,10 @@ type Compiler struct{ kube v2translator.Reader }
 func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
-	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ModelConfig == nil {
+	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
 		return nil, fmt.Errorf("codex compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
-	model := input.Root.ModelConfig
+	model := input.Root.ResolvedModelConfig.Config
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, v2translator.NewValidationError("Codex ModelConfig model is required")
 	}
@@ -195,19 +195,19 @@ func compileAgents(root *v2translator.AgentInput) (map[string]codexconfig.Agent,
 	agents := make(map[string]codexconfig.Agent, len(root.Shared))
 	for _, binding := range root.Shared {
 		child := binding.Agent
-		if child == nil || child.Template == nil || child.ModelConfig == nil {
+		if child == nil || child.Template == nil || child.ResolvedModelConfig == nil || child.ResolvedModelConfig.Config == nil {
 			return nil, fmt.Errorf("codex Shared agent %q is not fully resolved", binding.Name)
 		}
 		if len(child.MCPTools) != 0 || len(child.Shared) != 0 || len(child.Template.Spec.Tools) != 0 || len(child.Template.Spec.Skills) != 0 || len(child.Template.Spec.Plugins) != 0 {
 			return nil, v2translator.NewValidationError("Codex Shared agent %q cannot contain tools, skills, plugins, or nested agents", binding.Name)
 		}
-		if !sameProviderConfiguration(root.ModelConfig.Spec, child.ModelConfig.Spec) {
+		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, child.ResolvedModelConfig.Config.Spec) {
 			return nil, v2translator.NewValidationError("Codex Shared agent %q must use the root provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
 			return nil, v2translator.NewValidationError("duplicate Codex Shared agent name %q", binding.Name)
 		}
-		agents[binding.Name] = codexconfig.Agent{Description: binding.Description, Instruction: child.Instruction, Model: child.ModelConfig.Spec.Model}
+		agents[binding.Name] = codexconfig.Agent{Description: binding.Description, Instruction: child.Instruction, Model: child.ResolvedModelConfig.Config.Spec.Model}
 	}
 	return agents, nil
 }
@@ -273,6 +273,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	configMaps := map[string]struct{}{}
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
+		model := agent.ResolvedModelConfig.Config
 		for _, object := range []struct {
 			kind, name string
 			uid        types.UID
@@ -280,7 +281,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 			value      any
 		}{
 			{"AgentTemplate", agent.Template.Name, agent.Template.UID, agent.Template.Generation, agent.Template.Spec},
-			{"ModelConfig", agent.ModelConfig.Name, agent.ModelConfig.UID, agent.ModelConfig.Generation, agent.ModelConfig.Spec},
+			{"ModelConfig", model.Name, model.UID, model.Generation, model.Spec},
 		} {
 			identity := object.kind + "\x00" + object.name
 			if _, ok := seenObjects[identity]; !ok {

@@ -120,8 +120,11 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	childModel := model
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []v2translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &v2translator.AgentInput{
-		Template:    &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "child-model"}}},
-		ModelConfig: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childModel}, Instruction: "Review carefully",
+		Template: &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "child-model"}}},
+		ResolvedModelConfig: &v2translator.ResolvedModelConfig{
+			Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childModel},
+		},
+		Instruction: "Review carefully",
 	}}}
 	revision, err := NewCompiler(reader).Compile(context.Background(), input)
 	if err != nil {
@@ -206,11 +209,21 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret"}, Data: secretData}
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(secret).Build()
 	reader := testReader{kube}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ModelConfig: model, Instruction: "help carefully"}}, reader
+	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{
+		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
+	}}, reader
 }
 
 type testReader struct{ client.Client }
 
 func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
 	return r.Client.Get(ctx, key, object.(client.Object))
+}
+
+func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
+	model := &v1alpha3.ModelConfig{}
+	if err := r.Get(ctx, key, model); err != nil {
+		return nil, err
+	}
+	return v2translator.ResolveModelConfig(ctx, r, model)
 }
