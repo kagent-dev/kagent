@@ -35,14 +35,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	// AgentInstanceNamespaceHeader selects the Kubernetes namespace containing the AgentInstance.
-	AgentInstanceNamespaceHeader = "x-kagent-agent-instance-namespace"
-	// AgentInstanceIDHeader selects the AgentInstance within that namespace.
-	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
-	// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
-	TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
-)
+// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
+const TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
 
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -195,17 +189,17 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 }
 
 func route(ctx context.Context) (namespace, id string, err error) {
-	namespaces := metadata.ValueFromIncomingContext(ctx, AgentInstanceNamespaceHeader)
-	ids := metadata.ValueFromIncomingContext(ctx, AgentInstanceIDHeader)
+	namespaces := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceNamespaceHeader)
+	ids := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceIDHeader)
 	if len(namespaces) != 1 || len(ids) != 1 {
-		return "", "", fmt.Errorf("exactly one %s and %s header is required", AgentInstanceNamespaceHeader, AgentInstanceIDHeader)
+		return "", "", fmt.Errorf("exactly one %s and %s header is required", apia2a.AgentInstanceNamespaceHeader, apia2a.AgentInstanceIDHeader)
 	}
 	if problems := utilvalidation.IsDNS1123Label(namespaces[0]); len(problems) > 0 {
-		return "", "", fmt.Errorf("invalid %s header: %s", AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
+		return "", "", fmt.Errorf("invalid %s header: %s", apia2a.AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
 	}
 	parsedID, err := uuid.Parse(ids[0])
 	if err != nil {
-		return "", "", fmt.Errorf("invalid %s header: %w", AgentInstanceIDHeader, err)
+		return "", "", fmt.Errorf("invalid %s header: %w", apia2a.AgentInstanceIDHeader, err)
 	}
 	return namespaces[0], parsedID.String(), nil
 }

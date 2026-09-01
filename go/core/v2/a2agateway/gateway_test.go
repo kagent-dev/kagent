@@ -295,8 +295,8 @@ func gatewayTestContext() context.Context {
 func gatewayTestContextWithRoute(namespace, id string) context.Context {
 	ctx := auth.AuthSessionTo(context.Background(), gatewayTestSession{})
 	return metadata.NewIncomingContext(ctx, metadata.Pairs(
-		AgentInstanceNamespaceHeader, namespace,
-		AgentInstanceIDHeader, id,
+		apia2a.AgentInstanceNamespaceHeader, namespace,
+		apia2a.AgentInstanceIDHeader, id,
 	))
 }
 
@@ -564,8 +564,8 @@ func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(
-		AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 	if _, err := a2apb.NewA2AServiceClient(connection).SendMessage(ctx, request); err != nil {
 		t.Fatal(err)
@@ -1053,8 +1053,8 @@ func TestGatewayHonoursAgentInstanceShare(t *testing.T) {
 		ReadOnly:        true,
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err != nil {
@@ -1084,8 +1084,8 @@ func TestGatewayRefusesAShareForADifferentInstance(t *testing.T) {
 		AgentInstanceID: "00000000-0000-0000-0000-000000000000",
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {
@@ -1110,8 +1110,8 @@ func TestGatewayIgnoresASessionShare(t *testing.T) {
 		SessionID: instance.GetId(),
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		AgentInstanceNamespaceHeader, instance.GetNamespace(),
-		AgentInstanceIDHeader, instance.GetId(),
+		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
 	if _, err := gateway.ListTasks(ctx, &a2atype.ListTasksRequest{}); err == nil {

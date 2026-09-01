@@ -635,7 +635,7 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
@@ -670,7 +670,7 @@ func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string 
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "mcp-interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
@@ -694,7 +694,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-child-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: childModel.Name},
@@ -706,7 +706,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "shared-root-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: rootModel.Name},
