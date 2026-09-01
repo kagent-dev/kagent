@@ -272,6 +272,7 @@ spec:
                 - Bedrock
                 - SAPAICore
                 - Foundry
+                - Mistral
                 type: string
             required:
             - type

@@ -65,6 +65,11 @@ export const PROVIDER_INFO: Record<string, ProviderInfo> = {
     modelDocsLink:
       "https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/models-and-scenarios-in-generative-ai-hub",
   },
+  Mistral: {
+    displayName: "Mistral",
+    apiKeyLink: "https://console.mistral.ai/api-keys",
+    modelDocsLink: "https://docs.mistral.ai/getting-started/models/models_overview/",
+  },
 };
 
 /** The provider's friendly name, or its raw type if unknown. */
@@ -87,6 +92,7 @@ export const PASSTHROUGH_ALLOWED_PROVIDERS = new Set([
   "Ollama",
   "Bedrock",
   "SAPAICore",
+  "Mistral",
 ]);
 
 export function supportsPassthrough(providerType: string | undefined): boolean {

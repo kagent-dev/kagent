@@ -127,6 +127,34 @@ function SAPIcon() {
   );
 }
 
+/** Mistral pixel-mosaic mark in the brand's orange-to-red gradient. */
+function MistralIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <rect x="3" y="3" width="3" height="3" fill="#000000" />
+      <rect x="3" y="6" width="3" height="3" fill="#FFAA00" />
+      <rect x="6" y="6" width="3" height="3" fill="#FFAA00" />
+      <rect x="3" y="9" width="3" height="3" fill="#FF7A00" />
+      <rect x="9" y="9" width="3" height="3" fill="#FF7A00" />
+      <rect x="15" y="9" width="3" height="3" fill="#FF7A00" />
+      <rect x="3" y="12" width="3" height="3" fill="#EA3323" />
+      <rect x="9" y="12" width="3" height="3" fill="#EA3323" />
+      <rect x="15" y="12" width="3" height="3" fill="#EA3323" />
+      <rect x="3" y="15" width="3" height="3" fill="#B4232F" />
+      <rect x="15" y="15" width="3" height="3" fill="#B4232F" />
+      <rect x="3" y="18" width="3" height="3" fill="#8A1B2E" />
+      <rect x="15" y="18" width="3" height="3" fill="#8A1B2E" />
+    </svg>
+  );
+}
+
 // region Public API
 
 export const PROVIDER_ICONS: Record<string, ComponentType> = {
@@ -139,6 +167,7 @@ export const PROVIDER_ICONS: Record<string, ComponentType> = {
   Ollama: OllamaIcon,
   Bedrock: BedrockIcon,
   SAPAICore: SAPIcon,
+  Mistral: MistralIcon,
 };
 
 /**
