@@ -121,7 +121,7 @@ func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.Namesp
 	return v2translator.ResolveModelConfig(ctx, r, model)
 }
 
-func TestResolveModelConfigExposesResolvedFoundryEndpoint(t *testing.T) {
+func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
 	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	model := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
@@ -141,7 +141,6 @@ func TestResolveModelConfigExposesResolvedFoundryEndpoint(t *testing.T) {
 	resolved, err := reader.GetResolvedModelConfig(context.Background(), types.NamespacedName{Namespace: "test", Name: "foundry"})
 	require.NoError(t, err)
 	require.Equal(t, model.Spec, resolved.Config.Spec)
-	require.Equal(t, configMap.Data["endpoint"], resolved.FoundryEndpoint)
 	require.Equal(t, []v2translator.ModelConfigReference{{
 		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
 	}}, resolved.References)

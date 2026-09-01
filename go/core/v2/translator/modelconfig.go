@@ -10,16 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// BedrockAuthentication identifies the credential shape selected from a
-// resolved Bedrock credentials Secret without retaining its values.
-type BedrockAuthentication string
-
-const (
-	BedrockAuthenticationNone   BedrockAuthentication = ""
-	BedrockAuthenticationBearer BedrockAuthentication = "bearer"
-	BedrockAuthenticationIAM    BedrockAuthentication = "iam"
-)
-
 // ModelConfigReference records an object consulted while resolving a ModelConfig.
 // It intentionally contains object identity only; secret values remain in Kubernetes.
 type ModelConfigReference struct {
@@ -38,13 +28,10 @@ type ModelConfigFailure struct {
 // ResolvedModelConfig is the harness-neutral ModelConfig input. Harness adapters
 // render it into their runtime-specific model and credential configuration.
 type ResolvedModelConfig struct {
-	Config                *v1alpha3.ModelConfig
-	FoundryEndpoint       string
-	BedrockAuthentication BedrockAuthentication
-	BedrockSessionToken   bool
-	References            []ModelConfigReference
-	SemanticFailures      []ModelConfigFailure
-	ReferenceFailures     []ModelConfigFailure
+	Config            *v1alpha3.ModelConfig
+	References        []ModelConfigReference
+	SemanticFailures  []ModelConfigFailure
+	ReferenceFailures []ModelConfigFailure
 }
 
 // Usable reports whether every intrinsic configuration requirement and every
@@ -159,13 +146,10 @@ func ResolveModelConfig(ctx context.Context, kube Reader, config *v1alpha3.Model
 				break
 			}
 			if _, ok := secret.Data[env.AWSBearerTokenBedrock.Name()]; ok {
-				resolved.BedrockAuthentication = BedrockAuthenticationBearer
 				resolved.References = append(resolved.References, ModelConfigReference{NamespacedName: key, Kind: "Secret", Key: env.AWSBearerTokenBedrock.Name()})
 			} else {
-				resolved.BedrockAuthentication = BedrockAuthenticationIAM
 				requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "BedrockCredentialKeyNotFound", env.AWSAccessKeyID.Name(), env.AWSSecretAccessKey.Name())
-				_, resolved.BedrockSessionToken = secret.Data[env.AWSSessionToken.Name()]
-				if resolved.BedrockSessionToken {
+				if _, ok := secret.Data[env.AWSSessionToken.Name()]; ok {
 					resolved.References = append(resolved.References, ModelConfigReference{NamespacedName: key, Kind: "Secret", Key: env.AWSSessionToken.Name()})
 				}
 			}
@@ -182,8 +166,7 @@ func ResolveModelConfig(ctx context.Context, kube Reader, config *v1alpha3.Model
 			addSemanticFailure("InvalidProviderConfig", "foundry model config is required")
 			break
 		}
-		resolved.FoundryEndpoint = config.Spec.Foundry.Endpoint
-		if resolved.FoundryEndpoint == "" && config.Spec.Foundry.EndpointFrom != nil {
+		if config.Spec.Foundry.Endpoint == "" && config.Spec.Foundry.EndpointFrom != nil {
 			ref := config.Spec.Foundry.EndpointFrom
 			key := types.NamespacedName{Namespace: config.Namespace, Name: ref.Name}
 			resolved.References = append(resolved.References, ModelConfigReference{NamespacedName: key, Kind: "ConfigMap", Key: ref.Key})
@@ -191,18 +174,14 @@ func ResolveModelConfig(ctx context.Context, kube Reader, config *v1alpha3.Model
 			if err := kube.Get(ctx, key, configMap); err != nil {
 				addReferenceFailure("EndpointConfigMapNotFound", fmt.Sprintf("config map %s not found", ref.Name))
 			} else {
-				value, ok := configMap.Data[ref.Key]
+				_, ok := configMap.Data[ref.Key]
 				if !ok {
 					addReferenceFailure("EndpointConfigMapKeyNotFound", fmt.Sprintf("config map %s does not contain key %q", ref.Name, ref.Key))
-				} else {
-					resolved.FoundryEndpoint = value
 				}
 			}
 		}
-		if resolved.FoundryEndpoint == "" {
-			if config.Spec.Foundry.EndpointFrom == nil {
-				addSemanticFailure("InvalidProviderConfig", "foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
-			}
+		if config.Spec.Foundry.Endpoint == "" && config.Spec.Foundry.EndpointFrom == nil {
+			addSemanticFailure("InvalidProviderConfig", "foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
 		}
 	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderGemini:
 	default:
