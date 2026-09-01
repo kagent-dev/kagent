@@ -242,6 +242,7 @@ func sendClaudeStreaming(t *testing.T, fixture *interactionFixture, text string)
 		case *a2atype.TaskArtifactUpdateEvent:
 			result.sawArtifact = true
 			if event.Artifact != nil {
+				result.toolEvents = append(result.toolEvents, claudeToolEvents(event.Artifact.Parts)...)
 				for _, part := range event.Artifact.Parts {
 					output.WriteString(part.Text())
 				}
@@ -258,7 +259,9 @@ func sendClaudeStreaming(t *testing.T, fixture *interactionFixture, text string)
 				}
 				result.failureText = strings.Join(parts, "\n")
 			}
-			result.toolEvents = append(result.toolEvents, claudeToolEvents(event.Status.Message)...)
+			if event.Status.Message != nil {
+				result.toolEvents = append(result.toolEvents, claudeToolEvents(event.Status.Message.Parts)...)
+			}
 		}
 		if result.state.Terminal() {
 			terminalEvents++
@@ -266,12 +269,9 @@ func sendClaudeStreaming(t *testing.T, fixture *interactionFixture, text string)
 	}
 }
 
-func claudeToolEvents(message *a2atype.Message) []claudeToolEvent {
-	if message == nil {
-		return nil
-	}
+func claudeToolEvents(parts []*a2atype.Part) []claudeToolEvent {
 	var events []claudeToolEvent
-	for _, part := range message.Parts {
+	for _, part := range parts {
 		partType, _ := part.Metadata["kagent_type"].(string)
 		if partType != "function_call" && partType != "function_response" {
 			continue
@@ -290,9 +290,18 @@ func claudeToolEvents(message *a2atype.Message) []claudeToolEvent {
 func claudeTaskToolEvents(task *a2atype.Task) []claudeToolEvent {
 	var events []claudeToolEvent
 	for _, message := range task.History {
-		events = append(events, claudeToolEvents(message)...)
+		if message != nil {
+			events = append(events, claudeToolEvents(message.Parts)...)
+		}
 	}
-	events = append(events, claudeToolEvents(task.Status.Message)...)
+	if task.Status.Message != nil {
+		events = append(events, claudeToolEvents(task.Status.Message.Parts)...)
+	}
+	for _, artifact := range task.Artifacts {
+		if artifact != nil {
+			events = append(events, claudeToolEvents(artifact.Parts)...)
+		}
+	}
 	return events
 }
 
