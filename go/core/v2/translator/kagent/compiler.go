@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -38,6 +39,17 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
+	if memory := harness.Spec.Kagent.Memory; memory != nil {
+		name := memory.ModelConfigRef.Name
+		model, err := c.config.BuildModel(ctx, harness.Namespace, name)
+		if err != nil {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
+		}
+		compiled.Config.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model.Model)}
+		compiled.Models = append(compiled.Models, model.Config)
+		compiled.Environment = append(compiled.Environment, model.Environment...)
+		compiled.Egress = append(compiled.Egress, model.Egress...)
+	}
 	// The Python runtime needs an async SQLite driver; the Go runtime accepts
 	// this URL and strips the driver before opening the same durable database.
 	compiled.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"

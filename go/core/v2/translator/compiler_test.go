@@ -29,10 +29,16 @@ func modelConfig() *v1alpha3.ModelConfig {
 }
 
 func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
+	embeddingModel := modelConfig()
+	embeddingModel.Name = "embedding-model"
+	embeddingModel.Spec.Model = "text-embedding-3-small"
+	embeddingModel.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent:                &v1alpha3.KagentHarness{},
+			Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
+				ModelConfigRef: corev1.LocalObjectReference{Name: embeddingModel.Name}, TTLDays: 7,
+			}},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
 			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			Substrate: v1alpha3.HarnessSubstratePolicy{
@@ -65,7 +71,7 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 			},
 		},
 	}
-	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+	spec, err := compiler(t, modelConfig(), embeddingModel).CompileAgentTemplate(context.Background(), harness, template)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +85,9 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	// harness stuck in ResumeGoldenActor rather than as anything naming this line.
 	if config.SessionDBURL != "sqlite+aiosqlite:////data/sessions.db" {
 		t.Fatalf("session DB URL = %q", config.SessionDBURL)
+	}
+	if config.Memory == nil || config.Memory.TTLDays != 7 || config.Memory.Embedding == nil || config.Memory.Embedding.TLSInsecureSkipVerify == nil || !*config.Memory.Embedding.TLSInsecureSkipVerify {
+		t.Fatalf("compiled memory config = %#v", config.Memory)
 	}
 	plugins := config.AgentPlugins
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {

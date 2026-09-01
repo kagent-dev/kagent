@@ -42,6 +42,33 @@ type Result struct {
 	Egress      []string
 }
 
+// ModelResult is the runtime configuration contributed by one ModelConfig.
+type ModelResult struct {
+	Config      *v1alpha3.ModelConfig
+	Model       adk.Model
+	Environment []corev1.EnvVar
+	Egress      []string
+}
+
+// BuildModel translates a standalone ModelConfig without building an agent.
+func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*ModelResult, error) {
+	config := &v1alpha3.ModelConfig{}
+	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, config); err != nil {
+		return nil, err
+	}
+	runtime, err := c.resolveModel(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	if runtime.HasUnsupportedVolumes {
+		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+	}
+	return &ModelResult{
+		Config: config, Model: runtime.Model, Environment: runtime.Environment,
+		Egress: agentConfigDestinations(&adk.AgentConfig{}, config, runtime.Model),
+	}, nil
+}
+
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
 func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))

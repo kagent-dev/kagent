@@ -96,6 +96,21 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "exactly one of value or credentialRef must be specified",
 		},
 		{
+			name: "Harness memory requires a model reference",
+			object: validHarness(namespace, "harness-empty-memory-model", HarnessSpec{
+				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{}},
+			}),
+			wantReject: "modelConfigRef name must not be empty",
+		},
+		{
+			name: "valid kagent memory Harness",
+			object: validHarness(namespace, "valid-memory-harness", HarnessSpec{
+				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{
+					ModelConfigRef: corev1.LocalObjectReference{Name: "embedding-model"}, TTLDays: 7,
+				}},
+			}),
+		},
+		{
 			name: "valid Harness",
 			object: validHarness(namespace, "valid-harness", HarnessSpec{
 				Claude: &ClaudeHarness{},
