@@ -234,18 +234,6 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/*
-A2A Base URL - computes the default URL based on the controller service name if not explicitly set.
-The `name.namespace.svc` short form is used so the URL resolves regardless of the cluster's DNS domain.
-*/}}
-{{- define "kagent.a2aBaseUrl" -}}
-{{- if .Values.controller.a2aBaseUrl -}}
-{{- .Values.controller.a2aBaseUrl -}}
-{{- else -}}
-{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
-{{- end -}}
-{{- end -}}
-
 {{/* Public gRPC endpoint advertised by AgentInstance Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}
