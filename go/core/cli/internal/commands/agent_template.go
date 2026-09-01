@@ -110,36 +110,6 @@ func readAgentTemplateManifest(filename, namespace string) (*apiv1alpha1.Resourc
 	return &apiv1alpha1.ResourceReference{Namespace: namespace, Name: manifest.Name}, resource, nil
 }
 
-func createAgentTemplate(
-	ctx context.Context,
-	client agentTemplateLifecycleClient,
-	ref *apiv1alpha1.ResourceReference,
-	resource *apiv1alpha1.StructuredObject,
-	format clioutput.Format,
-	out io.Writer,
-) error {
-	response, err := client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource})
-	if err != nil {
-		return fmt.Errorf("create AgentTemplate: %w", err)
-	}
-	return writeAgentTemplateResult(out, format, response, response.GetAgentTemplate())
-}
-
-func updateAgentTemplate(
-	ctx context.Context,
-	client agentTemplateLifecycleClient,
-	ref *apiv1alpha1.ResourceReference,
-	resource *apiv1alpha1.StructuredObject,
-	format clioutput.Format,
-	out io.Writer,
-) error {
-	response, err := client.UpdateAgentTemplate(ctx, &apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource})
-	if err != nil {
-		return fmt.Errorf("update AgentTemplate: %w", err)
-	}
-	return writeAgentTemplateResult(out, format, response, response.GetAgentTemplate())
-}
-
 func applyAgentTemplate(
 	ctx context.Context,
 	client agentTemplateLifecycleClient,
@@ -318,16 +288,6 @@ func NewGetAgentTemplateCmd() *cobra.Command {
 	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
 	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
 	return cmd
-}
-
-// NewCreateAgentTemplateCmd constructs the AgentTemplate create command.
-func NewCreateAgentTemplateCmd() *cobra.Command {
-	return newAgentTemplateManifestCmd("agent-template", "Create an AgentTemplate", createAgentTemplate)
-}
-
-// NewUpdateAgentTemplateCmd constructs the AgentTemplate update command.
-func NewUpdateAgentTemplateCmd() *cobra.Command {
-	return newAgentTemplateManifestCmd("agent-template", "Update an AgentTemplate", updateAgentTemplate)
 }
 
 // NewApplyAgentTemplateCmd constructs the AgentTemplate apply command.
