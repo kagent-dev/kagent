@@ -7,12 +7,14 @@ CREATE TABLE IF NOT EXISTS runtime_revision (
     harness_uid TEXT NOT NULL,
     source_snapshot JSONB NOT NULL,
     egress_destinations TEXT[] NOT NULL DEFAULT '{}',
-    actor_template_atespace TEXT NOT NULL,
+    actor_template_namespace TEXT NOT NULL,
     actor_template_name TEXT NOT NULL,
     actor_template_uid TEXT NOT NULL DEFAULT '',
+    phase TEXT NOT NULL,
+    golden_snapshot TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (actor_template_atespace, actor_template_name)
+    UNIQUE (actor_template_namespace, actor_template_name)
 );
 
 CREATE TABLE IF NOT EXISTS agent_template_harness_pair (

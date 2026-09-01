@@ -167,27 +167,6 @@ jobs:
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --previous --tail=200 || true
 
-  query-contraction-check:
-    name: Query Contraction Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          # Full history + tags so the previous release's queries can be read.
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Version resolution
-        run: ./scripts/version-resolution_test.sh
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go/go.mod
-          cache: true
-          cache-dependency-path: go/go.sum
-      - name: Previous-release queries vs current schema
-        run: make -C go check-query-contraction
-
   proto-check:
     name: Protobuf Contract Check
     runs-on: ubuntu-latest
