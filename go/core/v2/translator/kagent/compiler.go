@@ -92,7 +92,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 }
 
 func requireModels(input *v2translator.AgentInput) error {
-	if input.ModelConfig == nil {
+	if input.ResolvedModelConfig == nil || input.ResolvedModelConfig.Config == nil {
 		return v2translator.NewValidationError("kagent ModelConfig is required")
 	}
 	for _, binding := range input.Shared {

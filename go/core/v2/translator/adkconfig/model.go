@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -40,8 +41,8 @@ type modelRuntime struct {
 
 // resolveModel collapses provider-specific translation output into the subset
 // needed to compile a runtime revision.
-func (c *Builder) resolveModel(ctx context.Context, config *v1alpha3.ModelConfig) (*modelRuntime, error) {
-	model, data, err := c.translateModel(ctx, config)
+func (c *Builder) resolveModel(ctx context.Context, resolved *v2translator.ResolvedModelConfig) (*modelRuntime, error) {
+	model, data, err := c.translateModel(ctx, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +234,11 @@ func (c *Builder) resolveFoundryEndpoint(ctx context.Context, namespace string, 
 // are intentionally local rather than calling the legacy translator: v2 can
 // now evolve and eventually replace that code without a compatibility layer.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func (c *Builder) translateModel(ctx context.Context, model *v1alpha3.ModelConfig) (adk.Model, *modelDeploymentData, error) {
+func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
+	if resolved == nil || resolved.Config == nil {
+		return nil, nil, fmt.Errorf("resolved model config is required")
+	}
+	model := resolved.Config
 	modelDeploymentData := &modelDeploymentData{}
 
 	// Add TLS configuration if present
@@ -546,12 +551,16 @@ func (c *Builder) translateModel(ctx context.Context, model *v1alpha3.ModelConfi
 		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
 		// Otherwise, use IAM credentials
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
-			secret := &corev1.Secret{}
-			if err := c.kube.Get(ctx, types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
-				return nil, nil, fmt.Errorf("failed to get Bedrock credentials secret: %w", err)
+			secret := types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}
+			hasSecretKey := func(key string) bool {
+				for _, ref := range resolved.References {
+					if ref.Kind == "Secret" && ref.NamespacedName == secret && ref.Key == key {
+						return true
+					}
+				}
+				return false
 			}
-
-			if _, hasBearerToken := secret.Data[env.AWSBearerTokenBedrock.Name()]; hasBearerToken {
+			if hasSecretKey(env.AWSBearerTokenBedrock.Name()) {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 					Name: env.AWSBearerTokenBedrock.Name(),
 					ValueFrom: &corev1.EnvVarSource{
@@ -586,16 +595,13 @@ func (c *Builder) translateModel(ctx context.Context, model *v1alpha3.ModelConfi
 						},
 					},
 				})
-				// AWS_SESSION_TOKEN is optional, only needed for temporary/SSO credentials
-				if _, hasSessionToken := secret.Data[env.AWSSessionToken.Name()]; hasSessionToken {
+				if hasSecretKey(env.AWSSessionToken.Name()) {
 					modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 						Name: env.AWSSessionToken.Name(),
 						ValueFrom: &corev1.EnvVarSource{
 							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: model.Spec.APIKeySecret,
-								},
-								Key: env.AWSSessionToken.Name(),
+								LocalObjectReference: corev1.LocalObjectReference{Name: model.Spec.APIKeySecret},
+								Key:                  env.AWSSessionToken.Name(),
 							},
 						},
 					})
@@ -639,11 +645,6 @@ func (c *Builder) translateModel(ctx context.Context, model *v1alpha3.ModelConfi
 		}
 
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
-			secret := &corev1.Secret{}
-			if err := c.kube.Get(ctx, types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
-				return nil, nil, fmt.Errorf("failed to get SAP AI Core credentials secret: %w", err)
-			}
-
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.SAPAICoreClientID.Name(),
 				ValueFrom: &corev1.EnvVarSource{

@@ -16,17 +16,18 @@ import (
 // Collections contains the Kubernetes inputs used to resolve an AgentTemplate
 // and the template/harness pairs derived from Harness admission selectors.
 type Collections struct {
-	AgentTemplates        krt.Collection[*kagentv1alpha3.AgentTemplate]
-	Harnesses             krt.Collection[*kagentv1alpha3.Harness]
-	ModelConfigs          krt.Collection[*kagentv1alpha3.ModelConfig]
-	RemoteMCPServers      krt.Collection[*kagentv1alpha3.RemoteMCPServer]
-	ConfigMaps            krt.Collection[*corev1.ConfigMap]
-	Secrets               krt.Collection[*corev1.Secret]
-	WorkerPools           krt.Collection[*atev1alpha1.WorkerPool]
-	ActorTemplates        krt.StaticCollection[ObservedActorTemplate]
-	Pairs                 krt.Collection[AgentTemplateHarnessPair]
-	Reconciliations       krt.Collection[PairReconciliation]
-	AgentTemplateStatuses krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
+	AgentTemplates             krt.Collection[*kagentv1alpha3.AgentTemplate]
+	Harnesses                  krt.Collection[*kagentv1alpha3.Harness]
+	ModelConfigs               krt.Collection[*kagentv1alpha3.ModelConfig]
+	RemoteMCPServers           krt.Collection[*kagentv1alpha3.RemoteMCPServer]
+	ConfigMaps                 krt.Collection[*corev1.ConfigMap]
+	Secrets                    krt.Collection[*corev1.Secret]
+	WorkerPools                krt.Collection[*atev1alpha1.WorkerPool]
+	ActorTemplates             krt.StaticCollection[ObservedActorTemplate]
+	Pairs                      krt.Collection[AgentTemplateHarnessPair]
+	Reconciliations            krt.Collection[PairReconciliation]
+	ModelConfigReconciliations krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
+	AgentTemplateStatuses      krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
 }
 
 // ObservedActorTemplate adapts an ate-api resource to KRT's keyed collection.
@@ -62,21 +63,23 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	actorTemplates := krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...)
 	pairs := newPairCollection(agentTemplates, harnesses, opts)
+	modelConfigReconciliations := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	reconciliations := newPairReconciliations(pairs, agentTemplates, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, opts)
 	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
 
 	return Collections{
-		AgentTemplates:        agentTemplates,
-		Harnesses:             harnesses,
-		ModelConfigs:          modelConfigs,
-		RemoteMCPServers:      remoteMCPServers,
-		ConfigMaps:            configMaps,
-		Secrets:               secrets,
-		WorkerPools:           workerPools,
-		ActorTemplates:        actorTemplates,
-		Pairs:                 pairs,
-		Reconciliations:       reconciliations,
-		AgentTemplateStatuses: statuses,
+		AgentTemplates:             agentTemplates,
+		Harnesses:                  harnesses,
+		ModelConfigs:               modelConfigs,
+		RemoteMCPServers:           remoteMCPServers,
+		ConfigMaps:                 configMaps,
+		Secrets:                    secrets,
+		WorkerPools:                workerPools,
+		ActorTemplates:             actorTemplates,
+		Pairs:                      pairs,
+		Reconciliations:            reconciliations,
+		ModelConfigReconciliations: modelConfigReconciliations,
+		AgentTemplateStatuses:      statuses,
 	}
 }
 

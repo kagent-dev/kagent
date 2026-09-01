@@ -52,11 +52,17 @@ type ModelResult struct {
 
 // BuildModel translates a standalone ModelConfig without building an agent.
 func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*ModelResult, error) {
-	config := &v1alpha3.ModelConfig{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, config); err != nil {
+	resolved, err := c.kube.GetResolvedModelConfig(ctx, types.NamespacedName{Namespace: namespace, Name: name})
+	if err != nil {
 		return nil, err
 	}
-	runtime, err := c.resolveModel(ctx, config)
+	if failures := resolved.SemanticFailures; len(failures) > 0 {
+		return nil, v2translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
+	}
+	if failures := resolved.ReferenceFailures; len(failures) > 0 {
+		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
+	}
+	runtime, err := c.resolveModel(ctx, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +70,8 @@ func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*Mode
 		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	return &ModelResult{
-		Config: config, Model: runtime.Model, Environment: runtime.Environment,
-		Egress: agentConfigDestinations(&adk.AgentConfig{}, config, runtime.Model),
+		Config: resolved.Config, Model: runtime.Model, Environment: runtime.Environment,
+		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
 	}, nil
 }
 
@@ -90,11 +96,13 @@ func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*R
 
 func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
 	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
-	if input.ModelConfig != nil {
+	var modelConfig *v1alpha3.ModelConfig
+	if input.ResolvedModelConfig != nil {
+		modelConfig = input.ResolvedModelConfig.Config
 		var err error
-		modelRuntime, err = c.resolveModel(ctx, input.ModelConfig)
+		modelRuntime, err = c.resolveModel(ctx, input.ResolvedModelConfig)
 		if err != nil {
-			return nil, fmt.Errorf("resolve ModelConfig %q: %w", input.ModelConfig.Name, err)
+			return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 		}
 	}
 	if modelRuntime.HasUnsupportedVolumes {
@@ -130,10 +138,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 	result := &Result{
 		Config: cfg, Templates: []*v1alpha3.AgentTemplate{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, input.ModelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
-	if input.ModelConfig != nil {
-		result.Models = []*v1alpha3.ModelConfig{input.ModelConfig}
+	if modelConfig != nil {
+		result.Models = []*v1alpha3.ModelConfig{modelConfig}
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)
@@ -333,6 +341,9 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	}
 	if modelConfig == nil {
 		slices.Sort(destinations)
+		return slices.Compact(destinations)
+	}
+	if modelConfig == nil {
 		return slices.Compact(destinations)
 	}
 	switch modelConfig.Spec.Provider {

@@ -19,6 +19,10 @@ type reader struct{}
 
 func (reader) Get(context.Context, types.NamespacedName, runtime.Object) error { return nil }
 
+func (reader) GetResolvedModelConfig(context.Context, types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
+	return nil, nil
+}
+
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
