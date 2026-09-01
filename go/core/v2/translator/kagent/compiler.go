@@ -52,6 +52,24 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	template, harness := input.Root.Template, input.Harness
 	cfg := compiled.config
+	if memory := harness.Spec.Kagent.Memory; memory != nil {
+		modelConfig := &v1alpha3.ModelConfig{}
+		name := memory.ModelConfigRef.Name
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, modelConfig); err != nil {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
+		}
+		modelRuntime, err := c.resolveModel(ctx, modelConfig)
+		if err != nil {
+			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
+		}
+		if modelRuntime.HasUnsupportedVolumes {
+			return nil, v2translator.NewValidationError("memory ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+		}
+		cfg.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(modelRuntime.Model)}
+		compiled.models = append(compiled.models, modelConfig)
+		compiled.environment = append(compiled.environment, modelRuntime.Environment...)
+		compiled.egress = append(compiled.egress, agentConfigDestinations(&adk.AgentConfig{}, modelConfig, modelRuntime.Model)...)
+	}
 	// The async driver is named, because the Python runtime cannot infer it and the Go
 	// one does not need it. `DatabaseSessionService` builds an asyncio engine and
 	// refuses a bare `sqlite:` URL with "the asyncio extension requires an async
