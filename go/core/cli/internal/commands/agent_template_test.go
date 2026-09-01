@@ -161,18 +161,12 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 	ref := template.GetRef()
 	resource := template.GetResource()
 
-	t.Run("create", func(t *testing.T) {
+	t.Run("apply creates", func(t *testing.T) {
 		client := &recordingAgentTemplateClient{template: template}
 		var output bytes.Buffer
-		require.NoError(t, createAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &output))
+		require.NoError(t, applyAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &output))
 		assert.True(t, proto.Equal(&apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource}, client.createRequest))
 		assert.Contains(t, output.String(), "researcher")
-	})
-
-	t.Run("update", func(t *testing.T) {
-		client := &recordingAgentTemplateClient{template: template}
-		require.NoError(t, updateAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatJSON, &bytes.Buffer{}))
-		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
 	})
 
 	t.Run("apply updates existing", func(t *testing.T) {

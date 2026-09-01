@@ -124,12 +124,6 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "agent-instance ID", deleteInstanceCmd.Use)
 
-	for _, command := range [][]string{{"create", "agent-template"}, {"update", "agent-template"}} {
-		cmd, _, err := rootCmd.Find(command)
-		require.NoError(t, err)
-		assert.Equal(t, "agent-template", cmd.Use)
-		assert.NotNil(t, cmd.Flags().Lookup("file"))
-	}
 	applyCmd, _, err := rootCmd.Find([]string{"apply"})
 	require.NoError(t, err)
 	assert.Equal(t, "apply -f FILE", applyCmd.Use)
@@ -154,7 +148,13 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp"} {
 		assert.NotContains(t, rootCommands, command)
 	}
+	assert.NotContains(t, rootCommands, "update")
 	assert.Contains(t, rootCommands, "mcp")
+
+	createCmd, _, err := rootCmd.Find([]string{"create"})
+	require.NoError(t, err)
+	assert.Len(t, createCmd.Commands(), 1)
+	assert.Equal(t, "agent-instance", createCmd.Commands()[0].Name())
 
 	getCmd, _, err := rootCmd.Find([]string{"get"})
 	require.NoError(t, err)
@@ -187,9 +187,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 		"get agent-instance":    {"get", "agent-instance"},
 		"get agent-template":    {"get", "agent-template"},
 		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
-		"create agent-template": {"create", "agent-template", "--file", "template.yaml"},
 		"apply agent-template":  {"apply", "--file", "template.yaml"},
-		"update agent-template": {"update", "agent-template", "--file", "template.yaml"},
 		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
 		"delete agent-template": {"delete", "agent-template", "example"},
 		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
@@ -211,8 +209,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
 	for name, want := range map[string]string{
 		"get":    "agent-instance, agent-template",
-		"create": "agent-instance, agent-template",
-		"update": "agent-template",
+		"create": "agent-instance",
 		"delete": "agent-instance, agent-template",
 	} {
 		t.Run(name, func(t *testing.T) {

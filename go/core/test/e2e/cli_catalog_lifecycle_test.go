@@ -162,16 +162,16 @@ spec:
 		}
 	})
 
-	writeManifest("created through the CLI", "kagent")
-	created := run("--output-format", "json", "create", "agent-template", "-f", manifestPath)
-	if !json.Valid([]byte(created)) || !strings.Contains(created, `"name":"`+templateName+`"`) {
-		t.Fatalf("create AgentTemplate stdout = %q, want JSON for %q", created, templateName)
+	writeManifest("applied through the CLI", "kagent")
+	applied := run("--output-format", "json", "apply", "-f", manifestPath)
+	if !json.Valid([]byte(applied)) || !strings.Contains(applied, `"name":"`+templateName+`"`) {
+		t.Fatalf("apply AgentTemplate stdout = %q, want JSON for %q", applied, templateName)
 	}
-	assertTemplate("created through the CLI", "kagent")
+	assertTemplate("applied through the CLI", "kagent")
 
-	writeManifest("updated through the CLI", "codex")
-	run("update", "agent-template", "-f", manifestPath)
-	assertTemplate("updated through the CLI", "codex")
+	writeManifest("reapplied through the CLI", "codex")
+	run("apply", "-f", manifestPath)
+	assertTemplate("reapplied through the CLI", "codex")
 
 	writeManifest("applied through the CLI", "kagent")
 	run("apply", "-f", manifestPath)
@@ -179,7 +179,7 @@ spec:
 
 	deleteTemplate()
 
-	applied := run("--output-format", "json", "apply", "-f", manifestPath)
+	applied = run("--output-format", "json", "apply", "-f", manifestPath)
 	if !json.Valid([]byte(applied)) || !strings.Contains(applied, `"name":"`+templateName+`"`) {
 		t.Fatalf("apply AgentTemplate stdout = %q, want JSON for %q", applied, templateName)
 	}
