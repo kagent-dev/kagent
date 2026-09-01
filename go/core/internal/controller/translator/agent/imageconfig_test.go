@@ -226,53 +226,106 @@ func TestSplitImageTag(t *testing.T) {
 	}
 }
 
+func TestFullRuntimeDigest(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, testFullDigest, fullRuntimeDigest("sha256:baked", testFullDigest, false))
+	require.Equal(t, testFullDigest, fullRuntimeDigest("sha256:baked", testFullDigest, true))
+	require.Equal(t, "", fullRuntimeDigest("sha256:baked", "", false), "baked digest is not a declarative pin")
+	require.Equal(t, "sha256:baked", fullRuntimeDigest("sha256:baked", "", true))
+	require.Equal(t, "", fullRuntimeDigest("", "", false))
+}
+
 func TestResolveRuntimeImageDigestPinnedTagDoesNotAppendFullToDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
 	t.Cleanup(func() {
 		DefaultImageConfig.Tag = originalTag
 		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
 	})
+	// Released controller builds always bake a full digest. That must not pin
+	// the declarative full image, or IMAGE_TAG=tag@digest becomes tag-full@baked.
 	DefaultImageConfig.Tag = "0.10.0-rc3@" + testSlimDigest
-	PythonADKFullImageDigest = ""
+	PythonADKFullImageDigest = testFullDigest
+	PythonADKFullImageDigestOverride = ""
 
 	got, err := resolvePythonRuntimeImage("ghcr.io", true, false)
 	require.NoError(t, err)
 	require.Equal(t, "ghcr.io/kagent-dev/kagent/app:0.10.0-rc3-full", got)
 	require.NotContains(t, got, "deadbeef")
+	require.NotContains(t, got, testFullDigest)
 	require.False(t, strings.Contains(got, testSlimDigest+"-full"), "must not append -full after the slim digest")
 }
 
-func TestResolveRuntimeImageDigestPinnedTagUsesDedicatedFullDigest(t *testing.T) {
+func TestResolveRuntimeImageDigestPinnedTagUsesExplicitFullDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
 	t.Cleanup(func() {
 		DefaultImageConfig.Tag = originalTag
 		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
 	})
 	DefaultImageConfig.Tag = "0.10.0-rc3@" + testSlimDigest
-	PythonADKFullImageDigest = testFullDigest
+	PythonADKFullImageDigest = "sha256:bakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbake"
+	PythonADKFullImageDigestOverride = testFullDigest
 
 	got, err := resolvePythonRuntimeImage("ghcr.io", true, false)
 	require.NoError(t, err)
 	require.Equal(t, "ghcr.io/kagent-dev/kagent/app:0.10.0-rc3-full@"+testFullDigest, got)
 	require.NotContains(t, got, "deadbeef")
+	require.NotContains(t, got, "baked")
 }
 
 func TestResolveRuntimeImageDigestPinnedTagDoesNotReuseSlimDigestForGo(t *testing.T) {
 	originalTag := DefaultGoImageConfig.Tag
 	originalFull := GoADKFullImageDigest
+	originalOverride := GoADKFullImageDigestOverride
 	t.Cleanup(func() {
 		DefaultGoImageConfig.Tag = originalTag
 		GoADKFullImageDigest = originalFull
+		GoADKFullImageDigestOverride = originalOverride
 	})
 	DefaultGoImageConfig.Tag = "0.10.0-rc3@" + testSlimDigest
-	GoADKFullImageDigest = testFullDigest
+	GoADKFullImageDigest = "sha256:bakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbake"
+	GoADKFullImageDigestOverride = testFullDigest
 
 	got, err := resolveGoRuntimeImage("ghcr.io", true, false)
 	require.NoError(t, err)
 	require.Equal(t, "ghcr.io/kagent-dev/kagent/golang-adk:0.10.0-rc3-full@"+testFullDigest, got)
 	require.NotContains(t, got, "deadbeef")
+	require.NotContains(t, got, "baked")
+}
+
+func TestResolveRuntimeImageBakedFullDigestStillPinsSandbox(t *testing.T) {
+	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
+	t.Cleanup(func() {
+		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
+	})
+	PythonADKFullImageDigest = testFullDigest
+	PythonADKFullImageDigestOverride = ""
+
+	got, err := resolvePythonRuntimeImage("ghcr.io", true, true)
+	require.NoError(t, err)
+	require.Equal(t, "ghcr.io/kagent-dev/kagent/app@"+testFullDigest, got)
+}
+
+func TestResolveRuntimeImageExplicitFullDigestOverridesSandboxBaked(t *testing.T) {
+	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
+	t.Cleanup(func() {
+		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
+	})
+	PythonADKFullImageDigest = "sha256:bakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbake"
+	PythonADKFullImageDigestOverride = testFullDigest
+
+	got, err := resolvePythonRuntimeImage("ghcr.io", true, true)
+	require.NoError(t, err)
+	require.Equal(t, "ghcr.io/kagent-dev/kagent/app@"+testFullDigest, got)
 }
 
 func TestResolveRuntimeImagePreservesEmbeddedDigestForSlimImage(t *testing.T) {
@@ -295,15 +348,18 @@ func TestResolveRuntimeImageDoesNotDoubleFullSuffix(t *testing.T) {
 	require.Equal(t, "ghcr.io/kagent-dev/kagent/app:0.10.0-rc3-full", got)
 }
 
-func TestResolveRuntimeImageDigestOnlyTagFailsClosedWithoutFullDigest(t *testing.T) {
+func TestResolveRuntimeImageDigestOnlyTagFailsClosedWithoutExplicitFullDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
 	t.Cleanup(func() {
 		DefaultImageConfig.Tag = originalTag
 		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
 	})
 	DefaultImageConfig.Tag = testSlimDigest
-	PythonADKFullImageDigest = ""
+	PythonADKFullImageDigest = testFullDigest
+	PythonADKFullImageDigestOverride = ""
 
 	_, err := resolvePythonRuntimeImage("ghcr.io", true, false)
 	require.Error(t, err)
@@ -311,15 +367,18 @@ func TestResolveRuntimeImageDigestOnlyTagFailsClosedWithoutFullDigest(t *testing
 	require.Contains(t, err.Error(), "app-full-image-digest")
 }
 
-func TestResolveRuntimeImageDigestOnlyTagUsesDedicatedFullDigest(t *testing.T) {
+func TestResolveRuntimeImageDigestOnlyTagUsesExplicitFullDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
 	t.Cleanup(func() {
 		DefaultImageConfig.Tag = originalTag
 		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
 	})
 	DefaultImageConfig.Tag = testSlimDigest
-	PythonADKFullImageDigest = testFullDigest
+	PythonADKFullImageDigest = "sha256:bakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbakedbake"
+	PythonADKFullImageDigestOverride = testFullDigest
 
 	got, err := resolvePythonRuntimeImage("ghcr.io", true, false)
 	require.NoError(t, err)
@@ -339,12 +398,15 @@ func TestResolveRuntimeImageRejectsEmptyDigest(t *testing.T) {
 func TestResolveInlineDeploymentSkillsDropsEmbeddedSlimDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
+	originalOverride := PythonADKFullImageDigestOverride
 	t.Cleanup(func() {
 		DefaultImageConfig.Tag = originalTag
 		PythonADKFullImageDigest = originalFull
+		PythonADKFullImageDigestOverride = originalOverride
 	})
 	DefaultImageConfig.Tag = "0.10.0-rc3@" + testSlimDigest
-	PythonADKFullImageDigest = ""
+	PythonADKFullImageDigest = testFullDigest
+	PythonADKFullImageDigestOverride = ""
 
 	agent := &v1alpha2.Agent{
 		Spec: v1alpha2.AgentSpec{
@@ -357,4 +419,5 @@ func TestResolveInlineDeploymentSkillsDropsEmbeddedSlimDigest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ghcr.io/kagent-dev/kagent/app:0.10.0-rc3-full", dep.Image)
 	require.NotContains(t, dep.Image, "deadbeef")
+	require.NotContains(t, dep.Image, testFullDigest)
 }

@@ -163,19 +163,40 @@ var DefaultImageConfig = ImageConfig{
 }
 
 // PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
-// default to the pushed runtime image manifest digests baked in at controller link time, and
-// can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
-// flags (for mirrored registries that re-assign digests).
+// default to the pushed runtime image manifest digests baked in at controller link time
+// (scripts/controller-digest-ldflags.sh). Released controller images always have the
+// full-variant values populated.
 //
-// Sandbox agents always pin by these digests (Substrate rejects tag refs). Regular agents
-// reference images by tag so mirrored registries that rewrite digests still resolve.
-// When IMAGE_TAG embeds a digest (tag@sha256:...), the full variant also consults the
-// dedicated full digest rather than reusing the slim digest. The "full" variants bundle
-// the sandbox runtime (code execution / bash tools); the slim variants do not.
+// PythonADKFullImageDigestOverride and GoADKFullImageDigestOverride are empty unless the
+// operator sets --app-full-image-digest / --golang-adk-full-image-digest (or the matching
+// APP_FULL_IMAGE_DIGEST / GOLANG_ADK_FULL_IMAGE_DIGEST env, including Helm fullDigest).
+// That is the only signal that a declarative skills agent should digest-pin the full
+// variant: the baked digest is the upstream image, which may not match a mirror or the
+// digest the operator embedded in IMAGE_TAG.
+//
+// Sandbox agents always pin (Substrate rejects tag refs): override if set, else baked.
+// Regular agents reference images by tag so mirrored registries that rewrite digests
+// still resolve. The "full" variants bundle the sandbox runtime (code execution / bash
+// tools); the slim variants do not.
 var PythonADKImageDigest string
 var PythonADKFullImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
+var PythonADKFullImageDigestOverride string
+var GoADKFullImageDigestOverride string
+
+// fullRuntimeDigest returns the digest to use for a full-variant image.
+// An explicit runtime override always wins. Sandbox (pinDigest) falls back to the
+// link-time digest. Declarative agents do not: a baked digest is not an operator pin.
+func fullRuntimeDigest(baked, override string, pinDigest bool) string {
+	if d := strings.TrimSpace(override); d != "" {
+		return d
+	}
+	if pinDigest {
+		return baked
+	}
+	return ""
+}
 
 // DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
 // Regular agents reference it by tag; sandbox agents pin by digest via

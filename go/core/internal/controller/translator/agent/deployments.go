@@ -125,7 +125,7 @@ func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, e
 	digest := PythonADKImageDigest
 	imageLabel := "app"
 	if full {
-		digest = PythonADKFullImageDigest
+		digest = fullRuntimeDigest(PythonADKFullImageDigest, PythonADKFullImageDigestOverride, pinDigest)
 		imageLabel = "app-full"
 	}
 	return resolveRuntimeImage(registry, repo, DefaultImageConfig.Tag, digest, imageLabel, full, pinDigest)
@@ -136,7 +136,7 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 	digest := GoADKImageDigest
 	imageLabel := "golang-adk"
 	if full {
-		digest = GoADKFullImageDigest
+		digest = fullRuntimeDigest(GoADKFullImageDigest, GoADKFullImageDigestOverride, pinDigest)
 		imageLabel = "golang-adk-full"
 	}
 	return resolveRuntimeImage(registry, repo, DefaultGoImageConfig.Tag, digest, imageLabel, full, pinDigest)
@@ -153,9 +153,10 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 // IMAGE_TAG is parsed as a tag, a tag@digest, or a digest-only value. The
 // "-full" suffix is applied only to the tag name. A digest embedded in IMAGE_TAG
 // is never reused on the full variant (the slim and full images have different
-// manifests). If IMAGE_TAG includes a digest, the dedicated full digest is
-// attached when set (--app-full-image-digest / --golang-adk-full-image-digest);
-// otherwise the full image is referenced by tag only.
+// manifests). If IMAGE_TAG includes a digest, the full image is referenced by
+// tag only unless the operator set an explicit runtime full digest (Helm
+// fullDigest / APP_FULL_IMAGE_DIGEST / --app-full-image-digest). The link-time
+// baked digest is not that signal: released builds always populate it.
 //
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)

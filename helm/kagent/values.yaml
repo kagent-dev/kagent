@@ -218,11 +218,12 @@ controller:
     registry: ""
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
-    # -- Manifest digest (sha256:...) of the full (skills/SRT) Python agent image.
-    # Forwarded as APP_FULL_IMAGE_DIGEST. Set this when agentImage.tag embeds a
-    # digest (tag@sha256:...) so skills-enabled agents pin the full variant
-    # rather than the slim digest. Also used by sandbox agents.
-    # @default -- "" (controller uses the link-time digest, or tag-only)
+    # -- Explicit manifest digest (sha256:...) of the full (skills/SRT) Python
+    # agent image. Forwarded as APP_FULL_IMAGE_DIGEST. Required to digest-pin
+    # declarative skills agents when agentImage.tag embeds a digest
+    # (tag@sha256:...); the controller's link-time digest is not used for that
+    # path. Sandbox agents use this when set, otherwise the link-time digest.
+    # @default -- "" (declarative: tag-only full image; sandbox: link-time digest)
     fullDigest: ""
     pullPolicy: ""
     # -- Image pull secret name set on agent pods created by the controller
@@ -238,9 +239,10 @@ controller:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
-    # -- Manifest digest (sha256:...) of the full (skills/SRT) Go agent image.
-    # Forwarded as GOLANG_ADK_FULL_IMAGE_DIGEST. Same rules as agentImage.fullDigest.
-    # @default -- "" (controller uses the link-time digest, or tag-only)
+    # -- Explicit manifest digest (sha256:...) of the full (skills/SRT) Go
+    # agent image. Forwarded as GOLANG_ADK_FULL_IMAGE_DIGEST. Same rules as
+    # agentImage.fullDigest.
+    # @default -- "" (declarative: tag-only full image; sandbox: link-time digest)
     fullDigest: ""
     pullPolicy: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
