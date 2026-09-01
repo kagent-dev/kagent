@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { css, useTheme } from "@emotion/react";
 import type { Theme } from "@emotion/react";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 /**
  * GitHub-flavoured markdown (`remark-gfm`: tables, task lists, strikethrough,
@@ -28,6 +29,28 @@ const COMPONENTS: Components = {
     // the opened page cannot navigate this one.
     void node;
     return <a {...anchorProps} target="_blank" rel="noopener noreferrer" />;
+  },
+  pre(props) {
+    const { node, children } = props;
+    // A fenced block whose only child is a `code` tagged `language-mermaid` is a
+    // diagram, not a listing: hand the source to the renderer instead of printing
+    // it. Anything else — a code block with prose around it, a block with several
+    // children — keeps the ordinary frame.
+    const code = node?.children?.[0];
+    if (
+      node?.tagName === "pre" &&
+      code?.type === "element" &&
+      code.tagName === "code" &&
+      Array.isArray(code.properties?.className) &&
+      code.properties.className.includes("language-mermaid")
+    ) {
+      const text = code.children
+        .filter((child) => child.type === "text")
+        .map((child) => child.value)
+        .join("");
+      return <MermaidDiagram source={text} />;
+    }
+    return <pre>{children}</pre>;
   },
 };
 
