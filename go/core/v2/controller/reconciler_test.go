@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/krt"
@@ -39,18 +41,14 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	statuses := krt.NewStaticCollection(nil, []krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]{{Obj: template, Status: status}}, opts.WithName("Statuses")...)
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
-	var statusWrite *kagentv1alpha3.AgentTemplate
+	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
 	reconciler := &Reconciler{
 		collections: Collections{
 			AgentTemplates:  krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{template}, opts.WithName("AgentTemplates")...),
 			ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
 			Reconciliations: reconciliations, AgentTemplateStatuses: statuses,
 		},
-		templates: templates, store: store,
-		updateAgentTemplateStatus: func(_ context.Context, template *kagentv1alpha3.AgentTemplate) error {
-			statusWrite = template
-			return nil
-		},
+		templates: templates, store: store, status: statusClient,
 	}
 
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
@@ -78,7 +76,8 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	if err := reconciler.reconcileAgentTemplateStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
 	}
-	if statusWrite == nil || statusWrite.Status.Harnesses[0].Conditions[0].LastTransitionTime.IsZero() {
+	statusWrite, err := statusClient.AgentTemplates(template.Namespace).Get(context.Background(), template.Name, metav1.GetOptions{})
+	if err != nil || statusWrite.Status.Harnesses[0].Conditions[0].LastTransitionTime.IsZero() {
 		t.Fatal("desired status was not written with a transition time")
 	}
 
@@ -183,31 +182,23 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		AgentTemplateStatuses:      krt.NewStaticCollection[krt.ObjectWithStatus[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]](nil, nil, opts.WithName("AgentTemplateStatuses")...),
 	}
 
-	statusUpdates := make(chan *kagentv1alpha3.ModelConfig, 10)
+	statusClient := kagentfake.NewSimpleClientset(modelConfig.DeepCopy()).ApiV1alpha3()
 	reconciler := newReconciler(
 		collections,
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
-		func(_ context.Context, _ *kagentv1alpha3.AgentTemplate) error { return nil },
-		func(_ context.Context, mc *kagentv1alpha3.ModelConfig) error {
-			modelConfigs.UpdateObject(mc.DeepCopy())
-			statusUpdates <- mc.DeepCopy()
-			return nil
-		},
+		statusClient,
 	)
 
 	go reconciler.Run(stop)
 
 	var initialUpdate *kagentv1alpha3.ModelConfig
-	select {
-	case initialUpdate = <-statusUpdates:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for initial ModelConfig status update")
-	}
+	var err error
+	require.Eventually(t, func() bool {
+		initialUpdate, err = statusClient.ModelConfigs(modelConfig.Namespace).Get(context.Background(), modelConfig.Name, metav1.GetOptions{})
+		return err == nil && initialUpdate.Status.SecretHash != ""
+	}, 3*time.Second, 10*time.Millisecond)
 
-	if initialUpdate.Status.SecretHash == "" {
-		t.Fatal("expected secret hash in status update")
-	}
 	if len(initialUpdate.Status.Conditions) != 2 {
 		t.Fatalf("expected 2 conditions in status, got: %+v", initialUpdate.Status.Conditions)
 	}
@@ -223,13 +214,8 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 	})
 
 	var updatedMC *kagentv1alpha3.ModelConfig
-	select {
-	case updatedMC = <-statusUpdates:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for updated ModelConfig status after secret change")
-	}
-
-	if updatedMC.Status.SecretHash == initialHash {
-		t.Fatalf("expected secret hash to change after secret update, but got initial hash %s", initialHash)
-	}
+	require.Eventually(t, func() bool {
+		updatedMC, err = statusClient.ModelConfigs(modelConfig.Namespace).Get(context.Background(), modelConfig.Name, metav1.GetOptions{})
+		return err == nil && updatedMC.Status.SecretHash != initialHash
+	}, 3*time.Second, 10*time.Millisecond)
 }

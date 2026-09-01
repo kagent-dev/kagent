@@ -140,11 +140,10 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections               Collections
-	templates                 actorTemplateClient
-	store                     runtimeRevisionStore
-	updateAgentTemplateStatus func(context.Context, *kagentv1alpha3.AgentTemplate) error
-	updateModelConfigStatus   func(context.Context, *kagentv1alpha3.ModelConfig) error
+	collections Collections
+	templates   actorTemplateClient
+	store       runtimeRevisionStore
+	status      kagentclient.ApiV1alpha3Interface
 
 	pairs                      controllers.Queue
 	agentTemplateStatuses      controllers.Queue
@@ -161,31 +160,20 @@ func NewReconciler(config *rest.Config, collections Collections, store runtimeRe
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
-	return newReconciler(collections, templates, store,
-		func(ctx context.Context, template *kagentv1alpha3.AgentTemplate) error {
-			_, err := statusClient.AgentTemplates(template.Namespace).UpdateStatus(ctx, template, metav1.UpdateOptions{})
-			return err
-		},
-		func(ctx context.Context, modelConfig *kagentv1alpha3.ModelConfig) error {
-			_, err := statusClient.ModelConfigs(modelConfig.Namespace).UpdateStatus(ctx, modelConfig, metav1.UpdateOptions{})
-			return err
-		},
-	), nil
+	return newReconciler(collections, templates, store, statusClient), nil
 }
 
 func newReconciler(
 	collections Collections,
 	templates actorTemplateClient,
 	store runtimeRevisionStore,
-	updateAgentTemplateStatus func(context.Context, *kagentv1alpha3.AgentTemplate) error,
-	updateModelConfigStatus func(context.Context, *kagentv1alpha3.ModelConfig) error,
+	status kagentclient.ApiV1alpha3Interface,
 ) *Reconciler {
 	r := &Reconciler{
-		collections:               collections,
-		templates:                 templates,
-		store:                     store,
-		updateAgentTemplateStatus: updateAgentTemplateStatus,
-		updateModelConfigStatus:   updateModelConfigStatus,
+		collections: collections,
+		templates:   templates,
+		store:       store,
+		status:      status,
 	}
 	r.pairs = controllers.NewQueue("v2-agent-template-pairs", controllers.WithGenericReconciler(func(item any) error {
 		return r.reconcilePair(context.Background(), item.(string))
@@ -349,7 +337,7 @@ func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key strin
 	if apiequality.Semantic.DeepEqual(updated.Status, (*template).Status) {
 		return nil
 	}
-	if err := r.updateAgentTemplateStatus(ctx, updated); err != nil {
+	if _, err := r.status.AgentTemplates(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update AgentTemplate %s status: %w", key, err)
 	}
 	return nil
@@ -366,7 +354,7 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 	if apiequality.Semantic.DeepEqual(updated.Status, (*modelConfig).Status) {
 		return nil
 	}
-	if err := r.updateModelConfigStatus(ctx, updated); err != nil {
+	if _, err := r.status.ModelConfigs(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update ModelConfig %s status: %w", key, err)
 	}
 	return nil
