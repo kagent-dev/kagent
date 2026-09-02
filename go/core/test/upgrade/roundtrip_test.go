@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,14 +102,60 @@ func buildCleanInstallSchema(t *testing.T, env upgradeEnv, dbName string, vector
 	// the time cleanups run, so a normal kubectl call here would always error.
 	t.Cleanup(func() { dropDatabaseBestEffort(env, dbName) })
 
+	applyEmbeddedMigrations(t, env, dbName, vectorEnabled)
+
+	return pgSchemaDump(t, env, dbName)
+}
+
+func applyEmbeddedMigrations(t *testing.T, env upgradeEnv, database string, vectorEnabled bool) {
+	t.Helper()
+
 	localPort, stop := startPortForward(t, env, postgresServiceName, 5432)
 	defer stop()
 
-	url := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/%s?sslmode=disable", localPort, dbName)
+	url := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/%s?sslmode=disable", localPort, database)
 	require.NoError(t, migrations.RunUp(t.Context(), url, migrations.BuiltinSources(vectorEnabled)),
-		"apply embedded migrations to clean reference database %s", dbName)
+		"apply embedded migrations to database %s", database)
+}
 
-	return pgSchemaDump(t, env, dbName)
+func migrateEmbeddedSourcesTo(t *testing.T, env upgradeEnv, targets map[string]int, vectorEnabled bool) {
+	t.Helper()
+
+	localPort, stop := startPortForward(t, env, postgresServiceName, 5432)
+	defer stop()
+	url := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/kagent?sslmode=disable", localPort)
+
+	for _, source := range slices.Backward(migrations.BuiltinSources(vectorEnabled)) {
+		target, ok := targets[source.Name]
+		require.True(t, ok, "missing rollback target for migration source %s", source.Name)
+		err := migrations.WithProvider(t.Context(), url, source, func(provider *goose.Provider) error {
+			_, err := provider.DownTo(t.Context(), int64(target))
+			return err
+		})
+		require.NoError(t, err, "roll back %s migrations to version %d", source.Name, target)
+	}
+}
+
+func scaleController(t *testing.T, env upgradeEnv, replicas int) {
+	t.Helper()
+
+	kubectl(t, env, 2*time.Minute,
+		"scale", "deployment/kagent-controller",
+		"-n", env.namespace,
+		fmt.Sprintf("--replicas=%d", replicas),
+	)
+	if replicas == 0 {
+		require.Eventually(t, func() bool {
+			pods, err := podNamesForSelectorE(t, env, controllerSelector)
+			return err == nil && len(pods) == 0
+		}, 2*time.Minute, 2*time.Second, "controller pods did not terminate after scale to zero")
+		return
+	}
+	kubectl(t, env, 3*time.Minute,
+		"rollout", "status", "deployment/kagent-controller",
+		"-n", env.namespace,
+		"--timeout=3m",
+	)
 }
 
 // dropDatabaseBestEffort removes a scratch database, ignoring all errors. It

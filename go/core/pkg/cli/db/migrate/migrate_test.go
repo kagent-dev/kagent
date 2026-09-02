@@ -333,12 +333,14 @@ func TestCLIAgainstPostgres(t *testing.T) {
 
 func TestSourceFileVersions(t *testing.T) {
 	tests := []struct {
-		name  string
-		files []string
-		want  []int64
+		name    string
+		files   []string
+		want    []int64
+		wantErr bool
 	}{
-		{"standard format", []string{"000001_create.sql", "000002_alter.sql"}, []int64{1, 2}},
-		{"non-SQL ignored", []string{"README.md"}, nil},
+		{"standard format", []string{"000001_create.sql", "000002_alter.sql"}, []int64{1, 2}, false},
+		{"non-SQL ignored", []string{"README.md"}, nil, false},
+		{"legacy split rejected", []string{"000001_create.up.sql"}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -347,6 +349,12 @@ func TestSourceFileVersions(t *testing.T) {
 				mfs["m/"+f] = &fstest.MapFile{Data: migrationFile("SELECT 1;", "SELECT 1;")}
 			}
 			got, err := sourceFileVersions(migrations.Source{FS: mfs, Dir: "m"})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("sourceFileVersions succeeded")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

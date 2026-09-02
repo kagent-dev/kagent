@@ -81,6 +81,7 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 
 - PostgreSQL migrations use Goose with embedded SQL files.
 - Add each migration as `NNNNNN_description.sql`.
+- Do not add legacy split files ending in `.up.sql` or `.down.sql`.
 - Include one `-- +goose Up` section and one `-- +goose Down` section.
 - Goose makes the Down section optional, but Kagent requires it for the database CLI.
 - Do not use `-- +goose NO TRANSACTION`.
@@ -89,13 +90,15 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 - Fix an accepted migration with a new migration.
 - Keep migration SQL schema-agnostic.
 - Change only objects that the migration source owns.
-- Use `IF NOT EXISTS` in Up sections where PostgreSQL supports it.
-- Use `IF EXISTS` in Down sections where PostgreSQL supports it.
+- Do not use existence guards for source-owned objects; a migration ledger mismatch must fail.
+- Use existence guards only for shared bootstrap resources such as PostgreSQL extensions.
 - Each migration source must use its own migration table and advisory lock.
 - Register dependent sources after the sources that they need.
 - Do not add automatic down migrations when a later source fails.
 - A restart must continue from each source's last committed version.
+- Allow non-destructive startup when the database is ahead of the binary for rolling compatibility.
 - The Goose cutover requires a fresh PostgreSQL database.
+- Reject source-owned tables that exist without the source's Goose migration table.
 - Do not add a golang-migrate bridge for the cutover.
 - Keep `schema_migrations` for the core source.
 - Keep `vector_schema_migrations` for the vector source.

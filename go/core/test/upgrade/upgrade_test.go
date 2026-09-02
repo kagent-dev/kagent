@@ -26,7 +26,7 @@ const (
 	controllerContainer = "controller"
 
 	controllerServiceName = "kagent-controller"
-	controllerAPIPort     = 8083
+	controllerGRPCPort    = 8084
 )
 
 type upgradeEnv struct {
@@ -53,14 +53,16 @@ func TestUpgrade(t *testing.T) {
 	seed := fmt.Sprintf("%d", time.Now().UnixNano())
 	seedAgentID := "upgrade-seed-agent-" + seed
 	seedUserID := "upgrade-seed-user-" + seed
-	seedSessionID := "upgrade-seed-session-" + seed
-	seedEventID := "upgrade-seed-event-" + seed
-	seedTaskID := "upgrade-seed-task-" + seed
-	seedPushID := "upgrade-seed-push-" + seed
 	seedToolID := "upgrade-seed-tool-" + seed
 	seedToolServerName := "upgrade-seed-toolserver-" + seed
 	seedGroupKind := "upgrade.seed/v1/Canary"
 	seedCanaryCounts := map[string]int{}
+	seedCanaryQueries := map[string]string{
+		"agent":      fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(seedAgentID)),
+		"feedback":   fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID)),
+		"tool":       fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s", pgQuote(seedToolID), pgQuote(seedToolServerName), pgQuote(seedGroupKind)),
+		"toolserver": fmt.Sprintf("SELECT count(*) FROM toolserver WHERE name = %s AND group_kind = %s", pgQuote(seedToolServerName), pgQuote(seedGroupKind)),
+	}
 	// The controller image embeds the migration files. Comparing the DB
 	// state to this version proves the upgraded pod actually applied the
 	// migration set shipped in the target build.
@@ -76,10 +78,12 @@ func TestUpgrade(t *testing.T) {
 
 	var pgBaselineState postgresMigrationState
 	var baselineVectorVersion int
+	var cleanPreviousSchema string
 
 	if !t.Run("seed baseline data before upgrade", func(t *testing.T) {
 		pgBaselineState = pgMigrationState(t, env)
 		baselineVectorVersion = pgTrackVersion(t, env, "vector_schema_migrations")
+		cleanPreviousSchema = pgSchemaDump(t, env, "kagent")
 		t.Logf("baseline Postgres schema_migrations version: %d vector=%d (target=%d)",
 			pgBaselineState.version, baselineVectorVersion, targetCoreVersion)
 
@@ -88,14 +92,6 @@ func TestUpgrade(t *testing.T) {
 		// for accidental table drops, destructive rewrites, and key/index changes
 		// that lose existing customer data during an upgrade.
 		pgExec(t, env, fmt.Sprintf("INSERT INTO agent (id, type) VALUES (%s, 'Deployment')", pgQuote(seedAgentID)))
-		pgExec(t, env, fmt.Sprintf("INSERT INTO session (id, user_id, name, agent_id, source) VALUES (%s, %s, 'upgrade canary session', %s, 'upgrade-test')",
-			pgQuote(seedSessionID), pgQuote(seedUserID), pgQuote(seedAgentID)))
-		pgExec(t, env, fmt.Sprintf("INSERT INTO event (id, user_id, session_id, data) VALUES (%s, %s, %s, '{}')",
-			pgQuote(seedEventID), pgQuote(seedUserID), pgQuote(seedSessionID)))
-		pgExec(t, env, fmt.Sprintf("INSERT INTO task (id, session_id, data) VALUES (%s, %s, '{}')",
-			pgQuote(seedTaskID), pgQuote(seedSessionID)))
-		pgExec(t, env, fmt.Sprintf("INSERT INTO push_notification (id, task_id, data) VALUES (%s, %s, '{}')",
-			pgQuote(seedPushID), pgQuote(seedTaskID)))
 		pgExec(t, env, fmt.Sprintf("INSERT INTO feedback (user_id, feedback_text) VALUES (%s, 'pre-upgrade feedback')", pgQuote(seedUserID)))
 		pgExec(t, env, fmt.Sprintf("INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'upgrade canary tool')",
 			pgQuote(seedToolID), pgQuote(seedToolServerName), pgQuote(seedGroupKind)))
@@ -106,19 +102,42 @@ func TestUpgrade(t *testing.T) {
 		require.GreaterOrEqual(t, seedAgents, 1, "expected seeded agent row")
 		t.Logf("seeded agent rows: %d", seedAgents)
 
-		seedCanaryCounts = map[string]int{
-			"agent":             pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(seedAgentID))),
-			"session":           pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM session WHERE id = %s AND user_id = %s", pgQuote(seedSessionID), pgQuote(seedUserID))),
-			"event":             pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM event WHERE id = %s AND user_id = %s", pgQuote(seedEventID), pgQuote(seedUserID))),
-			"task":              pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM task WHERE id = %s", pgQuote(seedTaskID))),
-			"push_notification": pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM push_notification WHERE id = %s", pgQuote(seedPushID))),
-			"feedback":          pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID))),
-			"tool":              pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s", pgQuote(seedToolID), pgQuote(seedToolServerName), pgQuote(seedGroupKind))),
-			"toolserver":        pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM toolserver WHERE name = %s AND group_kind = %s", pgQuote(seedToolServerName), pgQuote(seedGroupKind))),
-		}
-		for table, count := range seedCanaryCounts {
+		for table, query := range seedCanaryQueries {
+			count := pgQueryInt(t, env, query)
 			require.GreaterOrEqual(t, count, 1, "expected seeded %s canary row", table)
+			seedCanaryCounts[table] = count
 		}
+	}) {
+		return
+	}
+
+	previousGoDir := checkoutPreviousRelease(t, env)
+	vectorEnabled := baselineVectorVersion > 0
+	if !t.Run("previous release serves across target migrations", func(t *testing.T) {
+		runPreviousReleaseAcrossMigration(t, env, previousGoDir, func() {
+			applyEmbeddedMigrations(t, env, "kagent", vectorEnabled)
+			pgPostState := pgMigrationState(t, env)
+			require.Equal(t, targetCoreVersion, pgPostState.version,
+				"Postgres migrations did not reach the target embedded migration version")
+		})
+	}) {
+		return
+	}
+
+	if !t.Run("previous release restarts against migrated schema", func(t *testing.T) {
+		kubectl(t, env, time.Minute,
+			"rollout", "restart", "deployment/kagent-controller",
+			"-n", env.namespace,
+		)
+		kubectl(t, env, 3*time.Minute,
+			"rollout", "status", "deployment/kagent-controller",
+			"-n", env.namespace,
+			"--timeout=3m",
+		)
+		pod := newestPodNameForSelector(t, env, controllerSelector)
+		restarts := podContainerRestartCount(t, env, pod, controllerContainer)
+		require.Zero(t, restarts,
+			"previous-release controller pod %s crash-looped against the migrated schema", pod)
 	}) {
 		return
 	}
@@ -181,10 +200,6 @@ func TestUpgrade(t *testing.T) {
 		// the seeded rows below.
 		requirePostgresTablesExist(t, env,
 			"agent",
-			"session",
-			"event",
-			"task",
-			"push_notification",
 			"feedback",
 			"tool",
 			"toolserver",
@@ -199,26 +214,14 @@ func TestUpgrade(t *testing.T) {
 			fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID)))
 		require.GreaterOrEqual(t, postFeedback, 1, "seeded feedback row did not survive the upgrade migrations")
 
-		postCanaryCounts := map[string]int{
-			"agent":             pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(seedAgentID))),
-			"session":           pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM session WHERE id = %s AND user_id = %s", pgQuote(seedSessionID), pgQuote(seedUserID))),
-			"event":             pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM event WHERE id = %s AND user_id = %s", pgQuote(seedEventID), pgQuote(seedUserID))),
-			"task":              pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM task WHERE id = %s", pgQuote(seedTaskID))),
-			"push_notification": pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM push_notification WHERE id = %s", pgQuote(seedPushID))),
-			"feedback":          postFeedback,
-			"tool":              pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s", pgQuote(seedToolID), pgQuote(seedToolServerName), pgQuote(seedGroupKind))),
-			"toolserver":        pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM toolserver WHERE name = %s AND group_kind = %s", pgQuote(seedToolServerName), pgQuote(seedGroupKind))),
-		}
 		for table, before := range seedCanaryCounts {
 			// The generic canaries only assert non-regression. Future migrations
 			// that intentionally transform data should still add targeted
 			// assertions for their expected post-upgrade shape.
-			require.GreaterOrEqual(t, postCanaryCounts[table], before,
+			require.GreaterOrEqual(t, pgQueryInt(t, env, seedCanaryQueries[table]), before,
 				"%s canary row count decreased across upgrade", table)
 		}
 	})
-
-	vectorEnabled := baselineVectorVersion > 0
 
 	if !t.Run("verify upgraded schema matches a clean install", func(t *testing.T) {
 		// Build an independent clean install of the current build's migrations
@@ -232,11 +235,63 @@ func TestUpgrade(t *testing.T) {
 		return
 	}
 
-	t.Run("post-upgrade invoke (HEAD)", func(t *testing.T) {
+	if !t.Run("post-upgrade invoke (HEAD)", func(t *testing.T) {
 		// The HEAD controller is serving on the migrated schema. Exercise the
 		// current code's real query paths against it (deploy + invoke an agent),
 		// not just the psql-level checks above.
-		runInvokeE2E(t, env, "post-upgrade")
+		runInvokeE2E(t, env, filepath.Join(env.repoRoot, "go"), "post-upgrade")
+	}) {
+		return
+	}
+
+	if !t.Run("roll back application to previous release", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+		defer cancel()
+
+		out, err := installPreviousReleaseCommand(ctx, env).CombinedOutput()
+		require.NoError(t, err, "rolling back to the previous release failed:\n%s", string(out))
+		kubectl(t, env, 3*time.Minute,
+			"rollout", "status", "deployment/kagent-controller",
+			"-n", env.namespace,
+			"--timeout=3m",
+		)
+		pod := newestPodNameForSelector(t, env, controllerSelector)
+		require.Zero(t, podContainerRestartCount(t, env, pod, controllerContainer),
+			"previous-release controller pod %s crash-looped against the target schema", pod)
+	}) {
+		return
+	}
+
+	if !t.Run("previous release invokes against target schema", func(t *testing.T) {
+		runInvokeE2E(t, env, previousGoDir, "application rollback")
+	}) {
+		return
+	}
+
+	if !t.Run("reverse schema to previous release", func(t *testing.T) {
+		scaleController(t, env, 0)
+		migrateEmbeddedSourcesTo(t, env, map[string]int{
+			"core":   pgBaselineState.version,
+			"vector": baselineVectorVersion,
+		}, vectorEnabled)
+
+		require.Equal(t, pgBaselineState.version, pgMigrationState(t, env).version,
+			"core migrations did not return to the previous-release version")
+		require.Equal(t, baselineVectorVersion, pgTrackVersion(t, env, "vector_schema_migrations"),
+			"vector migrations did not return to the previous-release version")
+		require.Equal(t, cleanPreviousSchema, pgSchemaDump(t, env, "kagent"),
+			"reversed schema diverged from a clean previous-release install")
+		for table, before := range seedCanaryCounts {
+			require.GreaterOrEqual(t, pgQueryInt(t, env, seedCanaryQueries[table]), before,
+				"%s row count decreased during schema rollback", table)
+		}
+	}) {
+		return
+	}
+
+	t.Run("previous release invokes after schema rollback", func(t *testing.T) {
+		scaleController(t, env, 1)
+		runInvokeE2E(t, env, previousGoDir, "schema rollback")
 	})
 }
 
@@ -254,6 +309,17 @@ func helmUpgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
 		"KIND_CLUSTER_NAME="+env.kindClusterName,
 		"OPENAI_API_KEY="+env.openAIAPIKey,
 		"KAGENT_DEFAULT_MODEL_PROVIDER=openAI",
+	)
+	return cmd
+}
+
+func installPreviousReleaseCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "make", "-C", env.repoRoot, "install-previous-release")
+	cmd.Dir = env.repoRoot
+	cmd.Env = append(os.Environ(),
+		"UPGRADE_FROM_VERSION="+env.upgradeFromVersion,
+		"KIND_CLUSTER_NAME="+env.kindClusterName,
+		"OPENAI_API_KEY="+env.openAIAPIKey,
 	)
 	return cmd
 }

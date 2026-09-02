@@ -17,9 +17,9 @@ jobs:
       - name: Fail if any existing migration file was modified
         run: |
           BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
-          CHANGED=$(git diff --no-renames --name-only --diff-filter=MDR "$BASE" HEAD \
+          CHANGED=$(git diff --no-renames --name-status --diff-filter=MDR "$BASE" HEAD \
             -- 'go/core/pkg/migrations/**/*.sql' \
-            | grep -Ev '\.(up|down)\.sql$' || true)
+            | awk '$1 != "D" || $2 !~ /\.(up|down)\.sql$/ { print $2 }')
 
           if [ -n "$CHANGED" ]; then
             echo "ERROR: These migration files changed or were removed."
@@ -34,9 +34,17 @@ jobs:
 
       - name: Reject non-transactional migrations
         run: |
+          SPLIT=$(find go/core/pkg/migrations -type f \
+            \( -name '*.up.sql' -o -name '*.down.sql' \))
+
+          if [ -n "$SPLIT" ]; then
+            echo "ERROR: Legacy split migration files are not supported."
+            echo "$SPLIT"
+            exit 1
+          fi
+
           FORBIDDEN=$(find go/core/pkg/migrations -type f -name '*.sql' \
-            ! -name '*.up.sql' ! -name '*.down.sql' \
-            -exec grep -il -- '-- +goose NO TRANSACTION' {} + || true)
+            -exec grep -Eil -- '^--[[:space:]]*\+goose[[:space:]]*NO[[:space:]]+TRANSACTION[[:space:]]*$' {} + || true)
 
           if [ -n "$FORBIDDEN" ]; then
             echo "ERROR: These migrations disable transactions."

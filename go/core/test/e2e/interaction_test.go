@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -52,16 +53,46 @@ var interactionMocks embed.FS
 func TestAgentInstanceInteraction(t *testing.T) {
 	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	assertAgentInstanceInteraction(t, fixture)
+	assertAgentInstanceInteraction(t, fixture)
+}
+
+// TestAgentInstanceInteractionAcrossMigration keeps one Substrate-backed agent
+// alive while the upgrade test applies the next release's Goose migrations.
+func TestAgentInstanceInteractionAcrossMigration(t *testing.T) {
+	signalDir := os.Getenv("KAGENT_UPGRADE_SIGNAL_DIR")
+	if signalDir == "" {
+		t.Skip("KAGENT_UPGRADE_SIGNAL_DIR is not set")
+	}
+
+	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	assertAgentInstanceInteraction(t, fixture)
+	if err := os.WriteFile(filepath.Join(signalDir, "ready"), nil, 0o600); err != nil {
+		t.Fatalf("signal first invocation complete: %v", err)
+	}
+	err := wait.PollUntilContextTimeout(t.Context(), 250*time.Millisecond, 15*time.Minute, true,
+		func(context.Context) (bool, error) {
+			_, err := os.Stat(filepath.Join(signalDir, "continue"))
+			if errors.Is(err, os.ErrNotExist) {
+				return false, nil
+			}
+			return err == nil, err
+		})
+	if err != nil {
+		t.Fatalf("wait for migrations: %v", err)
+	}
+	assertAgentInstanceInteraction(t, fixture)
+}
+
+func assertAgentInstanceInteraction(t *testing.T, fixture *interactionFixture) {
+	t.Helper()
+
 	_, _, task := fixture.send(t, "What is 2+2?")
 	if task.Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("A2A task state = %s, want COMPLETED", task.Status.State)
 	}
 	if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
 		t.Fatalf("A2A response text = %q, want mock LLM response", text)
-	}
-	_, _, task = fixture.send(t, "What is 2+2?")
-	if task.Status.State != a2atype.TaskStateCompleted {
-		t.Fatalf("second A2A task state = %s, want COMPLETED", task.Status.State)
 	}
 }
 

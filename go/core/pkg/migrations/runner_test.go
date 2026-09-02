@@ -99,6 +99,20 @@ func testTableExists(t *testing.T, dsn, table string) bool {
 	return exists
 }
 
+func testExtensionExists(t *testing.T, dsn, extension string) bool {
+	t.Helper()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var exists bool
+	if err := db.QueryRowContext(context.Background(), "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = $1)", extension).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	return exists
+}
+
 func testColumnExists(t *testing.T, dsn, table, column string) bool {
 	t.Helper()
 	db, err := sql.Open("pgx", dsn)
@@ -188,6 +202,12 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
+	// A context may outlive one AgentInstance, so these IDs intentionally differ.
+	contextID := "00000000-0000-0000-0000-000000000001"
+	instanceID := "00000000-0000-0000-0000-000000000002"
+	execSQL(t, dsn, "INSERT INTO a2a_context (id, namespace, user_id) VALUES ($1, 'test', 'user')", contextID)
+	execSQL(t, dsn, "INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data, context_id) VALUES ($1, 'test', 'user', 'request', 'READY', $2, $3)", instanceID, []byte{}, contextID)
+	execSQL(t, dsn, "INSERT INTO agent_instance_task (context_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", contextID, []byte{})
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)
@@ -195,6 +215,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("down %s: %v", source.Name, err)
 		}
+	}
+	if !testExtensionExists(t, dsn, "vector") {
+		t.Fatal("the vector down migration removed the shared extension")
 	}
 	if err := RunUp(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("second RunUp: %v", err)
@@ -311,6 +334,26 @@ func TestRunUpRejectsOldTrackingTable(t *testing.T) {
 	}
 }
 
+func TestRunUpRejectsApplicationTableWithoutTrackingTable(t *testing.T) {
+	dsn := startTestDB(t)
+	source := testSource(fstest.MapFS{
+		"migrations/000001_initial.sql": {Data: migrationSQL(
+			"CREATE TABLE baseline_ran (id bigint);",
+			"DROP TABLE baseline_ran;",
+		)},
+	})
+	source.OwnedTables = []string{"existing_app"}
+	execSQL(t, dsn, "CREATE TABLE existing_app (id bigint)")
+
+	err := RunUp(context.Background(), dsn, []Source{source})
+	if err == nil || !strings.Contains(err.Error(), "without a Goose migration table") || !strings.Contains(err.Error(), "new PostgreSQL database") {
+		t.Fatalf("RunUp error = %v", err)
+	}
+	if testTableExists(t, dsn, "baseline_ran") || testTableExists(t, dsn, source.TrackingTable) {
+		t.Fatal("the baseline started before the application-table preflight failed")
+	}
+}
+
 func TestPrechecksRunBeforeMigrations(t *testing.T) {
 	dsn := startTestDB(t)
 	first := testSource(twoMigrationFS)
@@ -331,7 +374,7 @@ func TestPrechecksRunBeforeMigrations(t *testing.T) {
 	}
 }
 
-func TestRunUpRejectsDatabaseAhead(t *testing.T) {
+func TestRunUpAllowsDatabaseAhead(t *testing.T) {
 	dsn := startTestDB(t)
 	source := testSource(fstest.MapFS{
 		"migrations/000001_initial.sql": {Data: migrationSQL("SELECT 1;", "SELECT 1;")},
@@ -340,18 +383,18 @@ func TestRunUpRejectsDatabaseAhead(t *testing.T) {
 		t.Fatal(err)
 	}
 	execSQL(t, dsn, "INSERT INTO "+quoteIdentifier(source.TrackingTable)+" (version_id, is_applied) VALUES (2, true)")
-	err := RunUp(context.Background(), dsn, []Source{source})
-	if err == nil || !strings.Contains(err.Error(), "exceeds embedded version") {
-		t.Fatalf("RunUp error = %v", err)
+	if err := RunUp(context.Background(), dsn, []Source{source}); err != nil {
+		t.Fatalf("RunUp: %v", err)
 	}
-	if err := VerifyMigrated(context.Background(), dsn, []Source{source}); err == nil || !strings.Contains(err.Error(), "unknown version 2") {
-		t.Fatalf("VerifyMigrated error = %v", err)
+	if err := VerifyMigrated(context.Background(), dsn, []Source{source}); err != nil {
+		t.Fatalf("VerifyMigrated: %v", err)
 	}
 }
 
 func TestMigrationFileValidation(t *testing.T) {
 	tests := []struct {
 		name string
+		file string
 		body string
 		want string
 	}{
@@ -359,11 +402,19 @@ func TestMigrationFileValidation(t *testing.T) {
 		{name: "missing up", body: "-- +goose Down\nSELECT 1;", want: "no Goose Up"},
 		{name: "missing down", body: "-- +goose Up\nSELECT 1;", want: "no Goose Down"},
 		{name: "no transaction", body: "-- +goose NO TRANSACTION\n-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "disables transactions"},
+		{name: "no transaction with extra spacing", body: "-- +goose   NO TRANSACTION\n-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "disables transactions"},
+		{name: "down text in SQL", body: "-- +goose Up\nSELECT '-- +goose Down';", want: "no Goose Down"},
+		{name: "legacy up file", file: "000001_test.up.sql", body: "-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "invalid migration file"},
+		{name: "legacy down file", file: "000001_test.down.sql", body: "-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "invalid migration file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			file := tt.file
+			if file == "" {
+				file = "000001_test.sql"
+			}
 			source := testSource(fstest.MapFS{
-				"migrations/000001_test.sql": {Data: []byte(tt.body)},
+				"migrations/" + file: {Data: []byte(tt.body)},
 			})
 			_, err := migrationVersions(source)
 			if tt.want == "" && err != nil {

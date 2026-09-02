@@ -159,6 +159,9 @@ func sourceFileVersions(source migrations.Source) ([]int64, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
+		if strings.HasSuffix(entry.Name(), ".up.sql") || strings.HasSuffix(entry.Name(), ".down.sql") {
+			return nil, fmt.Errorf("invalid migration file %s", entry.Name())
+		}
 		match := migrationFileRE.FindStringSubmatch(entry.Name())
 		if match == nil {
 			return nil, fmt.Errorf("invalid migration file %s", entry.Name())
