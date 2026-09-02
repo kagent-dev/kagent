@@ -5,85 +5,53 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io/fs"
 	nurl "net/url"
+	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
-	"github.com/golang-migrate/migrate/v4"
-	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	"github.com/golang-migrate/migrate/v4/source"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 )
 
-var log = ctrl.Log.WithName("migrations")
+const (
+	advisoryLockIDSalt  uint32 = 1486364155
+	coreTrackingTable          = "schema_migrations"
+	vectorTrackingTable        = "vector_schema_migrations"
+)
 
-// Source describes one migration track for the orchestrator to apply. Downstream
-// consumers register their own Sources alongside the built-in ones rather than
-// owning a runner, so track ordering and failure handling stay centralized.
+var (
+	identifierRE    = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+	migrationFileRE = regexp.MustCompile(`^([0-9]+)_.+\.sql$`)
+)
+
+// Source describes one migration source.
 type Source struct {
-	// Name labels the source in logs and errors (e.g. "core", "vector").
-	Name string
-	// Schema is the Postgres schema the track lives in. Empty means the
-	// connection's default schema (resolved via search_path / current_schema),
-	// which is what the built-in tracks use. A non-empty value scopes the
-	// tracking table and migration objects to that schema: the orchestrator
-	// creates it (CREATE SCHEMA IF NOT EXISTS) and sets search_path on the
-	// connection. Schema is treated as an untrusted identifier and validated.
-	//
-	// When Schema is empty (the built-in tracks), the DSN is left untouched:
-	// the connection keeps the server's default search_path ("$user", public), so
-	// migration objects and the tracking table land in public exactly as before
-	// this orchestrator existed. The schema handling below applies only when
-	// Schema is set.
-	//
-	// When Schema is set, search_path is pinned to it alone (pg_catalog is always
-	// implicitly searched, so built-in types and functions still resolve). public
-	// is NOT on the path, which keeps a schema-scoped track strictly isolated. A
-	// migration that needs a shared extension installed in public (e.g. the
-	// pgvector "vector" type) must therefore either install/relocate the extension
-	// into this schema or schema-qualify the reference; it cannot rely on public.
-	//
-	// Do not register two sources whose schemas resolve to the same value with the
-	// same TrackingTable — e.g. one source with Schema == "" and another naming the
-	// connection's current_schema() explicitly. They would share one tracking-table
-	// row and one advisory lock and corrupt each other's state. The collision unit
-	// is (resolved schema, TrackingTable). validateSources catches collisions on the
-	// literal Schema; RunUp additionally resolves "" to current_schema() and rejects
-	// collisions that only appear after resolution.
-	Schema string
-	// TrackingTable is the golang-migrate bookkeeping table for this track.
+	Name          string
+	Schema        string
 	TrackingTable string
-	// FS holds the embedded migration files.
-	FS fs.FS
-	// Dir is the subdirectory within FS that holds this track's files.
-	Dir string
-	// PreCheck, if set, runs before any source is applied. A non-nil error
-	// aborts the whole run before any migration executes (fail-fast).
-	PreCheck func(url string) error
+	FS            fs.FS
+	Dir           string
+	PreCheck      func(url string) error
 }
 
-// BuiltinSources returns the built-in source set: the core track always, and the
-// vector track when vectorEnabled. app.Start prepends these to any
-// downstream-registered extra sources before calling RunUp, so the built-in
-// tracks always run first and downstream consumers only supply their own extras
-// (never assembling this slice themselves). A caller that invokes RunUp directly
-// (e.g. a migration CLI) composes the list the same way: BuiltinSources first,
-// then extras.
+// BuiltinSources returns the built-in migration sources.
 func BuiltinSources(vectorEnabled bool) []Source {
 	sources := []Source{{
 		Name:          "core",
-		TrackingTable: "schema_migrations",
+		TrackingTable: coreTrackingTable,
 		FS:            FS,
 		Dir:           "core",
 	}}
 	if vectorEnabled {
 		sources = append(sources, Source{
 			Name:          "vector",
-			TrackingTable: "vector_schema_migrations",
+			TrackingTable: vectorTrackingTable,
 			FS:            FS,
 			Dir:           "vector",
 			PreCheck:      checkPgvector,
@@ -92,18 +60,7 @@ func BuiltinSources(vectorEnabled bool) []Source {
 	return sources
 }
 
-// RunUp applies all pending migrations for each source, in slice order.
-//
-// All PreChecks run first, before any source is applied, so a failed precheck
-// aborts the run before touching the database. Each source is then applied with
-// the same per-track safety behavior: it tolerates a database ahead of this
-// binary (compatibility mode), refuses a dirty-and-ahead database, and rolls
-// itself back if its own Up fails. If a later source fails, previously-applied
-// sources are rolled back to their pre-run versions in reverse order.
-//
-// ctx is honored at source boundaries and during schema setup and prechecks.
-// golang-migrate's apply is not context-aware, so an in-flight migration is not
-// cancellable.
+// RunUp applies all pending migrations in source order.
 func RunUp(ctx context.Context, url string, sources []Source) error {
 	if len(sources) == 0 {
 		return nil
@@ -111,86 +68,50 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 	if err := validateSources(sources); err != nil {
 		return err
 	}
-	// Catch collisions that only appear once "" schemas resolve to current_schema().
 	if err := checkResolvedSchemaCollisions(ctx, url, sources); err != nil {
 		return err
 	}
 
-	// Run every precheck up front so a failure aborts before any source applies
-	// (e.g. pgvector is verified before the core track runs).
 	for _, src := range sources {
 		if src.PreCheck == nil {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("migrations cancelled before %s precheck: %w", src.Name, err)
+			return fmt.Errorf("cancel before %s precheck: %w", src.Name, err)
 		}
 		if err := src.PreCheck(url); err != nil {
 			return fmt.Errorf("%s precheck: %w", src.Name, err)
 		}
 	}
 
-	type applied struct {
-		src  Source
-		prev uint
-	}
-	var done []applied
-
 	for _, src := range sources {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("migrations cancelled before %s: %w", src.Name, err)
+			return fmt.Errorf("cancel before %s migrations: %w", src.Name, err)
 		}
-		prev, err := applySource(ctx, url, src)
+		versions, err := migrationVersions(src)
 		if err != nil {
-			// Compensating rollback: undo previously-applied sources in reverse
-			// order, each to its own pre-run version. The failing source has
-			// already rolled itself back in applySource.
-			//
-			// Run the rollback under a context detached from cancellation. If the
-			// caller's ctx is already canceled (e.g. SIGTERM arriving mid-startup
-			// as a source fails), using it here would abort the rollback at schema
-			// setup and leave the database mid-migration. WithoutCancel keeps any
-			// request-scoped values but lets best-effort cleanup finish;
-			// golang-migrate's own steps aren't ctx-aware regardless, so only the
-			// schema-setup ExecContext consults it.
-			rbCtx := context.WithoutCancel(ctx)
-			var compErrs []error
-			for _, a := range slices.Backward(done) {
-				if a.prev == 0 {
-					log.Info("skipping compensating rollback to version 0 to protect pre-existing data", "source", a.src.Name)
-					continue
-				}
-				log.Info("rolling back source after later failure", "source", a.src.Name, "targetVersion", a.prev)
-				if rbErr := rollbackSource(rbCtx, url, a.src, a.prev); rbErr != nil {
-					compErrs = append(compErrs, rbErr)
-				}
-			}
-			runErr := fmt.Errorf("%s migrations: %w", src.Name, err)
-			if len(compErrs) > 0 {
-				// A compensating rollback failed: the database may be left in a
-				// partially rolled-back state. Surface it alongside the original
-				// failure rather than only in the logs.
-				return errors.Join(append([]error{runErr}, compErrs...)...)
-			}
-			return runErr
+			return fmt.Errorf("read %s migrations: %w", src.Name, err)
 		}
-		done = append(done, applied{src: src, prev: prev})
+		err = WithProvider(ctx, url, src, func(provider *goose.Provider) error {
+			current, err := provider.GetDBVersion(ctx)
+			if err != nil {
+				return fmt.Errorf("read database version: %w", err)
+			}
+			latest := versions[len(versions)-1]
+			if current > latest {
+				return fmt.Errorf("database version %d exceeds embedded version %d", current, latest)
+			}
+			_, err = provider.Up(ctx)
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("%s migrations: %w", src.Name, err)
+		}
 	}
-
 	return nil
 }
 
-// VerifyMigrated checks, without applying or reverting anything, that every
-// source's migrations have been applied to the database. It is the boot-time
-// guard for the SKIP_MIGRATIONS deployment mode, where migrations run
-// out-of-band (a pipeline or pre-upgrade hook) and the server must refuse to
-// serve a wrong-shaped schema. It issues only SELECTs — never golang-migrate,
-// which creates the tracking table on open — so it is safe on a connection
-// whose role has no DDL privileges.
-//
-// Per source: a missing tracking table or a version behind this binary's
-// embedded max is an error; a dirty tracking table is an error; a database
-// ahead of the binary is tolerated (compatibility mode), matching RunUp.
+// VerifyMigrated checks migration state without database writes.
 func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
 	if len(sources) == 0 {
 		return nil
@@ -198,134 +119,247 @@ func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
 	if err := validateSources(sources); err != nil {
 		return err
 	}
-	// Reject the same resolved-schema collisions RunUp rejects: a colliding
-	// source set shares one tracking table, so verification would read the
-	// same row twice and "pass" an unsafe configuration.
 	if err := checkResolvedSchemaCollisions(ctx, url, sources); err != nil {
 		return err
 	}
 
 	db, err := sql.Open("pgx", url)
 	if err != nil {
-		return fmt.Errorf("open database to verify migrations: %w", err)
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
 
 	for _, src := range sources {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("migration verification cancelled before %s: %w", src.Name, err)
-		}
-		maxVer, err := maxEmbeddedVersion(src.FS, src.Dir)
+		versions, err := migrationVersions(src)
 		if err != nil {
-			return fmt.Errorf("determine max embedded version for %s: %w", src.Name, err)
+			return fmt.Errorf("read %s migrations: %w", src.Name, err)
 		}
-
-		// For Schema == "" the unqualified name resolves via the connection's
-		// search_path — the same place RunUp put the table.
-		table := quoteIdentifier(src.TrackingTable)
-		if src.Schema != "" {
-			table = quoteIdentifier(src.Schema) + "." + table
-		}
-
-		var exists bool
-		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists); err != nil {
-			return fmt.Errorf("check tracking table for %s: %w", src.Name, err)
+		table := sourceTableName(src, src.TrackingTable)
+		exists, err := tableExists(ctx, db, table)
+		if err != nil {
+			return fmt.Errorf("check %s migration table: %w", src.Name, err)
 		}
 		if !exists {
-			return fmt.Errorf("source %s: tracking table %s does not exist - the database has not been migrated; apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, table)
+			return fmt.Errorf("source %s has no migration table", src.Name)
 		}
 
-		var version int64
-		var dirty bool
-		err = db.QueryRowContext(ctx, "SELECT version, dirty FROM "+table+" LIMIT 1").Scan(&version, &dirty)
-		if errors.Is(err, sql.ErrNoRows) {
-			version, dirty = 0, false // table exists but nothing applied yet
-		} else if err != nil {
-			return fmt.Errorf("read tracking table for %s: %w", src.Name, err)
+		rows, err := db.QueryContext(ctx, "SELECT version_id, is_applied FROM "+table)
+		if err != nil {
+			return fmt.Errorf("read %s migration table: %w", src.Name, err)
 		}
-
-		switch {
-		case dirty:
-			return fmt.Errorf("source %s is dirty at version %d: a previous migration attempt failed and must be resolved before starting with SKIP_MIGRATIONS", src.Name, version)
-		case version < int64(maxVer):
-			return fmt.Errorf("source %s is at version %d but this binary requires version %d: apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, version, maxVer)
-		case version > int64(maxVer):
-			log.Info("database schema is ahead of this binary; running in compatibility mode",
-				"track", src.Name, "dbVersion", version, "binaryMax", maxVer)
-		}
-	}
-	return nil
-}
-
-// validateSources rejects a source set that cannot be run safely. It checks two
-// things.
-//
-// First, required fields. Source is a public extension point, so a source with a
-// missing field is a caller mistake that should fail fast with an actionable
-// error rather than surface later as a vague golang-migrate failure. Name, FS,
-// Dir, and TrackingTable are required; Schema is intentionally optional
-// ("" = the connection's default schema) and PreCheck is optional (nil = none).
-// TrackingTable has no safe default: sources can share a schema (core and vector
-// both live in the connection default), so an empty TrackingTable would silently
-// fall back to golang-migrate's "schema_migrations" and collide.
-//
-// Second, collisions on the (schema, tracking table) pair. That pair is the
-// collision unit: it determines the golang-migrate version row and the
-// advisory-lock id, so two such sources would fight over one row and lock
-// regardless of their Dir/FS. Distinct tracking tables in the same schema are
-// fine (each gets its own bookkeeping).
-//
-// The collision check keys on the *literal* Schema string and is intentionally
-// DB-free so it stays unit-testable. It therefore cannot see a collision between
-// a source with Schema == "" and one naming the connection's current_schema()
-// explicitly, since "" resolves to that schema only at connection time.
-// checkResolvedSchemaCollisions (called from RunUp, where a connection is
-// available) closes that gap.
-func validateSources(sources []Source) error {
-	seen := make(map[string]string, len(sources))
-	for _, s := range sources {
-		switch {
-		case s.Name == "":
-			return fmt.Errorf("migration source has empty Name")
-		case s.TrackingTable == "":
-			return fmt.Errorf("migration source %q has empty TrackingTable", s.Name)
-		case s.FS == nil:
-			return fmt.Errorf("migration source %q has nil FS", s.Name)
-		case s.Dir == "":
-			return fmt.Errorf("migration source %q has empty Dir", s.Name)
-		}
-		// Validate schema names up front so a bad name on a later source aborts
-		// the whole run before any earlier source applies, matching the fail-fast
-		// guarantee RunUp gives prechecks. newMigrate re-validates as a safety net
-		// for callers that bypass RunUp (e.g. applySource directly in tests).
-		if s.Schema != "" {
-			if err := validateSchemaName(s.Schema); err != nil {
-				return fmt.Errorf("source %q: %w", s.Name, err)
+		applied := make(map[int64]bool)
+		for rows.Next() {
+			var version int64
+			var isApplied bool
+			if err := rows.Scan(&version, &isApplied); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan %s migration table: %w", src.Name, err)
+			}
+			if version > 0 && isApplied {
+				applied[version] = true
 			}
 		}
-		key := s.Schema + "\x00" + s.TrackingTable
-		if other, ok := seen[key]; ok {
-			return fmt.Errorf("sources %q and %q share tracking table %q in schema %q", other, s.Name, s.TrackingTable, s.Schema)
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("close %s migration rows: %w", src.Name, err)
 		}
-		seen[key] = s.Name
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("read %s migration rows: %w", src.Name, err)
+		}
+
+		embedded := make(map[int64]bool, len(versions))
+		for _, version := range versions {
+			embedded[version] = true
+			if !applied[version] {
+				return fmt.Errorf("source %s needs migration version %d", src.Name, version)
+			}
+		}
+		for version := range applied {
+			if !embedded[version] {
+				return fmt.Errorf("source %s has unknown version %d", src.Name, version)
+			}
+		}
 	}
 	return nil
 }
 
-// checkResolvedSchemaCollisions rejects sources that collide only after their
-// schemas are resolved — a source with Schema == "" and another naming the
-// connection's current_schema() explicitly both land in the same schema, so with
-// the same TrackingTable they would share one golang-migrate version row and one
-// advisory lock. validateSources cannot see this because it keys on the literal
-// Schema; resolving "" requires a connection, which is why this lives here.
-//
-// The query runs only when the source set mixes empty and explicit schemas;
-// all-empty (the built-in core+vector default) and all-explicit sets are already fully
-// covered by validateSources' literal-key check, so the common paths pay nothing.
+// WithProvider runs fn while one source lock is held.
+func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Provider) error) (retErr error) {
+	if err := validateSources([]Source{src}); err != nil {
+		return err
+	}
+	connURL := url
+	if src.Schema != "" {
+		var err error
+		connURL, err = withSearchPath(url, src.Schema)
+		if err != nil {
+			return fmt.Errorf("set search path for %s: %w", src.Name, err)
+		}
+	}
+
+	db, err := sql.Open("pgx", connURL)
+	if err != nil {
+		return fmt.Errorf("open database for %s: %w", src.Name, err)
+	}
+	defer func() {
+		retErr = errors.Join(retErr, db.Close())
+	}()
+
+	if src.Schema != "" {
+		if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(src.Schema)); err != nil {
+			return fmt.Errorf("create schema %s: %w", src.Schema, err)
+		}
+	}
+
+	var databaseName string
+	var schemaName sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT current_database(), current_schema()").Scan(&databaseName, &schemaName); err != nil {
+		return fmt.Errorf("resolve database identity: %w", err)
+	}
+	if !schemaName.Valid {
+		return errors.New("the connection has no current schema")
+	}
+	if err := rejectOldTrackingTable(ctx, db, schemaName.String, src); err != nil {
+		return err
+	}
+
+	locker, err := lock.NewPostgresSessionLocker(lock.WithLockID(advisoryLockID(databaseName, schemaName.String, src.TrackingTable)))
+	if err != nil {
+		return fmt.Errorf("create %s migration lock: %w", src.Name, err)
+	}
+	lockConn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open %s lock connection: %w", src.Name, err)
+	}
+	defer func() {
+		retErr = errors.Join(retErr, lockConn.Close())
+	}()
+	if err := locker.SessionLock(ctx, lockConn); err != nil {
+		return fmt.Errorf("lock %s migrations: %w", src.Name, err)
+	}
+	defer func() {
+		if err := locker.SessionUnlock(context.WithoutCancel(ctx), lockConn); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("unlock %s migrations: %w", src.Name, err))
+		}
+	}()
+
+	sourceFS, err := fs.Sub(src.FS, src.Dir)
+	if err != nil {
+		return fmt.Errorf("open migration directory %s: %w", src.Dir, err)
+	}
+	provider, err := goose.NewProvider(
+		goose.DialectPostgres,
+		db,
+		sourceFS,
+		goose.WithTableName(src.TrackingTable),
+		goose.WithDisableGlobalRegistry(true),
+		goose.WithLogger(goose.NopLogger()),
+	)
+	if err != nil {
+		return fmt.Errorf("create %s migration provider: %w", src.Name, err)
+	}
+	return fn(provider)
+}
+
+func rejectOldTrackingTable(ctx context.Context, db *sql.DB, schema string, src Source) error {
+	var old bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = $1 AND table_name = $2 AND column_name = 'dirty'
+		)`, schema, src.TrackingTable).Scan(&old)
+	if err != nil {
+		return fmt.Errorf("check %s migration table: %w", src.Name, err)
+	}
+	if old {
+		return fmt.Errorf("source %s uses an unsupported migration table. Use a new PostgreSQL database", src.Name)
+	}
+	return nil
+}
+
+func validateSources(sources []Source) error {
+	seen := make(map[string]string, len(sources))
+	for _, src := range sources {
+		switch {
+		case src.Name == "":
+			return errors.New("migration source has an empty name")
+		case src.TrackingTable == "":
+			return fmt.Errorf("source %s has an empty tracking table", src.Name)
+		case src.FS == nil:
+			return fmt.Errorf("source %s has no migration filesystem", src.Name)
+		case src.Dir == "":
+			return fmt.Errorf("source %s has an empty migration directory", src.Name)
+		}
+		if src.Schema != "" {
+			if err := validateIdentifier("schema", src.Schema); err != nil {
+				return fmt.Errorf("source %s: %w", src.Name, err)
+			}
+		}
+		if err := validateIdentifier("tracking table", src.TrackingTable); err != nil {
+			return fmt.Errorf("source %s: %w", src.Name, err)
+		}
+		if _, err := migrationVersions(src); err != nil {
+			return fmt.Errorf("source %s: %w", src.Name, err)
+		}
+		key := src.Schema + "\x00" + src.TrackingTable
+		if other, ok := seen[key]; ok {
+			return fmt.Errorf("sources %s and %s share one tracking table", other, src.Name)
+		}
+		seen[key] = src.Name
+	}
+	return nil
+}
+
+func migrationVersions(src Source) ([]int64, error) {
+	entries, err := fs.ReadDir(src.FS, src.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("read migration directory %s: %w", src.Dir, err)
+	}
+	versions := make([]int64, 0, len(entries))
+	seen := make(map[int64]string, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		match := migrationFileRE.FindStringSubmatch(entry.Name())
+		if match == nil {
+			return nil, fmt.Errorf("invalid migration file %s", entry.Name())
+		}
+		version, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil || version < 1 {
+			return nil, fmt.Errorf("invalid migration version in %s", entry.Name())
+		}
+		if other, ok := seen[version]; ok {
+			return nil, fmt.Errorf("files %s and %s use version %d", other, entry.Name(), version)
+		}
+		body, err := fs.ReadFile(src.FS, path.Join(src.Dir, entry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read migration file %s: %w", entry.Name(), err)
+		}
+		lower := strings.ToLower(string(body))
+		if strings.Contains(lower, "-- +goose no transaction") {
+			return nil, fmt.Errorf("migration %s disables transactions", entry.Name())
+		}
+		if !strings.Contains(lower, "-- +goose up") {
+			return nil, fmt.Errorf("migration %s has no Goose Up section", entry.Name())
+		}
+		if !strings.Contains(lower, "-- +goose down") {
+			return nil, fmt.Errorf("migration %s has no Goose Down section", entry.Name())
+		}
+		seen[version] = entry.Name()
+		versions = append(versions, version)
+	}
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("directory %s has no migrations", src.Dir)
+	}
+	slices.Sort(versions)
+	return versions, nil
+}
+
 func checkResolvedSchemaCollisions(ctx context.Context, url string, sources []Source) error {
 	var hasDefault, hasExplicit bool
-	for _, s := range sources {
-		if s.Schema == "" {
+	for _, src := range sources {
+		if src.Schema == "" {
 			hasDefault = true
 		} else {
 			hasExplicit = true
@@ -337,348 +371,91 @@ func checkResolvedSchemaCollisions(ctx context.Context, url string, sources []So
 
 	db, err := sql.Open("pgx", url)
 	if err != nil {
-		return fmt.Errorf("open database to resolve default schema: %w", err)
+		return fmt.Errorf("open database to resolve schema: %w", err)
 	}
 	defer db.Close()
-
 	var current sql.NullString
 	if err := db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&current); err != nil {
-		return fmt.Errorf("resolve default schema: %w", err)
+		return fmt.Errorf("resolve current schema: %w", err)
 	}
 	if !current.Valid {
-		// search_path resolves to no existing schema; "" sources have no resolved
-		// schema to collide on yet (their tables would fail to create later anyway).
 		return nil
 	}
 
 	seen := make(map[string]string, len(sources))
-	for _, s := range sources {
-		schema := s.Schema
+	for _, src := range sources {
+		schema := src.Schema
 		if schema == "" {
 			schema = current.String
 		}
-		key := schema + "\x00" + s.TrackingTable
+		key := schema + "\x00" + src.TrackingTable
 		if other, ok := seen[key]; ok {
-			return fmt.Errorf("sources %q and %q resolve to the same tracking table %q in schema %q (an empty Schema resolves to current_schema() = %q)",
-				other, s.Name, s.TrackingTable, schema, current.String)
+			return fmt.Errorf("sources %s and %s resolve to one tracking table", other, src.Name)
 		}
-		seen[key] = s.Name
+		seen[key] = src.Name
 	}
 	return nil
 }
 
-// applySource runs Up for one source and rolls it back on failure. If prevVersion
-// is 0 (no migrations have ever been applied) rollback is skipped to avoid
-// dropping pre-existing tables on a GORM-to-golang-migrate upgrade. It returns
-// the pre-run version so the caller can compensate this source if a later one fails.
-func applySource(ctx context.Context, url string, src Source) (prevVersion uint, err error) {
-	mg, err := newMigrate(ctx, url, src)
-	if err != nil {
-		return 0, err
-	}
-	defer closeMigrate(src.Name, mg)
-
-	var dirty bool
-	prevVersion, dirty, err = mg.Version()
-	if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
-		return 0, fmt.Errorf("get pre-migration version for %s: %w", src.Name, err)
-	}
-	// prevVersion == 0 when ErrNilVersion (no migrations applied yet).
-
-	// If the database is ahead of this binary's max known version, skip Up
-	// entirely. The expand-then-contract policy in database-migrations.md
-	// guarantees that each release's code is compatible with the schema applied
-	// by the previous release, so rolling back one release at a time is safe.
-	// We cannot enforce a tighter constraint here because migration version
-	// numbers don't align with release versions.
-	// A dirty database is excluded: dirty state means a previous migration
-	// attempt failed and must be resolved, not silently accepted.
-	if maxVer, scanErr := maxEmbeddedVersion(src.FS, src.Dir); scanErr != nil {
-		log.Error(scanErr, "could not determine max embedded migration version; proceeding with Up", "track", src.Name)
-	} else if prevVersion > maxVer {
-		if dirty {
-			// DB is both dirty and ahead of this binary. Attempting Up/rollback would
-			// fail (the migration files for prevVersion don't exist), producing noisy
-			// and misleading logs. Return a clear error so operators act on the real
-			// problem rather than chasing rollback noise.
-			return prevVersion, fmt.Errorf("database is dirty at version %d and ahead of this binary's max known version %d for track %s: manual operator intervention required: %w",
-				prevVersion, maxVer, src.Name, migrate.ErrDirty{Version: int(prevVersion)})
-		}
-		log.Info("database schema is ahead of this binary; running in compatibility mode",
-			"track", src.Name, "dbVersion", prevVersion, "binaryMax", maxVer)
-		return prevVersion, nil
-	}
-
-	if upErr := mg.Up(); upErr != nil {
-		if errors.Is(upErr, migrate.ErrNoChange) {
-			return prevVersion, nil
-		}
-		if prevVersion == 0 {
-			log.Info("migration failed; skipping rollback to version 0 to protect pre-existing data", "track", src.Name)
-		} else {
-			log.Info("migration failed, attempting rollback", "track", src.Name, "targetVersion", prevVersion)
-			if rbErr := rollbackToVersion(mg, src.Name, prevVersion); rbErr != nil {
-				log.Error(rbErr, "rollback failed", "track", src.Name)
-			} else {
-				log.Info("rollback complete", "track", src.Name, "version", prevVersion)
-			}
-		}
-		return prevVersion, fmt.Errorf("run migrations for %s: %w", src.Name, upErr)
-	}
-	return prevVersion, nil
-}
-
-// WithMigrator opens a migrator for src against url, runs fn against it, and
-// closes it. The migrator carries the same schema handling, tracking-table
-// configuration, and advisory-lock identity as the orchestrator's own runs, so
-// out-of-band tooling (the `kagent db migrate` CLI) built on this serializes
-// correctly against a concurrently booting server and cannot drift from the
-// startup path. fn's migration operations (Up/Down/Steps/Migrate/Force) each
-// take golang-migrate's per-(database, schema) advisory lock; Version reads do
-// not.
-func WithMigrator(ctx context.Context, url string, src Source, fn func(*migrate.Migrate) error) error {
-	mg, err := newMigrate(ctx, url, src)
-	if err != nil {
-		return err
-	}
-	defer closeMigrate(src.Name, mg)
-	return fn(mg)
-}
-
-// rollbackSource opens a fresh migrate instance and rolls a source back to
-// targetVersion. Used to compensate a previously-succeeded source when a later
-// source fails. It returns an error (also logged) when the rollback fails, so
-// the orchestrator can surface that the database may be left partially rolled
-// back rather than leaving it as a log-only signal.
-func rollbackSource(ctx context.Context, url string, src Source, targetVersion uint) error {
-	mg, err := newMigrate(ctx, url, src)
-	if err != nil {
-		log.Error(err, "rollback failed (open)", "track", src.Name)
-		return fmt.Errorf("open %s for rollback: %w", src.Name, err)
-	}
-	defer closeMigrate(src.Name, mg)
-	if err := rollbackToVersion(mg, src.Name, targetVersion); err != nil {
-		log.Error(err, "rollback failed", "track", src.Name)
-		return fmt.Errorf("roll back %s to version %d: %w", src.Name, targetVersion, err)
-	}
-	log.Info("rollback complete", "track", src.Name, "version", targetVersion)
-	return nil
-}
-
-// rollbackToVersion rolls the migration state back to targetVersion.
-// It handles the dirty-state cleanup golang-migrate requires after a failed
-// Up run before down steps can be applied.
-func rollbackToVersion(mg *migrate.Migrate, name string, targetVersion uint) error {
-	currentVersion, dirty, err := mg.Version()
-	if err != nil {
-		if errors.Is(err, migrate.ErrNilVersion) {
-			return nil // nothing was applied; nothing to roll back
-		}
-		return fmt.Errorf("get version after failure for %s: %w", name, err)
-	}
-
-	if dirty {
-		// The failed migration is recorded as dirty at currentVersion.
-		// Force to the last clean version so Steps can run.
-		cleanVersion := int(currentVersion) - 1
-		forceTarget := cleanVersion
-		if forceTarget < 1 {
-			forceTarget = -1 // negative tells golang-migrate to remove the version record entirely
-		}
-		if err := mg.Force(forceTarget); err != nil {
-			return fmt.Errorf("clear dirty state for %s: %w", name, err)
-		}
-		if forceTarget < 0 {
-			return nil // first migration failed and was cleared; nothing left to roll back
-		}
-		currentVersion = uint(cleanVersion)
-	}
-
-	steps := int(currentVersion) - int(targetVersion)
-	if steps <= 0 {
-		return nil
-	}
-	if err := mg.Steps(-steps); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("roll back %d step(s) for %s: %w", steps, name, err)
-	}
-	return nil
-}
-
-// checkPgvector verifies that the pgvector extension is available on the database.
-// This is called before running vector migrations to fail fast with a clear error
-// rather than failing mid-migration and triggering a rollback.
 func checkPgvector(url string) error {
 	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
-
 	var available bool
-	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'vector')").Scan(&available)
-	if err != nil {
-		return fmt.Errorf("check pgvector availability: %w", err)
+	if err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name = 'vector')").Scan(&available); err != nil {
+		return fmt.Errorf("check pgvector: %w", err)
 	}
 	if !available {
-		return fmt.Errorf("the pgvector extension is not installed on this PostgreSQL instance; either install pgvector or set --database-vector-enabled=false")
+		return errors.New("pgvector is unavailable. Install it or disable database vectors")
 	}
 	return nil
 }
 
-// newMigrate opens a database handle (sql.Open with the pgx stdlib shim) and
-// constructs a migrate.Migrate for the given source. The caller must call
-// closeMigrate when done.
-//
-// sql.Open returns a *sql.DB pool, but the session-scoped advisory lock and the
-// migration run are safe regardless: the migratepgx driver checks out a single
-// dedicated *sql.Conn and pins all lock/migration work to it. The schema setup
-// below (CREATE SCHEMA, and the driver's current_schema() probe) may run on any
-// pooled connection, which is fine because the schema name is quoted and
-// search_path is set on the DSN — so every pooled connection targets the same
-// schema. The orchestrator deliberately does not cap the pool to one connection.
-//
-// When src.Schema is set, the connection's search_path is pinned to that schema
-// (so migration DDL lands there) and the schema is created if missing. The
-// tracking table is also scoped to the schema via migratepgx.Config.SchemaName.
-func newMigrate(ctx context.Context, dbURL string, src Source) (*migrate.Migrate, error) {
-	connURL := dbURL
-	if src.Schema != "" {
-		if err := validateSchemaName(src.Schema); err != nil {
-			return nil, fmt.Errorf("source %q: %w", src.Name, err)
-		}
-		var err error
-		connURL, err = withSearchPath(dbURL, src.Schema)
-		if err != nil {
-			return nil, fmt.Errorf("set search_path for %s: %w", src.Name, err)
-		}
-	}
-
-	db, err := sql.Open("pgx", connURL)
-	if err != nil {
-		return nil, fmt.Errorf("open database for %s: %w", src.Name, err)
-	}
-
-	if src.Schema != "" {
-		if _, err := db.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(src.Schema)); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("create schema %q for %s: %w", src.Schema, src.Name, err)
-		}
-	}
-
-	srcDriver, err := iofs.New(src.FS, src.Dir)
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("load migration files from %s: %w", src.Dir, err)
-	}
-
-	cfg := &migratepgx.Config{MigrationsTable: src.TrackingTable}
-	if src.Schema != "" {
-		cfg.SchemaName = src.Schema
-	}
-	driver, err := migratepgx.WithInstance(db, cfg)
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("create migration driver for %s: %w", src.Name, err)
-	}
-
-	mg, err := migrate.NewWithInstance("iofs", srcDriver, "postgres", driver)
-	if err != nil {
-		_ = srcDriver.Close()
-		_ = db.Close()
-		return nil, fmt.Errorf("create migrator for %s: %w", src.Name, err)
-	}
-	return mg, nil
-}
-
-// withSearchPath returns dbURL with the search_path connection parameter set to
-// schema, so every connection in the pool (including the one golang-migrate
-// checks out) targets that schema for migration DDL. dbURL must be a postgres://
-// or postgresql:// URL. Other inputs are rejected: net/url parses a libpq
-// keyword/value DSN or a bare "host:port/db" without error (the latter as scheme
-// "host"), so requiring a known Postgres scheme is what makes this fail fast
-// rather than silently rewrite a meaningless URL.
 func withSearchPath(dbURL, schema string) (string, error) {
 	u, err := nurl.Parse(dbURL)
 	if err != nil {
-		return "", fmt.Errorf("parse database url: %w", err)
+		return "", fmt.Errorf("parse database URL: %w", err)
 	}
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
-		return "", fmt.Errorf("database url must be a postgres:// or postgresql:// DSN to scope a schema; got scheme %q", u.Scheme)
+		return "", fmt.Errorf("database URL has unsupported scheme %q", u.Scheme)
 	}
-	q := u.Query()
-	q.Set("search_path", schema)
-	u.RawQuery = q.Encode()
+	query := u.Query()
+	query.Set("search_path", schema)
+	u.RawQuery = query.Encode()
 	return u.String(), nil
 }
 
-// schemaNameRe constrains a schema name to a lowercase identifier. The name is
-// used both quoted (CREATE SCHEMA, the tracking table's SchemaName) and unquoted
-// (the search_path connection parameter); Postgres case-folds the unquoted form,
-// so a mixed-case name like "MySchema" would create the quoted schema "MySchema"
-// while search_path resolved to the folded "myschema" and never matched. Keeping
-// the name lowercase makes the two forms identical.
-var schemaNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-
-// validateSchemaName rejects schema identifiers that are not safe to interpolate
-// into DDL. Schema names come from downstream-registered Sources and cannot be
-// passed as bind parameters, so they are constrained to a conservative pattern.
-func validateSchemaName(schema string) error {
-	if len(schema) == 0 || len(schema) > 63 {
-		return fmt.Errorf("invalid schema name %q: must be 1-63 characters", schema)
+func validateIdentifier(kind, value string) error {
+	if len(value) == 0 || len(value) > 63 {
+		return fmt.Errorf("%s %q must contain 1 to 63 characters", kind, value)
 	}
-	if !schemaNameRe.MatchString(schema) {
-		return fmt.Errorf("invalid schema name %q: must match %s", schema, schemaNameRe.String())
+	if !identifierRE.MatchString(value) {
+		return fmt.Errorf("%s %q must match %s", kind, value, identifierRE.String())
 	}
 	return nil
 }
 
-// quoteIdentifier double-quotes a SQL identifier, escaping embedded quotes.
-func quoteIdentifier(id string) string {
-	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
+func sourceTableName(src Source, table string) string {
+	if src.Schema == "" {
+		return quoteIdentifier(table)
+	}
+	return quoteIdentifier(src.Schema) + "." + quoteIdentifier(table)
 }
 
-// maxEmbeddedVersion scans dir inside migrationsFS and returns the highest migration
-// version number found. Only files with a ".up.sql" suffix are considered. Version
-// numbers are parsed from the leading decimal digits of each filename; the remainder
-// of the name is not validated. Returns an error if the directory cannot be read or
-// contains no recognisable migration files.
-func maxEmbeddedVersion(migrationsFS fs.FS, dir string) (uint, error) {
-	entries, err := fs.ReadDir(migrationsFS, dir)
-	if err != nil {
-		return 0, fmt.Errorf("read migration dir %s: %w", dir, err)
-	}
-	var highest uint
-	var foundUpSQL, foundVersioned bool
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".up.sql") {
-			continue
-		}
-		foundUpSQL = true
-		m, parseErr := source.DefaultParse(e.Name())
-		if parseErr != nil || m.Direction != source.Up {
-			continue
-		}
-		foundVersioned = true
-		if m.Version > highest {
-			highest = m.Version
-		}
-	}
-	if !foundUpSQL {
-		return 0, fmt.Errorf("no .up.sql migration files found in %s", dir)
-	}
-	if !foundVersioned {
-		return 0, fmt.Errorf("no versioned .up.sql migration files found in %s; expected names like 000001_description.up.sql", dir)
-	}
-	return highest, nil
+func tableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
+	var exists bool
+	err := db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists)
+	return exists, err
 }
 
-// closeMigrate closes mg, logging source and database close errors separately.
-func closeMigrate(name string, mg *migrate.Migrate) {
-	srcErr, dbErr := mg.Close()
-	if srcErr != nil {
-		log.Error(srcErr, "closing migration source", "track", name)
-	}
-	if dbErr != nil {
-		log.Error(dbErr, "closing migration database", "track", name)
-	}
+func quoteIdentifier(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+}
+
+func advisoryLockID(database, schema, table string) int64 {
+	name := strings.Join([]string{schema, table, database}, "\x00")
+	sum := crc32.ChecksumIEEE([]byte(name))
+	return int64(sum * advisoryLockIDSalt)
 }

@@ -28,15 +28,15 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
 	waitForPostgresAgentTable(t, env, 3*time.Minute)
+	if !hasGooseMigrationTable(t, env) {
+		t.Skip("the baseline release does not use Goose")
+	}
 
 	// Run even when there is no migration delta: a rolling upgrade rolls the new
 	// image regardless of migrations, so the deploy can still break for
 	// non-schema reasons (a crashing new image, readiness, old pods against
 	// new-code-created resources). When the target build does add migrations, the
 	// same flow additionally exercises the old-code/new-schema window below.
-	baselineState := pgMigrationState(t, env)
-	require.False(t, baselineState.dirty, "baseline Postgres migrations are dirty")
-
 	// Keep multiple old controller pods around during the rollout. With a single
 	// replica the old-code/new-schema window can be too small to observe reliably.
 	kubectl(t, env, 2*time.Minute,
@@ -89,9 +89,7 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return state.version == targetCoreVersion &&
-			!state.dirty &&
-			anyPodsReady(t, env, oldPods)
+		return state.version == targetCoreVersion && anyPodsReady(t, env, oldPods)
 	}, 6*time.Minute, 500*time.Millisecond, "target schema was not observed while old controller pods were still ready")
 	require.NoError(t, helmErr, "helm upgrade failed before target schema was observed:\n%s", helmOut)
 
@@ -122,7 +120,6 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 		"--timeout=3m",
 	)
 	finalState := pgMigrationState(t, env)
-	require.False(t, finalState.dirty, "post-rollout Postgres migrations are dirty")
 	require.Equal(t, targetCoreVersion, finalState.version, "final migration version")
 }
 

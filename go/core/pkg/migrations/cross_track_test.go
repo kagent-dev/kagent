@@ -24,18 +24,33 @@ var (
 	createIndexRe = regexp.MustCompile(`(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\w+\s+)?ON\s+(\w+)`)
 )
 
-// ownedTables returns the set of table names created by up migrations in fsys.
+func migrationSections(data []byte) (string, string, error) {
+	content := string(data)
+	lower := strings.ToLower(content)
+	upStart := strings.Index(lower, "-- +goose up")
+	downStart := strings.Index(lower, "-- +goose down")
+	if upStart < 0 || downStart < 0 || downStart <= upStart {
+		return "", "", fmt.Errorf("invalid Goose sections")
+	}
+	return content[upStart:downStart], content[downStart:], nil
+}
+
+// ownedTables returns the table names from Goose Up sections.
 func ownedTables(fsys fs.FS) (map[string]string, error) {
 	tables := make(map[string]string) // table name → file that created it
 	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".up.sql") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
 			return err
 		}
 		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
 		}
-		for _, m := range createTableRe.FindAllSubmatch(data, -1) {
+		up, _, err := migrationSections(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		for _, m := range createTableRe.FindAllStringSubmatch(up, -1) {
 			name := strings.ToLower(string(m[1]))
 			tables[name] = path
 		}
@@ -56,14 +71,17 @@ type violation struct {
 func crossTrackViolations(fsys fs.FS, foreignTables map[string]string) ([]violation, error) {
 	var violations []violation
 	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".up.sql") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
 			return err
 		}
 		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
 		}
-		content := string(data)
+		content, _, err := migrationSections(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 
 		check := func(matches [][]string) {
 			for _, m := range matches {
@@ -128,30 +146,32 @@ func TestMigrationGuards(t *testing.T) {
 			if err != nil || d.IsDir() {
 				return err
 			}
-
-			var checks []sqlCheck
-			switch {
-			case strings.HasSuffix(path, ".up.sql"):
-				checks = upGuardChecks
-			case strings.HasSuffix(path, ".down.sql"):
-				checks = downGuardChecks
-			default:
+			if !strings.HasSuffix(path, ".sql") {
 				return nil
 			}
-
 			data, err := fs.ReadFile(sub, path)
 			if err != nil {
 				return err
 			}
-			content := string(data)
-
-			for _, c := range checks {
-				for _, m := range c.re.FindAllStringSubmatch(content, -1) {
-					if !strings.EqualFold(m[1], "if") {
-						t.Errorf(
-							"missing guard in %s/%s: %q — %s requires IF NOT EXISTS / IF EXISTS",
-							track, path, m[0], c.name,
-						)
+			up, down, err := migrationSections(data)
+			if err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+			for _, section := range []struct {
+				content string
+				checks  []sqlCheck
+			}{
+				{content: up, checks: upGuardChecks},
+				{content: down, checks: downGuardChecks},
+			} {
+				for _, check := range section.checks {
+					for _, m := range check.re.FindAllStringSubmatch(section.content, -1) {
+						if !strings.EqualFold(m[1], "if") {
+							t.Errorf(
+								"missing guard in %s/%s: %q. %s requires IF NOT EXISTS / IF EXISTS",
+								track, path, m[0], check.name,
+							)
+						}
 					}
 				}
 			}
@@ -229,10 +249,8 @@ func stripSQLComments(s string) string {
 
 // --- Schema-agnostic SQL ---
 //
-// Migration SQL must not name a schema: the schema a migration lands in is
-// chosen by the connection (search_path), not the file, so the same files apply
-// into whatever schema the connection selects. See database-migrations.md,
-// "Schema-agnostic SQL". Static check over every migration file — no database.
+// Migration SQL must not name a schema. The connection selects the schema.
+// See the Database changes section in .claude/skills/kagent-dev/SKILL.md.
 
 var schemaQualifiedChecks = []sqlCheck{
 	{"CREATE SCHEMA", regexp.MustCompile(`(?i)\bCREATE\s+SCHEMA\b`)},

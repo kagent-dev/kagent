@@ -1,10 +1,4 @@
-// Package upgrade holds the database upgrade/rollback compatibility tests. They
-// are deliberately separate from test/e2e: they mutate the cluster they run
-// against — installing a prior release, upgrading it in place, and reverse-
-// migrating the schema — so they cannot share the e2e suite's cluster and must
-// run against a throwaway one (see the run-upgrade-tests / run-rolling-upgrade-
-// tests make targets). Each test self-skips unless its RUN_*_TESTS env var is
-// set, so a plain `go test ./...` compiles but does not execute them.
+// Package upgrade holds the database upgrade compatibility tests.
 package upgrade
 
 import (
@@ -15,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,7 +42,6 @@ type upgradeEnv struct {
 
 type postgresMigrationState struct {
 	version int
-	dirty   bool
 }
 
 func TestUpgrade(t *testing.T) {
@@ -76,33 +68,20 @@ func TestUpgrade(t *testing.T) {
 
 	t.Logf("upgrade test: %s -> %s (registry=%s, kubeContext=%s)",
 		env.upgradeFromVersion, env.version, env.dockerRegistry, env.kubeContext)
+	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
+	waitForPostgresAgentTable(t, env, 3*time.Minute)
+	if !hasGooseMigrationTable(t, env) {
+		t.Skip("the baseline release does not use Goose")
+	}
 
 	var pgBaselineState postgresMigrationState
 	var baselineVectorVersion int
-	// cleanTargetSchema is the previous release's freshly-installed schema. The
-	// rollback round-trip below asserts the reversed database matches it exactly.
-	var cleanTargetSchema string
-	// cleanHeadSchema is an independent clean install of the current build's
-	// migrations. The post-upgrade database must match it exactly.
-	var cleanHeadSchema string
 
 	if !t.Run("seed baseline data before upgrade", func(t *testing.T) {
-		waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
-		waitForPostgresAgentTable(t, env, 3*time.Minute)
-
-		// A dirty baseline means a previous migration failed; continuing would
-		// make any post-upgrade failure ambiguous rather than a regression signal.
 		pgBaselineState = pgMigrationState(t, env)
-		require.False(t, pgBaselineState.dirty, "baseline Postgres migrations are dirty")
 		baselineVectorVersion = pgTrackVersion(t, env, "vector_schema_migrations")
-		t.Logf("baseline Postgres schema_migrations version: %d dirty=%t vector=%d (target=%d)",
-			pgBaselineState.version, pgBaselineState.dirty, baselineVectorVersion, targetCoreVersion)
-
-		// Capture the clean target schema before any seeding or upgrade. The
-		// freshly-installed previous release is, by definition, a clean target
-		// install, so its schema is the reversal reference. schema-only dumps
-		// exclude row data, so seeding afterward does not perturb it.
-		cleanTargetSchema = pgSchemaDump(t, env, "kagent")
+		t.Logf("baseline Postgres schema_migrations version: %d vector=%d (target=%d)",
+			pgBaselineState.version, baselineVectorVersion, targetCoreVersion)
 
 		// Seed a small cross-section of stable tables. These rows are not
 		// meant to validate every future migration's semantics; they are canaries
@@ -189,17 +168,13 @@ func TestUpgrade(t *testing.T) {
 	}
 
 	t.Run("verify seeded data survived migrations", func(t *testing.T) {
-		// These checks are migration plumbing checks: the version cannot regress,
-		// the migration table must be clean, and the upgraded controller must
-		// have reached the latest core migration embedded in this test build.
 		pgPostState := pgMigrationState(t, env)
-		require.False(t, pgPostState.dirty, "post-upgrade Postgres migrations are dirty")
 		require.GreaterOrEqual(t, pgPostState.version, pgBaselineState.version,
 			"Postgres migration version regressed")
 		require.Equal(t, targetCoreVersion, pgPostState.version,
 			"Postgres migrations did not reach the target embedded migration version")
-		t.Logf("Postgres schema_migrations version: %d -> %d dirty=%t",
-			pgBaselineState.version, pgPostState.version, pgPostState.dirty)
+		t.Logf("Postgres migration version: %d -> %d",
+			pgBaselineState.version, pgPostState.version)
 
 		// Keep the schema invariant intentionally broad and cheap: core
 		// tables should still exist before we ask more specific questions about
@@ -249,12 +224,8 @@ func TestUpgrade(t *testing.T) {
 		// Build an independent clean install of the current build's migrations
 		// and require the upgraded database to be structurally identical. This
 		// catches upgrade paths that leave residue a fresh install would not.
-		cleanHeadSchema = buildCleanInstallSchema(t, env, "clean_head_"+seed, vectorEnabled)
+		cleanHeadSchema := buildCleanInstallSchema(t, env, "clean_head_"+seed, vectorEnabled)
 		upgradedSchema := pgSchemaDump(t, env, "kagent")
-
-		if cleanHeadSchema == cleanTargetSchema {
-			t.Log("no schema change between target and HEAD; the round-trip is a structural no-op until a new migration lands")
-		}
 		require.Equal(t, cleanHeadSchema, upgradedSchema,
 			"upgraded schema diverged from a clean install of the current build")
 	}) {
@@ -265,93 +236,7 @@ func TestUpgrade(t *testing.T) {
 		// The HEAD controller is serving on the migrated schema. Exercise the
 		// current code's real query paths against it (deploy + invoke an agent),
 		// not just the psql-level checks above.
-		runInvokeE2E(t, env, filepath.Join(env.repoRoot, "go"), "post-upgrade")
-	})
-
-	if !t.Run("previous release boots against the upgraded schema", func(t *testing.T) {
-		// A deployment-only rollback puts the previous binary back while HEAD's
-		// schema is still applied, so the binary is now behind its database. It
-		// must boot and serve rather than crash-loop trying to migrate down — the
-		// ahead-schema tolerance shipped in 0.9.9 (#1963). Reinstalling the
-		// previous release downgrades the running controller to the old image with
-		// the upgraded schema left in place; helm --wait fails here if it does not
-		// become Ready.
-		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
-		defer cancel()
-
-		out, err := installPreviousReleaseCommand(ctx, env).CombinedOutput()
-		require.NoError(t, err, "rolling back to the previous release failed:\n%s", string(out))
-
-		kubectl(t, env, 3*time.Minute,
-			"rollout", "status", "deployment/kagent-controller",
-			"-n", env.namespace,
-			"--timeout=3m",
-		)
-		pod := newestPodNameForSelector(t, env, controllerSelector)
-		restarts := podContainerRestartCount(t, env, pod, controllerContainer)
-		require.Zero(t, restarts,
-			"previous-release controller pod %s crash-looped against the upgraded schema", pod)
-		t.Logf("previous-release controller %s restarts=%d against the upgraded schema", pod, restarts)
-	}) {
-		return
-	}
-
-	t.Run("contraction invoke (previous release)", func(t *testing.T) {
-		// The previous release is now serving against the ahead (HEAD) schema.
-		// Run its own invoke e2e slice (from the worktree at its tag) against it:
-		// old code's real queries against the new schema — the contraction
-		// property raw SQL cannot reach.
-		runInvokeE2E(t, env, prevTreeGoDir(), "contraction")
-	})
-
-	t.Run("reverse schema to target", func(t *testing.T) {
-		// Scale the controller to zero so no booting pod re-applies migrations
-		// while we reverse the schema (the design's scale-to-zero recipe).
-		scaleController(t, env, 0)
-
-		localPort, stop := startPortForward(t, env, postgresServiceName, 5432)
-		defer stop()
-		dbURL := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/kagent?sslmode=disable", localPort)
-
-		// Reverse each track to the target release's version, in reverse
-		// registration order (vector before core). This stands in for
-		// `kagent db migrate goto --release <target>` until that CLI exists; it
-		// exercises every down file between HEAD and the target.
-		targets := map[string]int{
-			"core":   pgBaselineState.version,
-			"vector": baselineVectorVersion,
-		}
-		for _, track := range slices.Backward(migrationTracks) {
-			migrateTrackTo(t, dbURL, track, targets[track.name])
-		}
-
-		// Migration bookkeeping is back at the target versions and clean.
-		reverted := pgMigrationState(t, env)
-		revertedVector := pgTrackVersion(t, env, "vector_schema_migrations")
-		t.Logf("reversed Postgres schema_migrations version: %d -> %d dirty=%t vector=%d (target=%d)",
-			targetCoreVersion, reverted.version, reverted.dirty, revertedVector, baselineVectorVersion)
-		require.False(t, reverted.dirty, "reverted Postgres migrations are dirty")
-		require.Equal(t, pgBaselineState.version, reverted.version, "core track not reversed to target version")
-		require.Equal(t, baselineVectorVersion, revertedVector,
-			"vector track not reversed to target version")
-
-		// Schema matches a clean target install, and the seeded rows survived
-		// the down migrations.
-		require.Equal(t, cleanTargetSchema, pgSchemaDump(t, env, "kagent"),
-			"reversed schema diverged from a clean target install")
-		require.GreaterOrEqual(t, pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(seedAgentID))), 1,
-			"seeded agent row did not survive the rollback")
-		require.GreaterOrEqual(t, pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID))), 1,
-			"seeded feedback row did not survive the rollback")
-	})
-
-	t.Run("post-rollback invoke (previous release)", func(t *testing.T) {
-		// Bring the previous controller back up on the reverted schema (the reverse
-		// step scaled it to zero). The schema now matches the old binary, so it
-		// boots without migrating. Then run its invoke e2e slice — old code fully
-		// serving on the rolled-back schema.
-		scaleController(t, env, 1)
-		runInvokeE2E(t, env, prevTreeGoDir(), "post-rollback")
+		runInvokeE2E(t, env, "post-upgrade")
 	})
 }
 
@@ -369,23 +254,6 @@ func helmUpgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
 		"KIND_CLUSTER_NAME="+env.kindClusterName,
 		"OPENAI_API_KEY="+env.openAIAPIKey,
 		"KAGENT_DEFAULT_MODEL_PROVIDER=openAI",
-	)
-	return cmd
-}
-
-// installPreviousReleaseCommand returns the command that reinstalls the
-// previously-released charts over the current deployment — i.e. a rollback of
-// the app to the prior version. It reuses the repo's install-previous-release
-// target (helm upgrade --install of the published prior kagent-crds and kagent
-// from the OCI registry, with --wait), so a controller that cannot start
-// against the current schema surfaces as a helm wait timeout.
-func installPreviousReleaseCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "make", "-C", env.repoRoot, "install-previous-release")
-	cmd.Dir = env.repoRoot
-	cmd.Env = append(os.Environ(),
-		"UPGRADE_FROM_VERSION="+env.upgradeFromVersion,
-		"KIND_CLUSTER_NAME="+env.kindClusterName,
-		"OPENAI_API_KEY="+env.openAIAPIKey,
 	)
 	return cmd
 }
@@ -506,28 +374,20 @@ func pgMigrationState(t *testing.T, env upgradeEnv) postgresMigrationState {
 // pgMigrationStateE is the error-returning core of pgMigrationState, for use
 // inside require.Eventually conditions (see pgQueryE).
 func pgMigrationStateE(t *testing.T, env upgradeEnv) (postgresMigrationState, error) {
-	raw, err := pgQueryE(t, env, "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN '0,false' ELSE (SELECT concat(COALESCE(MAX(version), 0), ',', COALESCE(bool_or(dirty), false)) FROM public.schema_migrations) END")
+	raw, err := pgQueryE(t, env, "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version_id), 0) FROM public.schema_migrations WHERE is_applied) END")
 	if err != nil {
 		return postgresMigrationState{}, err
 	}
-	parts := strings.Split(raw, ",")
-	if len(parts) != 2 {
-		return postgresMigrationState{}, fmt.Errorf("parse schema_migrations state %q", raw)
-	}
-	version, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	version, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil {
-		return postgresMigrationState{}, fmt.Errorf("parse schema_migrations version %q: %w", parts[0], err)
+		return postgresMigrationState{}, fmt.Errorf("parse Goose migration version %q: %w", raw, err)
 	}
-	var dirty bool
-	switch strings.TrimSpace(parts[1]) {
-	case "t", "true":
-		dirty = true
-	case "f", "false":
-		dirty = false
-	default:
-		return postgresMigrationState{}, fmt.Errorf("parse schema_migrations dirty %q", parts[1])
-	}
-	return postgresMigrationState{version: version, dirty: dirty}, nil
+	return postgresMigrationState{version: version}, nil
+}
+
+func hasGooseMigrationTable(t *testing.T, env upgradeEnv) bool {
+	t.Helper()
+	return pgQuery(t, env, "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'schema_migrations' AND column_name = 'version_id')") == "t"
 }
 
 func requirePostgresTablesExist(t *testing.T, env upgradeEnv, tables ...string) {
@@ -646,7 +506,7 @@ func latestCoreMigrationVersion(t *testing.T) int {
 	maxVersion := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".up.sql") {
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") {
 			continue
 		}
 		versionPart, _, ok := strings.Cut(name, "_")

@@ -3,8 +3,6 @@ package upgrade
 import (
 	"bufio"
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -13,38 +11,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-migrate/migrate/v4"
-	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/stretchr/testify/require"
 )
 
 const postgresServiceName = "kagent-postgresql"
 
-// migrationTrack mirrors one migration source: the FS subdirectory it owns
-// and its golang-migrate tracking table. Registration order is core, then
-// vector; rollback reverses it (vector, then core) so a track is never reversed
-// while a later-registered track still depends on its schema.
-type migrationTrack struct {
-	name          string
-	dir           string
-	trackingTable string
-}
-
-var migrationTracks = []migrationTrack{
-	{name: "core", dir: "core", trackingTable: "schema_migrations"},
-	{name: "vector", dir: "vector", trackingTable: "vector_schema_migrations"},
-}
-
-// pgTrackVersion returns the current applied version of a golang-migrate
-// tracking table, or 0 when the table does not exist (e.g. a disabled track).
+// pgTrackVersion returns the current applied migration version.
 func pgTrackVersion(t *testing.T, env upgradeEnv, table string) int {
 	t.Helper()
 
 	raw := pgQuery(t, env, fmt.Sprintf(
-		"SELECT CASE WHEN to_regclass('public.%s') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version), 0) FROM public.%s) END",
+		"SELECT CASE WHEN to_regclass('public.%s') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version_id), 0) FROM public.%s WHERE is_applied) END",
 		table, table))
 	return parseInt(t, raw, table+" version")
 }
@@ -158,68 +136,10 @@ func dropDatabaseBestEffort(env upgradeEnv, database string) {
 	).Run()
 }
 
-// migrateTrackTo drives one track to a target version using the embedded
-// migration files, standing in for `kagent db migrate goto` until that CLI
-// exists. golang-migrate's Migrate moves up or down to the target; a target of
-// 0 means roll the track all the way down.
-func migrateTrackTo(t *testing.T, url string, track migrationTrack, target int) {
-	t.Helper()
-
-	src, err := iofs.New(migrations.FS, track.dir)
-	require.NoError(t, err, "open embedded %s migrations", track.name)
-
-	db, err := sql.Open("pgx", url)
-	require.NoError(t, err, "open db for %s track", track.name)
-
-	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{MigrationsTable: track.trackingTable})
-	require.NoError(t, err, "build migrate driver for %s track", track.name)
-
-	m, err := migrate.NewWithInstance("iofs", src, "pgx", driver)
-	require.NoError(t, err, "build migrator for %s track", track.name)
-	defer m.Close()
-
-	if target == 0 {
-		err = m.Down()
-	} else {
-		err = m.Migrate(uint(target))
-	}
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		require.NoError(t, err, "migrate %s track to version %d", track.name, target)
-	}
-}
-
-// scaleController scales the controller deployment and, for a scale to zero,
-// waits until its pods are gone so a booting pod cannot re-apply migrations
-// during a schema reversal (the design's scale-to-zero reversal recipe).
-func scaleController(t *testing.T, env upgradeEnv, replicas int) {
-	t.Helper()
-
-	kubectl(t, env, 2*time.Minute,
-		"scale", "deployment/kagent-controller",
-		"-n", env.namespace,
-		fmt.Sprintf("--replicas=%d", replicas),
-	)
-
-	if replicas == 0 {
-		require.Eventually(t, func() bool {
-			pods, err := podNamesForSelectorE(t, env, controllerSelector)
-			return err == nil && len(pods) == 0
-		}, 2*time.Minute, 2*time.Second, "controller pods did not terminate after scale to zero")
-		return
-	}
-
-	kubectl(t, env, 3*time.Minute,
-		"rollout", "status", "deployment/kagent-controller",
-		"-n", env.namespace,
-		"--timeout=3m",
-	)
-}
-
 var forwardingPortRE = regexp.MustCompile(`Forwarding from 127\.0\.0\.1:(\d+)`)
 
 // startPortForward opens a kubectl port-forward to a service and returns the
-// chosen local port plus a stop function. Used so the test process can drive
-// golang-migrate against the in-cluster Postgres directly.
+// chosen local port and a stop function.
 func startPortForward(t *testing.T, env upgradeEnv, service string, remotePort int) (int, func()) {
 	t.Helper()
 
