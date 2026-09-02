@@ -309,7 +309,7 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
+			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
 			SystemPrompt: "help",
 		},
 	}
