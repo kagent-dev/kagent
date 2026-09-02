@@ -57,6 +57,7 @@ type Querier interface {
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error)
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
+	ListActorTemplateHarnesses(ctx context.Context) ([]ListActorTemplateHarnessesRow, error)
 	ListAgentInstanceCheckpointEvents(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceTaskEvent, error)
 	ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceTask, error)
 	ListAgentInstanceCheckpoints(ctx context.Context, arg ListAgentInstanceCheckpointsParams) ([]AgentInstanceCheckpoint, error)

@@ -17,27 +17,10 @@ limitations under the License.
 package v1alpha3
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
-
-// AgentTemplateLocalReference identifies a resource in the AgentTemplate's namespace.
-type AgentTemplateLocalReference struct {
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-}
-
-// AgentTemplateTypedLocalReference identifies a typed resource in the AgentTemplate's namespace.
-type AgentTemplateTypedLocalReference struct {
-	// +kubebuilder:validation:Enum=RemoteMCPServer
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Kind string `json:"kind"`
-	// +kubebuilder:validation:MinLength=1
-	// +required
-	Name string `json:"name"`
-}
 
 // AgentTemplateConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
 type AgentTemplateConfigMapKeyReference struct {
@@ -72,8 +55,10 @@ type AgentTemplatePromptSource struct {
 
 // MCPToolBinding binds tools from a same-namespace MCP server.
 type MCPToolBinding struct {
+	// +kubebuilder:validation:XValidation:rule="self.kind == 'RemoteMCPServer'",message="kind must be RemoteMCPServer"
+	// +kubebuilder:validation:XValidation:rule="!has(self.apiGroup)",message="apiGroup must be omitted"
 	// +required
-	Server AgentTemplateTypedLocalReference `json:"server"`
+	Server corev1.TypedLocalObjectReference `json:"server"`
 	// Tools optionally limits which server tools are exposed. An omitted or empty
 	// list exposes every tool. Harnesses that cannot enforce a partial selection
 	// may expose the whole server and report a warning.
@@ -102,8 +87,9 @@ type AgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Description string `json:"description"`
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +required
-	TemplateRef AgentTemplateLocalReference `json:"templateRef"`
+	TemplateRef corev1.LocalObjectReference `json:"templateRef"`
 	// +kubebuilder:default=Shared
 	// +optional
 	Isolation AgentToolIsolation `json:"isolation,omitempty"`
@@ -197,8 +183,10 @@ type PluginBundle struct {
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
 type AgentTemplateSpec struct {
-	// +required
-	ModelConfig AgentTemplateLocalReference `json:"modelConfig"`
+	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
+	// +optional
+	ModelConfig *corev1.LocalObjectReference `json:"modelConfig,omitempty"`
 	// +optional
 	Description string `json:"description,omitempty"`
 	// +optional
@@ -241,6 +229,12 @@ type AgentTemplateHarnessStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
+	// Warnings reports non-blocking compatibility decisions made while compiling
+	// this AgentTemplate for the Harness.
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=set
+	// +optional
+	Warnings []string `json:"warnings,omitempty"`
 	// +kubebuilder:validation:MaxItems=4
 	// +listType=map
 	// +listMapKey=type

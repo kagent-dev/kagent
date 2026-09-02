@@ -99,7 +99,7 @@ func TestMaterializeGoogleCredentials(t *testing.T) {
 	if string(contents) != raw {
 		t.Fatalf("credentials = %q", contents)
 	}
-	if len(environment) != 2 || environment[0] != "A=1" || environment[1] != googleApplicationCredentialsEnv+"="+path {
+	if len(environment) != 2 || environment[0] != "A=1" || environment[1] != config.GoogleApplicationCredentialsEnvName+"="+path {
 		t.Fatalf("environment = %v", environment)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {

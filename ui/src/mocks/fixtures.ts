@@ -484,13 +484,11 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       sandboxClass: "standard",
       workerSelector: "pool=default-pool",
       harnessName: "openclaw",
-      managedByKagent: true,
     },
     {
       namespace: "platform",
       name: "external-template",
       phase: "Pending",
-      managedByKagent: false,
     },
   ],
   actors: [

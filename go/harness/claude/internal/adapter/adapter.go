@@ -6,19 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
-)
-
-const (
-	claudeConfigDirEnv              = "CLAUDE_CONFIG_DIR"
-	disableUpdatesEnv               = "DISABLE_UPDATES"
-	googleApplicationCredentialsEnv = "GOOGLE_APPLICATION_CREDENTIALS"
+	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
 )
 
 // Input contains compiler output and Actor-owned locations used to construct
@@ -54,7 +48,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		{name: "Claude state", path: claudeDir},
 		{name: "generated Claude skills", path: filepath.Join(claudeDir, "skills")},
 	} {
-		if err := ensurePrivateDir(directory.path); err != nil {
+		if err := utils.EnsurePrivateDir(directory.path); err != nil {
 			return nil, fmt.Errorf("prepare %s directory: %w", directory.name, err)
 		}
 	}
@@ -66,21 +60,21 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
 	}
-	environment := setEnvironment(input.Environment, claudeConfigDirEnv, claudeDir)
+	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
-	environment = setEnvironment(environment, disableUpdatesEnv, "1")
+	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err
 	}
 	var mcpConfigPath string
 	if len(mcpJSON) != 0 {
-		if err := ensurePrivateDir(input.EphemeralDir); err != nil {
+		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
 			return nil, fmt.Errorf("prepare ephemeral MCP directory: %w", err)
 		}
 		mcpConfigPath = filepath.Join(input.EphemeralDir, "mcp.json")
-		if err := replacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
+		if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
 			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 		}
 	}
@@ -91,27 +85,6 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(),
 	}), nil
-}
-
-func replacePrivateFile(path string, contents []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
 }
 
 func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {
@@ -137,45 +110,14 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 	if !json.Valid([]byte(credentials)) {
 		return nil, fmt.Errorf("%s must contain valid JSON", config.GoogleCredentialsJSONEnvName)
 	}
-	if err := ensurePrivateDir(directory); err != nil {
+	if err := utils.EnsurePrivateDir(directory); err != nil {
 		return nil, fmt.Errorf("prepare ephemeral credentials directory: %w", err)
 	}
 	path := filepath.Join(directory, "google-credentials.json")
-	temporary, err := os.CreateTemp(directory, ".google-credentials-*.tmp")
-	if err != nil {
-		return nil, fmt.Errorf("create temporary Google credentials: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return nil, fmt.Errorf("secure temporary Google credentials: %w", err)
-	}
-	if _, err := temporary.WriteString(credentials); err != nil {
-		_ = temporary.Close()
+	if err := utils.ReplacePrivateFile(path, []byte(credentials)); err != nil {
 		return nil, fmt.Errorf("materialize Google credentials: %w", err)
 	}
-	if err := temporary.Close(); err != nil {
-		return nil, fmt.Errorf("close Google credentials: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return nil, fmt.Errorf("replace Google credentials: %w", err)
-	}
-	return setEnvironment(filtered, googleApplicationCredentialsEnv, path), nil
-}
-
-func ensurePrivateDir(path string) error {
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("%q is not a directory", path)
-	}
-	return os.Chmod(path, 0o700)
+	return setEnvironment(filtered, config.GoogleApplicationCredentialsEnvName, path), nil
 }
 
 func setEnvironment(environment []string, name, value string) []string {

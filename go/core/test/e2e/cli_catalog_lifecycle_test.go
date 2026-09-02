@@ -16,9 +16,7 @@ import (
 )
 
 func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
-	if os.Getenv("KUBECONFIG") == "" {
-		t.Setenv("KUBECONFIG", clientcmd.RecommendedHomeFile)
-	}
+	t.Parallel()
 	target := interactionTarget(t)
 	templateName := createInteractionTemplate(t, startInteractionMock(t))
 	binary := kagentCLI(t)
@@ -93,6 +91,7 @@ func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
 }
 
 func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	fixture := newInteractionFixture(t, target, startInteractionMock(t))
 	binary := kagentCLI(t)
@@ -158,7 +157,11 @@ func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
 func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(ctx, binary, args...)
-	command.Env = append(os.Environ(), "HOME="+t.TempDir())
+	kubeconfig := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	if kubeconfig == "" {
+		kubeconfig = clientcmd.RecommendedHomeFile
+	}
+	command.Env = append(os.Environ(), "HOME="+t.TempDir(), clientcmd.RecommendedConfigPathEnvVar+"="+kubeconfig)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
