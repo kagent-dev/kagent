@@ -143,6 +143,21 @@ func (c *postgresClient) GetRuntimeRevision(ctx context.Context, revision string
 	}, nil
 }
 
+func (c *postgresClient) ListActorTemplateHarnesses(ctx context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+	rows, err := c.q.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
+	}
+	result := make([]dbpkg.ActorTemplateHarness, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, dbpkg.ActorTemplateHarness{
+			Atespace: row.ActorTemplateAtespace, Name: row.ActorTemplateName,
+			UID: row.ActorTemplateUid, HarnessName: row.HarnessName,
+		})
+	}
+	return result, nil
+}
+
 func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
 	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{

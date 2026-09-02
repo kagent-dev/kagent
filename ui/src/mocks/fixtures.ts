@@ -490,7 +490,7 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       namespace: "platform",
       name: "external-template",
       phase: "Pending",
-      managedByKagent: false,
+      managedByKagent: true,
     },
   ],
   actors: [
