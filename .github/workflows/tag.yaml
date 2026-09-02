@@ -63,7 +63,7 @@ jobs:
   push-helm-chart:
     needs:
     - push-images
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -88,7 +88,7 @@ jobs:
         fi
         make helm-publish
   release-python-packages:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -142,7 +142,7 @@ jobs:
     needs:
     - push-helm-chart
     - release-python-packages
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
