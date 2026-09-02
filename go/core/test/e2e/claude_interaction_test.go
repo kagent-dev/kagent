@@ -32,6 +32,7 @@ const claudeE2EHarness = "claude-e2e"
 var claudeInteractionMocks embed.FS
 
 func TestE2EClaudeMockInteractionResumeAndPersistence(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
 	template := createClaudeMockTemplate(t, modelURL)
@@ -63,6 +64,7 @@ func TestE2EClaudeMockInteractionResumeAndPersistence(t *testing.T) {
 }
 
 func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_agent.json"), "")
 	template := createClaudeMockTemplate(t, modelURL)
@@ -140,6 +142,7 @@ func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
 }
 
 func TestE2EClaudeMockActiveTaskCancellation(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL, started := startBlockingClaudeMock(t)
 	template := createClaudeMockTemplate(t, modelURL)
@@ -148,6 +151,7 @@ func TestE2EClaudeMockActiveTaskCancellation(t *testing.T) {
 }
 
 func TestE2EClaudeMockBuiltinToolEvents(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_builtin_tools.json"), "")
 	template := createClaudeMockTemplate(t, modelURL)
@@ -163,6 +167,7 @@ func TestE2EClaudeMockBuiltinToolEvents(t *testing.T) {
 }
 
 func TestE2EClaudeMockLocalSubagentRouting(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_local_subagent.json"), "")
 	kube := interactionKubeClient(t)
@@ -500,6 +505,7 @@ func assertNoClaudeChildInstance(t *testing.T, fixture *interactionFixture, chil
 }
 
 func TestE2EClaudeMockWholeServerMCP(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	mcpURL, mcpMock := startMCPMock(t)
 
