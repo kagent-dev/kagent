@@ -45,6 +45,9 @@ jobs:
           - build_target: claude-harness
             image_name: claude-harness
             tag_suffix: ""
+          - build_target: codex-harness
+            image_name: codex-harness
+            tag_suffix: ""
     runs-on: ubuntu-latest
     services:
       registry:

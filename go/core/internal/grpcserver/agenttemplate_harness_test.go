@@ -71,7 +71,7 @@ func testAgentTemplate(namespace, name, modelConfig string) *v1alpha3.AgentTempl
 	return &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: modelConfig},
+			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
 			Description: "a template",
 		},
 	}

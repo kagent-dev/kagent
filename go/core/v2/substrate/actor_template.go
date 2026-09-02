@@ -51,9 +51,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			ConfigName:   "gvisor-default",
 		},
 		Containers: []*ateapipb.Container{{
-			Name:  defaultContainerName,
-			Image: spec.Image,
-			Env:   actorEnv,
+			Name:    defaultContainerName,
+			Image:   spec.Image,
+			Command: append([]string(nil), spec.Command...),
+			Args:    append([]string(nil), spec.Args...),
+			Env:     actorEnv,
 			Readyz: &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{
 				Path: "/readyz",
 				Port: 8081,

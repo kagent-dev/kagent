@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -26,14 +27,14 @@ type PromptTemplateContext struct {
 	ToolNames []string
 }
 
-func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, agentTemplate *v1alpha3.AgentTemplate) (string, error) {
+func (c *Compiler) resolveAgentTemplatePrompt(_ context.Context, agentTemplate *v1alpha3.AgentTemplate) (string, error) {
 	if agentTemplate.Spec.SystemPromptFrom != nil {
 		ref := agentTemplate.Spec.SystemPromptFrom
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: agentTemplate.Namespace, Name: ref.Name}, configMap); err != nil {
-			return "", fmt.Errorf("resolve systemPromptFrom: %w", err)
+		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: agentTemplate.Namespace, Name: ref.Name}))
+		if configMap == nil {
+			return "", fmt.Errorf("resolve systemPromptFrom: ConfigMap %q not found", ref.Name)
 		}
-		value, found := configMap.Data[ref.Key]
+		value, found := (*configMap).Data[ref.Key]
 		if !found {
 			return "", fmt.Errorf("resolve systemPromptFrom: ConfigMap %q does not contain key %q", ref.Name, ref.Key)
 		}
@@ -51,18 +52,18 @@ type promptSourceRef struct {
 
 // resolvePromptSourceRefs flattens ConfigMap keys into "source/key" identifiers
 // and rejects collisions before template execution.
-func resolvePromptSourceRefs(ctx context.Context, kube Reader, namespace string, sources []promptSourceRef) (map[string]string, error) {
+func resolvePromptSourceRefs(ctx krt.HandlerContext, configMaps krt.Collection[*corev1.ConfigMap], namespace string, sources []promptSourceRef) (map[string]string, error) {
 	lookup := make(map[string]string)
 	for _, source := range sources {
 		identifier := source.Name
 		if source.Alias != "" {
 			identifier = source.Alias
 		}
-		configMap := &corev1.ConfigMap{}
-		if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: source.Name}, configMap); err != nil {
-			return nil, fmt.Errorf("resolve prompt source %q: %w", source.Name, err)
+		configMap := krt.FetchOne(ctx, configMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: source.Name}))
+		if configMap == nil {
+			return nil, fmt.Errorf("resolve prompt source %q: ConfigMap not found", source.Name)
 		}
-		for key, value := range configMap.Data {
+		for key, value := range (*configMap).Data {
 			lookupKey := identifier + "/" + key
 			if _, exists := lookup[lookupKey]; exists {
 				return nil, fmt.Errorf("duplicate prompt template identifier %q", lookupKey)

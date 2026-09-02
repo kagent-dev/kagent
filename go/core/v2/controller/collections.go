@@ -4,6 +4,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
@@ -26,6 +27,8 @@ type Collections struct {
 	ActorTemplates        krt.StaticCollection[ObservedActorTemplate]
 	Pairs                 krt.Collection[AgentTemplateHarnessPair]
 	Reconciliations       krt.Collection[PairReconciliation]
+	ModelConfigStatuses   krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
+	ResolvedModelConfigs  krt.Collection[v2translator.ResolvedModelConfig]
 	AgentTemplateStatuses krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
 }
 
@@ -62,7 +65,12 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	actorTemplates := krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...)
 	pairs := newPairCollection(agentTemplates, harnesses, opts)
-	reconciliations := newPairReconciliations(pairs, agentTemplates, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, opts)
+	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
+	compilerCollections := v2translator.Collections{
+		AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
+		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
+	}
+	reconciliations := newPairReconciliations(pairs, compilerCollections, actorTemplates, opts)
 	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
 
 	return Collections{
@@ -76,6 +84,8 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		ActorTemplates:        actorTemplates,
 		Pairs:                 pairs,
 		Reconciliations:       reconciliations,
+		ModelConfigStatuses:   modelConfigStatuses,
+		ResolvedModelConfigs:  resolvedModelConfigs,
 		AgentTemplateStatuses: statuses,
 	}
 }

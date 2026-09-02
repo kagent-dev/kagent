@@ -1,7 +1,8 @@
+// Package driver translates Claude Code's streaming process protocol into the
+// runtime-neutral events consumed by the shared A2A executor.
 package driver
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -10,8 +11,11 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
 )
 
+// ProcessConfig contains validated, compiler-owned inputs for one Claude Code
+// process. Actor-owned paths and environment are supplied by the adapter.
 type ProcessConfig struct {
 	Executable         string
 	ExpectedVersion    string
@@ -27,14 +31,17 @@ type ProcessConfig struct {
 	InterruptGrace     time.Duration
 }
 
+// ProcessDriver supervises one Claude Code process per runtime turn.
 type ProcessDriver struct {
 	config ProcessConfig
 }
 
+// NewProcessDriver constructs a Claude Code process driver.
 func NewProcessDriver(config ProcessConfig) *ProcessDriver {
 	return &ProcessDriver{config: config}
 }
 
+// Validate checks that the configured executable is the pinned Claude version.
 func (d *ProcessDriver) Validate(ctx context.Context) error {
 	path, err := exec.LookPath(d.config.Executable)
 	if err != nil {
@@ -54,6 +61,7 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 	return nil
 }
 
+// Args compiles one runtime turn into Claude Code command-line arguments.
 func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	args := []string{
 		"-p", turn.Prompt,
@@ -83,16 +91,17 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	return args
 }
 
+// Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
-	configureProcessGroup(cmd)
+	utils.ConfigureProcessGroup(cmd)
 	cmd.Dir = d.config.Workspace
 	cmd.Env = append([]string(nil), d.config.Environment...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Claude stdout: %w", err)
 	}
-	stderr := &boundedBuffer{max: d.config.MaxStderrBytes}
+	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
@@ -172,6 +181,8 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 }
 
+// emitEvent translates a Claude event to a runtime event and emits it to the
+// provided event sink, which is then consumed by the shared A2A executor.
 func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Outcome, error) {
 	if terminal {
 		return nil, fmt.Errorf("claude emitted activity after its terminal result")
@@ -204,33 +215,16 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 }
 
 func (d *ProcessDriver) terminate(cmd *exec.Cmd, waitDone <-chan error) {
-	_ = interruptProcessGroup(cmd.Process)
+	_ = utils.InterruptProcessGroup(cmd.Process)
 	timer := time.NewTimer(d.config.InterruptGrace)
 	defer timer.Stop()
 	select {
 	case <-waitDone:
 		// The group leader can exit on the interrupt while a descendant that
 		// ignores it remains alive. Kill any processes still in the group.
-		_ = killProcessGroup(cmd.Process)
+		_ = utils.KillProcessGroup(cmd.Process)
 	case <-timer.C:
-		_ = killProcessGroup(cmd.Process)
+		_ = utils.KillProcessGroup(cmd.Process)
 		<-waitDone
 	}
-}
-
-type boundedBuffer struct {
-	bytes.Buffer
-	max int
-}
-
-func (b *boundedBuffer) Write(p []byte) (int, error) {
-	original := len(p)
-	remaining := b.max - b.Len()
-	if remaining > 0 {
-		if len(p) > remaining {
-			p = p[:remaining]
-		}
-		_, _ = b.Buffer.Write(p)
-	}
-	return original, nil
 }
