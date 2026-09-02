@@ -46,16 +46,9 @@ type AgentTemplateManifestCfg struct {
 	File         string
 }
 
-// AgentTemplateDeleteCfg configures AgentTemplate deletion.
-type AgentTemplateDeleteCfg struct {
-	OutputFormat string
-	Name         string
-}
-
 type agentTemplateLifecycleClient interface {
 	CreateAgentTemplate(context.Context, *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error)
 	UpdateAgentTemplate(context.Context, *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error)
-	DeleteAgentTemplate(context.Context, *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error)
 }
 
 type agentTemplateManifestOperation func(context.Context, agentTemplateLifecycleClient, *apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, clioutput.Format, io.Writer) error
@@ -130,25 +123,6 @@ func applyAgentTemplate(
 		return fmt.Errorf("apply AgentTemplate: %w", err)
 	}
 	return writeAgentTemplateResult(out, format, updated, updated.GetAgentTemplate())
-}
-
-func deleteAgentTemplate(ctx context.Context, client agentTemplateLifecycleClient, namespace string, cfg *AgentTemplateDeleteCfg, format clioutput.Format, out io.Writer) error {
-	response, err := client.DeleteAgentTemplate(ctx, &apiv1alpha1.DeleteAgentTemplateRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Name},
-	})
-	if err != nil {
-		return fmt.Errorf("delete AgentTemplate: %w", err)
-	}
-	if format == clioutput.FormatJSON {
-		return clioutput.WriteProto(out, response)
-	}
-	tw := table.NewWriter()
-	tw.AppendHeader(table.Row{"NAME", "STATUS"})
-	tw.AppendRow(table.Row{cfg.Name, "DELETED"})
-	if _, err := fmt.Fprintln(out, tw.Render()); err != nil {
-		return fmt.Errorf("write AgentTemplate output: %w", err)
-	}
-	return nil
 }
 
 func writeAgentTemplateResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1alpha1.AgentTemplate) error {
@@ -317,43 +291,4 @@ func newAgentTemplateManifestCmd(use, short string, operation agentTemplateManif
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Path to AgentTemplate manifest")
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
-}
-
-// NewDeleteAgentTemplateCmd constructs the AgentTemplate delete command.
-func NewDeleteAgentTemplateCmd() *cobra.Command {
-	cfg := &AgentTemplateDeleteCfg{}
-	cmd := &cobra.Command{
-		Use:   "agent-template NAME",
-		Short: "Delete an AgentTemplate",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			options, err := connection.OptionsFromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			format, err := clioutput.FromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			cfg.OutputFormat = format
-			cfg.Name = args[0]
-			return runDeleteAgentTemplate(cmd.Context(), options, cfg, cmd.OutOrStdout())
-		},
-	}
-	return cmd
-}
-
-func runDeleteAgentTemplate(ctx context.Context, options connection.Options, cfg *AgentTemplateDeleteCfg, out io.Writer) (err error) {
-	format, err := clioutput.Parse(cfg.OutputFormat)
-	if err != nil {
-		return err
-	}
-	session, err := connection.Open(ctx, options)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		err = errors.Join(err, session.Close())
-	}()
-	return deleteAgentTemplate(ctx, session.Client.AgentTemplate, session.Namespace, cfg, format, out)
 }

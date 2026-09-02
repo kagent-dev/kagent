@@ -23,7 +23,6 @@ type recordingAgentTemplateService struct {
 	observations []callObservation
 	create       *apiv1alpha1.CreateAgentTemplateRequest
 	update       *apiv1alpha1.UpdateAgentTemplateRequest
-	delete       *apiv1alpha1.DeleteAgentTemplateRequest
 }
 
 func (s *recordingAgentTemplateService) CreateAgentTemplate(ctx context.Context, request *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error) {
@@ -40,14 +39,6 @@ func (s *recordingAgentTemplateService) UpdateAgentTemplate(ctx context.Context,
 	defer s.mu.Unlock()
 	s.update = request
 	return &apiv1alpha1.UpdateAgentTemplateResponse{}, nil
-}
-
-func (s *recordingAgentTemplateService) DeleteAgentTemplate(ctx context.Context, request *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error) {
-	s.observe(ctx)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.delete = request
-	return &apiv1alpha1.DeleteAgentTemplateResponse{}, nil
 }
 
 func (s *recordingAgentTemplateService) observe(ctx context.Context) {
@@ -85,13 +76,9 @@ func TestAgentTemplateClientUsesGeneratedGRPC(t *testing.T) {
 	require.NoError(t, err)
 	_, err = clientSet.AgentTemplate.UpdateAgentTemplate(t.Context(), &apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref})
 	require.NoError(t, err)
-	_, err = clientSet.AgentTemplate.DeleteAgentTemplate(t.Context(), &apiv1alpha1.DeleteAgentTemplateRequest{Ref: ref})
-	require.NoError(t, err)
-
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	assert.True(t, proto.Equal(ref, service.create.GetRef()))
 	assert.True(t, proto.Equal(ref, service.update.GetRef()))
-	assert.True(t, proto.Equal(ref, service.delete.GetRef()))
-	assert.Equal(t, []callObservation{{userID: "caller", hasDeadline: true}, {userID: "caller", hasDeadline: true}, {userID: "caller", hasDeadline: true}}, service.observations)
+	assert.Equal(t, []callObservation{{userID: "caller", hasDeadline: true}, {userID: "caller", hasDeadline: true}}, service.observations)
 }

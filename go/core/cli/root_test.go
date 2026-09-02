@@ -128,10 +128,6 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "apply -f FILE", applyCmd.Use)
 	assert.NotNil(t, applyCmd.Flags().Lookup("file"))
-	deleteTemplateCmd, _, err := rootCmd.Find([]string{"delete", "agent-template"})
-	require.NoError(t, err)
-	assert.Equal(t, "agent-template NAME", deleteTemplateCmd.Use)
-
 	for _, command := range []string{"suspend", "resume"} {
 		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
 		assert.Error(t, err, "%s must not be exposed by the CLI", command)
@@ -189,7 +185,6 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
 		"apply agent-template":  {"apply", "--file", "template.yaml"},
 		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
-		"delete agent-template": {"delete", "agent-template", "example"},
 		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -210,7 +205,7 @@ func TestRootResourceGroupsNameAvailableTypes(t *testing.T) {
 	for name, want := range map[string]string{
 		"get":    "agent-instance, agent-template",
 		"create": "agent-instance",
-		"delete": "agent-instance, agent-template",
+		"delete": "agent-instance",
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootCmd := cli.Root()

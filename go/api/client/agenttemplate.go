@@ -34,15 +34,6 @@ func (c *AgentTemplateClient) UpdateAgentTemplate(ctx context.Context, request *
 	return client.UpdateAgentTemplate(callContext, request)
 }
 
-func (c *AgentTemplateClient) DeleteAgentTemplate(ctx context.Context, request *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error) {
-	client, callContext, cancel, err := c.client.agentTemplateCall(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	return client.DeleteAgentTemplate(callContext, request)
-}
-
 func (c *BaseClient) agentTemplateCall(ctx context.Context) (apiv1alpha1.AgentTemplateServiceClient, context.Context, context.CancelFunc, error) {
 	connection, err := c.grpcConnection()
 	if err != nil {

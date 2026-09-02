@@ -34,7 +34,6 @@ func Root() *cobra.Command {
 	getCmd.AddCommand(commands.NewGetAgentTemplateCmd())
 	createCmd.AddCommand(agentinstancecli.NewCreateCmd())
 	deleteCmd.AddCommand(agentinstancecli.NewDeleteCmd())
-	deleteCmd.AddCommand(commands.NewDeleteAgentTemplateCmd())
 
 	rootCmd.AddCommand(
 		getCmd,

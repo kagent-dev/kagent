@@ -176,14 +176,6 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
 	})
 
-	t.Run("delete", func(t *testing.T) {
-		client := &recordingAgentTemplateClient{}
-		var output bytes.Buffer
-		require.NoError(t, deleteAgentTemplate(t.Context(), client, "team-a", &AgentTemplateDeleteCfg{Name: "researcher"}, clioutput.FormatTable, &output))
-		assert.True(t, proto.Equal(&apiv1alpha1.DeleteAgentTemplateRequest{Ref: ref}, client.deleteRequest))
-		assert.Contains(t, output.String(), "researcher")
-		assert.Contains(t, output.String(), "DELETED")
-	})
 }
 
 func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
@@ -206,7 +198,6 @@ type recordingAgentTemplateClient struct {
 	createErr     error
 	createRequest *apiv1alpha1.CreateAgentTemplateRequest
 	updateRequest *apiv1alpha1.UpdateAgentTemplateRequest
-	deleteRequest *apiv1alpha1.DeleteAgentTemplateRequest
 }
 
 func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error) {
@@ -220,9 +211,4 @@ func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, re
 func (c *recordingAgentTemplateClient) UpdateAgentTemplate(_ context.Context, request *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error) {
 	c.updateRequest = request
 	return &apiv1alpha1.UpdateAgentTemplateResponse{AgentTemplate: c.template}, nil
-}
-
-func (c *recordingAgentTemplateClient) DeleteAgentTemplate(_ context.Context, request *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error) {
-	c.deleteRequest = request
-	return &apiv1alpha1.DeleteAgentTemplateResponse{}, nil
 }
