@@ -8,18 +8,22 @@ import (
 	"syscall"
 )
 
-func configureProcessGroup(command *exec.Cmd) {
+// ConfigureProcessGroup prepares command for process-group signaling.
+func ConfigureProcessGroup(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-func interruptProcessGroup(process *os.Process) error {
+// InterruptProcessGroup interrupts the process group.
+func InterruptProcessGroup(process *os.Process) error {
 	return syscall.Kill(-process.Pid, syscall.SIGINT)
 }
 
-func terminateProcessGroup(process *os.Process) error {
+// TerminateProcessGroup terminates the process group.
+func TerminateProcessGroup(process *os.Process) error {
 	return syscall.Kill(-process.Pid, syscall.SIGTERM)
 }
 
-func killProcessGroup(process *os.Process) error {
+// KillProcessGroup kills the process group.
+func KillProcessGroup(process *os.Process) error {
 	return syscall.Kill(-process.Pid, syscall.SIGKILL)
 }

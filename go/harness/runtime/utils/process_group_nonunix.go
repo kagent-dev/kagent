@@ -1,3 +1,5 @@
+//go:build !unix
+
 package utils
 
 import (
@@ -5,16 +7,20 @@ import (
 	"os/exec"
 )
 
-func configureProcessGroup(*exec.Cmd) {}
+// ConfigureProcessGroup is a no-op on platforms without Unix process groups.
+func ConfigureProcessGroup(*exec.Cmd) {}
 
-func interruptProcessGroup(process *os.Process) error {
+// InterruptProcessGroup interrupts the process.
+func InterruptProcessGroup(process *os.Process) error {
 	return process.Signal(os.Interrupt)
 }
 
-func terminateProcessGroup(process *os.Process) error {
+// TerminateProcessGroup terminates the process.
+func TerminateProcessGroup(process *os.Process) error {
 	return process.Kill()
 }
 
-func killProcessGroup(process *os.Process) error {
+// KillProcessGroup kills the process.
+func KillProcessGroup(process *os.Process) error {
 	return process.Kill()
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 )
@@ -104,27 +103,4 @@ func ReplacePrivateFile(path string, contents []byte) (returnErr error) {
 	}
 	renamed = true
 	return nil
-}
-
-// ConfigureProcessGroup prepares command for process-group signaling when the
-// platform supports it.
-func ConfigureProcessGroup(command *exec.Cmd) {
-	configureProcessGroup(command)
-}
-
-// InterruptProcessGroup asks the process group, or platform fallback process,
-// to stop gracefully.
-func InterruptProcessGroup(process *os.Process) error {
-	return interruptProcessGroup(process)
-}
-
-// TerminateProcessGroup requests termination of the process group or platform
-// fallback process.
-func TerminateProcessGroup(process *os.Process) error {
-	return terminateProcessGroup(process)
-}
-
-// KillProcessGroup forcibly stops the process group or platform fallback process.
-func KillProcessGroup(process *os.Process) error {
-	return killProcessGroup(process)
 }
