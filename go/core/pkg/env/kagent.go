@@ -78,6 +78,20 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	// Registered here for `kagent env` CLI discoverability only -- the
+	// actual gate is read independently (raw os.Getenv, not via this var)
+	// in go/adk/pkg/tools/skills.go's enableFileSearchToolsEnv. The two
+	// literals are pinned together by that package's
+	// TestEnableFileSearchToolsEnvMatchesRegistry.
+	KagentEnableFileSearchTools = RegisterBoolVar(
+		"KAGENT_ENABLE_FILE_SEARCH_TOOLS",
+		false,
+		"When true, enables the list_files and grep_file skills tools, which let an agent "+
+			"enumerate and search the filesystem under its session/skills roots without a "+
+			"shell. Disabled by default; set on the Agent's env to opt in.",
+		ComponentAgentRuntime,
+	)
+
 	StsWellKnownURI = RegisterStringVar(
 		"STS_WELL_KNOWN_URI",
 		"",
