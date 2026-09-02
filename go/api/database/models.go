@@ -269,6 +269,13 @@ type RuntimeRevision struct {
 	ActorTemplateUID      string
 }
 
+type ActorTemplateHarness struct {
+	Atespace    string
+	Name        string
+	UID         string
+	HarnessName string
+}
+
 // AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
 // filter on this", so an empty query lists the caller's own instances in the
 // namespace.

@@ -178,7 +178,10 @@ func main() {
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
-	system := systemservice.NewService(systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors))
+	system := systemservice.NewService(
+		systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors),
+		systemservice.WithRuntimeRevisions(store),
+	)
 	feedback := feedbackservice.NewService(store)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)

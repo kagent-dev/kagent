@@ -1297,7 +1297,6 @@ function toActorTemplateEntry(
     sandboxClass: orUndefined(template.sandboxClass),
     workerSelector: orUndefined(template.workerSelector),
     harnessName: orUndefined(template.harnessName),
-    managedByKagent: template.managedByKagent,
   };
 }
 

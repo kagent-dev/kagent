@@ -7,6 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -34,6 +35,14 @@ type fakeATEClient struct {
 	actors    []*ateapipb.Actor
 	workers   []*ateapipb.Worker
 	err       error
+}
+
+type fakeRuntimeRevisionStore struct {
+	harnesses []dbpkg.ActorTemplateHarness
+}
+
+func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+	return store.harnesses, nil
 }
 
 func (client *fakeATEClient) ListActors(context.Context, string) ([]*ateapipb.Actor, error) {
@@ -130,7 +139,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		).Build()
 		ateClient := &fakeATEClient{
 			templates: []*ateapipb.ActorTemplate{{
-				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template"},
+				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
 				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 					GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
@@ -154,7 +163,13 @@ func TestGetSubstrateStatus(t *testing.T) {
 				}},
 			}},
 		}
-		service := system.NewService(system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient))
+		revisions := &fakeRuntimeRevisionStore{harnesses: []dbpkg.ActorTemplateHarness{{
+			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
+		}}}
+		service := system.NewService(
+			system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient),
+			system.WithRuntimeRevisions(revisions),
+		)
 
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
@@ -163,6 +178,11 @@ func TestGetSubstrateStatus(t *testing.T) {
 		assert.Equal(t, int32(2), result.WorkerPools[0].Replicas)
 		require.Len(t, result.ActorTemplates, 1)
 		assert.Equal(t, "Ready", result.ActorTemplates[0].Phase)
+		assert.Equal(t, "template-uid", result.ActorTemplates[0].GoldenActorID)
+		assert.Equal(t, "golden", result.ActorTemplates[0].GoldenSnapshot)
+		assert.Equal(t, "gvisor", result.ActorTemplates[0].SandboxClass)
+		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
+		assert.True(t, result.ActorTemplates[0].ManagedByKagent)
 		require.Len(t, result.Actors, 1)
 		assert.Equal(t, "Running", result.Actors[0].Status)
 		require.Len(t, result.Workers, 1)
