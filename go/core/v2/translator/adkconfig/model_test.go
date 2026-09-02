@@ -1,4 +1,4 @@
-package kagent
+package adkconfig
 
 import (
 	"context"
@@ -49,7 +49,7 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 				},
 				References: tt.references,
 			}
-			_, data, err := (&Compiler{}).renderModel(context.Background(), resolved)
+			_, data, err := (&Builder{}).translateModel(context.Background(), resolved)
 			require.NoError(t, err)
 			names := make([]string, 0, len(data.EnvVars))
 			for _, variable := range data.EnvVars {
@@ -66,7 +66,7 @@ func TestResolveFoundryEndpointFromConfigMap(t *testing.T) {
 		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
 	}
 	mock := krttest.NewMock(t, []any{configMap})
-	compiler := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{
+	compiler := NewBuilder(krt.TestingDummyContext{}, v2translator.Collections{
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	})
 
