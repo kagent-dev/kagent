@@ -39,6 +39,8 @@ type SandboxAgent struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.skills)",message="spec.skills is not supported for sandbox agents"
+// +kubebuilder:validation:XValidation:rule="!has(self.declarative) || !has(self.declarative.deployment) || !has(self.declarative.deployment.nodeSelector) || size(self.declarative.deployment.nodeSelector) == 0",message="deployment.nodeSelector is not supported for sandbox agents: substrate schedules actors onto WorkerPool workers, so set the WorkerPool's nodeSelector instead"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || !has(self.byo.deployment) || !has(self.byo.deployment.nodeSelector) || size(self.byo.deployment.nodeSelector) == 0",message="deployment.nodeSelector is not supported for sandbox agents: substrate schedules actors onto WorkerPool workers, so set the WorkerPool's nodeSelector instead"
 type SandboxAgentSpec struct {
 	AgentSpec `json:",inline"`
 
