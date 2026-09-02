@@ -13,7 +13,9 @@ import {
   Tooltip,
   Typography,
 } from "antd";
+import type { TableProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import type { SortOrder } from "antd/es/table/interface";
 import { useTheme } from "@emotion/react";
 import { Radio, Search } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -383,55 +385,65 @@ function usePageStack(resetKey: string) {
   };
 }
 
-/**
- * A column header that asks the *server* to sort.
- *
- * Not antd's own `sorter`, deliberately. That reorders the rows the table was
- * given, which for one page out of hundreds of thousands looks like sorting and is
- * not — the first row of the sorted cluster is almost certainly not on this page.
- * So the header sends the column and the direction, and the rows come back ordered.
- *
- * Clicking cycles ascending → descending → back to the default order, so a reader
- * can undo a sort without knowing which column was the default one.
- */
-function SortableHeader<Field extends string>({
-  title,
-  field,
-  sort,
-  onSort,
-}: {
-  title: string;
-  field: Field;
-  sort: { field: Field | "default"; order: SubstrateSortOrder };
-  onSort: (field: Field | "default", order: SubstrateSortOrder) => void;
-}) {
-  const theme = useTheme();
-  const isActive = sort.field === field;
-  const arrow = !isActive ? "" : sort.order === "asc" ? " ↑" : " ↓";
+/** One paged table's order: which column, and which way. */
+type PagedSort<Field extends string> = {
+  field: Field | "default";
+  order: SubstrateSortOrder;
+};
 
-  return (
-    <button
-      type="button"
-      data-testid={`substrate-sort-${field}`}
-      data-active={isActive}
-      data-order={isActive ? sort.order : undefined}
-      onClick={() => {
-        if (!isActive) onSort(field, "asc");
-        else if (sort.order === "asc") onSort(field, "desc");
-        else onSort("default", "asc");
-      }}
-      css={{
-        all: "unset",
-        cursor: "pointer",
-        fontWeight: 600,
-        color: isActive ? theme.color.primaryText : "inherit",
-        "&:hover": { color: theme.color.primaryText },
-      }}
-    >
-      {title}
-      {arrow}
-    </button>
-  );
+/**
+ * What antd should draw on a column's header, from the order the *server* applied.
+ *
+ * The header is antd's own — the whole cell is the target, and the direction is its
+ * pair of chevrons — because a page where two tables sort by clicking a header and two
+ * more by clicking the words inside one is a page a reader has to learn twice. What is
+ * not antd's is the sorting: the columns below declare `sorter: true`, which is the
+ * form that gives the header its control and no comparator to run, so the table
+ * reorders nothing. The order goes out with the next read, and the rows come back in
+ * it — ordered over the whole set rather than over the page on screen.
+ *
+ * That distinction is the honest one at this size. A comparator here would reorder the
+ * hundred rows the table was handed, and one page out of 410,110 reordered is not the
+ * cluster sorted: the first row of the sorted set is almost certainly not on it.
+ */
+function sortDirectionFor<Field extends string>(
+  sort: PagedSort<Field>,
+  field: Field,
+): SortOrder | null {
+  if (sort.field !== field) return null;
+  return sort.order === "asc" ? "ascend" : "descend";
+}
+
+/**
+ * A paged table's `onChange`, routed into the order it is read in.
+ *
+ * antd cycles a header ascending → descending → unsorted, and the third of those is
+ * the table's default order rather than no order at all: these rows arrive sorted by
+ * something whatever happens, and `default` is the grouping they fall back to.
+ *
+ * `columnKey` carries the sort field, so a column's key and the field it orders by are
+ * the same string by construction — see the column definitions.
+ */
+function pagedSortChange<Row, Field extends string>(
+  apply: (sort: PagedSort<Field>) => void,
+): NonNullable<TableProps<Row>["onChange"]> {
+  return (_pagination, _filters, sorter, extra) => {
+    if (extra.action !== "sort") return;
+    // An array under antd's multi-sort. These tables are single-sort — the read
+    // orders by one column — and taking the first entry keeps this correct if that
+    // ever changes: the order sent is then the column the reader chose last.
+    const active = Array.isArray(sorter) ? sorter[0] : sorter;
+    const field = active?.columnKey;
+
+    if (!active?.order || typeof field !== "string") {
+      apply({ field: "default", order: "asc" });
+      return;
+    }
+    apply({
+      field: field as Field,
+      order: active.order === "ascend" ? "asc" : "desc",
+    });
+  };
 }
 
 /**
@@ -617,16 +629,16 @@ export function SubstratePage() {
 
   /*
    * The order each paged table is read in, sent to the server rather than applied
-   * here — see `SortableHeader` for why a local sort would be a lie at this size.
+   * here — see `sortDirectionFor` for why a local sort would be a lie at this size.
    */
-  const [actorSort, setActorSort] = useState<{
-    field: SubstrateActorSortField;
-    order: SubstrateSortOrder;
-  }>({ field: "default", order: "asc" });
-  const [workerSort, setWorkerSort] = useState<{
-    field: SubstrateWorkerSortField;
-    order: SubstrateSortOrder;
-  }>({ field: "default", order: "asc" });
+  const [actorSort, setActorSort] = useState<PagedSort<SubstrateActorSortField>>({
+    field: "default",
+    order: "asc",
+  });
+  const [workerSort, setWorkerSort] = useState<PagedSort<SubstrateWorkerSortField>>({
+    field: "default",
+    order: "asc",
+  });
 
   // A new order is a new result, so the page stack resets with it — a token from
   // the previous order names a row's position in an ordering that no longer holds.
@@ -822,10 +834,10 @@ export function SubstratePage() {
    * headers sorts by both. The numbers are a fixed priority rather than click order,
    * so they are chosen to put the column worth *grouping* by first.
    *
-   * The actor and worker tables have no sorters at all any more, and that is the
-   * honest consequence of paging: a client-side sorter reorders the page it was
-   * given, which looks like sorting and is not — the first row of the sorted cluster
-   * is almost certainly not on this page. The server's order is stated instead.
+   * A comparator here rather than a read, because these two lists arrive whole: the
+   * summary carries every pool and every template, so sorting them in the browser
+   * sorts all of them. The paged tables below wear the same header and mean something
+   * different by it — see `sortDirectionFor`.
    */
   const workerPoolColumns: ColumnsType<SubstrateWorkerPoolEntry> = useMemo(
     () => [
@@ -917,49 +929,41 @@ export function SubstratePage() {
   /*
    * Every column asks the server to sort, and none of them sorts locally.
    *
-   * antd's own `sorter` is deliberately absent: it reorders the rows the table was
-   * handed, and one page out of 410,110 reordered is not the cluster sorted.
+   * `sorter: true` rather than a comparator: it is the form that gives a column antd's
+   * own header — the whole cell clickable, the direction in its chevrons, the same as
+   * the two tables above — while leaving the table nothing to reorder. The order is
+   * carried in `sortOrder` from what the server said it applied, and a click goes back
+   * out as the next read. A comparator here would sort the hundred rows on screen and
+   * call it the cluster sorted.
+   *
+   * Each column's `key` is the server's own sort field, which is what lets the change
+   * handler send `columnKey` straight on.
    */
   const actorColumns: ColumnsType<SubstrateActorEntry> = useMemo(
     () => [
       {
-        title: (
-          <SortableHeader
-            title="Actor"
-            field="actorId"
-            sort={actorSort}
-            onSort={(field, order) => setActorSort({ field, order })}
-          />
-        ),
+        title: "Actor",
         key: "actorId",
+        sorter: true,
+        sortOrder: sortDirectionFor(actorSort, "actorId"),
         width: 320,
         render: (_, actor) => <span css={mono}>{actor.actorId}</span>,
       },
       {
-        title: (
-          <SortableHeader
-            title="Status"
-            field="status"
-            sort={actorSort}
-            onSort={(field, order) => setActorSort({ field, order })}
-          />
-        ),
+        title: "Status",
         key: "status",
+        sorter: true,
+        sortOrder: sortDirectionFor(actorSort, "status"),
         // Wide enough for the longest status seen on a real cluster
         // (`ACTOR_STATE_CRASHED`) without wrapping it to three lines.
         width: 190,
         render: (_, actor) => <StatusChip label={actor.status} />,
       },
       {
-        title: (
-          <SortableHeader
-            title="Template"
-            field="template"
-            sort={actorSort}
-            onSort={(field, order) => setActorSort({ field, order })}
-          />
-        ),
+        title: "Template",
         key: "template",
+        sorter: true,
+        sortOrder: sortDirectionFor(actorSort, "template"),
         width: 260,
         render: (_, actor) =>
           actor.actorTemplateName
@@ -967,15 +971,10 @@ export function SubstratePage() {
             : "—",
       },
       {
-        title: (
-          <SortableHeader
-            title="Worker pod"
-            field="workerPod"
-            sort={actorSort}
-            onSort={(field, order) => setActorSort({ field, order })}
-          />
-        ),
-        key: "pod",
+        title: "Worker pod",
+        key: "workerPod",
+        sorter: true,
+        sortOrder: sortDirectionFor(actorSort, "workerPod"),
         width: 320,
         render: (_, actor) =>
           actor.ateomPodName ? (
@@ -991,44 +990,30 @@ export function SubstratePage() {
     [actorSort, mono, muted, qualified],
   );
 
+  /** The same, for the workers: antd's header, the server's order. */
   const workerColumns: ColumnsType<SubstrateWorkerEntry> = useMemo(
     () => [
       {
-        title: (
-          <SortableHeader
-            title="Pod"
-            field="pod"
-            sort={workerSort}
-            onSort={(field, order) => setWorkerSort({ field, order })}
-          />
-        ),
+        title: "Pod",
         key: "pod",
+        sorter: true,
+        sortOrder: sortDirectionFor(workerSort, "pod"),
         width: 360,
         render: (_, worker) => qualified(worker.workerNamespace, worker.workerPod),
       },
       {
-        title: (
-          <SortableHeader
-            title="Pool"
-            field="pool"
-            sort={workerSort}
-            onSort={(field, order) => setWorkerSort({ field, order })}
-          />
-        ),
+        title: "Pool",
         key: "pool",
+        sorter: true,
+        sortOrder: sortDirectionFor(workerSort, "pool"),
         width: 220,
         render: (_, worker) => worker.workerPool,
       },
       {
-        title: (
-          <SortableHeader
-            title="Actor"
-            field="actor"
-            sort={workerSort}
-            onSort={(field, order) => setWorkerSort({ field, order })}
-          />
-        ),
+        title: "Actor",
         key: "actor",
+        sorter: true,
+        sortOrder: sortDirectionFor(workerSort, "actor"),
         width: 360,
         // "idle" rather than a dash: a worker with no actor on it is available, which
         // is a state worth reading, where a dash says only that a cell is empty.
@@ -1404,6 +1389,11 @@ export function SubstratePage() {
             columns={actorColumns}
             dataSource={actorRows}
             loading={actors.isLoading}
+            onChange={pagedSortChange<SubstrateActorEntry, SubstrateActorSortField>(
+              setActorSort,
+            )}
+            /* antd's own pager is off because the pages come from the server by token,
+               not by number — `PageControls` below turns them. */
             pagination={false}
             virtual
             scroll={{ y: GROWING_TABLE_HEIGHT, x: 1040 }}
@@ -1492,6 +1482,9 @@ export function SubstratePage() {
             columns={workerColumns}
             dataSource={workerRows}
             loading={workers.isLoading}
+            onChange={pagedSortChange<SubstrateWorkerEntry, SubstrateWorkerSortField>(
+              setWorkerSort,
+            )}
             pagination={false}
             virtual
             scroll={{ y: GROWING_TABLE_HEIGHT, x: 940 }}

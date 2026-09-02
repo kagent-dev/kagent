@@ -48,18 +48,30 @@ export function GlobalStyles() {
          * Table rows are not assumed interactive. Hover treatment and pointer cursor
          * are opt-in via the clickable-table-row class so static data tables do not imply
          * a click target.
+         *
+         * Matched on the cell class antd paints the hover from rather than on a hovered
+         * row's cells, which is what this rule used to say. A virtual table has no table
+         * markup at all — its body is divs — so the old tr/td selector could not reach
+         * one, and the substrate page's actors and workers went on lighting up under the
+         * pointer while every other static table had stopped. The class is on the cells
+         * of both bodies, so one rule covers both.
+         *
+         * A selected row keeps its own hover: that is the checkbox's feedback, not a
+         * claim that the row is a link.
          */
         .ant-table-wrapper
           .ant-table-tbody
-          > tr.ant-table-row:not(.clickable-table-row):hover
-          > td {
+          .ant-table-row:not(.clickable-table-row):not(.ant-table-row-selected)
+          > .ant-table-cell-row-hover {
           background: inherit;
         }
 
+        /* Written against the cell class for the same reason as the rule above: a
+           virtual body has no table cell for a tr/td selector to find. */
         .ant-table-wrapper
           .ant-table-tbody
-          > tr.ant-table-row.clickable-table-row
-          > td {
+          .ant-table-row.clickable-table-row
+          > .ant-table-cell {
           cursor: pointer;
         }
 
@@ -78,8 +90,8 @@ export function GlobalStyles() {
          */
         .ant-table-wrapper
           .ant-table-tbody
-          > tr.ant-table-row.clickable-table-row:active
-          > td {
+          .ant-table-row.clickable-table-row:active
+          > .ant-table-cell {
           background: ${theme.color.primary}4D;
         }
 
