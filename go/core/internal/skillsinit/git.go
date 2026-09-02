@@ -10,6 +10,41 @@ import (
 
 var immutableGitCommit = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 
+// existingGitSkill reports whether destination already contains a materialized
+// skill. A destination without a regular SKILL.md is not safe to treat as a
+// completed download, because Run would otherwise continue with an unusable
+// skill after a partial initialization.
+func existingGitSkill(destination string) (bool, error) {
+	info, err := os.Lstat(destination)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect git destination: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("existing git destination is not a skill: destination is a symbolic link")
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("existing git destination is not a skill: destination is not a directory")
+	}
+
+	skill, err := os.Lstat(filepath.Join(destination, "SKILL.md"))
+	if os.IsNotExist(err) {
+		return false, fmt.Errorf("existing git destination is not a skill: SKILL.md is required")
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect existing git skill: %w", err)
+	}
+	if skill.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("existing git destination is not a skill: SKILL.md is a symbolic link")
+	}
+	if !skill.Mode().IsRegular() {
+		return false, fmt.Errorf("existing git destination is not a skill: SKILL.md is not a regular file")
+	}
+	return true, nil
+}
+
 // CloneGit fetches a single git ref into ref.Dest. All user-controlled
 // strings (URL, Ref, SubPath) are passed to git as separate argv entries via
 // exec.Command — they never pass through a shell, so metacharacters in any of
@@ -22,6 +57,14 @@ var immutableGitCommit = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
 // SubPath, if set, rewrites the destination so the final layout matches the
 // requested in-repo subdirectory.
 func CloneGit(ref GitRef) error {
+	exists, err := existingGitSkill(ref.Dest)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
 	if ref.Full {
 		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
 			return err
