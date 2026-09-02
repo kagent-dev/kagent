@@ -42,3 +42,19 @@ func TestCompilationWarningsDoNotAffectRevisionDigest(t *testing.T) {
 		t.Fatal("non-behavioral warning changed runtime revision")
 	}
 }
+
+func TestRevisionDigestIncludesCommand(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "byo", Command: []string{"/agent"}}
+	first, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision.Command = []string{"/other-agent"}
+	second, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("command change did not change runtime revision")
+	}
+}

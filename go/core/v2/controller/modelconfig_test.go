@@ -7,26 +7,21 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestModelConfigReconciliationEquals(t *testing.T) {
-	left := ModelConfigReconciliation{
-		ModelConfigName: krt.Named{Namespace: "team-a", Name: "model"},
-		Translation:     &v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}},
-	}
-	right := ModelConfigReconciliation{
-		ModelConfigName: krt.Named{Namespace: "team-a", Name: "model"},
-		Translation:     &v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}},
-	}
+func TestResolvedModelConfigEquals(t *testing.T) {
+	left := v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
+	right := v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
 	if !krt.Equal(left, right) {
-		t.Fatal("equal reconciliations were not considered equal")
+		t.Fatal("equal resolutions were not considered equal")
 	}
-	left.Translation = &v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-4"}}}
+	left.Config.Spec.Model = "gpt-4"
 	if krt.Equal(left, right) {
-		t.Fatal("different translations were considered equal")
+		t.Fatal("different resolutions were considered equal")
 	}
 }
 
@@ -35,16 +30,18 @@ func TestModelConfigReconciliationTracksSecret(t *testing.T) {
 	t.Cleanup(func() { close(stop) })
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 
-	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{
+	modelConfig := &kagentv1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
 		Spec:       kagentv1alpha3.ModelConfigSpec{Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderOpenAI, APIKeySecret: "credentials"},
-	}}, opts.WithName("ModelConfigs")...)
+	}
+	mock := krttest.NewMock(t, []any{modelConfig})
+	modelConfigs := krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock)
 	secrets := krt.NewStaticCollection(nil, []*corev1.Secret{{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"},
 		Data:       map[string][]byte{"key": []byte("before")},
 	}}, opts.WithName("Secrets")...)
-	configMaps := krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...)
-	reconciliations := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
+	configMaps := krttest.GetMockCollection[*corev1.ConfigMap](mock)
+	reconciliations, _ := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 
 	waitFor(t, func() bool { return len(reconciliations.List()) == 1 })
 	initial := reconciliations.List()[0].Status
@@ -70,7 +67,7 @@ func TestModelConfigReconciliationMissingAPIKeySecretKey(t *testing.T) {
 	t.Cleanup(func() { close(stop) })
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 
-	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{
+	modelConfig := &kagentv1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"},
 		Spec: kagentv1alpha3.ModelConfigSpec{
 			Model:           "gpt-5",
@@ -78,13 +75,16 @@ func TestModelConfigReconciliationMissingAPIKeySecretKey(t *testing.T) {
 			APIKeySecret:    "credentials",
 			APIKeySecretKey: "NON_EXISTENT_KEY",
 		},
-	}}, opts.WithName("ModelConfigs")...)
-	secrets := krt.NewStaticCollection(nil, []*corev1.Secret{{
+	}
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "credentials"},
 		Data:       map[string][]byte{"EXISTING_KEY": []byte("secret-value")},
-	}}, opts.WithName("Secrets")...)
-	configMaps := krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...)
-	reconciliations := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
+	}
+	mock := krttest.NewMock(t, []any{modelConfig, secret})
+	modelConfigs := krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock)
+	secrets := krttest.GetMockCollection[*corev1.Secret](mock)
+	configMaps := krttest.GetMockCollection[*corev1.ConfigMap](mock)
+	reconciliations, _ := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 
 	waitFor(t, func() bool { return len(reconciliations.List()) == 1 })
 	status := reconciliations.List()[0].Status
@@ -137,20 +137,21 @@ func TestModelConfigReconciliationValidatesEffectiveProviderReferences(t *testin
 			stop := make(chan struct{})
 			t.Cleanup(func() { close(stop) })
 			opts := krt.NewOptionsBuilder(stop, "test", nil)
-			modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{
+			modelConfig := &kagentv1alpha3.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: test.spec,
-			}}, opts.WithName("ModelConfigs")...)
-			secrets := make([]*corev1.Secret, 0, 1)
+			}
+			inputs := []any{modelConfig}
 			if test.secret != nil {
-				secrets = append(secrets, test.secret)
+				inputs = append(inputs, test.secret)
 			}
-			configMaps := make([]*corev1.ConfigMap, 0, 1)
 			if test.configMap != nil {
-				configMaps = append(configMaps, test.configMap)
+				inputs = append(inputs, test.configMap)
 			}
-			secretCollection := krt.NewStaticCollection(nil, secrets, opts.WithName("Secrets")...)
-			configMapCollection := krt.NewStaticCollection(nil, configMaps, opts.WithName("ConfigMaps")...)
-			reconciliations := newModelConfigReconciliations(modelConfigs, configMapCollection, secretCollection, opts)
+			mock := krttest.NewMock(t, inputs)
+			modelConfigs := krttest.GetMockCollection[*kagentv1alpha3.ModelConfig](mock)
+			secretCollection := krttest.GetMockCollection[*corev1.Secret](mock)
+			configMapCollection := krttest.GetMockCollection[*corev1.ConfigMap](mock)
+			reconciliations, _ := newModelConfigReconciliations(modelConfigs, configMapCollection, secretCollection, opts)
 
 			waitFor(t, func() bool { return len(reconciliations.List()) == 1 })
 			status := reconciliations.List()[0].Status

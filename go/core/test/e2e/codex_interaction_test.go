@@ -392,7 +392,7 @@ func createCodexMockTemplate(t *testing.T, baseURL string) string {
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "codex"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
 			Description:  "Codex mockLLM interaction fixture",
 			SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},
@@ -465,11 +465,11 @@ func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, m
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "codex"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: modelConfig},
+			ModelConfig:  &corev1.LocalObjectReference{Name: modelConfig},
 			Description:  "Codex direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
 			}}},
 		},
 	}

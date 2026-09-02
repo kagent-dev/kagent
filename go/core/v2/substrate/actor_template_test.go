@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -13,6 +14,8 @@ func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
 		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Command:        []string{"/agent"},
+		Args:           []string{"serve"},
 		WorkerPoolName: "default", SnapshotLocation: "snapshots",
 		ConfigJSON: []byte(`{"instruction":"help"}`), AgentCardJSON: []byte(`{"name":"helper"}`),
 		Environment: []corev1.EnvVar{{Name: "API_KEY", Value: "secret"}},
@@ -29,6 +32,9 @@ func TestActorTemplateForRevision(t *testing.T) {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.GetContainers()[0]
+	if !slices.Equal(container.Command, spec.Command) || !slices.Equal(container.Args, spec.Args) {
+		t.Fatalf("container command/args = %v %v", container.Command, container.Args)
+	}
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetReadyz().GetHttpGet().GetPath() != "/readyz" || container.GetReadyz().GetHttpGet().GetPort() != 8081 || container.GetReadyz().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}

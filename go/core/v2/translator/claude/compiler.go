@@ -16,13 +16,19 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
-type Compiler struct{ kube v2translator.Reader }
+type Compiler struct {
+	ctx         krt.HandlerContext
+	collections v2translator.Collections
+}
 
-func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
+func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections}
+}
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
@@ -303,11 +309,11 @@ func (c *Compiler) requireGoogleCredentials(ctx context.Context, model *v1alpha3
 }
 
 func (c *Compiler) secret(ctx context.Context, namespace, name string) (*corev1.Secret, error) {
-	secret := &corev1.Secret{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, secret); err != nil {
-		return nil, fmt.Errorf("read Claude credential Secret %q: %w", name, err)
+	secret := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
+	if secret == nil {
+		return nil, fmt.Errorf("read Claude credential Secret %q: not found", name)
 	}
-	return secret, nil
+	return *secret, nil
 }
 
 func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
@@ -375,11 +381,11 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	}
 	addAgent(input.Root)
 	for name := range configMaps {
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, configMap); err != nil {
-			return nil, err
+		configMap := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
+		if configMap == nil {
+			return nil, fmt.Errorf("ConfigMap %q not found", name)
 		}
-		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
+		entries = append(entries, objectProvenance("v1", "ConfigMap", name, (*configMap).UID, (*configMap).Generation, (*configMap).Data))
 	}
 	seen := map[string]struct{}{}
 	for _, variable := range environment {

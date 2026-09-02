@@ -301,6 +301,12 @@ build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
+.PHONY: build-byo-a2a
+build-byo-a2a: ## Build and push the opaque BYO A2A e2e image
+build-byo-a2a: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/test/byoa2a/main.go -t $(DOCKER_REGISTRY)/$(DOCKER_REPO)/byo-a2a:$(VERSION) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/byo-a2a:$(VERSION)
+
 .PHONY: build-claude-harness
 build-claude-harness: ## Build and push the native Claude Harness image
 build-claude-harness: buildx-create
