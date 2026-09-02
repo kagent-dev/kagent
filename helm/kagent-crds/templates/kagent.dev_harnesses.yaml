@@ -160,7 +160,38 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               kagent:
-                description: KagentHarness selects the kagent runtime adapter.
+                description: KagentHarness configures the kagent runtime adapter.
+                properties:
+                  memory:
+                    description: Memory enables long-term memory for agents using
+                      this Harness.
+                    properties:
+                      modelConfigRef:
+                        description: ModelConfigRef references the embedding ModelConfig
+                          in the Harness namespace.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      ttlDays:
+                        description: TTLDays controls how many days a stored memory
+                          entry remains valid.
+                        minimum: 1
+                        type: integer
+                    required:
+                    - modelConfigRef
+                    type: object
+                    x-kubernetes-validations:
+                    - message: modelConfigRef name must not be empty
+                      rule: self.modelConfigRef.name.size() > 0
                 type: object
               substrate:
                 description: HarnessSubstratePolicy contains the Substrate policy

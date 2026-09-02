@@ -22,8 +22,25 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// KagentHarness selects the kagent runtime adapter.
-type KagentHarness struct{}
+// KagentHarness configures the kagent runtime adapter.
+type KagentHarness struct {
+	// Memory enables long-term memory for agents using this Harness.
+	// +optional
+	Memory *KagentHarnessMemory `json:"memory,omitempty"`
+}
+
+// KagentHarnessMemory configures kagent's long-term memory service.
+// +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
+type KagentHarnessMemory struct {
+	// ModelConfigRef references the embedding ModelConfig in the Harness namespace.
+	// +required
+	ModelConfigRef corev1.LocalObjectReference `json:"modelConfigRef"`
+
+	// TTLDays controls how many days a stored memory entry remains valid.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TTLDays int `json:"ttlDays,omitempty"`
+}
 
 // CodexHarness selects the Codex runtime adapter.
 type CodexHarness struct{}

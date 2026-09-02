@@ -330,10 +330,10 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 				Description: "template description", SystemPrompt: "specialize",
 			},
 		},
-		ModelConfig: &v1alpha3.ModelConfig{
+		ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test", UID: "child-model-uid"},
 			Spec:       childModelSpec,
-		},
+		}},
 		Instruction: "Return the specialist marker.",
 	}
 	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
@@ -377,7 +377,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 		want   string
 	}{
 		{name: "provider configuration", mutate: func(binding *v2translator.AgentInputBinding) {
-			binding.Agent.ModelConfig.Spec.APIKeySecret = "different-auth"
+			binding.Agent.ResolvedModelConfig.Config.Spec.APIKeySecret = "different-auth"
 		}, want: "root agent's provider"},
 		{name: "nested tools", mutate: func(binding *v2translator.AgentInputBinding) {
 			binding.Agent.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{}}}
@@ -401,8 +401,8 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"},
 						Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "child-model"}},
 					},
-					ModelConfig: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec},
-					Instruction: "specialize",
+					ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec}},
+					Instruction:         "specialize",
 				},
 			}
 			tt.mutate(&binding)
@@ -431,11 +431,19 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret-uid"}, Data: secretData}
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(secret).Build()
 	reader := testReader{kube}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ModelConfig: model, Instruction: "help carefully"}}, reader
+	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, reader
 }
 
 type testReader struct{ client.Client }
 
 func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
 	return r.Client.Get(ctx, key, object.(client.Object))
+}
+
+func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
+	model := &v1alpha3.ModelConfig{}
+	if err := r.Get(ctx, key, model); err != nil {
+		return nil, err
+	}
+	return v2translator.ResolveModelConfig(ctx, r, model)
 }

@@ -29,10 +29,16 @@ func modelConfig() *v1alpha3.ModelConfig {
 }
 
 func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
+	embeddingModel := modelConfig()
+	embeddingModel.Name = "embedding-model"
+	embeddingModel.Spec.Model = "text-embedding-3-small"
+	embeddingModel.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent:                &v1alpha3.KagentHarness{},
+			Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
+				ModelConfigRef: corev1.LocalObjectReference{Name: embeddingModel.Name}, TTLDays: 7,
+			}},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
 			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			Substrate: v1alpha3.HarnessSubstratePolicy{
@@ -65,7 +71,7 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 			},
 		},
 	}
-	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+	spec, err := compiler(t, modelConfig(), embeddingModel).CompileAgentTemplate(context.Background(), harness, template)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +85,9 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	// harness stuck in ResumeGoldenActor rather than as anything naming this line.
 	if config.SessionDBURL != "sqlite+aiosqlite:////data/sessions.db" {
 		t.Fatalf("session DB URL = %q", config.SessionDBURL)
+	}
+	if config.Memory == nil || config.Memory.TTLDays != 7 || config.Memory.Embedding == nil || config.Memory.Embedding.TLSInsecureSkipVerify == nil || !*config.Memory.Embedding.TLSInsecureSkipVerify {
+		t.Fatalf("compiled memory config = %#v", config.Memory)
 	}
 	plugins := config.AgentPlugins
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
@@ -113,6 +122,39 @@ func (r testReader) Get(ctx context.Context, key types.NamespacedName, object ru
 	return r.Client.Get(ctx, key, object.(client.Object))
 }
 
+func (r testReader) GetResolvedModelConfig(ctx context.Context, key types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
+	model := &v1alpha3.ModelConfig{}
+	if err := r.Get(ctx, key, model); err != nil {
+		return nil, err
+	}
+	return v2translator.ResolveModelConfig(ctx, r, model)
+}
+
+func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
+	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{Deployment: "chat", APIVersion: "2024-10-21", EndpointFrom: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
+			}},
+		},
+	}
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
+		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
+	}
+	reader := testReader{fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(model, configMap).Build()}
+
+	resolved, err := reader.GetResolvedModelConfig(context.Background(), types.NamespacedName{Namespace: "test", Name: "foundry"})
+	require.NoError(t, err)
+	require.Equal(t, model.Spec, resolved.Config.Spec)
+	require.Equal(t, []v2translator.ModelConfigReference{{
+		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
+	}}, resolved.References)
+}
+
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
 
 func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
@@ -136,6 +178,27 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
+	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
+}
+
+func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
+	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
+	model := modelConfig()
+	model.Spec.APIKeySecret = "missing"
+	model.Spec.APIKeySecretKey = "key"
+	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(model).Build()
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+	}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: model.Name}}}
+
+	_, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
+	require.Nil(t, adapter.input)
 }
 
 func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {

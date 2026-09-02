@@ -48,10 +48,10 @@ type Compiler struct{ kube v2translator.Reader }
 func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
-	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ModelConfig == nil {
+	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
 		return nil, fmt.Errorf("claude compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
-	model := input.Root.ModelConfig
+	model := input.Root.ResolvedModelConfig.Config
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, v2translator.NewValidationError("Claude ModelConfig model is required")
 	}
@@ -147,19 +147,20 @@ func (c *Compiler) compileLocalAgents(root *v2translator.AgentInput) (map[string
 	agents := make(map[string]claudeconfig.Agent, len(root.Shared))
 	for _, binding := range root.Shared {
 		child := binding.Agent
-		if child == nil || child.Template == nil || child.ModelConfig == nil {
+		if child == nil || child.Template == nil || child.ResolvedModelConfig == nil || child.ResolvedModelConfig.Config == nil {
 			return nil, fmt.Errorf("claude local agent %q is not fully resolved", binding.Name)
 		}
+		childModel := child.ResolvedModelConfig.Config
 		if len(child.MCPTools) != 0 || len(child.Shared) != 0 || len(child.Template.Spec.Tools) != 0 {
 			return nil, v2translator.NewValidationError("Claude local agent %q cannot contain MCP or nested agent tools yet", binding.Name)
 		}
 		if len(child.Template.Spec.Skills) != 0 || len(child.Template.Spec.Plugins) != 0 {
 			return nil, v2translator.NewValidationError("Claude local agent %q cannot contain skills or plugins yet", binding.Name)
 		}
-		if strings.TrimSpace(child.ModelConfig.Spec.Model) == "" {
+		if strings.TrimSpace(childModel.Spec.Model) == "" {
 			return nil, v2translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
 		}
-		if !sameProviderConfiguration(root.ModelConfig.Spec, child.ModelConfig.Spec) {
+		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) {
 			return nil, v2translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
@@ -168,7 +169,7 @@ func (c *Compiler) compileLocalAgents(root *v2translator.AgentInput) (map[string
 		agents[binding.Name] = claudeconfig.Agent{
 			Description: binding.Description,
 			Prompt:      child.Instruction,
-			Model:       child.ModelConfig.Spec.Model,
+			Model:       childModel.Spec.Model,
 		}
 	}
 	return agents, nil
@@ -374,7 +375,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 	}
 	var addAgent func(*v2translator.AgentInput)
 	addAgent = func(agent *v2translator.AgentInput) {
-		template, model := agent.Template, agent.ModelConfig
+		template, model := agent.Template, agent.ResolvedModelConfig.Config
 		addObject("AgentTemplate", template.Name, template.UID, template.Generation, template.Spec)
 		addObject("ModelConfig", model.Name, model.UID, model.Generation, model.Spec)
 		if template.Spec.SystemPromptFrom != nil {
