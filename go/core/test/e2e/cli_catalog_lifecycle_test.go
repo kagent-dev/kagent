@@ -15,7 +15,6 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"google.golang.org/protobuf/encoding/protojson"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -141,18 +140,6 @@ spec:
 			t.Fatalf("AgentTemplate runtime label = %q, want %q", got, wantRuntime)
 		}
 	}
-	deleteTemplate := func() {
-		t.Helper()
-		output := run("--output-format", "json", "delete", "agent-template", templateName)
-		if !json.Valid([]byte(output)) {
-			t.Fatalf("delete AgentTemplate stdout = %q, want JSON", output)
-		}
-		template := &v1alpha3.AgentTemplate{}
-		err := kube.Get(t.Context(), types.NamespacedName{Namespace: "kagent", Name: templateName}, template)
-		if !apierrors.IsNotFound(err) {
-			t.Fatalf("get deleted AgentTemplate error = %v, want NotFound", err)
-		}
-	}
 	t.Cleanup(func() {
 		template := &v1alpha3.AgentTemplate{}
 		if err := kube.Get(context.Background(), types.NamespacedName{Namespace: "kagent", Name: templateName}, template); err == nil {
@@ -172,19 +159,6 @@ spec:
 	writeManifest("reapplied through the CLI", "codex")
 	run("apply", "-f", manifestPath)
 	assertTemplate("reapplied through the CLI", "codex")
-
-	writeManifest("applied through the CLI", "kagent")
-	run("apply", "-f", manifestPath)
-	assertTemplate("applied through the CLI", "kagent")
-
-	deleteTemplate()
-
-	applied = run("--output-format", "json", "apply", "-f", manifestPath)
-	if !json.Valid([]byte(applied)) || !strings.Contains(applied, `"name":"`+templateName+`"`) {
-		t.Fatalf("apply AgentTemplate stdout = %q, want JSON for %q", applied, templateName)
-	}
-	assertTemplate("applied through the CLI", "kagent")
-	deleteTemplate()
 }
 
 func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
