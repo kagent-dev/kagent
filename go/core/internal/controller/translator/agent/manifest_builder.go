@@ -202,7 +202,9 @@ func (a *adkApiTranslator) buildConfigSecret(
 	var volumes []corev1.Volume
 	var mounts []corev1.VolumeMount
 
-	if cfg != nil {
+	renderAgentConfig := needsAgentConfig(manifestCtx.agent, cfg)
+
+	if renderAgentConfig {
 		bCfg, err := json.Marshal(cfg)
 		if err != nil {
 			return nil, err
@@ -230,7 +232,7 @@ func (a *adkApiTranslator) buildConfigSecret(
 		srtSettingsJSON = string(bSRTSettings)
 	}
 
-	if cfg != nil || srtSettingsJSON != "" {
+	if renderAgentConfig || srtSettingsJSON != "" {
 		secretData := modelConfigSecretHashBytes
 		if secretData == nil {
 			secretData = []byte{}
@@ -354,6 +356,18 @@ func buildPodRuntime(
 		securityContext:     buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
 		skillsInitConfigMap: skillsInitCM,
 	}, nil
+}
+
+// needsAgentConfig reports whether the agent consumes the controller-rendered
+// config.json. BYO agents run their own image and do not share the declarative
+// runtime's configuration schema, so they must not be given the config volume:
+// the config rendered for them carries no model, which the declarative runtime's
+// schema requires.
+func needsAgentConfig(agent v1alpha2.AgentObject, cfg *adk.AgentConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	return agent.GetAgentSpec().Type != v1alpha2.AgentType_BYO
 }
 
 func needsSRTSettings(agent v1alpha2.AgentObject, sandboxCfg *v1alpha2.SandboxConfig) bool {
