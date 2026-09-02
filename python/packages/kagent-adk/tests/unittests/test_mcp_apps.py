@@ -6,6 +6,7 @@ from google.genai import types as genai_types
 from kagent.adk._mcp_apps import (
     MCP_APP_RENDERED_NOTICE,
     MCPAppToolNames,
+    _result_has_ui_resource,
     compact_mcp_app_response,
     make_mcp_app_model_result_callback,
 )
@@ -16,6 +17,13 @@ def _function_response_content(name: str, response: dict) -> genai_types.Content
         role="user",
         parts=[genai_types.Part(function_response=genai_types.FunctionResponse(name=name, response=response))],
     )
+
+
+def test_result_has_ui_resource_accepts_nested_and_flat_meta_shapes():
+    # _meta.ui.resourceUri, the shape the other tests exercise via compact_mcp_app_response.
+    assert _result_has_ui_resource({"_meta": {"ui": {"resourceUri": "ui://server/dashboard"}}})
+    # _meta["ui/resourceUri"], the flat shape parseMCPUIMetadata also accepts (go/adk/pkg/mcp/mcp_ui.go).
+    assert _result_has_ui_resource({"_meta": {"ui/resourceUri": "ui://server/dashboard"}})
 
 
 def test_compact_success_replaces_payload_with_notice():
