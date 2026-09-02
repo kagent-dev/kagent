@@ -34,7 +34,7 @@ type ATEClient interface {
 	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
 }
 
-type RuntimeRevisionStore interface {
+type runtimeRevisionStore interface {
 	ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error)
 }
 
@@ -43,7 +43,7 @@ type Service struct {
 	observedNamespaces []string
 	authorizer         auth.Authorizer
 	ateClient          ATEClient
-	revisions          RuntimeRevisionStore
+	revisions          runtimeRevisionStore
 }
 
 type Option func(*Service)
@@ -129,7 +129,7 @@ func WithInventory(
 	}
 }
 
-func WithRuntimeRevisions(revisions RuntimeRevisionStore) Option {
+func WithRuntimeRevisions(revisions runtimeRevisionStore) Option {
 	return func(service *Service) {
 		service.revisions = revisions
 	}

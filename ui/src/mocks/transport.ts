@@ -1515,7 +1515,6 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
       sandboxClass: template.sandboxClass ?? "",
       workerSelector: template.workerSelector ?? "",
       harnessName: template.harnessName ?? "",
-      managedByKagent: template.managedByKagent ?? false,
     })),
     actors: actors.map((actor) => ({
       actorId: actor.actorId,
