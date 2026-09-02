@@ -7,11 +7,11 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -31,9 +31,18 @@ func (systemDenyAuthorizer) Check(context.Context, pkgAuth.Principal, pkgAuth.Ve
 }
 
 type fakeATEClient struct {
-	actors  []*ateapipb.Actor
-	workers []*ateapipb.Worker
-	err     error
+	templates []*ateapipb.ActorTemplate
+	actors    []*ateapipb.Actor
+	workers   []*ateapipb.Worker
+	err       error
+}
+
+type fakeRuntimeRevisionStore struct {
+	harnesses []dbpkg.ActorTemplateHarness
+}
+
+func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+	return store.harnesses, nil
 }
 
 func (client *fakeATEClient) ListActors(context.Context, string) ([]*ateapipb.Actor, error) {
@@ -45,6 +54,10 @@ func (client *fakeATEClient) ListActors(context.Context, string) ([]*ateapipb.Ac
 
 func (client *fakeATEClient) ListWorkers(context.Context) ([]*ateapipb.Worker, error) {
 	return client.workers, client.err
+}
+
+func (client *fakeATEClient) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
+	return client.templates, client.err
 }
 
 func TestCurrentUser(t *testing.T) {
@@ -121,25 +134,23 @@ func TestGetSubstrateStatus(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 			&atev1alpha1.WorkerPool{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "pool"},
-				Spec:       atev1alpha1.WorkerPoolSpec{Replicas: 2, AteomImage: "ateom:test"},
-			},
-			&atev1alpha1.ActorTemplate{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "template", Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "kagent",
-					substrate.SandboxAgentLabelKey: "agent",
-				}},
-				Spec:   atev1alpha1.ActorTemplateSpec{SandboxClass: atev1alpha1.SandboxClassGvisor},
-				Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady},
+				Spec:       atev1alpha1.WorkerPoolSpec{Replicas: 2, WorkerImage: "ateom:test"},
 			},
 		).Build()
 		ateClient := &fakeATEClient{
+			templates: []*ateapipb.ActorTemplate{{
+				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
+				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
+				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
+					GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
+				}},
+			}},
 			actors: []*ateapipb.Actor{{
-				Metadata: &ateapipb.ResourceMetadata{Name: "actor-1"},
+				Metadata:      &ateapipb.ResourceMetadata{Name: "actor-1"},
+				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
 				Status: &ateapipb.ActorStatus{
 					State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
 				},
-				ActorTemplateNamespace: "team",
-				ActorTemplateName:      "template",
 			}},
 			workers: []*ateapipb.Worker{{
 				Metadata:        &ateapipb.ResourceMetadata{Version: 3},
@@ -147,12 +158,18 @@ func TestGetSubstrateStatus(t *testing.T) {
 				WorkerPool:      "pool",
 				WorkerPod:       "worker-0",
 				Status: &ateapipb.WorkerStatus{Assignment: &ateapipb.ActorAssignment{
-					ActorTemplate: &ateapipb.KubeNamespacedObjectRef{Namespace: "team", Name: "template"},
-					Actor:         &ateapipb.ObjectRef{Name: "actor-1"},
+					ActorTemplateRef: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
+					Actor:            &ateapipb.ObjectRef{Name: "actor-1"},
 				}},
 			}},
 		}
-		service := system.NewService(system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient))
+		revisions := &fakeRuntimeRevisionStore{harnesses: []dbpkg.ActorTemplateHarness{{
+			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
+		}}}
+		service := system.NewService(
+			system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient),
+			system.WithRuntimeRevisions(revisions),
+		)
 
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
@@ -160,7 +177,12 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.WorkerPools, 1)
 		assert.Equal(t, int32(2), result.WorkerPools[0].Replicas)
 		require.Len(t, result.ActorTemplates, 1)
-		assert.Equal(t, "agent", result.ActorTemplates[0].HarnessName)
+		assert.Equal(t, "Ready", result.ActorTemplates[0].Phase)
+		assert.Equal(t, "template-uid", result.ActorTemplates[0].GoldenActorID)
+		assert.Equal(t, "golden", result.ActorTemplates[0].GoldenSnapshot)
+		assert.Equal(t, "gvisor", result.ActorTemplates[0].SandboxClass)
+		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
+		assert.True(t, result.ActorTemplates[0].ManagedByKagent)
 		require.Len(t, result.Actors, 1)
 		assert.Equal(t, "Running", result.Actors[0].Status)
 		require.Len(t, result.Workers, 1)

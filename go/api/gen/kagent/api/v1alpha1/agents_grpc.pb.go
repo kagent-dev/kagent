@@ -41,6 +41,10 @@ type AgentServiceClient interface {
 	CreateSandboxAgent(ctx context.Context, in *CreateSandboxAgentRequest, opts ...grpc.CallOption) (*CreateSandboxAgentResponse, error)
 	UpdateSandboxAgent(ctx context.Context, in *UpdateSandboxAgentRequest, opts ...grpc.CallOption) (*UpdateSandboxAgentResponse, error)
 	DeleteSandboxAgent(ctx context.Context, in *DeleteSandboxAgentRequest, opts ...grpc.CallOption) (*DeleteSandboxAgentResponse, error)
+	// The AgentHarness RPCs below operate on the AgentHarness CRD — one agent
+	// bound to an external ACP backend. They are unrelated to the Harness CRD
+	// that AgentInstance pairs with an AgentTemplate; that one is served by
+	// HarnessService in harnesses.proto.
 	GetAgentHarness(ctx context.Context, in *GetAgentHarnessRequest, opts ...grpc.CallOption) (*GetAgentHarnessResponse, error)
 	CreateAgentHarness(ctx context.Context, in *CreateAgentHarnessRequest, opts ...grpc.CallOption) (*CreateAgentHarnessResponse, error)
 	DeleteAgentHarness(ctx context.Context, in *DeleteAgentHarnessRequest, opts ...grpc.CallOption) (*DeleteAgentHarnessResponse, error)
@@ -176,6 +180,10 @@ type AgentServiceServer interface {
 	CreateSandboxAgent(context.Context, *CreateSandboxAgentRequest) (*CreateSandboxAgentResponse, error)
 	UpdateSandboxAgent(context.Context, *UpdateSandboxAgentRequest) (*UpdateSandboxAgentResponse, error)
 	DeleteSandboxAgent(context.Context, *DeleteSandboxAgentRequest) (*DeleteSandboxAgentResponse, error)
+	// The AgentHarness RPCs below operate on the AgentHarness CRD — one agent
+	// bound to an external ACP backend. They are unrelated to the Harness CRD
+	// that AgentInstance pairs with an AgentTemplate; that one is served by
+	// HarnessService in harnesses.proto.
 	GetAgentHarness(context.Context, *GetAgentHarnessRequest) (*GetAgentHarnessResponse, error)
 	CreateAgentHarness(context.Context, *CreateAgentHarnessRequest) (*CreateAgentHarnessResponse, error)
 	DeleteAgentHarness(context.Context, *DeleteAgentHarnessRequest) (*DeleteAgentHarnessResponse, error)

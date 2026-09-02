@@ -1,5 +1,5 @@
 """Tests for durable-dir session storage: AgentConfig.session_db_url selects the local
-DatabaseSessionService instead of the HTTP KAgentSessionService."""
+DatabaseSessionService instead of controller-backed session storage."""
 
 from a2a.types import AgentCard
 from google.protobuf.json_format import ParseDict

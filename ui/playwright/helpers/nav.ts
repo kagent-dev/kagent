@@ -1,52 +1,56 @@
-// Navigation helpers for the persistent header (src/components/Header.tsx).
-//
-// Routes live inside two Radix dropdown menus ("Create" and "View"), not flat
-// links. Menu items only enter the DOM (as role="menuitem") once the menu is
-// open. Header markup is duplicated for desktop/mobile, but the hidden block is
-// out of the accessibility tree, so role-based locators resolve to the visible
-// one on a desktop viewport.
+/**
+ * Navigation drivers for the persistent shell (`src/components/Structure/**`).
+ *
+ * The sidebar is an antd Menu whose entries carry stable test ids (`nav-<key>`),
+ * and the header's Create menu is a dropdown whose items only enter the DOM once
+ * it is open.
+ */
 
-import { type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
-// The full-screen LoadingState overlay (data-testid="loading-overlay") sits on
-// top of the header during a route transition. Waiting only for the URL to
-// change leaves it covering the menu triggers, so a follow-up menu click can hit
-// the overlay and flake. Wait for it to detach before handing control back.
-// "hidden" also resolves immediately when the overlay never mounted.
-async function waitForOverlayGone(page: Page): Promise<void> {
-  await page.getByTestId("loading-overlay").waitFor({ state: "hidden" });
-}
+/** Sidebar entries, keyed as in `src/components/Structure/navItems.ts`. */
+/*
+ * There is no `agentInstances` entry any more, and that is the change rather than
+ * an omission: an agent *is* an AgentInstance, so the agents page is the instances
+ * page. Two entries in the navigation for one idea — one of them naming a resource
+ * the API does not serve — is what this replaced.
+ */
+export type NavKey =
+  | "dashboard"
+  | "agents"
+  | "models"
+  | "mcpServers"
+  | "prompts"
+  | "substrate";
 
-async function openMenu(page: Page, trigger: "Create" | "View"): Promise<void> {
-  await page.getByRole("button", { name: trigger, exact: true }).click();
-}
+export const navLabels: Record<NavKey, string> = {
+  dashboard: "Dashboard",
+  agents: "Agents",
+  models: "Models",
+  mcpServers: "MCP Servers",
+  prompts: "Prompts",
+  substrate: "Substrate",
+};
 
-async function chooseFrom(
+/** Clicks a sidebar entry and waits for the route to change. */
+export async function clickNav(
   page: Page,
-  trigger: "Create" | "View",
-  item: string,
-  urlGlob?: string | RegExp,
+  key: NavKey,
+  expectedUrl: RegExp,
 ): Promise<void> {
-  await openMenu(page, trigger);
-  // Exact match: "New Agent" is a substring of "New Agent Harness".
-  await page.getByRole("menuitem", { name: item, exact: true }).click();
-  if (urlGlob) await page.waitForURL(urlGlob);
-  await waitForOverlayGone(page);
+  await page.getByTestId(`nav-${key}`).click();
+  await page.waitForURL(expectedUrl);
 }
 
-/** Open the "View" menu and go to a listing page, e.g. gotoView(page, "Models", "**\/models"). */
-export function gotoView(page: Page, item: string, urlGlob?: string | RegExp): Promise<void> {
-  return chooseFrom(page, "View", item, urlGlob);
+/** Asserts the persistent shell chrome is present. */
+export async function expectShell(page: Page): Promise<void> {
+  await expect(page.getByTestId("app-header")).toBeVisible();
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  await expect(page.getByTestId("app-content")).toBeVisible();
 }
 
-/** Open the "Create" menu and go to a creation page, e.g. gotoCreate(page, "New Agent", "**\/agents/new"). */
-export function gotoCreate(page: Page, item: string, urlGlob?: string | RegExp): Promise<void> {
-  return chooseFrom(page, "Create", item, urlGlob);
-}
-
-/** Click the direct "Home" link in the header. */
-export async function gotoHome(page: Page): Promise<void> {
-  await page.getByRole("link", { name: "Home" }).first().click();
-  await page.waitForURL(/\/(agents)?$/);
-  await waitForOverlayGone(page);
+/** Asserts the shell chrome is absent — for routes that render standalone. */
+export async function expectNoShell(page: Page): Promise<void> {
+  await expect(page.getByTestId("app-header")).toHaveCount(0);
+  await expect(page.getByTestId("app-sidebar")).toHaveCount(0);
 }

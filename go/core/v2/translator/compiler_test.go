@@ -12,13 +12,11 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"github.com/stretchr/testify/require"
+	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	schemev1 "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func modelConfig() *v1alpha3.ModelConfig {
@@ -29,10 +27,16 @@ func modelConfig() *v1alpha3.ModelConfig {
 }
 
 func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
+	embeddingModel := modelConfig()
+	embeddingModel.Name = "embedding-model"
+	embeddingModel.Spec.Model = "text-embedding-3-small"
+	embeddingModel.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
-			Kagent:                &v1alpha3.KagentHarness{},
+			Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
+				ModelConfigRef: corev1.LocalObjectReference{Name: embeddingModel.Name}, TTLDays: 7,
+			}},
 			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
 			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 			Substrate: v1alpha3.HarnessSubstratePolicy{
@@ -43,7 +47,7 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
 			Skills: []v1alpha3.AgentTemplateSkill{
 				{Name: "review", Source: v1alpha3.ArtifactSource{
 					OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -65,7 +69,7 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 			},
 		},
 	}
-	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+	spec, err := compiler(t, modelConfig(), embeddingModel).CompileAgentTemplate(context.Background(), harness, template)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +77,15 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.SessionDBURL != "sqlite:////data/sessions.db" {
+	// The driver is part of the assertion, not incidental. The Python runtime opens
+	// this URL with an asyncio engine and refuses a bare `sqlite:` one, so dropping
+	// the driver leaves an actor that never serves /readyz — which surfaces as a
+	// harness stuck in ResumeGoldenActor rather than as anything naming this line.
+	if config.SessionDBURL != "sqlite+aiosqlite:////data/sessions.db" {
 		t.Fatalf("session DB URL = %q", config.SessionDBURL)
+	}
+	if config.Memory == nil || config.Memory.TTLDays != 7 || config.Memory.Embedding == nil || config.Memory.Embedding.TLSInsecureSkipVerify == nil || !*config.Memory.Embedding.TLSInsecureSkipVerify {
+		t.Fatalf("compiled memory config = %#v", config.Memory)
 	}
 	plugins := config.AgentPlugins
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
@@ -93,45 +104,114 @@ func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
 	}}
 }
 
-func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
+func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
 	t.Helper()
-	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
-	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	reader := testReader{kube}
-	return v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+	collections := mockCollections(t, objects...)
+	ctx := krt.TestingDummyContext{}
+	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
 	})
 }
 
-type testReader struct{ client.Client }
+func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
+	t.Helper()
+	mock := krttest.NewMock(t, objects)
+	collections := v2translator.Collections{
+		AgentTemplates:   krttest.GetMockCollection[*v1alpha3.AgentTemplate](mock),
+		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
+		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
+		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
+	}
+	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
+	resolved := make([]any, 0, len(models.List()))
+	for _, model := range models.List() {
+		value, err := v2translator.ResolveModelConfig(krt.TestingDummyContext{}, collections, model)
+		require.NoError(t, err)
+		resolved = append(resolved, *value)
+	}
+	resolvedMock := krttest.NewMock(t, resolved)
+	collections.ResolvedModelConfigs = krttest.GetMockCollection[v2translator.ResolvedModelConfig](resolvedMock)
+	return collections
+}
 
-func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
-	return r.Client.Get(ctx, key, object.(client.Object))
+func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{Deployment: "chat", APIVersion: "2024-10-21", EndpointFrom: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
+			}},
+		},
+	}
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
+		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
+	}
+	collections := mockCollections(t, model, configMap)
+	resolved := collections.ResolvedModelConfigs.List()[0]
+	require.Equal(t, model.Spec, resolved.Config.Spec)
+	require.Equal(t, []v2translator.ModelConfigReference{{
+		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
+	}}, resolved.References)
 }
 
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
 
-func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
+func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
 	c.input = input
-	return &v2translator.Revision{AgentTemplateName: input.Root.Template.Name}, nil
+	return &v2translator.CompileResult{Revision: v2translator.Revision{AgentTemplateName: input.Root.Template.Name}}, nil
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
-	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
-	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(modelConfig()).Build()
+	collections := mockCollections(t, modelConfig())
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
 	}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
 
-	revision, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+	revision, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeCodex: adapter,
 	}).CompileAgentTemplate(context.Background(), harness, template)
 	require.NoError(t, err)
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)
+	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
+}
+
+func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
+	model := modelConfig()
+	model.Spec.APIKeySecret = "missing"
+	model.Spec.APIKeySecretKey = "key"
+	collections := mockCollections(t, model)
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}}},
+	}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}}}
+
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
+	require.Nil(t, adapter.input)
+}
+
+func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
+	adapter := &testHarnessCompiler{}
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		BYO: &v1alpha3.BYOHarness{}, AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+	}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
+
+	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeBYO: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
+	require.NoError(t, err)
+	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
 }
 
 func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
@@ -172,13 +252,13 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
+			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
 			SystemPrompt: "help",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"lookup"},
 			}}, {MCP: &v1alpha3.MCPToolBinding{
-				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: secondServer.Name},
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: secondServer.Name},
 				Tools:  []string{"search"},
 			}}},
 		},
@@ -212,6 +292,42 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	}
 }
 
+func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:                &v1alpha3.KagentHarness{},
+			AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+			Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.HarnessSubstratePolicy{
+				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+				SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
+			SystemPrompt: "help",
+		},
+	}
+	spec, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variable := range spec.Environment {
+		if variable.Name == "OTEL_TRACING_ENABLED" {
+			if variable.Value != "true" {
+				t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q", variable.Value, "true")
+			}
+			return
+		}
+	}
+	t.Fatalf("OTEL_TRACING_ENABLED missing from runtime revision environment: %+v", spec.Environment)
+}
+
 func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	selector := &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{MatchLabels: map[string]string{"runtime": "kagent"}}}
 	harness := &v1alpha3.Harness{
@@ -225,9 +341,9 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	child := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "researcher", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, Description: "template description", SystemPrompt: "research carefully",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: "search"}, Tools: []string{"lookup"},
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "search"}, Tools: []string{"lookup"},
 			}}},
 			Skills: []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{
 				OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -237,9 +353,9 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	root := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "coordinator", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "coordinate",
 			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
-				Name: "web_researcher", Description: "research the web", TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: child.Name},
+				Name: "web_researcher", Description: "research the web", TemplateRef: corev1.LocalObjectReference{Name: child.Name},
 			}}},
 		},
 	}
@@ -264,10 +380,10 @@ func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {
 		Kagent: &v1alpha3.KagentHarness{}, AllowedAgentTemplates: selector,
 	}}
 	binding := func(name, target string) v1alpha3.ToolBinding {
-		return v1alpha3.ToolBinding{Agent: &v1alpha3.AgentToolBinding{Name: name, Description: name, TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: target}}}
+		return v1alpha3.ToolBinding{Agent: &v1alpha3.AgentToolBinding{Name: name, Description: name, TemplateRef: corev1.LocalObjectReference{Name: target}}}
 	}
 	template := func(name string, tools ...v1alpha3.ToolBinding) *v1alpha3.AgentTemplate {
-		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}, Tools: tools}}
+		return &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test", Labels: map[string]string{"runtime": "kagent"}}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, Tools: tools}}
 	}
 
 	t.Run("shared DAG", func(t *testing.T) {

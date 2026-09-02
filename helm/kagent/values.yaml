@@ -112,7 +112,7 @@ database:
         # -- Bundled PostgreSQL image name
         name: postgres
         # -- Bundled PostgreSQL image tag
-        tag: "18.3-alpine"
+        tag: "18.6-alpine3.23"
         # -- Bundled PostgreSQL image pull policy
         pullPolicy: IfNotPresent
       # -- PersistentVolumeClaim size for demo PostgreSQL data
@@ -187,9 +187,6 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
-  a2aBaseUrl: ""
   # -- Public gRPC URL advertised by AgentInstance Agent Cards.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
@@ -324,16 +321,12 @@ controller:
   # Extra controller env (mapped to flags via SUBSTRATE_* env names).
   env: []
 
-  # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
-  # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
+  # Agent Substrate. Requires ate-system installed. kagent creates ate-api
+  # ActorTemplates and references an existing Kubernetes WorkerPool.
   substrate:
     enabled: false
     ateApiEndpoint: ""
     atenetRouterURL: ""
-    # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
-    ateApiServer:
-      namespace: ate-system
-      serviceAccount: ate-api-server
     defaultWorkerPool:
       namespace: ""
       name: ""
@@ -376,7 +369,7 @@ substrateWorkerPool:
   create: false
   name: kagent-default
   replicas: 1
-  ateomImage: ""
+  workerImage: ""
   # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
   # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
   sandboxClass: gvisor
@@ -442,22 +435,31 @@ ui:
     proxyReadTimeout: 1800s
     # -- proxy_send_timeout: max time between two successive writes to the upstream.
     proxySendTimeout: 1800s
-  env: {} # Additional configuration key-value pairs for the ui ConfigMap
-  # -- Additional request headers (beyond Authorization) the UI proxy will forward
-  # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,
-  # Transfer-Encoding, etc.) are silently dropped.
+  # -- Extra environment variables for the UI container: a list of `{name, value}`
+  # entries, spliced into its `env:` verbatim. An installed app extension's own
+  # settings go here, named `EXTENSION_*`; the container's startup script copies
+  # those onto `window.environmentVariables` for the browser to read.
+  env: []
+  # -- Identity headers the UI's nginx proxy will forward to the backend on
+  # /api/ and /a2a/. Names are case-insensitive. Authorization is always
+  # forwarded; the auth-proxy identity headers (x-auth-request-*, x-forwarded-user,
+  # x-forwarded-email, x-forwarded-groups, x-forwarded-preferred-username) are
+  # stripped from client requests unless listed here, so a caller cannot spoof
+  # an identity the backend trusts. Headers outside that set are forwarded by
+  # nginx as normal.
   additionalForwardedHeaders: []
   # Example:
   #   additionalForwardedHeaders:
   #     - X-Forwarded-User
   #     - X-Forwarded-Email
-  # Browser uses this path on the UI hostname (nginx proxies /api → controller). Required for client-side /api and WebSockets from outside the cluster.
+  # -- Base URL the browser calls the controller API on. Reaches the browser at
+  # runtime as the `apiBaseUrl` key of /config.json, which the app fetches on
+  # startup — it is deliberately not baked into the bundle, so changing it here
+  # takes effect on pod restart rather than requiring an image rebuild.
+  # The default is a path on the UI's own hostname, which nginx proxies to the
+  # controller; set an absolute URL only if the browser must reach the API
+  # somewhere other than the UI origin.
   publicBackendUrl: "/api"
-  # Next.js server HTTP base for A2A and other protocol-native routes. The
-  # kagent application API uses backendGrpcUrl instead.
-  backendInternalUrl: ""
-  # Next.js server-only native gRPC target. Include http:// for internal h2c.
-  backendGrpcUrl: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -466,11 +468,10 @@ ui:
   # @default -- (uses global securityContext)
   securityContext: {}
   #   readOnlyRootFilesystem: true
-  # -- EmptyDir volume sizes for Next.js UI workload (typically used when enabling readOnlyRootFilesystem)
+  # -- EmptyDir volume sizes for the UI workload (typically used when enabling readOnlyRootFilesystem)
   volumes:
-    # -- Size limit for Next.js build cache (.next/cache). Default 100Mi is sufficient for typical Next.js apps with moderate caching needs.
-    nextjsCache: 100Mi
-    # -- Size limit for temporary files (/tmp). Default 50Mi provides ample space for Next.js runtime temporary data.
+    # -- Size limit for temporary files (/tmp). Holds the nginx temp directories
+    # and the generated config.json. Default 50Mi is ample for both.
     tmp: 50Mi
   # capabilities:
   #   drop:
@@ -821,7 +822,11 @@ oauth2-proxy:
     # Skip authentication for kagent's branded login page, health checks, and static assets
     # This allows unauthenticated users to see the landing page and k8s probes to work
     skip-auth-route: "^/(health|login)$"
-    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
+    # The single-page app serves /login from index.html and loads its bundle from
+    # /assets/ with env-config.js ahead of it, so all three have to be reachable
+    # unauthenticated or the branded login page renders blank. The Next.js paths
+    # this replaces (_next/static, _next/image, login-bg) no longer exist.
+    skip-auth-regex: "^/(login|assets/|env-config\\.js|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
     # Use custom templates that redirect to kagent's branded /login page
     custom-templates-dir: "/templates"
 

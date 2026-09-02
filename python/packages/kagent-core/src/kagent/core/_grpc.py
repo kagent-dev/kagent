@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import grpc
-from kagent.api.v1alpha1 import memory_pb2_grpc, sessions_pb2_grpc
+from kagent.api.v1alpha1 import memory_pb2_grpc
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_MESSAGE_BYTES = 16 << 20
@@ -57,8 +57,6 @@ class AsyncControllerClient:
         self._owns_channel = channel is None
         self._channel = channel
         self._closed = False
-        self._session_service: sessions_pb2_grpc.SessionServiceStub | None = None
-        self._task_service: sessions_pb2_grpc.TaskStoreServiceStub | None = None
         self._memory_service: memory_pb2_grpc.MemoryServiceStub | None = None
 
     @property
@@ -75,18 +73,6 @@ class AsyncControllerClient:
             else:
                 self._channel = grpc.aio.secure_channel(self.target, self.credentials, options=options)
         return self._channel
-
-    @property
-    def session_service(self) -> sessions_pb2_grpc.SessionServiceStub:
-        if self._session_service is None:
-            self._session_service = sessions_pb2_grpc.SessionServiceStub(self.channel)
-        return self._session_service
-
-    @property
-    def task_service(self) -> sessions_pb2_grpc.TaskStoreServiceStub:
-        if self._task_service is None:
-            self._task_service = sessions_pb2_grpc.TaskStoreServiceStub(self.channel)
-        return self._task_service
 
     @property
     def memory_service(self) -> memory_pb2_grpc.MemoryServiceStub:

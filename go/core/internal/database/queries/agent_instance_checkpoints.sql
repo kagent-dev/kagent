@@ -75,7 +75,7 @@ WHERE namespace = sqlc.arg(namespace)
   AND source_instance_id = sqlc.arg(source_instance_id)
   AND user_id = sqlc.arg(user_id)
   AND state = 'READY'
-  AND id > sqlc.arg(after_id)
+  AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
 ORDER BY id
 LIMIT sqlc.arg(page_size);
 

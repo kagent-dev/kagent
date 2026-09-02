@@ -16,7 +16,9 @@ import (
 )
 
 const (
-	defaultGRPCTarget         = "localhost:8084"
+	// DefaultGRPCTarget is the implicit local target used when WithGRPCTarget is omitted.
+	// Callers can use it to limit local connection setup to the default endpoint.
+	DefaultGRPCTarget         = "localhost:8084"
 	defaultGRPCTimeout        = 30 * time.Second
 	defaultGRPCMaxMessageSize = 16 << 20
 )
@@ -42,7 +44,7 @@ type grpcTransport struct {
 
 func newGRPCTransport() grpcTransport {
 	return grpcTransport{
-		target:          defaultGRPCTarget,
+		target:          DefaultGRPCTarget,
 		timeout:         defaultGRPCTimeout,
 		maxMessageBytes: defaultGRPCMaxMessageSize,
 	}

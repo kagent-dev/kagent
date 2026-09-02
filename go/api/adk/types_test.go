@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
 	want := []StdioMcpServerConfig{{Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
-	wantPlugins := &AgentPluginConfig{Skills: []StandaloneSkill{{
+	wantPlugins := &agentplugin.Resources{Skills: []agentplugin.Skill{{
 		Name: "review",
-		Source: AgentPluginSource{Git: &AgentPluginGit{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{
 			URL: "https://example.com/plugin.git", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		}},
 	}}}
@@ -980,6 +982,27 @@ func TestModelToEmbeddingConfig_APIKeyPassthrough(t *testing.T) {
 				t.Errorf("APIKeyPassthrough = %v, want %v", got.APIKeyPassthrough, tt.want)
 			}
 		})
+	}
+}
+
+func TestModelToEmbeddingConfig_TLS(t *testing.T) {
+	insecure, caPath, disableSystem := true, "/etc/ca.crt", true
+	want := BaseModel{
+		TLSInsecureSkipVerify: &insecure,
+		TLSCACertPath:         &caPath,
+		TLSDisableSystemCAs:   &disableSystem,
+	}
+	got := ModelToEmbeddingConfig(&OpenAI{BaseModel: want})
+	if got.TLSInsecureSkipVerify != want.TLSInsecureSkipVerify || got.TLSCACertPath != want.TLSCACertPath || got.TLSDisableSystemCAs != want.TLSDisableSystemCAs {
+		t.Fatalf("TLS config = %#v, want %#v", got, want)
+	}
+
+	var decoded EmbeddingConfig
+	if err := json.Unmarshal([]byte(`{"provider":"openai","model":"embed","tls_insecure_skip_verify":true,"tls_ca_cert_path":"/etc/ca.crt","tls_disable_system_cas":true}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.TLSInsecureSkipVerify == nil || !*decoded.TLSInsecureSkipVerify || decoded.TLSCACertPath == nil || *decoded.TLSCACertPath != caPath || decoded.TLSDisableSystemCAs == nil || !*decoded.TLSDisableSystemCAs {
+		t.Fatalf("unmarshaled TLS config = %#v", decoded)
 	}
 }
 

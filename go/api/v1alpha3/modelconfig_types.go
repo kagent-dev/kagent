@@ -24,7 +24,8 @@ import (
 )
 
 const (
-	ModelConfigConditionTypeAccepted = "Accepted"
+	ModelConfigConditionTypeAccepted     = "Accepted"
+	ModelConfigConditionTypeResolvedRefs = "ResolvedRefs"
 )
 
 // ModelProvider represents the model provider type
