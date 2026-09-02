@@ -332,6 +332,12 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
+
+	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolStreamableHttp
+	input.Root.MCPTools[0].Binding.RequireApproval = true
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "approval is not supported yet") {
+		t.Fatalf("approval-required MCP binding Compile() error = %v", err)
+	}
 }
 
 func TestCompileLocalSharedAgent(t *testing.T) {

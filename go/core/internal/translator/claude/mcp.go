@@ -39,6 +39,9 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
+		if tool.Binding.RequireApproval {
+			return mcpCompilation{}, v2translator.NewValidationError("Claude RemoteMCPServer %q approval is not supported yet", server.Name)
+		}
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, v2translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)

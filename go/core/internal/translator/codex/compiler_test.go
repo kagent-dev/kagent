@@ -113,7 +113,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test", UID: "mcp"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
 	}}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}}, Server: server}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{Tools: []string{"read"}, RequireApproval: true}, Server: server}}
 	childModel := model
 	childModel.Model = "gpt-child"
 	input.Root.Shared = []v2translator.AgentInputBinding{{Name: "reviewer", Description: "Reviews", Agent: &v2translator.AgentInput{
@@ -134,7 +134,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Agents["reviewer"].Model != "gpt-child" || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
+	if cfg.Agents["reviewer"].Model != "gpt-child" || !cfg.MCPServers["tools"].RequireApproval || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
 		t.Fatalf("config = %#v", cfg)
 	}
 	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
@@ -164,7 +164,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 			TerminateOnClose: &terminateOnClose,
 		},
 	}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Server: server}}
+	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
 
 	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	if err := json.Unmarshal(compilation.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := cfg.MCPServers[server.Name]; !exists {
+	if configured, exists := cfg.MCPServers[server.Name]; !exists || !configured.RequireApproval || len(configured.EnabledTools) != 0 {
 		t.Fatalf("config omits MCP server after compatibility warning: %#v", cfg.MCPServers)
 	}
 
