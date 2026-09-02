@@ -70,6 +70,25 @@ test("prompt libraries: the edit form opens from the list and from the library, 
     await expect(fragmentValue(page, 2)).toHaveValue("Edited by the suite.");
   });
 
+  await test.step("4b. and asks on every other way out, not just Cancel", async () => {
+    /*
+     * The header link and the sidebar, which is where a guard on the Cancel button
+     * alone fails: it teaches a reader the work is held safe and then the two more
+     * obvious exits throw it away without a word. Both are ordinary links, so what
+     * is being asserted is that leaving is blocked rather than that a button asks.
+     */
+    for (const leave of [
+      page.getByRole("link", { name: "Back to library" }),
+      page.getByRole("link", { name: "Models" }),
+    ]) {
+      await leave.click();
+      await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
+      await page.getByRole("button", { name: "Keep editing" }).click();
+      await expect(page).toHaveURL(/\/edit$/);
+      await expect(fragmentValue(page, 2)).toHaveValue("Edited by the suite.");
+    }
+  });
+
   await test.step("5. a fragment can be added alongside the edit", async () => {
     await page.getByTestId("fragment-add").click();
     await fragmentKey(page, 3).fill("handoff");
@@ -82,6 +101,9 @@ test("prompt libraries: the edit form opens from the list and from the library, 
   });
 
   await test.step("6. saving lands on the library, showing what was saved", async () => {
+    // And is not itself treated as leaving with unsaved work: the draft stops being
+    // unsaved before the caller navigates, so a save is never asked to confirm
+    // itself. This URL assertion is what would fail if it were.
     await page.getByTestId("prompt-submit").click();
     await expect(page).toHaveURL(/\/prompts\/kagent\/shared-fragments$/, {
       timeout: 30_000,
@@ -102,9 +124,12 @@ test("prompt libraries: the edit form opens from the list and from the library, 
     await expect(page.getByTestId("fragment-row")).toHaveCount(4);
     await expect(fragmentKey(page, 1)).toHaveValue("handoff");
 
-    // And Cancel with nothing typed goes straight back, with nothing to confirm.
+    // And Cancel with nothing typed goes straight back, with nothing to confirm:
+    // a question over a form nobody has touched is a question that teaches readers
+    // to click through the next one.
     await page.getByTestId("prompt-cancel").click();
     await expect(page).toHaveURL(/\/prompts\/kagent\/shared-fragments$/);
+    await expect(page.getByTestId("prompt-discard-body")).toHaveCount(0);
   });
 
   await test.step("8. the list behind it was re-read, not left stale", async () => {
@@ -187,6 +212,16 @@ test("prompt libraries: the create form is the same form, and refuses the same t
     await expect(page.getByTestId("prompt-form-errors")).toContainText(
       "A library name is required",
     );
+  });
+
+  await test.step("leaving a half-typed new library asks first as well", async () => {
+    // The baseline is the empty draft rather than a loaded resource, so a library
+    // being written for the first time counts as work to lose too.
+    await page.getByTestId("prompt-name").fill("half-typed");
+    await page.getByTestId("prompt-cancel").click();
+    await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
+    await page.getByRole("button", { name: "Keep editing" }).click();
+    await expect(page).toHaveURL(/\/prompts\/new$/);
   });
 
   await test.step("a filled-in library is created and appears on the list", async () => {

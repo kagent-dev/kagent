@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Form, Input, Modal, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link } from "react-router-dom";
+import { Link, useBlocker } from "react-router-dom";
 import type { CreatePromptTemplateRequest } from "@/api";
 import { RFC1123_SUBDOMAIN } from "@/components/common/resourceName";
 import { SubmitError } from "@/components/common/SubmitError";
@@ -62,7 +62,6 @@ export function PromptForm({
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
-  const [isConfirmingDiscard, setConfirmingDiscard] = useState(false);
 
   const issues = useMemo(
     () => promptDraftIssues(draft, { identityLocked }),
@@ -74,10 +73,41 @@ export function PromptForm({
    * types a character and deletes it again has not changed anything, and being asked
    * to confirm a discard of nothing teaches them to click through the question. Row
    * ids are left out — they are the editor's own bookkeeping, not the library.
+   *
+   * The baseline is captured at mount rather than read from the `initial` prop, so a
+   * created library counts as work too: its baseline is the empty draft, and a typed
+   * name is something to lose.
    */
   const contents = (of: PromptDraft) =>
-    JSON.stringify(of.rows.map((row) => [row.key, row.value]));
-  const isDirty = initial !== undefined && contents(draft) !== contents(initial);
+    JSON.stringify([of.namespace, of.name, of.rows.map((row) => [row.key, row.value])]);
+  const baseline = useRef(contents(draft));
+  const saved = useRef(false);
+  const isDirty = !saved.current && contents(draft) !== baseline.current;
+
+  /*
+   * Leaving with a draft asks first — every way out, not just this form's Cancel.
+   *
+   * A confirmation on one button is worse than none: it teaches a reader that the
+   * work is guarded, and then the header link, the sidebar and the back button throw
+   * it away without a word. Blocking the navigation catches all of them, Cancel
+   * included, which is why Cancel below is an ordinary link or callback with no
+   * question of its own.
+   */
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      isDirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+
+  /*
+   * And the exits the router cannot see: a reload, a closed tab, a typed address. The
+   * browser shows its own wording here — a page may ask, not choose the words.
+   */
+  useEffect(() => {
+    if (!isDirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isDirty]);
 
   const update = (patch: Partial<PromptDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -92,20 +122,19 @@ export function PromptForm({
 
     setSaving(true);
     try {
+      // Marked before the call, because the caller navigates as part of a successful
+      // save: a draft still counted as unsaved at that moment would have the guard
+      // above stop the save's own navigation and ask whether to discard it.
+      saved.current = true;
       await onSubmit(promptPayloadFrom(draft));
     } catch (error) {
+      // Nothing was written, so the work on screen is unsaved again and worth
+      // guarding — the reader is still on the form with it.
+      saved.current = false;
       setFailure(error);
     } finally {
       setSaving(false);
     }
-  };
-
-  const cancel = () => {
-    if (isDirty) {
-      setConfirmingDiscard(true);
-      return;
-    }
-    onCancel?.();
   };
 
   /*
@@ -234,7 +263,7 @@ export function PromptForm({
           {submitLabel}
         </Button>
         {onCancel ? (
-          <Button onClick={cancel} data-testid="prompt-cancel">
+          <Button onClick={onCancel} data-testid="prompt-cancel">
             Cancel
           </Button>
         ) : (
@@ -249,20 +278,19 @@ export function PromptForm({
         read context, and the warning they log is a failure in the browser suite.
       */}
       <Modal
-        open={isConfirmingDiscard}
+        open={blocker.state === "blocked"}
         title="Discard your changes?"
         okText="Discard"
         okButtonProps={{ danger: true }}
         cancelText="Keep editing"
-        onOk={() => {
-          setConfirmingDiscard(false);
-          onCancel?.();
-        }}
-        onCancel={() => setConfirmingDiscard(false)}
+        // `proceed` resumes the navigation that was blocked, so Discard leaves for
+        // wherever the reader was going rather than for one place this form chose.
+        onOk={() => blocker.proceed?.()}
+        onCancel={() => blocker.reset?.()}
         data-testid="prompt-discard-modal"
       >
         <Paragraph css={{ margin: 0 }} data-testid="prompt-discard-body">
-          This library has edits that have not been saved. Leaving throws them away; the
+          This form has edits that have not been saved. Leaving throws them away; the
           library on the cluster is unchanged either way.
         </Paragraph>
       </Modal>
