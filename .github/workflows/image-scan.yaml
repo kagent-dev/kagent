@@ -36,8 +36,8 @@ jobs:
           - build_target: ui
             image_name: ui
             tag_suffix: ""
-          - build_target: app
-            image_name: app
+          - build_target: kagent-adk
+            image_name: kagent-adk
             tag_suffix: ""
           - build_target: golang-adk
             image_name: golang-adk
