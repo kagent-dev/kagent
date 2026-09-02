@@ -9,19 +9,10 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"github.com/stretchr/testify/require"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 )
-
-type reader struct{}
-
-func (reader) Get(context.Context, types.NamespacedName, runtime.Object) error { return nil }
-
-func (reader) GetResolvedModelConfig(context.Context, types.NamespacedName) (*v2translator.ResolvedModelConfig, error) {
-	return nil, nil
-}
 
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
@@ -36,7 +27,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 		Description: "custom A2A agent", SystemPrompt: "be helpful",
 	}}
 
-	revision, err := NewCompiler(reader{}).Compile(context.Background(), &v2translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
 		Harness: harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
 	require.NoError(t, err)

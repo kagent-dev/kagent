@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -29,10 +30,15 @@ type provenanceEntry struct {
 }
 
 // Builder assembles resolved inputs into an ADK agent configuration.
-type Builder struct{ kube v2translator.Reader }
+type Builder struct {
+	ctx         krt.HandlerContext
+	collections v2translator.Collections
+}
 
 // NewBuilder constructs an ADK configuration builder.
-func NewBuilder(kube v2translator.Reader) *Builder { return &Builder{kube: kube} }
+func NewBuilder(ctx krt.HandlerContext, collections v2translator.Collections) *Builder {
+	return &Builder{ctx: ctx, collections: collections}
+}
 
 type Result struct {
 	Config      *adk.AgentConfig
@@ -52,9 +58,9 @@ type ModelResult struct {
 
 // BuildModel translates a standalone ModelConfig without building an agent.
 func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*ModelResult, error) {
-	resolved, err := c.kube.GetResolvedModelConfig(ctx, types.NamespacedName{Namespace: namespace, Name: name})
-	if err != nil {
-		return nil, err
+	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
+	if resolved == nil {
+		return nil, fmt.Errorf("model config %q not found", name)
 	}
 	if failures := resolved.SemanticFailures; len(failures) > 0 {
 		return nil, v2translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
@@ -170,10 +176,11 @@ func (c *Builder) ResolveEnvironment(ctx context.Context, namespace string, envi
 			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
 		}
 		ref := variable.ValueFrom.SecretKeyRef
-		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
-			return nil, err
+		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
+		if fetched == nil {
+			return nil, fmt.Errorf("secret %q not found", ref.Name)
 		}
+		secret := *fetched
 		value, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
@@ -204,10 +211,11 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, configMap); err != nil {
-			return nil, err
+		fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: name}))
+		if fetched == nil {
+			return nil, fmt.Errorf("config map %q not found", name)
 		}
+		configMap := *fetched
 		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
 	for _, template := range templates {
@@ -217,10 +225,11 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			}
 			switch binding.MCP.Server.Kind {
 			case "RemoteMCPServer":
-				server := &v1alpha3.RemoteMCPServer{}
-				if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
-					return nil, err
+				fetched := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}))
+				if fetched == nil {
+					return nil, fmt.Errorf("remote MCP server %q not found", binding.MCP.Server.Name)
 				}
+				server := *fetched
 				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
 			}
 		}
@@ -238,10 +247,11 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			continue
 		}
 		seenSecrets[identity] = struct{}{}
-		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}, secret); err != nil {
-			return nil, err
+		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}))
+		if fetched == nil {
+			return nil, fmt.Errorf("secret %q not found", ref.Name)
 		}
+		secret := *fetched
 		value, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
@@ -295,13 +305,14 @@ func (c *Builder) resolveValueRef(ctx context.Context, namespace string, ref v1a
 	if ref.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
 		return "", "", fmt.Errorf("unsupported value source type %q", ref.ValueFrom.Type)
 	}
-	configMap := &corev1.ConfigMap{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}, configMap); err != nil {
-		return "", "", err
+	fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}))
+	if fetched == nil {
+		return "", "", fmt.Errorf("config map %q not found", ref.ValueFrom.Name)
 	}
+	configMap := *fetched
 	value, found := configMap.Data[ref.ValueFrom.Key]
 	if !found {
-		return "", "", fmt.Errorf("ConfigMap %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
+		return "", "", fmt.Errorf("config map %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
 	}
 	return ref.Name, value, nil
 }

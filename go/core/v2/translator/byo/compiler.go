@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"github.com/kagent-dev/kagent/go/core/v2/translator/adkconfig"
+	"istio.io/istio/pkg/kube/krt"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
@@ -18,8 +19,8 @@ type Compiler struct{ config *adkconfig.Builder }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(kube v2translator.Reader) *Compiler {
-	return &Compiler{config: adkconfig.NewBuilder(kube)}
+func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
+	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {

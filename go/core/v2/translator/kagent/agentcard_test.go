@@ -7,11 +7,12 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
-	_, err := NewCompiler(nil).Compile(context.Background(), &v2translator.HarnessInput{Root: &v2translator.AgentInput{
+	_, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{Root: &v2translator.AgentInput{
 		Template: &v1alpha3.AgentTemplate{},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "kagent ModelConfig is required") {

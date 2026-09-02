@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -157,11 +158,12 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 		case ref.ValueFrom == nil:
 			headers[ref.Name] = ref.Value
 		case ref.ValueFrom.Type == v1alpha3.ConfigMapValueSource:
-			configMap := &corev1.ConfigMap{}
 			key := types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}
-			if err := c.kube.Get(ctx, key, configMap); err != nil {
-				return nil, nil, err
+			fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(key))
+			if fetched == nil {
+				return nil, nil, fmt.Errorf("ConfigMap %q not found", ref.ValueFrom.Name)
 			}
+			configMap := *fetched
 			value, exists := configMap.Data[ref.ValueFrom.Key]
 			if !exists {
 				return nil, nil, fmt.Errorf("ConfigMap %q does not contain key %q", configMap.Name, ref.ValueFrom.Key)

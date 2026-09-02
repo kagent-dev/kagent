@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -208,7 +209,7 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 // resolveFoundryEndpoint returns the Foundry endpoint, preferring the inline
 // value and otherwise resolving it from the referenced ConfigMap (endpointFrom),
 // which lets Azure Service Operator own the account endpoint.
-func (c *Builder) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
+func (c *Builder) resolveFoundryEndpoint(_ context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
 	if cfg.Endpoint != "" {
 		return cfg.Endpoint, nil
 	}
@@ -216,10 +217,11 @@ func (c *Builder) resolveFoundryEndpoint(ctx context.Context, namespace string, 
 		return "", nil
 	}
 	ref := cfg.EndpointFrom
-	cm := &corev1.ConfigMap{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, cm); err != nil {
-		return "", fmt.Errorf("failed to get Foundry endpoint config map %s: %w", ref.Name, err)
+	fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
+	if fetched == nil {
+		return "", fmt.Errorf("failed to get Foundry endpoint config map %s: not found", ref.Name)
 	}
+	cm := *fetched
 	value, ok := cm.Data[ref.Key]
 	if !ok {
 		if ref.Optional != nil && *ref.Optional {
