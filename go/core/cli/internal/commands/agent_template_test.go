@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
@@ -175,7 +176,6 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		assert.NotNil(t, client.createRequest)
 		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
 	})
-
 }
 
 func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
@@ -183,7 +183,7 @@ func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
 	template := &apiv1alpha3.AgentTemplate{
 		TypeMeta:   metav1.TypeMeta{APIVersion: apiv1alpha3.GroupVersion.String(), Kind: agentTemplateKind},
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "researcher"},
-		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: apiv1alpha3.AgentTemplateLocalReference{Name: "default"}},
+		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default"}},
 	}
 	resource, err := structuredobject.FromGo(template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
 	require.NoError(t, err)
