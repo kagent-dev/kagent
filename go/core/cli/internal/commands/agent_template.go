@@ -46,12 +46,12 @@ type AgentTemplateManifestCfg struct {
 	File         string
 }
 
-type agentTemplateLifecycleClient interface {
+type lifecycleClient interface {
 	CreateAgentTemplate(context.Context, *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error)
 	UpdateAgentTemplate(context.Context, *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error)
 }
 
-type agentTemplateManifestOperation func(context.Context, agentTemplateLifecycleClient, *apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, clioutput.Format, io.Writer) error
+type agentTemplateManifestOperation func(context.Context, lifecycleClient, *apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, clioutput.Format, io.Writer) error
 
 func runAgentTemplateManifest(
 	ctx context.Context,
@@ -105,7 +105,7 @@ func readAgentTemplateManifest(filename, namespace string) (*apiv1alpha1.Resourc
 
 func applyAgentTemplate(
 	ctx context.Context,
-	client agentTemplateLifecycleClient,
+	client lifecycleClient,
 	ref *apiv1alpha1.ResourceReference,
 	resource *apiv1alpha1.StructuredObject,
 	format clioutput.Format,
