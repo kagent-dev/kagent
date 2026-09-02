@@ -1,42 +1,32 @@
 package translator_test
 
 import (
-	"slices"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/core/v2/translator"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestOtelEnvFromProcess(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "collector:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
-	t.Setenv("KAGENT_NOT_FORWARDED", "value")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=secret")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.name=controller")
+	t.Setenv("OTEL_SERVICE_NAME", "controller")
 
 	got := translator.OtelEnvFromProcess()
-
-	values := map[string]string{}
-	for _, variable := range got {
-		if !strings.HasPrefix(variable.Name, "OTEL_") {
-			t.Errorf("forwarded non-OTEL variable %q", variable.Name)
-		}
-		values[variable.Name] = variable.Value
+	want := []corev1.EnvVar{
+		{Name: "OTEL_TRACING_ENABLED", Value: "true"},
+		{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "collector:4317"},
+		{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: "http://collector:4317"},
+		{Name: "OTEL_EXPORTER_OTLP_PROTOCOL", Value: "http/protobuf"},
+		{Name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", Value: "grpc"},
 	}
-	if values["OTEL_TRACING_ENABLED"] != "true" {
-		t.Errorf("OTEL_TRACING_ENABLED = %q, want %q", values["OTEL_TRACING_ENABLED"], "true")
-	}
-	if values["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] != "http://collector:4317" {
-		t.Errorf("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = %q", values["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"])
-	}
-	if _, ok := values["KAGENT_NOT_FORWARDED"]; ok {
-		t.Error("forwarded a variable outside the OTEL_ prefix")
-	}
-
-	names := make([]string, 0, len(got))
-	for _, variable := range got {
-		names = append(names, variable.Name)
-	}
-	if !slices.IsSorted(names) {
-		t.Errorf("variables are not sorted by name: %v", names)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("OtelEnvFromProcess() = %#v, want %#v", got, want)
 	}
 }

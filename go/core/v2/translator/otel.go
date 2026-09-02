@@ -2,29 +2,30 @@ package translator
 
 import (
 	"os"
-	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 )
 
-// OtelEnvFromProcess returns the controller's own OTEL_ variables so harness
-// compilers can forward them to the agent runtime, which reads its telemetry
-// configuration from its process environment.
+// These are the tracing settings read by the runtime; trace-specific values
+// take precedence over their generic OTLP counterparts.
+// Keep this list explicit: headers may contain credentials and resource
+// attributes belong to the controller rather than its agent runtimes.
+var otelEnvNames = []string{
+	"OTEL_TRACING_ENABLED",
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_PROTOCOL",
+	"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+}
+
+// OtelEnvFromProcess returns the controller's supported tracing configuration
+// for the agent runtime.
 func OtelEnvFromProcess() []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-	for _, envVar := range os.Environ() {
-		if !strings.HasPrefix(envVar, "OTEL_") {
-			continue
+	envVars := make([]corev1.EnvVar, 0, len(otelEnvNames))
+	for _, name := range otelEnvNames {
+		if value, found := os.LookupEnv(name); found {
+			envVars = append(envVars, corev1.EnvVar{Name: name, Value: value})
 		}
-		name, value, found := strings.Cut(envVar, "=")
-		if !found {
-			continue
-		}
-		envVars = append(envVars, corev1.EnvVar{Name: name, Value: value})
 	}
-	slices.SortFunc(envVars, func(a, b corev1.EnvVar) int {
-		return strings.Compare(a.Name, b.Name)
-	})
 	return envVars
 }
