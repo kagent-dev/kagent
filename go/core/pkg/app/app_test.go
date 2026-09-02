@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -166,4 +167,41 @@ func TestSetupLoggerRejectsBadLevel(t *testing.T) {
 	if err := SetupLogger(); err == nil {
 		t.Fatal("SetupLogger accepted an unparseable ZAP_LOG_LEVEL")
 	}
+}
+
+func TestMergePolicies(t *testing.T) {
+	defaults := grpcserver.MethodPolicies{"/core.Svc/Get": auth.AccessRead}
+
+	t.Run("adds a consumer method", func(t *testing.T) {
+		merged, err := mergePolicies(defaults, map[string]auth.AccessMode{
+			"/consumer.Svc/Public": auth.AccessPublic,
+		})
+		if err != nil {
+			t.Fatalf("mergePolicies: %v", err)
+		}
+		if got := merged["/consumer.Svc/Public"]; got != auth.AccessPublic {
+			t.Errorf("consumer method = %q, want %q", got, auth.AccessPublic)
+		}
+		if got := merged["/core.Svc/Get"]; got != auth.AccessRead {
+			t.Errorf("core method = %q, want %q", got, auth.AccessRead)
+		}
+	})
+
+	// The security property: a consumer must not be able to reclassify a core
+	// method, or Options becomes a way to make an authenticated method public.
+	t.Run("refuses to reclassify a core method", func(t *testing.T) {
+		_, err := mergePolicies(defaults, map[string]auth.AccessMode{
+			"/core.Svc/Get": auth.AccessPublic,
+		})
+		if err == nil {
+			t.Fatal("mergePolicies allowed a core method to be overridden")
+		}
+	})
+
+	t.Run("nil extra leaves defaults intact", func(t *testing.T) {
+		merged, err := mergePolicies(defaults, nil)
+		if err != nil || len(merged) != len(defaults) {
+			t.Fatalf("mergePolicies(nil) = %v, %v", merged, err)
+		}
+	})
 }

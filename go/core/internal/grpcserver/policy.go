@@ -3,17 +3,20 @@ package grpcserver
 import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-type AccessMode string
+// Aliases, so a library consumer can name these without importing an internal
+// package and every existing reference here keeps working unchanged.
+type AccessMode = auth.AccessMode
 
 const (
-	AccessPublic AccessMode = "public"
-	AccessRead   AccessMode = "read"
-	AccessCreate AccessMode = "create"
-	AccessUpdate AccessMode = "update"
-	AccessDelete AccessMode = "delete"
+	AccessPublic = auth.AccessPublic
+	AccessRead   = auth.AccessRead
+	AccessCreate = auth.AccessCreate
+	AccessUpdate = auth.AccessUpdate
+	AccessDelete = auth.AccessDelete
 )
 
 type MethodPolicies map[string]AccessMode

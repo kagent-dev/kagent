@@ -12,6 +12,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
@@ -44,6 +45,7 @@ import (
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -93,6 +95,21 @@ type Options struct {
 	// given. A library consumer that owns tables uses this rather than migrating
 	// separately, so that one run leaves the database wholly at one version.
 	ExtraMigrations []migrations.Source
+	// GRPCServices registers additional services on core's gRPC server, so a
+	// consumer's API shares core's transport, authenticator and interceptors
+	// instead of standing up a second server on another port.
+	//
+	// Every method it registers needs an entry in MethodPolicies: the
+	// authentication interceptor refuses a method it has no policy for, so a
+	// service registered without one is closed rather than open.
+	GRPCServices func(grpc.ServiceRegistrar)
+	// MethodPolicies declares access for the methods GRPCServices registers,
+	// keyed by full method name.
+	//
+	// Run fails if a key names one of core's own methods. A consumer describes
+	// its own surface here; letting it reclassify core's would turn a config
+	// field into a way to make an authenticated method public.
+	MethodPolicies map[string]auth.AccessMode
 }
 
 // resolve substitutes core's defaults for whichever components the caller left
@@ -253,7 +270,13 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	policies, err := mergePolicies(grpcserver.DefaultMethodPolicies(), opts.MethodPolicies)
+	if err != nil {
+		return err
+	}
 	server, err := grpcserver.New(grpcserver.Config{
+		MethodPolicies:        policies,
+		RegisterServices:      opts.GRPCServices,
 		BindAddress:           env("GRPC_BIND_ADDRESS", ":8084"),
 		Reflection:            envBool("GRPC_REFLECTION"),
 		Authenticator:         authenticator,
@@ -313,6 +336,23 @@ func Run(ctx context.Context, opts Options) error {
 		return nil
 	})
 	return group.Wait()
+}
+
+// mergePolicies overlays a consumer's method policies onto core's defaults.
+//
+// A collision is an error rather than an override: core's methods keep the
+// access core assigned them, so this cannot be used to make an authenticated
+// method public.
+func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.AccessMode) (grpcserver.MethodPolicies, error) {
+	merged := make(grpcserver.MethodPolicies, len(defaults)+len(extra))
+	maps.Copy(merged, defaults)
+	for method, access := range extra {
+		if _, taken := defaults[method]; taken {
+			return nil, fmt.Errorf("method policy for %s is core's to set", method)
+		}
+		merged[method] = access
+	}
+	return merged, nil
 }
 
 // chain wraps handler in middleware, outermost first: chain(h, {a, b}) calls a,
