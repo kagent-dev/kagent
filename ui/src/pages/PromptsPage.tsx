@@ -126,7 +126,7 @@ export function PromptsPage() {
         render: (_, row) => (
           <Space size={0}>
             <Link
-              to={buildPath(paths.promptDetail, {
+              to={buildPath(paths.promptEdit, {
                 namespace: row.namespace,
                 name: row.name,
               })}

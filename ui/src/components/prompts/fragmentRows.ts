@@ -58,3 +58,39 @@ export function findDuplicateKey(rows: FragmentRow[]): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * The rows that edit an existing library's fragments.
+ *
+ * Sorted by key, because `data` is a map: it arrives in whatever order the API server
+ * serialised it, and an editor whose rows reshuffled between reads would move a
+ * fragment out from under the cursor. The detail page reads its fragments in the same
+ * order for the same reason.
+ *
+ * Never empty — a library the API hands back with no fragments still gets somewhere
+ * to type, which is the rule the editor itself follows when the last row is removed.
+ */
+export function rowsFromData(data: Record<string, string>): FragmentRow[] {
+  const rows = Object.entries(data)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => ({ ...newFragmentRow(), key, value }));
+  return rows.length > 0 ? rows : [newFragmentRow()];
+}
+
+/**
+ * What stops a set of rows being saved, in the words a form shows.
+ *
+ * Shared by the create form and the detail page's edit mode because the controller
+ * applies one rule to both: `UpdatePromptTemplate` rejects an empty map — "at least
+ * one template key is required" — exactly as `CreatePromptTemplate` does. Two copies
+ * of that rule are two things to keep in step with it.
+ */
+export function fragmentIssues(rows: FragmentRow[]): string[] {
+  const issues: string[] = [];
+  if (Object.keys(fragmentsToData(rows)).length === 0) {
+    issues.push("Add at least one fragment key.");
+  }
+  const duplicate = findDuplicateKey(rows);
+  if (duplicate) issues.push(`Two fragments share the key "${duplicate}".`);
+  return issues;
+}

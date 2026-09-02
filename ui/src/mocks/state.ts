@@ -265,7 +265,11 @@ const promptSummary = (detail: PromptTemplateDetail): PromptTemplateSummary => (
   namespace: detail.namespace,
   name: detail.name,
   keyCount: Object.keys(detail.data).length,
-  keys: Object.keys(detail.data),
+  // Sorted, because `summarize` in the prompt template service sorts before
+  // answering. Left in insertion order, a library edited through the app came back
+  // with its new key last while the same library re-read from a cluster came back
+  // with it in place — a difference in the fixture, not in the app.
+  keys: Object.keys(detail.data).sort((left, right) => left.localeCompare(right)),
 });
 
 export function savePrompt(detail: PromptTemplateDetail): PromptTemplateDetail {
