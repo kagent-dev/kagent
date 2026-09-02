@@ -561,6 +561,9 @@ export function ModelForm({
                     />
                   </Space>
                 }
+                /* Required to create and not to edit, which is what the label says
+                   too: an edit that leaves this blank keeps the key already stored. */
+                required={!isEdit}
                 validateStatus={
                   submitted &&
                   !isEdit &&
