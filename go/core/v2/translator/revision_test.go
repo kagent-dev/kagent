@@ -25,7 +25,7 @@ func TestRevisionDigestIncludesProvenance(t *testing.T) {
 }
 
 func TestCompilationWarningsDoNotAffectRevisionDigest(t *testing.T) {
-	compilation := &Compilation{Revision: Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude"}}
+	compilation := &CompileResult{Revision: Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "claude"}}
 	first, err := compilation.Digest()
 	if err != nil {
 		t.Fatal(err)

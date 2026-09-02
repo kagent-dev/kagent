@@ -35,7 +35,7 @@ const (
 // HarnessCompiler converts resolved, harness-neutral inputs into one runtime
 // revision and its user-facing diagnostics.
 type HarnessCompiler interface {
-	Compile(context.Context, *HarnessInput) (*Compilation, error)
+	Compile(context.Context, *HarnessInput) (*CompileResult, error)
 }
 
 // ResolvedTree is the validated AgentTemplate topology for one Harness.
@@ -93,7 +93,7 @@ func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompile
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
 // revision and user-facing diagnostics. Nothing below this boundary needs to
 // read the public API objects.
-func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Compilation, error) {
+func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")

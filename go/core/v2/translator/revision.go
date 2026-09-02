@@ -24,10 +24,10 @@ func (id RevisionID) Short() string { return hex.EncodeToString(id[:shortRevisio
 // IsZero reports whether compilation has not produced an identity.
 func (id RevisionID) IsZero() bool { return id == RevisionID{} }
 
-// Compilation contains one immutable runtime revision and the non-blocking
+// CompileResult contains one immutable runtime revision and the non-blocking
 // diagnostics produced while compiling it. Diagnostics are deliberately kept
 // outside Revision because they do not describe runtime behavior.
-type Compilation struct {
+type CompileResult struct {
 	Revision
 	Warnings []string
 }

@@ -45,7 +45,7 @@ func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *
 	return &Compiler{ctx: ctx, collections: collections}
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
+func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
 		return nil, fmt.Errorf("codex compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
@@ -115,7 +115,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	template, harness := input.Root.Template, input.Harness
-	return &v2translator.Compilation{
+	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
 			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,

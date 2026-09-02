@@ -31,7 +31,7 @@ func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *
 	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Compilation, error) {
+func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
 	if err := requireModels(input.Root); err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}
 	slices.Sort(compiled.Egress)
-	return &v2translator.Compilation{Revision: v2translator.Revision{
+	return &v2translator.CompileResult{Revision: v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
