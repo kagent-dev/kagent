@@ -55,7 +55,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
 	}
-	if access == AccessPublic {
+	if access == auth.AccessPublic {
 		return ctx, nil
 	}
 	if authenticator == nil {
@@ -89,7 +89,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	}
 	// READ_WRITE also allows A2A send and cancel; anything else is read-only.
 	readOnly := instanceShare.Permission != agentInstanceShareReadWrite
-	if readOnly && access != AccessPublic && access != AccessRead {
+	if readOnly && access != auth.AccessPublic && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
 	return auth.ShareContextTo(authenticatedContext, &auth.ShareContext{
