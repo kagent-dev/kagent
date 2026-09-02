@@ -25,7 +25,7 @@ type HttpMcpServerConfig struct {
 	Params          StreamableHTTPConnectionParams `json:"params"`
 	Tools           []string                       `json:"tools,omitempty"`
 	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
-	RequireApproval []string                       `json:"require_approval,omitempty"`
+	RequireApproval bool                           `json:"require_approval,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -43,7 +43,7 @@ type SseMcpServerConfig struct {
 	Params          SseConnectionParams `json:"params"`
 	Tools           []string            `json:"tools,omitempty"`
 	AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
-	RequireApproval []string            `json:"require_approval,omitempty"`
+	RequireApproval bool                `json:"require_approval,omitempty"`
 }
 
 // StdioMcpServerConfig starts one local MCP server without invoking a shell.

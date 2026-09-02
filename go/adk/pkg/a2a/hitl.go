@@ -9,15 +9,16 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
 const (
 	// HITLExtensionURI is the versioned A2A Message extension used at the HITL edge.
-	HITLExtensionURI             = "https://kagent.dev/extensions/hitl/v1"
-	HITLTypeToolApprovalRequest  = "tool_approval_request"
+	HITLExtensionURI             = apia2a.HITLExtensionURI
+	HITLTypeToolApprovalRequest  = apia2a.HITLTypeToolApprovalRequest
 	HITLTypeAskUserRequest       = "ask_user_request"
-	HITLTypeToolApprovalResponse = "tool_approval_response"
+	HITLTypeToolApprovalResponse = apia2a.HITLTypeToolApprovalResponse
 	HITLTypeAskUserResponse      = "ask_user_response"
 	KAgentMetadataKeyPrefix      = "kagent_"
 )
@@ -49,26 +50,11 @@ func HitlActivated(ctx context.Context) bool {
 
 // Public extension schema (same shapes as kagent.core.a2a._hitl).
 
-type HitlTool struct {
-	ID     string         `json:"id"`
-	CallID string         `json:"call_id"`
-	Name   string         `json:"name"`
-	Args   map[string]any `json:"args"`
-}
+type HitlTool = apia2a.HITLTool
 
-type NestedHitlRequest struct {
-	SubagentName string     `json:"subagent_name,omitempty"`
-	TaskID       string     `json:"task_id,omitempty"`
-	ContextID    string     `json:"context_id,omitempty"`
-	Tools        []HitlTool `json:"tools"`
-}
+type NestedHitlRequest = apia2a.NestedHITLRequest
 
-type ToolApprovalRequest struct {
-	Type   string             `json:"type"`
-	Hint   string             `json:"hint,omitempty"`
-	Tools  []HitlTool         `json:"tools"`
-	Nested *NestedHitlRequest `json:"nested,omitempty"`
-}
+type ToolApprovalRequest = apia2a.ToolApprovalRequest
 
 type AskUserRequest struct {
 	Type      string             `json:"type"`
@@ -77,16 +63,8 @@ type AskUserRequest struct {
 	Nested    *NestedHitlRequest `json:"nested,omitempty"`
 }
 
-type ToolApproval struct {
-	ID              string `json:"id"`
-	Approved        bool   `json:"approved"`
-	RejectionReason string `json:"rejection_reason,omitempty"`
-}
-
-type ToolApprovalResponse struct {
-	Type      string         `json:"type"`
-	Approvals []ToolApproval `json:"approvals"`
-}
+type ToolApproval = apia2a.ToolApproval
+type ToolApprovalResponse = apia2a.ToolApprovalResponse
 
 type AskUserAnswer struct {
 	Answer []string `json:"answer"`

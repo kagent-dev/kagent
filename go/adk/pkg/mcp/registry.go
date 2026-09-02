@@ -113,7 +113,7 @@ func CreateToolsets(
 			URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
 			Args: stdioTool.Args, Env: stdioTool.Env, Dir: stdioTool.Dir,
 		}
-		ts, err := addToolset(ctx, log, params, nil, "stdio", i+1)
+		ts, err := addToolset(ctx, log, params, nil, false, "stdio", i+1)
 		if err == nil {
 			toolsets = append(toolsets, ts)
 		}
@@ -134,7 +134,7 @@ func CreateToolsets(
 			TLSCACertPath:         httpTool.Params.TLSCACertPath,
 			TLSDisableSystemCAs:   httpTool.Params.TLSDisableSystemCAs,
 		}
-		ts, err := addToolset(ctx, log, params, httpTool.Tools, "HTTP", i+1)
+		ts, err := addToolset(ctx, log, params, httpTool.Tools, httpTool.RequireApproval, "HTTP", i+1)
 		if err != nil {
 			continue
 		}
@@ -156,7 +156,7 @@ func CreateToolsets(
 			TLSCACertPath:         sseTool.Params.TLSCACertPath,
 			TLSDisableSystemCAs:   sseTool.Params.TLSDisableSystemCAs,
 		}
-		ts, err := addToolset(ctx, log, params, sseTool.Tools, "SSE", i+1)
+		ts, err := addToolset(ctx, log, params, sseTool.Tools, sseTool.RequireApproval, "SSE", i+1)
 		if err != nil {
 			continue
 		}
@@ -167,7 +167,7 @@ func CreateToolsets(
 }
 
 // addToolset logs, initializes, and returns a single MCP toolset.
-func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, tools []string, label string, index int) (tool.Toolset, error) {
+func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, tools []string, requireApproval bool, label string, index int) (tool.Toolset, error) {
 	if params.Headers == nil {
 		params.Headers = make(map[string]string)
 	}
@@ -187,6 +187,9 @@ func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, t
 	if err != nil {
 		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
 		return nil, err
+	}
+	if requireApproval {
+		ts.inner = tool.WithConfirmation(ts.inner, true, nil)
 	}
 	log.InfoContext(ctx, "added MCP toolset", "transport", label, "url", params.URL)
 	return ts, nil
@@ -341,7 +344,7 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 // initializeToolSet fetches tools from an MCP server using Google ADK's
 // mcptoolset and wraps the result with any MCP App-capable tool names found
 // during classification.
-func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (tool.Toolset, error) {
+func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (*mcpAppToolset, error) {
 	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)

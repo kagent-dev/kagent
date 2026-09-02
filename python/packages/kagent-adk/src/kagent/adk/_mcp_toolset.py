@@ -88,10 +88,15 @@ class ConnectionSafeMcpTool(McpTool):
 
     _inner_tool: McpTool
 
-    def __init__(self, inner_tool: McpTool):
+    # Read by the approval callback. Keeping the policy on the resolved tool
+    # preserves its originating server binding even when tool names collide.
+    kagent_requires_approval: bool
+
+    def __init__(self, inner_tool: McpTool, *, require_approval: bool = False):
         # Store the inner tool without calling McpTool.__init__
         # (which requires connection params we don't have).
         object.__setattr__(self, "_inner_tool", inner_tool)
+        object.__setattr__(self, "kagent_requires_approval", require_approval)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner_tool, name)
@@ -138,10 +143,18 @@ class KAgentMcpToolset(McpToolset):
     # Class-level default so instances created via __new__ (e.g. in tests that
     # bypass __init__) still resolve the attribute.
     _app_tool_names: Optional[MCPAppToolNames] = None
+    _require_approval: bool = False
 
-    def __init__(self, *args: Any, app_tool_names: Optional[MCPAppToolNames] = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        app_tool_names: Optional[MCPAppToolNames] = None,
+        require_approval: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._app_tool_names = app_tool_names
+        self._require_approval = require_approval
 
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
         try:
@@ -165,8 +178,10 @@ class KAgentMcpToolset(McpToolset):
                     continue
                 if self._app_tool_names is not None and getattr(tool, "mcp_app_resource_uri", None):
                     self._app_tool_names.add(tool.name)
-                if not isinstance(tool, ConnectionSafeMcpTool):
-                    wrapped_tools.append(ConnectionSafeMcpTool(tool))
+                if isinstance(tool, ConnectionSafeMcpTool):
+                    object.__setattr__(tool, "kagent_requires_approval", self._require_approval)
+                else:
+                    wrapped_tools.append(ConnectionSafeMcpTool(tool, require_approval=self._require_approval))
                     continue
             wrapped_tools.append(tool)
         return wrapped_tools
