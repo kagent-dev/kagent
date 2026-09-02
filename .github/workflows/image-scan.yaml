@@ -48,7 +48,7 @@ jobs:
           - build_target: codex-harness
             image_name: codex-harness
             tag_suffix: ""
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     services:
       registry:
         image: registry:2
