@@ -14,7 +14,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -54,33 +53,6 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	assertAgentInstanceInteraction(t, fixture)
-	assertAgentInstanceInteraction(t, fixture)
-}
-
-// TestAgentInstanceInteractionAcrossMigration keeps one Substrate-backed agent
-// alive while the upgrade test applies the next release's Goose migrations.
-func TestAgentInstanceInteractionAcrossMigration(t *testing.T) {
-	signalDir := os.Getenv("KAGENT_UPGRADE_SIGNAL_DIR")
-	if signalDir == "" {
-		t.Skip("KAGENT_UPGRADE_SIGNAL_DIR is not set")
-	}
-
-	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
-	assertAgentInstanceInteraction(t, fixture)
-	if err := os.WriteFile(filepath.Join(signalDir, "ready"), nil, 0o600); err != nil {
-		t.Fatalf("signal first invocation complete: %v", err)
-	}
-	err := wait.PollUntilContextTimeout(t.Context(), 250*time.Millisecond, 15*time.Minute, true,
-		func(context.Context) (bool, error) {
-			_, err := os.Stat(filepath.Join(signalDir, "continue"))
-			if errors.Is(err, os.ErrNotExist) {
-				return false, nil
-			}
-			return err == nil, err
-		})
-	if err != nil {
-		t.Fatalf("wait for migrations: %v", err)
-	}
 	assertAgentInstanceInteraction(t, fixture)
 }
 

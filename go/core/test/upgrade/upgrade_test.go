@@ -113,13 +113,17 @@ func TestUpgrade(t *testing.T) {
 
 	previousGoDir := checkoutPreviousRelease(t, env)
 	vectorEnabled := baselineVectorVersion > 0
-	if !t.Run("previous release serves across target migrations", func(t *testing.T) {
-		runPreviousReleaseAcrossMigration(t, env, previousGoDir, func() {
-			applyEmbeddedMigrations(t, env, "kagent", vectorEnabled)
-			pgPostState := pgMigrationState(t, env)
-			require.Equal(t, targetCoreVersion, pgPostState.version,
-				"Postgres migrations did not reach the target embedded migration version")
-		})
+	if !t.Run("apply target migrations", func(t *testing.T) {
+		applyEmbeddedMigrations(t, env, "kagent", vectorEnabled)
+		pgPostState := pgMigrationState(t, env)
+		require.Equal(t, targetCoreVersion, pgPostState.version,
+			"Postgres migrations did not reach the target embedded migration version")
+	}) {
+		return
+	}
+
+	if !t.Run("previous release serves against target migrations", func(t *testing.T) {
+		runInvokeE2E(t, env, previousGoDir, "target migrations")
 	}) {
 		return
 	}

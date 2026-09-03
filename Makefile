@@ -499,7 +499,7 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 
 # run-upgrade-tests installs the previous release and upgrades it to the current build.
 # The test skips releases that do not use Goose.
-# Later Goose releases test one Substrate agent across the target migrations,
+# Later Goose releases test previous-release behavior after the target migrations,
 # data survival, schema equality, previous/current controller startup, and a
 # complete application and schema rollback to the previous release.
 # KAGENT_LOCAL_HOST lets the agent reach the local mock LLM.
