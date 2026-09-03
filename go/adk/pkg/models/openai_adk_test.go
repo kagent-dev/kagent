@@ -387,7 +387,8 @@ func TestChatCompletionToLLMResponse_PreservesThoughtSignature(t *testing.T) {
 		"usage":{
 			"prompt_tokens":3,
 			"completion_tokens":4,
-			"total_tokens":7
+			"total_tokens":7,
+			"prompt_tokens_details":{"cached_tokens":11}
 		}
 	}`)
 
@@ -413,6 +414,9 @@ func TestChatCompletionToLLMResponse_PreservesThoughtSignature(t *testing.T) {
 	}
 	if resp.UsageMetadata == nil || resp.UsageMetadata.PromptTokenCount != 3 || resp.UsageMetadata.CandidatesTokenCount != 4 {
 		t.Fatalf("usage metadata = %#v, want prompt=3 completion=4", resp.UsageMetadata)
+	}
+	if resp.UsageMetadata.CachedContentTokenCount != 11 {
+		t.Fatalf("cachedContentTokenCount = %d, want 11", resp.UsageMetadata.CachedContentTokenCount)
 	}
 }
 

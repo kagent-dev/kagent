@@ -280,6 +280,17 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
     return openai_tools
 
 
+def _cached_prompt_tokens(usage: Any) -> int:
+    """Return OpenAI cached prompt-token count (0 when absent).
+
+    OpenAI reports prompt-cache hits via usage.prompt_tokens_details.cached_tokens.
+    """
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is None:
+        return 0
+    return getattr(details, "cached_tokens", 0) or 0
+
+
 def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmResponse:
     """Convert OpenAI response to LlmResponse."""
     choice = response.choices[0]
@@ -319,6 +330,7 @@ def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmRes
             prompt_token_count=response.usage.prompt_tokens,
             candidates_token_count=response.usage.completion_tokens,
             total_token_count=response.usage.total_tokens,
+            cached_content_token_count=_cached_prompt_tokens(response.usage),
         )
 
     # Handle finish reason
@@ -522,6 +534,7 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
                             prompt_token_count=chunk.usage.prompt_tokens,
                             candidates_token_count=chunk.usage.completion_tokens,
                             total_token_count=chunk.usage.total_tokens,
+                            cached_content_token_count=_cached_prompt_tokens(chunk.usage),
                         )
 
                 # Yield final aggregated response with partial=False

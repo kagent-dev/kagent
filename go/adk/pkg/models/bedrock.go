@@ -409,9 +409,10 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		if meta, ok := event.(*types.ConverseStreamOutputMemberMetadata); ok {
 			if meta.Value.Usage != nil {
 				usageMetadata = &genai.GenerateContentResponseUsageMetadata{
-					PromptTokenCount:     aws.ToInt32(meta.Value.Usage.InputTokens),
-					CandidatesTokenCount: aws.ToInt32(meta.Value.Usage.OutputTokens),
-					TotalTokenCount:      aws.ToInt32(meta.Value.Usage.TotalTokens),
+					PromptTokenCount:        aws.ToInt32(meta.Value.Usage.InputTokens),
+					CandidatesTokenCount:    aws.ToInt32(meta.Value.Usage.OutputTokens),
+					TotalTokenCount:         aws.ToInt32(meta.Value.Usage.TotalTokens),
+					CachedContentTokenCount: aws.ToInt32(meta.Value.Usage.CacheReadInputTokens),
 				}
 			}
 		}
@@ -537,9 +538,10 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 	var usageMetadata *genai.GenerateContentResponseUsageMetadata
 	if output.Usage != nil {
 		usageMetadata = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     aws.ToInt32(output.Usage.InputTokens),
-			CandidatesTokenCount: aws.ToInt32(output.Usage.OutputTokens),
-			TotalTokenCount:      aws.ToInt32(output.Usage.TotalTokens),
+			PromptTokenCount:        aws.ToInt32(output.Usage.InputTokens),
+			CandidatesTokenCount:    aws.ToInt32(output.Usage.OutputTokens),
+			TotalTokenCount:         aws.ToInt32(output.Usage.TotalTokens),
+			CachedContentTokenCount: aws.ToInt32(output.Usage.CacheReadInputTokens),
 		}
 	}
 

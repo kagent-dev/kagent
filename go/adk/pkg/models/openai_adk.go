@@ -378,7 +378,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
-	var promptTokens, completionTokens, totalTokens int64
+	var promptTokens, completionTokens, totalTokens, cachedTokens int64
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -386,6 +386,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			promptTokens = chunk.Usage.PromptTokens
 			completionTokens = chunk.Usage.CompletionTokens
 			totalTokens = chunk.Usage.TotalTokens
+			cachedTokens = chunk.Usage.PromptTokensDetails.CachedTokens
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -465,9 +466,10 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	var usage *genai.GenerateContentResponseUsageMetadata
 	if promptTokens > 0 || completionTokens > 0 {
 		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(promptTokens),
-			CandidatesTokenCount: int32(completionTokens),
-			TotalTokenCount:      int32(totalTokens),
+			PromptTokenCount:        int32(promptTokens),
+			CandidatesTokenCount:    int32(completionTokens),
+			TotalTokenCount:         int32(totalTokens),
+			CachedContentTokenCount: int32(cachedTokens),
 		}
 	}
 	resp := &model.LLMResponse{
@@ -527,9 +529,10 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 	var usage *genai.GenerateContentResponseUsageMetadata
 	if completion.Usage.PromptTokens > 0 || completion.Usage.CompletionTokens > 0 {
 		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(completion.Usage.PromptTokens),
-			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
-			TotalTokenCount:      int32(completion.Usage.TotalTokens),
+			PromptTokenCount:        int32(completion.Usage.PromptTokens),
+			CandidatesTokenCount:    int32(completion.Usage.CompletionTokens),
+			TotalTokenCount:         int32(completion.Usage.TotalTokens),
+			CachedContentTokenCount: int32(completion.Usage.PromptTokensDetails.CachedTokens),
 		}
 	}
 	return &model.LLMResponse{

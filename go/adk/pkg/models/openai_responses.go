@@ -342,9 +342,14 @@ func responsesUsageToGenai(u responses.ResponseUsage) *genai.GenerateContentResp
 	if u.InputTokens == 0 && u.OutputTokens == 0 {
 		return nil
 	}
+	// CachedContentTokenCount flows into A2A task usage and the llm_response trace
+	// attribute via GenerateContentResponseUsageMetadata. Emitting a dedicated
+	// gen_ai.client.token.usage observation (gen_ai.token.type="cached") is a
+	// follow-up; see #2669.
 	return &genai.GenerateContentResponseUsageMetadata{
-		PromptTokenCount:     int32(u.InputTokens),
-		CandidatesTokenCount: int32(u.OutputTokens),
+		PromptTokenCount:        int32(u.InputTokens),
+		CandidatesTokenCount:    int32(u.OutputTokens),
+		CachedContentTokenCount: int32(u.InputTokensDetails.CachedTokens),
 	}
 }
 
