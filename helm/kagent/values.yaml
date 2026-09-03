@@ -854,6 +854,14 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+  metrics:
+    enabled: false
+    exporter:
+      otlp:
+        endpoint: ""
+        protocol: "grpc"
+        timeout: 15000 # milliseconds
+        insecure: true
 
 # ==============================================================================
 # EXTRA OBJECTS

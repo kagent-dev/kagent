@@ -417,3 +417,135 @@ def test_post_response_flush_exports_server_span(monkeypatch):
     names = [span.name for span in exporter.get_finished_spans()]
     assert any("POST" in name for name in names), f"server span not exported by flush, got {names}"
     provider.shutdown()
+
+
+def test_configure_metrics_disabled_defaults_to_no_meter_provider(monkeypatch):
+    # Metrics must be default-off and byte-identical to current behavior: no
+    # MeterProvider is set and no gauge/histogram recording call sites exist.
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.delenv("OTEL_METRICS_ENABLED", raising=False)
+
+    set_calls = []
+    monkeypatch.setattr(_utils.metrics, "set_meter_provider", lambda provider: set_calls.append(provider))
+    monkeypatch.setattr(_utils, "_create_metric_exporter", lambda **kwargs: object())
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", lambda exporter=None: object())
+    monkeypatch.setattr(_utils, "MeterProvider", lambda **kwargs: object())
+
+    _utils.configure(name="test", namespace="test")
+
+    assert set_calls == []
+
+
+@pytest.mark.parametrize("env_value", [("true", True), ("True", True), ("false", False), ("garbage", False)])
+def test_configure_metrics_gates_on_env(monkeypatch, env_value):
+    value, expect_enabled = env_value
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_METRICS_ENABLED", value)
+
+    set_calls = []
+    monkeypatch.setattr(_utils.metrics, "set_meter_provider", lambda provider: set_calls.append(provider))
+    monkeypatch.setattr(_utils, "_create_metric_exporter", lambda **kwargs: object())
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", lambda exporter=None, **kw: object())
+    monkeypatch.setattr(_utils, "MeterProvider", lambda **kwargs: object())
+
+    _utils.configure(name="test", namespace="test")
+
+    assert (len(set_calls) == 1) is expect_enabled
+
+
+def test_configure_metrics_enabled_builds_otlp_meter_provider(monkeypatch):
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_METRICS_ENABLED", "true")
+
+    captured = {}
+
+    def fake_exporter(**kwargs):
+        captured["exporter_kwargs"] = kwargs
+        return object()
+
+    class FakeReader:
+        def __init__(self, exporter):
+            captured["reader_exporter"] = exporter
+
+    class FakeMeterProvider:
+        def __init__(self, resource, metric_readers):
+            captured["resource"] = resource
+            captured["metric_readers"] = metric_readers
+            self.metric_readers = metric_readers
+
+    monkeypatch.setattr(_utils, "_create_metric_exporter", fake_exporter)
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", FakeReader)
+    monkeypatch.setattr(_utils, "MeterProvider", FakeMeterProvider)
+
+    set_calls = []
+    monkeypatch.setattr(_utils.metrics, "set_meter_provider", lambda provider: set_calls.append(provider))
+
+    _utils.configure(name="test-agent", namespace="test-ns")
+
+    # A single MeterProvider wired to a periodic reader is registered globally.
+    assert len(set_calls) == 1
+    provider = set_calls[0]
+    assert isinstance(provider, FakeMeterProvider)
+    assert len(provider.metric_readers) == 1
+    # The reader carries the OTLP exporter built via the shared protocol helper.
+    assert captured["reader_exporter"] is not None
+    # Resource metadata is threaded through so attributes merge correctly.
+    assert captured["resource"].attributes["service.name"] == "test-agent"
+
+
+def test_configure_metrics_uses_signal_specific_endpoint(monkeypatch):
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_METRICS_ENABLED", "true")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://collector:4317")
+
+    exporter_kwargs = {}
+
+    def fake_exporter(**kwargs):
+        exporter_kwargs.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(_utils, "_create_metric_exporter", fake_exporter)
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", lambda exporter=None, **kw: object())
+    monkeypatch.setattr(_utils, "MeterProvider", lambda **kwargs: object())
+    monkeypatch.setattr(_utils.metrics, "set_meter_provider", lambda provider: None)
+
+    _utils.configure(name="test", namespace="test")
+
+    assert exporter_kwargs["endpoint"] == "http://collector:4317"
+
+
+def test_force_flush_flushes_traces_and_metrics(monkeypatch):
+    calls = {"trace": [], "metric": []}
+    trace_provider = SimpleNamespace(force_flush=lambda timeout: calls["trace"].append(timeout))
+    metric_provider = SimpleNamespace(force_flush=lambda timeout: calls["metric"].append(timeout))
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: trace_provider)
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: metric_provider)
+
+    _utils.force_flush()
+
+    assert calls == {"trace": [3000], "metric": [3000]}
+
+
+def test_force_flush_noop_when_metric_provider_lacks_force_flush(monkeypatch):
+    # A default (no-op) meter provider exposes no force_flush; must not raise.
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: SimpleNamespace())
+
+    _utils.force_flush()
+
+
+def test_force_flush_swallows_metric_exporter_errors(monkeypatch):
+    trace_provider = SimpleNamespace(force_flush=lambda timeout: None)
+
+    def boom(timeout):
+        raise RuntimeError("collector down")
+
+    metric_provider = SimpleNamespace(force_flush=boom)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: trace_provider)
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: metric_provider)
+
+    _utils.force_flush()
