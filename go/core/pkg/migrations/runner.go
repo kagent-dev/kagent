@@ -35,11 +35,9 @@ type Source struct {
 	Name          string
 	Schema        string
 	TrackingTable string
-	// OwnedTables identifies an existing schema that is missing its Goose ledger.
-	OwnedTables []string
-	FS          fs.FS
-	Dir         string
-	PreCheck    func(url string) error
+	FS            fs.FS
+	Dir           string
+	PreCheck      func(url string) error
 }
 
 // BuiltinSources returns the built-in migration sources.
@@ -47,32 +45,13 @@ func BuiltinSources(vectorEnabled bool) []Source {
 	sources := []Source{{
 		Name:          "core",
 		TrackingTable: coreTrackingTable,
-		OwnedTables: []string{
-			"agent",
-			"feedback",
-			"tool",
-			"toolserver",
-			"lg_checkpoint",
-			"lg_checkpoint_write",
-			"crewai_agent_memory",
-			"crewai_flow_state",
-			"runtime_revision",
-			"agent_template_harness_pair",
-			"agent_instance",
-			"agent_instance_share",
-			"agent_instance_task",
-			"agent_instance_task_event",
-			"agent_instance_checkpoint",
-			"a2a_context",
-		},
-		FS:  FS,
-		Dir: "core",
+		FS:            FS,
+		Dir:           "core",
 	}}
 	if vectorEnabled {
 		sources = append(sources, Source{
 			Name:          "vector",
 			TrackingTable: vectorTrackingTable,
-			OwnedTables:   []string{"memory"},
 			FS:            FS,
 			Dir:           "vector",
 			PreCheck:      checkPgvector,
@@ -228,7 +207,7 @@ func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Pr
 	if !schemaName.Valid {
 		return errors.New("the connection has no current schema")
 	}
-	if err := rejectUnsupportedSchema(ctx, db, schemaName.String, src); err != nil {
+	if err := rejectOldTrackingTable(ctx, db, schemaName.String, src); err != nil {
 		return err
 	}
 
@@ -270,47 +249,18 @@ func WithProvider(ctx context.Context, url string, src Source, fn func(*goose.Pr
 	return fn(provider)
 }
 
-func rejectUnsupportedSchema(ctx context.Context, db *sql.DB, schema string, src Source) error {
-	var trackingTableExists, old bool
+func rejectOldTrackingTable(ctx context.Context, db *sql.DB, schema string, src Source) error {
+	var old bool
 	err := db.QueryRowContext(ctx, `
-		SELECT
-			EXISTS (
-				SELECT 1 FROM information_schema.tables
-				WHERE table_schema = $1 AND table_name = $2
-			),
-			EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = $1 AND table_name = $2 AND column_name = 'dirty'
-			)`, schema, src.TrackingTable).Scan(&trackingTableExists, &old)
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = $1 AND table_name = $2 AND column_name = 'dirty'
+		)`, schema, src.TrackingTable).Scan(&old)
 	if err != nil {
 		return fmt.Errorf("check %s migration table: %w", src.Name, err)
 	}
 	if old {
 		return fmt.Errorf("source %s uses an unsupported migration table. Use a new PostgreSQL database", src.Name)
-	}
-	if trackingTableExists || len(src.OwnedTables) == 0 {
-		return nil
-	}
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT table_name
-		FROM information_schema.tables
-		WHERE table_schema = $1`, schema)
-	if err != nil {
-		return fmt.Errorf("check %s application tables: %w", src.Name, err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			return fmt.Errorf("scan %s application table: %w", src.Name, err)
-		}
-		if slices.Contains(src.OwnedTables, table) {
-			return fmt.Errorf("source %s has application table %s without a Goose migration table. Use a new PostgreSQL database", src.Name, table)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("check %s application tables: %w", src.Name, err)
 	}
 	return nil
 }

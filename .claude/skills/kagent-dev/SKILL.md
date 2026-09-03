@@ -98,7 +98,6 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 - A restart must continue from each source's last committed version.
 - Allow non-destructive startup when the database is ahead of the binary for rolling compatibility.
 - The Goose cutover requires a fresh PostgreSQL database.
-- Reject source-owned tables that exist without the source's Goose migration table.
 - Do not add a golang-migrate bridge for the cutover.
 - Keep `schema_migrations` for the core source.
 - Keep `vector_schema_migrations` for the vector source.

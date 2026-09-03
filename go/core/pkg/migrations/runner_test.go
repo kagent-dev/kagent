@@ -334,26 +334,6 @@ func TestRunUpRejectsOldTrackingTable(t *testing.T) {
 	}
 }
 
-func TestRunUpRejectsApplicationTableWithoutTrackingTable(t *testing.T) {
-	dsn := startTestDB(t)
-	source := testSource(fstest.MapFS{
-		"migrations/000001_initial.sql": {Data: migrationSQL(
-			"CREATE TABLE baseline_ran (id bigint);",
-			"DROP TABLE baseline_ran;",
-		)},
-	})
-	source.OwnedTables = []string{"existing_app"}
-	execSQL(t, dsn, "CREATE TABLE existing_app (id bigint)")
-
-	err := RunUp(context.Background(), dsn, []Source{source})
-	if err == nil || !strings.Contains(err.Error(), "without a Goose migration table") || !strings.Contains(err.Error(), "new PostgreSQL database") {
-		t.Fatalf("RunUp error = %v", err)
-	}
-	if testTableExists(t, dsn, "baseline_ran") || testTableExists(t, dsn, source.TrackingTable) {
-		t.Fatal("the baseline started before the application-table preflight failed")
-	}
-}
-
 func TestPrechecksRunBeforeMigrations(t *testing.T) {
 	dsn := startTestDB(t)
 	first := testSource(twoMigrationFS)
