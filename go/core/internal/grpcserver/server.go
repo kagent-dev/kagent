@@ -63,8 +63,11 @@ type Config struct {
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
 	A2AHandler            a2asrv.RequestHandler
-	MethodPolicies        MethodPolicies
-	Listener              net.Listener
+	// RegisterServices registers services core does not own. Called during New,
+	// because gRPC requires every service to be registered before Serve.
+	RegisterServices func(grpc.ServiceRegistrar)
+	MethodPolicies   MethodPolicies
+	Listener         net.Listener
 }
 
 type Server struct {
@@ -164,6 +167,11 @@ func New(config Config) (*Server, error) {
 	}
 	if config.A2AHandler != nil {
 		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
+	}
+	// After core's own, so reflection sees them and a consumer registering a
+	// duplicate service name panics here rather than silently taking over.
+	if config.RegisterServices != nil {
+		config.RegisterServices(grpcServer)
 	}
 	if config.Reflection {
 		reflection.Register(grpcServer)
