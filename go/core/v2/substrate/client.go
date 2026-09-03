@@ -144,7 +144,7 @@ func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.Act
 }
 
 // DeleteActorTemplate also removes the template's golden Actor. Substrate
-// v0.0.22 documents that behavior but does not implement it yet.
+// documents that behavior but does not implement it yet.
 func (c *Client) DeleteActorTemplate(ctx context.Context, atespace, name, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
