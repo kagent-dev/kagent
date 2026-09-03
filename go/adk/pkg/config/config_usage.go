@@ -139,3 +139,14 @@ func getModelName(m adk.Model) string {
 		return "unknown"
 	}
 }
+
+// ModelName returns the configured model's identifier (e.g. "gpt-4o"), or ""
+// when no model is configured. This labels the gen_ai.request.model token-usage
+// metric attribute.
+func ModelName(m adk.Model) string {
+	name := getModelName(m)
+	if name == "unknown" {
+		return ""
+	}
+	return name
+}

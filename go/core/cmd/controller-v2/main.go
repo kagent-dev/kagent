@@ -76,7 +76,6 @@ func main() {
 			log.Fatalf("parse ZAP_LOG_LEVEL: %v", err)
 		}
 	}
-	ctrl.SetLogger(zap.New(zap.Level(logLevel)))
 	// otelgrpc snapshots the global TracerProvider and propagator when its handler
 	// is constructed, so tracing has to be registered before any server is built.
 	shutdownTracing, err := telemetry.InitTracerProvider(ctx, version.Version)
@@ -90,6 +89,24 @@ func main() {
 			log.Printf("shutdown tracing: %v", err)
 		}
 	}()
+
+	// Initialize the OTLP logger provider before building the controller logger
+	// so the otelzap bridge below binds to the configured global provider.
+	shutdownLogging, err := telemetry.InitLoggerProvider(ctx, version.Version)
+	if err != nil {
+		log.Fatalf("initialize logging: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownLogging(shutdownCtx); err != nil {
+			log.Printf("shutdown logging: %v", err)
+		}
+	}()
+
+	// OTEL_LOGGING_ENABLED additively tees the controller's logs over OTLP;
+	// otherwise the tee option is a no-op and this matches upstream logging.
+	ctrl.SetLogger(zap.New(append([]zap.Opts{zap.Level(logLevel)}, telemetry.ControllerZapOpts()...)...))
 
 	dbURL, err := database.ResolveURL(env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres"), os.Getenv("POSTGRES_DATABASE_URL_FILE"))
 	if err != nil {
@@ -163,11 +180,13 @@ func main() {
 		log.Fatalf("add reconciler to controller manager: %v", err)
 	}
 	mcpClient := toolservice.NewRuntimeMCPClient(manager.GetClient())
-	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
+	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store).
+		WithRecorder(manager.GetEventRecorder("remotemcpserver"))
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		log.Fatalf("set up RemoteMCPServer discovery: %v", err)
 	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
+	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store).
+		WithRecorder(manager.GetEventRecorder("mcpserver-catalog"))
 	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
 		log.Fatalf("set up MCPServer discovery: %v", err)
 	}
