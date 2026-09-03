@@ -261,3 +261,36 @@ imagePullSecrets:
 {{- toYaml $global | nindent 2 }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Endpoint the controller dials to reach ateapi.
+
+An explicit controller.substrate.ateApiEndpoint always wins. Otherwise, when
+substrate is installed as a subchart of this release, its own helper is asked
+for the endpoint: the chart prefixes resource names with the release name for
+any release not called "substrate", so the Service is not at the canonical
+api.ate-system.svc and only the subchart knows what it rendered.
+
+Empty when substrate is not a subchart, which leaves the controller on its
+compiled-in default — correct for the topology where substrate is installed as
+its own release and the endpoint is passed explicitly.
+*/}}
+{{- define "kagent.substrate.ateApiEndpoint" -}}
+{{- if .Values.controller.substrate.ateApiEndpoint -}}
+{{- .Values.controller.substrate.ateApiEndpoint -}}
+{{- else if and .Values.substrate .Values.substrate.enabled -}}
+{{- include "substrate.ateApi.endpoint" . -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+URL the controller uses to reach atenet-router, resolved the same way as
+kagent.substrate.ateApiEndpoint.
+*/}}
+{{- define "kagent.substrate.atenetRouterURL" -}}
+{{- if .Values.controller.substrate.atenetRouterURL -}}
+{{- .Values.controller.substrate.atenetRouterURL -}}
+{{- else if and .Values.substrate .Values.substrate.enabled -}}
+{{- include "substrate.atenetRouter.url" . -}}
+{{- end -}}
+{{- end -}}
