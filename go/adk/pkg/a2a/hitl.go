@@ -17,9 +17,9 @@ const (
 	// HITLExtensionURI is the versioned A2A Message extension used at the HITL edge.
 	HITLExtensionURI             = apia2a.HITLExtensionURI
 	HITLTypeToolApprovalRequest  = apia2a.HITLTypeToolApprovalRequest
-	HITLTypeAskUserRequest       = "ask_user_request"
+	HITLTypeAskUserRequest       = apia2a.HITLTypeAskUserRequest
 	HITLTypeToolApprovalResponse = apia2a.HITLTypeToolApprovalResponse
-	HITLTypeAskUserResponse      = "ask_user_response"
+	HITLTypeAskUserResponse      = apia2a.HITLTypeAskUserResponse
 	KAgentMetadataKeyPrefix      = "kagent_"
 )
 
@@ -56,25 +56,13 @@ type NestedHitlRequest = apia2a.NestedHITLRequest
 
 type ToolApprovalRequest = apia2a.ToolApprovalRequest
 
-type AskUserRequest struct {
-	Type      string             `json:"type"`
-	ID        string             `json:"id"`
-	Questions []map[string]any   `json:"questions"`
-	Nested    *NestedHitlRequest `json:"nested,omitempty"`
-}
+type AskUserRequest = apia2a.AskUserRequest
 
 type ToolApproval = apia2a.ToolApproval
 type ToolApprovalResponse = apia2a.ToolApprovalResponse
 
-type AskUserAnswer struct {
-	Answer []string `json:"answer"`
-}
-
-type AskUserResponse struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Answers []AskUserAnswer `json:"answers,omitempty"`
-}
+type AskUserAnswer = apia2a.AskUserAnswer
+type AskUserResponse = apia2a.AskUserResponse
 
 // rawHitlMap reads the HITL extension metadata as a map[string]any.
 func rawHitlMap(message *a2atype.Message) map[string]any {
@@ -111,10 +99,7 @@ func GetToolApprovalRequest(message *a2atype.Message) *ToolApprovalRequest {
 }
 
 func GetAskUserRequest(message *a2atype.Message) *AskUserRequest {
-	v := decodeJSON[AskUserRequest](rawHitlMap(message), HITLTypeAskUserRequest)
-	if v == nil || v.ID == "" {
-		return nil
-	}
+	v, _ := apia2a.ParseAskUserRequest(message)
 	return v
 }
 
@@ -127,10 +112,7 @@ func GetToolApprovalResponse(message *a2atype.Message) *ToolApprovalResponse {
 }
 
 func GetAskUserResponse(message *a2atype.Message) *AskUserResponse {
-	v := decodeJSON[AskUserResponse](rawHitlMap(message), HITLTypeAskUserResponse)
-	if v == nil || v.ID == "" {
-		return nil
-	}
+	v, _ := apia2a.ParseAskUserResponse(message)
 	return v
 }
 

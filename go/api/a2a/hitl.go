@@ -12,7 +12,9 @@ const (
 	// HITLExtensionURI identifies the versioned kagent HITL A2A extension.
 	HITLExtensionURI             = "https://kagent.dev/extensions/hitl/v1"
 	HITLTypeToolApprovalRequest  = "tool_approval_request"
+	HITLTypeAskUserRequest       = "ask_user_request"
 	HITLTypeToolApprovalResponse = "tool_approval_response"
+	HITLTypeAskUserResponse      = "ask_user_response"
 )
 
 // HITLTool describes one tool invocation awaiting a human decision.
@@ -52,6 +54,28 @@ type ToolApprovalResponse struct {
 	Approvals []ToolApproval `json:"approvals"`
 }
 
+// AskUserRequest is the public request payload for one or more questions. The
+// question schema remains runtime-defined so native Harnesses can preserve the
+// choices and presentation hints supplied by their backend.
+type AskUserRequest struct {
+	Type      string             `json:"type"`
+	ID        string             `json:"id"`
+	Questions []map[string]any   `json:"questions"`
+	Nested    *NestedHITLRequest `json:"nested,omitempty"`
+}
+
+// AskUserAnswer contains the selections for one question, in request order.
+type AskUserAnswer struct {
+	Answer []string `json:"answer"`
+}
+
+// AskUserResponse answers the questions from one correlated request.
+type AskUserResponse struct {
+	Type    string          `json:"type"`
+	ID      string          `json:"id"`
+	Answers []AskUserAnswer `json:"answers,omitempty"`
+}
+
 // AttachHITL adds a typed HITL payload and extension declaration to a message.
 func AttachHITL(message *a2atype.Message, payload any) error {
 	encoded, err := json.Marshal(payload)
@@ -72,7 +96,8 @@ func AttachHITL(message *a2atype.Message, payload any) error {
 	return nil
 }
 
-// ParseToolApprovalResponse decodes the single-decision response used by native harnesses.
+// ParseToolApprovalResponse decodes a non-empty set of tool decisions. The
+// caller validates that it decides the pending request exactly once per tool.
 func ParseToolApprovalResponse(message *a2atype.Message) (*ToolApprovalResponse, error) {
 	if message == nil || !slices.Contains(message.Extensions, HITLExtensionURI) {
 		return nil, fmt.Errorf("tool approval response must declare %s", HITLExtensionURI)
@@ -89,8 +114,33 @@ func ParseToolApprovalResponse(message *a2atype.Message) (*ToolApprovalResponse,
 	if err := json.Unmarshal(encoded, &response); err != nil {
 		return nil, fmt.Errorf("decode tool approval response: %w", err)
 	}
-	if response.Type != HITLTypeToolApprovalResponse || len(response.Approvals) != 1 || response.Approvals[0].ID == "" {
-		return nil, fmt.Errorf("exactly one tool approval decision is required")
+	if response.Type != HITLTypeToolApprovalResponse || len(response.Approvals) == 0 {
+		return nil, fmt.Errorf("at least one tool approval decision is required")
+	}
+	for _, approval := range response.Approvals {
+		if approval.ID == "" {
+			return nil, fmt.Errorf("tool approval decision ID is required")
+		}
+	}
+	return &response, nil
+}
+
+// ParseAskUserResponse decodes an ask-user response. Cross-message correlation
+// and answer completeness are checked by ValidateAskUserResponse.
+func ParseAskUserResponse(message *a2atype.Message) (*AskUserResponse, error) {
+	raw, ok := hitlPayload(message)
+	if !ok {
+		return nil, fmt.Errorf("ask-user response must declare %s", HITLExtensionURI)
+	}
+	if raw["type"] != HITLTypeAskUserResponse {
+		return nil, fmt.Errorf("ask-user response payload is required")
+	}
+	var response AskUserResponse
+	if err := decodeHITLPayload(raw, &response); err != nil {
+		return nil, fmt.Errorf("decode ask-user response: %w", err)
+	}
+	if response.ID == "" {
+		return nil, fmt.Errorf("ask-user response ID is required")
 	}
 	return &response, nil
 }
@@ -115,6 +165,22 @@ func ParseToolApprovalRequest(message *a2atype.Message) (*ToolApprovalRequest, e
 	return &request, nil
 }
 
+// ParseAskUserRequest decodes an ask-user request when one is present.
+func ParseAskUserRequest(message *a2atype.Message) (*AskUserRequest, error) {
+	raw, ok := hitlPayload(message)
+	if !ok || raw["type"] != HITLTypeAskUserRequest {
+		return nil, nil
+	}
+	var request AskUserRequest
+	if err := decodeHITLPayload(raw, &request); err != nil {
+		return nil, fmt.Errorf("decode ask-user request: %w", err)
+	}
+	if request.ID == "" {
+		return nil, fmt.Errorf("ask-user request ID is required")
+	}
+	return &request, nil
+}
+
 // ValidateToolApprovalResponse verifies that every request ID is decided exactly once.
 func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolApprovalResponse) error {
 	if request == nil || response == nil || len(request.Tools) != len(response.Approvals) {
@@ -131,12 +197,37 @@ func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolAp
 		if _, ok := want[approval.ID]; !ok {
 			return fmt.Errorf("tool approval response contains unknown or duplicate ID %q", approval.ID)
 		}
+		if approval.Approved && approval.RejectionReason != "" {
+			return fmt.Errorf("approved tool %q cannot have a rejection reason", approval.ID)
+		}
 		delete(want, approval.ID)
 	}
 	if len(want) != 0 {
 		return fmt.Errorf("tool approval response omits a requested tool")
 	}
 	return nil
+}
+
+// ValidateAskUserResponse verifies correlation and positional completeness.
+func ValidateAskUserResponse(request *AskUserRequest, response *AskUserResponse) error {
+	if request == nil || response == nil || request.ID != response.ID {
+		return fmt.Errorf("ask-user response has invalid correlation")
+	}
+	if len(response.Answers) == 0 {
+		return fmt.Errorf("ask-user response contains no answers")
+	}
+	if len(response.Answers) != len(request.Questions) {
+		return fmt.Errorf("ask-user response must answer every question")
+	}
+	return nil
+}
+
+func decodeHITLPayload(raw map[string]any, target any) error {
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(encoded, target)
 }
 
 func hitlPayload(message *a2atype.Message) (map[string]any, bool) {
