@@ -43,19 +43,26 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace, durable, and ephemeral directories must be absolute paths")
 	}
 	claudeDir := filepath.Join(input.DurableDir, "claude")
+	var skillRoot string
+	if cfg.SkillResources != nil {
+		skillRoot = filepath.Join(input.DurableDir, "generated", "claude")
+	}
 	for _, directory := range []struct{ name, path string }{
 		{name: "workspace", path: input.Workspace},
 		{name: "Claude state", path: claudeDir},
-		{name: "generated Claude skills", path: filepath.Join(claudeDir, "skills")},
 	} {
 		if err := utils.EnsurePrivateDir(directory.path); err != nil {
 			return nil, fmt.Errorf("prepare %s directory: %w", directory.name, err)
 		}
 	}
 	if cfg.SkillResources != nil {
+		skillsDir := filepath.Join(skillRoot, ".claude", "skills")
+		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
+			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
+		}
 		if _, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(claudeDir, "packages"),
-			Skills:   filepath.Join(claudeDir, "skills"),
+			Skills:   skillsDir,
 		}); err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
@@ -81,7 +88,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
-		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, Environment: environment,
+		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
+		SkillRoot: skillRoot, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(),
 	}), nil

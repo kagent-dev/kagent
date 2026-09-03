@@ -10,6 +10,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 func TestNewMaterializesDurableDirectories(t *testing.T) {
@@ -28,7 +29,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	if runner == nil {
 		t.Fatal("New() returned a nil runner")
 	}
-	for _, path := range []string{workspace, filepath.Join(durableDir, "claude"), filepath.Join(durableDir, "claude", "skills")} {
+	for _, path := range []string{workspace, filepath.Join(durableDir, "claude")} {
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatal(err)
@@ -42,6 +43,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	claudeDir := filepath.Join(durableDir, "claude")
+	skillRoot := filepath.Join(durableDir, "generated", "claude")
 	packageRoot := filepath.Join(claudeDir, "packages", "standalone-0")
 	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
 		t.Fatal(err)
@@ -60,20 +62,24 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	ephemeralDir := filepath.Join(t.TempDir(), "generated")
-	if _, err := New(context.Background(), Input{
+	runner, err := New(context.Background(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
-		filepath.Join(claudeDir, "skills", "review", "SKILL.md"): "# Review",
-		filepath.Join(ephemeralDir, "mcp.json"):                  `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
+		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
+		filepath.Join(ephemeralDir, "mcp.json"):                             `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
 	} {
 		contents, err := os.ReadFile(path)
 		if err != nil || string(contents) != want {
 			t.Fatalf("%s = %q, %v; want %q", path, contents, err, want)
 		}
+	}
+	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
+		t.Fatalf("arguments do not expose materialized skills to bare mode: %s", args)
 	}
 }
 
