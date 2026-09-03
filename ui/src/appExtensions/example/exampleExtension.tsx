@@ -79,14 +79,14 @@ export const exampleAppExtension: AppExtensionConfig = {
   // registry by `installExtensionApi`.
   //
   // Only a transform here, deliberately. `baseUrl` and `endpoints` are part of
-  // the contract — an extension pointing `agents.list` at `/managed-agents` on
-  // their own host is exactly the case it exists for — but setting either here
+  // the contract — an extension pointing `models.list` at its own backend is
+  // exactly the case it exists for — but setting either here
   // would send every call somewhere the mock backend does not answer, so the
   // example would break the app whenever it is switched on. A header is real,
   // observable in the network panel, and harmless.
   api: {
     transforms: {
-      "agents.list": {
+      "models.list": {
         request: (context) => ({
           ...context,
           headers: { ...context.headers, "x-example-tenant": "example-eu-1" },

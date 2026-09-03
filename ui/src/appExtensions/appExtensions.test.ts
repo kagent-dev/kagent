@@ -52,13 +52,13 @@ describe("installExtensionApi", () => {
 
   const requestContext = (
     call: ApiCallId,
-    url = `${apiBaseUrl}/kagent.api.v1alpha1.AgentService/ListAgents`,
+    url = `${apiBaseUrl}/kagent.api.v1alpha1.ModelService/ListModelConfigs`,
   ): ApiRequestContext => ({ endpoint: call, method: "POST", url, headers: {} });
 
   const responseContext = (call: ApiCallId): ApiResponseContext => ({
     endpoint: call,
     status: 200,
-    url: "/api/kagent.api.v1alpha1.AgentService/ListAgents",
+    url: "/api/kagent.api.v1alpha1.ModelService/ListModelConfigs",
   });
 
   it("installs nothing and undoes cleanly when there is no extension", () => {
@@ -115,24 +115,24 @@ describe("installExtensionApi", () => {
 
   it("rewrites the base URL prefix of a request", async () => {
     installExtensionApi({ baseUrl: "https://example.test/v1/" });
-    const result = await applyRequestTransforms(requestContext("agents.list"));
+    const result = await applyRequestTransforms(requestContext("models.list"));
     expect(result.url).toBe(
-      "https://example.test/v1/kagent.api.v1alpha1.AgentService/ListAgents",
+      "https://example.test/v1/kagent.api.v1alpha1.ModelService/ListModelConfigs",
     );
   });
 
   it("leaves a URL that is not under the app's base alone", async () => {
     installExtensionApi({ baseUrl: "https://example.test" });
     const result = await applyRequestTransforms(
-      requestContext("agents.list", "https://elsewhere.test/agents"),
+      requestContext("models.list", "https://elsewhere.test/models"),
     );
-    expect(result.url).toBe("https://elsewhere.test/agents");
+    expect(result.url).toBe("https://elsewhere.test/models");
   });
 
   it("applies a per-call request transform only to its own call", async () => {
     installExtensionApi({
       transforms: {
-        "agents.list": {
+        "models.list": {
           request: (context) => ({
             ...context,
             headers: { ...context.headers, "x-example": "1" },
@@ -141,10 +141,10 @@ describe("installExtensionApi", () => {
       },
     });
 
-    const matched = await applyRequestTransforms(requestContext("agents.list"));
+    const matched = await applyRequestTransforms(requestContext("models.list"));
     expect(matched.headers).toEqual({ "x-example": "1" });
 
-    const other = await applyRequestTransforms(requestContext("models.list"));
+    const other = await applyRequestTransforms(requestContext("namespaces.list"));
     expect(other.headers).toEqual({});
   });
 
@@ -156,7 +156,7 @@ describe("installExtensionApi", () => {
       }),
     });
 
-    for (const call of ["agents.list", "models.list", "chat.a2a"] as const) {
+    for (const call of ["models.list", "namespaces.list", "chat.a2a"] as const) {
       const result = await applyRequestTransforms(requestContext(call, "/x"));
       expect(result.headers).toEqual({ authorization: "Bearer t" });
     }
@@ -176,27 +176,27 @@ describe("installExtensionApi", () => {
       },
     });
 
-    await applyRequestTransforms(requestContext("agents.list"));
+    await applyRequestTransforms(requestContext("models.list"));
     expect(seen).toBe(
-      "https://example.test/v1/kagent.api.v1alpha1.AgentService/ListAgents",
+      "https://example.test/v1/kagent.api.v1alpha1.ModelService/ListModelConfigs",
     );
   });
 
   it("reshapes a response for its own call and no other", async () => {
     installExtensionApi({
       transforms: {
-        "agents.list": {
+        "models.list": {
           response: (body) => (body as { items: unknown }).items,
         },
       },
     });
 
     expect(
-      await applyResponseTransforms({ items: [1, 2] }, responseContext("agents.list")),
+      await applyResponseTransforms({ items: [1, 2] }, responseContext("models.list")),
     ).toEqual([1, 2]);
     // A different call's payload passes through untouched.
     expect(
-      await applyResponseTransforms({ items: [1, 2] }, responseContext("models.list")),
+      await applyResponseTransforms({ items: [1, 2] }, responseContext("namespaces.list")),
     ).toEqual({ items: [1, 2] });
   });
 });
@@ -432,7 +432,7 @@ describe("composing several installed extensions", () => {
     ]);
 
     const result = await applyRequestTransforms(
-      { endpoint: "agents.list", method: "POST", url: "/x", headers: {} },
+      { endpoint: "models.list", method: "POST", url: "/x", headers: {} },
     );
 
     expect(result.headers).toEqual({ "x-first": "1", "x-second": "2" });

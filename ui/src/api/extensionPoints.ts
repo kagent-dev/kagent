@@ -7,7 +7,7 @@
  * things can be changed without editing the application:
  *
  * 1. **What a call actually does** — `registerOperationOverride` replaces one
- *    operation's implementation, so a deployment can serve `agents.list` from its
+ *    operation's implementation, so a deployment can serve `models.list` from its
  *    own backend, a different API version, or a different protocol
  *    entirely.
  * 2. **Where an HTTP call goes** — `registerEndpointOverride` swaps the path an
@@ -33,7 +33,7 @@
  *
  * @example
  * // In an extension bundle's entry module:
- * registerOperationOverride("agents.list", () => managedAgents());
+ * registerOperationOverride("models.list", () => managedModels());
  * registerApiTransform({
  *   name: "tenant-header",
  *   request: (ctx) => ({

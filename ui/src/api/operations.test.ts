@@ -26,7 +26,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
-import { AgentKind, AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
@@ -50,317 +49,6 @@ function serve(routes: (router: ConnectRouter) => void): void {
 afterEach(() => {
   setApiTransport(undefined);
   clearApiExtensions();
-});
-
-/** A `SandboxAgent` custom resource, as the controller marshals one. */
-function sandboxAgentResource(name: string, namespace = "kagent") {
-  return {
-    apiVersion: "kagent.dev/v1alpha3",
-    kind: "SandboxAgent",
-    metadata: { name, namespace, creationTimestamp: "2026-01-01T00:00:00Z" },
-    spec: { description: `the ${name} agent` },
-  };
-}
-
-function agentMessage(name: string, namespace = "kagent", kind = AgentKind.SANDBOX_AGENT) {
-  return {
-    ref: { namespace, name },
-    kind,
-    resource: {
-      apiVersion: "kagent.dev/v1alpha3",
-      kind: kind === AgentKind.AGENT_HARNESS ? "AgentHarness" : "SandboxAgent",
-      value: sandboxAgentResource(name, namespace),
-    },
-    id: `id-${name}`,
-    model: "gpt-4.1",
-    modelProvider: "OpenAI",
-    modelConfigRef: { namespace: "kagent", name: "default" },
-    tools: [],
-    ready: true,
-    accepted: true,
-  };
-}
-
-describe("agents.list", () => {
-  it("reads the custom resource out of the StructuredObject envelope", async () => {
-    serve(({ service }) => {
-      service(AgentService, { listAgents: () => ({ agents: [agentMessage("k8s")] }) });
-    });
-
-    const [row] = await apiClient.agents.list();
-
-    expect(row.agent.metadata.name).toBe("k8s");
-    expect(row.agent.spec.description).toBe("the k8s agent");
-    expect(row.modelConfigRef).toBe("kagent/default");
-    expect(row.agentKind).toBe("SandboxAgent");
-    // Absent repeated fields, normalised at the boundary so no render site needs
-    // its own `?? []`.
-    expect(row.tools).toEqual([]);
-    expect(row.memoryRefs).toEqual([]);
-  });
-
-  it("orders rows by namespace then name, descending", async () => {
-    serve(({ service }) => {
-      service(AgentService, {
-        listAgents: () => ({
-          agents: [
-            agentMessage("alpha", "one"),
-            agentMessage("beta", "two"),
-            agentMessage("gamma", "one"),
-          ],
-        }),
-      });
-    });
-
-    expect(
-      (await apiClient.agents.list()).map(
-        (row) => `${row.agent.metadata.namespace}/${row.agent.metadata.name}`,
-      ),
-    ).toEqual(["two/beta", "one/gamma", "one/alpha"]);
-  });
-
-  it("reports an empty cluster as empty rather than as a failure", async () => {
-    serve(({ service }) => {
-      service(AgentService, { listAgents: () => ({ agents: [] }) });
-    });
-    await expect(apiClient.agents.list()).resolves.toEqual([]);
-  });
-
-  it("fails loudly when the controller does", async () => {
-    serve(({ service }) => {
-      service(AgentService, {
-        listAgents: () => {
-          throw new ConnectError("informer cache is cold", Code.Internal);
-        },
-      });
-    });
-
-    const error = await apiClient.agents.list().catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).status).toBe(500);
-    expect((error as ApiError).code).toBe("Internal");
-    expect((error as ApiError).url).toBe("AgentService/ListAgents");
-  });
-});
-
-describe("agents.get", () => {
-  it("asks for the sandbox agent by ref", async () => {
-    const asked: string[] = [];
-    serve(({ service }) => {
-      service(AgentService, {
-        getSandboxAgent: (request) => {
-          asked.push(`${request.ref?.namespace}/${request.ref?.name}`);
-          return { agent: agentMessage("k8s") };
-        },
-      });
-    });
-
-    await expect(apiClient.agents.get("kagent", "k8s")).resolves.toMatchObject({
-      agentKind: "SandboxAgent",
-    });
-    expect(asked).toEqual(["kagent/k8s"]);
-  });
-
-  /**
-   * The one place the id-to-RPC map is not a map. A detail page holds a namespace
-   * and a name and cannot know which of the two resources it is looking at, so the
-   * sandbox agent is tried and the harness is tried after a genuine 404.
-   */
-  it("falls back to the harness when there is no sandbox agent by that name", async () => {
-    const asked: string[] = [];
-    serve(({ service }) => {
-      service(AgentService, {
-        getSandboxAgent: () => {
-          asked.push("sandbox");
-          throw new ConnectError("no such agent", Code.NotFound);
-        },
-        getAgentHarness: () => {
-          asked.push("harness");
-          return { agent: agentMessage("claude", "kagent", AgentKind.AGENT_HARNESS) };
-        },
-      });
-    });
-
-    await expect(apiClient.agents.get("kagent", "claude")).resolves.toMatchObject({
-      agentKind: "AgentHarness",
-    });
-    expect(asked).toEqual(["sandbox", "harness"]);
-  });
-
-  // Retrying on anything but a 404 would report "no such agent" for a permission
-  // problem, which sends the reader looking for the wrong thing.
-  it("does not retry a failure that is not a 404", async () => {
-    const asked: string[] = [];
-    serve(({ service }) => {
-      service(AgentService, {
-        getSandboxAgent: () => {
-          asked.push("sandbox");
-          throw new ConnectError("not allowed", Code.PermissionDenied);
-        },
-        getAgentHarness: () => {
-          asked.push("harness");
-          return { agent: agentMessage("claude") };
-        },
-      });
-    });
-
-    const error = await apiClient.agents
-      .get("kagent", "claude")
-      .catch((caught: unknown) => caught);
-    expect((error as ApiError).status).toBe(403);
-    expect(asked).toEqual(["sandbox"]);
-  });
-
-  it("goes straight to the right RPC when the caller knows the kind", async () => {
-    const asked: string[] = [];
-    serve(({ service }) => {
-      service(AgentService, {
-        getSandboxAgent: () => {
-          asked.push("sandbox");
-          throw new ConnectError("should not be asked", Code.Internal);
-        },
-        getAgentHarness: () => {
-          asked.push("harness");
-          return { agent: agentMessage("claude", "kagent", AgentKind.AGENT_HARNESS) };
-        },
-      });
-    });
-
-    await apiClient.agents.get("kagent", "claude", { kind: "AgentHarness" });
-    expect(asked).toEqual(["harness"]);
-  });
-
-  it("reports a missing agent as a 404 the caller can recognise", async () => {
-    serve(({ service }) => {
-      service(AgentService, {
-        getSandboxAgent: () => {
-          throw new ConnectError("gone", Code.NotFound);
-        },
-        getAgentHarness: () => {
-          throw new ConnectError("gone", Code.NotFound);
-        },
-      });
-    });
-
-    const error = await apiClient.agents
-      .get("kagent", "ghost")
-      .catch((caught: unknown) => caught);
-    expect(isNotFound(error)).toBe(true);
-  });
-});
-
-describe("agents.create and agents.update", () => {
-  const draft = {
-    apiVersion: "kagent.dev/v1alpha3",
-    kind: "SandboxAgent",
-    metadata: { name: "written-agent", namespace: "kagent" },
-    spec: { type: "Declarative" as const, description: "created by a test" },
-  };
-
-  it("sends the resource and the ref, and answers with the created resource", async () => {
-    let received: unknown;
-    serve(({ service }) => {
-      service(AgentService, {
-        createSandboxAgent: (request) => {
-          received = { ref: request.ref, resource: request.resource };
-          return { agent: agentMessage("written-agent") };
-        },
-      });
-    });
-
-    const created = await apiClient.agents.create(draft);
-
-    expect(received).toMatchObject({
-      ref: { namespace: "kagent", name: "written-agent" },
-      // The kind on the envelope is checked by the handler, not ignored:
-      // `structuredobject.ToGo` rejects a mismatch outright.
-      resource: { kind: "SandboxAgent", value: { spec: { description: "created by a test" } } },
-    });
-    expect(created.metadata.name).toBe("written-agent");
-  });
-
-  it("creates a harness through the harness RPC when the draft says so", async () => {
-    const asked: string[] = [];
-    serve(({ service }) => {
-      service(AgentService, {
-        createSandboxAgent: () => {
-          asked.push("sandbox");
-          return { agent: agentMessage("x") };
-        },
-        createAgentHarness: () => {
-          asked.push("harness");
-          return { agent: agentMessage("x", "kagent", AgentKind.AGENT_HARNESS) };
-        },
-      });
-    });
-
-    await apiClient.agents.create({ ...draft, kind: "AgentHarness" });
-    expect(asked).toEqual(["harness"]);
-  });
-
-  it("replaces a sandbox agent", async () => {
-    serve(({ service }) => {
-      service(AgentService, {
-        updateSandboxAgent: (request) => ({
-          agent: {
-            ...agentMessage("written-agent"),
-            resource: { ...request.resource! },
-          },
-        }),
-      });
-    });
-
-    const updated = await apiClient.agents.update({
-      ...draft,
-      spec: { ...draft.spec, description: "revised" },
-    });
-    expect(updated.spec.description).toBe("revised");
-  });
-
-  /**
-   * `agents.proto` has no `UpdateAgentHarness`. Refusing here rather than sending
-   * something is the difference between "this cannot be edited" and an
-   * unimplemented-method error about a call the reader never asked for.
-   */
-  it("refuses to update a harness, without calling anything", async () => {
-    let called = false;
-    serve(({ service }) => {
-      service(AgentService, {
-        updateSandboxAgent: () => {
-          called = true;
-          return { agent: agentMessage("x") };
-        },
-      });
-    });
-
-    const error = await apiClient.agents
-      .update({ ...draft, kind: "AgentHarness" })
-      .catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).message).toMatch(/cannot be edited/i);
-    expect(called).toBe(false);
-  });
-
-  it("deletes through the RPC for the kind it was given", async () => {
-    const asked: string[] = [];
-    serve(({ service }) => {
-      service(AgentService, {
-        deleteSandboxAgent: () => {
-          asked.push("sandbox");
-          return {};
-        },
-        deleteAgentHarness: () => {
-          asked.push("harness");
-          return {};
-        },
-      });
-    });
-
-    await apiClient.agents.remove("kagent", "a");
-    await apiClient.agents.remove("kagent", "b", "AgentHarness");
-    expect(asked).toEqual(["sandbox", "harness"]);
-  });
 });
 
 describe("model configurations", () => {
@@ -775,10 +463,10 @@ describe("transforms reaching the wire", () => {
           return { namespaces: [] };
         },
       });
-      service(AgentService, {
-        listAgents: (_request, context) => {
-          seen.agents = context.requestHeader.get("X-Tenant");
-          return { agents: [] };
+      service(ModelService, {
+        listModelConfigs: (_request, context) => {
+          seen.models = context.requestHeader.get("X-Tenant");
+          return { modelConfigs: [] };
         },
       });
     });
@@ -786,14 +474,14 @@ describe("transforms reaching the wire", () => {
     registerApiTransform({
       name: "tenant",
       request: (context) =>
-        context.endpoint === "agents.list"
+        context.endpoint === "models.list"
           ? { ...context, headers: { ...context.headers, "X-Tenant": "eu-1" } }
           : context,
     });
 
-    await apiClient.agents.list();
+    await apiClient.models.list();
     await apiClient.namespaces.list();
-    expect(seen).toEqual({ agents: "eu-1", namespaces: null });
+    expect(seen).toEqual({ models: "eu-1", namespaces: null });
   });
 });
 

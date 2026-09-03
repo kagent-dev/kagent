@@ -35,6 +35,10 @@ type ToolServerSpec struct {
 
 type ToolServerType string
 
+type AnyType struct {
+	json.RawMessage `json:",inline"`
+}
+
 const (
 	ToolServerTypeStdio          ToolServerType = "stdio"
 	ToolServerTypeSse            ToolServerType = "sse"

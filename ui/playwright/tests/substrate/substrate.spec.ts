@@ -208,7 +208,7 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
     "Create one in the cluster",
   );
   // A template appears when a harness and an agent template are paired, which is
-  // what creates one — not the SandboxAgent this used to name, which the API does
+  // what creates one — not the legacy resource this used to name, which the API does
   // not serve.
   await expect(page.getByTestId("substrate-templates-table")).toContainText(
     "harness and an agent template",

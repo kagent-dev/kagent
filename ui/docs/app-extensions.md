@@ -281,9 +281,8 @@ fails to compile.
 ```ts
 api: {
   baseUrl: "https://api.example.com",                 // optional: replace the API root
-  endpoints: { "agents.list": "/managed-agents" },      // optional: per-endpoint path
   transforms: {
-    "agents.list": {
+    "models.list": {
       request: (context) => ({
         ...context,
         headers: { ...context.headers, "x-example-tenant": currentTenant() },

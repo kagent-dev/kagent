@@ -4,10 +4,7 @@
  * Almost nothing is left here. The controller moved its application API to gRPC
  * and serves it as gRPC-Web, so listing agents, writing a model config and
  * everything else is now an *operation* rather than a path — see `operations.ts`.
- * Five things stayed HTTP on the controller, and only one of them is something
- * the UI calls: the A2A endpoint a conversation is actually held on. (The others
- * are `/api/health`, `/api/a2a-sandboxes/...`'s sibling handlers,
- * `/api/agentharnesses/{ns}/{name}/acp/` and `/api/mcp`.)
+ * The A2A endpoint remains HTTP because that is the protocol agents expose.
  *
  * The table survives for that one endpoint rather than being inlined into the
  * chat client, because a deployment that routes the rest of the API somewhere
@@ -25,11 +22,7 @@ const defaultEndpoints = {
   /**
    * One agent's A2A endpoint — where a conversation is actually held.
    *
-   * A substrate-declared agent is served under `/a2a-sandboxes/` instead, by a
-   * separate handler that routes the message to the agent's session actor. The
-   * controller keeps the two apart (`APIPathA2A` vs `APIPathA2ASandboxes`,
-   * `httpserver/server.go`), and so does the CLI; a `sandbox` param picks the
-   * same split here.
+   * A `sandbox` param selects the Substrate-backed route.
    */
   "chat.a2a": (p: EndpointParams) =>
     `/${p.sandbox ? "a2a-sandboxes" : "a2a"}/${enc(p.namespace)}/${enc(p.name)}`,

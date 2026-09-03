@@ -205,7 +205,6 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 // This is a workaround for the fact that helm doesn't delete CRDs automatically
 func deleteCRDs(ctx context.Context) error {
 	crds := []string{
-		"sandboxagents.kagent.dev",
 		"modelconfigs.kagent.dev",
 		"toolservers.kagent.dev",
 	}
