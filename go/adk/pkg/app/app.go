@@ -15,6 +15,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -76,12 +77,19 @@ func (i seedTaskInterceptor) Before(ctx context.Context, _ *a2asrv.CallContext, 
 	if !ok || send.Message == nil || send.Message.TaskID == "" {
 		return ctx, nil, nil
 	}
+	storedTask, err := apia2a.TakeStoredTask(send.Message)
+	if err != nil {
+		return ctx, nil, err
+	}
 	if _, err := i.store.Get(ctx, send.Message.TaskID); err == nil {
 		return ctx, nil, nil
 	} else if !errors.Is(err, a2atype.ErrTaskNotFound) {
 		return ctx, nil, fmt.Errorf("load actor task: %w", err)
 	}
-	if _, err := i.store.Create(ctx, a2atype.NewSubmittedTask(send.Message, send.Message)); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
+	if storedTask == nil {
+		storedTask = a2atype.NewSubmittedTask(send.Message, send.Message)
+	}
+	if _, err := i.store.Create(ctx, storedTask); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
 		return ctx, nil, fmt.Errorf("seed actor task: %w", err)
 	}
 	return ctx, nil, nil

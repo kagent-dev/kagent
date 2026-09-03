@@ -40,7 +40,7 @@ on the kagent chart), prefix these keys with `substrate.` — e.g.
 Then install the Substrate platform and kagent:
 
 ```bash
-export SUBSTRATE_VERSION=0.0.20
+export SUBSTRATE_VERSION=0.0.23
 
 helm upgrade --install substrate-crds \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
@@ -56,7 +56,7 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set substrateWorkerPool.create=true \
-  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
+  --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 ```
 
 When `substrateWorkerPool.create=true`, the kagent chart installs a namespace-scoped `WorkerPool` with:

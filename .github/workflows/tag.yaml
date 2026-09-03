@@ -21,10 +21,9 @@ jobs:
           - ui
           - kagent-adk
           - golang-adk
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
-          - acp-sandbox-claude
-    runs-on: ubuntu-latest
+          - claude-harness
+          - codex-harness
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write

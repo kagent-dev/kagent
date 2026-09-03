@@ -8,21 +8,24 @@ import (
 	"net"
 	"time"
 
+	"buf.build/go/protovalidate"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
-	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
-	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -49,15 +52,16 @@ type Config struct {
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
 	AgentService          *agentservice.Service
+	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service
 	SystemService         *systemservice.Service
 	FeedbackService       *feedbackservice.Service
 	MemoryService         *memoryservice.Service
-	SessionService        *sessionservice.Service
-	TaskService           *taskservice.Service
 	AgentInstanceService  *agentinstance.Service
+	CheckpointService     *checkpoint.Service
 	A2AHandler            a2asrv.RequestHandler
 	MethodPolicies        MethodPolicies
 	Listener              net.Listener
@@ -87,6 +91,10 @@ func New(config Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create gRPC metrics: %w", err)
 	}
+	validator, err := protovalidate.New()
+	if err != nil {
+		return nil, fmt.Errorf("create protobuf validator: %w", err)
+	}
 
 	serverOptions := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(config.MaxMessageBytes),
@@ -97,6 +105,7 @@ func New(config Config) (*Server, error) {
 			metrics.unaryInterceptor,
 			recoverUnaryInterceptor,
 			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
@@ -123,6 +132,15 @@ func New(config Config) (*Server, error) {
 	if config.AgentService != nil {
 		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
 	}
+	if config.AgentTemplateService != nil {
+		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
+	}
+	// Registered separately from AgentService on purpose: this serves the
+	// Harness CRD that AgentInstance pairs with an AgentTemplate, not the
+	// AgentHarness CRD that AgentService's *AgentHarness RPCs serve.
+	if config.HarnessService != nil {
+		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
+	}
 	if config.ModelService != nil {
 		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
 	}
@@ -138,14 +156,11 @@ func New(config Config) (*Server, error) {
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
 	}
-	if config.SessionService != nil {
-		apiv1alpha1.RegisterSessionServiceServer(grpcServer, newSessionServer(config.SessionService))
-	}
-	if config.TaskService != nil {
-		apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, newTaskServer(config.TaskService))
-	}
 	if config.AgentInstanceService != nil {
 		agentinstance.RegisterGRPC(grpcServer, config.AgentInstanceService)
+	}
+	if config.CheckpointService != nil {
+		checkpoint.RegisterGRPC(grpcServer, config.CheckpointService)
 	}
 	if config.A2AHandler != nil {
 		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
@@ -162,8 +177,7 @@ func New(config Config) (*Server, error) {
 }
 
 type ShareStore interface {
-	GetSessionShareByToken(context.Context, string) (*dbpkg.SessionShare, error)
-	RecordShareAccess(context.Context, string, int64) error
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {

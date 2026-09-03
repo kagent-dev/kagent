@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 type StreamableHTTPConnectionParams struct {
@@ -453,10 +455,13 @@ type RemoteAgentConfig struct {
 // EmbeddingConfig is the embedding model config for memory tools.
 // JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
 type EmbeddingConfig struct {
-	Provider          string `json:"provider"`
-	Model             string `json:"model"`
-	BaseUrl           string `json:"base_url,omitempty"`
-	APIKeyPassthrough bool   `json:"api_key_passthrough,omitempty"`
+	Provider              string  `json:"provider"`
+	Model                 string  `json:"model"`
+	BaseUrl               string  `json:"base_url,omitempty"`
+	APIKeyPassthrough     bool    `json:"api_key_passthrough,omitempty"`
+	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
+	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas,omitempty"`
 	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
 	// populated for the providers that use the shared azureai client.
 	Endpoint   string `json:"endpoint,omitempty"`
@@ -466,14 +471,17 @@ type EmbeddingConfig struct {
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type              string `json:"type"`
-		Provider          string `json:"provider"`
-		Model             string `json:"model"`
-		BaseUrl           string `json:"base_url"`
-		APIKeyPassthrough bool   `json:"api_key_passthrough"`
-		Endpoint          string `json:"endpoint"`
-		Deployment        string `json:"deployment"`
-		APIVersion        string `json:"api_version"`
+		Type                  string  `json:"type"`
+		Provider              string  `json:"provider"`
+		Model                 string  `json:"model"`
+		BaseUrl               string  `json:"base_url"`
+		APIKeyPassthrough     bool    `json:"api_key_passthrough"`
+		TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify"`
+		TLSCACertPath         *string `json:"tls_ca_cert_path"`
+		TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas"`
+		Endpoint              string  `json:"endpoint"`
+		Deployment            string  `json:"deployment"`
+		APIVersion            string  `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -481,6 +489,9 @@ func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
 	e.APIKeyPassthrough = tmp.APIKeyPassthrough
+	e.TLSInsecureSkipVerify = tmp.TLSInsecureSkipVerify
+	e.TLSCACertPath = tmp.TLSCACertPath
+	e.TLSDisableSystemCAs = tmp.TLSDisableSystemCAs
 	e.Endpoint = tmp.Endpoint
 	e.Deployment = tmp.Deployment
 	e.APIVersion = tmp.APIVersion
@@ -499,39 +510,54 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		return nil
 	}
 	e := &EmbeddingConfig{Provider: m.GetType()}
+	copyTLS := func(base BaseModel) {
+		e.TLSInsecureSkipVerify = base.TLSInsecureSkipVerify
+		e.TLSCACertPath = base.TLSCACertPath
+		e.TLSDisableSystemCAs = base.TLSDisableSystemCAs
+	}
 	switch v := m.(type) {
 	case *OpenAI:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
 		e.APIKeyPassthrough = v.APIKeyPassthrough
+		copyTLS(v.BaseModel)
 	case *AzureOpenAI:
 		e.Model = v.Model
 		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
+		copyTLS(v.BaseModel)
 	case *Anthropic:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	case *GeminiVertexAI:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *GeminiAnthropic:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Ollama:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Gemini:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Bedrock:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	case *Foundry:
 		e.Model = v.Model
 		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
+		copyTLS(v.BaseModel)
 	default:
 		e.Model = ""
 	}
@@ -546,45 +572,6 @@ type MemoryConfig struct {
 
 type NetworkConfig struct {
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
-}
-
-// AgentPluginConfig describes immutable Agent Plugin and standalone skill
-// packages that the runtime must download before starting the agent.
-type AgentPluginConfig struct {
-	Skills  []StandaloneSkill   `json:"skills,omitempty"`
-	Plugins []AgentPluginBundle `json:"plugins,omitempty"`
-}
-
-// StandaloneSkill identifies one independently sourced skill, rather than a
-// skill selected from an Agent Plugin bundle.
-type StandaloneSkill struct {
-	Name   string            `json:"name"`
-	Source AgentPluginSource `json:"source"`
-}
-
-type AgentPluginBundle struct {
-	Source AgentPluginSource `json:"source"`
-	Skills []string          `json:"skills,omitempty"`
-}
-
-type AgentPluginSource struct {
-	OCI  string          `json:"oci,omitempty"`
-	Git  *AgentPluginGit `json:"git,omitempty"`
-	S3   *AgentPluginS3  `json:"s3,omitempty"`
-	Path string          `json:"path,omitempty"`
-}
-
-type AgentPluginGit struct {
-	URL    string `json:"url"`
-	Commit string `json:"commit"`
-}
-
-type AgentPluginS3 struct {
-	Endpoint  string `json:"endpoint"`
-	Bucket    string `json:"bucket"`
-	Key       string `json:"key"`
-	VersionID string `json:"versionId"`
-	Region    string `json:"region,omitempty"`
 }
 
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
@@ -631,20 +618,23 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                  `json:"model"`
-	Description   string                 `json:"description"`
-	Instruction   string                 `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
-	StdioTools    []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
-	Stream        *bool                  `json:"stream,omitempty"`
-	Memory        *MemoryConfig          `json:"memory,omitempty"`
-	Network       *NetworkConfig         `json:"network,omitempty"`
-	AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
-	ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
-	ShareTools    *bool                  `json:"share_tools,omitempty"`
-	SessionDBURL  string                 `json:"session_db_url,omitempty"`
+	Name            string                 `json:"name,omitempty"`
+	Model           Model                  `json:"model"`
+	Description     string                 `json:"description"`
+	Instruction     string                 `json:"instruction"`
+	HttpTools       []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+	SseTools        []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+	StdioTools      []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
+	RemoteAgents    []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+	Stream          *bool                  `json:"stream,omitempty"`
+	Memory          *MemoryConfig          `json:"memory,omitempty"`
+	Network         *NetworkConfig         `json:"network,omitempty"`
+	AgentPlugins    *agentplugin.Resources `json:"agent_plugins,omitempty"`
+	ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
+	ShareTools      *bool                  `json:"share_tools,omitempty"`
+	SessionDBURL    string                 `json:"session_db_url,omitempty"`
+	SkillsDirectory string                 `json:"skills_directory,omitempty"`
+	SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -657,20 +647,23 @@ func (a *AgentConfig) GetStream() bool {
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage        `json:"model"`
-		Description   string                 `json:"description"`
-		Instruction   string                 `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
-		SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
-		StdioTools    []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
-		RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
-		Stream        *bool                  `json:"stream,omitempty"`
-		Memory        json.RawMessage        `json:"memory"`
-		Network       *NetworkConfig         `json:"network,omitempty"`
-		AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
-		ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
-		ShareTools    *bool                  `json:"share_tools,omitempty"`
-		SessionDBURL  string                 `json:"session_db_url,omitempty"`
+		Name            string                 `json:"name,omitempty"`
+		Model           json.RawMessage        `json:"model"`
+		Description     string                 `json:"description"`
+		Instruction     string                 `json:"instruction"`
+		HttpTools       []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+		SseTools        []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+		StdioTools      []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
+		RemoteAgents    []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+		Stream          *bool                  `json:"stream,omitempty"`
+		Memory          json.RawMessage        `json:"memory"`
+		Network         *NetworkConfig         `json:"network,omitempty"`
+		AgentPlugins    *agentplugin.Resources `json:"agent_plugins,omitempty"`
+		ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
+		ShareTools      *bool                  `json:"share_tools,omitempty"`
+		SessionDBURL    string                 `json:"session_db_url,omitempty"`
+		SkillsDirectory string                 `json:"skills_directory,omitempty"`
+		SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -695,6 +688,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		memory = &m
 	}
 
+	a.Name = tmp.Name
 	a.Model = model
 	a.Description = tmp.Description
 	a.Instruction = tmp.Instruction
@@ -709,6 +703,8 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.ContextConfig = tmp.ContextConfig
 	a.ShareTools = tmp.ShareTools
 	a.SessionDBURL = tmp.SessionDBURL
+	a.SkillsDirectory = tmp.SkillsDirectory
+	a.SubAgents = tmp.SubAgents
 	return nil
 }
 

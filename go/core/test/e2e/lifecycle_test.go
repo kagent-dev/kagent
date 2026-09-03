@@ -20,6 +20,7 @@ import (
 // Harness and AgentTemplate fixtures; this test owns only the AgentInstance it
 // creates through the public API.
 func TestAgentInstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	target := os.Getenv("KAGENT_E2E_GRPC_TARGET")
 	if target == "" {
 		target = os.Getenv("KAGENT_GRPC_URL")

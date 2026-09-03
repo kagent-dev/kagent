@@ -74,13 +74,12 @@ The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but use
 - **CrewAIAgentExecutor**: Executes CrewAI workflows within A2A protocol
 - **KAgentApp**: FastAPI application builder with A2A integration
 - **Event Converters**: Translates CrewAI events into A2A events for streaming.
-- **Session-aware Memory**: Custom persistence backend scoped by session ID and user ID, works with Crew and Flow mode by leveraging memory and state persistence.
+- **Task history**: The public A2A gateway persists client-visible task and event history.
 
-Task, memory, and flow-state persistence use one shared authenticated generated gRPC channel. For local development, configure the HTTP endpoint used by protocol traffic and the independent gRPC controller endpoint:
+For local development, configure the HTTP endpoint used by protocol traffic:
 
 ```bash
 export KAGENT_URL=http://localhost:8083
-export KAGENT_GRPC_URL=localhost:8084
 export KAGENT_NAME=my-agent
 export KAGENT_NAMESPACE=default
 ```

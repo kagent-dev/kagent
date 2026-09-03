@@ -6,8 +6,8 @@ ARG TARGETARCH
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
-# Which package to build (e.g. core/cmd/controller/main.go, adk/cmd/main.go)
-ARG BUILD_PACKAGE=core/cmd/controller/main.go
+# Which package to build (e.g. core/cmd/controller-v2/main.go, adk/cmd/main.go)
+ARG BUILD_PACKAGE=core/cmd/controller-v2/main.go
 
 WORKDIR /workspace
 # Copy the Go module manifests
@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
 COPY api/ api/
 COPY core/ core/
 COPY adk/ adk/
+COPY harness/ harness/
 
 # Build
 ARG LDFLAGS

@@ -48,15 +48,23 @@ spec:
               description:
                 type: string
               modelConfig:
-                description: AgentTemplateLocalReference identifies a resource in
-                  the AgentTemplate's namespace.
+                description: ModelConfig is required by managed harnesses and optional
+                  for BYO harnesses.
                 properties:
                   name:
-                    minLength: 1
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                     type: string
-                required:
-                - name
                 type: object
+                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: name must not be empty
+                  rule: has(self.name) && self.name != ''
               plugins:
                 items:
                   description: PluginBundle selects Agent Skills from one immutable
@@ -302,51 +310,73 @@ spec:
                           minLength: 1
                           type: string
                         templateRef:
-                          description: AgentTemplateLocalReference identifies a resource
-                            in the AgentTemplate's namespace.
+                          description: |-
+                            LocalObjectReference contains enough information to let you locate the
+                            referenced object inside the same namespace.
                           properties:
                             name:
-                              minLength: 1
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                               type: string
-                          required:
-                          - name
                           type: object
+                          x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: name must not be empty
+                            rule: has(self.name) && self.name != ''
                       required:
                       - description
                       - name
                       - templateRef
                       type: object
                     mcp:
-                      description: MCPToolBinding selects tools from a same-namespace
+                      description: MCPToolBinding binds tools from a same-namespace
                         MCP server.
                       properties:
                         server:
-                          description: AgentTemplateTypedLocalReference identifies
-                            a typed resource in the AgentTemplate's namespace.
+                          description: |-
+                            TypedLocalObjectReference contains enough information to let you locate the
+                            typed referenced object inside the same namespace.
                           properties:
+                            apiGroup:
+                              description: |-
+                                APIGroup is the group for the resource being referenced.
+                                If APIGroup is not specified, the specified Kind must be in the core API group.
+                                For any other third-party types, APIGroup is required.
+                              type: string
                             kind:
-                              enum:
-                              - RemoteMCPServer
-                              minLength: 1
+                              description: Kind is the type of resource being referenced
                               type: string
                             name:
-                              minLength: 1
+                              description: Name is the name of resource being referenced
                               type: string
                           required:
                           - kind
                           - name
                           type: object
+                          x-kubernetes-map-type: atomic
+                          x-kubernetes-validations:
+                          - message: kind must be RemoteMCPServer
+                            rule: self.kind == 'RemoteMCPServer'
+                          - message: apiGroup must be omitted
+                            rule: '!has(self.apiGroup)'
                         tools:
+                          description: |-
+                            Tools optionally limits which server tools are exposed. An omitted or empty
+                            list exposes every tool. Harnesses that cannot enforce a partial selection
+                            may expose the whole server and report a warning.
                           items:
                             minLength: 1
                             type: string
                           maxItems: 50
-                          minItems: 1
                           type: array
                           x-kubernetes-list-type: set
                       required:
                       - server
-                      - tools
                       type: object
                   type: object
                   x-kubernetes-validations:
@@ -354,8 +384,6 @@ spec:
                     rule: has(self.mcp) != has(self.agent)
                 maxItems: 50
                 type: array
-            required:
-            - modelConfig
             type: object
             x-kubernetes-validations:
             - message: systemPrompt and systemPromptFrom are mutually exclusive
@@ -443,6 +471,15 @@ spec:
                     latestSuccessfulRevision:
                       minLength: 1
                       type: string
+                    warnings:
+                      description: |-
+                        Warnings reports non-blocking compatibility decisions made while compiling
+                        this AgentTemplate for the Harness.
+                      items:
+                        type: string
+                      maxItems: 100
+                      type: array
+                      x-kubernetes-list-type: set
                   required:
                   - desiredRevision
                   - harness

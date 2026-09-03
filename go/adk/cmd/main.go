@@ -20,9 +20,14 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+)
+
+const (
+	defaultPluginPackagesRoot = "/plugins"
+	defaultSkillsRoot         = "/skills"
+	defaultPluginDataRoot     = "/data/plugins"
 )
 
 func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
@@ -93,26 +98,16 @@ func main() {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
 		os.Exit(1)
 	}
-	pluginConfig := agentplugins.MCPConfig{}
-	if agentConfig.AgentPlugins != nil {
-		pluginConfig, err = agentplugins.Materialize(
-			logr.NewContext(context.Background(), logger),
-			*agentConfig.AgentPlugins,
-			agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
-		)
-		if err != nil {
-			logger.Error(err, "Failed to materialize Agent Plugins")
-			os.Exit(1)
-		}
-	}
-	agentConfig.HttpTools = append(agentConfig.HttpTools, pluginConfig.HTTP...)
-	agentConfig.SseTools = append(agentConfig.SseTools, pluginConfig.SSE...)
-	agentConfig.StdioTools = append(agentConfig.StdioTools, pluginConfig.Stdio...)
-	if agentConfig.AgentPlugins != nil {
-		if err := os.Setenv("KAGENT_SKILLS_FOLDER", agentplugins.DefaultSkillsRoot); err != nil {
-			logger.Error(err, "Failed to configure Agent Plugins skills directory")
-			os.Exit(1)
-		}
+	if err := config.MaterializeAgentPlugins(
+		logr.NewContext(context.Background(), logger), agentConfig,
+		config.AgentPluginPaths{
+			Packages: defaultPluginPackagesRoot,
+			Skills:   defaultSkillsRoot,
+			Data:     defaultPluginDataRoot,
+		},
+	); err != nil {
+		logger.Error(err, "Failed to materialize Agent Plugins")
+		os.Exit(1)
 	}
 	logger.Info("Loaded agent config", "configDir", configDir)
 	logger.Info("Agent configuration",

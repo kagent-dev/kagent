@@ -14,14 +14,11 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 )
 
 const (
-	DefaultPluginRoot = "/plugins"
-	DefaultSkillsRoot = "/skills"
-	DefaultDataRoot   = "/data/plugins"
 	maxPackageBytes   = 100 << 20
 	maxPackageEntries = 10_000
 	pluginSchema      = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
@@ -30,71 +27,151 @@ const (
 
 var pluginNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
+// Paths contains the package cache and selected-skill destinations.
 type Paths struct {
-	Plugins string
-	Skills  string
-	Data    string
+	Packages string
+	Skills   string
 }
 
+// Materialization is the runtime-neutral result of materializing Agent Plugin
+// resources. Its plugin package locations remain private to this package.
+type Materialization struct {
+	SkillsDirectory string
+	plugins         []materializedPlugin
+}
+
+// MCPConfig contains MCP servers resolved from materialized plugins.
 type MCPConfig struct {
-	HTTP  []adk.HttpMcpServerConfig
-	SSE   []adk.SseMcpServerConfig
-	Stdio []adk.StdioMcpServerConfig
+	StreamableHTTP []RemoteMCPServer
+	SSE            []RemoteMCPServer
+	Stdio          []StdioMCPServer
 }
 
-func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths) (MCPConfig, error) {
-	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
-		return MCPConfig{}, fmt.Errorf("create skills directory: %w", err)
+// RemoteMCPServer is an HTTP-based MCP server resolved from mcp.json.
+type RemoteMCPServer struct {
+	URL     string
+	Headers map[string]string
+}
+
+// StdioMCPServer is a local MCP server resolved from mcp.json.
+type StdioMCPServer struct {
+	Command string
+	Args    []string
+	Env     map[string]string
+	Dir     string
+}
+
+// MaterializedPlugin is a plugin that has been materialized.
+type materializedPlugin struct {
+	name string
+	root string
+}
+
+// Materialize fetches Agent Plugin resources and copies explicitly selected
+// skills into their runtime directory. It does not load runtime configuration.
+func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
+	plugins, err := materializeResources(ctx, resources, paths)
+	if err != nil {
+		return Materialization{}, err
 	}
-	if err := os.MkdirAll(paths.Plugins, 0o755); err != nil {
-		return MCPConfig{}, fmt.Errorf("create plugins directory: %w", err)
-	}
-	if err := os.MkdirAll(paths.Data, 0o755); err != nil {
+	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+}
+
+// LoadMCP resolves standard MCP configuration from a materialization. The
+// caller chooses the runtime-owned root for mutable plugin data.
+func LoadMCP(ctx context.Context, materialization Materialization, dataRoot string) (MCPConfig, error) {
+	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
 		return MCPConfig{}, fmt.Errorf("create plugin data directory: %w", err)
 	}
-
 	var result MCPConfig
-	for i, skill := range config.Skills {
-		root := filepath.Join(paths.Plugins, fmt.Sprintf("standalone-%d", i))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
-		if err != nil {
-			return MCPConfig{}, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
-		}
-		if err := copySkill(sourceRoot, filepath.Join(paths.Skills, skill.Name)); err != nil {
-			return MCPConfig{}, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
-		}
-	}
-
-	pluginNames := make(map[string]struct{})
-	for i, plugin := range config.Plugins {
-		root := filepath.Join(paths.Plugins, fmt.Sprintf("plugin-%d", i))
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json")
-		if err != nil {
-			return MCPConfig{}, fmt.Errorf("materialize plugin %d: %w", i, err)
-		}
-		manifest, err := loadManifest(pluginRoot)
-		if err != nil {
-			return MCPConfig{}, fmt.Errorf("load plugin %d: %w", i, err)
-		}
-		if _, exists := pluginNames[manifest.Name]; exists {
-			return MCPConfig{}, fmt.Errorf("duplicate plugin name %q", manifest.Name)
-		}
-		pluginNames[manifest.Name] = struct{}{}
-		for _, name := range plugin.Skills {
-			source := filepath.Join(pluginRoot, "skills", name)
-			if err := copySkill(source, filepath.Join(paths.Skills, name)); err != nil {
-				return MCPConfig{}, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
-			}
-		}
-		mcp := loadMCP(ctx, pluginRoot, filepath.Join(paths.Data, manifest.Name))
-		result.HTTP = append(result.HTTP, mcp.HTTP...)
+	for _, plugin := range materialization.plugins {
+		mcp := loadMCP(ctx, plugin.root, filepath.Join(dataRoot, plugin.name))
+		result.StreamableHTTP = append(result.StreamableHTTP, mcp.StreamableHTTP...)
 		result.SSE = append(result.SSE, mcp.SSE...)
 		result.Stdio = append(result.Stdio, mcp.Stdio...)
 	}
 	return result, nil
 }
 
-func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination, requiredFile string) (string, error) {
+func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
+	selectedSkills := make([]string, 0, len(resources.Skills))
+	for _, skill := range resources.Skills {
+		selectedSkills = append(selectedSkills, skill.Name)
+	}
+	for _, plugin := range resources.Plugins {
+		selectedSkills = append(selectedSkills, plugin.Skills...)
+	}
+	if err := validateSkillSelections(selectedSkills); err != nil {
+		return nil, err
+	}
+
+	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
+		return nil, fmt.Errorf("create skills directory: %w", err)
+	}
+	if err := os.MkdirAll(paths.Packages, 0o755); err != nil {
+		return nil, fmt.Errorf("create package directory: %w", err)
+	}
+
+	for i, skill := range resources.Skills {
+		root := filepath.Join(paths.Packages, fmt.Sprintf("standalone-%d", i))
+		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
+		if err != nil {
+			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
+		if err := copySkill(sourceRoot, filepath.Join(paths.Skills, skill.Name)); err != nil {
+			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
+	}
+
+	pluginNames := make(map[string]struct{})
+	plugins := make([]materializedPlugin, 0, len(resources.Plugins))
+	for i, plugin := range resources.Plugins {
+		root := filepath.Join(paths.Packages, fmt.Sprintf("plugin-%d", i))
+		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json")
+		if err != nil {
+			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
+		}
+		manifest, err := loadManifest(pluginRoot)
+		if err != nil {
+			return nil, fmt.Errorf("load plugin %d: %w", i, err)
+		}
+		if _, exists := pluginNames[manifest.Name]; exists {
+			return nil, fmt.Errorf("duplicate plugin name %q", manifest.Name)
+		}
+		pluginNames[manifest.Name] = struct{}{}
+		for _, name := range plugin.Skills {
+			source := filepath.Join(pluginRoot, "skills", name)
+			if err := copySkill(source, filepath.Join(paths.Skills, name)); err != nil {
+				return nil, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
+			}
+		}
+		plugins = append(plugins, materializedPlugin{name: manifest.Name, root: pluginRoot})
+	}
+	return plugins, nil
+}
+
+func validateSkillSelections(names []string) error {
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if err := validateSkillName(name); err != nil {
+			return err
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("duplicate skill name %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
+func validateSkillName(name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
+		return fmt.Errorf("skill name %q must be a single relative path component", name)
+	}
+	return nil
+}
+
+func fetchSource(ctx context.Context, source agentplugin.Source, destination, requiredFile string) (string, error) {
 	selected := 0
 	if source.OCI != "" {
 		selected++
@@ -216,8 +293,22 @@ func containedPath(root, relative string) (string, error) {
 }
 
 func pathWithin(root, path string) bool {
-	relative, err := filepath.Rel(root, path)
+	root = canonicalPath(root)
+	path = canonicalPath(path)
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func canonicalPath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(canonicalPath(parent), filepath.Base(path))
 }
 
 func copySkill(source, destination string) error {
@@ -387,11 +478,11 @@ func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 		}
 		switch server.Type {
 		case "stdio":
-			result.Stdio = append(result.Stdio, adk.StdioMcpServerConfig{Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
+			result.Stdio = append(result.Stdio, StdioMCPServer{Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
 		case "streamable-http":
-			result.HTTP = append(result.HTTP, adk.HttpMcpServerConfig{Params: adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers}})
+			result.StreamableHTTP = append(result.StreamableHTTP, RemoteMCPServer{URL: server.URL, Headers: server.Headers})
 		case "sse":
-			result.SSE = append(result.SSE, adk.SseMcpServerConfig{Params: adk.SseConnectionParams{Url: server.URL, Headers: server.Headers}})
+			result.SSE = append(result.SSE, RemoteMCPServer{URL: server.URL, Headers: server.Headers})
 		}
 	}
 	return result

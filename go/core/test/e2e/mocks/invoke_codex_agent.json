@@ -1,0 +1,74 @@
+{
+  "openai_response": [
+    {
+      "name": "first_codex_request",
+      "match": {
+        "match_type": "contains",
+        "input": "Return exactly CODEX_MOCK_FIRST."
+      },
+      "response": {
+        "id": "resp_codex_mock_first",
+        "object": "response",
+        "created_at": 1677652288,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "msg_codex_mock_first",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "CODEX_MOCK_FIRST",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4,
+          "total_tokens": 14
+        }
+      }
+    },
+    {
+      "name": "resumed_codex_request",
+      "match": {
+        "match_type": "contains",
+        "input": "Return exactly CODEX_MOCK_SECOND."
+      },
+      "response": {
+        "id": "resp_codex_mock_second",
+        "object": "response",
+        "created_at": 1677652289,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "msg_codex_mock_second",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "CODEX_MOCK_SECOND",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 4,
+          "total_tokens": 16
+        }
+      }
+    }
+  ]
+}

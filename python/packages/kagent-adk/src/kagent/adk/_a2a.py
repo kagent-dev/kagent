@@ -10,7 +10,7 @@ import grpc
 from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.request_handlers.grpc_handler import GrpcHandler
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore, TaskStore
+from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
@@ -28,7 +28,6 @@ from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentGrpcServerCallContextBuilder,
     KAgentRequestContextBuilder,
-    KAgentTaskStore,
     attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
@@ -36,7 +35,6 @@ from kagent.core.a2a import (
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
 from ._memory_service import KagentMemoryService
-from ._session_service import KAgentSessionService
 from ._token import KAgentTokenService
 from .types import AgentConfig
 
@@ -116,8 +114,6 @@ class KAgentApp:
             )
             if session_db_url:
                 session_service = DatabaseSessionService(db_url=session_db_url)
-            else:
-                session_service = KAgentSessionService(controller_client)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(
@@ -129,17 +125,6 @@ class KAgentApp:
 
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
-
-            if not local and controller_client is not None and self.agent_config and self.agent_config.share_tools:
-                from kagent.adk.tools.share_tools import CreateShareLinkTool, DeleteShareLinkTool, ListShareLinksTool
-
-                root_agent.tools.extend(
-                    [
-                        CreateShareLinkTool(controller_client),
-                        ListShareLinksTool(controller_client),
-                        DeleteShareLinkTool(controller_client),
-                    ]
-                )
 
             # Build ADK context config objects from agent config
             events_compaction_config: EventsCompactionConfig | None = None
@@ -163,9 +148,7 @@ class KAgentApp:
                 memory_service=memory_service,
             )
 
-        task_store: TaskStore = InMemoryTaskStore()
-        if not local and controller_client is not None:
-            task_store = KAgentTaskStore(controller_client)
+        task_store = InMemoryTaskStore()
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
@@ -218,7 +201,11 @@ class KAgentApp:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            server = await asyncio.start_server(handle, host="::", port=8081)
+            # Every interface on every family, not just IPv6. `host="::"` bound an
+            # IPv6-only socket, so a probe of the actor's IPv4 address was refused —
+            # Substrate dials one, and the harness sat in ResumeGoldenActor until the
+            # golden actor timed out, reporting only "connection refused".
+            server = await asyncio.start_server(handle, host=None, port=8081)
             try:
                 yield
             finally:

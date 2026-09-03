@@ -4,6 +4,7 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 import { file_google_protobuf_struct } from "@bufbuild/protobuf/wkt";
 import type { JsonObject, Message } from "@bufbuild/protobuf";
 
@@ -11,7 +12,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1alpha1/common.proto.
  */
 export const file_kagent_api_v1alpha1_common: GenFile = /*@__PURE__*/
-  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL2NvbW1vbi5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSJdChBTdHJ1Y3R1cmVkT2JqZWN0EhMKC2FwaV92ZXJzaW9uGAEgASgJEgwKBGtpbmQYAiABKAkSJgoFdmFsdWUYAyABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0IjQKEVJlc291cmNlUmVmZXJlbmNlEhEKCW5hbWVzcGFjZRgBIAEoCRIMCgRuYW1lGAIgASgJIjAKC1BhZ2VSZXF1ZXN0Eg0KBWxpbWl0GAEgASgFEhIKCnBhZ2VfdG9rZW4YAiABKAkiJwoMUGFnZVJlc3BvbnNlEhcKD25leHRfcGFnZV90b2tlbhgBIAEoCUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z", [file_google_protobuf_struct]);
+  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL2NvbW1vbi5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSJdChBTdHJ1Y3R1cmVkT2JqZWN0EhMKC2FwaV92ZXJzaW9uGAEgASgJEgwKBGtpbmQYAiABKAkSJgoFdmFsdWUYAyABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0IjQKEVJlc291cmNlUmVmZXJlbmNlEhEKCW5hbWVzcGFjZRgBIAEoCRIMCgRuYW1lGAIgASgJIjsKC1BhZ2VSZXF1ZXN0EhgKBWxpbWl0GAEgASgFQgm6SAYaBBhkKAASEgoKcGFnZV90b2tlbhgCIAEoCSInCgxQYWdlUmVzcG9uc2USFwoPbmV4dF9wYWdlX3Rva2VuGAEgASgJQklaR2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxYWxwaGExO2FwaXYxYWxwaGExYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_struct]);
 
 /**
  * @generated from message kagent.api.v1alpha1.StructuredObject

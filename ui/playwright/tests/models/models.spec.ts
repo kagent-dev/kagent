@@ -1,77 +1,88 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, expectScrolledIntoView } from "../../helpers/page";
+import {
+  dataRows,
+  expectSettled,
+  loadPage,
+  rowNamed,
+  routes,
+  withScenario,
+} from "../../helpers/app";
+import { operationCalls, rpc } from "../../helpers/mockCalls";
 
-// Models / providers — full-CRUD lifecycle journey. Creates a uniquely-named
-// throwaway config (OpenAI + a real catalog model + dummy key), reads it back on
-// the edit page, updates it, then deletes it — never touching a seeded config.
-// Per-item edit/delete controls are scoped by the config ref, so only the config
-// this test created is acted on. Error journeys live in models-errors.spec.ts.
+/**
+ * Models — the reading journey, and the way in to the create form.
+ *
+ * As with agents, the old spec was a create → read → update → delete lifecycle. The
+ * create half runs against a real cluster instead (`live/write/models-create.spec.ts`),
+ * because a form that only ever posts to a fixture proves the fixture. What is covered
+ * here is the list, and that the page offers a way to reach the form — the header's
+ * create menu belongs to the default shell, so a distribution supplying its own layout
+ * does not inherit it, and this button is then the only way in.
+ */
 
-const NAMESPACE = "kagent";
-// A model that exists in the real OpenAI catalog served by /api/models.
-const MODEL_NAME = "gpt-5.4-mini";
+const CONFIGS = [
+  "default-model-config",
+  "anthropic-model-config",
+  "ollama-local",
+  "bedrock-haiku",
+];
 
-test("models: create, read, update, delete", async ({ page }, testInfo) => {
-  const name = `e2e-model-${Date.now().toString(36)}-${testInfo.retry}`;
-  const ref = `${NAMESPACE}/${name}`;
-
-  // region Creating — fill the form and POST a new model config
-  await test.step("creates a model config", async () => {
-    await loadPage(page, "/models/new", { heading: "New Model" });
-
-    // Provider + model are searchable cmdk comboboxes; type to filter, then click.
-    // Option accessible names include icon alt text (e.g. "OpenAI icon OpenAI"), so
-    // anchor the provider match to avoid "AzureOpenAI" and take the first model hit.
-    await page.getByTestId("model-provider-select").click();
-    await page.getByPlaceholder("Search providers...").fill("OpenAI");
-    await page.getByRole("option", { name: /^OpenAI\b/ }).first().click();
-
-    await page.getByTestId("model-select").click();
-    await page.getByPlaceholder("Search models...").fill(MODEL_NAME);
-    await page.getByRole("option").first().click();
-
-    // Override the auto-generated name so it's unique and scoped to this run.
-    await page.locator('[data-test="edit-model-name-button"]').click();
-    await page.getByPlaceholder("Enter model name...").fill(name);
-
-    await page.getByTestId("model-api-key-input").fill("sk-e2e-test-key");
-    await page.getByRole("button", { name: "Create Model" }).click();
-
-    // Verify the create on the actual models list: the new config's row is present
-    // (scrolled into view).
-    await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
+test("models: the list loads and renders each configuration", async ({ page }) => {
+  await test.step("1. a loading state precedes the data", async () => {
+    await page.goto(withScenario(routes.models, "slow"));
+    await expect(page.locator(".ant-spin-spinning")).toBeVisible();
   });
 
-  // region Reading — open the edit page and load the stored config
-  await test.step("reads the config back on its edit page", async () => {
-    await page.getByRole("button", { name: `Edit model ${ref}` }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Edit Model" })).toBeVisible();
+  await test.step("2. every configuration is listed", async () => {
+    for (const name of CONFIGS) {
+      await expect(rowNamed(page, name), `"${name}" is missing`).toHaveCount(1);
+    }
+    await expect(dataRows(page)).toHaveCount(CONFIGS.length);
+    await expectSettled(page);
   });
 
-  // region Updating — rotate the API key and save (PUT)
-  await test.step("updates the config's API key", async () => {
-    // In edit mode only the API key is editable (provider/model/name are locked).
-    // The key is write-only, so it can't be read back; a successful PUT is confirmed
-    // by the redirect to the list with the config still present.
-    await page.getByTestId("model-api-key-input").fill("sk-e2e-rotated-key");
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    // The rotated API key is write-only and never rendered on the list, so a model
-    // update produces no list-visible change. The list-level check is that the
-    // config's row survives the save (scrolled into view); a failed PUT keeps you on
-    // the edit page.
-    await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
+  await test.step("3. each row splits the ref and shows its provider", async () => {
+    // The API returns one `namespace/name` string; the list has to take it apart
+    // to fill two columns, which is the part worth pinning.
+    const openai = rowNamed(page, "default-model-config");
+    await expect(openai).toContainText("kagent");
+    await expect(openai).toContainText("OpenAI");
+    await expect(openai).toContainText("gpt-4.1");
+
+    const ollama = rowNamed(page, "ollama-local");
+    await expect(ollama).toContainText("platform");
+    await expect(ollama).toContainText("Ollama");
+    // No API key secret on a local provider — the column shows a dash, not blank.
+    await expect(ollama).toContainText("—");
   });
 
-  // region Deleting — remove the config and confirm the row is gone
-  await test.step("deletes the config", async () => {
-    await page.getByRole("button", { name: `Delete model ${ref}` }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText("Delete Model")).toBeVisible();
-    await dialog.getByRole("button", { name: "Delete" }).click();
+  await test.step("4. refreshing re-reads the list without disturbing it", async () => {
+    // Operations, not requests: under the substituted transport a working refresh
+    // makes no HTTP request for `page.on("request")` to see.
+    const before = await operationCalls(page, rpc.listModelConfigs);
 
-    // The config's row disappearing from the list is the durable delete signal.
-    await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0);
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect
+      .poll(() => operationCalls(page, rpc.listModelConfigs), { timeout: 10_000 })
+      .toBeGreaterThan(before);
+
+    await expectSettled(page);
+    await expect(dataRows(page)).toHaveCount(CONFIGS.length);
+  });
+
+  await test.step("5. an empty result says so instead of showing a bare table", async () => {
+    await loadPage(page, routes.models, { scenario: "empty", title: "Models" });
+    await expect(page.getByText("No model configurations yet.")).toBeVisible();
+    await expect(dataRows(page)).toHaveCount(0);
+  });
+
+  await test.step("6. the list offers a way to create one", async () => {
+    // From the empty list, which is where somebody most needs it.
+    await page.getByTestId("models-new").click();
+    await page.waitForURL(/\/models\/new(\?|$)/);
+    // A field of the real form, not just the route: `ModelForm` is the same component the
+    // edit page uses, so reaching its provider picker is reaching the thing that can
+    // actually create a model.
+    await expect(page.getByTestId("model-provider")).toBeVisible();
   });
 });

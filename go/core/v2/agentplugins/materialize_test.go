@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 func TestMaterializeGitPlugin(t *testing.T) {
@@ -44,9 +44,16 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	commit := git("rev-parse", "HEAD")
 
 	root := t.TempDir()
-	result, err := Materialize(context.Background(), adk.AgentPluginConfig{Plugins: []adk.AgentPluginBundle{{
-		Source: adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: repository, Commit: commit}}, Skills: []string{"review"},
-	}}}, Paths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")})
+	materialization, err := Materialize(context.Background(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
+	}}}, Paths{
+		Packages: filepath.Join(root, "packages"),
+		Skills:   filepath.Join(root, "skills"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := LoadMCP(context.Background(), materialization, filepath.Join(root, "data"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,25 +71,61 @@ func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+	root, err := fetchSource(context.Background(), agentplugin.Source{Git: &agentplugin.GitSource{
 		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
 	}}, destination, "SKILL.md")
 	if err != nil {
 		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
 	}
-	if root != destination {
-		t.Fatalf("fetchSource() root = %q, want %q", root, destination)
+	if root != canonicalPath(destination) {
+		t.Fatalf("fetchSource() root = %q, want %q", root, canonicalPath(destination))
 	}
 }
 
 func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	destination := t.TempDir()
 
-	_, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+	_, err := fetchSource(context.Background(), agentplugin.Source{Git: &agentplugin.GitSource{
 		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
 	}}, destination, "SKILL.md")
 	if err == nil {
 		t.Fatal("fetchSource() reused incomplete materialization")
+	}
+}
+
+func TestMaterializeCopiesSelectionsWithoutLoadingPluginMCP(t *testing.T) {
+	root := t.TempDir()
+	pluginRoot := filepath.Join(root, "plugins", "plugin-0")
+	if err := os.MkdirAll(filepath.Join(pluginRoot, "skills", "review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
+		"skills/review/SKILL.md": "# Review",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(pluginRoot, filepath.FromSlash(name)), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := Paths{
+		Packages: filepath.Join(root, "plugins"),
+		Skills:   filepath.Join(root, "skills"),
+	}
+	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
+		Skills: []string{"review"},
+	}}}
+	if _, err := Materialize(context.Background(), resources, paths); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md"))
+	if err != nil || string(content) != "# Review" {
+		t.Fatalf("materialized skill = %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "data")); !os.IsNotExist(err) {
+		t.Fatalf("plugin MCP data directory was created: %v", err)
 	}
 }
 
@@ -122,7 +165,7 @@ func TestParseMCPServerSupportsLocalAndRemoteTransports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stdio.Command != command || stdio.Args[0] != "--root="+root || stdio.Env["STATE"] != filepath.Join(data, "state") || stdio.CWD != filepath.Join(data, "work") {
+	if stdio.Command != canonicalPath(command) || stdio.Args[0] != "--root="+root || stdio.Env["STATE"] != filepath.Join(data, "state") || stdio.CWD != filepath.Join(data, "work") {
 		t.Fatalf("stdio server = %#v", stdio)
 	}
 
@@ -193,5 +236,36 @@ func TestCopySkillRejectsSymlinkOutsideSkill(t *testing.T) {
 	}
 	if err := copySkill(source, destination); err == nil {
 		t.Fatal("copySkill() accepted a symlink outside the skill root")
+	}
+}
+
+func TestValidateSkillNameRejectsPathTraversal(t *testing.T) {
+	for _, name := range []string{"../escape", "nested/skill", `nested\skill`, ".", ".."} {
+		if err := validateSkillName(name); err == nil {
+			t.Fatalf("validateSkillName(%q) accepted a path-like name", name)
+		}
+	}
+}
+
+func TestValidateSkillSelectionsRejectsDuplicateNames(t *testing.T) {
+	err := validateSkillSelections([]string{"review", "lint", "review"})
+	if err == nil || !strings.Contains(err.Error(), `duplicate skill name "review"`) {
+		t.Fatalf("validateSkillSelections() error = %v, want duplicate skill error", err)
+	}
+}
+
+func TestPathWithinCanonicalizesRootAliases(t *testing.T) {
+	actualRoot := t.TempDir()
+	child := filepath.Join(actualRoot, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "root-alias")
+	if err := os.Symlink(actualRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pathWithin(alias, child) {
+		t.Fatalf("pathWithin(%q, %q) rejected a path under the aliased root", alias, child)
 	}
 }

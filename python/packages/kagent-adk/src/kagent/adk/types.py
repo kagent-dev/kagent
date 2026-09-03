@@ -371,6 +371,12 @@ class EmbeddingConfig(BaseModel):
     provider: str
     base_url: str | None = None
     api_key_passthrough: bool = False
+    tls_disable_verify: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
+    )
+    tls_ca_cert_path: str | None = None
+    tls_disable_system_cas: bool | None = None
 
 
 class MemoryConfig(BaseModel):

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
@@ -254,28 +255,86 @@ type AgentTemplateHarnessPair struct {
 }
 
 type RuntimeRevision struct {
-	Revision               string
-	Namespace              string
-	AgentTemplateName      string
-	AgentTemplateUID       string
-	HarnessName            string
-	HarnessUID             string
-	SourceSnapshot         json.RawMessage
-	AgentCard              json.RawMessage
-	EgressDestinations     []string
-	ActorTemplateNamespace string
-	ActorTemplateName      string
-	ActorTemplateUID       string
-	Phase                  string
-	GoldenSnapshot         string
+	Revision              string
+	Namespace             string
+	AgentTemplateName     string
+	AgentTemplateUID      string
+	HarnessName           string
+	HarnessUID            string
+	SourceSnapshot        json.RawMessage
+	AgentCard             json.RawMessage
+	EgressDestinations    []string
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUID      string
+}
+
+type ActorTemplateHarness struct {
+	Atespace    string
+	Name        string
+	UID         string
+	HarnessName string
+}
+
+// AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
+// filter on this", so an empty query lists the caller's own instances in the
+// namespace.
+type AgentInstanceQuery struct {
+	Namespace   string
+	UserID      string
+	AllUsers    bool
+	MatchLabels map[string]string
+	// AgentTemplate and Harness name the agent whose conversations are wanted.
+	// They are matched against the (AgentTemplate, Harness) pair the instance's
+	// prepared revision was built from, not against its labels, so they select
+	// instances stored before either field existed.
+	AgentTemplate string
+	Harness       string
+	AfterID       string
+	Limit         int
 }
 
 type AgentInstanceShare struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
-	Creator    string
+	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time
+	// OwnerUserID is the user the shared AgentInstance belongs to.
+	//
+	// Populated only by the token lookup, which joins it in — that is what the
+	// share grants. A visitor is authenticated as themselves and the token widens
+	// what their account may reach to what the *owner* can see, so the instance
+	// read has to run as the owner or it finds nothing.
+	OwnerUserID string
+}
+
+// AgentInstanceTaskSnapshot identifies the immutable Substrate snapshot at a
+// completed A2A turn boundary.
+type AgentInstanceTaskSnapshot struct {
+	Atespace     string
+	Name         string
+	UID          string
+	ContentScope string
+}
+
+type AgentInstanceCheckpoint struct {
+	ID                   uuid.UUID
+	Namespace            string
+	SourceInstanceID     uuid.UUID
+	SourceContextID      uuid.UUID
+	UserID               string
+	RequestID            string
+	HeadTaskID           string
+	HistorySequence      int64
+	SnapshotAtespace     string
+	SnapshotName         string
+	SnapshotUID          string
+	SnapshotContentScope string
+	PreparedRevision     string
+	TagUID               string
+	State                string
+	Failure              string
+	CreatedAt            time.Time
 }

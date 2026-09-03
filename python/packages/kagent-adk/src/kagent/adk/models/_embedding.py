@@ -14,9 +14,11 @@ import logging
 import os
 from typing import Any, List, Optional, Union
 
+import httpx
 import numpy as np
 
 from kagent.adk._bearer_token import bearer_token
+from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.types import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
@@ -158,25 +160,45 @@ class KAgentEmbedding:
         provider = self.config.provider.lower()
         api_key = self._passthrough_api_key()
 
-        if provider == "azure_openai":
-            from openai import AsyncAzureOpenAI
+        http_client = None
+        if self.config.tls_disable_verify or self.config.tls_ca_cert_path or self.config.tls_disable_system_cas:
+            http_client = httpx.AsyncClient(
+                verify=create_ssl_context(
+                    disable_verify=self.config.tls_disable_verify or False,
+                    ca_cert_path=self.config.tls_ca_cert_path,
+                    disable_system_cas=self.config.tls_disable_system_cas or False,
+                )
+            )
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if http_client is not None:
+            client_kwargs["http_client"] = http_client
 
-            api_version = os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
-            api_base = self.config.base_url or os.environ.get("AZURE_OPENAI_ENDPOINT")
-            if not api_base:
-                raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
-            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=api_base, api_key=api_key)
-        else:
-            from openai import AsyncOpenAI
+        client = None
+        try:
+            if provider == "azure_openai":
+                from openai import AsyncAzureOpenAI
 
-            client = AsyncOpenAI(base_url=self.config.base_url or None, api_key=api_key)
+                api_version = os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
+                api_base = self.config.base_url or os.environ.get("AZURE_OPENAI_ENDPOINT")
+                if not api_base:
+                    raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
+                client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=api_base, **client_kwargs)
+            else:
+                from openai import AsyncOpenAI
 
-        response = await client.embeddings.create(
-            model=self.config.model,
-            input=texts,
-            dimensions=self.TARGET_DIMENSION,
-        )
-        return [item.embedding for item in response.data]
+                client = AsyncOpenAI(base_url=self.config.base_url or None, **client_kwargs)
+
+            response = await client.embeddings.create(
+                model=self.config.model,
+                input=texts,
+                dimensions=self.TARGET_DIMENSION,
+            )
+            return [item.embedding for item in response.data]
+        finally:
+            if client is not None:
+                await client.close()
+            elif http_client is not None:
+                await http_client.aclose()
 
     async def _embed_ollama(self, texts: List[str]) -> List[List[float]]:
         """Embed using the Ollama SDK."""
