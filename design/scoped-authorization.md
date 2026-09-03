@@ -6,7 +6,7 @@ Status: Draft
 
 Kagent uses `Authorizer.Check` for resource authorization.
 
-This design adds scoped authorization for `AgentTemplate`, `AgentHarness`, and `ModelConfig` resources.
+This design adds scoped authorization for `AgentTemplate`, `Harness`, and `ModelConfig` resources.
 
 Kagent supplies trusted resource attributes and enforces authorization before it builds a response.
 
@@ -17,10 +17,8 @@ An `Authorizer` implementation defines roles, policies, identity rules, and cata
 | Resource type | Operations | Attributes |
 | --- | --- | --- |
 | `AgentTemplate` | list, get, create, update, delete | `namespace`, `name` |
-| `AgentHarness` | list, get, create, delete | `namespace`, `name` |
+| `Harness` | list, create, delete | `namespace`, `name` |
 | `ModelConfig` | list, get, create, update, delete | `namespace`, `name` |
-
-`ListAgents` returns `SandboxAgent` and `AgentHarness` entries. Catalog authorization applies only to `AgentHarness` entries.
 
 `ListConfiguredProviders` derives entries from the separate `ModelProviderConfig` resource. This design does not change its authorization.
 
@@ -37,9 +35,8 @@ Provider discovery does not return `ModelConfig` resources. This design does not
 ## Non-goals
 
 - This design does not define roles, policies, claims, or catalog keys.
-- This design does not protect `SandboxAgent`, `Harness`, `AgentInstance`, or `ModelProviderConfig` resources.
+- This design does not protect `SandboxAgent`, `AgentHarness`, `AgentInstance`, or `ModelProviderConfig` resources.
 - This design does not protect tool servers or prompt templates.
-- This design does not authorize `AgentHarness` session actor operations.
 - This design does not add SQL or backend expressions to the authorization API.
 
 ## Authorization API
@@ -153,16 +150,6 @@ The current Kubernetes lists do not use server pagination. A complete in-memory 
 
 If a list adds pagination, it must apply the scope before totals, sorting, and pagination.
 
-## Mixed Agent list
-
-`ListAgents` will request one scope for the `AgentHarness` resource type.
-
-The service will apply this scope to each `AgentHarness` entry.
-
-The service will keep `SandboxAgent` entries under their current authorization behavior.
-
-`ScopeNone` will remove all `AgentHarness` entries. It will not remove `SandboxAgent` entries.
-
 ## Default OSS behavior
 
 The default no-op authorizer will return `ScopeAll`.
@@ -183,7 +170,7 @@ Tests must verify trusted attributes for each single-resource operation.
 
 Tests must prove that list filtering occurs before sorting and response construction.
 
-Tests must prove that `ListAgents` filters only `AgentHarness` entries.
+Tests must prove that each protected list requests the correct resource type and filters unauthorized entries.
 
 Tests must verify fail-closed behavior for invalid scopes.
 
@@ -192,7 +179,7 @@ Tests must verify fail-closed behavior for invalid scopes.
 - [x] Add `name` to the shared authorization attributes.
 - [x] Add one Kubernetes scope matcher for `namespace` and `name`.
 - [x] Require `CollectionAuthorizer` for `AgentTemplate` collection operations.
-- [x] Require `CollectionAuthorizer` for `AgentHarness` collection operations.
+- [x] Require `CollectionAuthorizer` for `Harness` collection operations.
 - [x] Require `CollectionAuthorizer` for `ModelConfig` collection operations.
 - [x] Populate trusted attributes for reads and writes.
 - [x] Filter each protected list before response construction.

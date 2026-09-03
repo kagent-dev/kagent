@@ -108,6 +108,38 @@ func TestScopedServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T)
 	}
 }
 
+func TestScopedHarnessServiceFiltersList(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	authorizer := &recordingAuthorizer{scope: auth.AuthorizationScope{
+		Kind: auth.ScopeAnyOf,
+		AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{
+			Attribute: auth.AttributeName,
+			Operator:  auth.ScopeIn,
+			Values:    []string{"allowed"},
+		}}}},
+	}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
+		&v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "denied"}},
+	).Build()
+	service := NewScopedService(kubeClient, authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+	listed, err := service.List(ctx, "team")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].Name != "allowed" {
+		t.Fatalf("List() = %v, want [allowed]", listed)
+	}
+	if authorizer.scopeVerb != auth.VerbList || authorizer.scopeType != "Harness" {
+		t.Fatalf("Scope() = (%q, %q), want (list, Harness)", authorizer.scopeVerb, authorizer.scopeType)
+	}
+}
+
 func TestScopedServiceRejectsInvalidScope(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha3.AddToScheme(scheme); err != nil {

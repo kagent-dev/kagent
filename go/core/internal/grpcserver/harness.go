@@ -25,11 +25,11 @@ const (
 
 type harnessServer struct {
 	apiv1alpha1.UnimplementedHarnessServiceServer
-	service         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
+	service         *kubecrud.ScopedService[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	maxMessageBytes int
 }
 
-func newHarnessServer(service *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList], maxMessageBytes int) *harnessServer {
+func newHarnessServer(service *kubecrud.ScopedService[*v1alpha3.Harness, *v1alpha3.HarnessList], maxMessageBytes int) *harnessServer {
 	return &harnessServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 

@@ -55,11 +55,10 @@ Pass scopes as ordinary function arguments. Do not place policy decisions in req
 
 ## Service integration
 
-- `AgentTemplate` uses `kubecrud.NewScopedService`. The gRPC server accepts the scoped service type, so it cannot be wired with the unscoped constructor accidentally.
-- `AgentHarness` is filtered inside the mixed `agent.Service.List` result. `SandboxAgent` keeps its existing authorization behavior.
+- `AgentTemplate` and `Harness` use `kubecrud.NewScopedService`. Their gRPC servers accept the scoped service type, so they cannot be wired with the unscoped constructor accidentally.
 - `ModelConfig` requests require a `CollectionAuthorizer`; `Service.List` filters the returned Kubernetes list before transport conversion.
 - `ListConfiguredProviders` reads the separate `ModelProviderConfig` resource and remains outside this scope.
-- The unrelated `Harness` resource keeps `kubecrud.NewService` and the existing `Authorizer` behavior.
+- Legacy `AgentHarness` and `SandboxAgent` operations remain outside this scope.
 
 The default OSS no-op authorizer implements `CollectionAuthorizer` and returns `ScopeAll`, preserving current OSS visibility.
 
@@ -79,5 +78,3 @@ Each protected service then needs focused tests proving:
 - single-resource checks receive trusted `namespace` and `name` attributes;
 - updates check both stored and proposed objects;
 - malformed scopes fail closed.
-
-For mixed collections, also prove that the scope removes only the protected resource kind.
