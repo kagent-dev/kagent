@@ -69,7 +69,7 @@ export function FragmentEditor({
               aria-label={`Remove fragment ${index + 1}`}
               danger
               icon={<Trash2 size={14} />}
-              disabled={disabled || rows.length === 1}
+              disabled={disabled || (rows.length === 1 && !row.key && !row.value)}
               onClick={() => remove(row.id)}
             />
           </div>
