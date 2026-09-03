@@ -18,16 +18,6 @@ type A2aContext struct {
 	CreatedAt time.Time
 }
 
-type Agent struct {
-	ID           string
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	DeletedAt    *time.Time
-	Type         string
-	Config       []byte
-	WorkloadType string
-}
-
 type AgentInstance struct {
 	ID                 uuid.UUID
 	Namespace          string
@@ -130,18 +120,6 @@ type CrewaiFlowState struct {
 	UpdatedAt  *time.Time
 	DeletedAt  *time.Time
 	StateData  string
-}
-
-type Feedback struct {
-	ID           int64
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	DeletedAt    *time.Time
-	UserID       string
-	MessageID    *int64
-	IsPositive   bool
-	FeedbackText string
-	IssueType    *string
 }
 
 type LgCheckpoint struct {

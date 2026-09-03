@@ -60,25 +60,6 @@ type UpdateModelConfigRequest struct {
 	Secrets []SecretMaterial         `json:"secrets,omitempty"`
 }
 
-// Session types
-
-// SessionRequest represents a session creation/update request
-type SessionRequest struct {
-	AgentRef *string                 `json:"agent_ref,omitempty"`
-	Name     *string                 `json:"name,omitempty"`
-	ID       *string                 `json:"id,omitempty"`
-	Source   *database.SessionSource `json:"source,omitempty"`
-}
-
-// Run represents a run from the database
-type Task = database.Task
-
-// Message represents a message from the database
-type Message = database.Event
-
-// Session represents a session from the database
-type Session = database.Session
-
 // Tool types
 
 // Tool represents a tool from the database

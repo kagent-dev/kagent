@@ -25,17 +25,11 @@ plugins:
     out: ../python/packages/kagent-proto/src
     types:
       - kagent.api.v1alpha1.MemoryService
-      - kagent.api.v1alpha1.SessionService
-      - kagent.api.v1alpha1.TaskStoreService
   - remote: buf.build/protocolbuffers/pyi:v33.5
     out: ../python/packages/kagent-proto/src
     types:
       - kagent.api.v1alpha1.MemoryService
-      - kagent.api.v1alpha1.SessionService
-      - kagent.api.v1alpha1.TaskStoreService
   - remote: buf.build/grpc/python:v1.83.0
     out: ../python/packages/kagent-proto/src
     types:
       - kagent.api.v1alpha1.MemoryService
-      - kagent.api.v1alpha1.SessionService
-      - kagent.api.v1alpha1.TaskStoreService

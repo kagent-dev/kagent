@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
 )
 
 // NewMockHTTPServer creates a test HTTP server for mocking API responses.
@@ -17,14 +15,6 @@ func NewMockHTTPServer(t *testing.T, handler http.HandlerFunc) *httptest.Server 
 	t.Cleanup(server.Close)
 
 	return server
-}
-
-// MockSessionResponse returns a mock SessionResponse handler.
-func MockSessionResponse(sessions []*api.Session) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(sessions)
-	}
 }
 
 // MockVersionResponse returns a mock version response handler.

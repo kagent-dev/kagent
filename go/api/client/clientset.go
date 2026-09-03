@@ -7,7 +7,6 @@ type ClientSet struct {
 	Health              Health
 	Version             Version
 	ModelConfig         ModelConfigInterface
-	Session             Session
 	Tool                Tool
 	ToolServer          ToolServer
 	ModelProviderConfig ModelProviderConfig
@@ -26,7 +25,6 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 		Health:              NewHealthClient(baseClient),
 		Version:             NewVersionClient(baseClient),
 		ModelConfig:         NewModelConfigClient(baseClient),
-		Session:             NewSessionClient(baseClient),
 		Tool:                NewToolClient(baseClient),
 		ToolServer:          NewToolServerClient(baseClient),
 		ModelProviderConfig: NewModelProviderConfigClient(baseClient),

@@ -6,31 +6,6 @@
 --     DB default or NOT NULL constraint.
 --   - version, write_idx, access_count are BIGINT: GORM maps Go `int` to bigint.
 
-CREATE TABLE IF NOT EXISTS agent (
-    id         TEXT        PRIMARY KEY,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ,
-    deleted_at TIMESTAMPTZ,
-    type       TEXT        NOT NULL,
-    config     JSON
-);
-CREATE INDEX IF NOT EXISTS idx_agent_deleted_at ON agent(deleted_at);
-
-CREATE TABLE IF NOT EXISTS feedback (
-    id            BIGSERIAL   PRIMARY KEY,
-    created_at    TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ,
-    user_id       TEXT        NOT NULL,
-    message_id    BIGINT,
-    is_positive   BOOLEAN     NOT NULL DEFAULT false,
-    feedback_text TEXT        NOT NULL,
-    issue_type    TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_feedback_deleted_at ON feedback(deleted_at);
-CREATE INDEX IF NOT EXISTS idx_feedback_user_id    ON feedback(user_id);
-CREATE INDEX IF NOT EXISTS idx_feedback_message_id ON feedback(message_id);
-
 CREATE TABLE IF NOT EXISTS tool (
     id          TEXT        NOT NULL,
     server_name TEXT        NOT NULL,
