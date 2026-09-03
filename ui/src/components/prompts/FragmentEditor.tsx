@@ -67,6 +67,7 @@ export function FragmentEditor({
             <Button
               data-testid="fragment-remove"
               aria-label={`Remove fragment ${index + 1}`}
+              danger
               icon={<Trash2 size={14} />}
               disabled={disabled}
               onClick={() => remove(row.id)}
