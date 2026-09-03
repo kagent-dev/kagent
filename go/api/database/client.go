@@ -76,6 +76,7 @@ type Client interface {
 	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error
 	UpsertRuntimeRevision(context.Context, RuntimeRevision) error
 	GetRuntimeRevision(context.Context, string) (*RuntimeRevision, error)
+	ListActorTemplateHarnesses(context.Context) ([]ActorTemplateHarness, error)
 	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateHarnessPair) error
 	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error

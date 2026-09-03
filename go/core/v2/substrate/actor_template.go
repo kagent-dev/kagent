@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/v2/translator"
+	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -18,18 +18,10 @@ const (
 	durableDataMount     = "/data"
 )
 
-const (
-	// Revision labels connect the temporary Kubernetes ActorTemplate back to the
-	// public kagent resources and let controller watches find their owner.
-	RevisionAgentTemplateLabel = "kagent.dev/agent-template"
-	RevisionHarnessLabel       = "kagent.dev/harness"
-	RevisionLabel              = "kagent.dev/revision"
-)
-
-// ActorTemplateForRevision constructs the immutable Kubernetes object for a
+// ActorTemplateForRevision constructs the immutable ate-api resource for a
 // compiled revision. It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*atev1alpha1.ActorTemplate, error) {
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*ateapipb.ActorTemplate, error) {
 	if revisionID.IsZero() {
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
@@ -51,44 +43,59 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
 
-	template := &atev1alpha1.ActorTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: spec.Namespace,
-			Name:      name,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "kagent",
-				RevisionAgentTemplateLabel:     spec.AgentTemplateName,
-				RevisionHarnessLabel:           spec.HarnessName,
-				RevisionLabel:                  revisionID.Short(),
-			},
+	template := &ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		// The v2 API intentionally has one default sandbox policy for now.
+		SandboxConfig: &ateapipb.SandboxConfig{
+			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			ConfigName:   "gvisor-default",
 		},
-		Spec: atev1alpha1.ActorTemplateSpec{
-			// The v2 API intentionally has one default sandbox policy for now.
-			SandboxClass: atev1alpha1.SandboxClassGvisor,
-			Containers: []atev1alpha1.Container{{
-				Name:  defaultContainerName,
-				Image: spec.Image,
-				Env:   actorEnv,
-				Readyz: &atev1alpha1.ContainerReadyz{HTTPGet: &atev1alpha1.HTTPGetAction{
-					Path: "/readyz",
-					Port: 8081,
-				}, TimeoutSeconds: 30},
-				VolumeMounts: []atev1alpha1.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}},
-			}},
-			WorkerSelector: workerSelectorForPool(workerKey),
-			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
-				Location: spec.SnapshotLocation,
-				OnPause:  atev1alpha1.SnapshotScopeFull,
-				OnCommit: atev1alpha1.SnapshotScopeData,
-				OnResume: atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot},
-			},
-			Volumes: []atev1alpha1.Volume{{
-				Name:         durableDataVolume,
-				VolumeSource: atev1alpha1.VolumeSource{DurableDir: &atev1alpha1.DurableDirVolumeSource{}},
-			}},
+		Containers: []*ateapipb.Container{{
+			Name:    defaultContainerName,
+			Image:   spec.Image,
+			Command: append([]string(nil), spec.Command...),
+			Args:    append([]string(nil), spec.Args...),
+			Env:     actorEnv,
+			Readyz: &ateapipb.ContainerReadyz{HttpGet: &ateapipb.HTTPGetAction{
+				Path: "/readyz",
+				Port: 8081,
+			}, TimeoutSeconds: 30},
+			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}},
+		}},
+		WorkerSelector: workerSelectorForPool(workerKey),
+		SnapshotsConfig: &ateapipb.SnapshotsConfig{
+			StorageLocation: spec.SnapshotLocation,
+			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
+			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			OnResume:        &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_COLD_BOOT},
 		},
+		Volumes: []*ateapipb.Volume{{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}}},
 	}
 	return template, nil
+}
+
+// ActorTemplateSpecEqual compares the client-owned immutable fields of two
+// templates, excluding server-owned metadata and golden-snapshot status.
+func ActorTemplateSpecEqual(left, right *ateapipb.ActorTemplate) bool {
+	return proto.Equal(actorTemplateSpec(left), actorTemplateSpec(right))
+}
+
+func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate {
+	if template == nil {
+		return nil
+	}
+	return &ateapipb.ActorTemplate{
+		Metadata: &ateapipb.ResourceMetadata{
+			Atespace: template.GetMetadata().GetAtespace(),
+			Name:     template.GetMetadata().GetName(),
+		},
+		WorkerSelector:  template.GetWorkerSelector(),
+		Containers:      template.GetContainers(),
+		Volumes:         template.GetVolumes(),
+		SnapshotsConfig: template.GetSnapshotsConfig(),
+		SandboxConfig:   template.GetSandboxConfig(),
+		Resources:       template.GetResources(),
+	}
 }
 
 func revisionActorTemplateName(agentTemplate, harness string, revision translator.RevisionID) string {
@@ -99,8 +106,8 @@ func revisionActorTemplateName(agentTemplate, harness string, revision translato
 	return base + "-" + revision.Short()
 }
 
-func workerSelectorForPool(pool types.NamespacedName) *metav1.LabelSelector {
-	return &metav1.LabelSelector{MatchLabels: map[string]string{workerPoolLabelKey: pool.Name}}
+func workerSelectorForPool(pool types.NamespacedName) *ateapipb.Selector {
+	return &ateapipb.Selector{MatchLabels: map[string]string{workerPoolLabelKey: pool.Name}}
 }
 
 func truncateDNS1123(value string) string {
@@ -115,10 +122,10 @@ func truncateDNS1123To(value string, limit int) string {
 	return value
 }
 
-func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]atev1alpha1.EnvVar, error) {
+func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar, error) {
 	// Substrate ActorTemplates accept only literal values. The compiler resolves
 	// Secret references before revisions reach this boundary.
-	result := make([]atev1alpha1.EnvVar, 0, len(environment))
+	result := make([]*ateapipb.EnvVar, 0, len(environment))
 	seen := make(map[string]struct{}, len(environment))
 	for _, value := range environment {
 		if value.Name == "" {
@@ -131,7 +138,7 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]atev1alpha1.EnvV
 			continue
 		}
 		seen[value.Name] = struct{}{}
-		result = append(result, atev1alpha1.EnvVar{Name: value.Name, Value: value.Value})
+		result = append(result, &ateapipb.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return result, nil
 }

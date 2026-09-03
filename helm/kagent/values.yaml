@@ -187,9 +187,6 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
-  a2aBaseUrl: ""
   # -- Public gRPC URL advertised by AgentInstance Agent Cards.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
@@ -324,16 +321,12 @@ controller:
   # Extra controller env (mapped to flags via SUBSTRATE_* env names).
   env: []
 
-  # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
-  # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
+  # Agent Substrate. Requires ate-system installed. kagent creates ate-api
+  # ActorTemplates and references an existing Kubernetes WorkerPool.
   substrate:
     enabled: false
     ateApiEndpoint: ""
     atenetRouterURL: ""
-    # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
-    ateApiServer:
-      namespace: ate-system
-      serviceAccount: ate-api-server
     defaultWorkerPool:
       namespace: ""
       name: ""
@@ -376,7 +369,7 @@ substrateWorkerPool:
   create: false
   name: kagent-default
   replicas: 1
-  ateomImage: ""
+  workerImage: ""
   # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
   # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
   sandboxClass: gvisor

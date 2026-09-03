@@ -255,20 +255,25 @@ type AgentTemplateHarnessPair struct {
 }
 
 type RuntimeRevision struct {
-	Revision               string
-	Namespace              string
-	AgentTemplateName      string
-	AgentTemplateUID       string
-	HarnessName            string
-	HarnessUID             string
-	SourceSnapshot         json.RawMessage
-	AgentCard              json.RawMessage
-	EgressDestinations     []string
-	ActorTemplateNamespace string
-	ActorTemplateName      string
-	ActorTemplateUID       string
-	Phase                  string
-	GoldenSnapshot         string
+	Revision              string
+	Namespace             string
+	AgentTemplateName     string
+	AgentTemplateUID      string
+	HarnessName           string
+	HarnessUID            string
+	SourceSnapshot        json.RawMessage
+	AgentCard             json.RawMessage
+	EgressDestinations    []string
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUID      string
+}
+
+type ActorTemplateHarness struct {
+	Atespace    string
+	Name        string
+	UID         string
+	HarnessName string
 }
 
 // AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not

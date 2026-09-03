@@ -6,7 +6,7 @@ Land API v2 through four milestones:
 
 1. Merge #2362 and freeze final CRD/gRPC contracts.
 2. Deliver a usable single-agent vertical slice with the existing kagent runtime.
-3. Add composition, Codex, Claude, UI/CLI/MCP cutover, and remove legacy APIs.
+3. Add composition, Codex, Claude, BYO A2A images, UI/CLI/MCP cutover, and remove legacy APIs.
 4. Add single-member checkpoint/fork using released Substrate snapshot support.
 
 API v2 is not complete until checkpoint/fork and their Substrate dependencies pass E2E coverage.
@@ -22,8 +22,8 @@ Public invariants:
   final state is published; physical Actor suspension does not change a ready
   AgentInstance's logical state.
 - Substrate is the only compute backend.
-- No public scheduling, service-account, Deployment, channel, profile, or BYO fields.
-- V1 release-blocking adapters are kagent, Codex, and Claude.
+- No public scheduling, service-account, Deployment, channel, or profile fields. Arbitrary images remain behind BYO Harness admission.
+- V1 release-blocking adapters are kagent, Codex, Claude, and BYO A2A images.
 
 ## PR dependency graph
 
@@ -42,17 +42,18 @@ K0 #2362
 
 K3 + K4 + K8 ─┬─ K14 Codex adapter
                └─ K15 Claude adapter
+K3 + K10 ───────── K15A BYO A2A adapter
 
 Substrate v0.0.20 snapshots + snapshot-sourced actors ─ K16 dependency adoption
 K6 + K10 + K16 ─ K17 checkpoints ─ K18 fork
 
-K12 + K13 + K14 + K15 + K18 ─ K19 legacy removal ─ K20 release conformance
+K12 + K13 + K14 + K15 + K15A + K18 ─ K19 legacy removal ─ K20 release conformance
 
-S0 ate-api ActorTemplate/ActorTemplateVersion ────────────┐
-K3 + K5 ─────────────────────────────────────┴─ K5A backing-resource cutover (when ready)
+S0 ate-api ActorTemplate resources ───────────────────────┐
+K3 + K5 ─────────────────────────────────────┴─ K5A backing-resource cutover
 ```
 
-K7 and K8 can run in parallel after K3. The external Substrate track can run alongside all kagent work. K3 and K5 initially use Substrate's existing Kubernetes `ActorTemplate` API; adoption of the future ate-api `ActorTemplate`/`ActorTemplateVersion` resources is a later, isolated cutover.
+K7 and K8 can run in parallel after K3. The external Substrate track can run alongside all kagent work. K3 and K5 initially use Substrate's Kubernetes `ActorTemplate` API; K5A replaces that temporary bridge with Substrate's database-backed ate-api `ActorTemplate` resource.
 
 ## PRs
 
@@ -175,18 +176,22 @@ Deletion fences interaction, deletes owned Actors, releases its prepared-revisio
 
 Start with single-member prepared revisions; K9 extends the same state machine to multiple members without changing the public API.
 
-### K5A — Adopt ate-api ActorTemplate versions when available
+### K5A — Adopt ate-api ActorTemplate resources 🚧
 
-After Substrate ships the stable ate-api ActorTemplate, immutable ActorTemplateVersion, exact-version Actor creation, and required credential handling:
+Substrate models each immutable prepared runtime as one uniquely named, Atespace-owned `ActorTemplate`; there is no separate `ActorTemplateVersion` resource. The template's metadata version is an optimistic-concurrency version that advances as Substrate records golden-snapshot status, not a selectable runtime version.
 
-- Replace K3's Kubernetes ActorTemplate creation and watches with one stable ate-api ActorTemplate per attachment and one immutable ActorTemplateVersion per prepared revision.
-- Use the Kubernetes namespace as the Atespace, leave the ActorTemplate default version unset, and select the fixed `gvisor-default` SandboxConfig.
-- Replace K5's Kubernetes template reference with the exact prepared ActorTemplateVersion reference.
-- Keep the compiler boundary, prepared-revision semantics and retention rules, latest-successful selection, and public APIs unchanged; replace only the stored backing-resource identity and its provisioning path.
-- Require existing AgentInstances to be recreated during the cutover. Do not add dual-write, backfill, or a legacy compatibility path.
-- Delete the Kubernetes ActorTemplate bridge in the same cutover.
+- Preserve the compiler, prepared-revision digest and deterministic template name. Translate each revision directly into one ate-api `ActorTemplate`.
+- Use the Kubernetes namespace as the Atespace, ensure that Atespace exists before template creation, and select the fixed `gvisor-default` SandboxConfig.
+- Resolve credentials before this boundary and send literal environment values. Do not grant ate-api access to kagent Secret or ConfigMap sources.
+- Replace the Kubernetes ActorTemplate informer and write client with ate-api create/get/delete calls. Since ate-api has no template watch, poll only non-terminal templates until `golden_snapshot` is present or `error_message` reports failure.
+- Store the stable template Atespace, name, and server-assigned UID on the prepared revision. Do not persist Substrate's mutable resource version or duplicate golden-snapshot status.
+- Create Actors with `Actor.actor_template` set to the exact prepared template `ObjectRef`; stop populating the legacy Kubernetes template namespace/name fields.
+- Keep prepared-revision retention, latest-successful selection, AgentInstance/checkpoint/fork behavior, and public APIs unchanged.
+- Require existing AgentInstances to be recreated. Do not add dual-write, backfill, or a legacy compatibility path.
+- Delete the Kubernetes ActorTemplate construction, collection, reconciliation, diagnostics, and RBAC bridge in the same cutover. WorkerPool remains a Kubernetes resource.
+- Delete each unreferenced template and its golden Actor. Until Substrate implements that documented behavior, the kagent adapter deletes `ate-golden/<template UID>` explicitly; snapshot reclamation remains Substrate GC's responsibility.
 
-This step is intentionally not on the critical path for the initial vertical slice.
+Completion requires clean-install preparation, lifecycle, checkpoint, fork, conflict, failed-golden, and unreferenced-revision cleanup coverage against ate-api resources.
 
 ### K6 — Suspend, resume, and failure reconciliation
 
@@ -320,7 +325,7 @@ CLI:
 - Apply Harness and AgentTemplate manifests.
 - Create/list/get/suspend/resume/delete AgentInstances through gRPC.
 - Invoke and follow Tasks through upstream A2A.
-- Remove SandboxAgent, AgentHarness, Deployment, BYO, session, and ACP branches.
+- Remove SandboxAgent, AgentHarness, Deployment, legacy Agent BYO, session, and ACP branches.
 
 MCP:
 
@@ -365,6 +370,19 @@ Implement the third release-blocking adapter:
 - Preserve conversations, workspace, MCP handles, and adapter state in DurableDir.
 - Map Claude output, tool calls, approvals, cancellation, and failures to the private upstream A2A service.
 - Publish only capabilities proven by the conformance suite.
+
+### K15A — BYO A2A Harness adapter
+
+Allow users with Harness write access to supply a digest-pinned image that implements the private A2A runtime contract:
+
+- Add a typed `byo` Harness variant. Keep the image, command, args, environment, credentials, WorkerPool, snapshot policy, and admission selector on the Harness; do not put arbitrary images on AgentTemplate. Command and args are generic workload fields; BYO requires an explicit command because Substrate does not use the image entrypoint.
+- Require A2A v1 gRPC through the standard Actor ingress, streaming, `/readyz` on port 8081, and durable private state under `/data`. Keep ports, routing, Actor identity, and Substrate mechanics fixed and private.
+- Make AgentTemplate model, prompt, tools, skills, and plugins optional for BYO attachments. Compile every provided field into the existing ADK `AgentConfig` shape and inject it through `KAGENT_CONFIG_JSON` with the generated card in `KAGENT_AGENT_CARD_JSON`; a BYO image may consume that configuration or ignore it.
+- Extract the shared ADK-config construction into a semantic helper used by the kagent and BYO compilers. Do not create a second configuration format or make either compiler depend on the other.
+- Keep the public Agent Card derived from the pinned AgentTemplate revision and gateway capabilities. Do not wake the Actor or trust runtime-provided interfaces, security, or routing metadata to construct it.
+- Infer egress destinations from configured models and MCP servers. Do not expose image-owned egress configuration until its policy model is designed.
+- Preserve the existing AgentInstance lifecycle, automatic suspension, checkpoint, fork, authorization, task persistence, and public A2A gateway without BYO-specific branches outside compilation.
+- Cover an opaque A2A image that ignores ADK configuration and an ADK-config-aware image that consumes optional model, prompt, MCP, skill, and plugin inputs. Exercise send/stream, cancellation, suspension, checkpoint, fork, credential redaction, and egress denial in Kind.
 
 ### S1 — Upstream Substrate immutable ActorSnapshot API ✅
 
@@ -448,7 +466,7 @@ No automatic migration of legacy Sessions or live SandboxAgents is provided. Alp
 
 Enable blocking clean-install coverage:
 
-- kagent, Codex, and Claude Harnesses.
+- kagent, Codex, Claude, and BYO A2A Harnesses.
 - Prompt/model/MCP/skills/plugins.
 - Shared tools.
 - Create idempotency and controller restart at each provisioning step.
@@ -488,15 +506,15 @@ K7 and K8 should branch from K3 and avoid editing each other’s source-specific
 ## Milestone gates
 
 - Preview 1: K0–K6 — single kagent AgentTemplate can prepare, instantiate, chat, suspend, resume, and delete through final APIs.
-- Preview 2: K7–K8 and K10–K15 — full configuration, Shared composition, Codex, Claude, UI, CLI, and MCP behavior.
+- Preview 2: K7–K8 and K10–K15A — full configuration, Shared composition, Codex, Claude, BYO A2A, UI, CLI, and MCP behavior.
 - Release candidate: S1–S2 and K16–K19 — checkpoint/fork complete and legacy surface deleted.
-- API v2 complete: K20 passes with all three release-blocking adapters and Substrate E2E.
+- API v2 complete: K20 passes with all four release-blocking adapters and Substrate E2E.
 
 ## Deliberate exclusions
 
 - No AgentHost, HostedAgent, shared Actors, managed native profiles, or channels.
 - No OpenClaw or Hermes release requirement.
-- No BYO/fallback runtime.
+- No externally hosted BYO agent or non-Substrate fallback runtime.
 - No cross-namespace references.
 - No multiple conversations or parallel Tasks per AgentInstance.
 - No template inheritance, BaseContext, shared-store, or filesystem CRDs.

@@ -47,6 +47,28 @@ func (c *Client) ListWorkers(ctx context.Context) ([]*ateapipb.Worker, error) {
 	return resp.GetWorkers(), nil
 }
 
+// ListActorTemplates returns all templates in an atespace, following pagination.
+func (c *Client) ListActorTemplates(ctx context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
+	if c == nil {
+		return nil, nil
+	}
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	var templates []*ateapipb.ActorTemplate
+	pageToken := ""
+	for {
+		resp, err := c.ControlClient.ListActorTemplates(ctx, &ateapipb.ListActorTemplatesRequest{Atespace: atespace, PageToken: pageToken})
+		if err != nil {
+			return nil, err
+		}
+		templates = append(templates, resp.GetActorTemplates()...)
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return templates, nil
+		}
+	}
+}
+
 // ActorStatusLabel returns a stable human-readable actor status.
 func ActorStatusLabel(status ateapipb.ActorState) string {
 	switch status {

@@ -47,7 +47,6 @@ export interface SubstrateActorTemplateEntry {
   sandboxClass?: string;
   workerSelector?: string;
   harnessName?: string;
-  managedByKagent: boolean;
 }
 
 /** Runtime actor state, from ate-api rather than from Kubernetes. */

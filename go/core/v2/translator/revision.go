@@ -24,6 +24,14 @@ func (id RevisionID) Short() string { return hex.EncodeToString(id[:shortRevisio
 // IsZero reports whether compilation has not produced an identity.
 func (id RevisionID) IsZero() bool { return id == RevisionID{} }
 
+// CompileResult contains one immutable runtime revision and the non-blocking
+// diagnostics produced while compiling it. Diagnostics are deliberately kept
+// outside Revision because they do not describe runtime behavior.
+type CompileResult struct {
+	Revision
+	Warnings []string
+}
+
 // Revision is the resolved runtime configuration for one immutable revision.
 type Revision struct {
 	// These fields identify the public attachment that produced the revision.
@@ -33,6 +41,8 @@ type Revision struct {
 
 	// Image and Environment describe the runtime container.
 	Image       string
+	Command     []string
+	Args        []string
 	Environment []corev1.EnvVar
 	// ConfigJSON and AgentCardJSON are injected into that container verbatim.
 	ConfigJSON    []byte
@@ -47,9 +57,6 @@ type Revision struct {
 	Provenance json.RawMessage
 	// EgressDestinations is the hostname allowlist required by this revision.
 	EgressDestinations []string
-	// Warnings are non-blocking compilation diagnostics. They are deliberately
-	// excluded from Digest because they do not change runtime behavior.
-	Warnings []string
 }
 
 // Digest returns the immutable identity of every input that affects runtime
@@ -61,6 +68,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentTemplateName  string          `json:"agentTemplateName"`
 		HarnessName        string          `json:"harnessName"`
 		Image              string          `json:"image"`
+		Command            []string        `json:"command,omitempty"`
+		Args               []string        `json:"args,omitempty"`
 		Environment        []corev1.EnvVar `json:"environment"`
 		ConfigJSON         json.RawMessage `json:"config"`
 		AgentCardJSON      json.RawMessage `json:"agentCard"`
@@ -70,7 +79,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		EgressDestinations []string        `json:"egressDestinations"`
 	}{
 		Namespace: r.Namespace, AgentTemplateName: r.AgentTemplateName, HarnessName: r.HarnessName,
-		Image: r.Image, Environment: r.Environment, ConfigJSON: r.ConfigJSON, AgentCardJSON: r.AgentCardJSON,
+		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON, AgentCardJSON: r.AgentCardJSON,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		EgressDestinations: r.EgressDestinations,
 	})

@@ -104,13 +104,13 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
-		actor, err = w.actors.CreateActor(ctx, atespace, name, revision.ActorTemplateNamespace, revision.ActorTemplateName)
+		actor, err = w.actors.CreateActor(ctx, atespace, name, revision.ActorTemplateAtespace, revision.ActorTemplateName)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure Actor %s/%s: %w", atespace, name, err)
 	}
-	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
-		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplateNamespace(), actor.GetActorTemplateName())
+	if !usesActorTemplate(actor, revision) {
+		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
 	}
 	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))
 	if err != nil {
@@ -138,13 +138,13 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActorFromSnapshotTag(ctx, atespace, name,
-			revision.ActorTemplateNamespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
+			revision.ActorTemplateAtespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure fork Actor %s/%s: %w", atespace, name, err)
 	}
-	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
-		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplateNamespace(), actor.GetActorTemplateName())
+	if !usesActorTemplate(actor, revision) {
+		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
 	}
 	if !proto.Equal(actor.GetSourceSnapshotTag(), tag) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot tag", atespace, name)
@@ -243,8 +243,8 @@ func (w *ActorWorkflow) lifecycleActor(ctx context.Context, instance *apiv1alpha
 	if err != nil {
 		return nil, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
 	}
-	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
-		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplateNamespace(), actor.GetActorTemplateName())
+	if !usesActorTemplate(actor, revision) {
+		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
 	}
 	return actor, nil
 }
@@ -340,7 +340,7 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 	if err != nil {
 		return nil, w.release(ctx, instance, originalState, claimed, fmt.Errorf("get Actor %s/%s for deletion: %w", atespace, name, err))
 	}
-	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
+	if !usesActorTemplate(actor, revision) {
 		return nil, w.release(ctx, instance, originalState, claimed, fmt.Errorf("refuse to delete Actor %s/%s: ActorTemplate changed", atespace, name))
 	}
 	// Substrate's suspend and delete RPCs each run their workflows to
@@ -375,3 +375,8 @@ func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.
 }
 
 func actorName(instanceID string) string { return "ai-" + strings.ToLower(instanceID) }
+
+func usesActorTemplate(actor *ateapipb.Actor, revision *dbpkg.RuntimeRevision) bool {
+	ref := actor.GetActorTemplate()
+	return ref.GetAtespace() == revision.ActorTemplateAtespace && ref.GetName() == revision.ActorTemplateName
+}
