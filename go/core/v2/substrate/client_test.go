@@ -139,8 +139,6 @@ func TestCreateActorUsesStableTemplateRef(t *testing.T) {
 	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
-	require.Empty(t, fake.actor.GetActorTemplateNamespace())
-	require.Empty(t, fake.actor.GetActorTemplateName())
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {

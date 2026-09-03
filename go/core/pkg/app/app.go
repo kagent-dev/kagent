@@ -16,7 +16,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,15 +84,6 @@ type Options struct {
 	// alongside core's: two managers means two caches of the same objects and a
 	// second leader election to keep consistent with the first.
 	SetupWithManager func(manager.Manager) error
-	// HTTPMiddleware wraps the HTTP handler, outermost first. It runs before
-	// routing, and therefore before the authentication core applies to its own
-	// endpoints -- which is the only order in which middleware can mark a
-	// request that the authenticator then reads.
-	HTTPMiddleware []func(http.Handler) http.Handler
-	// Routes registers additional HTTP endpoints. It runs after core has
-	// registered its own, so a more specific pattern wins over core's "/"
-	// without core having to know the library consumer's paths.
-	Routes func(*http.ServeMux)
 	// ExtraMigrations are applied after the built-in tracks, in the order
 	// given. A library consumer that owns tables uses this rather than migrating
 	// separately, so that one run leaves the database wholly at one version.
@@ -330,13 +320,7 @@ func Run(ctx context.Context, opts Options) error {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
-	if opts.Routes != nil {
-		opts.Routes(mux)
-	}
-	// Applied outside the mux, so it runs before routing and therefore before
-	// the authentication core applies to its own endpoints.
-	handler := chain(mux, opts.HTTPMiddleware)
-	health := &http.Server{Addr: env("HTTP_BIND_ADDRESS", ":8083"), Handler: server.WebHandlerOr(handler)}
+	health := &http.Server{Addr: env("HTTP_BIND_ADDRESS", ":8083"), Handler: server.WebHandlerOr(mux)}
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return runtime.Start(ctx) })
 	group.Go(func() error { return manager.Start(ctx) })
@@ -369,16 +353,6 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 		merged[method] = access
 	}
 	return merged, nil
-}
-
-// chain wraps handler in middleware, outermost first: chain(h, {a, b}) calls a,
-// then b, then h. Wrapping runs backwards so that the slice reads in the order
-// the request travels, which is the order a caller writes it in.
-func chain(handler http.Handler, middleware []func(http.Handler) http.Handler) http.Handler {
-	for _, wrap := range slices.Backward(middleware) {
-		handler = wrap(handler)
-	}
-	return handler
 }
 
 func env(name, fallback string) string {

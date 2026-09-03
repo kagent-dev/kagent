@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"testing"
@@ -101,45 +100,6 @@ func TestNamespaceCache(t *testing.T) {
 	}
 	if _, ok := got["team-b"]; !ok {
 		t.Fatal("namespaceCache() missing team-b")
-	}
-}
-
-func TestChainOrder(t *testing.T) {
-	var order []string
-	mark := func(name string) func(http.Handler) http.Handler {
-		return func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				order = append(order, name)
-				next.ServeHTTP(w, r)
-			})
-		}
-	}
-	inner := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		order = append(order, "handler")
-	})
-
-	tests := []struct {
-		name       string
-		middleware []func(http.Handler) http.Handler
-		want       []string
-	}{
-		{name: "no middleware reaches the handler", want: []string{"handler"}},
-		{
-			name:       "first in the slice runs first",
-			middleware: []func(http.Handler) http.Handler{mark("a"), mark("b")},
-			want:       []string{"a", "b", "handler"},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			order = nil
-			chain(inner, test.middleware).ServeHTTP(
-				httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
-			if !reflect.DeepEqual(order, test.want) {
-				t.Errorf("order = %v, want %v", order, test.want)
-			}
-		})
 	}
 }
 
