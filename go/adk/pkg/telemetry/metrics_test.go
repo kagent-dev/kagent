@@ -9,8 +9,38 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
-// TestRecordTokenUsage_RecordsHistogram verifies input/output token counts are
-// recorded as two separate series on the gen_ai_client_token_usage histogram.
+// TestRecordTokenUsage_RecordsCachedSeries verifies that a positive cached
+// token count is recorded as a gen_ai_token_type="cached" series when the
+// metric pipeline is enabled.
+func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	tokenUsage.Reset()
+
+	RecordTokenUsage(TokenUsage{
+		RequestModel: "gpt-4o", Provider: "openai", CachedTokens: 30,
+	})
+
+	body := serveMetrics(t)
+	if !strings.Contains(body, "gen_ai_token_type=\"cached\"") {
+		t.Fatalf("expected a cached series when CachedTokens > 0")
+	}
+}
+
+func TestRecordTokenUsage_SkipsNonPositiveCached(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	tokenUsage.Reset()
+
+	// Zero cached tokens emits no cached series.
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", CachedTokens: 0, InputTokens: 10})
+	// Negative cached tokens also emit no cached series.
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", CachedTokens: -5, InputTokens: 10})
+
+	body := serveMetrics(t)
+	if strings.Contains(body, "gen_ai_token_type=\"cached\"") {
+		t.Fatalf("expected no cached series for non-positive CachedTokens")
+	}
+}
+
 func TestRecordTokenUsage_RecordsHistogram(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
 	tokenUsage.Reset()

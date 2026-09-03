@@ -116,6 +116,7 @@ func recordTokenUsage(modelName, providerName, agentName string, adkEvent *adkse
 		ErrorType:     adkEvent.ErrorCode,
 		InputTokens:   int64(um.PromptTokenCount),
 		OutputTokens:  int64(um.CandidatesTokenCount) + int64(um.ThoughtsTokenCount),
+		CachedTokens:  int64(um.CachedContentTokenCount),
 	})
 }
 
