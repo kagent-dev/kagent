@@ -12,13 +12,14 @@ import (
 // eventTranslator validates one turn's native identities and normalizes the
 // pinned App Server notification vocabulary into runtime events.
 type eventTranslator struct {
-	threadID string
-	turnID   string
-	tools    map[string]string
+	threadID  string
+	turnID    string
+	tools     map[string]string
+	approvals map[string][]string
 }
 
 func newEventTranslator(threadID, turnID string) *eventTranslator {
-	return &eventTranslator{threadID: threadID, turnID: turnID, tools: make(map[string]string)}
+	return &eventTranslator{threadID: threadID, turnID: turnID, tools: make(map[string]string), approvals: make(map[string][]string)}
 }
 
 func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) (runtime.Outcome, bool, error) {
@@ -105,6 +106,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		return nil
 	}
 	name := ""
+	approvalServer := ""
 	var arguments map[string]any
 	result := map[string]any{"status": item.Status}
 	switch item.Type {
@@ -119,6 +121,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		result["changes"] = boundValue(item.Changes)
 	case "mcpToolCall":
 		name, arguments = item.Server+"."+item.Tool, map[string]any{"arguments": boundValue(item.Arguments)}
+		approvalServer = item.Server
 		result["result"], result["error"] = boundValue(item.Result), boundValue(item.Error)
 	case "collabAgentToolCall":
 		name, arguments = "Agent", map[string]any{"prompt": bounded(item.Prompt), "tool": item.Tool}
@@ -130,6 +133,9 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 			return fmt.Errorf("codex tool item %q started more than once", item.ID)
 		}
 		t.tools[item.ID] = name
+		if approvalServer != "" {
+			t.approvals[approvalServer] = append(t.approvals[approvalServer], item.ID)
+		}
 		return sink.ToolCall(runtime.ToolCall{ID: item.ID, Name: name, Arguments: arguments})
 	}
 	startedName, exists := t.tools[item.ID]
@@ -158,6 +164,19 @@ func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
 		delete(t.tools, id)
 	}
 	return nil
+}
+
+func (t *eventTranslator) approvalTool(server string) (string, string, error) {
+	queue := t.approvals[server]
+	for len(queue) != 0 {
+		id := queue[0]
+		queue = queue[1:]
+		t.approvals[server] = queue
+		if name, active := t.tools[id]; active {
+			return id, name, nil
+		}
+	}
+	return "", "", fmt.Errorf("codex requested approval without an active tool for server %q", server)
 }
 
 func rejectBufferedPostTerminalActivity(frames <-chan rpcFrame) error {

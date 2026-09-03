@@ -21,7 +21,7 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	cfg.Provider = config.Provider{Name: "openai", BaseURL: "https://gateway.example.com/v1"}
 	cfg.Agents = map[string]config.Agent{"reviewer": {Description: "Review carefully", Instruction: "Inspect \"all\" changes", Model: "gpt-5.2-codex"}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {
-		URL: "https://mcp.example.com/mcp", Headers: map[string]string{"X-Tenant": "test", "Authorization": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}, EnabledTools: []string{"read"},
+		URL: "https://mcp.example.com/mcp", Headers: map[string]string{"X-Tenant": "test", "Authorization": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}, EnabledTools: []string{"read"}, RequireApproval: true,
 	}}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
@@ -56,7 +56,10 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if native.ModelProvider != "kagent-openai" || provider.WireAPI != "responses" || provider.EnvKey != "OPENAI_API_KEY" || provider.BaseURL != cfg.Provider.BaseURL {
 		t.Fatalf("generated provider configuration = %#v, provider name = %q", provider, native.ModelProvider)
 	}
-	if server.EnvHTTPHeaders["Authorization"] != "KAGENT_CODEX_MCP_CREDENTIAL_ABC" || server.HTTPHeaders["X-Tenant"] != "test" || len(server.EnabledTools) != 1 || server.EnabledTools[0] != "read" {
+	if !native.Features.DefaultModeRequestUserInput {
+		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
+	}
+	if native.ApprovalPolicy != "never" || server.DefaultToolsApprovalMode != "prompt" || server.EnvHTTPHeaders["Authorization"] != "KAGENT_CODEX_MCP_CREDENTIAL_ABC" || server.HTTPHeaders["X-Tenant"] != "test" || len(server.EnabledTools) != 1 || server.EnabledTools[0] != "read" {
 		t.Fatalf("generated MCP server configuration = %#v", server)
 	}
 	if agent.Description != "Review carefully" || agent.ConfigFile != agentPath {
@@ -122,10 +125,21 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	if _, err := New(context.Background(), Input{ConfigJSON: raw, Workspace: filepath.Join(durable, "workspace"), DurableDir: durable, Environment: os.Environ()}); err != nil {
 		t.Fatal(err)
 	}
+	codexHome := filepath.Join(durable, "codex")
+	environment := append(os.Environ(), "CODEX_HOME="+codexHome, "OPENAI_API_KEY=test", "AWS_REGION=us-east-1", "AWS_BEARER_TOKEN_BEDROCK=test")
+	featuresCommand := exec.Command(executable, "features", "list")
+	featuresCommand.Env = environment
+	featuresOutput, err := featuresCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("list features from generated Codex config: %v: %s", err, featuresOutput)
+	}
+	if !featureEnabled(featuresOutput, "default_mode_request_user_input") {
+		t.Fatalf("default-mode request_user_input feature is not enabled:\n%s", featuresOutput)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, "app-server", "--strict-config", "--stdio")
-	command.Env = append(os.Environ(), "CODEX_HOME="+filepath.Join(durable, "codex"), "OPENAI_API_KEY=test", "AWS_REGION=us-east-1", "AWS_BEARER_TOKEN_BEDROCK=test")
+	command.Env = environment
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -160,4 +174,14 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	_ = stdin.Close()
 	_ = command.Process.Kill()
 	_ = command.Wait()
+}
+
+func featureEnabled(output []byte, name string) bool {
+	for line := range strings.Lines(string(output)) {
+		fields := strings.Fields(line)
+		if len(fields) > 1 && fields[0] == name && fields[len(fields)-1] == "true" {
+			return true
+		}
+	}
+	return false
 }
