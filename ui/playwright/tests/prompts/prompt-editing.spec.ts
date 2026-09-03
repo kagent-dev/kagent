@@ -222,10 +222,15 @@ test("prompt libraries: the create form is the same form, and refuses the same t
     await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
     await page.getByRole("button", { name: "Keep editing" }).click();
     await expect(page).toHaveURL(/\/prompts\/new$/);
+    // Waited out rather than assumed gone: a field filled while the dialog is still
+    // closing can be re-rendered back to its previous value by the state change that
+    // closes it, which is a race in this test and not something a reader can hit.
+    await expect(page.getByTestId("prompt-discard-body")).toBeHidden();
   });
 
   await test.step("a filled-in library is created and appears on the list", async () => {
     await page.getByTestId("prompt-name").fill("release-notes");
+    await expect(page.getByTestId("prompt-name")).toHaveValue("release-notes");
     await page.getByTestId("fragment-key").first().fill("changelog");
     await page.getByTestId("fragment-value").first().fill("Group by user impact.");
     await page.getByTestId("prompt-submit").click();

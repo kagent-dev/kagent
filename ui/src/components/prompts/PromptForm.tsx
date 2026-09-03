@@ -151,28 +151,11 @@ export function PromptForm({
       size="middle"
       css={{ display: "flex", maxWidth: 720 }}
     >
+      {/* Name before namespace, as every other authoring form in the app has it. The
+          namespace arrives filled in with a default and is usually left alone; the
+          name is the empty field the reader came to fill, and leading with the
+          pre-filled one puts a box to tab past in front of it. */}
       <Form layout="vertical" component="div">
-        <Form.Item
-          label="Namespace"
-          required={!identityLocked}
-          validateStatus={
-            checkIdentity && !draft.namespace.trim() ? "error" : undefined
-          }
-          help={
-            checkIdentity && !draft.namespace.trim()
-              ? "A namespace is required."
-              : undefined
-          }
-        >
-          <Input
-            data-testid="prompt-namespace"
-            placeholder="kagent"
-            value={draft.namespace}
-            disabled={identityLocked}
-            onChange={(event) => update({ namespace: event.target.value })}
-          />
-        </Form.Item>
-
         <Form.Item
           label="Name"
           required={!identityLocked}
@@ -192,6 +175,27 @@ export function PromptForm({
             disabled={identityLocked}
             onChange={(event) => update({ name: event.target.value })}
             css={{ fontFamily: theme.font.mono }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          label="Namespace"
+          required={!identityLocked}
+          validateStatus={
+            checkIdentity && !draft.namespace.trim() ? "error" : undefined
+          }
+          help={
+            checkIdentity && !draft.namespace.trim()
+              ? "A namespace is required."
+              : undefined
+          }
+        >
+          <Input
+            data-testid="prompt-namespace"
+            placeholder="kagent"
+            value={draft.namespace}
+            disabled={identityLocked}
+            onChange={(event) => update({ namespace: event.target.value })}
           />
         </Form.Item>
       </Form>
