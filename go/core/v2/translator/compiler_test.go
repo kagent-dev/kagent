@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"github.com/stretchr/testify/require"
@@ -372,6 +373,94 @@ func TestCompileAgentTemplateSharedAgent(t *testing.T) {
 	require.Contains(t, revision.EgressDestinations, "search.example.com")
 	require.Contains(t, revision.EgressDestinations, "ghcr.io")
 	require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
+}
+
+// KAGENT_TRACE_CONTEXT_KEYS and KAGENT_TRACE_CONTEXT_HASH_KEY are not OTEL_
+// variables, so OtelEnvFromProcess does not carry them and they need
+// forwarding of their own. They are also operator policy, so a Harness must
+// not be able to widen, enable, or supply the HMAC key.
+func TestCompileAgentTemplateForwardsTraceContextPolicy(t *testing.T) {
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}},
+	}
+	harnessSupplied := "tenant.supplied"
+
+	tests := []struct {
+		name       string
+		keys       string
+		hashKey    string
+		harnessEnv []v1alpha3.HarnessEnvVar
+		wantKeys   string
+		wantHash   string
+	}{
+		{name: "absent when unconfigured"},
+		{name: "keys forwarded when configured", keys: "sub,thread_id", wantKeys: "sub,thread_id"},
+		{
+			name:     "hash key forwarded when configured",
+			keys:     `[{"from":"sub","to":"user.id"}]`,
+			hashKey:  "test-hmac-key",
+			wantKeys: `[{"from":"sub","to":"user.id"}]`,
+			wantHash: "test-hmac-key",
+		},
+		{
+			name:       "harness cannot widen the allowlist",
+			keys:       "sub",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
+			wantKeys:   "sub",
+		},
+		{
+			name:       "harness cannot enable promotion",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextKeys.Name(), Value: &harnessSupplied}},
+		},
+		{
+			name:       "harness cannot supply the HMAC key",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextHashKey.Name(), Value: &harnessSupplied}},
+		},
+		{
+			name:       "harness cannot replace the HMAC key",
+			hashKey:    "operator-hmac-key",
+			harnessEnv: []v1alpha3.HarnessEnvVar{{Name: env.KagentTraceContextHashKey.Name(), Value: &harnessSupplied}},
+			wantHash:   "operator-hmac-key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(env.KagentTraceContextKeys.Name(), tt.keys)
+			t.Setenv(env.KagentTraceContextHashKey.Name(), tt.hashKey)
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+				Spec: v1alpha3.HarnessSpec{
+					Kagent:                &v1alpha3.KagentHarness{},
+					AllowedAgentTemplates: &v1alpha3.HarnessAgentTemplateAdmission{Selector: metav1.LabelSelector{}},
+					Workload:              v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Substrate: v1alpha3.HarnessSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+					},
+					Env: tt.harnessEnv,
+				},
+			}
+
+			revision, err := compiler(t, modelConfig()).CompileAgentTemplate(context.Background(), harness, template)
+			require.NoError(t, err)
+
+			gotKeys, seenKeys := "", 0
+			gotHash, seenHash := "", 0
+			for _, variable := range revision.Environment {
+				switch variable.Name {
+				case env.KagentTraceContextKeys.Name():
+					gotKeys, seenKeys = variable.Value, seenKeys+1
+				case env.KagentTraceContextHashKey.Name():
+					gotHash, seenHash = variable.Value, seenHash+1
+				}
+			}
+			require.LessOrEqual(t, seenKeys, 1, "environment must not contain a duplicate keys entry")
+			require.LessOrEqual(t, seenHash, 1, "environment must not contain a duplicate hash key entry")
+			require.Equal(t, tt.wantKeys, gotKeys)
+			require.Equal(t, tt.wantHash, gotHash)
+		})
+	}
 }
 
 func TestCompileAgentTemplateRejectsInvalidSharedTrees(t *testing.T) {

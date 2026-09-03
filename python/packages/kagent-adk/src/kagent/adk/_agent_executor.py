@@ -34,6 +34,7 @@ from kagent.core.a2a import (
     hitl_activated,
     now_timestamp,
 )
+from kagent.core.tracing import merge_caller_context_attributes
 from kagent.core.tracing._span_processor import clear_kagent_span_attributes, set_kagent_span_attributes
 from pydantic import BaseModel
 
@@ -131,6 +132,10 @@ class A2aAgentExecutor(AgentExecutor):
                 "gen_ai.task.id": context.task_id,
                 "gen_ai.conversation.id": run_request.session_id,
             }
+            # Allowlisted caller context joins the request-scoped bag rather
+            # than a single span, so tool, sub-agent, and model spans all
+            # carry it. Fill-if-absent so a caller cannot override kagent.user_id.
+            merge_caller_context_attributes(span_attributes, message=context.message)
             context_token = set_kagent_span_attributes(
                 {key: value for key, value in span_attributes.items() if value is not None}
             )

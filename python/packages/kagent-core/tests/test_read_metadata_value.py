@@ -1,6 +1,31 @@
 import pytest
+from a2a.types import Message, Role
 
-from kagent.core.a2a import read_metadata_value
+from kagent.core.a2a import read_message_metadata, read_metadata_value
+
+
+class TestReadMessageMetadata:
+    """Tests for decoding a Message's protobuf Struct metadata."""
+
+    def test_returns_empty_dict_for_none_message(self):
+        assert read_message_metadata(None) == {}
+
+    def test_returns_empty_dict_when_metadata_unset(self):
+        assert read_message_metadata(Message(role=Role.ROLE_USER, message_id="m")) == {}
+
+    def test_decodes_scalar_and_nested_values(self):
+        message = Message(
+            role=Role.ROLE_USER,
+            message_id="m",
+            metadata={"thread_id": "T1", "attempt": 3, "flags": {"dry_run": True}},
+        )
+
+        assert read_message_metadata(message) == {
+            "thread_id": "T1",
+            # protobuf Struct stores every number as a double.
+            "attempt": 3.0,
+            "flags": {"dry_run": True},
+        }
 
 
 class TestReadMetadataValue:

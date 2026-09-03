@@ -73,6 +73,13 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
+	// Which caller-supplied context reaches traces is cluster-wide operator
+	// policy, so a Harness must be able to neither widen nor enable it. Dropping
+	// any inherited entry before applying the operator's value is what makes that
+	// hold when the operator has configured nothing at all. The HMAC key is the
+	// same class of policy: a tenant must not supply it.
+	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
+	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextHashKey)
 	environment = append(environment, v2translator.OtelEnvFromProcess()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
@@ -113,4 +120,15 @@ func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
 		}}},
 		Skills: []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
 	}
+}
+
+func applyOperatorOnlyEnv(values []corev1.EnvVar, variable env.StringVar) []corev1.EnvVar {
+	name := variable.Name()
+	values = slices.DeleteFunc(values, func(item corev1.EnvVar) bool {
+		return item.Name == name
+	})
+	if value := variable.Get(); value != "" {
+		values = append(values, corev1.EnvVar{Name: name, Value: value})
+	}
+	return values
 }

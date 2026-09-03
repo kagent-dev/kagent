@@ -814,3 +814,59 @@ tests:
           content:
             name: METRICS_BIND_ADDRESS
             value: "0"
+
+  - it: should omit KAGENT_TRACE_CONTEXT_KEYS by default
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.KAGENT_TRACE_CONTEXT_KEYS
+
+  - it: should join otel.tracing.contextKeys into KAGENT_TRACE_CONTEXT_KEYS
+    template: controller-configmap.yaml
+    set:
+      otel.tracing.contextKeys:
+        - sub
+        - thread_id
+        - channel
+    asserts:
+      - equal:
+          path: data.KAGENT_TRACE_CONTEXT_KEYS
+          value: "sub,thread_id,channel"
+
+  - it: should encode contextKeys mappings as JSON
+    template: controller-configmap.yaml
+    set:
+      otel.tracing.contextKeys:
+        - from: sub
+          to: user.id
+        - from: thread_id
+          to: session.id
+        - channel
+    asserts:
+      - equal:
+          path: data.KAGENT_TRACE_CONTEXT_KEYS
+          value: '[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"session.id"},"channel"]'
+
+  - it: should omit KAGENT_TRACE_CONTEXT_HASH_KEY by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_TRACE_CONTEXT_HASH_KEY
+
+  - it: should inject KAGENT_TRACE_CONTEXT_HASH_KEY from the configured secret
+    template: controller-deployment.yaml
+    set:
+      otel.tracing.contextHashKeySecret:
+        name: trace-context-hmac
+        key: hmac-key
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_TRACE_CONTEXT_HASH_KEY
+            valueFrom:
+              secretKeyRef:
+                name: trace-context-hmac
+                key: hmac-key

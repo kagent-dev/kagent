@@ -19,6 +19,9 @@ data:
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
   OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
+  {{- with .Values.otel.tracing.contextKeys }}
+  KAGENT_TRACE_CONTEXT_KEYS: {{ include "kagent.traceContextKeys" . | quote }}
+  {{- end }}
   {{- $tracesEndpoint := .Values.otel.tracing.exporter.otlp.endpoint }}
   {{- $logsEndpoint := .Values.otel.logging.exporter.otlp.endpoint }}
   {{- if and $tracesEndpoint $logsEndpoint (eq $tracesEndpoint $logsEndpoint) }}

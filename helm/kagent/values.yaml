@@ -841,6 +841,30 @@ oauth2-proxy:
 otel:
   tracing:
     enabled: false
+    # Allowlist of caller-supplied context keys promoted onto every agent span.
+    # Values are read from W3C baggage and A2A message metadata. Empty (the
+    # default) disables promotion.
+    #
+    # Entries may be a source key or a mapping. Prefer an opaque identifier
+    # such as an OIDC subject for user.id; do not put names or email addresses
+    # on spans. Registry names (user.id, user.hash, enduser.id, session.id)
+    # are left unprefixed; everything else is emitted as kagent.context.<name>.
+    #
+    #   contextKeys:
+    #     - {from: sub, to: user.id}
+    #     - thread_id
+    #     - channel
+    #
+    # To derive a stable identifier without putting the original value on the
+    # span, set hash: hmac-sha256 and provide contextHashKeySecret:
+    #     - {from: email, to: user.hash, hash: hmac-sha256}
+    contextKeys: []
+    # Secret providing KAGENT_TRACE_CONTEXT_HASH_KEY for hash: hmac-sha256
+    # mappings. Injected into the controller and forwarded to agent runtimes.
+    # A Harness cannot set or replace it.
+    contextHashKeySecret:
+      name: ""
+      key: hmac-key
     exporter:
       otlp:
         endpoint: ""

@@ -43,6 +43,7 @@ from kagent.core.a2a import (
     require_ask_user_response,
     require_tool_approval_response,
 )
+from kagent.core.tracing import merge_caller_context_attributes
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -540,5 +541,10 @@ def _convert_a2a_request_to_span_attributes(
 
     if request.task_id:
         span_attributes["gen_ai.task.id"] = request.task_id
+
+    # Allowlisted caller context joins the request-scoped bag rather than a
+    # single span, so tool, sub-agent, and model spans all carry it.
+    # Fill-if-absent so a caller cannot override kagent.user_id.
+    merge_caller_context_attributes(span_attributes, message=request.message)
 
     return span_attributes

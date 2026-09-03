@@ -261,3 +261,20 @@ imagePullSecrets:
 {{- toYaml $global | nindent 2 }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Serialize otel.tracing.contextKeys for KAGENT_TRACE_CONTEXT_KEYS.
+A list of strings is joined with commas; any mapping entry is emitted as JSON
+so {from, to, hash} objects survive into the runtime allowlist parser.
+*/}}
+{{- define "kagent.traceContextKeys" -}}
+{{- $needsJSON := false -}}
+{{- range . -}}
+{{- if kindIs "map" . -}}{{- $needsJSON = true -}}{{- end -}}
+{{- end -}}
+{{- if $needsJSON -}}
+{{- . | toJson -}}
+{{- else -}}
+{{- join "," . -}}
+{{- end -}}
+{{- end -}}
