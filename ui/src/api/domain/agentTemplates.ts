@@ -170,6 +170,9 @@ export interface AgentTemplate {
 
   description: string;
 
+  canUpdate?: boolean;
+  canDelete?: boolean;
+
   /**
    * The harnesses that will accept this template, by name, within its namespace.
    *

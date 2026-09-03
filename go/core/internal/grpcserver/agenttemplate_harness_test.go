@@ -165,6 +165,9 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	if len(listed.GetAgentTemplates()) != 2 {
 		t.Fatalf("ListAgentTemplates() count = %d, want 2", len(listed.GetAgentTemplates()))
 	}
+	if !listed.GetCanCreate() || !listed.GetAgentTemplates()[0].GetCanUpdate() || !listed.GetAgentTemplates()[0].GetCanDelete() {
+		t.Fatal("ListAgentTemplates() did not report no-op authorizer capabilities")
+	}
 	if name := listed.GetAgentTemplates()[0].GetRef().GetName(); name != "a-created" {
 		t.Fatalf("ListAgentTemplates()[0] = %q, want a-created first", name)
 	}
@@ -242,6 +245,9 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	}
 	if len(listed.GetHarnesses()) != 2 {
 		t.Fatalf("ListHarnesses() count = %d, want 2", len(listed.GetHarnesses()))
+	}
+	if !listed.GetCanCreate() || !listed.GetHarnesses()[0].GetCanDelete() {
+		t.Fatal("ListHarnesses() did not report no-op authorizer capabilities")
 	}
 	if !listed.GetHarnesses()[1].GetReady() {
 		t.Fatal("ListHarnesses()[1].ready = false, want the Ready condition reflected")

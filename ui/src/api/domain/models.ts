@@ -102,6 +102,8 @@ export interface ModelConfigSpec {
 export interface ModelConfig {
   ref: string;
   spec: ModelConfigSpec;
+  canUpdate?: boolean;
+  canDelete?: boolean;
 }
 
 /** A model provider the backend knows how to configure. */

@@ -12,6 +12,8 @@ Kagent supplies trusted resource attributes and enforces authorization before it
 
 An `Authorizer` implementation defines roles, policies, identity rules, and catalog keys.
 
+The protected RPC responses will also report the actions that the caller can use.
+
 ## Initial scope
 
 | Resource type | Operations | Attributes |
@@ -112,6 +114,18 @@ The initial protected attributes, `namespace` and `name`, are always present and
 
 The scope contains no SQL, Kubernetes field paths, policy types, or backend expressions.
 
+## Response capabilities
+
+Each protected list response will include `can_create`.
+
+Each returned `AgentTemplate` and `ModelConfig` will include `can_update` and `can_delete`.
+
+Each returned `Harness` will include `can_delete` because the service has no update RPC.
+
+Kagent will calculate these fields from `AuthorizationScope` values for each action.
+
+The fields help a client control its actions. They do not replace authorization on an RPC.
+
 ## Single-resource enforcement
 
 For a read, the service will load the stored resource before authorization.
@@ -185,6 +199,7 @@ Tests must verify fail-closed behavior for invalid scopes.
 - [x] Populate trusted attributes for reads and writes.
 - [x] Filter each protected list before response construction.
 - [x] Add focused service and matcher tests.
+- [x] Add action capabilities to the protected RPC responses.
 
 ## Alternatives
 

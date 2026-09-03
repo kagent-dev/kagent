@@ -27,6 +27,8 @@ export interface Harness {
   namespace: string;
   name: string;
 
+  canDelete?: boolean;
+
   /**
    * The adapter the spec selects.
    *

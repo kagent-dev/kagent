@@ -3,7 +3,7 @@ import { Alert, Button, Card, Form, Input, Select, Space, Typography } from "ant
 import { useTheme } from "@emotion/react";
 import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { apiClient, useNamespaces } from "@/api";
+import { apiClient, useHarnesses, useNamespaces } from "@/api";
 import {
   HARNESS_ADAPTERS,
   HARNESS_IMAGE_PATTERN,
@@ -38,6 +38,7 @@ export function HarnessNewPage() {
   const namespaces = useNamespaces();
 
   const [namespace, setNamespace] = useState<string>();
+  const harnesses = useHarnesses(namespace);
   const [name, setName] = useState("");
   const [adapter, setAdapter] = useState<HarnessAdapter>("kagent");
   const [image, setImage] = useState("");
@@ -234,7 +235,7 @@ export function HarnessNewPage() {
               type="primary"
               data-testid="harness-create"
               loading={saving}
-              disabled={!ready}
+              disabled={!harnesses.canCreate || !ready}
               onClick={() => void create()}
             >
               Create harness

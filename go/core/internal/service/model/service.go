@@ -65,7 +65,7 @@ func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, 
 }
 
 func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfigList, error) {
-	scope, err := s.scope(ctx, "ModelConfig")
+	scope, err := s.Scope(ctx, auth.VerbList)
 	if err != nil {
 		return nil, err
 	}
@@ -269,12 +269,12 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (*v1alpha3.
 	return modelConfig, nil
 }
 
-func (s *Service) scope(ctx context.Context, resourceType string) (auth.AuthorizationScope, error) {
+func (s *Service) Scope(ctx context.Context, verb auth.Verb) (auth.AuthorizationScope, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
 		return auth.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
-	scope, err := s.authorizer.Scope(ctx, session.Principal(), auth.VerbList, resourceType)
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, "ModelConfig")
 	if err != nil {
 		return auth.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}

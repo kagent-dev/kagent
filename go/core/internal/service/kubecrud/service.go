@@ -46,7 +46,7 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	if namespace == "" {
 		return nil, serviceerrors.NewInvalidArgument("namespace is required", nil)
 	}
-	scope, err := s.scope(ctx)
+	scope, err := s.Scope(ctx, auth.VerbList)
 	if err != nil {
 		return nil, err
 	}
@@ -156,12 +156,12 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 	return nil
 }
 
-func (s *Service[T, L]) scope(ctx context.Context) (auth.AuthorizationScope, error) {
+func (s *Service[T, L]) Scope(ctx context.Context, verb auth.Verb) (auth.AuthorizationScope, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
 		return auth.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
-	scope, err := s.authorizer.Scope(ctx, session.Principal(), auth.VerbList, s.resource)
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, s.resource)
 	if err != nil {
 		return auth.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}

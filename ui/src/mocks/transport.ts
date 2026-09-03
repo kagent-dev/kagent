@@ -501,6 +501,8 @@ function modelMessage(model: ModelConfig) {
   const ref = splitRef(model.ref);
   return {
     ref,
+    canUpdate: true,
+    canDelete: true,
     resource: structured("ModelConfig", {
       apiVersion: "kagent.dev/v1alpha3",
       kind: "ModelConfig",
@@ -516,6 +518,7 @@ const specOf = (resource: { value?: JsonObject } | undefined) =>
 
 on(ModelService.method.listModelConfigs, (_input, call) => ({
   modelConfigs: call.scenario === "empty" ? [] : allModels().map(modelMessage),
+  canCreate: true,
 }));
 
 on(ModelService.method.getModelConfig, (input, call) => {
@@ -1222,7 +1225,7 @@ const instanceShareMessage = (share: AgentInstanceShare) => ({
 // ---------------------------------------------------------------------------
 
 on(HarnessService.method.listHarnesses, (input, call) => {
-  if (call.scenario === "empty") return { harnesses: [] };
+  if (call.scenario === "empty") return { harnesses: [], canCreate: true };
   const scope = input.namespace.trim();
   return {
     harnesses: allHarnesses()
@@ -1233,7 +1236,9 @@ on(HarnessService.method.listHarnesses, (input, call) => {
         runtime: harness.runtime,
         workloadImage: harness.workloadImage,
         ready: harness.ready,
+        canDelete: true,
       })),
+    canCreate: true,
   };
 });
 
@@ -1243,6 +1248,8 @@ const agentTemplateMessage = (template: AgentTemplate) => ({
   modelConfigRef: refPair(template.modelConfigRef),
   description: template.description,
   admittingHarnesses: template.admittingHarnesses,
+  canUpdate: true,
+  canDelete: true,
 });
 
 /** The template at this ref, or the controller's own `NotFound`. */
@@ -1331,12 +1338,13 @@ function templateFromResource(
 }
 
 on(AgentTemplateService.method.listAgentTemplates, (input, call) => {
-  if (call.scenario === "empty") return { agentTemplates: [] };
+  if (call.scenario === "empty") return { agentTemplates: [], canCreate: true };
   const scope = input.namespace.trim();
   return {
     agentTemplates: allAgentTemplates()
       .filter((template) => scope === "" || template.namespace === scope)
       .map(agentTemplateMessage),
+    canCreate: true,
   };
 });
 
@@ -1398,6 +1406,7 @@ on(HarnessService.method.createHarness, (input, call) => {
       runtime: saved.runtime,
       workloadImage: saved.workloadImage,
       ready: saved.ready,
+      canDelete: true,
     },
   };
 });
