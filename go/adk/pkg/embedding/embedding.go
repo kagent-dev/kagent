@@ -98,9 +98,13 @@ type openAIProvider struct {
 
 func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
+	httpClient, err := embeddingHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 	opts := []option.RequestOption{
 		option.WithAPIKey(apiKey),
-		option.WithHTTPClient(defaultProviderHTTPClient()),
+		option.WithHTTPClient(httpClient),
 	}
 	if cfg.BaseUrl != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseUrl))
@@ -182,12 +186,16 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 	if deployment == "" {
 		deployment = cfg.Model
 	}
+	httpClient, err := embeddingHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	clientCfg := azureai.ClientConfig{
 		Endpoint:   endpoint,
 		Deployment: deployment,
 		APIVersion: apiVersion,
-		HTTPClient: defaultProviderHTTPClient(),
+		HTTPClient: httpClient,
 	}
 	// Implicit auth mirrors NewAzureOpenAIModelWithLogger: the incoming bearer
 	// token when APIKeyPassthrough is enabled (a placeholder Api-Key is
@@ -236,9 +244,13 @@ func newOllamaProvider(cfg *adk.EmbeddingConfig) (*ollamaProvider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid Ollama host URL %q: %w", host, err)
 	}
+	httpClient, err := embeddingHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &ollamaProvider{
 		config: cfg,
-		client: api.NewClient(baseURL, defaultProviderHTTPClient()),
+		client: api.NewClient(baseURL, httpClient),
 	}, nil
 }
 
@@ -359,8 +371,14 @@ type bedrockEmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func defaultProviderHTTPClient() *http.Client {
-	return &http.Client{Timeout: 5 * time.Minute}
+func embeddingHTTPClient(cfg *adk.EmbeddingConfig) (*http.Client, error) {
+	timeout := int((5 * time.Minute) / time.Second)
+	return models.BuildHTTPClient(models.TransportConfig{
+		TLSInsecureSkipVerify: cfg.TLSInsecureSkipVerify,
+		TLSCACertPath:         cfg.TLSCACertPath,
+		TLSDisableSystemCAs:   cfg.TLSDisableSystemCAs,
+		Timeout:               &timeout,
+	})
 }
 
 func processEmbeddings(log logr.Logger, embeddings [][]float32, provider string) ([][]float32, error) {
@@ -427,12 +445,16 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 	if deployment == "" {
 		return nil, fmt.Errorf("deployment is required for Foundry embeddings")
 	}
+	httpClient, err := embeddingHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	clientCfg := azureai.ClientConfig{
 		Endpoint:   endpoint,
 		Deployment: deployment,
 		APIVersion: apiVersion,
-		HTTPClient: defaultProviderHTTPClient(),
+		HTTPClient: httpClient,
 	}
 	// See newAzureOpenAIProvider - the passthrough placeholder short-circuits
 	// past DefaultAzureCredential resolution the same way it does for chat.

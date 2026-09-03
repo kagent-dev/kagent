@@ -26,6 +26,7 @@ const (
 )
 
 func TestMCPAgentInstanceInteraction(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	endpoint := mcpEndpoint(t)
 
@@ -71,6 +72,7 @@ func TestMCPAgentInstanceInteraction(t *testing.T) {
 }
 
 func TestMCPAskUserContinuation(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
 	endpoint := mcpEndpoint(t)
 	handle := mcpInvoke(t, endpoint, fixture.instanceID, "Which database should we use for storage?", true)["taskId"].(string)
@@ -95,6 +97,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 }
 
 func TestMCPCancelTask(t *testing.T) {
+	t.Parallel()
 	modelURL, started := startBlockingInteractionMock(t)
 	fixture := newInteractionFixture(t, interactionTarget(t), modelURL)
 	endpoint := mcpEndpoint(t)
@@ -109,6 +112,7 @@ func TestMCPCancelTask(t *testing.T) {
 }
 
 func TestMCPCheckpointFork(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	endpoint := mcpEndpoint(t)
 	if result := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false); result["resultType"] != "complete" {

@@ -42,6 +42,8 @@ import (
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
+	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
@@ -68,7 +70,6 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
 	logLevel := zapcore.InfoLevel
 	if value := os.Getenv("ZAP_LOG_LEVEL"); value != "" {
 		if err := logLevel.Set(value); err != nil {
@@ -76,6 +77,19 @@ func main() {
 		}
 	}
 	ctrl.SetLogger(zap.New(zap.Level(logLevel)))
+	// otelgrpc snapshots the global TracerProvider and propagator when its handler
+	// is constructed, so tracing has to be registered before any server is built.
+	shutdownTracing, err := telemetry.InitTracerProvider(ctx, version.Version)
+	if err != nil {
+		log.Fatalf("initialize tracing: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownCtx); err != nil {
+			log.Printf("shutdown tracing: %v", err)
+		}
+	}()
 
 	dbURL, err := database.ResolveURL(env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres"), os.Getenv("POSTGRES_DATABASE_URL_FILE"))
 	if err != nil {
@@ -131,7 +145,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store)
+	actors, err := substrate.Dial(ctx, substrate.Config{
+		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
+		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
+		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
+		CallTimeout:    30 * time.Second,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer actors.Close()
+	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -148,24 +172,16 @@ func main() {
 		log.Fatalf("set up MCPServer discovery: %v", err)
 	}
 
-	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: env("SUBSTRATE_ATE_API_ENDPOINT", "dns:///api.ate-system.svc:443"),
-		CAFile:         os.Getenv("SUBSTRATE_ATE_API_CA_FILE"),
-		ClientCertFile: os.Getenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE"),
-		CallTimeout:    30 * time.Second,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer actors.Close()
-
 	authenticator := &authimpl.UnsecureAuthenticator{}
 	authorizer := &authimpl.NoopAuthorizer{}
 	resourceNamespace := env("KAGENT_NAMESPACE", "kagent")
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
-	system := systemservice.NewService(systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors))
+	system := systemservice.NewService(
+		systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors),
+		systemservice.WithRuntimeRevisions(store),
+	)
 	feedback := feedbackservice.NewService(store)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)

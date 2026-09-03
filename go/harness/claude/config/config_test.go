@@ -8,6 +8,22 @@ import (
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
+func TestOwnsEnvironment(t *testing.T) {
+	for _, name := range []string{
+		AnthropicAPIKeyEnvName,
+		ClaudeConfigDirEnvName,
+		PreResponseTraceFlushEnvName,
+		MCPCredentialEnvPrefix + "ABC123",
+	} {
+		if !OwnsEnvironment(name) {
+			t.Errorf("OwnsEnvironment(%q) = false", name)
+		}
+	}
+	if OwnsEnvironment("USER_DEFINED") {
+		t.Fatal("OwnsEnvironment accepted a user-defined name")
+	}
+}
+
 func TestProductionRoundTrip(t *testing.T) {
 	cfg := Production("claude-test", "help")
 	if err := cfg.Validate(); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -30,6 +31,11 @@ type Version struct {
 type ATEClient interface {
 	ListActors(context.Context, string) ([]*ateapipb.Actor, error)
 	ListWorkers(context.Context) ([]*ateapipb.Worker, error)
+	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
+}
+
+type runtimeRevisionStore interface {
+	ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error)
 }
 
 type Service struct {
@@ -37,6 +43,7 @@ type Service struct {
 	observedNamespaces []string
 	authorizer         auth.Authorizer
 	ateClient          ATEClient
+	revisions          runtimeRevisionStore
 }
 
 type Option func(*Service)
@@ -119,6 +126,12 @@ func WithInventory(
 		service.observedNamespaces = slices.Clone(observedNamespaces)
 		service.authorizer = authorizer
 		service.ateClient = ateClient
+	}
+}
+
+func WithRuntimeRevisions(revisions runtimeRevisionStore) Option {
+	return func(service *Service) {
+		service.revisions = revisions
 	}
 }
 
@@ -208,18 +221,21 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 	if s.kubeClient == nil {
 		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("kubernetes client is not configured"))
 	}
+	if s.revisions == nil {
+		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", fmt.Errorf("runtime revision store is not configured"))
+	}
 
 	namespaces := s.substrateNamespaces(requestedNamespace)
 	for _, namespace := range namespaces {
-		workerPools, actorTemplates, err := s.listSubstrateCRs(ctx, namespace)
+		workerPools, err := s.listWorkerPools(ctx, namespace)
 		if err != nil {
 			return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", err)
 		}
 		result.WorkerPools = append(result.WorkerPools, workerPools...)
-		result.ActorTemplates = append(result.ActorTemplates, actorTemplates...)
 	}
 
-	actors, workers, err := s.listATEState(ctx, namespaces)
+	actorTemplates, actors, workers, err := s.listATEState(ctx, namespaces)
+	result.ActorTemplates = actorTemplates
 	result.Actors = actors
 	result.Workers = workers
 	if err != nil {
@@ -291,7 +307,7 @@ func (s *Service) substrateNamespaces(requested string) []string {
 	return []string{""}
 }
 
-func (s *Service) listSubstrateCRs(ctx context.Context, namespace string) ([]SubstrateWorkerPool, []SubstrateActorTemplate, error) {
+func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]SubstrateWorkerPool, error) {
 	var options []client.ListOption
 	if namespace != "" {
 		options = append(options, client.InNamespace(namespace))
@@ -299,11 +315,7 @@ func (s *Service) listSubstrateCRs(ctx context.Context, namespace string) ([]Sub
 
 	workerPoolList := &atev1alpha1.WorkerPoolList{}
 	if err := s.kubeClient.List(ctx, workerPoolList, options...); err != nil {
-		return nil, nil, err
-	}
-	actorTemplateList := &atev1alpha1.ActorTemplateList{}
-	if err := s.kubeClient.List(ctx, actorTemplateList, options...); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	workerPools := make([]SubstrateWorkerPool, 0, len(workerPoolList.Items))
@@ -313,32 +325,13 @@ func (s *Service) listSubstrateCRs(ctx context.Context, namespace string) ([]Sub
 			Namespace:  workerPool.Namespace,
 			Name:       workerPool.Name,
 			Replicas:   workerPool.Spec.Replicas,
-			AteomImage: workerPool.Spec.AteomImage,
+			AteomImage: workerPool.Spec.WorkerImage,
 		})
 	}
-
-	actorTemplates := make([]SubstrateActorTemplate, 0, len(actorTemplateList.Items))
-	for index := range actorTemplateList.Items {
-		actorTemplate := &actorTemplateList.Items[index]
-		entry := SubstrateActorTemplate{
-			Namespace:       actorTemplate.Namespace,
-			Name:            actorTemplate.Name,
-			Phase:           string(actorTemplate.Status.Phase),
-			GoldenActorID:   actorTemplate.Status.GoldenActorID,
-			GoldenSnapshot:  actorTemplate.Status.GoldenSnapshot,
-			SandboxClass:    string(actorTemplate.Spec.SandboxClass),
-			WorkerSelector:  labelSelectorString(ctx, actorTemplate.Spec.WorkerSelector),
-			ManagedByKagent: actorTemplate.Labels["app.kubernetes.io/managed-by"] == "kagent",
-		}
-		if harnessName := actorTemplate.Labels[substrate.RevisionHarnessLabel]; harnessName != "" {
-			entry.HarnessName = harnessName
-		}
-		actorTemplates = append(actorTemplates, entry)
-	}
-	return workerPools, actorTemplates, nil
+	return workerPools, nil
 }
 
-func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActor, []SubstrateWorker, error) {
+func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []SubstrateActor, []SubstrateWorker, error) {
 	allowAll := len(namespaces) == 1 && namespaces[0] == ""
 	allowed := make(map[string]struct{}, len(namespaces))
 	for _, namespace := range namespaces {
@@ -347,13 +340,51 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		}
 	}
 
+	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, "")
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	actorsFromAPI, err := s.ateClient.ListActors(ctx, "")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	workersFromAPI, err := s.ateClient.ListWorkers(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	type templateKey struct{ atespace, name, uid string }
+	harnesses := make(map[templateKey]string, len(harnessesFromDB))
+	for _, template := range harnessesFromDB {
+		harnesses[templateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
+	}
+	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
+	for _, template := range templatesFromAPI {
+		if template == nil || !allowedAtespace(template.GetMetadata().GetAtespace(), allowAll, allowed) {
+			continue
+		}
+		golden := template.GetStatus().GetGoldenSnapshotStatus()
+		phase := "Pending"
+		if golden.GetErrorMessage() != "" {
+			phase = "Failed"
+		} else if golden.GetGoldenSnapshot() != nil {
+			phase = "Ready"
+		}
+		metadata := template.GetMetadata()
+		templates = append(templates, SubstrateActorTemplate{
+			Namespace:       metadata.GetAtespace(),
+			Name:            metadata.GetName(),
+			Phase:           phase,
+			GoldenActorID:   metadata.GetUid(),
+			GoldenSnapshot:  golden.GetGoldenSnapshot().GetName(),
+			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
+			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
+			HarnessName:     harnesses[templateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
+			ManagedByKagent: true,
+		})
 	}
 
 	actors := make([]SubstrateActor, 0, len(actorsFromAPI))
@@ -361,11 +392,8 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		if actor == nil {
 			continue
 		}
-		namespace := strings.TrimSpace(actor.GetActorTemplateNamespace())
-		if !allowAll && namespace != "" {
-			if _, ok := allowed[namespace]; !ok {
-				continue
-			}
+		if !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
+			continue
 		}
 		actors = append(actors, actorFromProto(actor))
 	}
@@ -383,7 +411,15 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		}
 		workers = append(workers, workerFromProto(worker))
 	}
-	return actors, workers, nil
+	return templates, actors, workers, nil
+}
+
+func allowedAtespace(atespace string, allowAll bool, allowed map[string]struct{}) bool {
+	if allowAll || atespace == "" {
+		return true
+	}
+	_, ok := allowed[atespace]
+	return ok
 }
 
 func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
@@ -392,8 +428,8 @@ func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 		ActorID:                actor.GetMetadata().GetName(),
 		Atespace:               actor.GetMetadata().GetAtespace(),
 		Status:                 substrate.ActorStatusLabel(actor.GetStatus().GetState()),
-		ActorTemplateNamespace: actor.GetActorTemplateNamespace(),
-		ActorTemplateName:      actor.GetActorTemplateName(),
+		ActorTemplateNamespace: actor.GetActorTemplate().GetAtespace(),
+		ActorTemplateName:      actor.GetActorTemplate().GetName(),
 		AteomPodNamespace:      assignment.GetWorkerNamespace(),
 		AteomPodName:           assignment.GetWorkerPod(),
 		AteomPodIP:             assignment.GetWorkerPodIp(),
@@ -410,8 +446,8 @@ func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  assignment.GetActorTemplate().GetNamespace(),
-		ActorTemplate:   assignment.GetActorTemplate().GetName(),
+		ActorNamespace:  assignment.GetActorTemplateRef().GetAtespace(),
+		ActorTemplate:   assignment.GetActorTemplateRef().GetName(),
 		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),

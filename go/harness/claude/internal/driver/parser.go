@@ -24,6 +24,8 @@ type contentBlockRef struct {
 	index     int
 }
 
+// ParseJSONL parses a JSONL stream of Claude events and emits them to the
+// provided event sink.
 func ParseJSONL(r io.Reader, maxEventBytes int, emit func(Event) error) error {
 	if maxEventBytes <= 0 {
 		return fmt.Errorf("max event bytes must be positive")

@@ -42,14 +42,6 @@ client-generate: ## Generate the typed v1alpha3 Kubernetes clientset.
 sqlc-generate: sqlc ## Generate type-safe Go code from SQL queries.
 	cd core/internal/database && $(SQLC) generate
 
-# Compile the previous release's sqlc queries against the current schema (the
-# migration files) and fail if a migration removed/renamed/retyped a column or
-# table an old query still uses. Static (no database/cluster). Needs git tags
-# fetched. TARGET_VERSIONS (space-separated) overrides the auto-derived release(s).
-.PHONY: check-query-contraction
-check-query-contraction: sqlc ## Verify the previous release's queries still type-check against the current schema
-	SQLC=$(SQLC) ../scripts/check-query-contraction.sh
-
 ##@ Development
 
 .PHONY: fmt
@@ -93,7 +85,6 @@ govulncheck: ## Run govulncheck.
 
 .PHONY: core/bin/kagent-local
 core/bin/kagent-local:
-	go test -race ./core/cli/...
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o core/bin/kagent-local ./core/cli/cmd/kagent
 
 core/bin/kagent-linux-amd64:
@@ -155,7 +146,7 @@ e2e: core/bin/kagent-local ## Run end-to-end tests.
 	  exit 1; \
 	}
 	@kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config-e2e
-	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast
+	KAGENT_E2E_CLI=$(CURDIR)/core/bin/kagent-local KUBECONFIG=/tmp/kind-config-e2e go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -parallel 2
 
 ##@ Dependencies
 

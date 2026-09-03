@@ -118,9 +118,9 @@ func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbp
 		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
 		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
 		SourceSnapshot: revision.SourceSnapshot, AgentCard: revision.AgentCard,
-		EgressDestinations:     revision.EgressDestinations,
-		ActorTemplateNamespace: revision.ActorTemplateNamespace, ActorTemplateName: revision.ActorTemplateName,
-		ActorTemplateUid: revision.ActorTemplateUID, Phase: revision.Phase, GoldenSnapshot: revision.GoldenSnapshot,
+		EgressDestinations:    revision.EgressDestinations,
+		ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName,
+		ActorTemplateUid: revision.ActorTemplateUID,
 	}); err != nil {
 		return fmt.Errorf("upsert runtime revision %s: %w", revision.Revision, err)
 	}
@@ -137,10 +137,25 @@ func (c *postgresClient) GetRuntimeRevision(ctx context.Context, revision string
 		AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
 		HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
 		SourceSnapshot: row.SourceSnapshot, AgentCard: row.AgentCard,
-		EgressDestinations:     row.EgressDestinations,
-		ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
-		ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+		EgressDestinations:    row.EgressDestinations,
+		ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
+		ActorTemplateUID: row.ActorTemplateUid,
 	}, nil
+}
+
+func (c *postgresClient) ListActorTemplateHarnesses(ctx context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+	rows, err := c.q.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
+	}
+	result := make([]dbpkg.ActorTemplateHarness, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, dbpkg.ActorTemplateHarness{
+			Atespace: row.ActorTemplateAtespace, Name: row.ActorTemplateName,
+			UID: row.ActorTemplateUid, HarnessName: row.HarnessName,
+		})
+	}
+	return result, nil
 }
 
 func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
@@ -177,9 +192,9 @@ func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) (
 			AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
 			HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
 			SourceSnapshot: row.SourceSnapshot, AgentCard: row.AgentCard,
-			EgressDestinations:     row.EgressDestinations,
-			ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
-			ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+			EgressDestinations:    row.EgressDestinations,
+			ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
+			ActorTemplateUID: row.ActorTemplateUid,
 		})
 	}
 	return result, nil
