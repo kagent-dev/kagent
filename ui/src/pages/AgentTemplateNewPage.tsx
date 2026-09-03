@@ -147,7 +147,7 @@ export function AgentTemplateNewPage() {
           <Button
             type="primary"
             loading={isSubmitting}
-            disabled={problems.length > 0}
+            disabled={!templates.canCreate || problems.length > 0}
             onClick={() => void create()}
             data-testid="template-submit"
           >

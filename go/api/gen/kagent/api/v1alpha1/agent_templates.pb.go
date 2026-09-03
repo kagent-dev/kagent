@@ -38,6 +38,8 @@ type AgentTemplate struct {
 	// caller may legally pair with this template in CreateAgentInstance, and it
 	// is derivable only from the Harness side, so a caller cannot compute it.
 	AdmittingHarnesses []string `protobuf:"bytes,5,rep,name=admitting_harnesses,json=admittingHarnesses,proto3" json:"admitting_harnesses,omitempty"`
+	CanUpdate          bool     `protobuf:"varint,6,opt,name=can_update,json=canUpdate,proto3" json:"can_update,omitempty"`
+	CanDelete          bool     `protobuf:"varint,7,opt,name=can_delete,json=canDelete,proto3" json:"can_delete,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -107,6 +109,20 @@ func (x *AgentTemplate) GetAdmittingHarnesses() []string {
 	return nil
 }
 
+func (x *AgentTemplate) GetCanUpdate() bool {
+	if x != nil {
+		return x.CanUpdate
+	}
+	return false
+}
+
+func (x *AgentTemplate) GetCanDelete() bool {
+	if x != nil {
+		return x.CanDelete
+	}
+	return false
+}
+
 type ListAgentTemplatesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -154,6 +170,7 @@ func (x *ListAgentTemplatesRequest) GetNamespace() string {
 type ListAgentTemplatesResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	AgentTemplates []*AgentTemplate       `protobuf:"bytes,1,rep,name=agent_templates,json=agentTemplates,proto3" json:"agent_templates,omitempty"`
+	CanCreate      bool                   `protobuf:"varint,2,opt,name=can_create,json=canCreate,proto3" json:"can_create,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -193,6 +210,13 @@ func (x *ListAgentTemplatesResponse) GetAgentTemplates() []*AgentTemplate {
 		return x.AgentTemplates
 	}
 	return nil
+}
+
+func (x *ListAgentTemplatesResponse) GetCanCreate() bool {
+	if x != nil {
+		return x.CanCreate
+	}
+	return false
 }
 
 type GetAgentTemplateRequest struct {
@@ -559,17 +583,23 @@ var File_kagent_api_v1alpha1_agent_templates_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_agent_templates_proto_rawDesc = "" +
 	"\n" +
-	")kagent/api/v1alpha1/agent_templates.proto\x12\x13kagent.api.v1alpha1\x1a kagent/api/v1alpha1/common.proto\"\xb1\x02\n" +
+	")kagent/api/v1alpha1/agent_templates.proto\x12\x13kagent.api.v1alpha1\x1a kagent/api/v1alpha1/common.proto\"\xef\x02\n" +
 	"\rAgentTemplate\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
 	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\x12P\n" +
 	"\x10model_config_ref\x18\x03 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x0emodelConfigRef\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12/\n" +
-	"\x13admitting_harnesses\x18\x05 \x03(\tR\x12admittingHarnesses\"9\n" +
+	"\x13admitting_harnesses\x18\x05 \x03(\tR\x12admittingHarnesses\x12\x1d\n" +
+	"\n" +
+	"can_update\x18\x06 \x01(\bR\tcanUpdate\x12\x1d\n" +
+	"\n" +
+	"can_delete\x18\a \x01(\bR\tcanDelete\"9\n" +
 	"\x19ListAgentTemplatesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"i\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\x88\x01\n" +
 	"\x1aListAgentTemplatesResponse\x12K\n" +
-	"\x0fagent_templates\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentTemplateR\x0eagentTemplates\"S\n" +
+	"\x0fagent_templates\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentTemplateR\x0eagentTemplates\x12\x1d\n" +
+	"\n" +
+	"can_create\x18\x02 \x01(\bR\tcanCreate\"S\n" +
 	"\x17GetAgentTemplateRequest\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\"e\n" +
 	"\x18GetAgentTemplateResponse\x12I\n" +

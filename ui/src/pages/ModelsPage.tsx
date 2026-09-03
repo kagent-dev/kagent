@@ -51,7 +51,7 @@ const PAGE_SIZE = 25;
  */
 export function ModelsPage() {
   const theme = useTheme();
-  const { data, isLoading, error, isEmpty, refresh } = useModels();
+  const { data, canCreate, isLoading, error, isEmpty, refresh } = useModels();
   const view = useListView(FILTER_IDS);
 
   const models = useMemo(() => data ?? [], [data]);
@@ -156,18 +156,29 @@ export function ModelsPage() {
           const { namespace, name } = parseRef(row.ref);
           return (
             <Space size={0}>
-              <Link to={buildPath(paths.modelEdit, { namespace, name })}>
+              {row.canUpdate ? (
+                <Link to={buildPath(paths.modelEdit, { namespace, name })}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<Pencil size={14} />}
+                    data-testid={`edit-${name}`}
+                    aria-label={`Edit model configuration ${name}`}
+                  />
+                </Link>
+              ) : (
                 <Button
                   type="text"
                   size="small"
                   icon={<Pencil size={14} />}
-                  data-testid={`edit-${name}`}
+                  disabled
                   aria-label={`Edit model configuration ${name}`}
                 />
-              </Link>
+              )}
               <DeleteResourceButton
                 kind="model configuration"
                 name={name}
+                disabled={!row.canDelete}
                 onDelete={() => apiClient.models.remove(namespace, name)}
                 onDeleted={refresh}
               />
@@ -191,11 +202,26 @@ export function ModelsPage() {
               shell, and a distribution that supplies its own layout does not inherit it —
               leaving `/models/new` reachable only by typing the URL. An action on the
               list itself belongs to the page, so it survives whatever frames it. */}
-          <Link to={paths.modelNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="models-new">
+          {canCreate ? (
+            <Link to={paths.modelNew}>
+              <Button
+                type="primary"
+                icon={<Plus size={14} />}
+                data-testid="models-new"
+              >
+                New model
+              </Button>
+            </Link>
+          ) : (
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              data-testid="models-new"
+              disabled
+            >
               New model
             </Button>
-          </Link>
+          )}
         </Space>
       }
     >

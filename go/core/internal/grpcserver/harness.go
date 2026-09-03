@@ -38,15 +38,19 @@ func (s *harnessServer) ListHarnesses(ctx context.Context, request *apiv1alpha1.
 	if err != nil {
 		return nil, err
 	}
+	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, false)
+	if err != nil {
+		return nil, err
+	}
 	harnesses := make([]*apiv1alpha1.Harness, 0, len(items))
 	for _, item := range items {
-		encoded, err := s.harness(item)
+		encoded, err := s.harness(item, capabilities)
 		if err != nil {
 			return nil, err
 		}
 		harnesses = append(harnesses, encoded)
 	}
-	return &apiv1alpha1.ListHarnessesResponse{Harnesses: harnesses}, nil
+	return &apiv1alpha1.ListHarnessesResponse{Harnesses: harnesses, CanCreate: capabilities.canCreate}, nil
 }
 
 func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.CreateHarnessRequest) (*apiv1alpha1.CreateHarnessResponse, error) {
@@ -59,7 +63,11 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := s.harness(result)
+	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, false)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := s.harness(result, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +85,7 @@ func (s *harnessServer) DeleteHarness(ctx context.Context, request *apiv1alpha1.
 	return &apiv1alpha1.DeleteHarnessResponse{}, nil
 }
 
-func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1alpha1.Harness, error) {
+func (s *harnessServer) harness(object *v1alpha3.Harness, capabilities resourceCapabilities) (*apiv1alpha1.Harness, error) {
 	resource, err := structuredobject.FromGo(object, v1alpha3.GroupVersion.String(), harnessKind, s.maxMessageBytes)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode Harness resource", err)
@@ -88,6 +96,7 @@ func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1alpha1.Harness,
 		Runtime:       harnessRuntime(object),
 		WorkloadImage: object.Spec.Workload.Image,
 		Ready:         meta.IsStatusConditionTrue(object.Status.Conditions, v1alpha3.HarnessConditionTypeReady),
+		CanDelete:     capabilities.canDelete(object),
 	}, nil
 }
 

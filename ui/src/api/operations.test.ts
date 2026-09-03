@@ -366,6 +366,8 @@ describe("agents.create and agents.update", () => {
 describe("model configurations", () => {
   const modelConfigMessage = (name: string, model: string) => ({
     ref: { namespace: "kagent", name },
+    canUpdate: true,
+    canDelete: false,
     resource: {
       apiVersion: "kagent.dev/v1alpha3",
       kind: "ModelConfig",
@@ -383,13 +385,22 @@ describe("model configurations", () => {
       service(ModelService, {
         listModelConfigs: () => ({
           modelConfigs: [modelConfigMessage("default", "gpt-4.1")],
+          canCreate: true,
         }),
       });
     });
 
-    expect(await apiClient.models.list()).toEqual([
-      { ref: "kagent/default", spec: { model: "gpt-4.1", provider: "OpenAI" } },
-    ]);
+    expect(await apiClient.models.list()).toEqual({
+      items: [
+        {
+          ref: "kagent/default",
+          spec: { model: "gpt-4.1", provider: "OpenAI" },
+          canUpdate: true,
+          canDelete: false,
+        },
+      ],
+      canCreate: true,
+    });
   });
 
   it("sends a whole ModelConfig resource on create, with the ref beside it", async () => {

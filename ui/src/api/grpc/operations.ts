@@ -357,6 +357,8 @@ function toModelConfig(
   ref: string,
   resource: StructuredObject | undefined,
   rpcName: string,
+  canUpdate = false,
+  canDelete = false,
 ): ModelConfig {
   const object = unwrap<{ spec?: ModelConfigSpec }>(
     resource,
@@ -371,7 +373,7 @@ function toModelConfig(
       url: rpcName,
     });
   }
-  return { ref, spec: object.spec };
+  return { ref, spec: object.spec, canUpdate, canDelete };
 }
 
 /**
@@ -412,9 +414,18 @@ const models: Pick<
     const response = await rpc(name, options.signal, () =>
       serviceClient(ModelService).listModelConfigs({}, call("models.list", options)),
     );
-    return list(response.modelConfigs).map((entry) =>
-      toModelConfig(refToString(entry.ref), entry.resource, name),
-    );
+    return {
+      items: list(response.modelConfigs).map((entry) =>
+        toModelConfig(
+          refToString(entry.ref),
+          entry.resource,
+          name,
+          entry.canUpdate,
+          entry.canDelete,
+        ),
+      ),
+      canCreate: response.canCreate,
+    };
   },
 
   "models.get": async (input, options) => {
@@ -430,7 +441,13 @@ const models: Pick<
       name,
       `model ${input.namespace}/${input.name}`,
     );
-    return toModelConfig(refToString(entry.ref), entry.resource, name);
+    return toModelConfig(
+      refToString(entry.ref),
+      entry.resource,
+      name,
+      entry.canUpdate,
+      entry.canDelete,
+    );
   },
 
   "models.create": async (input, options) => {
@@ -447,7 +464,13 @@ const models: Pick<
       ),
     );
     const entry = required(response.modelConfig, name, "created model");
-    return toModelConfig(refToString(entry.ref), entry.resource, name);
+    return toModelConfig(
+      refToString(entry.ref),
+      entry.resource,
+      name,
+      entry.canUpdate,
+      entry.canDelete,
+    );
   },
 
   "models.update": async (input, options) => {
@@ -467,7 +490,13 @@ const models: Pick<
       ),
     );
     const entry = required(response.modelConfig, name, `updated model ${ref}`);
-    return toModelConfig(refToString(entry.ref), entry.resource, name);
+    return toModelConfig(
+      refToString(entry.ref),
+      entry.resource,
+      name,
+      entry.canUpdate,
+      entry.canDelete,
+    );
   },
 
   "models.delete": async (input, options) => {
@@ -1102,6 +1131,7 @@ function toHarness(harness: PbHarness): Harness {
     runtime: harness.runtime,
     workloadImage: harness.workloadImage,
     ready: harness.ready,
+    canDelete: harness.canDelete,
     resource: unwrap(
       harness.resource,
       "HarnessService/ListHarnesses",
@@ -1118,6 +1148,8 @@ function toAgentTemplate(template: PbAgentTemplate): AgentTemplate {
     name: template.ref?.name ?? "",
     modelConfigRef: refToString(template.modelConfigRef),
     description: template.description,
+    canUpdate: template.canUpdate,
+    canDelete: template.canDelete,
     // Reported in status and derivable only from the harness side — a harness
     // admits templates through a label selector, so nothing on a template says
     // which ones match it.
@@ -1153,7 +1185,10 @@ const agentBuildingBlocks: Pick<
         call("harnesses.list", options),
       ),
     );
-    return list(response.harnesses).map(toHarness);
+    return {
+      items: list(response.harnesses).map(toHarness),
+      canCreate: response.canCreate,
+    };
   },
 
   "harnesses.create": async (input, options) => {
@@ -1189,7 +1224,10 @@ const agentBuildingBlocks: Pick<
           call("agentTemplates.list", options),
         ),
     );
-    return list(response.agentTemplates).map(toAgentTemplate);
+    return {
+      items: list(response.agentTemplates).map(toAgentTemplate),
+      canCreate: response.canCreate,
+    };
   },
 
   "agentTemplates.get": async (input, options) => {

@@ -211,6 +211,7 @@ export function AgentTemplatesTab() {
             <DeleteResourceButton
               kind="agent template"
               name={row.name}
+              disabled={!row.canDelete}
               onDelete={() =>
                 apiClient.agentBuildingBlocks.removeAgentTemplate(
                   row.namespace,

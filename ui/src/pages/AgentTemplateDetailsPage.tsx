@@ -385,6 +385,7 @@ export function AgentTemplateDetailsPage() {
               icon={<Pencil size={14} />}
               onClick={() => setEditingRef(ref)}
               data-testid="template-edit"
+              disabled={!template.data.canUpdate}
             >
               Edit
             </Button>
@@ -406,6 +407,7 @@ export function AgentTemplateDetailsPage() {
             <DeleteResourceButton
             kind="agent template"
             name={template.data.name}
+            disabled={!template.data.canDelete}
             onDelete={remove}
             onDeleted={afterDelete}
             label="Delete template"

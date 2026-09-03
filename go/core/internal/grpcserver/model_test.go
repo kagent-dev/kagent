@@ -137,6 +137,9 @@ func TestModelServiceCRUD(t *testing.T) {
 	if len(listed.GetModelConfigs()) != 1 {
 		t.Fatalf("ListModelConfigs() count = %d, want 1", len(listed.GetModelConfigs()))
 	}
+	if !listed.GetCanCreate() || !listed.GetModelConfigs()[0].GetCanUpdate() || !listed.GetModelConfigs()[0].GetCanDelete() {
+		t.Fatal("ListModelConfigs() did not report no-op authorizer capabilities")
+	}
 
 	_, err = client.DeleteModelConfig(ctx, &apiv1alpha1.DeleteModelConfigRequest{
 		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},

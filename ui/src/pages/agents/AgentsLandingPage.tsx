@@ -7,6 +7,11 @@ import { paths } from "@/router/routes";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentsTab } from "@/pages/AgentsPage";
 import { AgentTemplatesTab } from "@/pages/AgentTemplatesPage";
+import {
+  useAgentTemplatesAcrossNamespaces,
+  useHarnessesAcrossNamespaces,
+  useNamespaces,
+} from "@/api";
 import { AgentConcepts } from "./AgentConcepts";
 import { HarnessesTab } from "./HarnessesTab";
 
@@ -29,6 +34,10 @@ type TabKey = (typeof TABS)[number];
 export function AgentsLandingPage() {
   const theme = useTheme();
   const [params, setParams] = useSearchParams();
+  const namespaces = useNamespaces();
+  const namespaceNames = namespaces.data?.map((entry) => entry.name);
+  const templates = useAgentTemplatesAcrossNamespaces(namespaceNames);
+  const harnesses = useHarnessesAcrossNamespaces(namespaceNames);
 
   /*
    * No page-level refresh, deliberately.
@@ -64,16 +73,46 @@ export function AgentsLandingPage() {
           {/* The point the agents list has always offered, kept where the controls
               now are rather than left behind in the tab they moved out of. */}
           <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
-          <Link to={paths.agentTemplateNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
+          {templates.data?.canCreate ? (
+            <Link to={paths.agentTemplateNew}>
+              <Button
+                type="primary"
+                icon={<Plus size={14} />}
+                data-testid="agents-new-template"
+              >
+                New template
+              </Button>
+            </Link>
+          ) : (
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              data-testid="agents-new-template"
+              disabled
+            >
               New template
             </Button>
-          </Link>
-          <Link to={paths.harnessNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-harness">
+          )}
+          {harnesses.canCreate ? (
+            <Link to={paths.harnessNew}>
+              <Button
+                type="primary"
+                icon={<Plus size={14} />}
+                data-testid="agents-new-harness"
+              >
+                New harness
+              </Button>
+            </Link>
+          ) : (
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              data-testid="agents-new-harness"
+              disabled
+            >
               New harness
             </Button>
-          </Link>
+          )}
         </Space>
       }
     >
