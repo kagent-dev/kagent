@@ -31,7 +31,8 @@ harness.
 
 ## Planned / not yet supported
 
-- [ ] Human-in-the-loop tool approval with deferred tool calls and session resume
+- [ ] Human-in-the-loop MCP approval with a live parked permission request and
+      full-memory Actor pause/resume
 - [ ] Checkpoint and fork continuity for Claude sessions
 - [ ] Enforced selection of individual tools from an MCP server
 - [ ] Dedicated subagents running in separate AgentInstances

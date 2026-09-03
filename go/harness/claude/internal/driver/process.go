@@ -25,6 +25,7 @@ type ProcessConfig struct {
 	AppendSystemPrompt string
 	AgentsJSON         string
 	MCPConfigPath      string
+	SkillRoot          string
 	Environment        []string
 	MaxEventBytes      int
 	MaxStderrBytes     int
@@ -64,6 +65,7 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 // Args compiles one runtime turn into Claude Code command-line arguments.
 func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	args := []string{
+		"--bare",
 		"-p", turn.Prompt,
 		"--output-format", "stream-json",
 		"--verbose",
@@ -82,6 +84,11 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	}
 	if d.config.MCPConfigPath != "" {
 		args = append(args, "--mcp-config", d.config.MCPConfigPath)
+	}
+	if d.config.SkillRoot != "" {
+		// Bare mode skips implicit skill discovery. --add-dir loads only the
+		// compiler-selected skills materialized beneath SkillRoot/.claude/skills.
+		args = append(args, "--add-dir", d.config.SkillRoot)
 	}
 	if turn.ContinuationID != "" {
 		// Resume the Actor's exact root conversation. --continue selects Claude's

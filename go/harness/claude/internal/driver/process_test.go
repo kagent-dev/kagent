@@ -33,7 +33,8 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	}
 	agentsJSON := `{"reviewer":{"description":"Reviews changes","prompt":"Review carefully","tools":["Read"]}}`
 	mcpConfigPath := filepath.Join(dir, "mcp.json")
-	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	skillRoot := filepath.Join(dir, "generated-skills")
+	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, SkillRoot: skillRoot, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
 	if err := d.Validate(t.Context()); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -54,7 +55,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	if string(args) != want {
 		t.Errorf("arguments = %q, want %q", args, want)
 	}
-	for _, required := range []string{"--dangerously-skip-permissions\n", "--strict-mcp-config\n"} {
+	for _, required := range []string{"--bare\n", "--dangerously-skip-permissions\n", "--strict-mcp-config\n"} {
 		if !strings.Contains(string(args), required) {
 			t.Errorf("arguments do not contain required fixed policy flag %q", strings.TrimSpace(required))
 		}
@@ -65,11 +66,11 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	if !strings.Contains(string(args), "--mcp-config\n"+mcpConfigPath+"\n") {
 		t.Error("arguments do not contain compiler-owned MCP configuration")
 	}
+	if !strings.Contains(string(args), "--add-dir\n"+skillRoot+"\n") {
+		t.Error("arguments do not expose compiler-owned skills to bare mode")
+	}
 	if strings.Contains(string(args), "--permission-prompt-tool\n") {
 		t.Error("arguments unexpectedly configure Claude's native permission bridge")
-	}
-	if strings.Contains(string(args), "--bare\n") {
-		t.Error("arguments unexpectedly disable normal Claude Code project/auth behavior with --bare")
 	}
 	if len(sink.sessions) != 1 || sink.sessions[0].ContinuationID != turn.ContinuationID {
 		t.Errorf("session events = %#v", sink.sessions)
