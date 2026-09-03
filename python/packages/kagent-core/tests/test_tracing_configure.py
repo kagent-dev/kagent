@@ -417,3 +417,113 @@ def test_post_response_flush_exports_server_span(monkeypatch):
     names = [span.name for span in exporter.get_finished_spans()]
     assert any("POST" in name for name in names), f"server span not exported by flush, got {names}"
     provider.shutdown()
+
+
+def test_configure_metrics_disabled_is_default_off(monkeypatch):
+    # OTEL_METRICS_ENABLED is unset: no MeterProvider may be installed, so the
+    # default gate keeps behavior byte-identical to before metrics existed.
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+
+    instrument_calls = {}
+
+    def set_meter_provider(provider):
+        instrument_calls["meter_provider"] = provider
+
+    monkeypatch.setattr(_utils, "metrics", SimpleNamespace(set_meter_provider=set_meter_provider))
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
+
+    _utils.configure(name="test", namespace="test")
+
+    assert "meter_provider" not in instrument_calls
+
+
+def test_configure_metrics_enabled_installs_meter_provider(monkeypatch):
+    monkeypatch.setenv("OTEL_METRICS_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+
+    instrument_calls = {}
+
+    class FakeMeterProvider:
+        def __init__(self, resource=None, metric_readers=None):
+            instrument_calls["resource"] = resource
+            instrument_calls["metric_readers"] = metric_readers
+
+    def fake_create_metric_exporter(**kwargs):
+        instrument_calls["exporter_kwargs"] = kwargs
+        return object()
+
+    def fake_periodic_reader(exporter=None):
+        instrument_calls["reader_exporter"] = exporter
+        return SimpleNamespace()
+
+    monkeypatch.setattr(_utils, "MeterProvider", FakeMeterProvider)
+    monkeypatch.setattr(_utils, "_create_metric_exporter", fake_create_metric_exporter)
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", fake_periodic_reader)
+    monkeypatch.setattr(
+        _utils,
+        "metrics",
+        SimpleNamespace(set_meter_provider=lambda provider: instrument_calls.setdefault("meter_provider", provider)),
+    )
+
+    _utils.configure(name="test", namespace="test")
+
+    assert "meter_provider" in instrument_calls
+    assert isinstance(instrument_calls["metric_readers"], list)
+    assert instrument_calls["reader_exporter"] is not None
+    # No endpoint set: only the default 10s timeout is passed to the exporter.
+    assert instrument_calls["exporter_kwargs"] == {"timeout": 10.0}
+
+
+def test_configure_metrics_uses_endpoint_and_timeout(monkeypatch):
+    monkeypatch.setenv("OTEL_METRICS_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://collector:4317")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_METRICS_TIMEOUT", "2000")
+
+    instrument_calls = {}
+
+    def fake_create_metric_exporter(**kwargs):
+        instrument_calls["exporter_kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(_utils, "_create_metric_exporter", fake_create_metric_exporter)
+    monkeypatch.setattr(_utils, "PeriodicExportingMetricReader", lambda exporter=None: SimpleNamespace())
+    monkeypatch.setattr(_utils, "MeterProvider", lambda resource=None, metric_readers=None: SimpleNamespace())
+    monkeypatch.setattr(_utils, "metrics", SimpleNamespace(set_meter_provider=lambda provider: None))
+    monkeypatch.setattr(_utils, "trace", SimpleNamespace(get_tracer_provider=lambda: SimpleNamespace()))
+
+    _utils.configure(name="test", namespace="test")
+
+    assert instrument_calls["exporter_kwargs"] == {"endpoint": "http://collector:4317", "timeout": 2.0}
+
+
+def test_force_flush_flushes_meter_provider_when_present(monkeypatch):
+    # force_flush drains both the tracer and the meter provider when present,
+    # mirroring the batch-timer export safety net for the periodic reader.
+    calls = []
+    tracer_provider = SimpleNamespace(force_flush=lambda timeout: calls.append(("traces", timeout)))
+    meter_provider = SimpleNamespace(force_flush=lambda timeout: calls.append(("metrics", timeout)))
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: tracer_provider)
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: meter_provider)
+
+    _utils.force_flush()
+
+    assert calls == [("traces", 3000), ("metrics", 3000)]
+
+
+def test_force_flush_skips_meter_provider_without_support(monkeypatch):
+    # The default no-op meter provider exposes no force_flush; must not raise.
+    calls = []
+    monkeypatch.setattr(
+        _utils.trace, "get_tracer_provider", lambda: SimpleNamespace(force_flush=lambda t: calls.append(t))
+    )
+    monkeypatch.setattr(_utils.metrics, "get_meter_provider", lambda: SimpleNamespace())
+
+    _utils.force_flush()
+
+    assert calls == [3000]
