@@ -50,17 +50,6 @@ func (c *postgresClient) withTx(ctx context.Context, fn func(*dbgen.Queries) err
 	return tx.Commit(ctx)
 }
 
-// ── Agents ────────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreAgent(ctx context.Context, agent *dbpkg.Agent) error {
-	return c.q.UpsertAgent(ctx, dbgen.UpsertAgentParams{
-		ID:           agent.ID,
-		Type:         agent.Type,
-		WorkloadType: string(agent.WorkloadType),
-		Config:       agent.Config,
-	})
-}
-
 // notFoundOr maps the driver's no-rows error to dbpkg.ErrNotFound so callers
 // outside this package match on the exported sentinel, never on pgx.
 func notFoundOr(err error) error {
@@ -68,30 +57,6 @@ func notFoundOr(err error) error {
 		return dbpkg.ErrNotFound
 	}
 	return err
-}
-
-func (c *postgresClient) GetAgent(ctx context.Context, id string) (*dbpkg.Agent, error) {
-	row, err := c.q.GetAgent(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get agent %s: %w", id, notFoundOr(err))
-	}
-	return toAgent(row), nil
-}
-
-func (c *postgresClient) ListAgents(ctx context.Context) ([]dbpkg.Agent, error) {
-	rows, err := c.q.ListAgents(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list agents: %w", err)
-	}
-	agents := make([]dbpkg.Agent, len(rows))
-	for i, r := range rows {
-		agents[i] = *toAgent(r)
-	}
-	return agents, nil
-}
-
-func (c *postgresClient) DeleteAgent(ctx context.Context, agentID string) error {
-	return c.q.SoftDeleteAgent(ctx, agentID)
 }
 
 // ── AgentTemplate runtime revisions ──────────────────────────────────────────
@@ -1260,31 +1225,6 @@ func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
 	return task, nil
 }
 
-// ── Feedback ──────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreFeedback(ctx context.Context, feedback *dbpkg.Feedback) error {
-	err := c.q.InsertFeedback(ctx, dbgen.InsertFeedbackParams{
-		UserID:       feedback.UserID,
-		MessageID:    feedback.MessageID,
-		IsPositive:   feedback.IsPositive,
-		FeedbackText: feedback.FeedbackText,
-		IssueType:    feedback.IssueType,
-	})
-	return err
-}
-
-func (c *postgresClient) ListFeedback(ctx context.Context, userID string) ([]dbpkg.Feedback, error) {
-	rows, err := c.q.ListFeedback(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list feedback: %w", err)
-	}
-	result := make([]dbpkg.Feedback, len(rows))
-	for i, r := range rows {
-		result[i] = *toFeedback(r)
-	}
-	return result, nil
-}
-
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) GetTool(ctx context.Context, name string) (*dbpkg.Tool, error) {
@@ -1691,32 +1631,6 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 }
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
-
-func toAgent(r dbgen.Agent) *dbpkg.Agent {
-	return &dbpkg.Agent{
-		ID:           r.ID,
-		CreatedAt:    derefTime(r.CreatedAt),
-		UpdatedAt:    derefTime(r.UpdatedAt),
-		DeletedAt:    r.DeletedAt,
-		Type:         r.Type,
-		WorkloadType: v1alpha3.WorkloadMode(r.WorkloadType),
-		Config:       r.Config,
-	}
-}
-
-func toFeedback(r dbgen.Feedback) *dbpkg.Feedback {
-	return &dbpkg.Feedback{
-		ID:           r.ID,
-		CreatedAt:    r.CreatedAt,
-		UpdatedAt:    r.UpdatedAt,
-		DeletedAt:    r.DeletedAt,
-		UserID:       r.UserID,
-		MessageID:    r.MessageID,
-		IsPositive:   r.IsPositive,
-		FeedbackText: r.FeedbackText,
-		IssueType:    r.IssueType,
-	}
-}
 
 func toTool(r dbgen.Tool) *dbpkg.Tool {
 	return &dbpkg.Tool{

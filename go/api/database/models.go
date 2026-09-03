@@ -6,21 +6,8 @@ import (
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 )
-
-type Agent struct {
-	ID        string     `json:"id"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
-
-	Type         string                `json:"type"`
-	WorkloadType v1alpha3.WorkloadMode `json:"workload_type"`
-	Config       *adk.AgentConfig      `json:"config"`
-}
 
 type Event struct {
 	ID        string     `json:"id"`
@@ -124,28 +111,6 @@ type PushNotification struct {
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 	Data            string     `json:"data"` // JSON-serialized push notification config
 	ProtocolVersion *string    `json:"protocol_version,omitempty"`
-}
-
-// FeedbackIssueType represents the category of feedback issue
-type FeedbackIssueType string
-
-const (
-	FeedbackIssueTypeInstructions FeedbackIssueType = "instructions"
-	FeedbackIssueTypeFactual      FeedbackIssueType = "factual"
-	FeedbackIssueTypeIncomplete   FeedbackIssueType = "incomplete"
-	FeedbackIssueTypeTool         FeedbackIssueType = "tool"
-)
-
-type Feedback struct {
-	ID           int64              `json:"id"`
-	CreatedAt    *time.Time         `json:"created_at,omitempty"`
-	UpdatedAt    *time.Time         `json:"updated_at,omitempty"`
-	DeletedAt    *time.Time         `json:"deleted_at,omitempty"`
-	UserID       string             `json:"user_id"`
-	MessageID    *int64             `json:"message_id,omitempty"`
-	IsPositive   bool               `json:"is_positive"`
-	FeedbackText string             `json:"feedback_text"`
-	IssueType    *FeedbackIssueType `json:"issue_type,omitempty"`
 }
 
 type Tool struct {

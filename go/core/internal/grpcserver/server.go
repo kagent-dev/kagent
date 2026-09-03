@@ -15,8 +15,6 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
-	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
@@ -51,14 +49,12 @@ type Config struct {
 	Authenticator         auth.AuthProvider
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
-	AgentService          *agentservice.Service
 	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service
 	SystemService         *systemservice.Service
-	FeedbackService       *feedbackservice.Service
 	MemoryService         *memoryservice.Service
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
@@ -132,15 +128,9 @@ func New(config Config) (*Server, error) {
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService))
-	if config.AgentService != nil {
-		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
-	}
 	if config.AgentTemplateService != nil {
 		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
 	}
-	// Registered separately from AgentService on purpose: this serves the
-	// Harness CRD that AgentInstance pairs with an AgentTemplate, not the
-	// AgentHarness CRD that AgentService's *AgentHarness RPCs serve.
 	if config.HarnessService != nil {
 		apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
 	}
@@ -152,9 +142,6 @@ func New(config Config) (*Server, error) {
 	}
 	if config.PromptTemplateService != nil {
 		apiv1alpha1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))
-	}
-	if config.FeedbackService != nil {
-		apiv1alpha1.RegisterFeedbackServiceServer(grpcServer, newFeedbackServer(config.FeedbackService))
 	}
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))

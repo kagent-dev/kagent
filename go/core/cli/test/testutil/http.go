@@ -19,14 +19,6 @@ func NewMockHTTPServer(t *testing.T, handler http.HandlerFunc) *httptest.Server 
 	return server
 }
 
-// MockAgentResponse returns a mock AgentResponse handler.
-func MockAgentResponse(agents []api.AgentResponse) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(agents)
-	}
-}
-
 // MockSessionResponse returns a mock SessionResponse handler.
 func MockSessionResponse(sessions []*api.Session) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

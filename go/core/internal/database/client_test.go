@@ -15,45 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestConcurrentAgentUpserts verifies that concurrent StoreAgent calls
-// don't corrupt data. The database's OnConflict clause ensures atomic upserts.
-func TestConcurrentAgentUpserts(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-
-	const numGoroutines = 10
-	const numUpserts = 50
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	// All goroutines upsert to the same agent ID - this tests conflict handling
-	agentID := "test-agent"
-
-	for i := range numGoroutines {
-		go func(goroutineID int) {
-			defer wg.Done()
-			for j := range numUpserts {
-				agent := &dbpkg.Agent{
-					ID:   agentID,
-					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
-				}
-				err := client.StoreAgent(ctx, agent)
-				assert.NoError(t, err, "StoreAgent should not fail")
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify the agent exists and has valid data (not corrupted)
-	agent, err := client.GetAgent(ctx, agentID)
-	require.NoError(t, err)
-	assert.Equal(t, agentID, agent.ID)
-	assert.NotEmpty(t, agent.Type) // Should have some valid type from one of the upserts
-}
-
 // TestConcurrentToolServerUpserts verifies that concurrent StoreToolServer calls
 // work correctly without application-level locking.
 func TestConcurrentToolServerUpserts(t *testing.T) {
@@ -143,38 +104,6 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 		assert.Equal(t, serverName, tool.ServerName)
 		assert.Equal(t, groupKind, tool.GroupKind)
 	}
-}
-
-// TestStoreAgentIdempotence verifies that calling StoreAgent multiple times
-// with the same data is idempotent and doesn't error. This is critical for
-// the lock-free concurrency model where concurrent upserts must succeed.
-func TestStoreAgentIdempotence(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-
-	agent := &dbpkg.Agent{
-		ID:   "idempotent-agent",
-		Type: "declarative",
-	}
-
-	// First store should succeed
-	err := client.StoreAgent(ctx, agent)
-	require.NoError(t, err, "First StoreAgent should succeed")
-
-	// Second store with same data should also succeed (idempotent)
-	err = client.StoreAgent(ctx, agent)
-	require.NoError(t, err, "Second StoreAgent should succeed (idempotent)")
-
-	// Third store with updated data should succeed (upsert)
-	agent.Type = "byo"
-	err = client.StoreAgent(ctx, agent)
-	require.NoError(t, err, "Third StoreAgent with updated data should succeed")
-
-	// Verify final state
-	retrieved, err := client.GetAgent(ctx, agent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "byo", retrieved.Type, "Agent should have updated type")
 }
 
 // TestStoreToolServerIdempotence verifies that StoreToolServer is idempotent.
@@ -540,7 +469,6 @@ func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
 		name string
 		read func() error
 	}{
-		{name: "GetAgent", read: func() error { _, err := client.GetAgent(ctx, "missing"); return err }},
 		{name: "GetTool", read: func() error { _, err := client.GetTool(ctx, "missing"); return err }},
 		{name: "GetToolServer", read: func() error { _, err := client.GetToolServer(ctx, "missing"); return err }},
 		{name: "ListCheckpoints by ID", read: func() error {

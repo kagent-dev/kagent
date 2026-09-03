@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
@@ -26,7 +24,7 @@ type Agent struct {
 	UpdatedAt    *time.Time
 	DeletedAt    *time.Time
 	Type         string
-	Config       *adk.AgentConfig
+	Config       []byte
 	WorkloadType string
 }
 
@@ -143,7 +141,7 @@ type Feedback struct {
 	MessageID    *int64
 	IsPositive   bool
 	FeedbackText string
-	IssueType    *database.FeedbackIssueType
+	IssueType    *string
 }
 
 type LgCheckpoint struct {
