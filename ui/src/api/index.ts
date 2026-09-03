@@ -41,13 +41,9 @@ export type {
   SubstrateWorkerSortField,
 } from "./operations";
 
-export { endpointIds, resolveEndpoint } from "./endpoints";
-export type { EndpointId, EndpointParams, EndpointResolver } from "./endpoints";
-
 export {
   clearApiExtensions,
   registerApiTransform,
-  registerEndpointOverride,
   registerOperationOverride,
 } from "./extensionPoints";
 export type {

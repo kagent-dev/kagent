@@ -52,7 +52,7 @@
  * every registered request transform have already been applied by the time a call
  * arrives here, exactly as they are in production. That matters for one fake in
  * particular: a share link is spent by a transform putting `X-Share-Token` on the
- * call, and `GetSession` refuses a token it never issued. Applying the transforms
+ * call, and `GetAgentInstance` refuses a token it never issued. Applying the transforms
  * again here would be a second implementation of the same thing, and two
  * implementations drift — so the header is simply read from the call.
  *

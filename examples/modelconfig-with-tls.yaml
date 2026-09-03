@@ -285,35 +285,6 @@ spec:
   # No tls configuration - uses system CAs with verification enabled
   # This is the simplest and most common configuration
 
----
-# Example 7: Agent Using ModelConfig with TLS
-#
-# Complete example showing how to create an Agent that uses a ModelConfig
-# with TLS configuration.
-
-apiVersion: kagent.dev/v1alpha3
-kind: SandboxAgent
-metadata:
-  name: internal-assistant
-  namespace: kagent
-spec:
-  # Framework selection (ADK, LangGraph, or CrewAI)
-  framework: ADK
-
-  # Reference to ModelConfig with TLS configuration
-  modelConfigName: litellm-internal
-
-  # Agent card for A2A protocol
-  card:
-    name: internal-assistant
-    description: AI assistant using internal LiteLLM gateway
-
-  # Optional: Agent configuration
-  config:
-    systemMessage: "You are a helpful AI assistant."
-    temperature: 0.7
-
----
 # Notes and Best Practices
 #
 # 1. Certificate Format:
@@ -342,8 +313,8 @@ spec:
 #
 # 5. Certificate Updates:
 #    - Update Secret with new certificate
-#    - Check SandboxAgent status and controller logs after rotation
+#    - Check dependent AgentTemplate status and controller logs after rotation
 #
 # 6. Troubleshooting:
 #    - See https://kagent.dev/docs for detailed debugging steps
-#    - Check controller logs and SandboxAgent status conditions
+#    - Check controller logs and AgentTemplate status conditions

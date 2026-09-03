@@ -22,7 +22,7 @@ import {
   validateExtensionFieldValues,
 } from "./index";
 import type { AppExtensionConfig } from "./index";
-import { apiBaseUrl, clearApiExtensions, invoke, resolveEndpoint } from "@/api";
+import { apiBaseUrl, clearApiExtensions, invoke } from "@/api";
 // The two appliers are internal to the data layer — the HTTP client is their
 // only production caller — so they come from the module rather than the barrel.
 import {
@@ -33,7 +33,7 @@ import type { ApiCallId, ApiRequestContext, ApiResponseContext } from "@/api";
 import type { NavItem } from "@/components/Structure/navItems";
 import { reservedRoutePaths } from "@/router/router";
 
-// These four capabilities — endpoint resolution, payload mapping, sidebar
+// These capabilities — payload mapping, sidebar
 // ordering and config validation — have no rendered surface of their own, so
 // this is where they are checked.
 
@@ -98,21 +98,6 @@ describe("installExtensionApi", () => {
     ).resolves.not.toEqual([{ name: "extension", status: "Active" }]);
   });
 
-  it("points an HTTP endpoint at the extension's path", () => {
-    installExtensionApi({ endpoints: { "chat.a2a": "/v2/a2a" } });
-    expect(resolveEndpoint("chat.a2a", { namespace: "kagent", name: "k8s" })).toBe(
-      "/v2/a2a",
-    );
-  });
-
-  it("undoes an endpoint override", () => {
-    const undo = installExtensionApi({ endpoints: { "chat.a2a": "/v2/a2a" } });
-    undo();
-    expect(resolveEndpoint("chat.a2a", { namespace: "kagent", name: "k8s" })).toBe(
-      "/a2a/kagent/k8s",
-    );
-  });
-
   it("rewrites the base URL prefix of a request", async () => {
     installExtensionApi({ baseUrl: "https://example.test/v1/" });
     const result = await applyRequestTransforms(requestContext("models.list"));
@@ -156,7 +141,7 @@ describe("installExtensionApi", () => {
       }),
     });
 
-    for (const call of ["models.list", "namespaces.list", "chat.a2a"] as const) {
+    for (const call of ["models.list", "namespaces.list"] as const) {
       const result = await applyRequestTransforms(requestContext(call, "/x"));
       expect(result.headers).toEqual({ authorization: "Bearer t" });
     }

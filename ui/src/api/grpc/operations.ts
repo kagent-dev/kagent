@@ -30,14 +30,9 @@
  * nothing in the app calls them yet. Adding one is a new id here, not a new path
  * anywhere else.
  *
- * Four of `AgentInstanceService`'s RPCs are absent for a stronger reason than "not
- * yet". `CreateAgentInstance` needs a harness *and* an AgentTemplate chosen, and
- * `AgentTemplate` has no service to choose one from — it is a shipped CRD that
- * appears in no proto and on no route. `DeleteAgentInstance` is destructive and
- * irreversible. `CheckpointService` — including `ForkAgentInstance` — and the three
- * share RPCs are whole features rather than a control on a list. Each is a product
- * decision, and until one is taken the honest surface is the one that reads and
- * the two lifecycle operations that undo each other.
+ * `CheckpointService` is not exposed in the UI yet. Adding it requires product
+ * behavior for naming, listing, and restoring checkpoints, not another transport
+ * mapping hidden in this file.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
