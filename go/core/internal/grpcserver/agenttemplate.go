@@ -15,11 +15,11 @@ const agentTemplateKind = "AgentTemplate"
 
 type agentTemplateServer struct {
 	apiv1alpha1.UnimplementedAgentTemplateServiceServer
-	service         *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	service         *kubecrud.ScopedService[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	maxMessageBytes int
 }
 
-func newAgentTemplateServer(service *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], maxMessageBytes int) *agentTemplateServer {
+func newAgentTemplateServer(service *kubecrud.ScopedService[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], maxMessageBytes int) *agentTemplateServer {
 	return &agentTemplateServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 
@@ -81,12 +81,9 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	existing, err := s.service.GetForUpdate(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	existing.Spec = *incoming.Spec.DeepCopy()
-	result, err := s.service.SaveUpdate(ctx, existing)
+	result, err := s.service.Update(ctx, ref, func(existing *v1alpha3.AgentTemplate) {
+		existing.Spec = *incoming.Spec.DeepCopy()
+	})
 	if err != nil {
 		return nil, err
 	}

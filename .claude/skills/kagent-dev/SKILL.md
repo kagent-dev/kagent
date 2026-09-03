@@ -84,6 +84,10 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 - Use PostgreSQL constraints for invariants that can be enforced atomically.
 - Keep migrations schema-agnostic and safe for multiple controller replicas.
 
+## Authorization changes
+
+For resource or collection authorization work, read the [scoped authorization guide](references/scoped-authorization.md) before changing services or list queries.
+
 ## Testing and CI
 
 - Focused unit and generation checks are required for implemented behavior.

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -82,12 +83,12 @@ func WithValidator(validator Validator) ServiceOption {
 
 type Service struct {
 	kubeClient       client.Client
-	authorizer       auth.Authorizer
+	authorizer       auth.CollectionAuthorizer
 	defaultNamespace string
 	validator        Validator
 }
 
-func NewService(kubeClient client.Client, authorizer auth.Authorizer, defaultNamespace string, options ...ServiceOption) *Service {
+func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, defaultNamespace string, options ...ServiceOption) *Service {
 	service := &Service{
 		kubeClient:       kubeClient,
 		authorizer:       authorizer,
@@ -100,10 +101,6 @@ func NewService(kubeClient client.Client, authorizer auth.Authorizer, defaultNam
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) ([]View, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Agent"}); err != nil {
-		return nil, err
-	}
-
 	options := make([]client.ListOption, 0, 1)
 	if request.Namespace != "" {
 		if strings.TrimSpace(request.Namespace) != request.Namespace {
@@ -119,6 +116,17 @@ func (s *Service) List(ctx context.Context, request ListRequest) ([]View, error)
 			)
 		}
 		options = append(options, client.InNamespace(request.Namespace))
+	}
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Agent"}); err != nil {
+		return nil, err
+	}
+	scope, err := s.scope(ctx, string(KindAgentHarness))
+	if err != nil {
+		return nil, err
+	}
+	matches, err := kubeauth.ScopeMatcher(scope)
+	if err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 
 	sandboxAgents := &v1alpha3.SandboxAgentList{}
@@ -137,7 +145,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) ([]View, error)
 	}
 	for index := range harnesses.Items {
 		harness := &harnesses.Items[index]
-		if !v1alpha3.IsKnownAgentHarnessBackend(harness.Spec.Backend) {
+		if !matches(harness) || !v1alpha3.IsKnownAgentHarnessBackend(harness.Spec.Backend) {
 			continue
 		}
 		views = append(views, s.harnessView(ctx, harness))
@@ -154,12 +162,18 @@ func (s *Service) GetSandboxAgent(ctx context.Context, request GetRequest) (View
 }
 
 func (s *Service) GetAgentHarness(ctx context.Context, request GetRequest) (View, error) {
+	if request.Ref.Namespace == "" || request.Ref.Name == "" {
+		return View{}, serviceerrors.NewInvalidArgument("AgentHarness namespace and name are required", nil)
+	}
 	harness := &v1alpha3.AgentHarness{}
-	if err := s.get(ctx, request.Ref, harness, "AgentHarness not found"); err != nil {
+	if err := s.loadForMutation(ctx, request.Ref, harness, "AgentHarness not found", "Failed to get AgentHarness"); err != nil {
 		return View{}, err
 	}
 	if !v1alpha3.IsKnownAgentHarnessBackend(harness.Spec.Backend) {
 		return View{}, serviceerrors.NewNotFound("AgentHarness not found", nil)
+	}
+	if err := s.authorize(ctx, auth.VerbGet, kubeauth.Resource(string(KindAgentHarness), harness)); err != nil {
+		return View{}, err
 	}
 	return s.harnessView(ctx, harness), nil
 }
@@ -227,11 +241,11 @@ func (s *Service) CreateAgentHarness(ctx context.Context, request CreateAgentHar
 	if harness.Kind == "" {
 		harness.Kind = string(KindAgentHarness)
 	}
-	if _, err := s.prepareCreate(ctx, harness, KindAgentHarness, auth.VerbCreate); err != nil {
-		return View{}, err
-	}
 	if strings.TrimSpace(string(harness.Spec.Backend)) == "" {
 		return View{}, serviceerrors.NewInvalidArgument("spec.backend is required", nil)
+	}
+	if _, err := s.prepareCreate(ctx, harness, KindAgentHarness, auth.VerbCreate); err != nil {
+		return View{}, err
 	}
 	if err := s.kubeClient.Create(ctx, harness); err != nil {
 		if apierrors.IsAlreadyExists(err) {
@@ -246,15 +260,15 @@ func (s *Service) DeleteAgentHarness(ctx context.Context, request DeleteRequest)
 	if request.Ref.Namespace == "" || request.Ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("AgentHarness namespace and name are required", nil)
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "Agent", Name: request.Ref.String()}); err != nil {
-		return err
-	}
 	harness := &v1alpha3.AgentHarness{}
 	if err := s.loadForMutation(ctx, request.Ref, harness, "AgentHarness not found", "Failed to get AgentHarness"); err != nil {
 		return err
 	}
 	if !v1alpha3.IsKnownAgentHarnessBackend(harness.Spec.Backend) {
 		return serviceerrors.NewNotFound("AgentHarness not found", nil)
+	}
+	if err := s.authorize(ctx, auth.VerbDelete, kubeauth.Resource(string(KindAgentHarness), harness)); err != nil {
+		return err
 	}
 	if err := s.kubeClient.Delete(ctx, harness); err != nil {
 		return serviceerrors.NewInternal("Failed to delete AgentHarness", err)
@@ -273,7 +287,11 @@ func (s *Service) prepareCreate(ctx context.Context, object client.Object, kind 
 	if ref.Name != object.GetName() || ref.Namespace != object.GetNamespace() {
 		return types.NamespacedName{}, serviceerrors.NewInvalidArgument(fmt.Sprintf("Invalid %s metadata", kind), nil)
 	}
-	if err := s.authorize(ctx, verb, auth.Resource{Type: "Agent", Name: ref.String()}); err != nil {
+	resource := auth.Resource{Type: "Agent", Name: ref.String()}
+	if kind == KindAgentHarness {
+		resource = kubeauth.Resource(string(kind), object)
+	}
+	if err := s.authorize(ctx, verb, resource); err != nil {
 		return types.NamespacedName{}, err
 	}
 	return ref, nil
@@ -453,4 +471,16 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.R
 		return serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return nil
+}
+
+func (s *Service) scope(ctx context.Context, resourceType string) (auth.AuthorizationScope, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok || session == nil {
+		return auth.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+	}
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), auth.VerbList, resourceType)
+	if err != nil {
+		return auth.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	return scope, nil
 }

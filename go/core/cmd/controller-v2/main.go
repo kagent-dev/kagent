@@ -214,7 +214,7 @@ func main() {
 		AgentInstanceService:  instances,
 		// Both halves of the pair CreateAgentInstance names. Without these two
 		// the only way to author a Harness or an AgentTemplate is kubectl.
-		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		AgentTemplateService: kubecrud.NewScopedService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		CheckpointService:    checkpoints,
 		A2AHandler:           gateway,
