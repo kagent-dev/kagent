@@ -57,20 +57,14 @@ func ScopeMatcher(scope auth.AuthorizationScope) (func(metav1.Object) bool, erro
 			if predicate.Attribute != auth.AttributeNamespace && predicate.Attribute != auth.AttributeName {
 				return nil, fmt.Errorf("unsupported scope attribute %q", predicate.Attribute)
 			}
-			switch predicate.Operator {
-			case auth.ScopeIn:
-				if len(predicate.Values) == 0 {
-					return nil, fmt.Errorf("scope predicate %d.%d requires at least one value", clauseIndex, predicateIndex)
-				}
-				if slices.Contains(predicate.Values, "") {
-					return nil, fmt.Errorf("scope predicate %d.%d contains an empty value", clauseIndex, predicateIndex)
-				}
-			case auth.ScopeMissing:
-				if len(predicate.Values) != 0 {
-					return nil, fmt.Errorf("scope predicate %d.%d must not contain values", clauseIndex, predicateIndex)
-				}
-			default:
+			if predicate.Operator != auth.ScopeIn {
 				return nil, fmt.Errorf("unsupported scope operator %q", predicate.Operator)
+			}
+			if len(predicate.Values) == 0 {
+				return nil, fmt.Errorf("scope predicate %d.%d requires at least one value", clauseIndex, predicateIndex)
+			}
+			if slices.Contains(predicate.Values, "") {
+				return nil, fmt.Errorf("scope predicate %d.%d contains an empty value", clauseIndex, predicateIndex)
 			}
 		}
 	}
@@ -83,12 +77,7 @@ func ScopeMatcher(scope auth.AuthorizationScope) (func(metav1.Object) bool, erro
 				if predicate.Attribute == auth.AttributeName {
 					value = object.GetName()
 				}
-				switch predicate.Operator {
-				case auth.ScopeIn:
-					matches = value != "" && slices.Contains(predicate.Values, value)
-				case auth.ScopeMissing:
-					matches = value == ""
-				}
+				matches = value != "" && slices.Contains(predicate.Values, value)
 				if !matches {
 					break
 				}

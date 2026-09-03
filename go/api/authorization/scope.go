@@ -16,8 +16,7 @@ const (
 type ScopeOperator string
 
 const (
-	ScopeIn      ScopeOperator = "IN"
-	ScopeMissing ScopeOperator = "MISSING"
+	ScopeIn ScopeOperator = "IN"
 )
 
 type AuthorizationScope struct {

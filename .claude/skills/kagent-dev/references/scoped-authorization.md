@@ -11,7 +11,6 @@ An authorizer decides which resources a principal may access. It returns an `Aut
 - `ANY_OF` is an OR of non-empty clauses.
 - Each clause is an AND of non-empty predicates.
 - `IN` matches one of its non-empty values.
-- `MISSING` matches an absent attribute and has no values.
 
 For example, this scope:
 
@@ -55,7 +54,7 @@ Pass scopes as ordinary function arguments. Do not place policy decisions in req
 
 ## Service integration
 
-- `AgentTemplate` and `Harness` use `kubecrud.NewScopedService`. Their gRPC servers accept the scoped service type, so they cannot be wired with the unscoped constructor accidentally.
+- `AgentTemplate` and `Harness` use `kubecrud.NewService`, which requires a `CollectionAuthorizer` and always applies collection scopes.
 - `ModelConfig` requests require a `CollectionAuthorizer`; `Service.List` filters the returned Kubernetes list before transport conversion.
 - `ListConfiguredProviders` reads the separate `ModelProviderConfig` resource and remains outside this scope.
 - Legacy `AgentHarness` and `SandboxAgent` operations remain outside this scope.
@@ -68,7 +67,7 @@ Test generic scope behavior once in the Kubernetes matcher:
 
 - `ALL`, `NONE`, and `ANY_OF`;
 - OR clauses and AND predicates;
-- `IN` and `MISSING`;
+- `IN`;
 - every invalid kind, attribute, operator, clause shape, and value shape.
 
 Each protected service then needs focused tests proving:

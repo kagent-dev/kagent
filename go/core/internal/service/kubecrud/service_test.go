@@ -42,7 +42,7 @@ func (a *recordingAuthorizer) Scope(_ context.Context, _ auth.Principal, verb au
 	return a.scope, nil
 }
 
-func TestScopedServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
+func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestScopedServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T)
 		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "a"}},
 		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "mutable"}},
 	).Build()
-	service := NewScopedService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	service := NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
 	ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
 	listed, err := service.List(ctx, "team")
@@ -108,7 +108,7 @@ func TestScopedServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T)
 	}
 }
 
-func TestScopedHarnessServiceFiltersList(t *testing.T) {
+func TestHarnessServiceFiltersList(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestScopedHarnessServiceFiltersList(t *testing.T) {
 		&v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
 		&v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "denied"}},
 	).Build()
-	service := NewScopedService(kubeClient, authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
+	service := NewService(kubeClient, authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
 	ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
 	listed, err := service.List(ctx, "team")
@@ -140,13 +140,13 @@ func TestScopedHarnessServiceFiltersList(t *testing.T) {
 	}
 }
 
-func TestScopedServiceRejectsInvalidScope(t *testing.T) {
+func TestServiceRejectsInvalidScope(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
 	authorizer := &recordingAuthorizer{scope: auth.AuthorizationScope{Kind: auth.ScopeAnyOf}}
-	service := NewScopedService(
+	service := NewService(
 		fake.NewClientBuilder().WithScheme(scheme).Build(),
 		authorizer,
 		&v1alpha3.AgentTemplate{},

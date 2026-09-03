@@ -95,8 +95,7 @@ const (
 type ScopeOperator = apiauthorization.ScopeOperator
 
 const (
-	ScopeIn      = apiauthorization.ScopeIn
-	ScopeMissing = apiauthorization.ScopeMissing
+	ScopeIn = apiauthorization.ScopeIn
 )
 
 type AuthorizationScope = apiauthorization.AuthorizationScope

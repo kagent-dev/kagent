@@ -15,11 +15,11 @@ const agentTemplateKind = "AgentTemplate"
 
 type agentTemplateServer struct {
 	apiv1alpha1.UnimplementedAgentTemplateServiceServer
-	service         *kubecrud.ScopedService[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	service         *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	maxMessageBytes int
 }
 
-func newAgentTemplateServer(service *kubecrud.ScopedService[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], maxMessageBytes int) *agentTemplateServer {
+func newAgentTemplateServer(service *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], maxMessageBytes int) *agentTemplateServer {
 	return &agentTemplateServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 

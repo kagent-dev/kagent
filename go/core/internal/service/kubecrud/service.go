@@ -11,7 +11,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -27,19 +26,13 @@ type Service[T Object, L client.ObjectList] struct {
 	client     client.Client
 	object     T
 	list       L
-	authorizer auth.Authorizer
-	collection auth.CollectionAuthorizer
+	authorizer auth.CollectionAuthorizer
 	resource   string
-}
-
-// ScopedService is a Kubernetes CRUD service whose collection operations require a scope.
-type ScopedService[T Object, L client.ObjectList] struct {
-	*Service[T, L]
 }
 
 func NewService[T Object, L client.ObjectList](
 	client client.Client,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	object T,
 	list L,
 	resource string,
@@ -49,37 +42,17 @@ func NewService[T Object, L client.ObjectList](
 	}
 }
 
-// NewScopedService constructs a service that applies collection scopes before returning objects.
-func NewScopedService[T Object, L client.ObjectList](
-	client client.Client,
-	authorizer auth.CollectionAuthorizer,
-	object T,
-	list L,
-	resource string,
-) *ScopedService[T, L] {
-	service := NewService(client, authorizer, object, list, resource)
-	service.collection = authorizer
-	return &ScopedService[T, L]{Service: service}
-}
-
 func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error) {
 	if namespace == "" {
 		return nil, serviceerrors.NewInvalidArgument("namespace is required", nil)
 	}
-	var matches func(metav1.Object) bool
-	if s.collection == nil {
-		if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: s.resource}); err != nil {
-			return nil, err
-		}
-	} else {
-		scope, err := s.scope(ctx)
-		if err != nil {
-			return nil, err
-		}
-		matches, err = kubeauth.ScopeMatcher(scope)
-		if err != nil {
-			return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
-		}
+	scope, err := s.scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	matches, err := kubeauth.ScopeMatcher(scope)
+	if err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	list := s.list.DeepCopyObject().(L)
 	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -88,7 +61,7 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	items := make([]T, 0)
 	if err := meta.EachListItem(list, func(item runtime.Object) error {
 		object := item.(T)
-		if matches == nil || matches(object) {
+		if matches(object) {
 			items = append(items, object)
 		}
 		return nil
@@ -103,12 +76,6 @@ func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, e
 	var zero T
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
-	}
-	if s.collection == nil {
-		if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
-			return zero, err
-		}
-		return s.get(ctx, ref)
 	}
 	object, err := s.get(ctx, ref)
 	if err != nil {
@@ -130,11 +97,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	if err := s.validateNewRef(ref); err != nil {
 		return zero, err
 	}
-	resource := auth.Resource{Type: s.resource, Name: ref.String()}
-	if s.collection != nil {
-		resource = kubeauth.Resource(s.resource, object)
-	}
-	if err := s.authorize(ctx, auth.VerbCreate, resource); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, kubeauth.Resource(s.resource, object)); err != nil {
 		return zero, err
 	}
 	if err := s.client.Create(ctx, object); err != nil {
@@ -156,25 +119,16 @@ func (s *Service[T, L]) Update(ctx context.Context, ref types.NamespacedName, ap
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	if s.collection == nil {
-		if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
-			return zero, err
-		}
-	}
 	object, err := s.get(ctx, ref)
 	if err != nil {
 		return zero, err
 	}
-	if s.collection != nil {
-		if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
-			return zero, err
-		}
+	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
+		return zero, err
 	}
 	apply(object)
-	if s.collection != nil {
-		if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
-			return zero, err
-		}
+	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
+		return zero, err
 	}
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
@@ -189,19 +143,12 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 	if err := s.validateRef(ref); err != nil {
 		return err
 	}
-	if s.collection == nil {
-		if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
-			return err
-		}
-	}
 	object, err := s.get(ctx, ref)
 	if err != nil {
 		return err
 	}
-	if s.collection != nil {
-		if err := s.authorize(ctx, auth.VerbDelete, kubeauth.Resource(s.resource, object)); err != nil {
-			return err
-		}
+	if err := s.authorize(ctx, auth.VerbDelete, kubeauth.Resource(s.resource, object)); err != nil {
+		return err
 	}
 	if err := s.client.Delete(ctx, object); err != nil {
 		return serviceerrors.NewInternal("Failed to delete "+s.resource, err)
@@ -214,7 +161,7 @@ func (s *Service[T, L]) scope(ctx context.Context) (auth.AuthorizationScope, err
 	if !ok || session == nil {
 		return auth.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
-	scope, err := s.collection.Scope(ctx, session.Principal(), auth.VerbList, s.resource)
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), auth.VerbList, s.resource)
 	if err != nil {
 		return auth.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}

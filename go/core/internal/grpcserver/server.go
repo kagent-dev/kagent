@@ -52,8 +52,8 @@ type Config struct {
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
 	AgentService          *agentservice.Service
-	AgentTemplateService  *kubecrud.ScopedService[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
-	HarnessService        *kubecrud.ScopedService[*v1alpha3.Harness, *v1alpha3.HarnessList]
+	AgentTemplateService  *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
+	HarnessService        *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service

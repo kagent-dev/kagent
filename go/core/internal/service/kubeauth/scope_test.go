@@ -39,12 +39,6 @@ func TestScopeMatcher(t *testing.T) {
 				{Attribute: auth.AttributeName, Operator: auth.ScopeIn, Values: []string{"other"}},
 			}}}},
 		},
-		{
-			name: "missing",
-			scope: auth.AuthorizationScope{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{
-				{Attribute: auth.AttributeNamespace, Operator: auth.ScopeMissing},
-			}}}},
-		},
 	}
 
 	for _, test := range tests {
@@ -58,31 +52,20 @@ func TestScopeMatcher(t *testing.T) {
 			}
 		})
 	}
-
-	missingNamespace, err := ScopeMatcher(auth.AuthorizationScope{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{
-		Attribute: auth.AttributeNamespace,
-		Operator:  auth.ScopeMissing,
-	}}}}})
-	if err != nil {
-		t.Fatalf("ScopeMatcher() error = %v", err)
-	}
-	if !missingNamespace(&metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: "cluster-scoped"}}) {
-		t.Fatal("missing namespace did not match")
-	}
 }
 
 func TestScopeMatcherRejectsInvalidScopes(t *testing.T) {
 	tests := []auth.AuthorizationScope{
 		{},
-		{Kind: auth.ScopeAll, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeMissing}}}}},
-		{Kind: auth.ScopeNone, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeMissing}}}}},
+		{Kind: auth.ScopeAll, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeIn, Values: []string{"x"}}}}}},
+		{Kind: auth.ScopeNone, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeIn, Values: []string{"x"}}}}}},
 		{Kind: auth.ScopeAnyOf},
 		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{}}},
 		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: "label", Operator: auth.ScopeIn, Values: []string{"x"}}}}}},
+		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: "MISSING"}}}}},
 		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: "EQUALS", Values: []string{"x"}}}}}},
 		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeIn}}}}},
 		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeIn, Values: []string{""}}}}}},
-		{Kind: auth.ScopeAnyOf, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeMissing, Values: []string{"x"}}}}}},
 	}
 
 	for index, scope := range tests {
@@ -94,8 +77,8 @@ func TestScopeMatcherRejectsInvalidScopes(t *testing.T) {
 
 func TestResourceUsesObjectMetadata(t *testing.T) {
 	object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent-a"}}
-	resource := Resource("AgentHarness", object)
-	if resource.Type != "AgentHarness" || resource.Name != "team-a/agent-a" {
+	resource := Resource("Harness", object)
+	if resource.Type != "Harness" || resource.Name != "team-a/agent-a" {
 		t.Fatalf("Resource() = %+v", resource)
 	}
 	if got := resource.Attributes[auth.AttributeNamespace]; len(got) != 1 || got[0] != "team-a" {

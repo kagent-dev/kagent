@@ -83,8 +83,7 @@ const (
 type ScopeOperator string
 
 const (
-	ScopeIn      ScopeOperator = "IN"
-	ScopeMissing ScopeOperator = "MISSING"
+	ScopeIn ScopeOperator = "IN"
 )
 
 type AuthorizationScope struct {
@@ -107,7 +106,9 @@ type ScopePredicate struct {
 
 `ScopeAnyOf` joins clauses with OR. Each clause joins predicates with AND.
 
-`ScopeIn` matches a listed value. `ScopeMissing` matches an absent attribute.
+`ScopeIn` matches a listed value.
+
+The initial protected attributes, `namespace` and `name`, are always present and non-empty. An absent-attribute operator would therefore describe a state these resources cannot produce. Add another operator only when a protected resource introduces an attribute whose absence has authorization meaning.
 
 The scope contains no SQL, Kubernetes field paths, policy types, or backend expressions.
 
@@ -164,7 +165,7 @@ Kagent will not define policy resources, subjects, grants, or access levels.
 
 Tests must cover `ScopeAll`, `ScopeNone`, and `ScopeAnyOf`.
 
-Tests must verify OR clauses, AND predicates, `ScopeIn`, and `ScopeMissing`.
+Tests must verify OR clauses, AND predicates, and `ScopeIn`.
 
 Tests must verify trusted attributes for each single-resource operation.
 
@@ -192,3 +193,5 @@ Per-item checks after pagination produce incomplete pages and incorrect totals.
 Separate allowed-name and allowed-namespace lists can lose required AND relationships.
 
 Raw query fragments couple an `Authorizer` to storage and create an unsafe trust boundary.
+
+An absent-attribute predicate adds contract and validation complexity without matching any initial protected resource.
