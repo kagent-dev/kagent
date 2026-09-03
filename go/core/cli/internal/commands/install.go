@@ -207,7 +207,6 @@ func deleteCRDs(ctx context.Context) error {
 	crds := []string{
 		"modelconfigs.kagent.dev",
 		"sandboxagents.kagent.dev",
-		"toolservers.kagent.dev",
 	}
 
 	var deleteErrors []string
