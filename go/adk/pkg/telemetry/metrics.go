@@ -32,6 +32,7 @@ const (
 
 	tokenTypeInput  = "input"
 	tokenTypeOutput = "output"
+	tokenTypeCached = "cached"
 
 	// operationChat is the default gen_ai.operation.name for chat-completion calls.
 	operationChat = "chat"
@@ -52,7 +53,7 @@ var tokenUsageBuckets = []float64{1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 2
 var tokenUsage = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    metricGenAIClientTokenUsage,
-		Help:    "Measures the number of input and output tokens used by GenAI requests.",
+		Help:    "Measures the number of input, output, and cached tokens used by GenAI requests.",
 		Buckets: tokenUsageBuckets,
 	},
 	[]string{
@@ -117,12 +118,14 @@ type TokenUsage struct {
 	// ErrorType is error.type; empty for successful requests.
 	ErrorType string
 	// InputTokens / OutputTokens are the token counts (output = candidate +
-	// reasoning tokens). Non-positive counts are skipped.
+	// reasoning tokens). CachedTokens are prompt tokens served from the prompt
+	// cache. Non-positive counts are skipped.
 	InputTokens  int64
 	OutputTokens int64
+	CachedTokens int64
 }
 
-// RecordTokenUsage records input/output token counts on the
+// RecordTokenUsage records input/output/cached token counts on the
 // gen_ai.client.token.usage histogram. If the metric pipeline is disabled
 // (OTEL_METRICS_ENABLED unset or not "true"), it is a no-op. Zero/negative
 // counts are skipped.
@@ -145,5 +148,9 @@ func RecordTokenUsage(usage TokenUsage) {
 	if usage.OutputTokens > 0 {
 		tokenUsage.WithLabelValues(tokenTypeOutput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
 			Observe(float64(usage.OutputTokens))
+	}
+	if usage.CachedTokens > 0 {
+		tokenUsage.WithLabelValues(tokenTypeCached, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
+			Observe(float64(usage.CachedTokens))
 	}
 }
