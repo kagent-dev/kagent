@@ -12,6 +12,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -49,6 +50,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
@@ -59,6 +61,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -136,12 +139,15 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 // Calling it twice is harmless. SetLogger fulfils a promise that can only be
 // fulfilled once, so the first caller wins and Run's own call does nothing.
 func SetupLogger() error {
-	logger, err := logging.NewFromEnv(os.Stderr)
-	if err != nil {
-		return fmt.Errorf("parse LOG_LEVEL: %w", err)
+	logLevel := zapcore.InfoLevel
+	if value := os.Getenv("LOG_LEVEL"); value != "" {
+		if err := logLevel.Set(value); err != nil {
+			return fmt.Errorf("parse LOG_LEVEL: %w", err)
+		}
 	}
-	slog.SetDefault(logger)
-	ctrl.SetLogger(logging.AsLogr(logger))
+	// OTEL_LOGGING_ENABLED additively tees the controller's logs over OTLP;
+	// otherwise ControllerZapOpts is a no-op and this matches upstream logging.
+	ctrl.SetLogger(zap.New(append([]zap.Opts{zap.Level(logLevel)}, telemetry.ControllerZapOpts()...)...))
 	return nil
 }
 
@@ -168,9 +174,29 @@ func Run(ctx context.Context, opts Options) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdownTracing(shutdownCtx); err != nil {
-			logger.ErrorContext(shutdownCtx, "failed to shut down tracing", "error", err)
+			log.Printf("shutdown tracing: %v", err)
 		}
 	}()
+
+	// Initialize the OTLP logger provider before the controller logger binds to
+	// it, so the otelzap bridge below connects to the configured global provider.
+	// When OTEL_LOGGING_ENABLED is unset this returns a no-op shutdown and the
+	// SetupLogger call below is byte-identical to upstream logging.
+	shutdownLogging, err := telemetry.InitLoggerProvider(ctx, version.Version)
+	if err != nil {
+		return fmt.Errorf("initialize logging: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownLogging(shutdownCtx); err != nil {
+			log.Printf("shutdown logging: %v", err)
+		}
+	}()
+
+	if err := SetupLogger(); err != nil {
+		return err
+	}
 
 	dbURL, err := database.ResolveURL(env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres"), os.Getenv("POSTGRES_DATABASE_URL_FILE"))
 	if err != nil {
@@ -270,11 +296,13 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	mcpClient := toolservice.NewRuntimeMCPClient(manager.GetClient())
-	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
+	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store).
+		WithRecorder(manager.GetEventRecorder("remotemcpserver"))
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
+	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store).
+		WithRecorder(manager.GetEventRecorder("mcpserver-catalog"))
 	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up MCPServer discovery: %w", err)
 	}

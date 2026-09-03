@@ -95,7 +95,6 @@ func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (shutdown fun
 		}
 		telemetryProviders.LoggerProvider = loggerProvider
 	}
-
 	telemetryProviders.SetGlobalOtelProviders()
 	tracing.SetPropagator()
 
@@ -104,7 +103,8 @@ func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (shutdown fun
 
 func isTelemetryEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true") ||
-		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
+		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_METRICS_ENABLED")), "true")
 }
 
 func newLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog.LoggerProvider, error) {
