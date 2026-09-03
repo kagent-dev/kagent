@@ -3,32 +3,6 @@
 -- Kagent 1.0 baseline. These definitions match the schema produced by the
 -- pre-Goose migration sequence on a fresh database.
 
-CREATE TABLE agent (
-    id            TEXT        PRIMARY KEY,
-    created_at    TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ,
-    type          TEXT        NOT NULL,
-    config        JSON,
-    workload_type TEXT        NOT NULL DEFAULT 'deployment'
-);
-CREATE INDEX idx_agent_deleted_at ON agent(deleted_at);
-
-CREATE TABLE feedback (
-    id            BIGSERIAL   PRIMARY KEY,
-    created_at    TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ,
-    user_id       TEXT        NOT NULL,
-    message_id    BIGINT,
-    is_positive   BOOLEAN     NOT NULL DEFAULT false,
-    feedback_text TEXT        NOT NULL,
-    issue_type    TEXT
-);
-CREATE INDEX idx_feedback_deleted_at ON feedback(deleted_at);
-CREATE INDEX idx_feedback_user_id    ON feedback(user_id);
-CREATE INDEX idx_feedback_message_id ON feedback(message_id);
-
 CREATE TABLE tool (
     id          TEXT        NOT NULL,
     server_name TEXT        NOT NULL,
@@ -282,5 +256,3 @@ DROP TABLE lg_checkpoint_write;
 DROP TABLE lg_checkpoint;
 DROP TABLE toolserver;
 DROP TABLE tool;
-DROP TABLE feedback;
-DROP TABLE agent;

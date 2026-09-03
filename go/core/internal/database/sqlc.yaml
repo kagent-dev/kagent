@@ -39,17 +39,6 @@ sql:
               import: "github.com/google/uuid"
               type: "UUID"
               pointer: true
-          # Use domain types for columns that would otherwise be plain strings/bytes.
-          - column: "agent.config"
-            go_type:
-              import: "github.com/kagent-dev/kagent/go/api/adk"
-              type: "AgentConfig"
-              pointer: true
-          - column: "feedback.issue_type"
-            go_type:
-              import: "github.com/kagent-dev/kagent/go/api/database"
-              type: "FeedbackIssueType"
-              pointer: true
           - column: "memory.embedding"
             go_type:
               import: "github.com/pgvector/pgvector-go"

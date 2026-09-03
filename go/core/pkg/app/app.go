@@ -27,7 +27,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
@@ -263,7 +262,6 @@ func Run(ctx context.Context, opts Options) error {
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors))
-	feedback := feedbackservice.NewService(store)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
@@ -296,7 +294,6 @@ func Run(ctx context.Context, opts Options) error {
 		ToolService:           tools,
 		PromptTemplateService: prompts,
 		SystemService:         system,
-		FeedbackService:       feedback,
 		MemoryService:         memory,
 		AgentInstanceService:  instances,
 		// Both halves of the pair CreateAgentInstance names. Without these two

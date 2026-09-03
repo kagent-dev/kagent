@@ -149,9 +149,8 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			// value is the model name, while the Foundry deployment name is set
 			// separately in the model config.
 			//
-			// Claude (Anthropic) models on Foundry are served via the Anthropic
-			// Messages API rather than this OpenAI-compatible surface, so they are
-			// intentionally omitted here; Claude-on-Foundry support is coming later.
+			// Claude models on Foundry are served over the Anthropic Messages API;
+			// set spec.foundry.apiFormat to Anthropic when using them.
 			{Name: "gpt-4.1", FunctionCalling: true},
 			{Name: "gpt-4.1-mini", FunctionCalling: true},
 			{Name: "gpt-4.1-nano", FunctionCalling: true},
@@ -166,6 +165,12 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "Mistral-large", FunctionCalling: true},
 			{Name: "cohere-command-a", FunctionCalling: true},
 			{Name: "grok-3", FunctionCalling: true},
+			// Claude models on Foundry (Anthropic Messages API).
+			{Name: "claude-opus-4-8", FunctionCalling: true},
+			{Name: "claude-opus-5", FunctionCalling: true},
+			{Name: "claude-sonnet-5", FunctionCalling: true},
+			{Name: "claude-sonnet-4-6", FunctionCalling: true},
+			{Name: "claude-haiku-4-5", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderOllama: {
 			// FunctionCalling flags corrected: recent Ollama builds of these models

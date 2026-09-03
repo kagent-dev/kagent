@@ -51,15 +51,11 @@ func TestUpgrade(t *testing.T) {
 
 	env := loadUpgradeEnv(t)
 	seed := fmt.Sprintf("%d", time.Now().UnixNano())
-	seedAgentID := "upgrade-seed-agent-" + seed
-	seedUserID := "upgrade-seed-user-" + seed
 	seedToolID := "upgrade-seed-tool-" + seed
 	seedToolServerName := "upgrade-seed-toolserver-" + seed
 	seedGroupKind := "upgrade.seed/v1/Canary"
 	seedCanaryCounts := map[string]int{}
 	seedCanaryQueries := map[string]string{
-		"agent":      fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(seedAgentID)),
-		"feedback":   fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID)),
 		"tool":       fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s", pgQuote(seedToolID), pgQuote(seedToolServerName), pgQuote(seedGroupKind)),
 		"toolserver": fmt.Sprintf("SELECT count(*) FROM toolserver WHERE name = %s AND group_kind = %s", pgQuote(seedToolServerName), pgQuote(seedGroupKind)),
 	}
@@ -71,7 +67,7 @@ func TestUpgrade(t *testing.T) {
 	t.Logf("upgrade test: %s -> %s (registry=%s, kubeContext=%s)",
 		env.upgradeFromVersion, env.version, env.dockerRegistry, env.kubeContext)
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
-	waitForPostgresAgentTable(t, env, 3*time.Minute)
+	waitForPostgresSchema(t, env, 3*time.Minute)
 	if !hasGooseMigrationTable(t, env) {
 		t.Skip("the baseline release does not use Goose")
 	}
@@ -91,16 +87,10 @@ func TestUpgrade(t *testing.T) {
 		// meant to validate every future migration's semantics; they are canaries
 		// for accidental table drops, destructive rewrites, and key/index changes
 		// that lose existing customer data during an upgrade.
-		pgExec(t, env, fmt.Sprintf("INSERT INTO agent (id, type) VALUES (%s, 'Deployment')", pgQuote(seedAgentID)))
-		pgExec(t, env, fmt.Sprintf("INSERT INTO feedback (user_id, feedback_text) VALUES (%s, 'pre-upgrade feedback')", pgQuote(seedUserID)))
 		pgExec(t, env, fmt.Sprintf("INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'upgrade canary tool')",
 			pgQuote(seedToolID), pgQuote(seedToolServerName), pgQuote(seedGroupKind)))
 		pgExec(t, env, fmt.Sprintf("INSERT INTO toolserver (name, group_kind, description) VALUES (%s, %s, 'upgrade canary toolserver')",
 			pgQuote(seedToolServerName), pgQuote(seedGroupKind)))
-
-		seedAgents := pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(seedAgentID)))
-		require.GreaterOrEqual(t, seedAgents, 1, "expected seeded agent row")
-		t.Logf("seeded agent rows: %d", seedAgents)
 
 		for table, query := range seedCanaryQueries {
 			count := pgQueryInt(t, env, query)
@@ -203,20 +193,9 @@ func TestUpgrade(t *testing.T) {
 		// tables should still exist before we ask more specific questions about
 		// the seeded rows below.
 		requirePostgresTablesExist(t, env,
-			"agent",
-			"feedback",
 			"tool",
 			"toolserver",
 		)
-
-		postAgents := pgQueryInt(t, env,
-			fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s AND workload_type = 'deployment'", pgQuote(seedAgentID)))
-		require.GreaterOrEqual(t, postAgents, 1,
-			"seeded agent row missing or not backfilled to workload_type='deployment' after upgrade")
-
-		postFeedback := pgQueryInt(t, env,
-			fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID)))
-		require.GreaterOrEqual(t, postFeedback, 1, "seeded feedback row did not survive the upgrade migrations")
 
 		for table, before := range seedCanaryCounts {
 			// The generic canaries only assert non-regression. Future migrations
@@ -386,13 +365,13 @@ func waitForReadyPods(t *testing.T, env upgradeEnv, selector string, timeout tim
 	)
 }
 
-func waitForPostgresAgentTable(t *testing.T, env upgradeEnv, timeout time.Duration) {
+func waitForPostgresSchema(t *testing.T, env upgradeEnv, timeout time.Duration) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		out, err := pgQueryE(t, env, "SELECT to_regclass('public.agent') IS NOT NULL")
+		out, err := pgQueryE(t, env, "SELECT to_regclass('public.tool') IS NOT NULL")
 		return err == nil && out == "t"
-	}, timeout, 5*time.Second, "agent table did not appear in the baseline Postgres schema")
+	}, timeout, 5*time.Second, "baseline Postgres schema did not appear")
 }
 
 func pgExec(t *testing.T, env upgradeEnv, query string) {

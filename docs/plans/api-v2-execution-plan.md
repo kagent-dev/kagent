@@ -455,6 +455,10 @@ After K12–K18 are merged:
 - Delete SandboxAgent and AgentHarness CRDs, controllers, translators, routes, RBAC, UI, CLI, ACP gateway, and generated artifacts.
 - Delete `SessionService`, legacy session sharing, `TaskStoreService`, and runtime controller clients.
 - Remove session/event/generic-agent tables and session TTL configuration.
+- Remove legacy services only after their last in-repository caller is cut over.
+  Retain `ModelService`, `ToolService`, `PromptTemplateService`, and
+  `SystemService` while the browser UI depends on them, and retain
+  `MemoryService` while the Go ADK uses it for runtime memory persistence.
 - Retain the new AgentInstance, public A2A task/event, checkpoint, operation, and share tables.
 - Retain only the browser BFF and canonical gRPC gateway.
 - Remove obsolete tests instead of translating Agent-specific fixtures.

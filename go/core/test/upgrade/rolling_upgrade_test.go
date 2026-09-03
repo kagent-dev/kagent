@@ -19,15 +19,16 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	env := loadUpgradeEnv(t)
 	targetCoreVersion := latestCoreMigrationVersion(t)
 	seed := fmt.Sprintf("%d", time.Now().UnixNano())
-	baselineAgentID := "rolling-baseline-agent-" + seed
-	compatAgentID := "rolling-compat-agent-" + seed
-	compatUserID := "rolling-compat-user-" + seed
+	baselineToolID := "rolling-baseline-tool-" + seed
+	compatToolID := "rolling-compat-tool-" + seed
+	toolServerName := "rolling-toolserver-" + seed
+	groupKind := "upgrade.rolling/v1/Canary"
 
 	t.Logf("rolling upgrade test: %s -> %s (registry=%s, kubeContext=%s)",
 		env.upgradeFromVersion, env.version, env.dockerRegistry, env.kubeContext)
 
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
-	waitForPostgresAgentTable(t, env, 3*time.Minute)
+	waitForPostgresSchema(t, env, 3*time.Minute)
 	if !hasGooseMigrationTable(t, env) {
 		t.Skip("the baseline release does not use Goose")
 	}
@@ -55,7 +56,9 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	// Seed with the baseline schema before the target controller applies new
 	// migrations. The compatibility canary below verifies this row is still
 	// readable while old pods are alive against the target schema.
-	pgExec(t, env, fmt.Sprintf("INSERT INTO agent (id, type) VALUES (%s, 'Deployment')", pgQuote(baselineAgentID)))
+	pgExec(t, env, fmt.Sprintf(
+		"INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'rolling baseline tool')",
+		pgQuote(baselineToolID), pgQuote(toolServerName), pgQuote(groupKind)))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 	defer cancel()
@@ -97,18 +100,17 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	// not prove every previous-release code path works, but they catch migrations
 	// that break basic old read/write assumptions during a rolling deployment.
 	require.Equal(t, 1,
-		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s AND type = 'Deployment'", pgQuote(baselineAgentID))),
+		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s",
+			pgQuote(baselineToolID), pgQuote(toolServerName), pgQuote(groupKind))),
 		"old-shape read failed after target schema was applied",
 	)
-	pgExec(t, env, fmt.Sprintf("INSERT INTO agent (id, type) VALUES (%s, 'Deployment')", pgQuote(compatAgentID)))
-	pgExec(t, env, fmt.Sprintf("INSERT INTO feedback (user_id, feedback_text) VALUES (%s, 'rolling compatibility feedback')", pgQuote(compatUserID)))
+	pgExec(t, env, fmt.Sprintf(
+		"INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'rolling compatibility tool')",
+		pgQuote(compatToolID), pgQuote(toolServerName), pgQuote(groupKind)))
 	require.Equal(t, 1,
-		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(compatAgentID))),
-		"old-shape agent write did not survive against target schema",
-	)
-	require.Equal(t, 1,
-		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(compatUserID))),
-		"old-shape feedback write did not survive against target schema",
+		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s",
+			pgQuote(compatToolID), pgQuote(toolServerName), pgQuote(groupKind))),
+		"old-shape tool write did not survive against target schema",
 	)
 
 	result := <-done

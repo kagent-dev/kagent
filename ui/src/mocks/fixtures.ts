@@ -283,6 +283,13 @@ export const mockProviderModels: ProviderModelsResponse = {
     { name: "claude-haiku-4", function_calling: true },
   ],
   Ollama: [{ name: "llama3.2", function_calling: false }],
+  Foundry: [
+    { name: "gpt-4.1", function_calling: true },
+    { name: "gpt-4.1-mini", function_calling: true },
+    { name: "claude-haiku-4-5", function_calling: true },
+    { name: "claude-sonnet-4-6", function_calling: true },
+    { name: "claude-opus-4-8", function_calling: true },
+  ],
 };
 
 /**
@@ -347,6 +354,12 @@ export const mockProviders: Provider[] = [
     type: "SAPAICore",
     requiredParams: ["baseUrl"],
     optionalParams: ["resourceGroup", "authUrl"],
+  },
+  {
+    name: "Foundry",
+    type: "Foundry",
+    requiredParams: ["deployment", "endpoint"],
+    optionalParams: ["apiVersion", "apiFormat"],
   },
   /*
    * One provider an operator added, rather than one the controller ships with.
