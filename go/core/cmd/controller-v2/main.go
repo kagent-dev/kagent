@@ -95,10 +95,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := migrations.RunUp(ctx, dbURL, migrations.BuiltinSources(false)); err != nil {
+	vectorEnabled := envBool("DATABASE_VECTOR_ENABLED")
+	sources := migrations.BuiltinSources(vectorEnabled)
+	if envBool("SKIP_MIGRATIONS") {
+		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+			log.Fatalf("verify database migrations: %v", err)
+		}
+	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
 		log.Fatalf("run database migrations: %v", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL})
+	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL, VectorEnabled: vectorEnabled})
 	if err != nil {
 		log.Fatal(err)
 	}

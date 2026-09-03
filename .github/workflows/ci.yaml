@@ -207,9 +207,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # prev-stable: the previous minor line's latest published version,
+        #   including a prerelease before GA — runs on every base.
         # adjacent: the same-line latest published version, including prereleases
         #   — only meaningful on a release branch and skipped on main.
-        upgrade-from: [adjacent]
+        upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -253,9 +255,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # prev-stable: the previous minor line's latest published version,
+        #   including a prerelease before GA — runs on every base.
         # adjacent: the same-line latest published version, including prereleases
         #   — only meaningful on a release branch and skipped on main.
-        upgrade-from: [adjacent]
+        upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
