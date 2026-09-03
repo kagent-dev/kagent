@@ -392,7 +392,7 @@ func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
 		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
 		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
 		Capabilities: a2atype.AgentCapabilities{Streaming: true, Extensions: []a2atype.AgentExtension{{
-			URI: apia2a.HITLExtensionURI, Description: "Human approval for protected MCP tool calls", Required: false,
+			URI: apia2a.HITLExtensionURI, Description: "Human approval and user input", Required: false,
 		}}}, Skills: []a2atype.AgentSkill{},
 		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
 	}

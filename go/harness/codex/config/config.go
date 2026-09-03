@@ -52,9 +52,10 @@ type Agent struct {
 }
 
 type MCPServer struct {
-	URL          string            `json:"url"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	EnabledTools []string          `json:"enabled_tools,omitempty"`
+	URL             string            `json:"url"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	EnabledTools    []string          `json:"enabled_tools,omitempty"`
+	RequireApproval bool              `json:"require_approval,omitempty"`
 }
 
 func Production(model, instruction string) Config {

@@ -66,11 +66,18 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
 	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
+	approvalServers := make(map[string]struct{})
+	for name, server := range cfg.MCPServers {
+		if server.RequireApproval {
+			approvalServers[name] = struct{}{}
+		}
+	}
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.CodexExecutable, ExpectedVersion: cfg.ExpectedCodexVersion, StrictVersion: cfg.StrictVersion,
 		Workspace: input.Workspace, Model: cfg.Model, Provider: nativeProviderName(cfg.Provider.Name),
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
+		ApprovalServers: approvalServers,
 	}), nil
 }
 
@@ -80,10 +87,15 @@ type nativeConfig struct {
 	ApprovalPolicy string                         `toml:"approval_policy"`
 	SandboxMode    string                         `toml:"sandbox_mode"`
 	WebSearch      string                         `toml:"web_search"`
+	Features       nativeFeatures                 `toml:"features"`
 	Analytics      nativeAnalytics                `toml:"analytics"`
 	ModelProviders map[string]nativeModelProvider `toml:"model_providers,omitempty"`
 	Agents         map[string]nativeAgent         `toml:"agents,omitempty"`
 	MCPServers     map[string]nativeMCPServer     `toml:"mcp_servers,omitempty"`
+}
+
+type nativeFeatures struct {
+	DefaultModeRequestUserInput bool `toml:"default_mode_request_user_input"`
 }
 
 type nativeAnalytics struct {
@@ -103,10 +115,11 @@ type nativeAgent struct {
 }
 
 type nativeMCPServer struct {
-	URL            string            `toml:"url"`
-	HTTPHeaders    map[string]string `toml:"http_headers,omitempty,inline"`
-	EnvHTTPHeaders map[string]string `toml:"env_http_headers,omitempty,inline"`
-	EnabledTools   []string          `toml:"enabled_tools,omitempty"`
+	URL                      string            `toml:"url"`
+	HTTPHeaders              map[string]string `toml:"http_headers,omitempty,inline"`
+	EnvHTTPHeaders           map[string]string `toml:"env_http_headers,omitempty,inline"`
+	EnabledTools             []string          `toml:"enabled_tools,omitempty"`
+	DefaultToolsApprovalMode string            `toml:"default_tools_approval_mode"`
 }
 
 type nativeAgentConfig struct {
@@ -119,7 +132,8 @@ type nativeAgentConfig struct {
 func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
-		ApprovalPolicy: "never", SandboxMode: "danger-full-access", WebSearch: "disabled",
+		ApprovalPolicy: "never", SandboxMode: "danger-full-access", WebSearch: "cached",
+		Features:   nativeFeatures{DefaultModeRequestUserInput: true},
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),
@@ -146,8 +160,13 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 				literal[header] = value
 			}
 		}
+		approvalMode := "approve"
+		if server.RequireApproval {
+			approvalMode = "prompt"
+		}
 		native.MCPServers[name] = nativeMCPServer{
 			URL: server.URL, HTTPHeaders: literal, EnvHTTPHeaders: environment, EnabledTools: server.EnabledTools,
+			DefaultToolsApprovalMode: approvalMode,
 		}
 	}
 	contents, err := toml.Marshal(native)

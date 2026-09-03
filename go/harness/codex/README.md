@@ -28,15 +28,18 @@ harness.
   access-key credentials in one Secret.
 - Streaming text, command and file activity, direct Streamable HTTP MCP, and
   native Shared agents.
+- Per-server MCP tool approval with live App Server pause, resume, and cancel.
+- Native ask-user questions in default mode through App Server's experimental
+  API.
 - Standalone and plugin-selected skills without plugin hooks, commands,
   executables, or implicit plugin MCP servers.
 - Exact native thread resume and bounded cancellation through `turn/interrupt`.
 
-The adapter deliberately fixes native approvals to `never` and the native
-sandbox to `danger-full-access`; the Substrate Actor remains the security
-boundary. Account login, API-key passthrough, HITL, custom TLS, legacy SSE MCP,
-Dedicated agents, checkpoint/fork guarantees, and configurable native policy
-are not advertised.
+The adapter deliberately fixes the native sandbox to `danger-full-access` and
+approval policy to `never`; the Substrate Actor remains the security boundary.
+MCP servers marked for approval still prompt through App Server elicitation.
+Account login, API-key passthrough, custom TLS, legacy SSE MCP, Dedicated agents,
+checkpoint/fork guarantees, and configurable native policy are not advertised.
 
 Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 `KAGENT_AGENT_CARD_JSON`. Private A2A is served on port 80 and readiness on
