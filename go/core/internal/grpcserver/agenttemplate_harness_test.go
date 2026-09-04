@@ -39,6 +39,7 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		Listener:             listener,
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
+		SystemService:        testSystemService(),
 		AgentTemplateService: kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 	})

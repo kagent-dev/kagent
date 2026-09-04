@@ -46,8 +46,6 @@ type Service struct {
 	revisions          runtimeRevisionStore
 }
 
-type Option func(*Service)
-
 type Namespace struct {
 	Name   string
 	Status string
@@ -107,27 +105,19 @@ type SubstrateWorker struct {
 	Version         int64
 }
 
-func NewService(options ...Option) *Service {
-	service := &Service{}
-	for _, option := range options {
-		option(service)
-	}
-	return service
-}
-
-func WithInventory(
+func NewService(
 	kubeClient client.Client,
 	observedNamespaces []string,
 	authorizer auth.Authorizer,
 	ateClient ATEClient,
 	revisions runtimeRevisionStore,
-) Option {
-	return func(service *Service) {
-		service.kubeClient = kubeClient
-		service.observedNamespaces = slices.Clone(observedNamespaces)
-		service.authorizer = authorizer
-		service.ateClient = ateClient
-		service.revisions = revisions
+) *Service {
+	return &Service{
+		kubeClient:         kubeClient,
+		observedNamespaces: slices.Clone(observedNamespaces),
+		authorizer:         authorizer,
+		ateClient:          ateClient,
+		revisions:          revisions,
 	}
 }
 

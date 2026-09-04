@@ -42,6 +42,7 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		Listener:              listener,
 		Registerer:            prometheus.NewRegistry(),
 		Authenticator:         &authimpl.UnsecureAuthenticator{},
+		SystemService:         testSystemService(),
 		PromptTemplateService: service,
 	})
 	if err != nil {
