@@ -103,6 +103,7 @@ export {
   useAgentInstancesAcrossNamespaces,
 } from "./hooks/useAgentInstances";
 export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
+export { useInvalidatePrompts } from "./hooks/useInvalidatePrompts";
 export type {
   AgentConversations,
   AgentInstancesAcrossNamespaces,

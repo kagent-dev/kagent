@@ -17,7 +17,9 @@ export const routes = {
   models: "/models",
   modelNew: "/models/new",
   mcpServers: "/mcp",
+  mcpServerNew: "/mcp/new",
   prompts: "/prompts",
+  promptNew: "/prompts/new",
   substrate: "/substrate",
   /* The templates list is a tab of the agents page now. The old address still
      resolves — it redirects here — but a test should go where the reader goes. */

@@ -63,10 +63,19 @@ export function useSubstrateActors(
     sortField = "default",
     sortOrder = "asc",
   } = input;
-  // The sort is part of the key for the same reason the filter is: it changes what
-  // the server returns, so asking for a different one must re-read rather than
-  // re-render the previous answer in a new order — which would be the client-side
-  // sorting this replaced.
+  /*
+   * The sort is part of the key for the same reason the filter is: it changes which
+   * rows this read answers with and in what order, so asking for a different one has
+   * to re-read rather than re-render the previous answer.
+   *
+   * What that costs is worth naming rather than leaving to be discovered. The ordering
+   * is applied in `localPage`, after `GetSubstrateStatus` has already handed back every
+   * row — the RPC takes a namespace and nothing else — so each header click re-reads
+   * the whole inventory to reorder rows the browser was just holding. Removing that
+   * means moving the sort and the slice out of the transport so a reorder can be a
+   * re-render, which changes what this operation returns and belongs in its own change
+   * rather than smuggled into a header fix.
+   */
   return useApiResource(
     ["substrate.actors", namespace, filter, limit, pageToken, sortField, sortOrder],
     () =>

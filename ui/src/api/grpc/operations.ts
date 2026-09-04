@@ -1211,6 +1211,13 @@ const cluster: Pick<
         if (sortField === "workerPod") {
           return `${actor.ateomPodNamespace ?? ""}/${actor.ateomPodName ?? ""}\0${actor.actorId}`;
         }
+        /*
+         * `status` and `default` are one branch because they are one ordering: the
+         * default *is* status then id, as the field's own type says. So the Status
+         * header changes nothing ascending and reverses the grouping descending, which
+         * is correct and not obvious — named here so that a change to the default order
+         * has to decide what Status means rather than quietly turning it into a no-op.
+         */
         return `${actor.status}\0${actor.actorId}`;
       },
       (actor) =>
@@ -1243,6 +1250,8 @@ const cluster: Pick<
         const pod = `${worker.workerNamespace}/${worker.workerPod}`;
         if (sortField === "pod") return pod;
         if (sortField === "actor") return `${worker.actorId || "\uffff"}\0${pod}`;
+        // `pool` and `default` are one ordering for the reason the actors' `status` is:
+        // the default is pool then pod.
         return `${worker.workerPool}\0${pod}`;
       },
       (worker) =>

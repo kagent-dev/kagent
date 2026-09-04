@@ -109,6 +109,7 @@ export const paths = {
   prompts: "/prompts",
   promptNew: "/prompts/new",
   promptDetail: "/prompts/:namespace/:name",
+  promptEdit: "/prompts/:namespace/:name/edit",
 
   substrate: "/substrate",
 

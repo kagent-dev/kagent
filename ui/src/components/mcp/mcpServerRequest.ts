@@ -298,14 +298,14 @@ export function toCreateRequest(
  * A server name guessed from whatever identifies it.
  *
  * Saves typing a name that is almost always derivable, while staying a plain
- * suggestion the form stops offering once the user types their own.
+ * suggestion the form stops offering once the user types their own. Empty when
+ * there is nothing to derive from: a guessed name in a field the reader has not
+ * reached yet reads as a value they chose, and the placeholder says more.
  */
 export function suggestName(values: McpServerFormValues): string {
   const source =
     values.kind === "url" ? hostnameOf(values.url) : lastSegment(values.packageName);
-  const slug = slugifyResourceName(source);
-  if (slug) return slug;
-  return values.kind === "url" ? "remote-server" : "tool-server";
+  return slugifyResourceName(source);
 }
 
 function hostnameOf(url: string): string {
