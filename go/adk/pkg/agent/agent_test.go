@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 )
@@ -298,7 +297,7 @@ func TestCreateLLM_BedrockTimeouts(t *testing.T) {
 		ConnectTimeout: &connect,
 	}
 
-	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	llm, err := CreateLLM(context.Background(), m)
 	if err != nil {
 		t.Fatalf("CreateLLM: %v", err)
 	}
@@ -322,7 +321,7 @@ func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
 		Region:    "us-east-1",
 	}
 
-	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	llm, err := CreateLLM(context.Background(), m)
 	if err != nil {
 		t.Fatalf("CreateLLM: %v", err)
 	}

@@ -14,12 +14,12 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Version struct {
@@ -45,8 +45,6 @@ type Service struct {
 	ateClient          ATEClient
 	revisions          runtimeRevisionStore
 }
-
-type Option func(*Service)
 
 type Namespace struct {
 	Name   string
@@ -107,31 +105,19 @@ type SubstrateWorker struct {
 	Version         int64
 }
 
-func NewService(options ...Option) *Service {
-	service := &Service{}
-	for _, option := range options {
-		option(service)
-	}
-	return service
-}
-
-func WithInventory(
+func NewService(
 	kubeClient client.Client,
 	observedNamespaces []string,
 	authorizer auth.Authorizer,
 	ateClient ATEClient,
-) Option {
-	return func(service *Service) {
-		service.kubeClient = kubeClient
-		service.observedNamespaces = slices.Clone(observedNamespaces)
-		service.authorizer = authorizer
-		service.ateClient = ateClient
-	}
-}
-
-func WithRuntimeRevisions(revisions runtimeRevisionStore) Option {
-	return func(service *Service) {
-		service.revisions = revisions
+	revisions runtimeRevisionStore,
+) *Service {
+	return &Service{
+		kubeClient:         kubeClient,
+		observedNamespaces: slices.Clone(observedNamespaces),
+		authorizer:         authorizer,
+		ateClient:          ateClient,
+		revisions:          revisions,
 	}
 }
 
@@ -184,7 +170,7 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			ctrllog.FromContext(ctx).Error(err, "Failed to get namespace", "namespace", observedNamespace)
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to get namespace", "error", err, "namespace", observedNamespace)
 			continue
 		}
 		namespaces = append(namespaces, Namespace{Name: namespace.Name, Status: string(namespace.Status.Phase)})
@@ -240,7 +226,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 	result.Workers = workers
 	if err != nil {
 		result.ATEAPIError = err.Error()
-		ctrllog.FromContext(ctx).Error(err, "list ate-api state")
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api state", "error", err)
 	}
 
 	slices.SortStableFunc(result.WorkerPools, func(left, right SubstrateWorkerPool) int {
@@ -456,7 +442,7 @@ func labelSelectorString(ctx context.Context, selector *metav1.LabelSelector) st
 	}
 	result, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		ctrllog.FromContext(ctx).Info("invalid ActorTemplate workerSelector", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "invalid agent template worker selector", "error", err)
 		return "<invalid selector>"
 	}
 	return result.String()

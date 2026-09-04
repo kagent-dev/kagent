@@ -297,6 +297,7 @@ func newToolGRPCClient(t *testing.T, service *toolservice.Service) (apiv1alpha1.
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
+		SystemService: testSystemService(),
 		ToolService:   service,
 	})
 	if err != nil {

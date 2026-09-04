@@ -8,17 +8,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 )
 
-func TestNewAzureOpenAIModelWithLoggerRequiresEndpoint(t *testing.T) {
+func TestNewAzureOpenAIModelRequiresEndpoint(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_ENDPOINT", "")
 
-	_, err := NewAzureOpenAIModelWithLogger(context.Background(), &AzureOpenAIConfig{Model: "gpt-4o"}, logr.Discard())
+	_, err := NewAzureOpenAIModel(context.Background(), &AzureOpenAIConfig{Model: "gpt-4o"})
 	if err == nil || !strings.Contains(err.Error(), "AZURE_OPENAI_ENDPOINT environment variable is not set") {
-		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v, want missing AZURE_OPENAI_ENDPOINT", err)
+		t.Fatalf("NewAzureOpenAIModel() error = %v, want missing AZURE_OPENAI_ENDPOINT", err)
 	}
 }
 
@@ -29,15 +28,15 @@ func TestNewAzureOpenAIModelWithLoggerRequiresEndpoint(t *testing.T) {
 func TestAzureOpenAIWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_API_KEY", "")
 
-	_, err := NewAzureOpenAIModelWithLogger(context.Background(), &AzureOpenAIConfig{
+	_, err := NewAzureOpenAIModel(context.Background(), &AzureOpenAIConfig{
 		Model:      "gpt-4o",
 		Endpoint:   "https://example.openai.azure.com/",
 		Deployment: "gpt-4o",
 		APIVersion: "2024-02-15-preview",
 		credential: erroringFoundryCredential{},
-	}, logr.Discard())
+	})
 	if err == nil || !strings.Contains(err.Error(), "no Azure credential resolved") {
-		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v, want credential-not-resolved", err)
+		t.Fatalf("NewAzureOpenAIModel() error = %v, want credential-not-resolved", err)
 	}
 }
 
@@ -47,15 +46,15 @@ func TestAzureOpenAIWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 func TestAzureOpenAIWorkloadIdentityEagerProbeSucceeds(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_API_KEY", "")
 
-	model, err := NewAzureOpenAIModelWithLogger(context.Background(), &AzureOpenAIConfig{
+	model, err := NewAzureOpenAIModel(context.Background(), &AzureOpenAIConfig{
 		Model:      "gpt-4o",
 		Endpoint:   "https://example.openai.azure.com/",
 		Deployment: "gpt-4o",
 		APIVersion: "2024-02-15-preview",
 		credential: &fakeFoundryCredential{t: t, token: "entra-token"},
-	}, logr.Discard())
+	})
 	if err != nil {
-		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v", err)
+		t.Fatalf("NewAzureOpenAIModel() error = %v", err)
 	}
 	if model == nil || !model.IsAzure {
 		t.Fatalf("expected an Azure OpenAI model")
@@ -85,14 +84,14 @@ func TestAzureOpenAIAPIKeySendsApiKeyHeader(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := NewAzureOpenAIModelWithLogger(context.Background(), &AzureOpenAIConfig{
+	model, err := NewAzureOpenAIModel(context.Background(), &AzureOpenAIConfig{
 		Model:      "gpt-4o",
 		Endpoint:   server.URL,
 		Deployment: "gpt-4o",
 		APIVersion: "2024-06-01",
-	}, logr.Discard())
+	})
 	if err != nil {
-		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v", err)
+		t.Fatalf("NewAzureOpenAIModel() error = %v", err)
 	}
 	if !model.IsAzure {
 		t.Fatalf("IsAzure = false, want true")
@@ -138,9 +137,9 @@ func TestAzureOpenAIPassthroughInjectsBearerToken(t *testing.T) {
 	}
 	cfg.APIKeyPassthrough = true
 
-	model, err := NewAzureOpenAIModelWithLogger(context.Background(), cfg, logr.Discard())
+	model, err := NewAzureOpenAIModel(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v", err)
+		t.Fatalf("NewAzureOpenAIModel() error = %v", err)
 	}
 
 	ctx := context.WithValue(context.Background(), BearerTokenKey, "caller-token")
@@ -172,9 +171,9 @@ func TestAzureOpenAIPassthroughSkipsCredentialProbe(t *testing.T) {
 	}
 	cfg.APIKeyPassthrough = true
 
-	model, err := NewAzureOpenAIModelWithLogger(context.Background(), cfg, logr.Discard())
+	model, err := NewAzureOpenAIModel(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v, want success (passthrough must not probe the credential)", err)
+		t.Fatalf("NewAzureOpenAIModel() error = %v, want success (passthrough must not probe the credential)", err)
 	}
 	if model == nil || !model.IsAzure {
 		t.Fatalf("expected an Azure OpenAI model")

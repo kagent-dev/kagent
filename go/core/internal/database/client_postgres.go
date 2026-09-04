@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/pgvector/pgvector-go"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -1400,7 +1400,7 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 			ids[i] = r.ID
 		}
 		if err := c.q.IncrementMemoryAccessCount(ctx, ids); err != nil {
-			log.Printf("failed to increment memory access count: %v", err)
+			logging.FromContext(ctx).WarnContext(ctx, "failed to increment memory access count", "error", err)
 		}
 	}
 

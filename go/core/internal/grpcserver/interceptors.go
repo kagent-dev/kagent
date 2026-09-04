@@ -5,22 +5,22 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"runtime/debug"
 	"time"
 
-	"github.com/go-logr/logr"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var forwardedMetadataKeys = map[string]string{
@@ -126,7 +126,7 @@ func incomingHTTPHeaders(ctx context.Context) http.Header {
 func recoverUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (response any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			ctrllog.FromContext(ctx).Error(fmt.Errorf("panic: %v", recovered), "Recovered panic in gRPC request", "method", info.FullMethod, "stack", string(debug.Stack()))
+			logging.FromContext(ctx).ErrorContext(ctx, "recovered panic in gRPC request", "error", fmt.Errorf("panic: %v", recovered), "grpc_method", info.FullMethod, "stack", string(debug.Stack()))
 			err = status.Error(codes.Internal, "internal server error")
 		}
 	}()
@@ -136,7 +136,8 @@ func recoverUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServe
 func recoverStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			ctrllog.FromContext(stream.Context()).Error(fmt.Errorf("panic: %v", recovered), "Recovered panic in gRPC stream", "method", info.FullMethod, "stack", string(debug.Stack()))
+			ctx := stream.Context()
+			logging.FromContext(ctx).ErrorContext(ctx, "recovered panic in gRPC stream", "error", fmt.Errorf("panic: %v", recovered), "grpc_method", info.FullMethod, "stack", string(debug.Stack()))
 			err = status.Error(codes.Internal, "internal server error")
 		}
 	}()
@@ -145,28 +146,28 @@ func recoverStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.Stre
 
 func loggingUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	start := time.Now()
-	log := requestLogger(ctx, info.FullMethod, "unary")
-	ctx = ctrllog.IntoContext(ctx, log)
+	logger := requestLogger(ctx, info.FullMethod, "unary")
+	ctx = logging.IntoContext(ctx, logger)
 	response, err := handler(ctx, req)
-	log.Info("RPC completed", "code", status.Code(err).String(), "duration", time.Since(start))
+	logger.InfoContext(ctx, "rpc completed", "grpc_code", status.Code(err).String(), "duration_ms", time.Since(start).Milliseconds())
 	return response, err
 }
 
 func loggingStreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	start := time.Now()
-	log := requestLogger(stream.Context(), info.FullMethod, "stream")
-	wrapped := &contextServerStream{ServerStream: stream, ctx: ctrllog.IntoContext(stream.Context(), log)}
+	logger := requestLogger(stream.Context(), info.FullMethod, "stream")
+	wrapped := &contextServerStream{ServerStream: stream, ctx: logging.IntoContext(stream.Context(), logger)}
 	err := handler(srv, wrapped)
-	log.Info("RPC completed", "code", status.Code(err).String(), "duration", time.Since(start))
+	logger.InfoContext(wrapped.Context(), "rpc completed", "grpc_code", status.Code(err).String(), "duration_ms", time.Since(start).Milliseconds())
 	return err
 }
 
-func requestLogger(ctx context.Context, method, rpcType string) logr.Logger {
-	values := []any{"method", method, "rpc_type", rpcType}
+func requestLogger(ctx context.Context, method, rpcType string) *slog.Logger {
+	values := []any{"component", "grpc", "grpc_method", method, "rpc_type", rpcType}
 	if remotePeer, ok := peer.FromContext(ctx); ok {
 		values = append(values, "peer", remotePeer.Addr.String())
 	}
-	return ctrllog.FromContext(ctx).WithName("grpc").WithValues(values...)
+	return logging.FromContext(ctx).With(values...)
 }
 
 func errorMappingUnaryInterceptor(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

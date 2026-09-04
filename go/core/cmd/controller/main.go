@@ -18,7 +18,9 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -26,12 +28,18 @@ import (
 )
 
 func main() {
+	if err := app.SetupLogger(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	logger := slog.Default()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// No options: core's own controller runs with the default authenticator and
 	// authorizer. A library consumer supplies its own by calling app.Run directly.
 	if err := app.Run(ctx, app.Options{}); err != nil {
-		log.Fatal(err)
+		logger.ErrorContext(ctx, "controller stopped", "error", err)
+		os.Exit(1)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
@@ -14,6 +15,10 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/test/bufconn"
 )
+
+func testSystemService() *systemservice.Service {
+	return systemservice.NewService(nil, nil, nil, nil, nil)
+}
 
 func TestServerGetVersionAndHealth(t *testing.T) {
 	oldVersion, oldCommit, oldDate := version.Version, version.GitCommit, version.BuildDate
@@ -24,8 +29,9 @@ func TestServerGetVersionAndHealth(t *testing.T) {
 
 	listener := bufconn.Listen(1024 * 1024)
 	server, err := New(Config{
-		Listener:   listener,
-		Registerer: prometheus.NewRegistry(),
+		Listener:      listener,
+		Registerer:    prometheus.NewRegistry(),
+		SystemService: testSystemService(),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -76,8 +82,15 @@ func TestServerGetVersionAndHealth(t *testing.T) {
 }
 
 func TestNewRejectsPartialTLSConfiguration(t *testing.T) {
-	_, err := New(Config{TLSCertFile: "cert.pem"})
+	_, err := New(Config{TLSCertFile: "cert.pem", SystemService: testSystemService()})
 	if err == nil {
 		t.Fatal("New() error = nil, want partial TLS configuration error")
+	}
+}
+
+func TestNewRejectsMissingSystemService(t *testing.T) {
+	_, err := New(Config{})
+	if err == nil {
+		t.Fatal("New() error = nil, want missing system service error")
 	}
 }

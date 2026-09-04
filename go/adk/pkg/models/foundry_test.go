@@ -11,20 +11,19 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 )
 
-func TestNewFoundryModelWithLoggerRequiresEndpoint(t *testing.T) {
+func TestNewFoundryModelRequiresEndpoint(t *testing.T) {
 	t.Setenv("FOUNDRY_ENDPOINT", "")
 
-	_, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
+	_, err := NewFoundryModel(context.Background(), &FoundryConfig{
 		Deployment: "gpt-4-1-nano",
-	}, logr.Discard())
+	})
 	if err == nil || !strings.Contains(err.Error(), "FOUNDRY_ENDPOINT environment variable is not set") {
-		t.Fatalf("NewFoundryModelWithLogger() error = %v, want missing FOUNDRY_ENDPOINT", err)
+		t.Fatalf("NewFoundryModel() error = %v, want missing FOUNDRY_ENDPOINT", err)
 	}
 }
 
@@ -51,12 +50,12 @@ func TestFoundryAPIKeySendsApiKeyHeader(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
+	model, err := NewFoundryModel(context.Background(), &FoundryConfig{
 		Endpoint:   server.URL,
 		Deployment: "gpt-4-1-nano",
-	}, logr.Discard())
+	})
 	if err != nil {
-		t.Fatalf("NewFoundryModelWithLogger() error = %v", err)
+		t.Fatalf("NewFoundryModel() error = %v", err)
 	}
 	if !model.IsAzure {
 		t.Fatalf("IsAzure = false, want true")
@@ -108,13 +107,13 @@ func (erroringFoundryCredential) GetToken(context.Context, policy.TokenRequestOp
 func TestFoundryWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 	t.Setenv("FOUNDRY_API_KEY", "")
 
-	_, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
+	_, err := NewFoundryModel(context.Background(), &FoundryConfig{
 		Endpoint:   "https://example.cognitiveservices.azure.com/",
 		Deployment: "gpt-4-1-nano",
 		credential: erroringFoundryCredential{},
-	}, logr.Discard())
+	})
 	if err == nil || !strings.Contains(err.Error(), "no Azure credential resolved") {
-		t.Fatalf("NewFoundryModelWithLogger() error = %v, want credential-not-resolved", err)
+		t.Fatalf("NewFoundryModel() error = %v, want credential-not-resolved", err)
 	}
 }
 
@@ -123,13 +122,13 @@ func TestFoundryWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 func TestFoundryWorkloadIdentityEagerProbeSucceeds(t *testing.T) {
 	t.Setenv("FOUNDRY_API_KEY", "")
 
-	model, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
+	model, err := NewFoundryModel(context.Background(), &FoundryConfig{
 		Endpoint:   "https://example.cognitiveservices.azure.com/",
 		Deployment: "gpt-4-1-nano",
 		credential: &fakeFoundryCredential{t: t, token: "entra-token"},
-	}, logr.Discard())
+	})
 	if err != nil {
-		t.Fatalf("NewFoundryModelWithLogger() error = %v", err)
+		t.Fatalf("NewFoundryModel() error = %v", err)
 	}
 	if model == nil || !model.IsAzure {
 		t.Fatalf("expected an Azure Foundry model")
@@ -158,9 +157,9 @@ func TestFoundryPassthroughInjectsBearerToken(t *testing.T) {
 	}
 	cfg.APIKeyPassthrough = true
 
-	model, err := NewFoundryModelWithLogger(context.Background(), cfg, logr.Discard())
+	model, err := NewFoundryModel(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewFoundryModelWithLogger() error = %v", err)
+		t.Fatalf("NewFoundryModel() error = %v", err)
 	}
 
 	ctx := context.WithValue(context.Background(), BearerTokenKey, "caller-token")
@@ -191,9 +190,9 @@ func TestFoundryPassthroughSkipsCredentialProbe(t *testing.T) {
 	}
 	cfg.APIKeyPassthrough = true
 
-	model, err := NewFoundryModelWithLogger(context.Background(), cfg, logr.Discard())
+	model, err := NewFoundryModel(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("NewFoundryModelWithLogger() error = %v, want success (passthrough must not probe the credential)", err)
+		t.Fatalf("NewFoundryModel() error = %v, want success (passthrough must not probe the credential)", err)
 	}
 	if model == nil || !model.IsAzure {
 		t.Fatalf("expected an Azure Foundry model")
@@ -205,18 +204,18 @@ const foundryAnthropicMessageResponse = `{"id":"msg_1","type":"message","role":"
 func TestNewFoundryAnthropicModelRequiresEndpoint(t *testing.T) {
 	t.Setenv("FOUNDRY_ENDPOINT", "")
 
-	_, err := NewFoundryAnthropicModelWithLogger(context.Background(), &AnthropicConfig{}, "", "claude-haiku-4-5", nil, logr.Discard())
+	_, err := NewFoundryAnthropicModel(context.Background(), &AnthropicConfig{}, "", "claude-haiku-4-5", nil)
 	if err == nil || !strings.Contains(err.Error(), "FOUNDRY_ENDPOINT environment variable is not set") {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v, want missing FOUNDRY_ENDPOINT", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v, want missing FOUNDRY_ENDPOINT", err)
 	}
 }
 
 func TestNewFoundryAnthropicModelRequiresDeployment(t *testing.T) {
 	t.Setenv("FOUNDRY_DEPLOYMENT", "")
 
-	_, err := NewFoundryAnthropicModelWithLogger(context.Background(), &AnthropicConfig{}, "https://example.services.ai.azure.com/", "", nil, logr.Discard())
+	_, err := NewFoundryAnthropicModel(context.Background(), &AnthropicConfig{}, "https://example.services.ai.azure.com/", "", nil)
 	if err == nil || !strings.Contains(err.Error(), "FOUNDRY_DEPLOYMENT environment variable is not set") {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v, want missing FOUNDRY_DEPLOYMENT", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v, want missing FOUNDRY_DEPLOYMENT", err)
 	}
 }
 
@@ -243,9 +242,9 @@ func TestFoundryAnthropicAPIKeySendsApiKeyHeader(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	model, err := NewFoundryAnthropicModelWithLogger(context.Background(), &AnthropicConfig{}, server.URL, "claude-haiku-4-5", nil, logr.Discard())
+	model, err := NewFoundryAnthropicModel(context.Background(), &AnthropicConfig{}, server.URL, "claude-haiku-4-5", nil)
 	if err != nil {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v", err)
 	}
 	if model.Config.Model != "claude-haiku-4-5" {
 		t.Fatalf("Config.Model = %q, want deployment name", model.Config.Model)
@@ -292,9 +291,9 @@ func TestFoundryAnthropicWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) 
 	t.Setenv("FOUNDRY_API_KEY", "")
 
 	cfg := &AnthropicConfig{}
-	_, err := NewFoundryAnthropicModelWithLogger(context.Background(), cfg, "https://example.services.ai.azure.com/", "claude-haiku-4-5", erroringFoundryCredential{}, logr.Discard())
+	_, err := NewFoundryAnthropicModel(context.Background(), cfg, "https://example.services.ai.azure.com/", "claude-haiku-4-5", erroringFoundryCredential{})
 	if err == nil || !strings.Contains(err.Error(), "no Azure credential resolved") {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v, want credential-not-resolved", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v, want credential-not-resolved", err)
 	}
 }
 
@@ -304,9 +303,9 @@ func TestFoundryAnthropicWorkloadIdentityEagerProbeSucceeds(t *testing.T) {
 	t.Setenv("FOUNDRY_API_KEY", "")
 
 	cfg := &AnthropicConfig{}
-	model, err := NewFoundryAnthropicModelWithLogger(context.Background(), cfg, "https://example.services.ai.azure.com/", "claude-haiku-4-5", &fakeFoundryAnthropicCredential{t: t, token: "entra-token"}, logr.Discard())
+	model, err := NewFoundryAnthropicModel(context.Background(), cfg, "https://example.services.ai.azure.com/", "claude-haiku-4-5", &fakeFoundryAnthropicCredential{t: t, token: "entra-token"})
 	if err != nil {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v", err)
 	}
 	if model == nil {
 		t.Fatalf("expected a Foundry Anthropic model")
@@ -330,9 +329,9 @@ func TestFoundryAnthropicPassthroughInjectsBearerToken(t *testing.T) {
 	cfg := &AnthropicConfig{}
 	cfg.APIKeyPassthrough = true
 
-	model, err := NewFoundryAnthropicModelWithLogger(context.Background(), cfg, server.URL, "claude-haiku-4-5", nil, logr.Discard())
+	model, err := NewFoundryAnthropicModel(context.Background(), cfg, server.URL, "claude-haiku-4-5", nil)
 	if err != nil {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v", err)
 	}
 
 	ctx := context.WithValue(context.Background(), BearerTokenKey, "caller-token")
@@ -358,9 +357,9 @@ func TestFoundryAnthropicPassthroughSkipsCredentialProbe(t *testing.T) {
 	cfg := &AnthropicConfig{}
 	cfg.APIKeyPassthrough = true
 
-	model, err := NewFoundryAnthropicModelWithLogger(context.Background(), cfg, "https://example.services.ai.azure.com/", "claude-haiku-4-5", erroringFoundryCredential{}, logr.Discard())
+	model, err := NewFoundryAnthropicModel(context.Background(), cfg, "https://example.services.ai.azure.com/", "claude-haiku-4-5", erroringFoundryCredential{})
 	if err != nil {
-		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v, want success (passthrough must not probe the credential)", err)
+		t.Fatalf("NewFoundryAnthropicModel() error = %v, want success (passthrough must not probe the credential)", err)
 	}
 	if model == nil {
 		t.Fatalf("expected a Foundry Anthropic model")
