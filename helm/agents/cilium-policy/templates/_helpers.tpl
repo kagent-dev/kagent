@@ -1,4 +1,8 @@
 {{- define "agent.deploymentSpec" -}}
+{{- with .Values.annotations }}
+annotations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
 imagePullSecrets:
   {{- toYaml . | nindent 2 }}
