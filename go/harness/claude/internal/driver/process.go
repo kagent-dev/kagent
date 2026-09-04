@@ -25,16 +25,38 @@ type ProcessConfig struct {
 	AppendSystemPrompt string
 	AgentsJSON         string
 	MCPConfigPath      string
+	SettingsPath       string
 	SkillRoot          string
 	Environment        []string
 	MaxEventBytes      int
 	MaxStderrBytes     int
 	InterruptGrace     time.Duration
+	ApprovalBroker     *ApprovalBroker
 }
 
-// ProcessDriver supervises one Claude Code process per runtime turn.
+// ProcessDriver supervises one Claude Code process per ordinary runtime turn
+// and retains it while a synchronous approval hook awaits a decision.
 type ProcessDriver struct {
 	config ProcessConfig
+	mu     sync.Mutex
+	parked *processSession
+}
+
+type parseItem struct {
+	event *Event
+	err   error
+}
+
+type processSession struct {
+	command   *exec.Cmd
+	items     <-chan parseItem
+	stopEmit  chan struct{}
+	wait      <-chan error
+	stderr    *utils.BoundedBuffer
+	terminal  *runtime.Outcome
+	sessionID string
+	pending   *PendingHookRequest
+	stopOnce  sync.Once
 }
 
 // NewProcessDriver constructs a Claude Code process driver.
@@ -65,13 +87,20 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 // Args compiles one runtime turn into Claude Code command-line arguments.
 func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	args := []string{
-		"--bare",
 		"-p", turn.Prompt,
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--dangerously-skip-permissions",
 		"--strict-mcp-config",
+	}
+	if d.config.ApprovalBroker == nil {
+		// Bare mode has faster startup time
+		args = append(args, "--bare", "--dangerously-skip-permissions")
+	} else {
+		// Bare mode disables hooks, including hooks explicitly supplied through
+		// --settings. Keep setting discovery empty instead so the private
+		// PreToolUse approval hook remains active without loading ambient config.
+		args = append(args, "--setting-sources", "", "--settings", d.config.SettingsPath, "--permission-mode", "dontAsk")
 	}
 	if d.config.Model != "" {
 		args = append(args, "--model", d.config.Model)
@@ -100,6 +129,14 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 
 // Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.parked != nil {
+		return d.resumeParked(ctx, turn, sink)
+	}
+	if strings.TrimSpace(turn.Prompt) == "" {
+		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
+	}
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
 	cmd.Dir = d.config.Workspace
@@ -112,10 +149,6 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
-	}
-	type parseItem struct {
-		event *Event
-		err   error
 	}
 	items := make(chan parseItem)
 	stopEmit := make(chan struct{})
@@ -135,57 +168,137 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		}
 	}()
 	waitDone := make(chan error, 1)
-	var waitOnce sync.Once
-	waitForExit := func() <-chan error {
-		waitOnce.Do(func() {
-			go func() { waitDone <- cmd.Wait() }()
-		})
-		return waitDone
+	go func() { waitDone <- cmd.Wait(); close(waitDone) }()
+	session := &processSession{
+		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr,
 	}
-	var terminal *runtime.Outcome
+	parked := false
+	defer func() {
+		if !parked {
+			d.stopSession(session)
+		}
+	}()
+	outcome, err := d.consume(ctx, session, sink)
+	if err == nil && outcome.InputRequired != nil {
+		d.parked, parked = session, true
+	}
+	return outcome, err
+}
 
+func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
+	var hookPending *PendingHookRequest
 	for {
+		if hookPending != nil && session.sessionID != "" {
+			if !hookPending.waiting() {
+				hookPending = nil
+				continue
+			}
+			if hookPending.sessionID != session.sessionID {
+				return runtime.Outcome{}, fmt.Errorf("Claude approval hook session does not match the active process")
+			}
+			session.pending = hookPending
+			return runtime.Outcome{InputRequired: hookPending.approvalRequest()}, nil
+		}
+		var approvals <-chan *PendingHookRequest
+		if d.config.ApprovalBroker != nil && hookPending == nil {
+			approvals = d.config.ApprovalBroker.Requests()
+		}
 		select {
-		case item, ok := <-items:
+		case request := <-approvals:
+			if session.terminal != nil {
+				return runtime.Outcome{}, fmt.Errorf("Claude requested approval after its terminal result")
+			}
+			hookPending = request
+		case item, ok := <-session.items:
 			if !ok {
 				return runtime.Outcome{}, fmt.Errorf("claude parser stopped without a result")
 			}
 			if item.event != nil {
-				outcome, err := emitEvent(*item.event, sink, terminal != nil)
+				outcome, err := emitEvent(*item.event, sink, session.terminal != nil)
 				if err == nil {
+					if item.event.Kind == EventSessionStarted {
+						if session.sessionID != "" && session.sessionID != item.event.SessionID {
+							return runtime.Outcome{}, fmt.Errorf("Claude changed session ID during an active process")
+						}
+						session.sessionID = item.event.SessionID
+					}
 					if outcome != nil {
-						terminal = outcome
+						session.terminal = outcome
 					}
 					continue
-				}
-				close(stopEmit)
-				d.terminate(cmd, waitForExit())
-				for range items {
 				}
 				return runtime.Outcome{}, err
 			}
 			if item.err != nil {
-				close(stopEmit)
-				d.terminate(cmd, waitForExit())
 				return runtime.Outcome{}, item.err
 			}
-			// StdoutPipe requires all reads to complete before Wait closes the pipe.
-			// The parser's nil result is the EOF boundary, so start Wait only now.
-			if waitErr := <-waitForExit(); waitErr != nil {
-				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, stderr.String())
+			if waitErr := <-session.wait; waitErr != nil {
+				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, session.stderr.String())
 			}
-			if terminal == nil {
+			if session.terminal == nil {
 				return runtime.Outcome{}, fmt.Errorf("claude process exited without a terminal result")
 			}
-			return *terminal, nil
+			return *session.terminal, nil
 		case <-ctx.Done():
-			close(stopEmit)
-			d.terminate(cmd, waitForExit())
-			for range items {
-			}
 			return runtime.Outcome{}, ctx.Err()
 		}
 	}
+}
+
+func (d *ProcessDriver) resumeParked(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	session := d.parked
+	decision, ok := turn.InputResponse.(*runtime.ApprovalDecision)
+	if !ok {
+		return runtime.Outcome{}, fmt.Errorf("Claude is waiting for a structured tool approval response")
+	}
+	if decision.ID != session.pending.request.ID {
+		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, session.pending.request.ID)
+	}
+	if err := session.pending.resolve(*decision); err != nil {
+		d.parked = nil
+		d.stopSession(session)
+		return runtime.Outcome{}, err
+	}
+	session.pending = nil
+	outcome, err := d.consume(ctx, session, sink)
+	if err == nil && outcome.InputRequired != nil {
+		return outcome, nil
+	}
+	d.parked = nil
+	d.stopSession(session)
+	return outcome, err
+}
+
+// CancelParked denies the outstanding hook request and reaps the retained
+// Claude process. Process termination remains the authority if the HTTP hook
+// connection has already disappeared.
+func (d *ProcessDriver) CancelParked(_ context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.parked == nil {
+		return fmt.Errorf("Claude has no parked turn to cancel")
+	}
+	session := d.parked
+	d.parked = nil
+	_ = session.pending.resolve(runtime.ApprovalDecision{
+		ID: session.pending.request.ID, Approved: false, RejectionReason: "The task was canceled.",
+	})
+	d.stopSession(session)
+	return nil
+}
+
+// Close releases the Actor-local hook listener and any retained process.
+func (d *ProcessDriver) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.parked != nil {
+		d.stopSession(d.parked)
+		d.parked = nil
+	}
+	if d.config.ApprovalBroker != nil {
+		return d.config.ApprovalBroker.Close()
+	}
+	return nil
 }
 
 // emitEvent translates a Claude event to a runtime event and emits it to the
@@ -221,17 +334,22 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	}
 }
 
-func (d *ProcessDriver) terminate(cmd *exec.Cmd, waitDone <-chan error) {
-	_ = utils.InterruptProcessGroup(cmd.Process)
-	timer := time.NewTimer(d.config.InterruptGrace)
-	defer timer.Stop()
-	select {
-	case <-waitDone:
-		// The group leader can exit on the interrupt while a descendant that
-		// ignores it remains alive. Kill any processes still in the group.
-		_ = utils.KillProcessGroup(cmd.Process)
-	case <-timer.C:
-		_ = utils.KillProcessGroup(cmd.Process)
-		<-waitDone
-	}
+func (d *ProcessDriver) stopSession(session *processSession) {
+	session.stopOnce.Do(func() {
+		close(session.stopEmit)
+		_ = utils.InterruptProcessGroup(session.command.Process)
+		timer := time.NewTimer(d.config.InterruptGrace)
+		defer timer.Stop()
+		select {
+		case <-session.wait:
+			// The group leader can exit on the interrupt while a descendant that
+			// ignores it remains alive. Kill any processes still in the group.
+			_ = utils.KillProcessGroup(session.command.Process)
+		case <-timer.C:
+			_ = utils.KillProcessGroup(session.command.Process)
+			<-session.wait
+		}
+		for range session.items {
+		}
+	})
 }
