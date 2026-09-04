@@ -21,6 +21,44 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=an
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
 ```
 
+### Substrate PostgreSQL
+
+Enabling Substrate uses Kagent's bundled PostgreSQL by default. Kagent and
+Substrate share the database connection but use separate schemas.
+
+```yaml
+substrate:
+  enabled: true
+```
+
+To share an external PostgreSQL connection, configure it once for Kagent:
+
+```yaml
+database:
+  postgres:
+    url: postgresql://user:password@database:5432/kagent
+    bundled:
+      enabled: false
+substrate:
+  enabled: true
+```
+
+To give Substrate a separate PostgreSQL connection, disable sharing and set
+the Substrate connection directly:
+
+```yaml
+substrate:
+  enabled: true
+  postgres:
+    connectionString: postgresql://user:password@substrate-db:5432/substrate
+    connectionStringSecretRef:
+      enabled: false
+```
+
+For a separate Secret-backed connection, leave `enabled: false` and set
+`connectionStringSecretRef.name` and `key`. A pod-local
+`database.postgres.urlFile` cannot be shared with Substrate.
+
 ### Using Make
 
 ```bash

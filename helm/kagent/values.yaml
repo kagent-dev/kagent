@@ -75,10 +75,12 @@ nodeSelector: {}
 database:
   postgres:
     # -- External PostgreSQL connection string.
-    # Is always used if set regardless of the `.bundled.enabled` field.
+    # Used ahead of `.bundled` unless an existing shared Substrate Secret is set.
     url: ""
     # -- Path to a file containing the database URL. Takes precedence over url when set.
-    # Is always used if set regardless of the `.bundled.enabled` field.
+    # Takes precedence over `.bundled` unless an existing shared Substrate Secret is set.
+    # Embedded Substrate cannot inherit an arbitrary mounted file; configure its
+    # connectionStringSecretRef.name instead.
     urlFile: ""
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
@@ -664,6 +666,16 @@ kmcp:
 
 substrate:
   enabled: false
+  postgres:
+    # Kagent and Substrate use separate schemas in the same database.
+    enabled: false
+    schema: substrate
+    # -- Share Kagent's selected database with Substrate through a Secret.
+    connectionStringSecretRef:
+      enabled: true
+      # -- Existing Secret name. Kagent creates a release-named Secret when empty.
+      name: ""
+      key: connectionString
 
 # ==============================================================================
 # BUILT-IN TOOLS

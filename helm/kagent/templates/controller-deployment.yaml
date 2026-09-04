@@ -101,7 +101,15 @@ spec:
             - name: AUTH_USER_ID_CLAIM
               value: {{ .Values.controller.auth.userIdClaim | quote }}
             {{- end }}
-            {{- if .Values.database.postgres.urlFile }}
+            {{- $substratePostgres := get .Values.substrate "postgres" | default dict }}
+            {{- $connectionStringSecretRef := get $substratePostgres "connectionStringSecretRef" | default dict }}
+            {{- if and .Values.substrate.enabled (get $connectionStringSecretRef "enabled") }}
+            - name: POSTGRES_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ get $connectionStringSecretRef "name" | default (include "substrate.fullname" (list "postgres-connection" .)) }}
+                  key: {{ get $connectionStringSecretRef "key" | default "connectionString" }}
+            {{- else if .Values.database.postgres.urlFile }}
             - name: POSTGRES_DATABASE_URL_FILE
               value: {{ .Values.database.postgres.urlFile | quote }}
             {{- else if .Values.database.postgres.url }}
