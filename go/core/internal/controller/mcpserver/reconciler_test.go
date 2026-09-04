@@ -19,6 +19,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -208,4 +210,66 @@ func testClient(t *testing.T, objects ...client.Object) client.Client {
 
 func apiMetaTestMapper() *apiMeta.DefaultRESTMapper {
 	return apiMeta.NewDefaultRESTMapper([]schema.GroupVersion{kmcp.GroupVersion})
+}
+
+// TestReconcileEmitsToolsDiscovered verifies a Normal ToolsDiscovered event is
+// emitted when a ready MCPServer is successfully discovered.
+func TestReconcileEmitsToolsDiscovered(t *testing.T) {
+	server := readyServer()
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "zeta"}}}
+	recorder := events.NewFakeRecorder(1)
+
+	result, err := New(testClient(t, server), discoverer, &fakeCatalog{}).
+		WithRecorder(recorder).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 5*time.Minute {
+		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
+	}
+
+	select {
+	case ev := <-recorder.Events:
+		if !strings.Contains(ev, "Normal ToolsDiscovered ") {
+			t.Fatalf("unexpected event: %q", ev)
+		}
+	default:
+		t.Fatal("expected a ToolsDiscovered event, got none")
+	}
+}
+
+// TestReconcileEmitsValidationFailed verifies a malformed discovery triggers a
+// Warning ValidationFailed event.
+func TestReconcileEmitsValidationFailed(t *testing.T) {
+	server := readyServer()
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: " "}}}
+	recorder := events.NewFakeRecorder(1)
+
+	if _, err := New(testClient(t, server), discoverer, &fakeCatalog{}).
+		WithRecorder(recorder).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	}); err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	ev := <-recorder.Events
+	if !strings.Contains(ev, "Warning ValidationFailed ") {
+		t.Fatalf("unexpected event: %q", ev)
+	}
+}
+
+// TestReconcileNoEventsWithoutRecorder verifies event emission is skipped when
+// no recorder is wired, keeping zero behavioral change by default.
+func TestReconcileNoEventsWithoutRecorder(t *testing.T) {
+	server := readyServer()
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "zeta"}}}
+
+	if _, err := New(testClient(t, server), discoverer, &fakeCatalog{}).
+		Reconcile(t.Context(), ctrl.Request{
+			NamespacedName: client.ObjectKeyFromObject(server),
+		}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
 }
