@@ -80,7 +80,7 @@ func New(config Config) (*Server, error) {
 		config.MaxMessageBytes = DefaultMaxMessageSize
 	}
 	if config.SystemService == nil {
-		config.SystemService = systemservice.NewService()
+		return nil, fmt.Errorf("system service is required")
 	}
 	if config.MethodPolicies == nil {
 		config.MethodPolicies = DefaultMethodPolicies()
