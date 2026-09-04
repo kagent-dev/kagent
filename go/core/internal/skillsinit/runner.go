@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // Run executes the full skills-init sequence: docker config merge → git auth

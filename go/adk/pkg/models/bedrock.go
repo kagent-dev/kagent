@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )

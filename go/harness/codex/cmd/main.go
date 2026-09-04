@@ -16,7 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/adapter"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (

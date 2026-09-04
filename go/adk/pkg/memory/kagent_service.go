@@ -11,7 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/memory"
 	adkmodel "google.golang.org/adk/v2/model"
 	adksession "google.golang.org/adk/v2/session"

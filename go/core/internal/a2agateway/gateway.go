@@ -29,7 +29,7 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"

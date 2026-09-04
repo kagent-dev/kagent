@@ -11,7 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/vertex"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // anthropicPassthroughOpts returns a per-request option that sets the Anthropic API key

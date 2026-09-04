@@ -19,7 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/ollama/ollama/api"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"

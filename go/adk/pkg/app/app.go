@@ -15,7 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkagent "google.golang.org/adk/v2/agent"
 )
 

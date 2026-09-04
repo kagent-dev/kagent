@@ -28,7 +28,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"

@@ -209,7 +209,7 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 - Use standard-library `log/slog`. Binaries write JSON to stderr and read the
   minimum level from `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
-- Carry loggers in `context.Context` with `internal/logging`; do not add logger
+- Carry loggers in `context.Context` with `pkg/logging`; do not add logger
   parameters, package-global loggers, or `NewXxxWithLogger` constructors.
 - Use `DebugContext`, `InfoContext`, `WarnContext`, or `ErrorContext` whenever
   a context is in scope. Messages are static and lower-case; keys are

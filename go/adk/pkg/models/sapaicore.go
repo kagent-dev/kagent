@@ -13,7 +13,7 @@ import (
 
 	"log/slog"
 
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type SAPAICoreConfig struct {

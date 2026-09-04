@@ -13,7 +13,7 @@ import (
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkmemory "google.golang.org/adk/v2/memory"
 	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"

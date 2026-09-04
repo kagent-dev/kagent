@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	e2emocks "github.com/kagent-dev/kagent/go/core/test/e2e/mocks"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/mockllm"
 )
 

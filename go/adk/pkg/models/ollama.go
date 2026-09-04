@@ -8,7 +8,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/ollama/ollama/api"
 )
 

@@ -44,7 +44,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"

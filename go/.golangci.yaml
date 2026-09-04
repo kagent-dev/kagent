@@ -76,10 +76,10 @@ linters:
         structured-logging:
           files:
             - $all
-            - "!**/internal/logging/**"
+            - "!**/pkg/logging/**"
           deny:
             - pkg: github.com/go-logr/logr
-              desc: Use log/slog; adapters belong in internal/logging
+              desc: Use log/slog; adapters belong in pkg/logging
             - pkg: github.com/go-logr/zapr
               desc: Use log/slog
             - pkg: go.uber.org/zap

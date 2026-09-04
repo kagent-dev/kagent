@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // FoundryConfig holds Azure AI Foundry configuration for the OpenAI-compatible

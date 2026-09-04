@@ -15,7 +15,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
-	"github.com/kagent-dev/kagent/go/internal/logging"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
