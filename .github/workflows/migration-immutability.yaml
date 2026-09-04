@@ -17,6 +17,7 @@ jobs:
 
       - name: Fail if any existing migration file was modified
         env:
+          # A merge group has no base_ref; it only exposes the base branch as refs/heads/<branch>.
           BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
         run: |
           # List files under go/core/pkg/migrations/ that were changed relative
