@@ -11,11 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	"log/slog"
+
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -58,7 +59,7 @@ func (substrateExecutor) Cancel(context.Context, *a2asrv.ExecutorContext) iter.S
 func startTestServer(t *testing.T) (*httptest.Server, *grpc.ClientConn) {
 	t.Helper()
 
-	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
 	}
@@ -181,7 +182,7 @@ func runA2ARequest(t *testing.T) map[string]bool {
 		_ = tp.Shutdown(context.Background())
 	})
 
-	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(a2aMaxContentLengthEnvVar, "5")
-			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 			if err != nil {
 				t.Fatalf("NewA2AServer: %v", err)
 			}
@@ -287,7 +288,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 
 func TestA2ARequestSizeLimitDisabled(t *testing.T) {
 	t.Setenv(a2aMaxContentLengthEnvVar, "unlimited")
-	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
 	}
@@ -337,7 +338,7 @@ func TestGetMaxContentLength(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(a2aMaxContentLengthEnvVar, tt.value)
-			got := getMaxContentLength(logr.Discard())
+			got := getMaxContentLength(slog.New(slog.DiscardHandler))
 			if tt.unlimited {
 				if got != nil {
 					t.Errorf("expected unlimited request size, got %d", *got)

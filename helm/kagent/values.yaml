@@ -802,6 +802,9 @@ oauth2-proxy:
   # Cluster-specific OIDC settings - override these per deployment
   # These are set as env vars and referenced in args for easy patching
   extraEnv:
+    # Forces a rollout whenever the sign_in.html ConfigMap's content changes.
+    - name: KAGENT_OAUTH2_PROXY_SIGNIN_TEMPLATE_CHECKSUM
+      value: '{{ include "kagent.oauth2ProxySignInHTML" . | sha256sum }}'
     - name: OIDC_ISSUER_URL
       value: ""
     - name: OIDC_REDIRECT_URL

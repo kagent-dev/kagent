@@ -233,7 +233,7 @@ tests:
         loglevel: "debug"
     asserts:
       - equal:
-          path: data.ZAP_LOG_LEVEL
+          path: data.LOG_LEVEL
           value: "debug"
   - it: should configure watch namespaces
     template: controller-configmap.yaml
