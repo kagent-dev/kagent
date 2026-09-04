@@ -2,6 +2,7 @@ package agentinstance
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -40,6 +41,13 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
+	actors.actors[actorKey("team-a", actorName(instance.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	if err := workflow.PauseForInput(context.Background(), created, func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+		t.Fatalf("paused Actor status = %s", actor.GetStatus().GetState())
+	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +81,26 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || store.instance != nil || len(actors.actors) != 0 {
 		t.Fatalf("deleted instance = %+v, actors = %v", deleted, actors.actors)
+	}
+}
+
+func TestPauseForInputResumesActorWhenCommitFails(t *testing.T) {
+	instance := &apiv1alpha1.AgentInstance{Id: "instance-1", Namespace: "team-a"}
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{
+		actorKey("team-a", actorName(instance.GetId())): {
+			Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING},
+		},
+	}}
+	commitErr := errors.New("database unavailable")
+	err := NewActorWorkflow(&lifecycleTestStore{}, actors).PauseForInput(
+		context.Background(), instance, func(context.Context) error { return commitErr },
+	)
+	if !errors.Is(err, commitErr) {
+		t.Fatalf("PauseForInput() error = %v, want commit error", err)
+	}
+	actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+		t.Fatalf("Actor state = %s, want running compensation", actor.GetStatus().GetState())
 	}
 }
 
@@ -183,6 +211,12 @@ func (a *lifecycleTestActors) CreateActorFromSnapshotTag(_ context.Context, ates
 func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	return actor, nil
+}
+
+func (a *lifecycleTestActors) PauseActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor := a.actors[actorKey(atespace, name)]
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
 	return actor, nil
 }
 

@@ -72,7 +72,9 @@ import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
 import {
   HITL_EXTENSION_HEADER,
   HITL_EXTENSION_URI,
+  readAskUserResponse,
   readHitlRequest,
+  readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
 import { agentInstanceShareToken } from "../shareToken";
@@ -231,6 +233,63 @@ function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
     result.push(part);
   }
   return result;
+}
+
+type ControlFlowResult = "confirmation_required" | "rejected";
+
+/**
+ * Removes runtime control-plane artifacts from what the transcript renders.
+ *
+ * ADK currently reports confirmation as an errored FunctionResponse. Those
+ * responses are instructions to the runtime, not failed tool executions. Match
+ * only the two complete compatibility strings observed on the wire; a broad
+ * substring check could hide a real tool error that merely discusses approval.
+ */
+function visibleParts(
+  parts: readonly ChatPart[],
+  options: { hideRejected?: boolean | ReadonlySet<string> } = {},
+): ChatPart[] {
+  const visible: ChatPart[] = [];
+  for (const part of parts) {
+    if (part.kind !== "data") {
+      visible.push(part);
+      continue;
+    }
+    if (part.data.name === "ask_user") continue;
+
+    const control = controlFlowResult(part);
+    if (control === "confirmation_required") continue;
+    if (control === "rejected") {
+      const name = typeof part.data.name === "string" ? part.data.name : "";
+      if (
+        options.hideRejected === true ||
+        (options.hideRejected instanceof Set && options.hideRejected.has(name))
+      ) {
+        continue;
+      }
+      visible.push({ ...part, dataKind: "tool_not_run" });
+      continue;
+    }
+    visible.push(part);
+  }
+  return visible;
+}
+
+function controlFlowResult(part: ChatDataPart): ControlFlowResult | undefined {
+  if (part.dataKind !== "tool_result") return undefined;
+  const response = part.data.response;
+  if (typeof response !== "object" || response === null || Array.isArray(response)) {
+    return undefined;
+  }
+  const error = (response as Record<string, unknown>).error;
+  if (typeof error !== "string") return undefined;
+
+  const name = typeof part.data.name === "string" ? part.data.name : undefined;
+  const confirmation = /^error tool "([^"]+)" requires confirmation, please approve or reject$/.exec(error);
+  if (confirmation && (!name || confirmation[1] === name)) return "confirmation_required";
+  const rejected = /^error tool "([^"]+)" call is rejected$/.exec(error);
+  if (rejected && (!name || rejected[1] === name)) return "rejected";
+  return undefined;
 }
 
 /** The prose of a set of parts, for comparing a reply against the artifact repeating it. */
@@ -436,7 +495,9 @@ export class A2AGrpcChatClient implements ChatClient {
     // no message frame for it at all, and the caller's optimistic copy is what the
     // reader sees. The id it was sent under is what makes an echo land on that copy
     // rather than beside it.)
-    const delivered = new Set<string>();
+    // The caller already rendered the message it named. Suppress an echo under
+    // that id so fallback HITL prose cannot replace the richer local decision card.
+    const delivered = new Set<string>(input.messageId ? [input.messageId] : []);
 
     /**
      * The text assembled so far for each artifact still being streamed.
@@ -482,7 +543,7 @@ export class A2AGrpcChatClient implements ChatClient {
           };
           const status = event.status;
           const message = status?.message;
-          const parts = toParts(message?.parts);
+          const parts = visibleParts(toParts(message?.parts), { hideRejected: true });
           const state = turnState(status?.state);
           /*
            * The question, when this is the frame that parked the turn.
@@ -499,7 +560,11 @@ export class A2AGrpcChatClient implements ChatClient {
                 })
               : undefined;
 
-          if (message && parts.length > 0) {
+          if (
+            message &&
+            parts.length > 0 &&
+            (awaiting === undefined || awaiting.kind === "unknown")
+          ) {
             const role = message.role === Role.AGENT ? "agent" : "user";
             const isTextOnly = parts.every((part) => part.kind === "text");
             const invocation = invocationOf(message, event.taskId);
@@ -619,7 +684,9 @@ export class A2AGrpcChatClient implements ChatClient {
             append?: boolean;
             lastChunk?: boolean;
           };
-          const parts = toParts(event.artifact?.parts);
+          const parts = visibleParts(toParts(event.artifact?.parts), {
+            hideRejected: true,
+          });
           if (parts.length === 0) continue;
 
           const body = textOf(parts);
@@ -689,7 +756,7 @@ export class A2AGrpcChatClient implements ChatClient {
 
         if (payload.case === "message") {
           const message = payload.value as A2AMessage;
-          const parts = toParts(message.parts);
+          const parts = visibleParts(toParts(message.parts), { hideRejected: true });
           if (parts.length === 0) continue;
           const id = message.messageId || nextId("message");
           if (delivered.has(id)) continue;
@@ -751,11 +818,60 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
   const positioned: { message: ChatMessage; position?: string }[] = [];
   const taken = new Set<string>();
   const createdAt = statusTime(task.status);
+  let pendingApproval: Extract<PendingRequest, { kind: "tool_approval" }> | undefined;
+  const pendingQuestions = new Map<
+    string,
+    Extract<PendingRequest, { kind: "ask_user" }>
+  >();
   const hasCompleteTimeline = [...task.history, ...(task.status?.message ? [task.status.message] : []), ...task.artifacts]
     .every((entry) => timelinePosition(entry.metadata) !== undefined);
 
   const push = (message: A2AMessage) => {
-    const parts = toParts(message.parts);
+    const request = readHitlRequest(task.id, message.metadata, message.extensions);
+    if (request?.kind === "tool_approval") {
+      // The request's TextPart is descriptive protocol fallback. While pending the
+      // actionable card renders from task state; once answered the response below
+      // becomes the single, compact transcript record.
+      pendingApproval = request;
+      return;
+    }
+
+    if (request?.kind === "ask_user") {
+      // Like tool approval, the status message's text is protocol fallback. Keep
+      // the structured request until its correlated answer arrives, then render
+      // the whole exchange as one durable record.
+      pendingQuestions.set(request.requestId, request);
+      return;
+    }
+
+    const decisions = readToolApprovalResponse(message.metadata, message.extensions);
+    const answer = readAskUserResponse(message.metadata, message.extensions);
+    const question = answer ? pendingQuestions.get(answer.requestId) : undefined;
+    const parts: ChatPart[] = decisions
+      ? [
+          {
+            kind: "tool_approval",
+            approval: {
+              tools: pendingApproval?.tools ?? [],
+              decisions,
+              askedBy: pendingApproval?.askedBy,
+            },
+          },
+        ]
+      : answer
+        ? [
+            {
+              kind: "ask_user",
+              interaction: {
+                questions: question?.questions ?? [],
+                answers: answer.answers,
+                askedBy: question?.askedBy,
+              },
+            },
+          ]
+      : toParts(message.parts);
+    if (decisions) pendingApproval = undefined;
+    if (answer) pendingQuestions.delete(answer.requestId);
     if (parts.length === 0) return;
     const identity =
       message.messageId || JSON.stringify(message.parts.map((part) => part.content));
@@ -838,13 +954,31 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
 
   // New records carry one server-authored order across history and artifacts.
   // Keep the positional inference below for records written before this bridge.
+  let ordered: ChatMessage[];
   if (positioned.length > 0 && positioned.every(({ position }) => position !== undefined)) {
-    return positioned
+    ordered = positioned
       .sort((left, right) => left.position!.localeCompare(right.position!))
       .map(({ message }) => message);
+  } else {
+    ordered = interleaveTaskMessages(opening, answers, agent);
   }
 
-  return interleaveTaskMessages(opening, answers, agent);
+  const rejectedTools = new Set<string>();
+  for (const message of ordered) {
+    for (const part of message.parts) {
+      if (part.kind !== "tool_approval") continue;
+      const names = new Map(part.approval.tools.map((tool) => [tool.id, tool.name]));
+      for (const decision of part.approval.decisions) {
+        if (!decision.approved) rejectedTools.add(names.get(decision.id) ?? "");
+      }
+    }
+  }
+  return ordered
+    .map((message) => ({
+      ...message,
+      parts: visibleParts(message.parts, { hideRejected: rejectedTools }),
+    }))
+    .filter((message) => message.parts.length > 0);
 }
 
 function timelinePosition(metadata: JsonObject | undefined): string | undefined {

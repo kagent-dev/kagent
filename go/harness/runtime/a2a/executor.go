@@ -36,16 +36,46 @@ type Executor struct {
 	runner       Runner
 	continuation ContinuationStore
 
-	mu     sync.Mutex
-	active *activeTask
+	mu sync.Mutex
+	// state serializes access to the Actor's one native conversation. It also
+	// identifies the component that currently owns native process cleanup:
+	// nil -> active -> parked -> active, or parked -> canceling -> nil.
+	state executorState
+}
+
+type executorState interface{ isExecutorState() }
+
+type taskRef struct {
+	taskID    a2atype.TaskID
+	contextID string
 }
 
 type activeTask struct {
-	taskID    a2atype.TaskID
-	contextID string
-	cancel    context.CancelFunc
-	done      chan struct{}
+	taskRef
+	// Execute closes done after Run or Resume has relinquished the native turn.
+	// Cancel sets cancelRequested before interrupting the execution context.
+	cancel          context.CancelFunc
+	done            chan struct{}
+	cancelRequested bool
 }
+
+// parkedTask owns the PendingTurn while its A2A task is waiting for input.
+type parkedTask struct {
+	taskRef
+	pending runtime.PendingTurn
+}
+
+// cancelingTask keeps the Actor occupied while PendingTurn.Cancel performs
+// native RPC and process cleanup outside the executor mutex.
+type cancelingTask struct {
+	taskRef
+	done chan struct{}
+	err  error
+}
+
+func (*activeTask) isExecutorState()    {}
+func (*parkedTask) isExecutorState()    {}
+func (*cancelingTask) isExecutorState() {}
 
 type executionSink struct {
 	reqCtx         *a2asrv.ExecutorContext
@@ -71,7 +101,7 @@ func New(runner Runner, continuation ContinuationStore) (*Executor, error) {
 // Execute validates and serializes one A2A request onto the native Runner.
 func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
-		prompt, err := validateRequest(reqCtx)
+		turn, err := validateRequest(reqCtx)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -82,19 +112,38 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		runCtx, cancel := context.WithCancel(ctx)
-		active := &activeTask{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID, cancel: cancel, done: make(chan struct{})}
-		if !e.activate(active) {
+		active := &activeTask{
+			taskRef: taskRef{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID},
+			cancel:  cancel,
+			done:    make(chan struct{}),
+		}
+		resuming := reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
+		pending, err := e.activate(active, resuming)
+		if err != nil {
 			cancel()
-			yield(nil, errBusy)
+			yield(nil, err)
 			return
 		}
 		var finishOnce sync.Once
-		finish := func() {
+		finishedCanceled := false
+		// Exactly one exit path either releases the Actor or parks the native
+		// handle. The deferred finish covers every early return.
+		finish := func() bool {
 			finishOnce.Do(func() {
 				cancel()
-				e.deactivate(active)
+				finishedCanceled = e.deactivate(active)
 				close(active.done)
 			})
+			return finishedCanceled
+		}
+		park := func(pending runtime.PendingTurn) bool {
+			parked := false
+			finishOnce.Do(func() {
+				cancel()
+				parked = e.park(active, pending)
+				close(active.done)
+			})
+			return parked
 		}
 		defer finish()
 
@@ -102,9 +151,16 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
-		outcome, runErr := e.runner.Run(runCtx, runtime.Turn{
-			Prompt: prompt, ContinuationID: continuationID,
-		}, sink)
+		turn.ContinuationID = continuationID
+		var outcome runtime.Outcome
+		var runErr error
+		// activate returns a handle only when this request continues the task
+		// currently waiting for input. New turns enter through Runner.Run.
+		if pending == nil {
+			outcome, runErr = e.runner.Run(runCtx, turn, sink)
+		} else {
+			outcome, runErr = pending.Resume(runCtx, turn.InputResponse, sink)
+		}
 		if errors.Is(runErr, errYieldStopped) {
 			return
 		}
@@ -113,17 +169,46 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		}
 		if runErr != nil {
 			a2alog.Error(ctx, "Harness runtime execution failed", runErr)
-			finish()
+			if finish() {
+				return
+			}
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
+		if outcome.Failure != nil && outcome.Pending != nil {
+			_ = outcome.Pending.Cancel(context.Background())
+			if finish() {
+				return
+			}
+			yield(nil, fmt.Errorf("runtime returned both a failure and a pending turn"))
+			return
+		}
 
+		if outcome.Pending != nil {
+			message, err := inputRequiredMessage(reqCtx, outcome.Pending.Request())
+			if err != nil {
+				_ = outcome.Pending.Cancel(context.Background())
+				yield(nil, err)
+				return
+			}
+			// Transfer the live native turn into executor state before telling the
+			// caller that it can submit a response or cancellation.
+			if !park(outcome.Pending) {
+				_ = outcome.Pending.Cancel(context.Background())
+				return
+			}
+			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
+			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
+			return
+		}
+		if finish() {
+			return
+		}
 		// Reap the runtime process and release the Actor's active-task slot before
 		// publishing a terminal state. A client may submit its next turn as soon
 		// as it observes this event.
-		finish()
 		if outcome.Failure == nil {
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
 			return
@@ -239,69 +324,240 @@ func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {
 	return message
 }
 
-// Cancel stops the matching active task and waits for its Runner to exit.
+func inputRequiredMessage(reqCtx *a2asrv.ExecutorContext, request runtime.InputRequest) (*a2atype.Message, error) {
+	switch request := request.(type) {
+	case *runtime.ApprovalRequest:
+		if request.ID == "" || request.CallID == "" || request.Name == "" {
+			return nil, fmt.Errorf("runtime tool approval request is incomplete")
+		}
+		message := taskMessage(reqCtx, request.Hint)
+		if err := apia2a.AttachHITL(message, apia2a.ToolApprovalRequest{
+			Type:  apia2a.HITLTypeToolApprovalRequest,
+			Tools: []apia2a.HITLTool{{ID: request.ID, CallID: request.CallID, Name: request.Name, Args: request.Args}},
+		}); err != nil {
+			return nil, err
+		}
+		return message, nil
+	case *runtime.AskUserRequest:
+		if request.ID == "" || len(request.Questions) == 0 {
+			return nil, fmt.Errorf("runtime ask-user request is incomplete")
+		}
+		questions := make([]apia2a.HITLQuestion, 0, len(request.Questions))
+		for _, question := range request.Questions {
+			if question.Question == "" {
+				return nil, fmt.Errorf("runtime ask-user request contains an empty question")
+			}
+			questions = append(questions, apia2a.HITLQuestion{
+				Question: question.Question,
+				Choices:  append([]string(nil), question.Choices...),
+				Multiple: question.Multiple,
+			})
+		}
+		message := taskMessage(reqCtx, request.Hint)
+		if err := apia2a.AttachHITL(message, apia2a.AskUserRequest{
+			Type: apia2a.HITLTypeAskUserRequest, ID: request.ID, Questions: questions,
+		}); err != nil {
+			return nil, err
+		}
+		return message, nil
+	default:
+		return nil, fmt.Errorf("runtime returned unsupported input request %T", request)
+	}
+}
+
+// Cancel stops the matching active or parked task and waits for its Runner to exit.
 func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		if reqCtx == nil || reqCtx.TaskID == "" || reqCtx.ContextID == "" {
 			yield(nil, fmt.Errorf("task ID and context ID are required for cancellation"))
 			return
 		}
+		ref := taskRef{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID}
 		e.mu.Lock()
-		active := e.active
-		if active == nil {
+		switch state := e.state.(type) {
+		case *activeTask:
+			if !state.matches(ref) {
+				e.mu.Unlock()
+				yield(nil, fmt.Errorf("cancellation does not match the active task"))
+				return
+			}
+			state.cancelRequested = true
+			state.cancel()
+			done := state.done
+			e.mu.Unlock()
+			yieldCancellation(ctx, reqCtx, done, nil, yield)
+			return
+		case *parkedTask:
+			if !state.matches(ref) {
+				e.mu.Unlock()
+				yield(nil, fmt.Errorf("cancellation does not match the parked task"))
+				return
+			}
+			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{})}
+			e.state = canceling
+			e.mu.Unlock()
+
+			err := state.pending.Cancel(ctx)
+			e.mu.Lock()
+			canceling.err = err
+			if e.state == canceling {
+				e.state = nil
+			}
+			close(canceling.done)
+			e.mu.Unlock()
+			yieldCancellation(ctx, reqCtx, canceling.done, err, yield)
+			return
+		case *cancelingTask:
+			if !state.matches(ref) {
+				e.mu.Unlock()
+				yield(nil, fmt.Errorf("cancellation does not match the task being canceled"))
+				return
+			}
+			done := state.done
+			e.mu.Unlock()
+			select {
+			case <-done:
+				yieldCancellation(ctx, reqCtx, done, state.err, yield)
+			case <-ctx.Done():
+				yield(nil, ctx.Err())
+			}
+			return
+		case nil:
 			e.mu.Unlock()
 			return
-		}
-		if active.taskID != reqCtx.TaskID || active.contextID != reqCtx.ContextID {
+		default:
 			e.mu.Unlock()
-			yield(nil, fmt.Errorf("cancellation does not match the active task"))
-			return
-		}
-		active.cancel()
-		done := active.done
-		e.mu.Unlock()
-		select {
-		case <-done:
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
-		case <-ctx.Done():
-			yield(nil, ctx.Err())
+			yield(nil, fmt.Errorf("runtime actor has an invalid task state"))
 		}
 	}
 }
 
-func (e *Executor) activate(task *activeTask) bool {
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, knownErr error, yield func(a2atype.Event, error) bool) {
+	select {
+	case <-done:
+		if knownErr != nil {
+			yield(nil, knownErr)
+			return
+		}
+		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
+	case <-ctx.Done():
+		yield(nil, ctx.Err())
+	}
+}
+
+func (r taskRef) matches(other taskRef) bool {
+	return r.taskID == other.taskID && r.contextID == other.contextID
+}
+
+func (e *Executor) activate(task *activeTask, resuming bool) (runtime.PendingTurn, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.active != nil {
+	switch state := e.state.(type) {
+	case nil:
+		if resuming {
+			return nil, fmt.Errorf("runtime has no parked turn to continue")
+		}
+		e.state = task
+		return nil, nil
+	case *parkedTask:
+		if !resuming {
+			return nil, errBusy
+		}
+		if !state.matches(task.taskRef) {
+			return nil, fmt.Errorf("continuation does not match the parked task")
+		}
+		e.state = task
+		return state.pending, nil
+	default:
+		return nil, errBusy
+	}
+}
+
+func (e *Executor) park(task *activeTask, pending runtime.PendingTurn) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.state != task {
 		return false
 	}
-	e.active = task
+	if task.cancelRequested {
+		// Cancellation won while the runtime was producing its input request.
+		// The caller must cancel the newly returned handle instead of parking it.
+		e.state = nil
+		return false
+	}
+	e.state = &parkedTask{taskRef: task.taskRef, pending: pending}
 	return true
 }
 
-func (e *Executor) deactivate(task *activeTask) {
+func (e *Executor) deactivate(task *activeTask) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.active == task {
-		e.active = nil
+	if e.state == task {
+		e.state = nil
 	}
+	return task.cancelRequested
 }
 
-func validateRequest(reqCtx *a2asrv.ExecutorContext) (string, error) {
+func validateRequest(reqCtx *a2asrv.ExecutorContext) (runtime.Turn, error) {
 	if reqCtx == nil || reqCtx.Message == nil {
-		return "", fmt.Errorf("A2A request message is required")
+		return runtime.Turn{}, fmt.Errorf("A2A request message is required")
 	}
 	if reqCtx.TaskID == "" || reqCtx.ContextID == "" {
-		return "", fmt.Errorf("task ID and context ID are required")
+		return runtime.Turn{}, fmt.Errorf("task ID and context ID are required")
 	}
-	if reqCtx.Message.Role != a2atype.MessageRoleUser || len(reqCtx.Message.Parts) != 1 || reqCtx.Message.Parts[0] == nil {
-		return "", fmt.Errorf("harness runtime accepts exactly one user text part")
+	if reqCtx.Message.Role != a2atype.MessageRoleUser {
+		return runtime.Turn{}, fmt.Errorf("harness runtime accepts only user messages")
+	}
+	if reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State) {
+		approvalRequest, err := apia2a.ParseToolApprovalRequest(reqCtx.StoredTask.Status.Message)
+		if err != nil {
+			return runtime.Turn{}, err
+		}
+		if approvalRequest != nil {
+			response, err := apia2a.ParseToolApprovalResponse(reqCtx.Message)
+			if err != nil {
+				return runtime.Turn{}, err
+			}
+			if err := apia2a.ValidateToolApprovalResponse(approvalRequest, response); err != nil {
+				return runtime.Turn{}, err
+			}
+			decision := response.Approvals[0]
+			return runtime.Turn{InputResponse: &runtime.ApprovalDecision{
+				ID: decision.ID, Approved: decision.Approved, RejectionReason: decision.RejectionReason,
+			}}, nil
+		}
+		askRequest, err := apia2a.ParseAskUserRequest(reqCtx.StoredTask.Status.Message)
+		if err != nil {
+			return runtime.Turn{}, err
+		}
+		if askRequest == nil {
+			return runtime.Turn{}, fmt.Errorf("stored input-required task has no supported request")
+		}
+		response, err := apia2a.ParseAskUserResponse(reqCtx.Message)
+		if err != nil {
+			return runtime.Turn{}, err
+		}
+		if err := apia2a.ValidateAskUserResponse(askRequest, response); err != nil {
+			return runtime.Turn{}, err
+		}
+		answers := make([][]string, len(response.Answers))
+		for index, answer := range response.Answers {
+			answers[index] = append([]string(nil), answer.Answer...)
+		}
+		return runtime.Turn{InputResponse: &runtime.AskUserResponse{ID: response.ID, Answers: answers}}, nil
+	}
+	if len(reqCtx.Message.Parts) != 1 || reqCtx.Message.Parts[0] == nil {
+		return runtime.Turn{}, fmt.Errorf("harness runtime accepts exactly one user text part")
 	}
 	text := reqCtx.Message.Parts[0].Text()
 	if text == "" {
-		return "", fmt.Errorf("harness runtime accepts a non-empty text part")
+		return runtime.Turn{}, fmt.Errorf("harness runtime accepts a non-empty text part")
 	}
-	return text, nil
+	return runtime.Turn{Prompt: text}, nil
+}
+
+func requiresInput(state a2atype.TaskState) bool {
+	return state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
 }
 
 func safeFailure(message string) string {

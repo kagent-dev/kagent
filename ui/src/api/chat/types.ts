@@ -8,7 +8,7 @@
  * one implementation of `ChatClient` and touches nothing that renders.
  */
 
-import type { PendingRequest } from "./hitl";
+import type { AskUserRecord, PendingRequest, ToolApprovalRecord } from "./hitl";
 
 export type ChatRole = "user" | "agent";
 
@@ -21,11 +21,23 @@ export interface ChatTextPart {
 export interface ChatDataPart {
   kind: "data";
   /** What the payload represents, so a renderer can pick a component. */
-  dataKind: "tool_call" | "tool_result" | "unknown";
+  dataKind: "tool_call" | "tool_result" | "tool_not_run" | "unknown";
   data: Record<string, unknown>;
 }
 
-export type ChatPart = ChatTextPart | ChatDataPart;
+/** A structured human decision, rendered as an audit-friendly status card. */
+export interface ChatToolApprovalPart {
+  kind: "tool_approval";
+  approval: ToolApprovalRecord;
+}
+
+/** A completed ask-user exchange, rendered without its protocol artifacts. */
+export interface ChatAskUserPart {
+  kind: "ask_user";
+  interaction: AskUserRecord;
+}
+
+export type ChatPart = ChatTextPart | ChatDataPart | ChatToolApprovalPart | ChatAskUserPart;
 
 export interface ChatMessage {
   id: string;

@@ -368,16 +368,16 @@ func elicitationSchema(task *a2atype.Task) map[string]any {
 	if request := adka2a.GetAskUserRequest(task.Status.Message); request != nil {
 		for i, question := range request.Questions {
 			key := answerKey(i, len(request.Questions))
-			property := map[string]any{"type": "string", "description": stringValue(question["question"])}
-			if choices := stringSlice(question["choices"]); len(choices) > 0 {
-				property["enum"] = choices
+			property := map[string]any{"type": "string", "description": question.Question}
+			if len(question.Choices) > 0 {
+				property["enum"] = question.Choices
 			}
-			if multiple, _ := question["multiple"].(bool); multiple {
+			if question.Multiple {
 				items := map[string]any{"type": "string"}
-				if choices := stringSlice(question["choices"]); len(choices) > 0 {
-					items["enum"] = choices
+				if len(question.Choices) > 0 {
+					items["enum"] = question.Choices
 				}
-				property = map[string]any{"type": "array", "items": items, "description": stringValue(question["question"])}
+				property = map[string]any{"type": "array", "items": items, "description": question.Question}
 			}
 			properties[key], required = property, append(required, key)
 		}
@@ -450,11 +450,6 @@ func answerKey(i, total int) string {
 		return "response"
 	}
 	return fmt.Sprintf("response_%d", i+1)
-}
-
-func stringValue(value any) string {
-	text, _ := value.(string)
-	return text
 }
 
 func stringSlice(value any) []string {

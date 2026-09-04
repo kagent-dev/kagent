@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -17,8 +14,6 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 )
-
-const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
 
 // Compiler translates resolved inputs into a kagent runtime revision.
 type Compiler struct {
@@ -58,7 +53,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	cardJSON, err := json.Marshal(agentTemplateCard(template))
+	cardJSON, err := json.Marshal(v2translator.ManagedAgentCard(template))
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent card: %w", err)
 	}
@@ -102,15 +97,4 @@ func requireModels(input *v2translator.AgentInput) error {
 		}
 	}
 	return nil
-}
-
-func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
-	return &a2atype.AgentCard{
-		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
-		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
-		Capabilities: a2atype.AgentCapabilities{Streaming: true, Extensions: []a2atype.AgentExtension{{
-			URI: hitlExtensionURI, Description: "Human in the loop for tool approval, ask user, and nested subagents",
-		}}},
-		Skills: []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
-	}
 }

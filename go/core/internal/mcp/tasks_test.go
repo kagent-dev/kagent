@@ -151,7 +151,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),
 		&adka2a.AskUserRequest{
 			Type: adka2a.HITLTypeAskUserRequest, ID: "question-1",
-			Questions: []map[string]any{{"question": "Which database?", "choices": []string{"PostgreSQL", "MySQL"}}},
+			Questions: []adka2a.HitlQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
 		},
 	)
 	gateway := &fakeGateway{task: &a2atype.Task{

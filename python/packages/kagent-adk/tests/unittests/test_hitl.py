@@ -57,45 +57,48 @@ class MockToolContext:
 
 
 class MockBaseTool:
-    def __init__(self, name: str):
+    def __init__(self, name: str, *, require_approval: bool = False):
         self.name = name
+        self.kagent_requires_approval = require_approval
 
 
 class TestMakeApprovalCallback:
     def test_allows_non_approval_tools(self):
-        callback = make_approval_callback({"delete_file"})
+        callback = make_approval_callback()
         ctx = MockToolContext()
         assert callback(MockBaseTool("read_file"), {"path": "/tmp"}, ctx) is None
         assert not ctx._event_actions.requested_tool_confirmations
 
     def test_blocks_approval_tools_and_requests_confirmation(self):
-        callback = make_approval_callback({"delete_file"})
+        callback = make_approval_callback()
         ctx = MockToolContext()
-        result = callback(MockBaseTool("delete_file"), {"path": "/tmp"}, ctx)
+        result = callback(MockBaseTool("delete_file", require_approval=True), {"path": "/tmp"}, ctx)
         assert result == {"status": "confirmation_requested", "tool": "delete_file"}
         assert "delete_file" in ctx._event_actions.requested_tool_confirmations["test_fc_id"].hint
 
     def test_approved_confirmation_allows_execution(self):
-        callback = make_approval_callback({"delete_file"})
+        callback = make_approval_callback()
         ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
-        assert callback(MockBaseTool("delete_file"), {}, ctx) is None
+        assert callback(MockBaseTool("delete_file", require_approval=True), {}, ctx) is None
 
     def test_rejected_confirmation_includes_reason(self):
-        callback = make_approval_callback({"delete_file"})
+        callback = make_approval_callback()
         ctx = MockToolContext(
             tool_confirmation=ToolConfirmation(
                 confirmed=False,
                 payload={"rejection_reason": "Dangerous path"},
             )
         )
-        assert callback(MockBaseTool("delete_file"), {}, ctx) == (
+        assert callback(MockBaseTool("delete_file", require_approval=True), {}, ctx) == (
             "Tool call was rejected by user. Reason: Dangerous path"
         )
 
     def test_rejected_confirmation_without_reason(self):
-        callback = make_approval_callback({"delete_file"})
+        callback = make_approval_callback()
         ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=False))
-        assert callback(MockBaseTool("delete_file"), {}, ctx) == "Tool call was rejected by user."
+        assert (
+            callback(MockBaseTool("delete_file", require_approval=True), {}, ctx) == "Tool call was rejected by user."
+        )
 
 
 def _tool(identifier: str, name: str = "delete_file") -> HitlTool:

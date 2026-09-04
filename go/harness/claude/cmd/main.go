@@ -67,6 +67,7 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if err != nil {
 		return fmt.Errorf("configure Claude Harness: %w", err)
 	}
+	defer runner.Close()
 	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := runner.Validate(validateCtx); err != nil {

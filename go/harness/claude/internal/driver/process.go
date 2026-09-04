@@ -14,26 +14,60 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
+// bareBuiltinTools is the intentionally small built-in surface available in
+// bare mode. This controls tool availability only; MCP approval policy remains
+// exclusively defined by the generated permissions.ask rules.
+const bareBuiltinTools = "Bash,Edit,Read,Write,Glob,Grep,WebSearch,WebFetch"
+
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
 // process. Actor-owned paths and environment are supplied by the adapter.
 type ProcessConfig struct {
-	Executable         string
-	ExpectedVersion    string
-	StrictVersion      bool
-	Workspace          string
-	Model              string
-	AppendSystemPrompt string
-	AgentsJSON         string
-	MCPConfigPath      string
-	Environment        []string
-	MaxEventBytes      int
-	MaxStderrBytes     int
-	InterruptGrace     time.Duration
+	Executable           string
+	ExpectedVersion      string
+	StrictVersion        bool
+	Workspace            string
+	Model                string
+	AppendSystemPrompt   string
+	AgentsJSON           string
+	MCPConfigPath        string
+	SettingsPath         string
+	PermissionPromptTool string
+	SkillRoot            string
+	Environment          []string
+	MaxEventBytes        int
+	MaxStderrBytes       int
+	InterruptGrace       time.Duration
+	ApprovalBroker       *ApprovalBroker
 }
 
-// ProcessDriver supervises one Claude Code process per runtime turn.
+// ProcessDriver supervises one Claude Code process per ordinary runtime turn
+// and retains it while the permission-prompt MCP tool awaits a decision.
 type ProcessDriver struct {
 	config ProcessConfig
+}
+
+type parseItem struct {
+	event *Event
+	err   error
+}
+
+type processSession struct {
+	command   *exec.Cmd
+	items     <-chan parseItem
+	stopEmit  chan struct{}
+	wait      <-chan error
+	stderr    *utils.BoundedBuffer
+	terminal  *runtime.Outcome
+	sessionID string
+	stopOnce  sync.Once
+}
+
+// pendingTurn owns a Claude process blocked in the permission MCP hook. Resume
+// resolves the hook and continues that process; Cancel terminates it.
+type pendingTurn struct {
+	driver  *ProcessDriver
+	session *processSession
+	pending *PendingApprovalRequest
 }
 
 // NewProcessDriver constructs a Claude Code process driver.
@@ -68,8 +102,17 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--dangerously-skip-permissions",
 		"--strict-mcp-config",
+		"--tools", bareBuiltinTools,
+		"--bare",
+		"--dangerously-skip-permissions",
+	}
+	if d.config.ApprovalBroker != nil {
+		args = append(args,
+			"--setting-sources", "",
+			"--settings", d.config.SettingsPath,
+			"--permission-prompt-tool", d.config.PermissionPromptTool,
+		)
 	}
 	if d.config.Model != "" {
 		args = append(args, "--model", d.config.Model)
@@ -83,6 +126,11 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	if d.config.MCPConfigPath != "" {
 		args = append(args, "--mcp-config", d.config.MCPConfigPath)
 	}
+	if d.config.SkillRoot != "" {
+		// Bare mode skips implicit skill discovery. --add-dir loads only the
+		// compiler-selected skills materialized beneath SkillRoot/.claude/skills.
+		args = append(args, "--add-dir", d.config.SkillRoot)
+	}
 	if turn.ContinuationID != "" {
 		// Resume the Actor's exact root conversation. --continue selects Claude's
 		// latest session and can be redirected by subagents or interrupted attempts.
@@ -93,6 +141,9 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 
 // Run supervises one Claude Code process and emits its ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+	if strings.TrimSpace(turn.Prompt) == "" {
+		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
+	}
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
 	cmd.Dir = d.config.Workspace
@@ -105,10 +156,6 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
-	}
-	type parseItem struct {
-		event *Event
-		err   error
 	}
 	items := make(chan parseItem)
 	stopEmit := make(chan struct{})
@@ -128,57 +175,123 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		}
 	}()
 	waitDone := make(chan error, 1)
-	var waitOnce sync.Once
-	waitForExit := func() <-chan error {
-		waitOnce.Do(func() {
-			go func() { waitDone <- cmd.Wait() }()
-		})
-		return waitDone
+	go func() { waitDone <- cmd.Wait(); close(waitDone) }()
+	session := &processSession{
+		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr,
 	}
-	var terminal *runtime.Outcome
+	sessionOwnedByPendingTurn := false
+	defer func() {
+		if !sessionOwnedByPendingTurn {
+			d.stopSession(session)
+		}
+	}()
+	outcome, err := d.consume(ctx, session, sink)
+	// A pending outcome carries this same live session. Every other return path
+	// leaves cleanup with this Run invocation.
+	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
+	return outcome, err
+}
 
+func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
+	var approvalPending *PendingApprovalRequest
 	for {
+		if approvalPending != nil && session.sessionID != "" {
+			if !approvalPending.waiting() {
+				approvalPending = nil
+				continue
+			}
+			return runtime.Outcome{Pending: &pendingTurn{
+				driver: d, session: session, pending: approvalPending,
+			}}, nil
+		}
+		var approvals <-chan *PendingApprovalRequest
+		if d.config.ApprovalBroker != nil && approvalPending == nil {
+			approvals = d.config.ApprovalBroker.Requests()
+		}
 		select {
-		case item, ok := <-items:
+		case request := <-approvals:
+			if session.terminal != nil {
+				return runtime.Outcome{}, fmt.Errorf("Claude requested approval after its terminal result")
+			}
+			approvalPending = request
+		case item, ok := <-session.items:
 			if !ok {
 				return runtime.Outcome{}, fmt.Errorf("claude parser stopped without a result")
 			}
 			if item.event != nil {
-				outcome, err := emitEvent(*item.event, sink, terminal != nil)
+				outcome, err := emitEvent(*item.event, sink, session.terminal != nil)
 				if err == nil {
+					if item.event.Kind == EventSessionStarted {
+						if session.sessionID != "" && session.sessionID != item.event.SessionID {
+							return runtime.Outcome{}, fmt.Errorf("Claude changed session ID during an active process")
+						}
+						session.sessionID = item.event.SessionID
+					}
 					if outcome != nil {
-						terminal = outcome
+						session.terminal = outcome
 					}
 					continue
-				}
-				close(stopEmit)
-				d.terminate(cmd, waitForExit())
-				for range items {
 				}
 				return runtime.Outcome{}, err
 			}
 			if item.err != nil {
-				close(stopEmit)
-				d.terminate(cmd, waitForExit())
 				return runtime.Outcome{}, item.err
 			}
-			// StdoutPipe requires all reads to complete before Wait closes the pipe.
-			// The parser's nil result is the EOF boundary, so start Wait only now.
-			if waitErr := <-waitForExit(); waitErr != nil {
-				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, stderr.String())
+			if waitErr := <-session.wait; waitErr != nil {
+				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, session.stderr.String())
 			}
-			if terminal == nil {
+			if session.terminal == nil {
 				return runtime.Outcome{}, fmt.Errorf("claude process exited without a terminal result")
 			}
-			return *terminal, nil
+			return *session.terminal, nil
 		case <-ctx.Done():
-			close(stopEmit)
-			d.terminate(cmd, waitForExit())
-			for range items {
-			}
 			return runtime.Outcome{}, ctx.Err()
 		}
 	}
+}
+
+func (p *pendingTurn) Request() runtime.InputRequest { return p.pending.approvalRequest() }
+
+// Resume resolves the permission MCP call and continues consuming the same process
+// until it completes, fails, or returns another PendingTurn.
+func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
+	sessionOwnedByPendingTurn := false
+	defer func() {
+		if !sessionOwnedByPendingTurn {
+			p.driver.stopSession(p.session)
+		}
+	}()
+	decision, ok := response.(*runtime.ApprovalDecision)
+	if !ok {
+		return runtime.Outcome{}, fmt.Errorf("Claude is waiting for a structured tool approval response")
+	}
+	if decision.ID != p.pending.request.ID {
+		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, p.pending.request.ID)
+	}
+	if err := p.pending.resolve(*decision); err != nil {
+		return runtime.Outcome{}, err
+	}
+	outcome, err := p.driver.consume(ctx, p.session, sink)
+	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
+	return outcome, err
+}
+
+// Cancel denies the outstanding permission MCP call and reaps the Claude process.
+func (p *pendingTurn) Cancel(_ context.Context) error {
+	_ = p.pending.resolve(runtime.ApprovalDecision{
+		ID: p.pending.request.ID, Approved: false, RejectionReason: "The task was canceled.",
+	})
+	p.driver.stopSession(p.session)
+	return nil
+}
+
+// Close releases the Actor-local permission MCP listener. Pending process ownership is
+// transferred to the runtime.PendingTurn returned by Run.
+func (d *ProcessDriver) Close() error {
+	if d.config.ApprovalBroker != nil {
+		return d.config.ApprovalBroker.Close()
+	}
+	return nil
 }
 
 // emitEvent translates a Claude event to a runtime event and emits it to the
@@ -214,17 +327,24 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	}
 }
 
-func (d *ProcessDriver) terminate(cmd *exec.Cmd, waitDone <-chan error) {
-	_ = utils.InterruptProcessGroup(cmd.Process)
-	timer := time.NewTimer(d.config.InterruptGrace)
-	defer timer.Stop()
-	select {
-	case <-waitDone:
-		// The group leader can exit on the interrupt while a descendant that
-		// ignores it remains alive. Kill any processes still in the group.
-		_ = utils.KillProcessGroup(cmd.Process)
-	case <-timer.C:
-		_ = utils.KillProcessGroup(cmd.Process)
-		<-waitDone
-	}
+func (d *ProcessDriver) stopSession(session *processSession) {
+	session.stopOnce.Do(func() {
+		close(session.stopEmit)
+		_ = utils.InterruptProcessGroup(session.command.Process)
+		timer := time.NewTimer(d.config.InterruptGrace)
+		defer timer.Stop()
+		select {
+		case <-session.wait:
+			// The group leader can exit on the interrupt while a descendant that
+			// ignores it remains alive. Kill any processes still in the group.
+			_ = utils.KillProcessGroup(session.command.Process)
+		case <-timer.C:
+			_ = utils.KillProcessGroup(session.command.Process)
+			<-session.wait
+		}
+		for range session.items {
+		}
+	})
 }
+
+var _ runtime.PendingTurn = (*pendingTurn)(nil)

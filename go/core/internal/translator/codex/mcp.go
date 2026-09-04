@@ -59,7 +59,10 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []v2t
 		selected := append([]string(nil), tool.Binding.Tools...)
 		slices.Sort(selected)
 		selected = slices.Compact(selected)
-		result.servers[name] = codexconfig.MCPServer{URL: server.Spec.URL, Headers: headers, EnabledTools: selected}
+		result.servers[name] = codexconfig.MCPServer{
+			URL: server.Spec.URL, Headers: headers, EnabledTools: selected,
+			RequireApproval: tool.Binding.RequireApproval,
+		}
 		result.environment = append(result.environment, environment...)
 		result.egress = append(result.egress, host)
 	}

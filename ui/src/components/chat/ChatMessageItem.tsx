@@ -4,6 +4,8 @@ import { ExtensionSlot } from "@/appExtensions";
 import type { ChatMessage } from "@/api";
 import { ToolCallCard } from "./ToolCallCard";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { ToolApprovalRecord } from "./ToolApprovalRecord";
+import { AskUserRecord } from "./AskUserRecord";
 import { isAwaitingContent, messageText } from "./messageText";
 
 const { Text } = Typography;
@@ -25,6 +27,10 @@ export function ChatMessageItem({
 }) {
   const theme = useTheme();
   const isUser = message.role === "user";
+  // A completed question is a transcript summary and keeps the full notification
+  // lane. Tool approval decisions are direct user responses, so they deliberately
+  // retain the ordinary right-aligned, content-sized user lane.
+  const isQuestionRecord = message.parts.some((part) => part.kind === "ask_user");
   const text = messageText(message);
 
   return (
@@ -35,7 +41,7 @@ export function ChatMessageItem({
       css={{
         display: "grid",
         gap: theme.space(2),
-        justifyItems: isUser ? "end" : "start",
+        justifyItems: isUser && !isQuestionRecord ? "end" : "start",
       }}
     >
       <div
@@ -67,11 +73,12 @@ export function ChatMessageItem({
       </div>
 
       <div
+        data-testid="chat-message-content"
         css={{
           maxWidth: "min(80ch, 100%)",
           display: "grid",
           gap: theme.space(2),
-          width: isUser ? "auto" : "100%",
+          width: isUser && !isQuestionRecord ? "auto" : "100%",
         }}
       >
         {message.parts.map((part, index) =>
@@ -99,8 +106,12 @@ export function ChatMessageItem({
                 {isUser ? part.text : <MarkdownMessage>{part.text}</MarkdownMessage>}
               </div>
             ) : null
-          ) : (
+          ) : part.kind === "data" ? (
             <ToolCallCard key={index} part={part} />
+          ) : part.kind === "tool_approval" ? (
+            <ToolApprovalRecord key={index} part={part} />
+          ) : (
+            <AskUserRecord key={index} part={part} />
           ),
         )}
 

@@ -54,6 +54,7 @@ type runtimeDialer interface {
 }
 
 type instanceWorkflow interface {
+	PauseForInput(context.Context, *apiv1alpha1.AgentInstance, func(context.Context) error) error
 	Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error)
 }
 
@@ -283,14 +284,42 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
 	release := g.coordinator.RuntimeCall(instance.GetId())
-	defer release()
-	defer client.Destroy()
+	released, destroyed := false, false
+	defer func() {
+		if !released {
+			release()
+		}
+		if !destroyed {
+			_ = client.Destroy()
+		}
+	}()
 	canceled, err := client.CancelTask(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	if err := validateTaskInfo(canceled, task); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
+	}
+	if requiresInput(task.Status.State) {
+		// The stream that persisted input-required has already ended. Close the
+		// runtime call and persist this terminal transition here; active task runs
+		// continue to own their cancellation event and quiescence themselves.
+		updated, err := taskForEvent(task, canceled)
+		if err != nil {
+			return nil, err
+		}
+		if err := client.Destroy(); err != nil {
+			return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to close canceled AgentInstance runtime")
+		}
+		destroyed = true
+		release()
+		released = true
+		quiesced := g.coordinator.Quiesce(instance.GetId())
+		defer quiesced()
+		if err := g.storeEvent(ctx, instance, updated, canceled); err != nil {
+			return nil, g.storeError(ctx, err)
+		}
+		return updated, nil
 	}
 	return canceled, nil
 }
@@ -512,6 +541,24 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	if stored.Status.State != a2atype.TaskStateInputRequired && stored.Status.State != a2atype.TaskStateAuthRequired {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "task is not waiting for input")
 	}
+	if pending, parseErr := apia2a.ParseToolApprovalRequest(stored.Status.Message); parseErr != nil {
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "stored tool approval request is invalid")
+	} else if pending != nil {
+		response, responseErr := apia2a.ParseToolApprovalResponse(message)
+		if responseErr != nil || apia2a.ValidateToolApprovalResponse(pending, response) != nil {
+			return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "tool approval response does not match the pending request")
+		}
+	} else if pending, parseErr := apia2a.ParseAskUserRequest(stored.Status.Message); parseErr != nil {
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "stored ask-user request is invalid")
+	} else if pending != nil && pending.Nested == nil {
+		// Nested ask-user correlation remains owned by the ADK adapter. Native
+		// Harness requests use the top-level ID and can be rejected before the
+		// paused Actor is resumed.
+		response, responseErr := apia2a.ParseAskUserResponse(message)
+		if responseErr != nil || apia2a.ValidateAskUserResponse(pending, response) != nil {
+			return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "ask-user response does not match the pending request")
+		}
+	}
 	message.ContextID = stored.ContextID
 	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
 	attempt := *stored
@@ -706,18 +753,29 @@ func validateTaskInfo(value a2atype.TaskInfoProvider, expected *a2atype.Task) er
 
 func (g *Gateway) storeEvent(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, event a2atype.Event) error {
 	var snapshot *dbpkg.AgentInstanceTaskSnapshot
-	if task != nil && isQuiescent(task.Status.State) {
+	if task != nil && task.Status.State.Terminal() {
 		var err error
 		snapshot, err = g.workflow.Quiesce(ctx, instance)
 		if err != nil {
 			return fmt.Errorf("quiesce AgentInstance runtime: %w", err)
 		}
+	} else if task != nil && requiresInput(task.Status.State) {
+		if err := g.workflow.PauseForInput(ctx, instance, func(ctx context.Context) error {
+			return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event, nil)
+		}); err != nil {
+			return fmt.Errorf("pause AgentInstance runtime: %w", err)
+		}
+		return nil
 	}
 	return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event, snapshot)
 }
 
+func requiresInput(state a2atype.TaskState) bool {
+	return state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+}
+
 func isQuiescent(state a2atype.TaskState) bool {
-	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+	return state.Terminal() || requiresInput(state)
 }
 
 func (g *Gateway) failTask(ctx context.Context, instanceID string, task *a2atype.Task) {

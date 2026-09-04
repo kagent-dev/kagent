@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const pinnedClaudeVersion = "2.1.217"
+const pinnedClaudeVersion = "2.1.260"
 
 func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	b, err := os.ReadFile("../../testdata/stream-success.jsonl")

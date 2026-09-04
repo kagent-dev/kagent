@@ -1,18 +1,15 @@
 /**
  * The question an agent stopped to ask, as something the reader can answer.
  *
- * The payload is already in the transcript twice — as the `ask_user` tool call and
- * as prose — and both are unusable: one is a JSON blob and the other is a sentence
- * with no way to reply to it. This is the third rendering and the only one that can
- * end the turn.
+ * Raw `ask_user` calls and protocol fallback prose are removed at the client
+ * boundary. This is therefore the one pending representation and the only one
+ * that can end the turn; once answered it becomes a read-only transcript card.
  *
  * ## What it refuses to do
  *
- * - **It does not offer choices for a request it does not understand.** A
- *   `tool_approval_request`, or a type added after this build, is said plainly and
- *   the only control offered is the one that gives it up. Buttons that post an
- *   answer the runtime will not read are worse than no buttons: the turn resumes,
- *   the agent replies, and nothing reports that the answer went nowhere.
+ * - **It does not offer choices for a request it does not understand.** A request
+ *   type added after this build is said plainly and the only control offered is the
+ *   one that gives it up.
  * - **It does not let the same answer be sent twice.** The runtime refuses the
  *   second, so a control that stayed live would produce a failure the reader caused
  *   by doing the obvious thing.
@@ -24,12 +21,15 @@
 import { useMemo, useState } from "react";
 import { Alert, Button, Checkbox, Input, Radio, Space } from "antd";
 import { useTheme } from "@emotion/react";
-import type { PendingRequest } from "@/api";
+import { Check, ShieldAlert, X } from "lucide-react";
+import type { PendingRequest, ToolApprovalDecision } from "@/api";
+import { stableJson } from "./stableJson";
 
 export function AskUserPrompt({
   request,
   isBusy,
   onAnswer,
+  onToolApproval,
   onDismiss,
   onAnswered,
 }: {
@@ -37,6 +37,7 @@ export function AskUserPrompt({
   /** A turn is in flight — the answer is on its way, or something else is. */
   isBusy: boolean;
   onAnswer: (answers: readonly string[][]) => void;
+  onToolApproval: (decisions: readonly ToolApprovalDecision[]) => void;
   onDismiss: () => void;
   /**
    * The answer has gone, and the caret belongs somewhere else now.
@@ -59,6 +60,12 @@ export function AskUserPrompt({
    */
   const questions = request.kind === "ask_user" ? request.questions : [];
   const [answers, setAnswers] = useState<string[][]>(() => questions.map(() => []));
+  const [toolDecisions, setToolDecisions] = useState<Map<string, boolean>>(
+    () => new Map(),
+  );
+  const [rejectionReasons, setRejectionReasons] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const [isSent, setSent] = useState(false);
 
   const answered = useMemo(
@@ -86,21 +93,222 @@ export function AskUserPrompt({
     onAnswered?.();
   }
 
+  function approveTools() {
+    if (request.kind !== "tool_approval" || isSent || isBusy) return;
+    setSent(true);
+    onToolApproval(request.tools.map((tool) => ({ id: tool.id, approved: true })));
+    onAnswered?.();
+  }
+
+  function setToolDecision(id: string, approved: boolean) {
+    if (isSent || isBusy) return;
+    setToolDecisions((current) => new Map(current).set(id, approved));
+  }
+
+  function setRejectionReason(id: string, reason: string) {
+    setRejectionReasons((current) => new Map(current).set(id, reason));
+  }
+
+  function submitToolDecisions() {
+    if (request.kind !== "tool_approval" || isSent || isBusy) return;
+    if (!request.tools.every((tool) => toolDecisions.has(tool.id))) return;
+    setSent(true);
+    onToolApproval(
+      request.tools.map((tool) => {
+        const approved = toolDecisions.get(tool.id)!;
+        const rejectionReason = rejectionReasons.get(tool.id)?.trim();
+        return {
+          id: tool.id,
+          approved,
+          ...(!approved && rejectionReason ? { rejectionReason } : {}),
+        };
+      }),
+    );
+    onAnswered?.();
+  }
+
   const discard = (
     <Button size="small" data-testid="chat-dismiss-question" onClick={onDismiss}>
-      Discard the question
+      {request.kind === "tool_approval" ? "Cancel request" : "Discard the question"}
     </Button>
   );
+
+  if (request.kind === "tool_approval") {
+    const title = request.askedBy
+      ? `${request.askedBy} is asking permission to run ${request.tools.length === 1 ? "a tool" : "tools"}`
+      : `The agent is asking permission to run ${request.tools.length === 1 ? "a tool" : "tools"}`;
+    return (
+      <Alert
+        type="warning"
+        icon={<ShieldAlert size={18} />}
+        showIcon
+        data-testid="chat-awaiting-reply"
+        data-kind="tool_approval"
+        title={title}
+        description={
+          <div css={{ display: "grid", gap: theme.space(3), marginBlockStart: theme.space(2) }}>
+            {request.hint ? <div>{request.hint}</div> : null}
+            {request.tools.map((tool) => {
+              const decision = toolDecisions.get(tool.id);
+              return (
+                <div
+                  key={tool.id}
+                  css={{
+                    display: "grid",
+                    gap: theme.space(1),
+                    padding: theme.space(3),
+                    border: `1px solid ${theme.color.border}`,
+                    borderRadius: theme.radius.md,
+                  }}
+                >
+                  <div
+                    css={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: theme.space(2),
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <strong
+                      data-testid="chat-approval-tool"
+                      css={{ fontFamily: theme.font.mono }}
+                    >
+                      {tool.name}
+                    </strong>
+                    {request.tools.length > 1 ? (
+                      <Space size={4} css={{ marginInlineStart: "auto" }}>
+                        <Button
+                          size="small"
+                          type={decision === true ? "primary" : "default"}
+                          icon={<Check size={13} />}
+                          disabled={isSent || isBusy}
+                          onClick={() => setToolDecision(tool.id, true)}
+                        >
+                          Allow
+                        </Button>
+                        <Button
+                          size="small"
+                          danger={decision === false}
+                          type={decision === false ? "primary" : "default"}
+                          icon={<X size={13} />}
+                          disabled={isSent || isBusy}
+                          onClick={() => setToolDecision(tool.id, false)}
+                        >
+                          Deny
+                        </Button>
+                      </Space>
+                    ) : null}
+                  </div>
+                  {Object.keys(tool.args).length > 0 ? (
+                    <pre
+                      data-testid="chat-approval-args"
+                      css={{
+                        margin: 0,
+                        color: theme.color.textMuted,
+                        fontFamily: theme.font.mono,
+                        fontSize: 12,
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {stableJson(tool.args)}
+                    </pre>
+                  ) : null}
+                  {decision === false ? (
+                    <Input.TextArea
+                      data-testid={`chat-approval-reason-${tool.id}`}
+                      aria-label={`Reason for rejecting ${tool.name}`}
+                      autoFocus={request.tools.length === 1}
+                      autoSize={{ minRows: 1, maxRows: 4 }}
+                      maxLength={1000}
+                      disabled={isSent || isBusy}
+                      placeholder="Reason for rejection (optional)"
+                      value={rejectionReasons.get(tool.id) ?? ""}
+                      onChange={(event) => setRejectionReason(tool.id, event.target.value)}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+            <Space size={8} wrap>
+              {request.tools.length === 1 ? (
+                <>
+                  {toolDecisions.get(request.tools[0].id) === false ? (
+                    <>
+                      <Button
+                        danger
+                        type="primary"
+                        size="small"
+                        data-testid="chat-approval-submit"
+                        disabled={isSent || isBusy}
+                        onClick={submitToolDecisions}
+                      >
+                        Send rejection
+                      </Button>
+                      <Button
+                        size="small"
+                        disabled={isSent || isBusy}
+                        onClick={() => {
+                          setToolDecisions(new Map());
+                          setRejectionReasons(new Map());
+                        }}
+                      >
+                        Back
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        type="primary"
+                        size="small"
+                        data-testid="chat-approval-approve"
+                        disabled={isSent || isBusy}
+                        onClick={approveTools}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        danger
+                        size="small"
+                        data-testid="chat-approval-reject"
+                        disabled={isSent || isBusy}
+                        onClick={() => setToolDecision(request.tools[0].id, false)}
+                      >
+                        Reject
+                      </Button>
+                    </>
+                  )}
+                </>
+              ) : (
+                <Button
+                  type="primary"
+                  size="small"
+                  data-testid="chat-approval-submit"
+                  disabled={
+                    isSent ||
+                    isBusy ||
+                    !request.tools.every((tool) => toolDecisions.has(tool.id))
+                  }
+                  onClick={submitToolDecisions}
+                >
+                  Submit decisions
+                </Button>
+              )}
+              {discard}
+            </Space>
+          </div>
+        }
+      />
+    );
+  }
 
   if (request.kind !== "ask_user" || questions.length === 0) {
     /*
      * Something is being asked and this build cannot render it.
      *
-     * Two ways to arrive here, and both are honest to say out loud rather than to
-     * guess at: a tool-approval request, which needs its own controls and its own
-     * response shape, and a turn that parked without the extension having been
-     * activated — in which case the question exists only as prose and carries no
-     * correlation id, so no answer of any kind can be routed to it.
+     * A turn parked without a request shape this build understands. The question
+     * may exist only as prose and carry no correlation id, so no answer can be
+     * routed to it.
      */
     return (
       <Alert
@@ -108,16 +316,8 @@ export function AskUserPrompt({
         showIcon
         data-testid="chat-awaiting-reply"
         data-kind={request.kind}
-        title={
-          request.kind === "tool_approval"
-            ? "The agent is asking permission to run a tool"
-            : "The agent asked you something and is waiting"
-        }
-        description={
-          request.kind === "tool_approval"
-            ? `It wants to run ${request.tools.map((tool) => tool.name).join(", ")}. Approving from here is not something this build can do yet, so the way on is to discard the request.`
-            : "Its question is in the conversation above. This build cannot offer you its choices — the turn was started without the extension that carries them, so there is nothing to answer against. Reply in a new conversation, or discard the question."
-        }
+        title="The agent asked you something and is waiting"
+        description="Its question is in the conversation above. This build cannot offer you its choices — the turn was started without the extension that carries them, so there is nothing to answer against. Reply in a new conversation, or discard the question."
         action={discard}
       />
     );

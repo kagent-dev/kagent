@@ -9,20 +9,21 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
 const (
 	// HITLExtensionURI is the versioned A2A Message extension used at the HITL edge.
-	HITLExtensionURI             = "https://kagent.dev/extensions/hitl/v1"
-	HITLTypeToolApprovalRequest  = "tool_approval_request"
-	HITLTypeAskUserRequest       = "ask_user_request"
-	HITLTypeToolApprovalResponse = "tool_approval_response"
-	HITLTypeAskUserResponse      = "ask_user_response"
+	HITLExtensionURI             = apia2a.HITLExtensionURI
+	HITLTypeToolApprovalRequest  = apia2a.HITLTypeToolApprovalRequest
+	HITLTypeAskUserRequest       = apia2a.HITLTypeAskUserRequest
+	HITLTypeToolApprovalResponse = apia2a.HITLTypeToolApprovalResponse
+	HITLTypeAskUserResponse      = apia2a.HITLTypeAskUserResponse
 	KAgentMetadataKeyPrefix      = "kagent_"
 )
 
-var hitlAgentExtension = a2atype.AgentExtension{URI: HITLExtensionURI, Required: false}
+var hitlAgentExtension = apia2a.HITLExtension()
 
 // HITLActivationInterceptor activates HITL when the client requested the exact
 // versioned extension URI. The A2A transports then echo activated URIs.
@@ -49,54 +50,21 @@ func HitlActivated(ctx context.Context) bool {
 
 // Public extension schema (same shapes as kagent.core.a2a._hitl).
 
-type HitlTool struct {
-	ID     string         `json:"id"`
-	CallID string         `json:"call_id"`
-	Name   string         `json:"name"`
-	Args   map[string]any `json:"args"`
-}
+type HitlTool = apia2a.HITLTool
 
-type NestedHitlRequest struct {
-	SubagentName string     `json:"subagent_name,omitempty"`
-	TaskID       string     `json:"task_id,omitempty"`
-	ContextID    string     `json:"context_id,omitempty"`
-	Tools        []HitlTool `json:"tools"`
-}
+type NestedHitlRequest = apia2a.NestedHITLRequest
 
-type ToolApprovalRequest struct {
-	Type   string             `json:"type"`
-	Hint   string             `json:"hint,omitempty"`
-	Tools  []HitlTool         `json:"tools"`
-	Nested *NestedHitlRequest `json:"nested,omitempty"`
-}
+type ToolApprovalRequest = apia2a.ToolApprovalRequest
 
-type AskUserRequest struct {
-	Type      string             `json:"type"`
-	ID        string             `json:"id"`
-	Questions []map[string]any   `json:"questions"`
-	Nested    *NestedHitlRequest `json:"nested,omitempty"`
-}
+type HitlQuestion = apia2a.HITLQuestion
 
-type ToolApproval struct {
-	ID              string `json:"id"`
-	Approved        bool   `json:"approved"`
-	RejectionReason string `json:"rejection_reason,omitempty"`
-}
+type AskUserRequest = apia2a.AskUserRequest
 
-type ToolApprovalResponse struct {
-	Type      string         `json:"type"`
-	Approvals []ToolApproval `json:"approvals"`
-}
+type ToolApproval = apia2a.ToolApproval
+type ToolApprovalResponse = apia2a.ToolApprovalResponse
 
-type AskUserAnswer struct {
-	Answer []string `json:"answer"`
-}
-
-type AskUserResponse struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Answers []AskUserAnswer `json:"answers,omitempty"`
-}
+type AskUserAnswer = apia2a.AskUserAnswer
+type AskUserResponse = apia2a.AskUserResponse
 
 // rawHitlMap reads the HITL extension metadata as a map[string]any.
 func rawHitlMap(message *a2atype.Message) map[string]any {
@@ -133,10 +101,7 @@ func GetToolApprovalRequest(message *a2atype.Message) *ToolApprovalRequest {
 }
 
 func GetAskUserRequest(message *a2atype.Message) *AskUserRequest {
-	v := decodeJSON[AskUserRequest](rawHitlMap(message), HITLTypeAskUserRequest)
-	if v == nil || v.ID == "" {
-		return nil
-	}
+	v, _ := apia2a.ParseAskUserRequest(message)
 	return v
 }
 
@@ -149,10 +114,7 @@ func GetToolApprovalResponse(message *a2atype.Message) *ToolApprovalResponse {
 }
 
 func GetAskUserResponse(message *a2atype.Message) *AskUserResponse {
-	v := decodeJSON[AskUserResponse](rawHitlMap(message), HITLTypeAskUserResponse)
-	if v == nil || v.ID == "" {
-		return nil
-	}
+	v, _ := apia2a.ParseAskUserResponse(message)
 	return v
 }
 
@@ -483,23 +445,53 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		})
 	}
 	if len(tools) == 1 && tools[0].Name == "ask_user" {
-		var questions []map[string]any
-		if raw, ok := tools[0].Args["questions"].([]any); ok {
-			for _, item := range raw {
-				if m, ok := item.(map[string]any); ok {
-					questions = append(questions, m)
-				}
-			}
-		} else if typed, ok := tools[0].Args["questions"].([]map[string]any); ok {
-			questions = typed
-		}
 		return AttachHitlExtension(public, &AskUserRequest{
-			Type: HITLTypeAskUserRequest, ID: tools[0].ID, Questions: questions,
+			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
+			Questions: publicAskUserQuestions(tools[0].Args["questions"]),
 		})
 	}
 	return AttachHitlExtension(public, &ToolApprovalRequest{
 		Type: HITLTypeToolApprovalRequest, Hint: hint, Tools: tools, Nested: nested,
 	})
+}
+
+func publicAskUserQuestions(value any) []HitlQuestion {
+	items, ok := value.([]any)
+	if !ok {
+		if maps, typed := value.([]map[string]any); typed {
+			items = make([]any, len(maps))
+			for index := range maps {
+				items[index] = maps[index]
+			}
+		}
+	}
+	questions := make([]HitlQuestion, 0, len(items))
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		question, _ := raw["question"].(string)
+		multiple, _ := raw["multiple"].(bool)
+		questions = append(questions, HitlQuestion{
+			Question: question, Choices: stringSlice(raw["choices"]), Multiple: multiple,
+		})
+	}
+	return questions
+}
+
+func stringSlice(value any) []string {
+	if values, ok := value.([]string); ok {
+		return append([]string(nil), values...)
+	}
+	values, _ := value.([]any)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 // BuildResumeHITLMessage: client HITL response + stored request → ADK FunctionResponse parts.

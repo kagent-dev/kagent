@@ -162,7 +162,7 @@ func TestE2ECodexMockWholeServerMCP(t *testing.T) {
 	modelToolNamespace := codexMCPToolNamespace(mcpServer.Name)
 	modelURL := startCodexResourceMockLLM(t, modelToolNamespace)
 	model := createCodexMockModel(t, kube, modelURL)
-	template := createCodexMCPTemplate(t, kube, model.Name, mcpServer.Name)
+	template := createCodexMCPTemplate(t, kube, model.Name, mcpServer.Name, false)
 	fixture := newInteractionFixtureForHarnessTemplate(t, target, codexE2EHarness, template)
 
 	streamed := sendCodexStreaming(t, fixture, "Add 3 and 5 using the configured MCP server.")
@@ -182,6 +182,23 @@ func TestE2ECodexMockWholeServerMCP(t *testing.T) {
 	toolName := mcpServer.Name + ".add_numbers"
 	assertCodexToolEvents(t, streamed.toolEvents, toolName)
 	assertCodexToolEvents(t, codexTaskToolEvents(getCodexTask(t, fixture, streamed.taskID)), toolName)
+}
+
+func TestE2ECodexMockMCPToolApproval(t *testing.T) {
+	target := interactionTarget(t)
+	mcpURL, _ := startMCPMock(t)
+
+	kube := interactionKubeClient(t)
+	mcpServer := createCodexMCPServer(t, kube, mcpURL)
+	modelURL := startCodexResourceMockLLM(t, codexMCPToolNamespace(mcpServer.Name))
+	model := createCodexMockModel(t, kube, modelURL)
+	template := createCodexMCPTemplate(t, kube, model.Name, mcpServer.Name, true)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, codexE2EHarness, template)
+
+	completed := sendApprovedToolRequest(t, fixture, "Add 3 and 5 using the configured MCP server.", mcpServer.Name+".add_numbers")
+	if completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "CODEX_MCP_DONE result is 8") {
+		t.Fatalf("approved MCP task state = %s, text = %q", completed.Status.State, taskText(completed))
+	}
 }
 
 type codexStreamResult struct {
@@ -457,7 +474,7 @@ func createCodexMCPServer(t *testing.T, kube ctrlclient.Client, mcpURL string) *
 	return server
 }
 
-func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string) string {
+func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string, requireApproval bool) string {
 	t.Helper()
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
@@ -469,7 +486,8 @@ func createCodexMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, m
 			Description:  "Codex direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				RequireApproval: requireApproval,
 			}}},
 		},
 	}

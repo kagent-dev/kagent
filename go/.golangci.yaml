@@ -160,6 +160,11 @@ linters:
       - linters:
           - kubeapilinter
         path-except: "api/v1alpha"
+      # ST1005 allows proper nouns, but treats single-word Title Case as a sentence start.
+      - linters:
+          - staticcheck
+        text: "error strings should not be capitalized"
+        source: '"(Claude|Codex)'
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

@@ -408,6 +408,41 @@ describe("useChat and a question the conversation is holding", () => {
     expect(result.current.pendingQuestion).toBeUndefined();
   });
 
+  it("renders an ask_user answer as a semantic record instead of response prose", async () => {
+    setChatClientFactory(() =>
+      client({
+        awaitingReply: {
+          kind: "ask_user",
+          taskId: "parked-task",
+          requestId: "ask-1",
+          questions: [
+            { question: "What size?", choices: ["Small", "Large"], multiple: false },
+          ],
+        },
+        reply: () => [{ type: "status", state: "completed", taskId: "parked-task" }],
+      }),
+    );
+
+    const { result } = renderHook(() => useChat(CONVERSATION));
+    await waitFor(() => expect(result.current.pendingQuestion?.kind).toBe("ask_user"));
+    await act(async () => {
+      await result.current.answerQuestion([["Large"]]);
+    });
+
+    expect(result.current.messages.at(-1)?.parts).toEqual([
+      {
+        kind: "ask_user",
+        interaction: {
+          questions: [
+            { question: "What size?", choices: ["Small", "Large"], multiple: false },
+          ],
+          answers: [["Large"]],
+          askedBy: undefined,
+        },
+      },
+    ]);
+  });
+
   it("does not name a turn on an ordinary message", async () => {
     // The mirror of the above, and the reason it is a separate test: a task id sent
     // for a turn that is not parked is refused rather than quietly misfiled, so an
@@ -424,6 +459,69 @@ describe("useChat and a question the conversation is holding", () => {
     });
 
     expect(seen[0].taskId).toBeUndefined();
+  });
+
+  it("resumes a parked tool call with its structured approval decision", async () => {
+    const seen: SendMessageInput[] = [];
+    setChatClientFactory(() =>
+      client({
+        seen,
+        awaitingReply: {
+          kind: "tool_approval",
+          taskId: "parked-task",
+          tools: [{ id: "approval-7", name: "k8s_get_resources", args: {} }],
+        },
+        reply: () => [
+          { type: "status", state: "completed", taskId: "parked-task" },
+        ],
+      }),
+    );
+
+    const { result } = renderHook(() => useChat(CONVERSATION));
+    await waitFor(() => expect(result.current.pendingQuestion?.kind).toBe("tool_approval"));
+
+    await act(async () => {
+      await result.current.answerToolApproval([
+        {
+          id: "approval-7",
+          approved: false,
+          rejectionReason: "Production is still serving traffic",
+        },
+      ]);
+    });
+
+    expect(seen[0]).toMatchObject({
+      taskId: "parked-task",
+      text: "Rejected: k8s_get_resources\nReason: Production is still serving traffic",
+      hitl: {
+        "https://kagent.dev/extensions/hitl/v1": {
+          type: "tool_approval_response",
+          approvals: [
+            {
+              id: "approval-7",
+              approved: false,
+              rejection_reason: "Production is still serving traffic",
+            },
+          ],
+        },
+      },
+    });
+    expect(result.current.messages.at(-1)?.parts).toEqual([
+      {
+        kind: "tool_approval",
+        approval: {
+          tools: [{ id: "approval-7", name: "k8s_get_resources", args: {} }],
+          decisions: [
+            {
+              id: "approval-7",
+              approved: false,
+              rejectionReason: "Production is still serving traffic",
+            },
+          ],
+          askedBy: undefined,
+        },
+      },
+    ]);
   });
 
   it("puts the question back when the answer was refused", async () => {
