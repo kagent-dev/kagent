@@ -4,7 +4,7 @@ import { isMockMode } from "./api/config";
 import { activeAppExtensions } from "./appExtensions/activeExtensions";
 import { extensionBranding, extensionThemes } from "./appExtensions/selectors";
 import { loadExtensionStylesheets } from "./appExtensions/theme";
-import { applyExtensionDocumentTitle } from "./appExtensions/branding";
+import { applyExtensionBranding } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
 import { App } from "./App";
 
@@ -17,7 +17,7 @@ async function bootstrap() {
   // Before the first render: a web font that arrives afterwards reflows
   // everything already painted.
   loadExtensionStylesheets(extensionThemes(activeAppExtensions));
-  applyExtensionDocumentTitle(extensionBranding(activeAppExtensions));
+  applyExtensionBranding(extensionBranding(activeAppExtensions));
 
   // Which backend is serving is decided in one place, `api/config.ts`, and read
   // here rather than re-derived: two independent readings of the same env var

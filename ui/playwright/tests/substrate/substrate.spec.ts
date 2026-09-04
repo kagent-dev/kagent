@@ -50,6 +50,66 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
   });
 
+  await test.step("2b. the bar is the shape of the cluster, not just its running tally", async () => {
+    const bar = page.getByTestId("substrate-actor-status-counts");
+    await expect(bar).toBeVisible();
+
+    // One segment per actor, so the bar is counted rather than estimated, and ordered by
+    // the status with everything parked pushed to the end — the grey tail is the last
+    // thing on the bar, not something cutting the active part in half.
+    await expect(bar.locator("[data-tone]")).toHaveCount(8);
+    await expect(
+      bar.locator("[data-tone]").evaluateAll((els) => els.map((el) => el.getAttribute("data-tone"))),
+    ).resolves.toEqual([
+      "danger",
+      "warning",
+      "progress",
+      "healthy",
+      "healthy",
+      "progress",
+      "idle",
+      "idle",
+    ]);
+
+    // The whole breakdown from anywhere on the bar, rather than one label per segment: a
+    // reader wanting the shape of the cluster should not have to hover it a piece at a time.
+    await bar.hover();
+    const tip = page.locator(".ant-tooltip");
+    for (const line of [
+      "Crashed Actors: 1",
+      "Deleting Actors: 1",
+      "Resuming Actors: 1",
+      "Running Actors: 2",
+      "Snapshotting Actors: 1",
+      "Paused Actors: 1",
+      "Suspended Actors: 1",
+    ]) {
+      await expect(tip).toContainText(line);
+    }
+
+    // The legend says the same numbers without a pointer at all, which is what a reader
+    // looking at a screenshot or a printed page has.
+    const legend = page.getByTestId("substrate-actor-status-counts-legend");
+    await expect(legend).toContainText("Crashed: 1");
+    await expect(legend).toContainText("Running: 2");
+    await expect(legend).toContainText("Suspended: 1");
+
+    // Every state the controller can report, so a reader learns the vocabulary from the
+    // page rather than from waiting for something to go wrong.
+    await expect(legend).toContainText("Pausing: 0");
+    await expect(legend).toContainText("Unknown: 0");
+    // `ACTOR_STATE_CRASHED` and a vocabulary entry of `Crashed` are the same status, and
+    // keying the legend on the wire value listed it twice — once at zero.
+    await expect(legend.getByText(/^Crashed: /)).toHaveCount(1);
+
+    // The same summary as text, because hovering needs a pointer and neither a screen
+    // reader nor a keyboard has one. Colour is never carrying this alone.
+    await expect(bar).toHaveAttribute(
+      "aria-label",
+      "Actor status. Crashed Actors: 1, Deleting Actors: 1, Resuming Actors: 1, Running Actors: 2, Snapshotting Actors: 1, Paused Actors: 1, Suspended Actors: 1",
+    );
+  });
+
   await test.step("3. the worker pools the sandboxes run on", async () => {
     const pools = page.getByTestId("substrate-pools-table");
     await expect(pools).toBeVisible();
@@ -99,6 +159,19 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(
       actors.locator("[data-tone]").filter({ hasText: "Crashed" }),
     ).toHaveAttribute("data-tone", "danger");
+  });
+
+  await test.step("5b. the workers bar is one segment per pod, coloured by what is on it", async () => {
+    const bar = page.getByTestId("substrate-worker-status-counts");
+    // A pod holding a running actor and a pod holding nothing: the busy one takes the
+    // actor's own colour, and the free one is parked, so it sorts to the end.
+    await expect(
+      bar.locator("[data-tone]").evaluateAll((els) => els.map((el) => el.getAttribute("data-tone"))),
+    ).resolves.toEqual(["healthy", "idle"]);
+    await expect(bar).toHaveAttribute(
+      "aria-label",
+      "Worker status. Running Workers: 1, Idle Workers: 1",
+    );
   });
 
   await test.step("6. the workers, including the one holding nothing", async () => {
@@ -202,6 +275,18 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
   await expect(page.getByTestId("substrate-stat-ateapi-value")).toHaveText("off");
   await expect(page.getByTestId("substrate-inventory-error")).toHaveCount(0);
   await expect(page.getByTestId("substrate-partial")).toHaveCount(0);
+
+  // The bar keeps its track and says why it is empty. Removing it instead would move the
+  // table under a reader at the moment a cluster drained, which is the moment they are
+  // watching it.
+  await expect(page.getByTestId("substrate-actor-status-counts")).toBeVisible();
+  await expect(page.getByTestId("substrate-actor-status-counts").locator("[data-tone]")).toHaveCount(0);
+  await expect(page.getByTestId("substrate-actor-status-counts-empty")).toHaveText(
+    "ate-api is not configured, so there are no actors to show.",
+  );
+  await expect(page.getByTestId("substrate-worker-status-counts-empty")).toHaveText(
+    "ate-api is not configured, so there are no workers to show.",
+  );
 
   // The two runtime sections name the setting to change. The two Kubernetes ones do not —
   // they are empty for an unrelated reason, and saying "ate-api" over them would send an

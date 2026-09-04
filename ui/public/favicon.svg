@@ -1,0 +1,16 @@
+<!--
+  The kagent mark, the same paths `components/branding/KagentLogo.tsx` draws.
+
+  Its own file rather than a render of that component: the browser fetches a favicon
+  before any bundle has run, so it cannot come from React. The purple is the brand's
+  own `#942DE7` and not a theme token — an app extension may restyle the whole
+  application, and the mark is not theirs to recolour.
+
+  Padded to a square viewBox: the mark is 378x286 and a favicon slot is square, so
+  without it the browser squashes the mark to fit.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -47 380 380">
+  <path d="M283.198 143.037H236.099V190.438H283.198V143.037Z" fill="#942DE7"/>
+  <path d="M189.074 143.037H141.975V190.438H189.074V143.037Z" fill="#942DE7"/>
+  <path d="M330.223 48.3099L283.124 0.90918H236.099H189H141.975H94.8759V48.3099H47.8507V95.6364H0.75177V143.037V190.364L47.8507 237.764L94.8759 285.091H141.975H189H236.099H283.124H330.223V237.764H283.124H236.099H189H141.975H94.8759V190.364V143.037V95.6364H141.975H189H236.099H283.124H330.223V143.037V190.364V237.764H377.248V190.364V143.037V95.6364L330.223 48.3099Z" fill="#942DE7"/>
+</svg>

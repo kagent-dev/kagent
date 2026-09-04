@@ -1,6 +1,7 @@
 import { createElement } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  applyExtensionBranding,
   applyExtensionFieldValues,
   buildSidebarSections,
   defineExtensionFormField,
@@ -423,6 +424,44 @@ describe("composing several installed extensions", () => {
     expect(result.headers).toEqual({ "x-first": "1", "x-second": "2" });
     undo();
     clearApiExtensions();
+  });
+});
+
+describe("applyExtensionBranding", () => {
+  const favicon = () => document.querySelector<HTMLLinkElement>("link[data-app-favicon]");
+
+  beforeEach(() => {
+    // Head first: replacing its contents drops the <title> element with everything else,
+    // which resets `document.title` to "".
+    document.head.innerHTML = '<link rel="icon" data-app-favicon href="/favicon.svg" />';
+    document.title = "kagent";
+  });
+
+  it("leaves the application's own title and icon alone when an extension sets neither", () => {
+    applyExtensionBranding({});
+
+    // Not reset to a default: every extension would otherwise have to restate the
+    // branding it was perfectly happy with.
+    expect(document.title).toBe("kagent");
+    expect(favicon()?.getAttribute("href")).toBe("/favicon.svg");
+  });
+
+  it("retargets the shipped link rather than adding a second one", () => {
+    applyExtensionBranding({ appName: "My Product", faviconUrl: "/my-mark.svg" });
+
+    expect(document.title).toBe("My Product");
+    expect(document.querySelectorAll("link[data-app-favicon]")).toHaveLength(1);
+    expect(favicon()?.href).toContain("/my-mark.svg");
+  });
+
+  it("still applies the icon when the host page shipped no link to retarget", () => {
+    document.head.innerHTML = "";
+
+    applyExtensionBranding({ faviconUrl: "/my-mark.svg" });
+
+    expect(
+      document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href,
+    ).toContain("/my-mark.svg");
   });
 });
 

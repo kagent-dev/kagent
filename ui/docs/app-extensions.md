@@ -452,8 +452,9 @@ happy with this application's chrome may still want its own mark on it.
 
 ```tsx
 branding: {
-  AppIcon: MyMark,        // receives { collapsed }; supplied whole, like everything else
-  appName: "My Product",  // used for the document title
+  AppIcon: MyMark,             // receives { collapsed }; supplied whole, like everything else
+  appName: "My Product",       // used for the document title
+  faviconUrl: "/my-mark.svg",  // the tab icon; a URL, since the browser loads it itself
 }
 ```
 
