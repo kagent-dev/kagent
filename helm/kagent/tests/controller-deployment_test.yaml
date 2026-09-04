@@ -448,18 +448,94 @@ tests:
             name: POSTGRES_DATABASE_URL
             value: "postgres://user:pass@external-host:5432/db"
 
-  - it: should set POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile is set
+  - it: should keep Kagent's bundled database configuration when Substrate is enabled
     template: controller-deployment.yaml
     set:
-      database:
-        postgres:
-          urlFile: "/var/secrets/db-url"
+      substrate:
+        enabled: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_DATABASE_URL_FILE
-            value: "/var/secrets/db-url"
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-postgresql
+                key: POSTGRES_PASSWORD
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
+
+  - it: should read an existing shared database secret with Substrate
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          secretRef:
+            name: shared-db
+            key: url
+      substrate:
+        enabled: true
+        postgres:
+          connectionStringSecretRef:
+            name: shared-db
+            key: url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: shared-db
+                key: url
+
+  - it: should keep an explicitly separate Substrate database Secret separate
+    template: controller-deployment.yaml
+    set:
+      substrate:
+        enabled: true
+        postgres:
+          connectionStringSecretRef:
+            enabled: false
+            name: substrate-db
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-postgresql
+                key: POSTGRES_PASSWORD
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: substrate-db
+                key: connectionString
+
+  - it: should read an external database URL from a Secret
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          secretRef:
+            name: external-postgres
+            key: url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: external-postgres
+                key: url
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
@@ -553,28 +629,27 @@ tests:
           content:
             name: POSTGRES_PASSWORD
 
-  - it: should set POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile and bundled are both enabled
+  - it: should reject the removed urlFile value
     template: controller-deployment.yaml
     set:
       database:
         postgres:
-          urlFile: "/var/secrets/db-url"
-          bundled:
-            enabled: true
+          urlFile: /var/secrets/db-url
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL_FILE
-            value: "/var/secrets/db-url"
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL
+      - failedTemplate:
+          errorMessage: "database.postgres.urlFile has been removed; use database.postgres.secretRef.{name,key}"
+
+  - it: should reject both an inline URL and Secret reference
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          url: postgres://user:pass@external-host:5432/db
+          secretRef:
+            name: external-postgres
+    asserts:
+      - failedTemplate:
+          errorMessage: "database.postgres.url and database.postgres.secretRef.name are mutually exclusive"
 
   - it: should set external POSTGRES_DATABASE_URL and omit POSTGRES_PASSWORD when url and bundled are both enabled
     template: controller-deployment.yaml

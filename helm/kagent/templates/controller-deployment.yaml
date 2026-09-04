@@ -1,3 +1,10 @@
+{{- $databaseConnectionStringSecretRef := .Values.database.postgres.secretRef | default dict -}}
+{{- if hasKey .Values.database.postgres "urlFile" -}}
+{{- fail "database.postgres.urlFile has been removed; use database.postgres.secretRef.{name,key}" -}}
+{{- end -}}
+{{- if and .Values.database.postgres.url (get $databaseConnectionStringSecretRef "name") -}}
+{{- fail "database.postgres.url and database.postgres.secretRef.name are mutually exclusive" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -101,9 +108,12 @@ spec:
             - name: AUTH_USER_ID_CLAIM
               value: {{ .Values.controller.auth.userIdClaim | quote }}
             {{- end }}
-            {{- if .Values.database.postgres.urlFile }}
-            - name: POSTGRES_DATABASE_URL_FILE
-              value: {{ .Values.database.postgres.urlFile | quote }}
+            {{- if get $databaseConnectionStringSecretRef "name" }}
+            - name: POSTGRES_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ get $databaseConnectionStringSecretRef "name" }}
+                  key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
             {{- else if .Values.database.postgres.url }}
             - name: POSTGRES_DATABASE_URL
               value: {{ .Values.database.postgres.url | quote }}
@@ -116,7 +126,7 @@ spec:
             - name: POSTGRES_DATABASE_URL
               value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
             {{- else }}
-            {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
+            {{ fail "No database connection configured. Set database.postgres.url, database.postgres.secretRef.name, or enable database.postgres.bundled." }}
             {{- end }}
             {{- if include "kagent.controller.metricsEnabled" . }}
             - name: METRICS_BIND_ADDRESS
