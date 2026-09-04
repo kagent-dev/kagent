@@ -266,6 +266,32 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
       },
+      /*
+       * The segmented control, which on the dark theme had no visible edge anywhere.
+       *
+       * Measured rather than looked at: the track sat at 1.00:1 against the page — the
+       * same colour — and the selected pill at 1.12:1 against the track, behind an
+       * elevation shadow antd paints at one percent white. So nothing said "toggle" and
+       * nothing but a slightly brighter label said which half was chosen. The light
+       * theme escapes it because its pill is white with a dark shadow under it, so this
+       * leaves that mode alone.
+       *
+       * Fixed with an edge rather than a fill, the way the inputs above are. A fill
+       * cannot carry it at this end of the range: the page is near-black, so reaching
+       * 3:1 on luminance alone takes a mid-grey pill that reads as disabled. A
+       * one-pixel `borderStrong` ring measures 3.9:1 against the page and is the same
+       * boundary every other control in the app is outlined with, which leaves the two
+       * fills with only the pill's shape to carry.
+       */
+      ...(mode === "dark"
+        ? {
+            Segmented: {
+              trackBg: color.bgElevated,
+              itemSelectedBg: color.border,
+              boxShadowTertiary: `0 0 0 1px ${color.borderStrong}`,
+            },
+          }
+        : {}),
       Radio: {
         /*
          * The selected option's label and border are the brand colour used as ink, and
