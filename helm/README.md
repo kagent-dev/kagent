@@ -43,6 +43,25 @@ substrate:
   enabled: true
 ```
 
+To share an existing Secret, configure both charts to reference the same
+name and key:
+
+```yaml
+database:
+  postgres:
+    secretRef:
+      name: shared-postgres
+      key: connectionString
+    bundled:
+      enabled: false
+substrate:
+  enabled: true
+  postgres:
+    connectionStringSecretRef:
+      name: shared-postgres
+      key: connectionString
+```
+
 To give Substrate a separate PostgreSQL connection, disable sharing and set
 the Substrate connection directly:
 
@@ -56,8 +75,7 @@ substrate:
 ```
 
 For a separate Secret-backed connection, leave `enabled: false` and set
-`connectionStringSecretRef.name` and `key`. A pod-local
-`database.postgres.urlFile` cannot be shared with Substrate.
+`connectionStringSecretRef.name` and `key`.
 
 ### Using Make
 

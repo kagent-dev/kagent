@@ -4,7 +4,7 @@ templates:
   - postgresql-secret.yaml
 tests:
   # =============================================================================
-  # bundled mode (default — url and urlFile both empty, bundled.enabled true)
+  # bundled mode (default — no external connection, bundled.enabled true)
   # =============================================================================
 
   - it: should render ServiceAccount, PVC, Deployment, and Service when bundled is enabled
@@ -34,12 +34,13 @@ tests:
       - hasDocuments:
           count: 4
 
-  - it: should still render resources when urlFile is set and bundled is enabled
+  - it: should still render resources when an external Secret is set and bundled is enabled
     template: postgresql.yaml
     set:
       database:
         postgres:
-          urlFile: "/var/secrets/db-url"
+          secretRef:
+            name: external-postgres
     asserts:
       - hasDocuments:
           count: 4
@@ -409,12 +410,13 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: should still create secret when urlFile is set and bundled is enabled
+  - it: should still create the bundled password secret when an external Secret is set
     template: postgresql-secret.yaml
     set:
       database:
         postgres:
-          urlFile: "/var/secrets/db-url"
+          secretRef:
+            name: external-postgres
     asserts:
       - hasDocuments:
           count: 1
@@ -466,17 +468,20 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should reject urlFile when a managed Substrate connection secret is required
+  - it: should require an explicit Substrate reference for an existing Kagent Secret
     template: postgresql-secret.yaml
     set:
       database:
         postgres:
-          urlFile: /var/secrets/db-url
+          secretRef:
+            name: shared-db
+          bundled:
+            enabled: false
       substrate:
         enabled: true
     asserts:
       - failedTemplate:
-          errorMessage: "database.postgres.urlFile cannot configure embedded Substrate; set substrate.postgres.connectionStringSecretRef.name to the Secret containing the URL"
+          errorMessage: "database.postgres.secretRef cannot be inherited by Substrate; set substrate.postgres.connectionStringSecretRef to the same Secret"
 
   - it: should not render imagePullSecret by default
     template: postgresql.yaml

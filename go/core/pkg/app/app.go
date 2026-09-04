@@ -163,10 +163,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}()
 
-	dbURL, err := database.ResolveURL(env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres"), os.Getenv("POSTGRES_DATABASE_URL_FILE"))
-	if err != nil {
-		return err
-	}
+	dbURL := env("POSTGRES_DATABASE_URL", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres")
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.

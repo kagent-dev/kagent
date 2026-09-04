@@ -75,13 +75,14 @@ nodeSelector: {}
 database:
   postgres:
     # -- External PostgreSQL connection string.
-    # Used ahead of `.bundled` unless an existing shared Substrate Secret is set.
+    # Mutually exclusive with `secretRef.name`.
     url: ""
-    # -- Path to a file containing the database URL. Takes precedence over url when set.
-    # Takes precedence over `.bundled` unless an existing shared Substrate Secret is set.
-    # Embedded Substrate cannot inherit an arbitrary mounted file; configure its
-    # connectionStringSecretRef.name instead.
-    urlFile: ""
+    # -- Source the external PostgreSQL connection string from an existing Secret.
+    # To share it with embedded Substrate, set the same name and key under
+    # `substrate.postgres.connectionStringSecretRef`.
+    secretRef:
+      name: ""
+      key: connectionString
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
@@ -98,9 +99,9 @@ database:
       maxConnIdleTime: ""
       maxConnLifetime: ""
     # -- Bundled PostgreSQL instance — for development and evaluation only.
-    # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
+    # Not suitable for production. Deployed whenever enabled is true.
     bundled:
-      # -- Set to false to disable the bundled database and provide your own via url or urlFile.
+      # -- Set to false to disable the bundled database and provide an external connection.
       enabled: true
       image:
         # -- Bundled PostgreSQL image registry
@@ -670,7 +671,8 @@ substrate:
     # Kagent and Substrate use separate schemas in the same database.
     enabled: false
     schema: substrate
-    # -- Share Kagent's selected database with Substrate through a Secret.
+    # -- Read the Substrate connection string from a Secret.
+    # With no name, Kagent creates this Secret from its bundled or inline URL.
     connectionStringSecretRef:
       enabled: true
       # -- Existing Secret name. Kagent creates a release-named Secret when empty.
