@@ -34,9 +34,11 @@ harness.
   executables, or implicit plugin MCP servers.
 - Exact native thread resume and bounded cancellation through `turn/interrupt`.
 
-The adapter deliberately fixes the native sandbox to `danger-full-access` and
-approval policy to `never`; the Substrate Actor remains the security boundary.
-MCP servers marked for approval still prompt through App Server elicitation.
+The adapter deliberately fixes the native sandbox to `danger-full-access`; the
+Substrate Actor remains the security boundary. Its granular native approval
+policy enables MCP elicitation and rejects command, sandbox, rule, skill, and
+`request_permissions` prompts. MCP servers marked for approval prompt through
+App Server elicitation, while other MCP servers remain automatically approved.
 Account login, API-key passthrough, custom TLS, legacy SSE MCP, Dedicated agents,
 checkpoint/fork guarantees, and configurable native policy are not advertised.
 

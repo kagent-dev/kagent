@@ -59,7 +59,10 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
 	}
-	if native.ApprovalPolicy != "never" || server.DefaultToolsApprovalMode != "prompt" || server.EnvHTTPHeaders["Authorization"] != "KAGENT_CODEX_MCP_CREDENTIAL_ABC" || server.HTTPHeaders["X-Tenant"] != "test" || len(server.EnabledTools) != 1 || server.EnabledTools[0] != "read" {
+	if native.ApprovalPolicy.Granular != (nativeGranularApprovalPolicy{MCPElicitations: true}) {
+		t.Fatalf("generated approval policy = %#v", native.ApprovalPolicy)
+	}
+	if server.DefaultToolsApprovalMode != "prompt" || server.EnvHTTPHeaders["Authorization"] != "KAGENT_CODEX_MCP_CREDENTIAL_ABC" || server.HTTPHeaders["X-Tenant"] != "test" || len(server.EnabledTools) != 1 || server.EnabledTools[0] != "read" {
 		t.Fatalf("generated MCP server configuration = %#v", server)
 	}
 	if agent.Description != "Review carefully" || agent.ConfigFile != agentPath {

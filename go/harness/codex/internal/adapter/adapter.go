@@ -84,7 +84,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 type nativeConfig struct {
 	Model          string                         `toml:"model"`
 	ModelProvider  string                         `toml:"model_provider"`
-	ApprovalPolicy string                         `toml:"approval_policy"`
+	ApprovalPolicy nativeApprovalPolicy           `toml:"approval_policy"`
 	SandboxMode    string                         `toml:"sandbox_mode"`
 	WebSearch      string                         `toml:"web_search"`
 	Features       nativeFeatures                 `toml:"features"`
@@ -92,6 +92,18 @@ type nativeConfig struct {
 	ModelProviders map[string]nativeModelProvider `toml:"model_providers,omitempty"`
 	Agents         map[string]nativeAgent         `toml:"agents,omitempty"`
 	MCPServers     map[string]nativeMCPServer     `toml:"mcp_servers,omitempty"`
+}
+
+type nativeApprovalPolicy struct {
+	Granular nativeGranularApprovalPolicy `toml:"granular"`
+}
+
+type nativeGranularApprovalPolicy struct {
+	SandboxApproval    bool `toml:"sandbox_approval"`
+	Rules              bool `toml:"rules"`
+	SkillApproval      bool `toml:"skill_approval"`
+	RequestPermissions bool `toml:"request_permissions"`
+	MCPElicitations    bool `toml:"mcp_elicitations"`
 }
 
 type nativeFeatures struct {
@@ -132,7 +144,8 @@ type nativeAgentConfig struct {
 func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
-		ApprovalPolicy: "never", SandboxMode: "danger-full-access", WebSearch: "cached",
+		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
+		SandboxMode:    "danger-full-access", WebSearch: "cached",
 		Features:   nativeFeatures{DefaultModeRequestUserInput: true},
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),

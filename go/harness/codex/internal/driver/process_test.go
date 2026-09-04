@@ -65,7 +65,7 @@ sleep 5
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{`"method":"initialize"`, `"method":"initialized"`, `"method":"thread/start"`, `"approvalPolicy":"never"`, `"sandbox":"danger-full-access"`, `"method":"turn/start"`, `"text":"say hello"`} {
+	for _, fragment := range []string{`"method":"initialize"`, `"method":"initialized"`, `"method":"thread/start"`, `"approvalPolicy":{"granular":{"mcp_elicitations":true,"request_permissions":false,"rules":false,"sandbox_approval":false,"skill_approval":false}}`, `"sandbox":"danger-full-access"`, `"method":"turn/start"`, `"text":"say hello"`} {
 		if !bytes.Contains(requests, []byte(fragment)) {
 			t.Errorf("requests omit %s:\n%s", fragment, requests)
 		}
