@@ -1,0 +1,35 @@
+{
+  "openai": [
+    {
+      "name": "catch_all",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "2+2",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-mock-1",
+        "object": "chat.completion",
+        "created": 1700000000,
+        "model": "mock-model",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "content": "The answer is 4.",
+              "role": "assistant"
+            },
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    }
+  ]
+}
