@@ -58,6 +58,30 @@ Upstream A2A owns public tasks, contexts, history, and streaming semantics. A
 native continuation ID is private Actor state; it is not a second public session
 model.
 
+## Human-in-the-loop runtime contract
+
+A native driver returns ordinary completion or failure through
+`runtime.Outcome`. When the native process instead pauses for approval or user
+input, the outcome contains a `runtime.PendingTurn`:
+
+```go
+type PendingTurn interface {
+        Request() InputRequest
+        Resume(context.Context, InputResponse, EventSink) (Outcome, error)
+        Cancel(context.Context) error
+}
+```
+
+The handle owns the live native process or session. The shared A2A executor
+keeps it while the task is `input-required`, then calls either `Resume` with the
+validated response or `Cancel`. A resumed process can return another pending
+handle for sequential questions.
+
+The executor also serializes access to the Actor's one native conversation. Its
+state is either active, parked on a `PendingTurn`, canceling that handle, or
+idle. Drivers therefore implement native protocol and process cleanup without
+maintaining a second global parked-task state.
+
 ## Development
 
 From `go/`, run the focused unit tests with:

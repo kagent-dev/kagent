@@ -27,7 +27,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "args")
 	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.1.217 (Claude Code)'; exit 0; fi\nprintf '%s\\n' \"$@\" > \"$CAPTURE\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.1.260 (Claude Code)'; exit 0; fi\nprintf '%s\\n' \"$@\" > \"$CAPTURE\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\n"
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,12 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	if string(args) != want {
 		t.Errorf("arguments = %q, want %q", args, want)
 	}
-	for _, required := range []string{"--bare\n", "--dangerously-skip-permissions\n", "--strict-mcp-config\n"} {
+	for _, required := range []string{
+		"--bare\n",
+		"--dangerously-skip-permissions\n",
+		"--strict-mcp-config\n",
+		"--tools\n" + bareBuiltinTools + "\n",
+	} {
 		if !strings.Contains(string(args), required) {
 			t.Errorf("arguments do not contain required fixed policy flag %q", strings.TrimSpace(required))
 		}

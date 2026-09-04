@@ -18,7 +18,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
 	runner, err := New(context.Background(), Input{
-		ConfigJSON: []byte(`{"version":4,"claude_executable":"claude","expected_claude_version":"2.1.217","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
+		ConfigJSON: []byte(`{"version":4,"claude_executable":"claude","expected_claude_version":"2.1.260","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
 		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_UPDATES=0"},
@@ -108,17 +108,44 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(settings)
-	if !strings.Contains(text, `mcp__protected__.*`) || !strings.Contains(text, `mcp__readonly__*`) {
-		t.Fatalf("approval settings = %s", settings)
+	if got, want := string(settings), `{"permissions":{"ask":["mcp__protected__*"]}}`; got != want {
+		t.Fatalf("approval settings = %s, want %s", got, want)
+	}
+	mcpConfig, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var materialized struct {
+		Servers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(mcpConfig, &materialized); err != nil {
+		t.Fatal(err)
+	}
+	approvalServer := materialized.Servers[approvalMCPServerName]
+	if approvalServer.Type != "http" || !strings.HasPrefix(approvalServer.URL, "http://127.0.0.1:") ||
+		!strings.HasPrefix(approvalServer.Headers["Authorization"], "Bearer ") {
+		t.Fatalf("private approval MCP server = %#v", approvalServer)
+	}
+	if len(materialized.Servers) != 3 {
+		t.Fatalf("materialized MCP servers = %#v", materialized.Servers)
 	}
 	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
-	for _, required := range []string{"--setting-sources\n\n", "--settings\n" + filepath.Join(ephemeralDir, "settings.json"), "--permission-mode\ndontAsk"} {
+	for _, required := range []string{
+		"--bare",
+		"--setting-sources\n\n",
+		"--settings\n" + filepath.Join(ephemeralDir, "settings.json"),
+		"--dangerously-skip-permissions",
+		"--permission-prompt-tool\nmcp__" + approvalMCPServerName + "__approve",
+	} {
 		if !strings.Contains(args, required) {
 			t.Fatalf("approval arguments do not contain %q: %s", required, args)
 		}
 	}
-	for _, forbidden := range []string{"--bare", "--dangerously-skip-permissions"} {
+	for _, forbidden := range []string{"--permission-mode", "dontAsk"} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("approval arguments contain %q: %s", forbidden, args)
 		}
