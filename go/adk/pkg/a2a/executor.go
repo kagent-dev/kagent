@@ -33,6 +33,11 @@ type KAgentExecutorConfig struct {
 	Stream         bool
 	AppName        string
 	Logger         logr.Logger
+	// ModelName and ProviderName label GenAI token-usage metrics
+	// (gen_ai.request.model / gen_ai.provider.name). Both may be empty, in
+	// which case the corresponding metric attributes are omitted.
+	ModelName    string
+	ProviderName string
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -75,6 +80,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 				}
 				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
+			recordTokenUsage(cfg.ModelName, cfg.ProviderName, cfg.AppName, event)
 			return nil
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
@@ -86,6 +92,30 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		appName:        cfg.AppName,
 		logger:         cfg.Logger.WithName("kagent-executor"),
 	}
+}
+
+// recordTokenUsage records GenAI token usage for a single ADK event on the
+// gen_ai.client.token.usage histogram. Partial (streaming) events are skipped:
+// a streamed LLM call emits many Partial chunks but usage is reported once on
+// the aggregated non-partial event, so this counts one observation per LLM
+// call, not per stream chunk. Output combines candidate + reasoning tokens.
+func recordTokenUsage(modelName, providerName, agentName string, adkEvent *adksession.Event) {
+	if adkEvent == nil {
+		return
+	}
+	um := adkEvent.UsageMetadata
+	if um == nil || adkEvent.Partial {
+		return
+	}
+	telemetry.RecordTokenUsage(telemetry.TokenUsage{
+		RequestModel:  modelName,
+		ResponseModel: adkEvent.ModelVersion,
+		Provider:      providerName,
+		AgentName:     agentName,
+		ErrorType:     adkEvent.ErrorCode,
+		InputTokens:   int64(um.PromptTokenCount),
+		OutputTokens:  int64(um.CandidatesTokenCount) + int64(um.ThoughtsTokenCount),
+	})
 }
 
 // UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the
