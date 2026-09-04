@@ -1203,8 +1203,8 @@ export function SubstratePage() {
    * the join is complete exactly when both fit in one page, which is the common case
    * locally and not the case on a large cluster.
    *
-   * ponytail: a client-side join, complete only within a page. The durable fix is the
-   * controller sending the actor's status on the worker entry, which would remove this.
+   * A client-side join, complete only within a page. The durable fix is the controller
+   * sending the actor's status on the worker entry, which would remove this.
    */
   const workerBar = useMemo(() => {
     const statusByActor = new Map(actorRows.map((actor) => [actor.actorId, actor.status]));
