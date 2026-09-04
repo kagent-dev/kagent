@@ -4,12 +4,9 @@
   resources:
   - harnesses
   - agenttemplates
-  - sandboxagents
-  - agentharnesses
   - modelconfigs
   - modelproviderconfigs
   - toolservers
-  - memories
   - remotemcpservers
   - mcpservers
   verbs:
@@ -21,12 +18,9 @@
   resources:
   - harnesses/finalizers
   - agenttemplates/finalizers
-  - sandboxagents/finalizers
-  - agentharnesses/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
-  - memories/finalizers
   - remotemcpservers/finalizers
   - mcpservers/finalizers
   verbs:
@@ -36,12 +30,9 @@
   resources:
   - harnesses/status
   - agenttemplates/status
-  - sandboxagents/status
-  - agentharnesses/status
   - modelconfigs/status
   - modelproviderconfigs/status
   - toolservers/status
-  - memories/status
   - remotemcpservers/status
   - mcpservers/status
   verbs:

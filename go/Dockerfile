@@ -6,8 +6,8 @@ ARG TARGETARCH
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
-# Which package to build (e.g. core/cmd/controller-v2/main.go, adk/cmd/main.go)
-ARG BUILD_PACKAGE=core/cmd/controller-v2/main.go
+# Which package to build (e.g. core/cmd/controller/main.go, adk/cmd/main.go)
+ARG BUILD_PACKAGE=core/cmd/controller/main.go
 
 WORKDIR /workspace
 # Copy the Go module manifests

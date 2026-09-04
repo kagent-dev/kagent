@@ -1,2 +1,0 @@
-ALTER TABLE lg_checkpoint ALTER COLUMN version DROP NOT NULL;
-ALTER TABLE feedback ALTER COLUMN is_positive DROP NOT NULL;

@@ -75,8 +75,8 @@ import type { OperationId } from "./operations";
  *
  * A transform is registered against an operation id, and the interceptor that
  * runs transforms only sees a service and a method — which is not the same thing.
- * Two operations can share one RPC (`agents.get` reaches for two different ones,
- * `models.providers` merges two), so the id has to travel with the call rather
+ * One operation can use multiple RPCs (`models.providers` merges two), so the id
+ * has to travel with the call rather
  * than be reconstructed from it.
  */
 export const operationContext = createContextKey<OperationId | undefined>(undefined, {

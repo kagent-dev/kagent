@@ -24,8 +24,8 @@ func runBugReport(namespace string, verbose bool) {
 	fmt.Println("Gathering bug report information...")
 	kubectl := commonexec.NewKubectlExecutor(verbose, namespace)
 
-	// Get Agent, ModelConfig, and ToolServers YAMLs
-	resources := []string{"agent", "modelconfig", "toolserver", "mcpserver", "remotemcpserver"}
+	// Get kagent resource YAMLs.
+	resources := []string{"agenttemplate", "harness", "modelconfig", "toolserver", "mcpserver", "remotemcpserver"}
 	for _, resource := range resources {
 		output, err := kubectl.RunWithOutput("get", resource, "-n", namespace, "-o", "yaml")
 		if err != nil {
@@ -116,7 +116,7 @@ func runBugReport(namespace string, verbose bool) {
 	}
 
 	fmt.Printf("Bug report generated in directory: %s\n", reportDir)
-	fmt.Println("WARNING: Please review and scrub any sensitive information from agent.yaml before sharing the bug report.")
+	fmt.Println("WARNING: Please review and scrub any sensitive information before sharing the bug report.")
 }
 
 // NewBugReportCmd constructs the kagent bug-report command.

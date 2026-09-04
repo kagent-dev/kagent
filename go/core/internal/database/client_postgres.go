@@ -50,17 +50,6 @@ func (c *postgresClient) withTx(ctx context.Context, fn func(*dbgen.Queries) err
 	return tx.Commit(ctx)
 }
 
-// ── Agents ────────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreAgent(ctx context.Context, agent *dbpkg.Agent) error {
-	return c.q.UpsertAgent(ctx, dbgen.UpsertAgentParams{
-		ID:           agent.ID,
-		Type:         agent.Type,
-		WorkloadType: string(agent.WorkloadType),
-		Config:       agent.Config,
-	})
-}
-
 // notFoundOr maps the driver's no-rows error to dbpkg.ErrNotFound so callers
 // outside this package match on the exported sentinel, never on pgx.
 func notFoundOr(err error) error {
@@ -68,30 +57,6 @@ func notFoundOr(err error) error {
 		return dbpkg.ErrNotFound
 	}
 	return err
-}
-
-func (c *postgresClient) GetAgent(ctx context.Context, id string) (*dbpkg.Agent, error) {
-	row, err := c.q.GetAgent(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get agent %s: %w", id, notFoundOr(err))
-	}
-	return toAgent(row), nil
-}
-
-func (c *postgresClient) ListAgents(ctx context.Context) ([]dbpkg.Agent, error) {
-	rows, err := c.q.ListAgents(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list agents: %w", err)
-	}
-	agents := make([]dbpkg.Agent, len(rows))
-	for i, r := range rows {
-		agents[i] = *toAgent(r)
-	}
-	return agents, nil
-}
-
-func (c *postgresClient) DeleteAgent(ctx context.Context, agentID string) error {
-	return c.q.SoftDeleteAgent(ctx, agentID)
 }
 
 // ── AgentTemplate runtime revisions ──────────────────────────────────────────
@@ -141,6 +106,21 @@ func (c *postgresClient) GetRuntimeRevision(ctx context.Context, revision string
 		ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
 		ActorTemplateUID: row.ActorTemplateUid,
 	}, nil
+}
+
+func (c *postgresClient) ListActorTemplateHarnesses(ctx context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+	rows, err := c.q.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
+	}
+	result := make([]dbpkg.ActorTemplateHarness, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, dbpkg.ActorTemplateHarness{
+			Atespace: row.ActorTemplateAtespace, Name: row.ActorTemplateName,
+			UID: row.ActorTemplateUid, HarnessName: row.HarnessName,
+		})
+	}
+	return result, nil
 }
 
 func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
@@ -1245,31 +1225,6 @@ func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
 	return task, nil
 }
 
-// ── Feedback ──────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreFeedback(ctx context.Context, feedback *dbpkg.Feedback) error {
-	err := c.q.InsertFeedback(ctx, dbgen.InsertFeedbackParams{
-		UserID:       feedback.UserID,
-		MessageID:    feedback.MessageID,
-		IsPositive:   feedback.IsPositive,
-		FeedbackText: feedback.FeedbackText,
-		IssueType:    feedback.IssueType,
-	})
-	return err
-}
-
-func (c *postgresClient) ListFeedback(ctx context.Context, userID string) ([]dbpkg.Feedback, error) {
-	rows, err := c.q.ListFeedback(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list feedback: %w", err)
-	}
-	result := make([]dbpkg.Feedback, len(rows))
-	for i, r := range rows {
-		result[i] = *toFeedback(r)
-	}
-	return result, nil
-}
-
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) GetTool(ctx context.Context, name string) (*dbpkg.Tool, error) {
@@ -1364,181 +1319,6 @@ func (c *postgresClient) StoreToolServer(ctx context.Context, ts *dbpkg.ToolServ
 
 func (c *postgresClient) DeleteToolServer(ctx context.Context, serverName, groupKind string) error {
 	return c.q.SoftDeleteToolServer(ctx, dbgen.SoftDeleteToolServerParams{Name: serverName, GroupKind: groupKind})
-}
-
-// ── LangGraph Checkpoints ─────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreCheckpoint(ctx context.Context, cp *dbpkg.LangGraphCheckpoint) error {
-	return c.q.UpsertCheckpoint(ctx, dbgen.UpsertCheckpointParams{
-		UserID:             cp.UserID,
-		ThreadID:           cp.ThreadID,
-		CheckpointNs:       cp.CheckpointNS,
-		CheckpointID:       cp.CheckpointID,
-		ParentCheckpointID: cp.ParentCheckpointID,
-		Metadata:           cp.Metadata,
-		Checkpoint:         cp.Checkpoint,
-		CheckpointType:     cp.CheckpointType,
-		Version:            cp.Version,
-	})
-}
-
-func (c *postgresClient) StoreCheckpointWrites(ctx context.Context, writes []*dbpkg.LangGraphCheckpointWrite) error {
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		for _, w := range writes {
-			if err := q.UpsertCheckpointWrite(ctx, dbgen.UpsertCheckpointWriteParams{
-				UserID:       w.UserID,
-				ThreadID:     w.ThreadID,
-				CheckpointNs: w.CheckpointNS,
-				CheckpointID: w.CheckpointID,
-				WriteIdx:     w.WriteIdx,
-				Value:        w.Value,
-				ValueType:    w.ValueType,
-				Channel:      w.Channel,
-				TaskID:       w.TaskID,
-			}); err != nil {
-				return fmt.Errorf("failed to store checkpoint write: %w", err)
-			}
-		}
-		return nil
-	})
-}
-
-func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*dbpkg.LangGraphCheckpointTuple, error) {
-	var tuples []*dbpkg.LangGraphCheckpointTuple
-	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		var checkpoints []dbgen.LgCheckpoint
-		var err error
-		if checkpointID != nil {
-			cp, err := q.GetCheckpoint(ctx, dbgen.GetCheckpointParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: *checkpointID,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to get checkpoint: %w", notFoundOr(err))
-			}
-			checkpoints = []dbgen.LgCheckpoint{cp}
-		} else if limit > 0 {
-			checkpoints, err = q.ListCheckpointsLimit(ctx, dbgen.ListCheckpointsLimitParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, Limit: int32(limit),
-			})
-			if err != nil {
-				return fmt.Errorf("failed to list checkpoints: %w", err)
-			}
-		} else {
-			checkpoints, err = q.ListCheckpoints(ctx, dbgen.ListCheckpointsParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to list checkpoints: %w", err)
-			}
-		}
-
-		// Fetch all writes for the returned checkpoints in a single query and
-		// bucket them by checkpoint ID, instead of issuing one query per
-		// checkpoint (which turned reading a thread's history into 1+N round
-		// trips that grew with the conversation length).
-		checkpointIDs := make([]string, len(checkpoints))
-		for i, cp := range checkpoints {
-			checkpointIDs[i] = cp.CheckpointID
-		}
-
-		writesByCheckpoint := make(map[string][]*dbpkg.LangGraphCheckpointWrite, len(checkpoints))
-		if len(checkpointIDs) > 0 {
-			writes, err := q.ListCheckpointWritesForCheckpoints(ctx, dbgen.ListCheckpointWritesForCheckpointsParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointIds: checkpointIDs,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to get checkpoint writes: %w", err)
-			}
-			for _, w := range writes {
-				writesByCheckpoint[w.CheckpointID] = append(writesByCheckpoint[w.CheckpointID], toCheckpointWrite(w))
-			}
-		}
-
-		tuples = make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
-		for _, cp := range checkpoints {
-			dbWrites := writesByCheckpoint[cp.CheckpointID]
-			if dbWrites == nil {
-				dbWrites = []*dbpkg.LangGraphCheckpointWrite{}
-			}
-			tuples = append(tuples, &dbpkg.LangGraphCheckpointTuple{
-				Checkpoint: toCheckpoint(cp),
-				Writes:     dbWrites,
-			})
-		}
-		return nil
-	})
-	return tuples, err
-}
-
-func (c *postgresClient) DeleteCheckpoint(ctx context.Context, userID, threadID string) error {
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		if err := q.SoftDeleteCheckpoints(ctx, dbgen.SoftDeleteCheckpointsParams{UserID: userID, ThreadID: threadID}); err != nil {
-			return fmt.Errorf("failed to delete checkpoints: %w", err)
-		}
-		if err := q.SoftDeleteCheckpointWrites(ctx, dbgen.SoftDeleteCheckpointWritesParams{UserID: userID, ThreadID: threadID}); err != nil {
-			return fmt.Errorf("failed to delete checkpoint writes: %w", err)
-		}
-		return nil
-	})
-}
-
-// ── CrewAI ────────────────────────────────────────────────────────────────────
-
-func (c *postgresClient) StoreCrewAIMemory(ctx context.Context, memory *dbpkg.CrewAIAgentMemory) error {
-	return c.q.UpsertCrewAIMemory(ctx, dbgen.UpsertCrewAIMemoryParams{
-		UserID:     memory.UserID,
-		ThreadID:   memory.ThreadID,
-		MemoryData: memory.MemoryData,
-	})
-}
-
-func (c *postgresClient) SearchCrewAIMemoryByTask(ctx context.Context, userID, threadID, taskDescription string, limit int) ([]*dbpkg.CrewAIAgentMemory, error) {
-	pattern := "%" + taskDescription + "%"
-	var rows []dbgen.CrewaiAgentMemory
-	var err error
-
-	if limit > 0 {
-		rows, err = c.q.SearchCrewAIMemoryByTaskLimit(ctx, dbgen.SearchCrewAIMemoryByTaskLimitParams{
-			UserID: userID, ThreadID: threadID, MemoryData: pattern, Limit: int32(limit),
-		})
-	} else {
-		rows, err = c.q.SearchCrewAIMemoryByTask(ctx, dbgen.SearchCrewAIMemoryByTaskParams{
-			UserID: userID, ThreadID: threadID, MemoryData: pattern,
-		})
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to search CrewAI memory: %w", err)
-	}
-
-	result := make([]*dbpkg.CrewAIAgentMemory, len(rows))
-	for i, r := range rows {
-		result[i] = toCrewAIMemory(r)
-	}
-	return result, nil
-}
-
-func (c *postgresClient) ResetCrewAIMemory(ctx context.Context, userID, threadID string) error {
-	return c.q.HardDeleteCrewAIMemory(ctx, dbgen.HardDeleteCrewAIMemoryParams{UserID: userID, ThreadID: threadID})
-}
-
-func (c *postgresClient) StoreCrewAIFlowState(ctx context.Context, state *dbpkg.CrewAIFlowState) error {
-	return c.q.UpsertCrewAIFlowState(ctx, dbgen.UpsertCrewAIFlowStateParams{
-		UserID:     state.UserID,
-		ThreadID:   state.ThreadID,
-		MethodName: state.MethodName,
-		StateData:  state.StateData,
-	})
-}
-
-func (c *postgresClient) GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*dbpkg.CrewAIFlowState, error) {
-	row, err := c.q.GetLatestCrewAIFlowState(ctx, dbgen.GetLatestCrewAIFlowStateParams{UserID: userID, ThreadID: threadID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get CrewAI flow state: %w", err)
-	}
-	return toCrewAIFlowState(row), nil
 }
 
 // ── Agent Memory (vector search) ──────────────────────────────────────────────
@@ -1677,32 +1457,6 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
-func toAgent(r dbgen.Agent) *dbpkg.Agent {
-	return &dbpkg.Agent{
-		ID:           r.ID,
-		CreatedAt:    derefTime(r.CreatedAt),
-		UpdatedAt:    derefTime(r.UpdatedAt),
-		DeletedAt:    r.DeletedAt,
-		Type:         r.Type,
-		WorkloadType: v1alpha3.WorkloadMode(r.WorkloadType),
-		Config:       r.Config,
-	}
-}
-
-func toFeedback(r dbgen.Feedback) *dbpkg.Feedback {
-	return &dbpkg.Feedback{
-		ID:           r.ID,
-		CreatedAt:    r.CreatedAt,
-		UpdatedAt:    r.UpdatedAt,
-		DeletedAt:    r.DeletedAt,
-		UserID:       r.UserID,
-		MessageID:    r.MessageID,
-		IsPositive:   r.IsPositive,
-		FeedbackText: r.FeedbackText,
-		IssueType:    r.IssueType,
-	}
-}
-
 func toTool(r dbgen.Tool) *dbpkg.Tool {
 	return &dbpkg.Tool{
 		ID:          r.ID,
@@ -1727,40 +1481,6 @@ func toToolServer(r dbgen.Toolserver) *dbpkg.ToolServer {
 	}
 }
 
-func toCheckpoint(r dbgen.LgCheckpoint) *dbpkg.LangGraphCheckpoint {
-	return &dbpkg.LangGraphCheckpoint{
-		UserID:             r.UserID,
-		ThreadID:           r.ThreadID,
-		CheckpointNS:       r.CheckpointNs,
-		CheckpointID:       r.CheckpointID,
-		ParentCheckpointID: r.ParentCheckpointID,
-		CreatedAt:          derefTime(r.CreatedAt),
-		UpdatedAt:          derefTime(r.UpdatedAt),
-		DeletedAt:          r.DeletedAt,
-		Metadata:           r.Metadata,
-		Checkpoint:         r.Checkpoint,
-		CheckpointType:     r.CheckpointType,
-		Version:            r.Version,
-	}
-}
-
-func toCheckpointWrite(r dbgen.LgCheckpointWrite) *dbpkg.LangGraphCheckpointWrite {
-	return &dbpkg.LangGraphCheckpointWrite{
-		UserID:       r.UserID,
-		ThreadID:     r.ThreadID,
-		CheckpointNS: r.CheckpointNs,
-		CheckpointID: r.CheckpointID,
-		WriteIdx:     r.WriteIdx,
-		Value:        r.Value,
-		ValueType:    r.ValueType,
-		Channel:      r.Channel,
-		TaskID:       r.TaskID,
-		CreatedAt:    derefTime(r.CreatedAt),
-		UpdatedAt:    derefTime(r.UpdatedAt),
-		DeletedAt:    r.DeletedAt,
-	}
-}
-
 func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentInstanceCheckpoint {
 	return &dbpkg.AgentInstanceCheckpoint{
 		ID: row.ID, Namespace: row.Namespace, SourceInstanceID: row.SourceInstanceID,
@@ -1769,29 +1489,6 @@ func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentIn
 		SnapshotAtespace: row.SnapshotAtespace, SnapshotName: row.SnapshotName, SnapshotUID: row.SnapshotUid,
 		SnapshotContentScope: row.SnapshotContentScope, PreparedRevision: derefStr(row.PreparedRevision),
 		TagUID: row.TagUid, State: row.State, Failure: row.Failure, CreatedAt: row.CreatedAt,
-	}
-}
-
-func toCrewAIMemory(r dbgen.CrewaiAgentMemory) *dbpkg.CrewAIAgentMemory {
-	return &dbpkg.CrewAIAgentMemory{
-		UserID:     r.UserID,
-		ThreadID:   r.ThreadID,
-		CreatedAt:  derefTime(r.CreatedAt),
-		UpdatedAt:  derefTime(r.UpdatedAt),
-		DeletedAt:  r.DeletedAt,
-		MemoryData: r.MemoryData,
-	}
-}
-
-func toCrewAIFlowState(r dbgen.CrewaiFlowState) *dbpkg.CrewAIFlowState {
-	return &dbpkg.CrewAIFlowState{
-		UserID:     r.UserID,
-		ThreadID:   r.ThreadID,
-		MethodName: r.MethodName,
-		CreatedAt:  derefTime(r.CreatedAt),
-		UpdatedAt:  derefTime(r.UpdatedAt),
-		DeletedAt:  r.DeletedAt,
-		StateData:  r.StateData,
 	}
 }
 

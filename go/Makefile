@@ -128,7 +128,7 @@ build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 cor
 
 .PHONY: run
 run: fmt vet ## Run a controller from your host.
-	go run ./core/cmd/controller-v2/main.go
+	go run ./core/cmd/controller/main.go
 
 .PHONY: test
 test: ## Run all unit tests.

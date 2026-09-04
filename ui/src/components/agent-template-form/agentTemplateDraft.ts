@@ -9,9 +9,8 @@
  * strict CEL pattern — that authoring them is its own piece of work.
  *
  * Building an update out of the fields a form displays silently drops the rest. That
- * has already happened in this repository once, on the agent form, and the fix there
- * (`agentUpdatePayload`) is the same one taken here: `specFromDraft` merges into the
- * spec it was given rather than constructing a fresh one, so a template carrying
+ * has already happened in this repository once. `specFromDraft` therefore merges
+ * into the spec it was given rather than constructing a fresh one, so a template carrying
  * skills survives an edit that never mentioned them.
  *
  * `agentTemplateDraft.test.ts` pins that, because it is invisible on screen — the

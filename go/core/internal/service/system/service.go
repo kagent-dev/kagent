@@ -9,10 +9,11 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,11 +34,16 @@ type ATEClient interface {
 	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
 }
 
+type runtimeRevisionStore interface {
+	ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error)
+}
+
 type Service struct {
 	kubeClient         client.Client
 	observedNamespaces []string
 	authorizer         auth.Authorizer
 	ateClient          ATEClient
+	revisions          runtimeRevisionStore
 }
 
 type Option func(*Service)
@@ -123,6 +129,12 @@ func WithInventory(
 	}
 }
 
+func WithRuntimeRevisions(revisions runtimeRevisionStore) Option {
+	return func(service *Service) {
+		service.revisions = revisions
+	}
+}
+
 func (s *Service) GetVersion() Version {
 	info := version.Get()
 	return Version{
@@ -182,7 +194,7 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 }
 
 func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace string) (SubstrateStatus, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Agent"}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return SubstrateStatus{}, err
 	}
 
@@ -208,6 +220,9 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 	}
 	if s.kubeClient == nil {
 		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("kubernetes client is not configured"))
+	}
+	if s.revisions == nil {
+		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", fmt.Errorf("runtime revision store is not configured"))
 	}
 
 	namespaces := s.substrateNamespaces(requestedNamespace)
@@ -337,6 +352,15 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	type templateKey struct{ atespace, name, uid string }
+	harnesses := make(map[templateKey]string, len(harnessesFromDB))
+	for _, template := range harnessesFromDB {
+		harnesses[templateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
+	}
 	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
 	for _, template := range templatesFromAPI {
 		if template == nil || !allowedAtespace(template.GetMetadata().GetAtespace(), allowAll, allowed) {
@@ -349,13 +373,17 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		} else if golden.GetGoldenSnapshot() != nil {
 			phase = "Ready"
 		}
+		metadata := template.GetMetadata()
 		templates = append(templates, SubstrateActorTemplate{
-			Namespace:      template.GetMetadata().GetAtespace(),
-			Name:           template.GetMetadata().GetName(),
-			Phase:          phase,
-			GoldenSnapshot: objectRefString(golden.GetGoldenSnapshot()),
-			SandboxClass:   template.GetSandboxConfig().GetSandboxClass().String(),
-			WorkerSelector: labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
+			Namespace:       metadata.GetAtespace(),
+			Name:            metadata.GetName(),
+			Phase:           phase,
+			GoldenActorID:   metadata.GetUid(),
+			GoldenSnapshot:  golden.GetGoldenSnapshot().GetName(),
+			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
+			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
+			HarnessName:     harnesses[templateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
+			ManagedByKagent: true,
 		})
 	}
 
@@ -394,13 +422,6 @@ func allowedAtespace(atespace string, allowAll bool, allowed map[string]struct{}
 	return ok
 }
 
-func objectRefString(ref *ateapipb.ObjectRef) string {
-	if ref == nil {
-		return ""
-	}
-	return ref.GetAtespace() + "/" + ref.GetName()
-}
-
 func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 	assignment := actor.GetStatus().GetWorkerAssignment()
 	return SubstrateActor{
@@ -420,14 +441,10 @@ func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 }
 
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
-	assignment := worker.GetStatus().GetAssignment()
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  assignment.GetActorTemplateRef().GetAtespace(),
-		ActorTemplate:   assignment.GetActorTemplateRef().GetName(),
-		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
 	}

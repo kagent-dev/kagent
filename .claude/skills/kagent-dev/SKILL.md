@@ -79,10 +79,31 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 
 ## Database changes
 
-- Add paired migrations and sqlc queries.
-- Preserve transaction boundaries for idempotency, ownership, lifecycle fencing, and task ordering.
-- Use PostgreSQL constraints for invariants that can be enforced atomically.
-- Keep migrations schema-agnostic and safe for multiple controller replicas.
+- PostgreSQL migrations use Goose with embedded SQL files.
+- Add each migration as `NNNNNN_description.sql`.
+- Do not add legacy split files ending in `.up.sql` or `.down.sql`.
+- Include one `-- +goose Up` section and one `-- +goose Down` section.
+- Goose makes the Down section optional, but Kagent requires it for the database CLI.
+- Do not use `-- +goose NO TRANSACTION`.
+- Goose must commit each schema change and its migration record in one transaction.
+- Never change, rename, or delete a migration after it merges.
+- Fix an accepted migration with a new migration.
+- Keep migration SQL schema-agnostic.
+- Change only objects that the migration source owns.
+- Do not use existence guards for source-owned objects; a migration ledger mismatch must fail.
+- Use existence guards only for shared bootstrap resources such as PostgreSQL extensions.
+- Each migration source must use its own migration table and advisory lock.
+- Register dependent sources after the sources that they need.
+- Do not add automatic down migrations when a later source fails.
+- A restart must continue from each source's last committed version.
+- Allow non-destructive startup when the database is ahead of the binary for rolling compatibility.
+- The Goose cutover requires a fresh PostgreSQL database.
+- Do not add a golang-migrate bridge for the cutover.
+- Keep `schema_migrations` for the core source.
+- Keep `vector_schema_migrations` for the vector source.
+- Run `make -C go sqlc-generate` after a migration change.
+- Test the Up and Down sections against PostgreSQL.
+- Use PostgreSQL constraints for invariants that the database can enforce atomically.
 
 ## Testing and CI
 

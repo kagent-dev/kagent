@@ -19,50 +19,26 @@ var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an acti
 
 var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
 
-type LangGraphCheckpointTuple struct {
-	Checkpoint *LangGraphCheckpoint
-	Writes     []*LangGraphCheckpointWrite
-}
-
 type Client interface {
 	// Store methods
-	StoreFeedback(ctx context.Context, feedback *Feedback) error
-	StoreAgent(ctx context.Context, agent *Agent) error
 	StoreToolServer(ctx context.Context, toolServer *ToolServer) (*ToolServer, error)
 
 	// Delete methods
-	DeleteAgent(ctx context.Context, agentID string) error
 	DeleteToolServer(ctx context.Context, serverName string, groupKind string) error
 	DeleteToolsForServer(ctx context.Context, serverName string, groupKind string) error
 
 	// Get methods
 
-	GetAgent(ctx context.Context, name string) (*Agent, error)
 	GetTool(ctx context.Context, name string) (*Tool, error)
 	GetToolServer(ctx context.Context, name string) (*ToolServer, error)
 
 	// List methods
 	ListTools(ctx context.Context) ([]Tool, error)
-	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListAgents(ctx context.Context) ([]Agent, error)
 	ListToolServers(ctx context.Context) ([]ToolServer, error)
 	ListToolsForServer(ctx context.Context, serverName string, groupKind string) ([]Tool, error)
 
 	// Helper methods
 	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha3.MCPTool) error
-
-	// LangGraph Checkpoint methods
-	StoreCheckpoint(ctx context.Context, checkpoint *LangGraphCheckpoint) error
-	StoreCheckpointWrites(ctx context.Context, writes []*LangGraphCheckpointWrite) error
-	ListCheckpoints(ctx context.Context, userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*LangGraphCheckpointTuple, error)
-	DeleteCheckpoint(ctx context.Context, userID, threadID string) error
-
-	// CrewAI methods
-	StoreCrewAIMemory(ctx context.Context, memory *CrewAIAgentMemory) error
-	SearchCrewAIMemoryByTask(ctx context.Context, userID, threadID, taskDescription string, limit int) ([]*CrewAIAgentMemory, error)
-	ResetCrewAIMemory(ctx context.Context, userID, threadID string) error
-	StoreCrewAIFlowState(ctx context.Context, state *CrewAIFlowState) error
-	GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*CrewAIFlowState, error)
 
 	// Agent memory (vector search) methods
 	StoreAgentMemory(ctx context.Context, memory *Memory) error
@@ -76,6 +52,7 @@ type Client interface {
 	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error
 	UpsertRuntimeRevision(context.Context, RuntimeRevision) error
 	GetRuntimeRevision(context.Context, string) (*RuntimeRevision, error)
+	ListActorTemplateHarnesses(context.Context) ([]ActorTemplateHarness, error)
 	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateHarnessPair) error
 	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error

@@ -29,8 +29,6 @@ go/
 ├── Dockerfile            # Shared multi-stage Docker build
 │
 ├── api/                  # Shared types module
-│   ├── v1alpha1/         # Legacy CRD types
-│   ├── v1alpha2/         # Compatibility CRD types
 │   ├── v1alpha3/         # Current CRD types
 │   ├── adk/              # ADK config & model types
 │   ├── database/         # database model structs & Client interface
@@ -55,7 +53,8 @@ go/
 └── harness/              # Native Harness Actor runtimes
     ├── claude/           # Claude Code adapter and image
     ├── codex/            # Codex App Server adapter and image
-    └── runtime/          # Shared A2A, continuation, and OS utilities
+    ├── runtime/          # Public event, A2A executor, and continuation APIs
+    └── internal/utils/  # Private OS utilities
 ```
 
 ## Building
@@ -109,7 +108,7 @@ The workspace uses a single `Dockerfile` parameterized with `BUILD_PACKAGE`:
 
 ```bash
 # Build controller image (default)
-docker build --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go -t controller .
+docker build --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t controller .
 
 # Build Go ADK image
 docker build --build-arg BUILD_PACKAGE=adk/cmd/main.go -t golang-adk .

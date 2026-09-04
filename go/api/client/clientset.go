@@ -4,19 +4,9 @@ package client
 type ClientSet struct {
 	baseClient *BaseClient
 
-	Health              Health
-	Version             Version
-	ModelConfig         ModelConfigInterface
-	Session             Session
-	Agent               Agent
-	Tool                Tool
-	ToolServer          ToolServer
-	ModelProviderConfig ModelProviderConfig
-	Model               Model
-	Namespace           Namespace
-	Feedback            Feedback
-	AgentInstance       *AgentInstanceClient
-	A2A                 *A2AClient
+	Version       Version
+	AgentInstance *AgentInstanceClient
+	A2A           *A2AClient
 }
 
 // New creates a new KAgent client set
@@ -24,20 +14,10 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 	baseClient := NewBaseClient(baseURL, options...)
 
 	return &ClientSet{
-		baseClient:          baseClient,
-		Health:              NewHealthClient(baseClient),
-		Version:             NewVersionClient(baseClient),
-		ModelConfig:         NewModelConfigClient(baseClient),
-		Session:             NewSessionClient(baseClient),
-		Agent:               NewAgentClient(baseClient),
-		Tool:                NewToolClient(baseClient),
-		ToolServer:          NewToolServerClient(baseClient),
-		ModelProviderConfig: NewModelProviderConfigClient(baseClient),
-		Model:               NewModelClient(baseClient),
-		Namespace:           NewNamespaceClient(baseClient),
-		Feedback:            NewFeedbackClient(baseClient),
-		AgentInstance:       NewAgentInstanceClient(baseClient),
-		A2A:                 NewA2AClient(baseClient),
+		baseClient:    baseClient,
+		Version:       NewVersionClient(baseClient),
+		AgentInstance: NewAgentInstanceClient(baseClient),
+		A2A:           NewA2AClient(baseClient),
 	}
 }
 

@@ -11,12 +11,6 @@
  * spec's creates cannot leak into the next one's list.
  */
 
-import type {
-  Agent,
-  AgentCreateRequest,
-  AgentKindName,
-  AgentResponse,
-} from "@/api/domain/agents";
 import type { ModelConfig, ModelConfigSpec } from "@/api/domain/models";
 import type { ToolServerResponse } from "@/api/domain/mcpServers";
 import type {
@@ -35,7 +29,6 @@ import {
   mockAgentInstances,
   mockAgentTemplates,
   mockHarnesses,
-  mockAgents,
   mockMcpServers,
   mockModels,
   mockPromptDetails,
@@ -44,7 +37,6 @@ import {
 
 /** What has been written during this browsing session. */
 const created = {
-  agents: [] as AgentResponse[],
   models: [] as ModelConfig[],
   mcpServers: [] as ToolServerResponse[],
   prompts: [] as PromptTemplateDetail[],
@@ -68,116 +60,6 @@ function dedupeByRef<T>(rows: readonly T[], refOf: (row: T) => string): T[] {
   const byRef = new Map<string, T>();
   for (const row of rows) byRef.set(refOf(row), row);
   return [...byRef.values()];
-}
-
-// ---------------------------------------------------------------------------
-// Agents
-// ---------------------------------------------------------------------------
-
-export const agentRef = (row: AgentResponse) =>
-  `${row.agent.metadata.namespace ?? ""}/${row.agent.metadata.name}`;
-
-/**
- * Every agent, deduped, so an edit to a *fixture* agent shadows it rather than
- * sitting beside it.
- *
- * Without the dedupe the list showed the same agent twice after a save and a read
- * answered with the original, because `find` returns the first match and the
- * fixtures come first — so the edit form reopened showing the values the user had
- * just replaced, and the feature looked broken when only the fixture was.
- */
-export function allAgents(): AgentResponse[] {
-  return dedupeByRef([...mockAgents, ...created.agents], agentRef).filter((row) =>
-    isLive(agentRef(row)),
-  );
-}
-
-/**
- * Records a create or an edit and answers with the row a list would now show.
- *
- * An edit to a seeded agent is recorded as an addition rather than by mutating the
- * fixture, which is what lets the list show the new values while the fixtures stay
- * constants.
- */
-export function saveAgent(row: AgentResponse): AgentResponse {
-  const ref = agentRef(row);
-  const at = created.agents.findIndex((existing) => agentRef(existing) === ref);
-  if (at === -1) created.agents.push(row);
-  else created.agents[at] = row;
-  // A resource written again after being deleted exists again, which is what the
-  // cluster would say too.
-  deleted.delete(ref);
-  return row;
-}
-
-/**
- * The row the controller would have reported for a freshly written agent.
- *
- * `model` and `modelProvider` are resolved from the referenced ModelConfig here
- * for the same reason the controller resolves them: they are not in the resource,
- * and a new row that left them blank would read differently from every other row
- * in the same list.
- */
-export function buildAgentResponse(
-  draft: AgentCreateRequest,
-  kind: AgentKindName,
-): AgentResponse {
-  const now = new Date().toISOString();
-
-  const agent: Agent = {
-    apiVersion: draft.apiVersion ?? "kagent.dev/v1alpha3",
-    kind: draft.kind ?? kind,
-    metadata: {
-      ...draft.metadata,
-      creationTimestamp: now,
-      resourceVersion: `${30_000 + created.agents.length}`,
-    },
-    spec: draft.spec,
-    status: {
-      observedGeneration: 1,
-      conditions: [
-        {
-          type: "Ready",
-          status: "True",
-          reason: "DeploymentReady",
-          lastTransitionTime: now,
-        },
-      ],
-    },
-  };
-
-  return {
-    id: `created-${created.agents.length + 1}`,
-    agent,
-    ...resolveModel(draft.spec.declarative?.modelConfig, draft.metadata.namespace),
-    modelConfigRef: draft.spec.declarative?.modelConfig ?? "",
-    tools: draft.spec.declarative?.tools ?? [],
-    memoryRefs: [],
-    deploymentReady: true,
-    accepted: true,
-    agentKind: kind,
-  };
-}
-
-/**
- * The model behind a `modelConfig` reference.
- *
- * The CRD stores it bare — "must be in the same namespace as the Agent" — while
- * the fixtures' own refs are namespaced, so the agent's namespace is what joins
- * the two. A ref that is already namespaced is taken as it stands.
- */
-function resolveModel(
-  ref: string | undefined,
-  namespace: string | undefined,
-): { model: string; modelProvider: string } {
-  if (!ref) return { model: "", modelProvider: "" };
-
-  const qualified = ref.includes("/") ? ref : `${namespace ?? ""}/${ref}`;
-  const config = allModels().find((candidate) => candidate.ref === qualified);
-  return {
-    model: config?.spec.model ?? "",
-    modelProvider: config?.spec.provider ?? "",
-  };
 }
 
 // ---------------------------------------------------------------------------

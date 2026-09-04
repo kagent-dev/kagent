@@ -2,10 +2,9 @@ import {
   apiBaseUrl,
   registerApiBaseUrlResolver,
   registerApiTransform,
-  registerEndpointOverride,
   registerOperationOverride,
 } from "@/api";
-import type { ApiCallId, EndpointId, OperationId } from "@/api";
+import type { ApiCallId, OperationId } from "@/api";
 import type { ExtensionApi } from "./extensionApi";
 import type { AppExtensionConfig } from "../types";
 
@@ -14,7 +13,7 @@ import type { AppExtensionConfig } from "../types";
  *
  * Order is what makes the result predictable when two extensions both have an
  * opinion, and the three registries the data layer keeps differ on purpose:
- * operation, endpoint and base-URL overrides are single-valued, so the last
+ * operation and base-URL overrides are single-valued, so the last
  * registration wins — the later extension in the array. Transforms are a list
  * applied in registration order, so they *compose*: two extensions each adding a
  * header both get their header, and the later one sees the earlier one's work.
@@ -70,11 +69,6 @@ export function installExtensionApi(
     );
   }
 
-  for (const [endpoint, path] of Object.entries(extension.endpoints ?? {})) {
-    if (typeof path !== "string") continue;
-    undo.push(registerEndpointOverride(endpoint as EndpointId, () => path));
-  }
-
   const { baseUrl } = extension;
   if (baseUrl !== undefined) {
     // Resolved per request rather than captured here. A root that can change while
@@ -86,8 +80,8 @@ export function installExtensionApi(
 
     // The gRPC transport is built around its base URL rather than given one per
     // call, so re-pointing it means telling the transport rather than rewriting a
-    // finished request. Both halves are registered because both protocols are in
-    // use: this one moves the RPCs, the transform below moves the HTTP endpoints.
+    // finished request. The transform below keeps the informational URL consistent
+    // for request hooks.
     undo.push(registerApiBaseUrlResolver(root));
 
     undo.push(
