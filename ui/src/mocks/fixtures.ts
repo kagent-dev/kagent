@@ -317,6 +317,16 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
     // with every status distinct, sorting by status then by id looks the same as
     // sorting by status alone.
     { actorId: "actor-3b55", status: "Running", version: 1 },
+    // Parked rather than broken, and the only status here that reads as neither:
+    // without it nothing on the page is drawn in the idle tone.
+    { actorId: "actor-5d17", status: "Paused", version: 1 },
+    // The controller's other unnamed state. `ACTOR_STATE_CRASHED` alone would pass a
+    // humaniser that special-cased that one word; two of them do not.
+    { actorId: "actor-2e40", status: "ACTOR_STATE_DELETING", version: 1 },
+    // A transition, and a word the page recognises by its shape rather than from a
+    // list — the same rule that has to carry `Suspending` and `Pausing`.
+    { actorId: "actor-8b91", status: "Resuming", version: 1 },
+    { actorId: "actor-c3f5", status: "Suspended", version: 3 },
   ],
   workers: [
     {

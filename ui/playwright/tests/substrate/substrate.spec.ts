@@ -20,7 +20,7 @@ import { expectSettled, loadPage, routes } from "../../helpers/app";
  *
  * The fixture is built for exactly this: `enabled: true` with an `ateApiError` set, two
  * worker pools across two namespaces, two templates — one Ready in `kagent`, one Pending in
- * `platform` — three actors and two workers, one of the workers holding nothing. The third
+ * `platform` — eight actors and two workers, one of the workers holding nothing. The crashed
  * actor sits last in the fixture and first once sorted, which is what makes the ordering
  * testable at all.
  */
@@ -42,9 +42,9 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // depending on how many there are. Both numbers, or the tile is not worth its space.
     await expect(page.getByTestId("substrate-stat-pools-value")).toHaveText("2");
     await expect(page.getByTestId("substrate-stat-templates-value")).toHaveText("1/2");
-    // Two running of four: one of the fixture's actors is crashed and another
-    // `Snapshotting`, which is exactly the case a bare count would hide.
-    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/4");
+    // Two running of eight: the rest are crashed, deleting, paused, resuming, suspended
+    // and snapshotting, which is exactly the case a bare count would hide.
+    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
     await expect(page.getByTestId("substrate-stat-ateapi-value")).toHaveText("connected");
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
@@ -92,9 +92,10 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(actors).toContainText("kagent/ateom-default-pool-0");
     await expect(actors).toContainText("10.42.1.19");
 
-    // A wire constant is read to the operator as a word, and coloured as the failure it
-    // is. `ACTOR_STATE_CRASHED` on screen is the controller's vocabulary leaking through.
-    await expect(actors).not.toContainText("ACTOR_STATE_CRASHED");
+    // Both wire constants are read to the operator as words — a humaniser that only knew
+    // `CRASHED` would leave the other one showing the controller's vocabulary.
+    await expect(actors).not.toContainText("ACTOR_STATE_");
+    await expect(actors).toContainText("Deleting");
     await expect(
       actors.locator("[data-tone]").filter({ hasText: "Crashed" }),
     ).toHaveAttribute("data-tone", "danger");
@@ -240,12 +241,20 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
 
   const actors = page.getByTestId("substrate-actors-table");
 
-  // Sorted by status, then by id. `Crashed` precedes `Running` precedes `Snapshotting`,
-  // and the fixture lists them in none of that order.
+  // Sorted by status, then by id, and the fixture lists them in none of that order.
   const ids = await actors.locator(".ant-table-row").evaluateAll((rows) =>
     rows.map((row) => row.querySelector(".ant-table-cell")?.textContent?.trim() ?? ""),
   );
-  expect(ids).toEqual(["actor-0aa1", "actor-3b55", "actor-7f21", "actor-9c03"]);
+  expect(ids).toEqual([
+    "actor-0aa1",
+    "actor-2e40",
+    "actor-5d17",
+    "actor-8b91",
+    "actor-3b55",
+    "actor-7f21",
+    "actor-9c03",
+    "actor-c3f5",
+  ]);
 
   // Windowed: antd renders rows into a virtual holder rather than a plain tbody, which
   // is what keeps a list of thousands off the page.
@@ -303,7 +312,7 @@ test("substrate: each list narrows on its own, and a match is found wherever it 
     // The count beside the heading is now the *matching* total, so the tile is what
     // keeps the cluster's own size on screen. A reader who searched and found one
     // actor must not conclude their cluster is running one.
-    await expect(page.getByTestId("substrate-stat-actors")).toContainText("/4");
+    await expect(page.getByTestId("substrate-stat-actors")).toContainText("/8");
   });
 
   await test.step("3. and only that card: the other lists are left alone", async () => {
@@ -379,7 +388,12 @@ test("substrate: the actor and worker tables offer no sort, and the inline ones 
       .getByTestId("substrate-actors-table")
       .locator(".ant-table-row")
       .evaluateAll((rows) =>
-        rows.map((row) => row.textContent?.match(/Crashed|Running|Snapshotting/)?.[0] ?? ""),
+        rows.map(
+          (row) =>
+            row.textContent?.match(
+              /Crashed|Deleting|Paused|Resuming|Running|Snapshotting|Suspended/,
+            )?.[0] ?? "",
+        ),
       );
     expect(statuses).toEqual([...statuses].sort());
   });

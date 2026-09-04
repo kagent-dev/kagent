@@ -121,18 +121,22 @@ function humanizeEnum(label: string): string {
  * `neutral` and is shown as it arrived — inventing a colour for a word this page has
  * never seen would be a claim about health nobody made.
  */
-type StatusTone = "healthy" | "danger" | "progress" | "idle" | "neutral";
+type StatusTone = "healthy" | "danger" | "warning" | "progress" | "idle" | "neutral";
 
 function statusTone(label: string): StatusTone {
   const value = humanizeEnum(label).trim().toLowerCase();
   if (value === "ready" || value === "running") return "healthy";
   // A crashed or failed actor is not a caution, it is the thing that went wrong.
   if (value === "failed" || value === "crashed") return "danger";
+  // Deletion is in flight like the transitions below and is checked before them, because
+  // it is the one that does not come back: an actor that reads the same shade as one
+  // taking a snapshot is an actor nobody looks at twice.
+  if (value.includes("delet")) return "warning";
   if (value === "suspended" || value === "paused" || value === "unknown" || value === "") {
     return "idle";
   }
   // Shapes rather than words, because these arrive spelled several ways: `Resuming`,
-  // `Deleting`, `WaitingForWorker`, `GoldenSnapshotPending`. All of them mean the same
+  // `Suspending`, `WaitingForWorker`, `GoldenSnapshotPending`. All of them mean the same
   // thing to a reader — something is under way and the next read will say otherwise.
   if (value.endsWith("ing") || value.includes("wait") || value.includes("golden")) {
     return "progress";
@@ -163,6 +167,11 @@ function StatusChip({ label, count }: { label: string; count?: number }) {
       background: theme.color.dangerBg,
       borderColor: theme.color.dangerBorder,
       color: theme.color.dangerText,
+    },
+    warning: {
+      background: theme.color.warningBg,
+      borderColor: theme.color.warningBorder,
+      color: theme.color.warningText,
     },
     progress: {
       background: theme.color.infoBg,
