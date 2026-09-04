@@ -19,11 +19,6 @@ var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an acti
 
 var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
 
-type LangGraphCheckpointTuple struct {
-	Checkpoint *LangGraphCheckpoint
-	Writes     []*LangGraphCheckpointWrite
-}
-
 type Client interface {
 	// Store methods
 	StoreToolServer(ctx context.Context, toolServer *ToolServer) (*ToolServer, error)
@@ -44,19 +39,6 @@ type Client interface {
 
 	// Helper methods
 	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha3.MCPTool) error
-
-	// LangGraph Checkpoint methods
-	StoreCheckpoint(ctx context.Context, checkpoint *LangGraphCheckpoint) error
-	StoreCheckpointWrites(ctx context.Context, writes []*LangGraphCheckpointWrite) error
-	ListCheckpoints(ctx context.Context, userID, threadID, checkpointNS string, checkpointID *string, limit int) ([]*LangGraphCheckpointTuple, error)
-	DeleteCheckpoint(ctx context.Context, userID, threadID string) error
-
-	// CrewAI methods
-	StoreCrewAIMemory(ctx context.Context, memory *CrewAIAgentMemory) error
-	SearchCrewAIMemoryByTask(ctx context.Context, userID, threadID, taskDescription string, limit int) ([]*CrewAIAgentMemory, error)
-	ResetCrewAIMemory(ctx context.Context, userID, threadID string) error
-	StoreCrewAIFlowState(ctx context.Context, state *CrewAIFlowState) error
-	GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*CrewAIFlowState, error)
 
 	// Agent memory (vector search) methods
 	StoreAgentMemory(ctx context.Context, memory *Memory) error

@@ -1,1 +1,0 @@
-ALTER TABLE lg_checkpoint ALTER COLUMN version DROP NOT NULL;
