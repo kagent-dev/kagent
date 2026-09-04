@@ -12,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	a2alog "github.com/a2aproject/a2a-go/v2/log"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -28,6 +29,9 @@ type ContinuationStore interface {
 	Bind(continuationID string) error
 }
 
+// Executor maps one native Harness conversation onto private A2A execution.
+// Each Actor accepts only one active task so ordered native continuation and
+// cancellation semantics remain unambiguous.
 type Executor struct {
 	runner       Runner
 	continuation ContinuationStore
@@ -56,6 +60,7 @@ var (
 	errYieldStopped = errors.New("A2A event consumer stopped")
 )
 
+// New constructs the shared executor used by native Harness implementations.
 func New(runner Runner, continuation ContinuationStore) (*Executor, error) {
 	if runner == nil || continuation == nil {
 		return nil, fmt.Errorf("runner and continuation store are required")
@@ -63,6 +68,7 @@ func New(runner Runner, continuation ContinuationStore) (*Executor, error) {
 	return &Executor{runner: runner, continuation: continuation}, nil
 }
 
+// Execute validates and serializes one A2A request onto the native Runner.
 func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		prompt, err := validateRequest(reqCtx)
@@ -106,6 +112,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		if runErr != nil {
+			a2alog.Error(ctx, "Harness runtime execution failed", runErr)
 			finish()
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
@@ -232,6 +239,7 @@ func taskMessage(reqCtx *a2asrv.ExecutorContext, text string) *a2atype.Message {
 	return message
 }
 
+// Cancel stops the matching active task and waits for its Runner to exit.
 func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		if reqCtx == nil || reqCtx.TaskID == "" || reqCtx.ContextID == "" {

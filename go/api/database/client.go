@@ -26,25 +26,19 @@ type LangGraphCheckpointTuple struct {
 
 type Client interface {
 	// Store methods
-	StoreFeedback(ctx context.Context, feedback *Feedback) error
-	StoreAgent(ctx context.Context, agent *Agent) error
 	StoreToolServer(ctx context.Context, toolServer *ToolServer) (*ToolServer, error)
 
 	// Delete methods
-	DeleteAgent(ctx context.Context, agentID string) error
 	DeleteToolServer(ctx context.Context, serverName string, groupKind string) error
 	DeleteToolsForServer(ctx context.Context, serverName string, groupKind string) error
 
 	// Get methods
 
-	GetAgent(ctx context.Context, name string) (*Agent, error)
 	GetTool(ctx context.Context, name string) (*Tool, error)
 	GetToolServer(ctx context.Context, name string) (*ToolServer, error)
 
 	// List methods
 	ListTools(ctx context.Context) ([]Tool, error)
-	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListAgents(ctx context.Context) ([]Agent, error)
 	ListToolServers(ctx context.Context) ([]ToolServer, error)
 	ListToolsForServer(ctx context.Context, serverName string, groupKind string) ([]Tool, error)
 
@@ -76,6 +70,7 @@ type Client interface {
 	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error
 	UpsertRuntimeRevision(context.Context, RuntimeRevision) error
 	GetRuntimeRevision(context.Context, string) (*RuntimeRevision, error)
+	ListActorTemplateHarnesses(context.Context) ([]ActorTemplateHarness, error)
 	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateHarnessPair) error
 	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error

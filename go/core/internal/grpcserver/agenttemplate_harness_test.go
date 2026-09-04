@@ -71,7 +71,7 @@ func testAgentTemplate(namespace, name, modelConfig string) *v1alpha3.AgentTempl
 	return &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: modelConfig},
+			ModelConfig: &corev1.LocalObjectReference{Name: modelConfig},
 			Description: "a template",
 		},
 	}
@@ -253,11 +253,10 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	// An AgentHarness payload must not be accepted here: the two kinds are
-	// distinct and the kind check is what keeps them from being confused.
+	// A payload for another kind must not be accepted here.
 	_, err = client.CreateHarness(ctx, &apiv1alpha1.CreateHarnessRequest{
 		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "wrong-kind"},
-		Resource: structured(t, &v1alpha3.AgentHarness{}, "AgentHarness"),
+		Resource: structured(t, map[string]any{}, "OtherHarness"),
 	})
 	assertCode(t, err, codes.InvalidArgument)
 

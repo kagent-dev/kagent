@@ -108,9 +108,8 @@ export {
   validateExtensionConfig,
 } from "./validateConfig";
 
-// The API-layer contract: the declarative shape an extension's endpoint overrides
-// and transforms take in its config, plus the installers that fold them into the
-// data layer's registry. Resolution itself belongs to src/api.
+// The API-layer contract: declarative operation overrides and transforms, plus
+// the installers that fold them into the data layer's registry.
 export {
   installExtensionApi,
   installExtensionApis,

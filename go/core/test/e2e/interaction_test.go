@@ -50,6 +50,7 @@ var interactionMocks embed.FS
 // TestAgentInstanceInteraction verifies the complete public interaction path:
 // gateway routing, Substrate Actor transport, Go ADK execution, and the model call.
 func TestAgentInstanceInteraction(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	_, _, task := fixture.send(t, "What is 2+2?")
 	if task.Status.State != a2atype.TaskStateCompleted {
@@ -64,7 +65,18 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	}
 }
 
+func TestOpaqueBYOAgentInteraction(t *testing.T) {
+	fixture := newInteractionFixtureForHarnessTemplate(t, interactionTarget(t), "byo-e2e", "byo-smoke")
+	for range 2 {
+		_, _, task := fixture.send(t, "hello")
+		if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "BYO agent response") {
+			t.Fatalf("BYO A2A task = %+v", task)
+		}
+	}
+}
+
 func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
 	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
 	_, _, waiting := fixture.send(t, "Which database should we use for storage?")
@@ -91,6 +103,7 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 }
 
 func TestAgentInstanceCheckpoint(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	_, _, task := fixture.send(t, "What is 2+2?")
 	created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
@@ -183,6 +196,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 }
 
 func TestMCPInteraction(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	mcpURL, mcpServer := startMCPMock(t)
 	template := createMCPInteractionTemplate(t, startMockLLM(t, "mocks/invoke_mcp_agent.json"), mcpURL)
@@ -199,7 +213,25 @@ func TestMCPInteraction(t *testing.T) {
 	t.Fatal("mock MCP server did not receive an add_numbers tool call")
 }
 
+func TestConfiguredBYOMCPInteraction(t *testing.T) {
+	target := interactionTarget(t)
+	mcpURL, mcpServer := startMCPMock(t)
+	template := createMCPInteractionTemplateForHarness(t, startMockLLM(t, "mocks/invoke_mcp_agent.json"), mcpURL, "byo-adk-e2e", "byo-adk")
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, "byo-adk-e2e", template)
+	_, _, task := fixture.send(t, "add 3 and 5")
+	if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "result is 8") {
+		t.Fatalf("BYO A2A task state = %s, text = %q", task.Status.State, taskText(task))
+	}
+	for _, request := range mcpServer.Requests() {
+		if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) {
+			return
+		}
+	}
+	t.Fatal("mock MCP server did not receive a tool call from configured BYO agent")
+}
+
 func TestSharedAgentInteraction(t *testing.T) {
+	t.Parallel()
 	fixture := newSharedInteractionFixture(t, interactionTarget(t))
 	_, _, task := fixture.send(t, "Ask the specialist")
 	if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "Answer from the shared specialist.") {
@@ -229,6 +261,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 }
 
 func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
+	t.Parallel()
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	message, request, task := fixture.send(t, "What is 2+2?")
 
@@ -289,6 +322,7 @@ func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
 }
 
 func TestAgentInstanceActiveTask(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL, started := startBlockingInteractionMock(t)
 	fixture := newInteractionFixture(t, target, modelURL)
@@ -682,7 +716,7 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},
@@ -692,6 +726,10 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 }
 
 func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string {
+	return createMCPInteractionTemplateForHarness(t, modelURL, mcpURL, "kagent", "kagent")
+}
+
+func createMCPInteractionTemplateForHarness(t *testing.T, modelURL, mcpURL, harnessName, runtimeLabel string) string {
 	t.Helper()
 	kube := interactionKubeClient(t)
 	model := createInteractionModel(t, kube, modelURL, nil)
@@ -714,19 +752,19 @@ func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string 
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "mcp-interaction-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
+			Labels: map[string]string{"kagent.dev/e2e-runtime": runtimeLabel, "kagent.dev/harness": harnessName},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: model.Name},
 			Description:  "MCP interaction E2E fixture",
 			SystemPrompt: "Use add_numbers to answer arithmetic questions.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 				Tools:  []string{"add_numbers"},
 			}}},
 		},
 	}
-	createAndWaitInteractionTemplate(t, kube, template)
+	createAndWaitInteractionTemplateForHarness(t, kube, template, harnessName)
 	return template.Name
 }
 
@@ -741,7 +779,7 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: childModel.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: childModel.Name},
 			Description:  "Shared specialist",
 			SystemPrompt: "Answer as the shared specialist.",
 		},
@@ -753,12 +791,12 @@ func createSharedInteractionTemplates(t *testing.T, modelURL string) (string, st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent", "kagent.dev/harness": "kagent"},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: rootModel.Name},
+			ModelConfig:  &corev1.LocalObjectReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
 				Name: "specialist", Description: "Handles specialist requests",
-				TemplateRef: v1alpha3.AgentTemplateLocalReference{Name: child.Name},
+				TemplateRef: corev1.LocalObjectReference{Name: child.Name},
 				Isolation:   v1alpha3.AgentToolIsolationShared,
 			}}},
 		},

@@ -15,6 +15,18 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
+func TestEmbeddingHTTPClientTLS(t *testing.T) {
+	insecure := true
+	client, err := embeddingHTTPClient(&adk.EmbeddingConfig{TLSInsecureSkipVerify: &insecure})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("transport TLS config = %#v", client.Transport)
+	}
+}
+
 func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-openai-key")
 

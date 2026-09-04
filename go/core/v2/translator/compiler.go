@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -15,7 +16,8 @@ import (
 // revision. It owns the v2 translation boundary rather than delegating to an
 // earlier API translator.
 type Compiler struct {
-	kube             Reader
+	ctx              krt.HandlerContext
+	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
 }
 
@@ -27,11 +29,13 @@ const (
 	HarnessTypeKagent HarnessType = "kagent"
 	HarnessTypeCodex  HarnessType = "codex"
 	HarnessTypeClaude HarnessType = "claude"
+	HarnessTypeBYO    HarnessType = "byo"
 )
 
-// HarnessCompiler converts resolved, harness-neutral inputs into one runtime revision.
+// HarnessCompiler converts resolved, harness-neutral inputs into one runtime
+// revision and its user-facing diagnostics.
 type HarnessCompiler interface {
-	Compile(context.Context, *HarnessInput) (*Revision, error)
+	Compile(context.Context, *HarnessInput) (*CompileResult, error)
 }
 
 // ResolvedTree is the validated AgentTemplate topology for one Harness.
@@ -61,11 +65,11 @@ type HarnessInput struct {
 
 // AgentInput contains resolved Kubernetes inputs for one agent.
 type AgentInput struct {
-	Template    *v1alpha3.AgentTemplate
-	ModelConfig *v1alpha3.ModelConfig
-	Instruction string
-	MCPTools    []ResolvedMCPTool
-	Shared      []AgentInputBinding
+	Template            *v1alpha3.AgentTemplate
+	ResolvedModelConfig *ResolvedModelConfig
+	Instruction         string
+	MCPTools            []ResolvedMCPTool
+	Shared              []AgentInputBinding
 }
 
 // ResolvedMCPTool pairs an exact tool allowlist with its resolved server.
@@ -82,13 +86,14 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the v2 runtime compiler.
-func NewCompiler(kube Reader, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
-	return &Compiler{kube: kube, harnessCompilers: maps.Clone(harnessCompilers)}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
-// revision. Nothing below this boundary needs to read the public API objects.
-func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Revision, error) {
+// revision and user-facing diagnostics. Nothing below this boundary needs to
+// read the public API objects.
+func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -112,6 +117,8 @@ func harnessType(harness *v1alpha3.Harness) HarnessType {
 		return HarnessTypeCodex
 	case harness.Spec.Claude != nil:
 		return HarnessTypeClaude
+	case harness.Spec.BYO != nil:
+		return HarnessTypeBYO
 	default:
 		return ""
 	}
@@ -153,12 +160,12 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 				return nil, NewValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)
 			}
 			names[binding.Name] = struct{}{}
-			childTemplate := &v1alpha3.AgentTemplate{}
 			key := types.NamespacedName{Namespace: template.Namespace, Name: binding.TemplateRef.Name}
-			if err := c.kube.Get(ctx, key, childTemplate); err != nil {
-				return nil, fmt.Errorf("resolve AgentTemplate %q: %w", binding.TemplateRef.Name, err)
+			childTemplate := krt.FetchOne(c.ctx, c.collections.AgentTemplates, krt.FilterObjectName(key))
+			if childTemplate == nil {
+				return nil, fmt.Errorf("resolve AgentTemplate %q: not found", binding.TemplateRef.Name)
 			}
-			agent, err := resolve(childTemplate, true)
+			agent, err := resolve(*childTemplate, true)
 			if err != nil {
 				return nil, err
 			}
@@ -192,15 +199,23 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 	var build func(*ResolvedAgent) (*AgentInput, error)
 	build = func(agent *ResolvedAgent) (*AgentInput, error) {
 		template := agent.Template
-		model := &v1alpha3.ModelConfig{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, model); err != nil {
-			return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
-		}
 		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
 		if err != nil {
 			return nil, err
 		}
-		input := &AgentInput{Template: template, ModelConfig: model, Instruction: instruction}
+		input := &AgentInput{Template: template, Instruction: instruction}
+		if template.Spec.ModelConfig != nil {
+			input.ResolvedModelConfig = krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}))
+			if input.ResolvedModelConfig == nil {
+				return nil, fmt.Errorf("resolve ModelConfig %q: not found", template.Spec.ModelConfig.Name)
+			}
+			if failures := input.ResolvedModelConfig.SemanticFailures; len(failures) > 0 {
+				return nil, NewValidationError("ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
+			}
+			if failures := input.ResolvedModelConfig.ReferenceFailures; len(failures) > 0 {
+				return nil, fmt.Errorf("resolve ModelConfig %q: %s", template.Spec.ModelConfig.Name, failures[0].Message)
+			}
+		}
 		toolNames := make([]string, 0)
 		for _, tool := range template.Spec.Tools {
 			if tool.MCP == nil {
@@ -212,12 +227,12 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 			if tool.MCP.Server.Kind != "RemoteMCPServer" {
 				return nil, NewValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
 			}
-			server := &v1alpha3.RemoteMCPServer{}
 			key := types.NamespacedName{Namespace: template.Namespace, Name: tool.MCP.Server.Name}
-			if err := c.kube.Get(ctx, key, server); err != nil {
-				return nil, fmt.Errorf("resolve %s %q: %w", tool.MCP.Server.Kind, tool.MCP.Server.Name, err)
+			server := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(key))
+			if server == nil {
+				return nil, fmt.Errorf("resolve %s %q: not found", tool.MCP.Server.Kind, tool.MCP.Server.Name)
 			}
-			input.MCPTools = append(input.MCPTools, ResolvedMCPTool{Binding: *tool.MCP.DeepCopy(), Server: server})
+			input.MCPTools = append(input.MCPTools, ResolvedMCPTool{Binding: *tool.MCP.DeepCopy(), Server: *server})
 			toolNames = append(toolNames, tool.MCP.Tools...)
 		}
 		if template.Spec.PromptTemplate != nil {
@@ -225,7 +240,7 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 			for _, source := range template.Spec.PromptTemplate.DataSources {
 				refs = append(refs, promptSourceRef{Name: source.Name, Alias: source.Alias})
 			}
-			lookup, err := resolvePromptSourceRefs(ctx, c.kube, template.Namespace, refs)
+			lookup, err := resolvePromptSourceRefs(c.ctx, c.collections.ConfigMaps, template.Namespace, refs)
 			if err != nil {
 				return nil, fmt.Errorf("resolve prompt sources: %w", err)
 			}

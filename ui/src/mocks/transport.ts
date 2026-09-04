@@ -31,7 +31,7 @@
  * ## What it answers, and what it refuses
  *
  * A call is dispatched on `service.typeName/method.name`, so the table below reads
- * as the controller's own API surface — `kagent.api.v1alpha1.AgentService/ListAgents`
+ * as the controller's own API surface — `kagent.api.v1alpha1.ModelService/ListModelConfigs`
  * and so on. An RPC with no entry answers `Unimplemented` naming itself, and
  * `stream` throws for the same reason: nothing in this app streams over gRPC yet,
  * and a silently empty stream is a fixture that lies.
@@ -52,7 +52,7 @@
  * every registered request transform have already been applied by the time a call
  * arrives here, exactly as they are in production. That matters for one fake in
  * particular: a share link is spent by a transform putting `X-Share-Token` on the
- * call, and `GetSession` refuses a token it never issued. Applying the transforms
+ * call, and `GetAgentInstance` refuses a token it never issued. Applying the transforms
  * again here would be a second implementation of the same thing, and two
  * implementations drift — so the header is simply read from the call.
  *
@@ -75,11 +75,6 @@ import type {
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Transport, UnaryResponse } from "@connectrpc/connect";
-import {
-  AgentKind,
-  AgentService,
-  type AgentSchema,
-} from "@/generated/kagent/api/v1alpha1/agents_pb";
 import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
@@ -102,11 +97,6 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import type { AgentInstanceShare } from "@/api/domain/agentInstances";
-import type {
-  AgentCreateRequest,
-  AgentKindName,
-  AgentResponse,
-} from "@/api/domain/agents";
 import type { ModelConfig, ModelConfigSpec } from "@/api/domain/models";
 import type { PromptTemplateDetail } from "@/api/domain/prompts";
 import {
@@ -125,20 +115,16 @@ import {
 } from "./fixtures";
 import {
   agentInstanceRef,
-  agentRef,
   allAgentInstances,
   allAgentTemplates,
-  allAgents,
   allModels,
   allPromptDetails,
   allPromptSummaries,
   allToolServers,
-  buildAgentResponse,
   markDeleted,
   allHarnesses,
   saveHarness,
   promptRef,
-  saveAgent,
   saveAgentInstance,
   saveAgentTemplate,
   createInstanceShare,
@@ -368,135 +354,6 @@ const notFound = (what: string) =>
 // Agents
 // ---------------------------------------------------------------------------
 
-const ENUM_BY_KIND: Record<AgentKindName | "unknown", AgentKind> = {
-  SandboxAgent: AgentKind.SANDBOX_AGENT,
-  AgentHarness: AgentKind.AGENT_HARNESS,
-  unknown: AgentKind.UNSPECIFIED,
-};
-
-/**
- * One fixture row as the `Agent` message `ListAgents` answers with.
- *
- * The custom resource goes into `resource` untouched, keeping its own
- * `apiVersion` and `kind`: the fixture *is* the resource, and restating it as
- * something else here would make the mock disagree with the file that defines it.
- * The resolved fields beside it — model, readiness, the tool list — are the
- * controller's own denormalisation and have no equivalent inside the resource.
- */
-function agentMessage(row: AgentResponse): MessageInitShape<typeof AgentSchema> {
-  return {
-    ref: {
-      namespace: row.agent.metadata.namespace ?? "",
-      name: row.agent.metadata.name,
-    },
-    kind: ENUM_BY_KIND[row.agentKind],
-    resource: structured(
-      row.agent.kind ?? row.agentKind,
-      row.agent,
-      row.agent.apiVersion,
-    ),
-    id: String(row.id),
-    model: row.model,
-    modelProvider: row.modelProvider,
-    modelConfigRef: splitRef(row.modelConfigRef),
-    tools: row.tools.map((tool) => structured("Tool", tool)),
-    ready: row.deploymentReady,
-    accepted: row.accepted,
-    memoryRefs: row.memoryRefs,
-    agentHarness: row.agentHarness,
-  };
-}
-
-/**
- * The agent a single-resource read asked for.
- *
- * The kind is part of the match, not a detail of it. `GetSandboxAgent` must answer
- * `NotFound` for a harness, because that 404 is what `agents.get` falls back on
- * when it holds only a namespace and a name — a fake that served either kind from
- * either RPC would hide a real mismatch.
- */
-function agentFor(
-  ref: { namespace: string; name: string } | undefined,
-  kind: AgentKindName,
-  call: MockCall,
-): AgentResponse {
-  const wanted = refString(ref);
-  const found =
-    call.scenario === "empty"
-      ? undefined
-      : allAgents().find(
-          (row) => agentRef(row) === wanted && row.agentKind === kind,
-        );
-
-  if (!found) throw notFound(`${kind} ${wanted}`);
-  return found;
-}
-
-const agentDraft = (resource: { value?: JsonObject } | undefined) =>
-  valueOf<AgentCreateRequest>(resource, "agent resource");
-
-on(AgentService.method.listAgents, (input, call) => ({
-  agents:
-    call.scenario === "empty"
-      ? []
-      : allAgents()
-          .filter(
-            (row) =>
-              !input.namespace || row.agent.metadata.namespace === input.namespace,
-          )
-          .map(agentMessage),
-}));
-
-on(AgentService.method.getSandboxAgent, (input, call) => ({
-  agent: agentMessage(agentFor(input.ref, "SandboxAgent", call)),
-}));
-
-on(AgentService.method.getAgentHarness, (input, call) => ({
-  agent: agentMessage(agentFor(input.ref, "AgentHarness", call)),
-}));
-
-on(AgentService.method.createSandboxAgent, (input) => ({
-  agent: agentMessage(
-    saveAgent(buildAgentResponse(agentDraft(input.resource), "SandboxAgent")),
-  ),
-}));
-
-on(AgentService.method.createAgentHarness, (input) => ({
-  agent: agentMessage(
-    saveAgent(buildAgentResponse(agentDraft(input.resource), "AgentHarness")),
-  ),
-}));
-
-// `UpdateSandboxAgent` and nothing else: `agents.proto` has no UpdateAgentHarness,
-// so registering one here would let the app succeed against a fake at something the
-// controller cannot do.
-on(AgentService.method.updateSandboxAgent, (input) => ({
-  agent: agentMessage(
-    saveAgent(buildAgentResponse(agentDraft(input.resource), "SandboxAgent")),
-  ),
-}));
-
-on(AgentService.method.deleteSandboxAgent, (input) => {
-  markDeleted(refString(input.ref));
-  return {};
-});
-
-on(AgentService.method.deleteAgentHarness, (input) => {
-  markDeleted(refString(input.ref));
-  return {};
-});
-
-// ---------------------------------------------------------------------------
-// Model configurations
-// ---------------------------------------------------------------------------
-
-/**
- * A stored model configuration as the CR inside its envelope.
- *
- * The controller decodes the whole object and keeps only its `spec`, so the
- * metadata has to agree with the ref — which is also what makes the round trip
- * through a create readable back.
- */
 function modelMessage(model: ModelConfig) {
   const ref = splitRef(model.ref);
   return {
@@ -1515,7 +1372,6 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
       sandboxClass: template.sandboxClass ?? "",
       workerSelector: template.workerSelector ?? "",
       harnessName: template.harnessName ?? "",
-      managedByKagent: template.managedByKagent ?? false,
     })),
     actors: actors.map((actor) => ({
       actorId: actor.actorId,

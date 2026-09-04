@@ -4,6 +4,20 @@ The Claude Harness runs Claude Code as a native Kagent runtime. It compiles an
 `AgentTemplate` into Claude Code configuration, runs each turn in a Substrate
 Actor, and exposes the result through Kagent's A2A API.
 
+## Code structure
+
+The controller and Actor share only the versioned config contract. Kubernetes
+resolution stays in the controller; native process behavior stays in this
+harness.
+
+| Path | Look here for |
+| --- | --- |
+| [`../../core/v2/translator/claude`](../../core/v2/translator/claude) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision and warnings |
+| [`config/config.go`](config/config.go) | The versioned JSON contract shared by the compiler and runtime, including defaults and reserved environment variables |
+| [`cmd/main.go`](cmd/main.go) | Actor startup, environment inputs, Claude version validation, continuation-store wiring, and private A2A startup |
+| [`internal/adapter/adapter.go`](internal/adapter/adapter.go) | Materializing Claude home, skills, MCP config, and ephemeral provider credentials |
+| [`internal/driver`](internal/driver) | Claude CLI arguments, stream-JSON parsing, runtime-event translation, cancellation, and process supervision |
+
 ## Working
 
 - [x] Anthropic, Amazon Bedrock, and Vertex AI model providers
@@ -24,7 +38,7 @@ Actor, and exposes the result through Kagent's A2A API.
 - [ ] Skills, MCP tools, and nested subagents on local subagents
 - [ ] Configuring Claude Code permission mode and trust boundary in Harness CRD
 
-## Example Usage
+## Example usage
 
 ```yaml
 apiVersion: kagent.dev/v1alpha3
@@ -65,7 +79,7 @@ spec:
           kind: RemoteMCPServer
           name: kagent-tool-server
   plugins:
-    - source: 
+    - source:
         git:
           url: https://github.com/agentplugins/agent-plugins-example.git
           commit: 5f3f5084a821aefa792e79500dd8f0462ab83473

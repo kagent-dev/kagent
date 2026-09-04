@@ -12,11 +12,10 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
-
-const mcpCredentialPrefix = "KAGENT_CLAUDE_MCP_CREDENTIAL_"
 
 type mcpCompilation struct {
 	servers     map[string]claudeconfig.MCPServer
@@ -52,9 +51,12 @@ func (c *Compiler) compileMCP(
 		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
-		transport, err := claudeMCPTransport(server)
+		transport, compatibilityWarning, err := claudeMCPTransport(server)
 		if err != nil {
 			return mcpCompilation{}, err
+		}
+		if compatibilityWarning != "" {
+			result.warnings = append(result.warnings, compatibilityWarning)
 		}
 		hostname, err := mcpHostname(server.Spec.URL)
 		if err != nil {
@@ -112,23 +114,28 @@ func currentDiscoveredToolNames(server *v1alpha3.RemoteMCPServer) ([]string, boo
 	return names, true
 }
 
-func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, error) {
+func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, string, error) {
+	var ignored []string
 	if !server.Spec.TLS.IsEmpty() {
-		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q does not support custom TLS configuration", server.Name)
+		ignored = append(ignored, "custom TLS configuration")
 	}
 	if server.Spec.Timeout != nil && server.Spec.Timeout.Duration != 30*time.Second {
-		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q supports only the default 30s timeout", server.Name)
+		ignored = append(ignored, "timeout")
 	}
 	if server.Spec.TerminateOnClose != nil && !*server.Spec.TerminateOnClose {
-		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q requires terminateOnClose", server.Name)
+		ignored = append(ignored, "terminateOnClose")
+	}
+	var warning string
+	if len(ignored) != 0 {
+		warning = fmt.Sprintf("Claude RemoteMCPServer %q ignores unsupported fields %s", server.Name, strings.Join(ignored, ", "))
 	}
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
-		return "sse", nil
+		return "sse", warning, nil
 	case "", v1alpha3.RemoteMCPServerProtocolStreamableHttp:
-		return "http", nil
+		return "http", warning, nil
 	default:
-		return "", v2translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
+		return "", "", v2translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
 	}
 }
 
@@ -157,11 +164,12 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 		case ref.ValueFrom == nil:
 			headers[ref.Name] = ref.Value
 		case ref.ValueFrom.Type == v1alpha3.ConfigMapValueSource:
-			configMap := &corev1.ConfigMap{}
 			key := types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}
-			if err := c.kube.Get(ctx, key, configMap); err != nil {
-				return nil, nil, err
+			fetched := krt.FetchOne(c.ctx, c.collections.ConfigMaps, krt.FilterObjectName(key))
+			if fetched == nil {
+				return nil, nil, fmt.Errorf("ConfigMap %q not found", ref.ValueFrom.Name)
 			}
+			configMap := *fetched
 			value, exists := configMap.Data[ref.ValueFrom.Key]
 			if !exists {
 				return nil, nil, fmt.Errorf("ConfigMap %q does not contain key %q", configMap.Name, ref.ValueFrom.Key)
@@ -169,7 +177,7 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 			headers[ref.Name] = value
 		case ref.ValueFrom.Type == v1alpha3.SecretValueSource:
 			sum := sha256.Sum256([]byte(namespace + "\x00" + ref.ValueFrom.Name + "\x00" + ref.ValueFrom.Key))
-			name := mcpCredentialPrefix + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
+			name := claudeconfig.MCPCredentialEnvPrefix + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
 			headers[ref.Name] = "${" + name + "}"
 			environment = append(environment, secretEnvironment(name, ref.ValueFrom.Name, ref.ValueFrom.Key))
 		default:

@@ -53,6 +53,43 @@ func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (Runt
 	return i, err
 }
 
+const listActorTemplateHarnesses = `-- name: ListActorTemplateHarnesses :many
+SELECT actor_template_atespace, actor_template_name, actor_template_uid, harness_name
+FROM runtime_revision
+`
+
+type ListActorTemplateHarnessesRow struct {
+	ActorTemplateAtespace string
+	ActorTemplateName     string
+	ActorTemplateUid      string
+	HarnessName           string
+}
+
+func (q *Queries) ListActorTemplateHarnesses(ctx context.Context) ([]ListActorTemplateHarnessesRow, error) {
+	rows, err := q.db.Query(ctx, listActorTemplateHarnesses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActorTemplateHarnessesRow
+	for rows.Next() {
+		var i ListActorTemplateHarnessesRow
+		if err := rows.Scan(
+			&i.ActorTemplateAtespace,
+			&i.ActorTemplateName,
+			&i.ActorTemplateUid,
+			&i.HarnessName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnreferencedRuntimeRevisions = `-- name: ListUnreferencedRuntimeRevisions :many
 SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card FROM runtime_revision r
 WHERE NOT EXISTS (

@@ -54,6 +54,10 @@ WHERE namespace = sqlc.arg(namespace)
 -- name: GetRuntimeRevision :one
 SELECT * FROM runtime_revision WHERE revision = $1;
 
+-- name: ListActorTemplateHarnesses :many
+SELECT actor_template_atespace, actor_template_name, actor_template_uid, harness_name
+FROM runtime_revision;
+
 -- name: ListUnreferencedRuntimeRevisions :many
 SELECT * FROM runtime_revision r
 WHERE NOT EXISTS (

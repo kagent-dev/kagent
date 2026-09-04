@@ -120,6 +120,12 @@ const (
 	ModelTypeFoundry         = "foundry"
 )
 
+// Foundry API format values used by a Foundry model.
+const (
+	FoundryAPIFormatOpenAI    = "openai"
+	FoundryAPIFormatAnthropic = "anthropic"
+)
+
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
 	type Alias OpenAI
 
@@ -344,6 +350,9 @@ type Foundry struct {
 	Endpoint   string `json:"endpoint"`
 	Deployment string `json:"deployment"`
 	APIVersion string `json:"api_version"`
+	// APIFormat selects the API format: "openai" (default) or "anthropic"
+	// (Claude Messages API). Empty is treated as "openai".
+	APIFormat string `json:"api_format,omitempty"`
 }
 
 func (f *Foundry) MarshalJSON() ([]byte, error) {
@@ -455,10 +464,13 @@ type RemoteAgentConfig struct {
 // EmbeddingConfig is the embedding model config for memory tools.
 // JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
 type EmbeddingConfig struct {
-	Provider          string `json:"provider"`
-	Model             string `json:"model"`
-	BaseUrl           string `json:"base_url,omitempty"`
-	APIKeyPassthrough bool   `json:"api_key_passthrough,omitempty"`
+	Provider              string  `json:"provider"`
+	Model                 string  `json:"model"`
+	BaseUrl               string  `json:"base_url,omitempty"`
+	APIKeyPassthrough     bool    `json:"api_key_passthrough,omitempty"`
+	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
+	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas,omitempty"`
 	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
 	// populated for the providers that use the shared azureai client.
 	Endpoint   string `json:"endpoint,omitempty"`
@@ -468,14 +480,17 @@ type EmbeddingConfig struct {
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type              string `json:"type"`
-		Provider          string `json:"provider"`
-		Model             string `json:"model"`
-		BaseUrl           string `json:"base_url"`
-		APIKeyPassthrough bool   `json:"api_key_passthrough"`
-		Endpoint          string `json:"endpoint"`
-		Deployment        string `json:"deployment"`
-		APIVersion        string `json:"api_version"`
+		Type                  string  `json:"type"`
+		Provider              string  `json:"provider"`
+		Model                 string  `json:"model"`
+		BaseUrl               string  `json:"base_url"`
+		APIKeyPassthrough     bool    `json:"api_key_passthrough"`
+		TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify"`
+		TLSCACertPath         *string `json:"tls_ca_cert_path"`
+		TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas"`
+		Endpoint              string  `json:"endpoint"`
+		Deployment            string  `json:"deployment"`
+		APIVersion            string  `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -483,6 +498,9 @@ func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
 	e.APIKeyPassthrough = tmp.APIKeyPassthrough
+	e.TLSInsecureSkipVerify = tmp.TLSInsecureSkipVerify
+	e.TLSCACertPath = tmp.TLSCACertPath
+	e.TLSDisableSystemCAs = tmp.TLSDisableSystemCAs
 	e.Endpoint = tmp.Endpoint
 	e.Deployment = tmp.Deployment
 	e.APIVersion = tmp.APIVersion
@@ -501,39 +519,54 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		return nil
 	}
 	e := &EmbeddingConfig{Provider: m.GetType()}
+	copyTLS := func(base BaseModel) {
+		e.TLSInsecureSkipVerify = base.TLSInsecureSkipVerify
+		e.TLSCACertPath = base.TLSCACertPath
+		e.TLSDisableSystemCAs = base.TLSDisableSystemCAs
+	}
 	switch v := m.(type) {
 	case *OpenAI:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
 		e.APIKeyPassthrough = v.APIKeyPassthrough
+		copyTLS(v.BaseModel)
 	case *AzureOpenAI:
 		e.Model = v.Model
 		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
+		copyTLS(v.BaseModel)
 	case *Anthropic:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	case *GeminiVertexAI:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *GeminiAnthropic:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Ollama:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Gemini:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Bedrock:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	case *Foundry:
 		e.Model = v.Model
 		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
+		copyTLS(v.BaseModel)
 	default:
 		e.Model = ""
 	}

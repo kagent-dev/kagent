@@ -16,10 +16,45 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version                      = 3
-	PinnedClaudeVersion          = "2.1.217"
-	GoogleCredentialsJSONEnvName = "KAGENT_CLAUDE_GOOGLE_CREDENTIALS_JSON"
+	Version                             = 3
+	PinnedClaudeVersion                 = "2.1.217"
+	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
+	DisableUpdatesEnvName               = "DISABLE_UPDATES"
+	GoogleApplicationCredentialsEnvName = "GOOGLE_APPLICATION_CREDENTIALS"
+	GoogleCredentialsJSONEnvName        = "KAGENT_CLAUDE_GOOGLE_CREDENTIALS_JSON"
+	UseBedrockEnvName                   = "CLAUDE_CODE_USE_BEDROCK"
+	UseVertexEnvName                    = "CLAUDE_CODE_USE_VERTEX"
+	AWSRegionEnvName                    = "AWS_REGION"
+	AWSAccessKeyEnvName                 = "AWS_ACCESS_KEY_ID"
+	AWSSecretKeyEnvName                 = "AWS_SECRET_ACCESS_KEY"
+	AWSSessionTokenEnvName              = "AWS_SESSION_TOKEN"
+	AWSBedrockTokenEnvName              = "AWS_BEARER_TOKEN_BEDROCK"
+	AnthropicAPIKeyEnvName              = "ANTHROPIC_API_KEY"
+	AnthropicBaseURLEnvName             = "ANTHROPIC_BASE_URL"
+	VertexProjectEnvName                = "ANTHROPIC_VERTEX_PROJECT_ID"
+	VertexRegionEnvName                 = "CLOUD_ML_REGION"
+	SandboxEnvName                      = "IS_SANDBOX"
+	PreResponseTraceFlushEnvName        = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
+	MCPCredentialEnvPrefix              = "KAGENT_CLAUDE_MCP_CREDENTIAL_"
 )
+
+// OwnsEnvironment reports whether the compiler or adapter reserves name for
+// Claude runtime configuration. Harness authors cannot override these values.
+func OwnsEnvironment(name string) bool {
+	if strings.HasPrefix(name, MCPCredentialEnvPrefix) {
+		return true
+	}
+	switch name {
+	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, GoogleApplicationCredentialsEnvName,
+		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
+		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
+		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
+		SandboxEnvName, PreResponseTraceFlushEnvName:
+		return true
+	default:
+		return false
+	}
+}
 
 type Config struct {
 	Version               int                    `json:"version"`
