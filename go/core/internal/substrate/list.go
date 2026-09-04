@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
@@ -70,6 +71,10 @@ func (c *Client) ListActorTemplates(ctx context.Context, atespace string) ([]*at
 }
 
 // ActorStatusLabel returns a stable human-readable actor status.
+//
+// Never a wire constant, including for a state this build has not been taught: callers
+// sort on what we send and show what they sort, so `ACTOR_STATE_DELETING` would file
+// itself under A while reading as "Deleting" under a heading that says sorted by status.
 func ActorStatusLabel(status ateapipb.ActorState) string {
 	switch status {
 	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
@@ -87,6 +92,17 @@ func ActorStatusLabel(status ateapipb.ActorState) string {
 	case ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED:
 		return "Unknown"
 	default:
-		return status.String()
+		return humanizeState(status.String())
 	}
+}
+
+// humanizeState turns `ACTOR_STATE_DELETING` into `Deleting`. Protobuf names each value
+// after its own enum, and that prefix only repeats the column it is shown in.
+func humanizeState(name string) string {
+	words := strings.ToLower(strings.TrimPrefix(name, "ACTOR_STATE_"))
+	words = strings.ReplaceAll(words, "_", " ")
+	if words == "" {
+		return name
+	}
+	return strings.ToUpper(words[:1]) + words[1:]
 }
