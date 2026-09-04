@@ -31,14 +31,14 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"os"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"go.uber.org/zap"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/agent/workflowagents/parallelagent"
@@ -48,20 +48,21 @@ import (
 )
 
 func main() {
-	zapLogger, _ := zap.NewProduction()
-	defer func() { _ = zapLogger.Sync() }()
-	logger := zapr.NewLogger(zapLogger)
+	logger, _ := logging.New(os.Stderr, "info")
+	slog.SetDefault(logger)
 
 	modelName := os.Getenv("MODEL_NAME")
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}
 
-	llmModel, err := models.NewOpenAIModelWithLogger(&models.OpenAIConfig{
+	ctx := logging.IntoContext(context.Background(), logger)
+	llmModel, err := models.NewOpenAIModel(ctx, &models.OpenAIConfig{
 		Model: modelName,
-	}, logger)
+	})
 	if err != nil {
-		log.Fatalf("Failed to create LLM model: %v", err)
+		logger.Error("failed to create LLM model", "error", err)
+		os.Exit(1)
 	}
 
 	creativeWriter, err := llmagent.New(llmagent.Config{
@@ -73,7 +74,8 @@ func main() {
 		Model: llmModel,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create creative_writer agent: %v", err)
+		logger.Error("failed to create creative writer agent", "error", err)
+		os.Exit(1)
 	}
 
 	technicalWriter, err := llmagent.New(llmagent.Config{
@@ -85,7 +87,8 @@ func main() {
 		Model: llmModel,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create technical_writer agent: %v", err)
+		logger.Error("failed to create technical writer agent", "error", err)
+		os.Exit(1)
 	}
 
 	parallelAgent, err := parallelagent.New(parallelagent.Config{
@@ -96,7 +99,8 @@ func main() {
 		},
 	})
 	if err != nil {
-		log.Fatalf("Failed to create parallel agent: %v", err)
+		logger.Error("failed to create parallel agent", "error", err)
+		os.Exit(1)
 	}
 
 	runnerConfig := runner.Config{
@@ -141,10 +145,12 @@ func main() {
 		Agent:  parallelAgent,
 	}, executor)
 	if err != nil {
-		log.Fatalf("Failed to create app: %v", err)
+		logger.Error("failed to create app", "error", err)
+		os.Exit(1)
 	}
 
 	if err := kagentApp.Run(); err != nil {
-		log.Fatalf("Server error: %v", err)
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
 	}
 }

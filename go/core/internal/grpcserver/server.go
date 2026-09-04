@@ -24,6 +24,7 @@ import (
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -31,7 +32,6 @@ import (
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -185,8 +185,8 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 
-	log := ctrllog.FromContext(ctx).WithName("grpc-server")
-	log.Info("Starting gRPC server", "address", listener.Addr().String())
+	logger := logging.FromContext(ctx).With("component", "grpc_server")
+	logger.InfoContext(ctx, "starting gRPC server", "address", listener.Addr().String())
 	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	serveErr := make(chan error, 1)
@@ -202,7 +202,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("serve gRPC: %w", err)
 	case <-ctx.Done():
 		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-		log.Info("Shutting down gRPC server")
+		logger.InfoContext(ctx, "shutting down gRPC server")
 		s.gracefulStop(defaultShutdownTimeout)
 		if err := <-serveErr; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			return fmt.Errorf("serve gRPC during shutdown: %w", err)

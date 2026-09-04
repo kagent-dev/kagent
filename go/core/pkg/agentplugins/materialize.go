@@ -13,9 +13,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 )
 
 const (
@@ -439,28 +439,28 @@ func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 	if os.IsNotExist(err) {
 		return MCPConfig{}
 	}
-	log := logr.FromContextOrDiscard(ctx)
+	logger := logging.FromContext(ctx)
 	if err != nil {
-		log.Error(err, "Unable to read plugin MCP configuration", "pluginRoot", root)
+		logger.ErrorContext(ctx, "unable to read plugin MCP configuration", "error", err, "plugin_root", root)
 		return MCPConfig{}
 	}
 	var document mcpDocument
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&document); err != nil {
-		log.Error(err, "Invalid plugin MCP configuration", "pluginRoot", root)
+		logger.ErrorContext(ctx, "invalid plugin MCP configuration", "error", err, "plugin_root", root)
 		return MCPConfig{}
 	}
 	if document.Schema != mcpSchema {
-		log.Error(fmt.Errorf("unsupported MCP schema %q", document.Schema), "Invalid plugin MCP configuration", "pluginRoot", root)
+		logger.ErrorContext(ctx, "invalid plugin MCP configuration", "error", fmt.Errorf("unsupported MCP schema %q", document.Schema), "plugin_root", root)
 		return MCPConfig{}
 	}
 	if document.Servers == nil {
-		log.Error(fmt.Errorf("mcpServers is required"), "Invalid plugin MCP configuration", "pluginRoot", root)
+		logger.ErrorContext(ctx, "invalid plugin MCP configuration", "error", fmt.Errorf("mcpServers is required"), "plugin_root", root)
 		return MCPConfig{}
 	}
 	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
-		log.Error(err, "Unable to create plugin data directory", "pluginRoot", root)
+		logger.ErrorContext(ctx, "unable to create plugin data directory", "error", err, "plugin_root", root)
 		return MCPConfig{}
 	}
 	var result MCPConfig
@@ -473,7 +473,7 @@ func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 		rawServer := document.Servers[name]
 		server, err := parseMCPServer(rawServer, root, dataRoot)
 		if err != nil {
-			log.Error(err, "Ignoring invalid plugin MCP server", "pluginRoot", root, "server", name)
+			logger.ErrorContext(ctx, "ignoring invalid plugin MCP server", "error", err, "plugin_root", root, "server", name)
 			continue
 		}
 		switch server.Type {

@@ -29,10 +29,10 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
@@ -182,7 +182,7 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
 	}
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance", "namespace", namespace, "id", id)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance", "error", err, "namespace", namespace, "instance_id", id)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load AgentInstance")
 	}
 	return instance, nil
@@ -217,7 +217,7 @@ func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2
 		return nil, a2atype.ErrTaskNotFound
 	}
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance task", "task", req.ID)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance task", "error", err, "task_id", req.ID)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load task")
 	}
 	return shapeTask(task, req.HistoryLength, true), nil
@@ -247,7 +247,7 @@ func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) 
 	}
 	tasks, total, err := g.store.ListAgentInstanceTasks(ctx, instance.GetId(), afterID, req.Status, req.StatusTimestampAfter, pageSize+1)
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to list AgentInstance tasks", "instance", instance.GetId())
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list agent instance tasks", "error", err, "instance_id", instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to list tasks")
 	}
 	response := &a2atype.ListTasksResponse{Tasks: tasks, TotalSize: total, PageSize: pageSize}
@@ -274,12 +274,12 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 		return nil, a2atype.ErrTaskNotFound
 	}
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance task", "task", req.ID)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance task", "error", err, "task_id", req.ID)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load task")
 	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to connect to agent instance runtime", "error", err, "instance_id", instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
 	release := g.coordinator.RuntimeCall(instance.GetId())
@@ -306,7 +306,7 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 	client, err := g.dialer.Dial(ctx, attempt.instance)
 	if err != nil {
 		g.failAttempt(ctx, attempt)
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", attempt.instance.GetId())
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to connect to agent instance runtime", "error", err, "instance_id", attempt.instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
 	defer client.Destroy()
@@ -339,7 +339,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 		return errorEvents(a2atype.ErrTaskNotFound)
 	}
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance task", "task", req.ID)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance task", "error", err, "task_id", req.ID)
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to load task"))
 	}
 	if isQuiescent(task.Status.State) {
@@ -350,7 +350,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to connect to agent instance runtime", "error", err, "instance_id", instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
 	run, reader, err := g.startTaskRun(ctx, instance, task, nil, client, client.SubscribeToTask(context.WithoutCancel(ctx), req))
@@ -375,7 +375,7 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 	client, err := g.dialer.Dial(ctx, attempt.instance)
 	if err != nil {
 		g.failAttempt(ctx, attempt)
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", attempt.instance.GetId())
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to connect to agent instance runtime", "error", err, "instance_id", attempt.instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
 	run, reader, err := g.startTaskRun(ctx, attempt.instance, attempt.task, attempt.previous, client, client.SendStreamingMessage(context.WithoutCancel(ctx), req))
@@ -410,12 +410,12 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 	}
 	revision, err := g.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance runtime revision", "revision", instance.GetPreparedRevision())
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance runtime revision", "error", err, "revision", instance.GetPreparedRevision())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Agent Card")
 	}
 	card := &a2atype.AgentCard{}
 	if err := json.Unmarshal(revision.AgentCard, card); err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to decode AgentInstance Agent Card", "revision", revision.Revision)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to decode agent instance agent card", "error", err, "revision", revision.Revision)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Agent Card")
 	}
 
@@ -550,7 +550,7 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to reconcile active AgentInstance task", "task", active.ID)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to reconcile active agent instance task", "error", err, "task_id", active.ID)
 		return dbpkg.ErrAgentInstanceTaskConflict
 	}
 	defer client.Destroy()
@@ -564,7 +564,7 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 				return dbpkg.ErrAgentInstanceTaskConflict
 			}
 			if err := validateTaskInfo(latest, active); err != nil {
-				ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task", "task", active.ID)
+				logging.FromContext(ctx).ErrorContext(ctx, "runtime returned invalid active task", "error", err, "task_id", active.ID)
 				return dbpkg.ErrAgentInstanceTaskConflict
 			}
 			if isQuiescent(latest.Status.State) {
@@ -573,14 +573,14 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 			return g.interruptTask(ctx, instance.GetId(), active.ID)
 		}
 		if eventErr != nil {
-			ctrllog.FromContext(ctx).Error(eventErr, "failed to query active runtime execution", "task", active.ID)
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to query active runtime execution", "error", eventErr, "task_id", active.ID)
 			return dbpkg.ErrAgentInstanceTaskConflict
 		}
 		if event == nil {
 			return dbpkg.ErrAgentInstanceTaskConflict
 		}
 		if err := validateTaskInfo(event, active); err != nil {
-			ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task event", "task", active.ID)
+			logging.FromContext(ctx).ErrorContext(ctx, "runtime returned invalid active task event", "error", err, "task_id", active.ID)
 			return dbpkg.ErrAgentInstanceTaskConflict
 		}
 		return dbpkg.ErrAgentInstanceTaskConflict
@@ -725,7 +725,7 @@ func (g *Gateway) failTask(ctx context.Context, instanceID string, task *a2atype
 	failed := *task
 	failed.Status = a2atype.TaskStatus{State: a2atype.TaskStateFailed, Timestamp: &now}
 	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instanceID, &failed, &failed, nil); err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to record failed AgentInstance task", "task", task.ID)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to record failed agent instance task", "error", err, "task_id", task.ID)
 	}
 }
 
@@ -735,7 +735,7 @@ func (g *Gateway) failAttempt(ctx context.Context, attempt *preparedSend) {
 		return
 	}
 	if err := g.store.StoreAgentInstanceTaskEvent(ctx, attempt.instance.GetId(), attempt.previous, attempt.previous, nil); err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to restore task awaiting input", "task", attempt.task.ID)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to restore task awaiting input", "error", err, "task_id", attempt.task.ID)
 	}
 }
 
@@ -746,7 +746,7 @@ func (g *Gateway) storeError(ctx context.Context, err error) error {
 	if errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
 		return a2atype.NewError(a2atype.ErrUnsupportedOperation, "AgentInstance already has an active task")
 	}
-	ctrllog.FromContext(ctx).Error(err, "failed to persist AgentInstance task")
+	logging.FromContext(ctx).ErrorContext(ctx, "failed to persist agent instance task", "error", err)
 	return a2atype.NewError(a2atype.ErrInternalError, "failed to persist task")
 }
 

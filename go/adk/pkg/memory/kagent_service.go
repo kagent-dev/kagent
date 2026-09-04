@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	"google.golang.org/adk/v2/memory"
 	adkmodel "google.golang.org/adk/v2/model"
 	adksession "google.golang.org/adk/v2/session"
@@ -74,13 +74,13 @@ func New(cfg Config) (*KagentMemoryService, error) {
 // It extracts content from the session, optionally summarizes it, generates embeddings,
 // and stores it via the Kagent API.
 func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session adksession.Session) error {
-	log := logr.FromContextOrDiscard(ctx)
-	log.V(1).Info("Adding session to memory", "sessionID", session.ID(), "userID", session.UserID())
+	log := logging.FromContext(ctx)
+	log.DebugContext(ctx, "adding session to memory", "session_id", session.ID(), "user_id", session.UserID())
 
 	// Extract text content from session events
 	rawContent := s.extractSessionContent(session)
 	if rawContent == "" {
-		log.V(1).Info("No content to add to memory", "sessionID", session.ID())
+		log.DebugContext(ctx, "no content to add to memory", "session_id", session.ID())
 		return nil
 	}
 
@@ -89,10 +89,10 @@ func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session ad
 	if s.model != nil {
 		summarized, err := s.summarizeContent(ctx, rawContent)
 		if err != nil {
-			log.V(1).Info("Summarization failed, using raw content", "error", err)
+			log.DebugContext(ctx, "summarization failed, using raw content", "error", err)
 		} else if len(summarized) > 0 {
 			contents = summarized
-			log.V(1).Info("Summarized content", "items", len(contents))
+			log.DebugContext(ctx, "summarized content", "items", len(contents))
 		}
 	}
 
@@ -113,7 +113,7 @@ func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session ad
 		}
 	}
 
-	log.Info("Successfully added session to memory", "sessionID", session.ID(), "items", len(contents))
+	log.InfoContext(ctx, "successfully added session to memory", "session_id", session.ID(), "items", len(contents))
 	return nil
 }
 
@@ -142,8 +142,8 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content s
 // SearchMemory implements memory.Service.SearchMemory.
 // It searches for relevant memories using vector similarity.
 func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
-	log := logr.FromContextOrDiscard(ctx)
-	log.V(1).Info("Searching memory", "query", req.Query, "userID", req.UserID)
+	log := logging.FromContext(ctx)
+	log.DebugContext(ctx, "searching memory", "user_id", req.UserID)
 
 	if req.Query == "" {
 		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
@@ -153,7 +153,7 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 	// perform similarity search, so return empty results on failure.
 	embeddings, err := s.embeddingClient.Generate(ctx, []string{req.Query})
 	if err != nil {
-		log.Error(err, "Failed to generate query embedding, returning empty results")
+		log.ErrorContext(ctx, "failed to generate query embedding, returning empty results", "error", err)
 		return &memory.SearchResponse{Memories: []memory.Entry{}}, nil
 	}
 	var vector []float32
@@ -194,14 +194,14 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 		})
 	}
 
-	log.Info("Found memories", "count", len(memories), "query", req.Query)
+	log.InfoContext(ctx, "found memories", "count", len(memories))
 	return &memory.SearchResponse{Memories: memories}, nil
 }
 
 // summarizeContent uses the LLM to extract key facts from conversation content.
 // Returns a list of summarized facts, or the original content wrapped in a slice if summarization fails.
 func (s *KagentMemoryService) summarizeContent(ctx context.Context, content string) ([]string, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	if content == "" {
 		return nil, nil
@@ -259,7 +259,7 @@ Summary (JSON List):`, content)
 
 	summary := strings.TrimSpace(summaryText.String())
 	if summary == "" {
-		log.V(1).Info("Empty summary returned, using original content")
+		log.DebugContext(ctx, "empty summary returned, using original content")
 		return []string{content}, nil
 	}
 
@@ -272,17 +272,17 @@ Summary (JSON List):`, content)
 	// Parse JSON
 	var facts []string
 	if err := json.Unmarshal([]byte(summary), &facts); err != nil {
-		log.V(1).Info("Failed to parse summary as JSON, using original content", "error", err, "output", summary)
+		log.DebugContext(ctx, "failed to parse summary as JSON, using original content", "error", err)
 		return []string{content}, nil
 	}
 
 	// Validate all items are strings
 	if slices.Contains(facts, "") {
-		log.V(1).Info("Summary contains empty strings, using original content")
+		log.DebugContext(ctx, "summary contains empty strings, using original content")
 		return []string{content}, nil
 	}
 
-	log.V(1).Info("Successfully summarized content", "facts", len(facts))
+	log.DebugContext(ctx, "successfully summarized content", "facts", len(facts))
 	return facts, nil
 }
 

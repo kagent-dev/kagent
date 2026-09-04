@@ -123,9 +123,9 @@ func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
 // SetupLogger rejects a bad level before it touches the global logger, so this
 // case does not disturb whatever logger the rest of the suite runs under.
 func TestSetupLoggerRejectsBadLevel(t *testing.T) {
-	t.Setenv("ZAP_LOG_LEVEL", "not-a-level")
+	t.Setenv("LOG_LEVEL", "not-a-level")
 	if err := SetupLogger(); err == nil {
-		t.Fatal("SetupLogger accepted an unparseable ZAP_LOG_LEVEL")
+		t.Fatal("SetupLogger accepted an unparseable LOG_LEVEL")
 	}
 }
 

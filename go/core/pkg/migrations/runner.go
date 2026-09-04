@@ -16,10 +16,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 )
-
-var log = ctrl.Log.WithName("migrations")
 
 // Source describes one migration track for the orchestrator to apply. Downstream
 // consumers register their own Sources alongside the built-in ones rather than
@@ -105,6 +103,7 @@ func BuiltinSources(vectorEnabled bool) []Source {
 // golang-migrate's apply is not context-aware, so an in-flight migration is not
 // cancellable.
 func RunUp(ctx context.Context, url string, sources []Source) error {
+	logger := logging.FromContext(ctx).With("component", "migrations")
 	if len(sources) == 0 {
 		return nil
 	}
@@ -157,10 +156,10 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 			var compErrs []error
 			for _, a := range slices.Backward(done) {
 				if a.prev == 0 {
-					log.Info("skipping compensating rollback to version 0 to protect pre-existing data", "source", a.src.Name)
+					logger.InfoContext(rbCtx, "skipping compensating rollback to version 0 to protect pre-existing data", "source", a.src.Name)
 					continue
 				}
-				log.Info("rolling back source after later failure", "source", a.src.Name, "targetVersion", a.prev)
+				logger.InfoContext(rbCtx, "rolling back source after later failure", "source", a.src.Name, "target_version", a.prev)
 				if rbErr := rollbackSource(rbCtx, url, a.src, a.prev); rbErr != nil {
 					compErrs = append(compErrs, rbErr)
 				}
@@ -192,6 +191,7 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 // embedded max is an error; a dirty tracking table is an error; a database
 // ahead of the binary is tolerated (compatibility mode), matching RunUp.
 func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
+	logger := logging.FromContext(ctx).With("component", "migrations")
 	if len(sources) == 0 {
 		return nil
 	}
@@ -250,8 +250,8 @@ func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
 		case version < int64(maxVer):
 			return fmt.Errorf("source %s is at version %d but this binary requires version %d: apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, version, maxVer)
 		case version > int64(maxVer):
-			log.Info("database schema is ahead of this binary; running in compatibility mode",
-				"track", src.Name, "dbVersion", version, "binaryMax", maxVer)
+			logger.InfoContext(ctx, "database schema is ahead of this binary; running in compatibility mode",
+				"track", src.Name, "database_version", version, "binary_max", maxVer)
 		}
 	}
 	return nil
@@ -372,11 +372,12 @@ func checkResolvedSchemaCollisions(ctx context.Context, url string, sources []So
 // dropping pre-existing tables on a GORM-to-golang-migrate upgrade. It returns
 // the pre-run version so the caller can compensate this source if a later one fails.
 func applySource(ctx context.Context, url string, src Source) (prevVersion uint, err error) {
+	logger := logging.FromContext(ctx).With("component", "migrations")
 	mg, err := newMigrate(ctx, url, src)
 	if err != nil {
 		return 0, err
 	}
-	defer closeMigrate(src.Name, mg)
+	defer closeMigrate(ctx, src.Name, mg)
 
 	var dirty bool
 	prevVersion, dirty, err = mg.Version()
@@ -394,7 +395,7 @@ func applySource(ctx context.Context, url string, src Source) (prevVersion uint,
 	// A dirty database is excluded: dirty state means a previous migration
 	// attempt failed and must be resolved, not silently accepted.
 	if maxVer, scanErr := maxEmbeddedVersion(src.FS, src.Dir); scanErr != nil {
-		log.Error(scanErr, "could not determine max embedded migration version; proceeding with Up", "track", src.Name)
+		logger.ErrorContext(ctx, "could not determine max embedded migration version; proceeding with up", "error", scanErr, "track", src.Name)
 	} else if prevVersion > maxVer {
 		if dirty {
 			// DB is both dirty and ahead of this binary. Attempting Up/rollback would
@@ -404,8 +405,8 @@ func applySource(ctx context.Context, url string, src Source) (prevVersion uint,
 			return prevVersion, fmt.Errorf("database is dirty at version %d and ahead of this binary's max known version %d for track %s: manual operator intervention required: %w",
 				prevVersion, maxVer, src.Name, migrate.ErrDirty{Version: int(prevVersion)})
 		}
-		log.Info("database schema is ahead of this binary; running in compatibility mode",
-			"track", src.Name, "dbVersion", prevVersion, "binaryMax", maxVer)
+		logger.InfoContext(ctx, "database schema is ahead of this binary; running in compatibility mode",
+			"track", src.Name, "database_version", prevVersion, "binary_max", maxVer)
 		return prevVersion, nil
 	}
 
@@ -414,13 +415,13 @@ func applySource(ctx context.Context, url string, src Source) (prevVersion uint,
 			return prevVersion, nil
 		}
 		if prevVersion == 0 {
-			log.Info("migration failed; skipping rollback to version 0 to protect pre-existing data", "track", src.Name)
+			logger.WarnContext(ctx, "migration failed; skipping rollback to version 0 to protect pre-existing data", "track", src.Name)
 		} else {
-			log.Info("migration failed, attempting rollback", "track", src.Name, "targetVersion", prevVersion)
+			logger.WarnContext(ctx, "migration failed, attempting rollback", "track", src.Name, "target_version", prevVersion)
 			if rbErr := rollbackToVersion(mg, src.Name, prevVersion); rbErr != nil {
-				log.Error(rbErr, "rollback failed", "track", src.Name)
+				logger.ErrorContext(ctx, "rollback failed", "error", rbErr, "track", src.Name)
 			} else {
-				log.Info("rollback complete", "track", src.Name, "version", prevVersion)
+				logger.InfoContext(ctx, "rollback complete", "track", src.Name, "version", prevVersion)
 			}
 		}
 		return prevVersion, fmt.Errorf("run migrations for %s: %w", src.Name, upErr)
@@ -441,7 +442,7 @@ func WithMigrator(ctx context.Context, url string, src Source, fn func(*migrate.
 	if err != nil {
 		return err
 	}
-	defer closeMigrate(src.Name, mg)
+	defer closeMigrate(ctx, src.Name, mg)
 	return fn(mg)
 }
 
@@ -451,17 +452,18 @@ func WithMigrator(ctx context.Context, url string, src Source, fn func(*migrate.
 // the orchestrator can surface that the database may be left partially rolled
 // back rather than leaving it as a log-only signal.
 func rollbackSource(ctx context.Context, url string, src Source, targetVersion uint) error {
+	logger := logging.FromContext(ctx).With("component", "migrations")
 	mg, err := newMigrate(ctx, url, src)
 	if err != nil {
-		log.Error(err, "rollback failed (open)", "track", src.Name)
+		logger.ErrorContext(ctx, "failed to open migration for rollback", "error", err, "track", src.Name)
 		return fmt.Errorf("open %s for rollback: %w", src.Name, err)
 	}
-	defer closeMigrate(src.Name, mg)
+	defer closeMigrate(ctx, src.Name, mg)
 	if err := rollbackToVersion(mg, src.Name, targetVersion); err != nil {
-		log.Error(err, "rollback failed", "track", src.Name)
+		logger.ErrorContext(ctx, "rollback failed", "error", err, "track", src.Name)
 		return fmt.Errorf("roll back %s to version %d: %w", src.Name, targetVersion, err)
 	}
-	log.Info("rollback complete", "track", src.Name, "version", targetVersion)
+	logger.InfoContext(ctx, "rollback complete", "track", src.Name, "version", targetVersion)
 	return nil
 }
 
@@ -673,12 +675,13 @@ func maxEmbeddedVersion(migrationsFS fs.FS, dir string) (uint, error) {
 }
 
 // closeMigrate closes mg, logging source and database close errors separately.
-func closeMigrate(name string, mg *migrate.Migrate) {
+func closeMigrate(ctx context.Context, name string, mg *migrate.Migrate) {
+	logger := logging.FromContext(ctx).With("component", "migrations")
 	srcErr, dbErr := mg.Close()
 	if srcErr != nil {
-		log.Error(srcErr, "closing migration source", "track", name)
+		logger.ErrorContext(ctx, "failed to close migration source", "error", srcErr, "track", name)
 	}
 	if dbErr != nil {
-		log.Error(dbErr, "closing migration database", "track", name)
+		logger.ErrorContext(ctx, "failed to close migration database", "error", dbErr, "track", name)
 	}
 }

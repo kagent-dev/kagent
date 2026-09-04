@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"iter"
-	"log"
+	"os"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 )
 
 type executor struct{}
@@ -28,14 +30,20 @@ func (executor) Cancel(context.Context, *a2asrv.ExecutorContext) iter.Seq2[a2aty
 }
 
 func main() {
+	logger, err := logging.NewFromEnv(os.Stderr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	application, err := app.New(app.AppConfig{
 		AgentCard: a2atype.AgentCard{Name: "opaque-byo", Version: "v1", Capabilities: a2atype.AgentCapabilities{Streaming: true}},
-		Port:      "80", AppName: "opaque-byo",
+		Port:      "80", AppName: "opaque-byo", Logger: logger,
 	}, executor{})
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to create A2A application", "error", err)
+		return
 	}
 	if err := application.Run(); err != nil {
-		log.Fatal(err)
+		logger.Error("a2A application stopped", "error", err)
 	}
 }

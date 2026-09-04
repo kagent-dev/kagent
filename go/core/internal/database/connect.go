@@ -3,13 +3,13 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
@@ -95,7 +95,7 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 		if err := pool.Ping(ctx); err == nil {
 			return pool, nil
 		} else {
-			log.Printf("database not ready (attempt %d, elapsed %s): %v", attempt, time.Since(start).Round(time.Second), err)
+			logging.FromContext(ctx).WarnContext(ctx, "database not ready", "error", err, "attempt", attempt, "elapsed_ms", time.Since(start).Milliseconds())
 		}
 		select {
 		case <-ctx.Done():

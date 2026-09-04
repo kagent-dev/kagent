@@ -1,12 +1,14 @@
 package models
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"strconv"
 
-	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	"github.com/ollama/ollama/api"
 )
 
@@ -22,7 +24,7 @@ type OllamaConfig struct {
 type OllamaModel struct {
 	Config *OllamaConfig
 	Client *api.Client
-	Logger logr.Logger
+	Logger *slog.Logger
 }
 
 // Name returns the model name.
@@ -105,9 +107,10 @@ func convertOllamaOptions(opts map[string]string) map[string]any {
 	return converted
 }
 
-// NewOllamaModelWithLogger creates a new Ollama model instance with a logger.
+// NewOllamaModel creates a new Ollama model instance with a logger.
 // It uses the native Ollama SDK client for full option support.
-func NewOllamaModelWithLogger(config *OllamaConfig, logger logr.Logger) (*OllamaModel, error) {
+func NewOllamaModel(ctx context.Context, config *OllamaConfig) (*OllamaModel, error) {
+	logger := logging.FromContext(ctx)
 	host := config.Host
 	if host == "" {
 		host = os.Getenv("OLLAMA_API_BASE")
@@ -131,9 +134,7 @@ func NewOllamaModelWithLogger(config *OllamaConfig, logger logr.Logger) (*Ollama
 	// Create Ollama SDK client (NewClient takes *url.URL then *http.Client)
 	client := api.NewClient(baseURL, httpClient)
 
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Ollama model", "model", config.Model, "host", host)
-	}
+	logger.InfoContext(ctx, "initialized Ollama model", "model", config.Model, "host", host)
 
 	return &OllamaModel{
 		Config: config,

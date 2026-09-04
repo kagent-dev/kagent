@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
+	"github.com/kagent-dev/kagent/go/internal/logging"
 )
 
 type SAPAICoreConfig struct {
@@ -24,7 +26,7 @@ type SAPAICoreConfig struct {
 
 type SAPAICoreModel struct {
 	Config SAPAICoreConfig
-	Logger logr.Logger
+	Logger *slog.Logger
 
 	mu              sync.Mutex
 	token           string
@@ -34,7 +36,7 @@ type SAPAICoreModel struct {
 	httpClient      *http.Client
 }
 
-func NewSAPAICoreModelWithLogger(config SAPAICoreConfig, logger logr.Logger) (*SAPAICoreModel, error) {
+func NewSAPAICoreModel(ctx context.Context, config SAPAICoreConfig) (*SAPAICoreModel, error) {
 	if config.BaseUrl == "" {
 		return nil, fmt.Errorf("SAP AI Core requires base_url")
 	}
@@ -43,7 +45,7 @@ func NewSAPAICoreModelWithLogger(config SAPAICoreConfig, logger logr.Logger) (*S
 	}
 	return &SAPAICoreModel{
 		Config:     config,
-		Logger:     logger,
+		Logger:     logging.FromContext(ctx),
 		httpClient: &http.Client{Timeout: 5 * time.Minute},
 	}, nil
 }
@@ -176,7 +178,7 @@ func (m *SAPAICoreModel) resolveDeploymentURL(ctx context.Context) (string, erro
 	m.deploymentURLAt = time.Now()
 	m.mu.Unlock()
 
-	m.Logger.Info("Resolved SAP AI Core orchestration deployment", "url", best)
+	m.Logger.InfoContext(ctx, "resolved SAP AI Core orchestration deployment", "url", best)
 	return best, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -13,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -137,7 +138,7 @@ func bedrockCachePointBlock(cacheTTL string) types.CachePointBlock {
 type BedrockModel struct {
 	Config *BedrockConfig
 	Client *bedrockruntime.Client
-	Logger logr.Logger
+	Logger *slog.Logger
 }
 
 // Name returns the model name.
@@ -145,10 +146,11 @@ func (m *BedrockModel) Name() string {
 	return m.Config.Model
 }
 
-// NewBedrockModelWithLogger creates a new Bedrock model instance using the Converse API.
+// NewBedrockModel creates a new Bedrock model instance using the Converse API.
 // Authentication uses AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.)
 // or IAM roles via the standard AWS SDK credential chain.
-func NewBedrockModelWithLogger(ctx context.Context, config *BedrockConfig, logger logr.Logger) (*BedrockModel, error) {
+func NewBedrockModel(ctx context.Context, config *BedrockConfig) (*BedrockModel, error) {
+	logger := logging.FromContext(ctx)
 	if config.Model == "" {
 		return nil, fmt.Errorf("bedrock model name is required (e.g., anthropic.claude-3-sonnet-20240229-v1:0)")
 	}
@@ -177,9 +179,7 @@ func NewBedrockModelWithLogger(ctx context.Context, config *BedrockConfig, logge
 		o.HTTPClient = httpClient
 	})
 
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Bedrock Converse API model", "model", config.Model, "region", region)
-	}
+	logger.InfoContext(ctx, "initialized Bedrock Converse API model", "model", config.Model, "region", region)
 
 	return &BedrockModel{
 		Config: config,

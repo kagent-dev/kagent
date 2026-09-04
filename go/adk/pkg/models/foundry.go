@@ -6,13 +6,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 )
 
 // FoundryConfig holds Azure AI Foundry configuration for the OpenAI-compatible
 // surface. The Anthropic (Claude) surface has no Foundry-specific config type; it
-// reuses AnthropicConfig via NewFoundryAnthropicModelWithLogger.
+// reuses AnthropicConfig via NewFoundryAnthropicModel.
 type FoundryConfig struct {
 	TransportConfig
 	Model      string
@@ -26,7 +26,7 @@ type FoundryConfig struct {
 	credential azureai.TokenCredential
 }
 
-// NewFoundryModelWithLogger creates a model for the Azure AI Foundry
+// NewFoundryModel creates a model for the Azure AI Foundry
 // OpenAI-compatible surface.
 //
 // This constructor targets Foundry's OpenAI-compatible chat/completions data
@@ -35,13 +35,14 @@ type FoundryConfig struct {
 // this single client reaches OpenAI models as well as the non-OpenAI
 // chat-completion models Azure sells directly on Foundry (for example DeepSeek,
 // Meta Llama, Mistral, Cohere, xAI Grok). Claude uses the Anthropic Messages API
-// instead and is handled by NewFoundryAnthropicModelWithLogger.
+// instead and is handled by NewFoundryAnthropicModel.
 //
 // Authentication is implicit: the incoming bearer token when APIKeyPassthrough is
 // enabled; otherwise FOUNDRY_API_KEY when set; otherwise DefaultAzureCredential,
 // which resolves to Azure Workload Identity in-cluster (or the az CLI in local
 // development).
-func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logger logr.Logger) (*OpenAIModel, error) {
+func NewFoundryModel(ctx context.Context, config *FoundryConfig) (*OpenAIModel, error) {
+	logger := logging.FromContext(ctx)
 	endpoint, deployment, apiVersion := azureai.ResolveFoundry(config.Endpoint, config.Deployment, config.APIVersion)
 	if endpoint == "" {
 		return nil, fmt.Errorf("FOUNDRY_ENDPOINT environment variable is not set")
@@ -80,14 +81,12 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 	}
 
 	// Claude (apiFormat=anthropic) never reaches here: agent.go's model dispatch
-	// routes it to NewFoundryAnthropicModelWithLogger, so build the OpenAI client.
+	// routes it to NewFoundryAnthropicModel, so build the OpenAI client.
 	client, err := azureai.NewOpenAIClient(clientCfg)
 	if err != nil {
 		return nil, err
 	}
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Foundry model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "apiVersion", apiVersion)
-	}
+	logger.InfoContext(ctx, "initialized Foundry model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
 			TransportConfig: config.TransportConfig,
@@ -100,9 +99,9 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 	}, nil
 }
 
-// NewFoundryAnthropicModelWithLogger creates a model for Claude models hosted on
+// NewFoundryAnthropicModel creates a model for Claude models hosted on
 // Azure AI Foundry, which are served over the Anthropic Messages API rather than
-// the OpenAI-compatible surface used by NewFoundryModelWithLogger.
+// the OpenAI-compatible surface used by NewFoundryModel.
 //
 // The request targets {endpoint}/anthropic/v1/messages; the deployment name is
 // sent in the request's model field. Authentication is implicit and mirrors the
@@ -119,7 +118,8 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 //
 // It returns an *AnthropicModel so the shared genai<->Messages translation in
 // anthropic_adk.go is reused unchanged.
-func NewFoundryAnthropicModelWithLogger(ctx context.Context, config *AnthropicConfig, endpoint, deployment string, cred azureai.TokenCredential, logger logr.Logger) (*AnthropicModel, error) {
+func NewFoundryAnthropicModel(ctx context.Context, config *AnthropicConfig, endpoint, deployment string, cred azureai.TokenCredential) (*AnthropicModel, error) {
+	logger := logging.FromContext(ctx)
 	// api-version is unused on the Messages surface (the SDK sets the
 	// anthropic-version header), so it is resolved and discarded.
 	ep, dep, _ := azureai.ResolveFoundry(endpoint, deployment, "")
@@ -165,9 +165,7 @@ func NewFoundryAnthropicModelWithLogger(ctx context.Context, config *AnthropicCo
 		return nil, err
 	}
 
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Foundry Anthropic model", "deployment", dep, "endpoint", ep)
-	}
+	logger.InfoContext(ctx, "initialized Foundry Anthropic model", "deployment", dep, "endpoint", ep)
 
 	modelConfig := *config
 	modelConfig.Model = dep

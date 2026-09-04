@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/adapter"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 )
 
 const (
@@ -29,8 +29,15 @@ const (
 func main() {
 	check := flag.Bool("check", false, "validate configuration and Claude version, then exit")
 	flag.Parse()
-	if err := run(context.Background(), *check, os.Getenv, os.Environ()); err != nil {
-		log.Fatal(err)
+	logger, err := logging.NewFromEnv(os.Stderr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	ctx := logging.IntoContext(context.Background(), logger)
+	if err := run(ctx, *check, os.Getenv, os.Environ()); err != nil {
+		logger.ErrorContext(ctx, "claude harness stopped", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -76,7 +83,7 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if err != nil {
 		return err
 	}
-	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name}, executor)
+	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, executor)
 	if err != nil {
 		return fmt.Errorf("construct private A2A app: %w", err)
 	}

@@ -10,10 +10,12 @@ import (
 	"os/exec"
 	"time"
 
+	"log/slog"
+
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
@@ -102,10 +104,10 @@ func CreateToolsets(
 	propagateToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	var toolsets []tool.Toolset
 
-	log.Info("Processing stdio MCP tools", "stdioToolsCount", len(stdioTools))
+	log.InfoContext(ctx, "processing stdio MCP tools", "stdio_tools_count", len(stdioTools))
 	for i, stdioTool := range stdioTools {
 		params := mcpServerParams{
 			URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
@@ -117,7 +119,7 @@ func CreateToolsets(
 		}
 	}
 
-	log.Info("Processing HTTP MCP tools", "httpToolsCount", len(httpTools))
+	log.InfoContext(ctx, "processing HTTP MCP tools", "http_tools_count", len(httpTools))
 	for i, httpTool := range httpTools {
 		params := mcpServerParams{
 			URL:                   httpTool.Params.Url,
@@ -139,7 +141,7 @@ func CreateToolsets(
 		toolsets = append(toolsets, ts)
 	}
 
-	log.Info("Processing SSE MCP tools", "sseToolsCount", len(sseTools))
+	log.InfoContext(ctx, "processing SSE MCP tools", "sse_tools_count", len(sseTools))
 	for i, sseTool := range sseTools {
 		params := mcpServerParams{
 			URL:                   sseTool.Params.Url,
@@ -165,7 +167,7 @@ func CreateToolsets(
 }
 
 // addToolset logs, initializes, and returns a single MCP toolset.
-func addToolset(ctx context.Context, log logr.Logger, params mcpServerParams, tools []string, label string, index int) (tool.Toolset, error) {
+func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, tools []string, label string, index int) (tool.Toolset, error) {
 	if params.Headers == nil {
 		params.Headers = make(map[string]string)
 	}
@@ -176,24 +178,24 @@ func addToolset(ctx context.Context, log logr.Logger, params mcpServerParams, to
 	}
 
 	if len(toolFilter) > 0 {
-		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "url", params.URL, "toolFilterCount", len(toolFilter), "tools", tools)
+		log.InfoContext(ctx, "adding MCP tool", "transport", label, "index", index, "url", params.URL, "tool_filter_count", len(toolFilter), "tools", tools)
 	} else {
-		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "url", params.URL, "toolFilterCount", "all")
+		log.InfoContext(ctx, "adding MCP tool", "transport", label, "index", index, "url", params.URL, "tool_filter_count", "all")
 	}
 
 	ts, err := initializeToolSet(ctx, params, toolFilter)
 	if err != nil {
-		log.Error(err, fmt.Sprintf("Failed to fetch tools from %s MCP server", label), "url", params.URL)
+		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
 		return nil, err
 	}
-	log.Info(fmt.Sprintf("Successfully added %s MCP toolset", label), "url", params.URL)
+	log.InfoContext(ctx, "added MCP toolset", "transport", label, "url", params.URL)
 	return ts, nil
 }
 
 // createTransport creates an MCP transport based on server type and configuration.
 // Uses the official MCP SDK (github.com/modelcontextprotocol/go-sdk/mcp).
 func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transport, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 	if params.ServerType == "stdio" {
 		command := exec.CommandContext(ctx, params.Command, params.Args...)
 		command.Dir = params.Dir
@@ -223,7 +225,7 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	baseTransport := &http.Transport{}
 
 	if params.TLSInsecureSkipVerify != nil && *params.TLSInsecureSkipVerify {
-		log.Info("WARNING: TLS certificate verification disabled for MCP server - this is insecure and not recommended for production", "url", params.URL)
+		log.WarnContext(ctx, "TLS certificate verification disabled for MCP server", "url", params.URL)
 		baseTransport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -347,7 +349,7 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 
 	toolPredicate, appToolNames, err := agentVisibleToolFilter(ctx, params, toolFilter)
 	if err != nil {
-		logr.FromContextOrDiscard(ctx).Error(err, "Failed to classify MCP tools; falling back to lazy tool discovery", "url", params.URL)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
 		appToolNames = nil
 		if len(toolFilter) > 0 {
 			allowedTools := make([]string, 0, len(toolFilter))

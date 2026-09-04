@@ -17,15 +17,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
-	"strings"
 
-	"github.com/go-logr/logr"
-	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
@@ -45,8 +42,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := setupLogger(*logLevel)
-	ctx := logr.NewContext(context.Background(), logger)
+	logger, err := logging.New(os.Stderr, *logLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid log level %q: %v\n", *logLevel, err)
+		os.Exit(1)
+	}
+	slog.SetDefault(logger)
+	ctx := logging.IntoContext(context.Background(), logger)
 
 	agentConfig, err := config.LoadAgentConfig(*configPath)
 	if err != nil {
@@ -54,7 +56,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("Loaded config",
+	logger.Info("loaded config",
 		"model_type", agentConfig.Model.GetType(),
 		"http_tools", len(agentConfig.HttpTools),
 		"sse_tools", len(agentConfig.SseTools),
@@ -133,26 +135,4 @@ func printEvent(ev *adksession.Event) {
 			fmt.Fprintf(os.Stderr, "[tool response: %s]\n", part.FunctionResponse.Name)
 		}
 	}
-}
-
-func setupLogger(level string) logr.Logger {
-	var zapLevel zapcore.Level
-	switch strings.ToLower(level) {
-	case "debug":
-		zapLevel = zapcore.DebugLevel
-	case "info":
-		zapLevel = zapcore.InfoLevel
-	case "warn", "warning":
-		zapLevel = zapcore.WarnLevel
-	case "error":
-		zapLevel = zapcore.ErrorLevel
-	default:
-		zapLevel = zapcore.WarnLevel
-	}
-	cfg := zap.NewProductionConfig()
-	cfg.Level = zap.NewAtomicLevelAt(zapLevel)
-	cfg.EncoderConfig.TimeKey = "timestamp"
-	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	zapLogger, _ := cfg.Build()
-	return zapr.NewLogger(zapLogger)
 }

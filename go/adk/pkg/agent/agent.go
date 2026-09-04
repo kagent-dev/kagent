@@ -2,17 +2,18 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/internal/logging"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -42,7 +43,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 }
 
 func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, legacySkillsEnv bool, extraTools ...tool.Tool) (agent.Agent, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	if agentConfig == nil {
 		return nil, fmt.Errorf("agent config is required")
@@ -76,7 +77,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
 			}
 			toolsets = append(toolsets, skillsToolset)
-			log.Info("Wired local skills", "skillsDirectory", skillsDirectory, "skillCount", len(skills), "executionToolCount", len(executionTools))
+			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills), "execution_tool_count", len(executionTools))
 		}
 	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
@@ -84,7 +85,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	var remoteAgentTools []tool.Tool
 	for _, remoteAgent := range agentConfig.RemoteAgents {
 		if remoteAgent.Url == "" {
-			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
+			log.InfoContext(ctx, "skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
 		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
@@ -92,7 +93,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			return nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
 		remoteAgentTools = append(remoteAgentTools, remoteTool)
-		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
+		log.InfoContext(ctx, "wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
 	}
 
 	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, log)
@@ -104,7 +105,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		return nil, fmt.Errorf("model configuration is required")
 	}
 
-	llmModel, err := CreateLLM(ctx, agentConfig.Model, log)
+	llmModel, err := CreateLLM(ctx, agentConfig.Model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
@@ -139,13 +140,13 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 
 	if len(approvalSet) > 0 {
-		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
+		log.InfoContext(ctx, "wiring approval callback", "tool_count", len(approvalSet))
 		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
 	}
 	if len(mcpAppToolNames) > 0 {
 		// For MCP App-capable tools, keep rich tool payloads in chat history for UI rendering,
 		// but compact what is sent back to the model to avoid redundant polling/tool churn.
-		log.Info("Wiring MCP App model result callback", "toolCount", len(mcpAppToolNames))
+		log.InfoContext(ctx, "wiring MCP App model result callback", "tool_count", len(mcpAppToolNames))
 		beforeModelCallbacks = append(beforeModelCallbacks, MakeMCPAppModelResultCallback(mcpAppToolNames))
 	}
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
@@ -170,29 +171,29 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		},
 	}
 
-	log.Info("Creating Google ADK LLM agent",
+	log.InfoContext(ctx, "creating Google ADK LLM agent",
 		"name", llmAgentConfig.Name,
-		"hasDescription", llmAgentConfig.Description != "",
-		"hasInstruction", llmAgentConfig.Instruction != "",
-		"toolsCount", len(llmAgentConfig.Tools),
-		"toolsetsCount", len(llmAgentConfig.Toolsets))
+		"has_description", llmAgentConfig.Description != "",
+		"has_instruction", llmAgentConfig.Instruction != "",
+		"tools_count", len(llmAgentConfig.Tools),
+		"toolsets_count", len(llmAgentConfig.Toolsets))
 
 	llmAgent, err := llmagent.New(llmAgentConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM agent: %w", err)
 	}
 
-	log.Info("Successfully created Google ADK LLM agent",
-		"toolsCount", len(llmAgentConfig.Tools),
-		"toolsetsCount", len(llmAgentConfig.Toolsets))
+	log.InfoContext(ctx, "successfully created Google ADK LLM agent",
+		"tools_count", len(llmAgentConfig.Tools),
+		"toolsets_count", len(llmAgentConfig.Toolsets))
 
 	return llmAgent, nil
 }
 
-func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log logr.Logger) ([]tool.Tool, error) {
+func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
 	var localTools []tool.Tool
 	if agentConfig.Memory != nil {
-		log.Info("Memory configuration detected, adding memory tools")
+		log.Info("memory configuration detected, adding memory tools")
 		localTools = []tool.Tool{
 			preloadmemorytool.New(),
 			loadmemorytool.New(),
@@ -233,7 +234,7 @@ func generateContentConfig(m adk.Model) *genai.GenerateContentConfig {
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.
 // This is exported to allow reuse of model creation logic (e.g., for memory summarization).
-func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM, error) {
+func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	switch m := m.(type) {
 	case *adk.OpenAI:
 		cfg := &models.OpenAIConfig{
@@ -251,7 +252,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			TopP:                m.TopP,
 			APIFormat:           m.APIFormat,
 		}
-		return models.NewOpenAIModelWithLogger(cfg, log)
+		return models.NewOpenAIModel(ctx, cfg)
 
 	case *adk.AzureOpenAI:
 		cfg := &models.AzureOpenAIConfig{
@@ -261,7 +262,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Deployment:      m.Deployment,
 			APIVersion:      m.APIVersion,
 		}
-		return models.NewAzureOpenAIModelWithLogger(ctx, cfg, log)
+		return models.NewAzureOpenAIModel(ctx, cfg)
 
 	case *adk.Gemini:
 		apiKey := os.Getenv("GOOGLE_API_KEY")
@@ -317,7 +318,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			TopP:            m.TopP,
 			TopK:            m.TopK,
 		}
-		return models.NewAnthropicModelWithLogger(cfg, log)
+		return models.NewAnthropicModel(ctx, cfg)
 
 	case *adk.Ollama:
 		baseURL := os.Getenv("OLLAMA_API_BASE")
@@ -335,7 +336,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Host:            baseURL,
 			Options:         m.Options,
 		}
-		return models.NewOllamaModelWithLogger(cfg, log)
+		return models.NewOllamaModel(ctx, cfg)
 
 	case *adk.Bedrock:
 		region := m.Region
@@ -368,7 +369,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			cfg.GuardrailVersion = m.Guardrail.Version
 			cfg.GuardrailTrace = m.Guardrail.Trace
 		}
-		return models.NewBedrockModelWithLogger(ctx, cfg, log)
+		return models.NewBedrockModel(ctx, cfg)
 
 	case *adk.GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
@@ -389,7 +390,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
 			Model:           modelName,
 		}
-		return models.NewAnthropicVertexAIModelWithLogger(ctx, cfg, region, project, log)
+		return models.NewAnthropicVertexAIModel(ctx, cfg, region, project)
 
 	case *adk.SAPAICore:
 		cfg := models.SAPAICoreConfig{
@@ -399,7 +400,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			AuthUrl:       m.AuthUrl,
 			Headers:       extractHeaders(m.Headers),
 		}
-		return models.NewSAPAICoreModelWithLogger(cfg, log)
+		return models.NewSAPAICoreModel(ctx, cfg)
 
 	case *adk.Foundry:
 		if m.APIFormat == adk.FoundryAPIFormatAnthropic {
@@ -411,7 +412,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 				TransportConfig: transportConfigFromBase(m.BaseModel, nil),
 				Model:           m.Deployment,
 			}
-			return models.NewFoundryAnthropicModelWithLogger(ctx, cfg, m.Endpoint, m.Deployment, nil, log)
+			return models.NewFoundryAnthropicModel(ctx, cfg, m.Endpoint, m.Deployment, nil)
 		}
 		cfg := &models.FoundryConfig{
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
@@ -420,7 +421,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Deployment:      m.Deployment,
 			APIVersion:      m.APIVersion,
 		}
-		return models.NewFoundryModelWithLogger(ctx, cfg, log)
+		return models.NewFoundryModel(ctx, cfg)
 
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
@@ -448,36 +449,35 @@ func extractHeaders(headers map[string]string) map[string]string {
 }
 
 // makeBeforeToolCallback returns a BeforeToolCallback that logs tool invocations.
-func makeBeforeToolCallback(logger logr.Logger) llmagent.BeforeToolCallback {
+func makeBeforeToolCallback(logger *slog.Logger) llmagent.BeforeToolCallback {
 	return func(ctx agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
-		logger.Info("Tool execution started",
+		logger.InfoContext(ctx, "tool execution started",
 			"tool", t.Name(),
-			"functionCallID", ctx.FunctionCallID(),
-			"sessionID", ctx.SessionID(),
-			"invocationID", ctx.InvocationID(),
-			"args", truncateArgs(args),
+			"function_call_id", ctx.FunctionCallID(),
+			"session_id", ctx.SessionID(),
+			"invocation_id", ctx.InvocationID(),
 		)
 		return nil, nil
 	}
 }
 
 // makeAfterToolCallback returns an AfterToolCallback that logs tool completion.
-func makeAfterToolCallback(logger logr.Logger) llmagent.AfterToolCallback {
+func makeAfterToolCallback(logger *slog.Logger) llmagent.AfterToolCallback {
 	return func(ctx agent.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
 		if err != nil {
-			logger.Error(err, "Tool execution completed with error",
+			logger.ErrorContext(ctx, "tool execution completed with error", "error", err,
 				"tool", t.Name(),
-				"functionCallID", ctx.FunctionCallID(),
-				"sessionID", ctx.SessionID(),
-				"invocationID", ctx.InvocationID(),
+				"function_call_id", ctx.FunctionCallID(),
+				"session_id", ctx.SessionID(),
+				"invocation_id", ctx.InvocationID(),
 			)
 		} else {
-			logger.Info("Tool execution completed",
+			logger.InfoContext(ctx, "tool execution completed",
 				"tool", t.Name(),
-				"functionCallID", ctx.FunctionCallID(),
-				"sessionID", ctx.SessionID(),
-				"invocationID", ctx.InvocationID(),
-				"resultKeys", mapKeys(result),
+				"function_call_id", ctx.FunctionCallID(),
+				"session_id", ctx.SessionID(),
+				"invocation_id", ctx.InvocationID(),
+				"result_keys", mapKeys(result),
 			)
 		}
 		return nil, nil
@@ -485,14 +485,13 @@ func makeAfterToolCallback(logger logr.Logger) llmagent.AfterToolCallback {
 }
 
 // makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors.
-func makeOnToolErrorCallback(logger logr.Logger) llmagent.OnToolErrorCallback {
+func makeOnToolErrorCallback(logger *slog.Logger) llmagent.OnToolErrorCallback {
 	return func(ctx agent.Context, t tool.Tool, args map[string]any, err error) (map[string]any, error) {
-		logger.Error(err, "Tool execution failed",
+		logger.ErrorContext(ctx, "tool execution failed", "error", err,
 			"tool", t.Name(),
-			"functionCallID", ctx.FunctionCallID(),
-			"sessionID", ctx.SessionID(),
-			"invocationID", ctx.InvocationID(),
-			"args", truncateArgs(args),
+			"function_call_id", ctx.FunctionCallID(),
+			"session_id", ctx.SessionID(),
+			"invocation_id", ctx.InvocationID(),
 		)
 		return nil, nil
 	}
@@ -508,32 +507,4 @@ func mapKeys(m map[string]any) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-// truncateArgs returns a JSON string of args truncated for safe logging.
-func truncateArgs(args map[string]any) string {
-	const (
-		maxValueLen = 100
-		maxTotalLen = 500
-	)
-	if args == nil {
-		return "{}"
-	}
-	truncated := make(map[string]any, len(args))
-	for k, v := range args {
-		if s, ok := v.(string); ok && len(s) > maxValueLen {
-			truncated[k] = s[:maxValueLen] + "..."
-		} else {
-			truncated[k] = v
-		}
-	}
-	b, err := json.Marshal(truncated)
-	if err != nil {
-		return fmt.Sprintf("<marshal error: %v>", err)
-	}
-	s := string(b)
-	if len(s) > maxTotalLen {
-		return s[:maxTotalLen] + "... (truncated)"
-	}
-	return s
 }

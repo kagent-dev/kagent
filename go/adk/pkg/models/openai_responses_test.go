@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -173,7 +174,7 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	m := &OpenAIModel{
 		Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
 		Client: client,
-		Logger: logr.Discard(),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 
 	var got *model.LLMResponse
@@ -221,7 +222,7 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 	m := &OpenAIModel{
 		Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
 		Client: client,
-		Logger: logr.Discard(),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 
 	var partials []string
