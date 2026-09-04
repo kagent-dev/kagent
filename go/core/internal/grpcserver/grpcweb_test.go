@@ -12,8 +12,8 @@ func TestTrimAPIPrefix(t *testing.T) {
 		want    string
 		wantHad bool
 	}{
-		{"a same-origin browser call arrives under /api", "/api/kagent.api.v1alpha1.AgentService/ListAgents", "/kagent.api.v1alpha1.AgentService/ListAgents", true},
-		{"a client addressing the gRPC path directly is untouched", "/kagent.api.v1alpha1.AgentService/ListAgents", "/kagent.api.v1alpha1.AgentService/ListAgents", false},
+		{"a same-origin browser call arrives under /api", "/api/kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances", "/kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances", true},
+		{"a client addressing the gRPC path directly is untouched", "/kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances", "/kagent.api.v1alpha1.AgentInstanceService/ListAgentInstances", false},
 		{"/api alone is not a prefix to strip", "/api", "/api", false},
 		{"a path merely starting with the letters api is untouched", "/apifoo/Bar", "/apifoo/Bar", false},
 	}

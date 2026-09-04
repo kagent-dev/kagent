@@ -7,7 +7,7 @@ import (
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
 // This path intentionally has no proxy URL or egress-gateway indirection.
-func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRuntime, server *v1alpha3.RemoteMCPServer, tool *v1alpha3.McpServerTool, headers map[string]string) error {
+func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRuntime, server *v1alpha3.RemoteMCPServer, tools []string, headers map[string]string) error {
 	targetURL := server.Spec.URL
 
 	switch server.Spec.Protocol {
@@ -21,7 +21,7 @@ func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRunt
 		}
 		params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
 		config.SseTools = append(config.SseTools, adk.SseMcpServerConfig{
-			Params: params, Tools: tool.ToolNames, AllowedHeaders: tool.AllowedHeaders, RequireApproval: tool.RequireApproval,
+			Params: params, Tools: tools,
 		})
 	default:
 		params := adk.StreamableHTTPConnectionParams{Url: targetURL, Headers: headers}
@@ -36,7 +36,7 @@ func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRunt
 		}
 		params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
 		config.HttpTools = append(config.HttpTools, adk.HttpMcpServerConfig{
-			Params: params, Tools: tool.ToolNames, AllowedHeaders: tool.AllowedHeaders, RequireApproval: tool.RequireApproval,
+			Params: params, Tools: tools,
 		})
 	}
 

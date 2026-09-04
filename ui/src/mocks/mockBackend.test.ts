@@ -34,22 +34,6 @@ function setScenario(scenario: "ok" | "empty" | "error"): void {
 beforeEach(() => setScenario("ok"));
 afterEach(() => clearApiExtensions());
 
-/** An agent draft, in the shape a form produces. */
-const agentDraft = (name: string) => ({
-  apiVersion: "kagent.dev/v1alpha3",
-  kind: "SandboxAgent",
-  metadata: { name, namespace: "kagent" },
-  spec: {
-    type: "Declarative" as const,
-    description: `the ${name} agent`,
-    declarative: {
-      systemMessage: "be useful",
-      modelConfig: "default-model-config",
-      tools: [],
-    },
-  },
-});
-
 /**
  * A plausible input for every operation.
  *
@@ -58,12 +42,6 @@ const agentDraft = (name: string) => ({
  * the whole surface.
  */
 const INPUTS = {
-  "agents.list": {},
-  "agents.get": { namespace: "kagent", name: "k8s-agent" },
-  "agents.create": { resource: agentDraft("swept-agent") },
-  "agents.update": { resource: agentDraft("swept-agent") },
-  "agents.delete": { namespace: "kagent", name: "swept-agent" },
-
   "models.list": {},
   "models.get": { namespace: "kagent", name: "default-model-config" },
   "models.create": {
@@ -243,38 +221,6 @@ describe("the fixture backend", () => {
     expect(failures.filter(Boolean)).toEqual([]);
   });
 
-  it("reads a created agent back, and stops listing a deleted one", async () => {
-    await invoke("agents.create", { resource: agentDraft("written-agent") });
-
-    const listed = await invoke("agents.list", {});
-    expect(listed.map((row) => row.agent.metadata.name)).toContain("written-agent");
-
-    // Resolved from the referenced ModelConfig, the way the controller resolves it:
-    // a new row that left it blank would read differently from every other row.
-    const created = listed.find((row) => row.agent.metadata.name === "written-agent");
-    expect(created?.model).toBe("gpt-4.1");
-
-    const read = await invoke("agents.get", {
-      namespace: "kagent",
-      name: "written-agent",
-    });
-    expect(read.agent.spec.description).toBe("the written-agent agent");
-
-    await invoke("agents.delete", { namespace: "kagent", name: "written-agent" });
-    const after = await invoke("agents.list", {});
-    expect(after.map((row) => row.agent.metadata.name)).not.toContain("written-agent");
-  });
-
-  it("finds a harness when the caller does not know which kind it is", async () => {
-    // `agents.get` asks for a sandbox agent first; the fake must answer that with a
-    // 404 for a harness, or the fallback never runs and the harness is unreachable.
-    const harness = await invoke("agents.get", {
-      namespace: "analytics",
-      name: "reporting-agent",
-    });
-    expect(harness.agentKind).toBe("AgentHarness");
-  });
-
   /*
    * `models.providers` is two RPCs merged, and a merge with nothing on one side is
    * wired rather than exercised — so the fixtures carry one provider of each kind and
@@ -407,14 +353,13 @@ describe("the fixture backend", () => {
     beforeEach(() => setScenario("empty"));
 
     it("empties the lists", async () => {
-      expect(await invoke("agents.list", {})).toEqual([]);
       expect(await invoke("models.list", {})).toEqual([]);
       expect(await invoke("namespaces.list", {})).toEqual([]);
     });
 
     it("answers a single resource with a 404, which is the state a page renders", async () => {
       await expect(
-        invoke("agents.get", { namespace: "kagent", name: "k8s-agent" }),
+        invoke("models.get", { namespace: "kagent", name: "default-model-config" }),
       ).rejects.toMatchObject({ status: 404 });
     });
   });
@@ -423,25 +368,24 @@ describe("the fixture backend", () => {
     beforeEach(() => setScenario("error"));
 
     it("fails a read as the API would, and says it was asked to", async () => {
-      const error = await invoke("agents.list", {}).catch((reason: unknown) => reason);
+      const error = await invoke("models.list", {}).catch((reason: unknown) => reason);
 
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).status).toBe(500);
       expect((error as ApiError).message).toContain("asked to fail");
       // Named so a failing screenshot says which call broke.
-      expect((error as ApiError).message).toContain("AgentService/ListAgents");
+      expect((error as ApiError).message).toContain("ModelService/ListModelConfigs");
     });
 
     it("fails a write too, so a form's failure path is reachable", async () => {
       await expect(
-        invoke("agents.create", { resource: agentDraft("never-created") }),
+        invoke("models.create", {
+          payload: {
+            ref: "kagent/never-created",
+            spec: { model: "gpt-4.1", provider: "OpenAI" },
+          },
+        }),
       ).rejects.toBeInstanceOf(ApiError);
-
-      setScenario("ok");
-      const listed = await invoke("agents.list", {});
-      expect(listed.map((row) => row.agent.metadata.name)).not.toContain(
-        "never-created",
-      );
     });
   });
 });

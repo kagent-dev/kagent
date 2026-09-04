@@ -14,8 +14,6 @@
 
 import { invoke } from "./operations";
 import { sortedByFields, sortedByNamespaceThenName, sortedByRef } from "./order";
-import type { AgentKindName } from "./domain/agents";
-import type { Agent, AgentCreateRequest, AgentResponse } from "./domain/agents";
 import type {
   CreateModelConfigRequest,
   ModelConfig,
@@ -62,52 +60,6 @@ export interface ReadOptions {
   signal?: AbortSignal;
 }
 
-export interface AgentsApi {
-  list(options?: ReadOptions): Promise<AgentResponse[]>;
-  /**
-   * One agent, by ref.
-   *
-   * `kind` is optional because a detail page reading a URL does not know it. Left
-   * out, the sandbox agent is tried and the harness is tried on a 404 — one extra
-   * round trip for a harness, and none for the common case. Pass it when the
-   * caller already has the row.
-   */
-  get(
-    namespace: string,
-    name: string,
-    options?: ReadOptions & { kind?: AgentKindName },
-  ): Promise<AgentResponse>;
-  /**
-   * Creates an agent and returns the created resource.
-   *
-   * A bare custom resource — `{metadata, spec, status}` — not the wrapped row
-   * `list` and `get` return. Which kind of resource is read from the draft's own
-   * `kind`, defaulting to `SandboxAgent`; the controller has a separate create RPC
-   * per kind and no way to infer one.
-   */
-  create(payload: AgentCreateRequest): Promise<Agent>;
-  /**
-   * Replaces an agent, returning the updated resource.
-   *
-   * Takes the whole resource, not a patch: the controller replaces the spec it is
-   * given, so a caller that sends a partial agent silently drops whatever it left
-   * out.
-   *
-   * Only a `SandboxAgent` can be updated — `AgentService` has no update operation
-   * for an `AgentHarness`, and asking to update one rejects rather than sending a
-   * request that cannot succeed.
-   */
-  update(payload: AgentCreateRequest): Promise<Agent>;
-  /**
-   * Deletes an agent.
-   *
-   * `kind` picks which delete RPC is used and defaults to `SandboxAgent`, the only
-   * kind any screen currently offers to delete. A caller holding a harness row has
-   * to say so.
-   */
-  remove(namespace: string, name: string, kind?: AgentKindName): Promise<void>;
-}
-
 export interface ModelsApi {
   list(options?: ReadOptions): Promise<ModelConfig[]>;
   get(namespace: string, name: string, options?: ReadOptions): Promise<ModelConfig>;
@@ -116,7 +68,7 @@ export interface ModelsApi {
   /** Every provider the controller knows: the stock ones and the configured ones. */
   providers(options?: ReadOptions): Promise<Provider[]>;
   create(payload: CreateModelConfigRequest): Promise<ModelConfig>;
-  /** Replaces a model configuration. Addressed per resource, unlike agents. */
+  /** Replaces a model configuration. */
   update(
     namespace: string,
     name: string,
@@ -181,8 +133,7 @@ export interface AgentBuildingBlocksApi {
   /**
    * Every `Harness` — the runtime half — in one namespace, or in all of them.
    *
-   * `HarnessService`, not `AgentService`: `Harness` and `AgentHarness` are
-   * different CRDs that share nothing but a name.
+   * Served by `HarnessService`; a Harness is the reusable runtime half of an agent.
    */
   harnesses(namespace?: string, options?: ReadOptions): Promise<Harness[]>;
   /**
@@ -329,7 +280,6 @@ export interface AgentInstancesApi {
 }
 
 export interface KagentApiClient {
-  agents: AgentsApi;
   models: ModelsApi;
   mcpServers: McpServersApi;
   prompts: PromptsApi;
@@ -341,22 +291,6 @@ export interface KagentApiClient {
 
 export function createApiClient(): KagentApiClient {
   return {
-    agents: {
-      list: (options) =>
-        invoke("agents.list", {}, options).then((rows) =>
-          sortedByNamespaceThenName(rows, (row) => ({
-            namespace: row.agent.metadata?.namespace ?? "",
-            name: row.agent.metadata?.name ?? "",
-          })),
-        ),
-      get: (namespace, name, options) =>
-        invoke("agents.get", { namespace, name, kind: options?.kind }, options),
-      create: (payload) => invoke("agents.create", { resource: payload }),
-      update: (payload) => invoke("agents.update", { resource: payload }),
-      remove: (namespace, name, kind) =>
-        invoke("agents.delete", { namespace, name, kind }),
-    },
-
     models: {
       list: (options) => invoke("models.list", {}, options).then(sortedByRef),
       get: (namespace, name, options) =>

@@ -34,11 +34,8 @@ kubectl create secret generic kagent-openai -n kagent \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-4. Deploy the agent:
-
-```bash
-kubectl apply -f agent.yaml
-```
+4. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
+   API v2 examples and E2E fixtures for the current resource shape.
 
 ## Local Development
 

@@ -2,7 +2,6 @@ import type {
   ApiOperation,
   ApiRequestContext,
   ApiResponseContext,
-  EndpointId,
   OperationId,
 } from "@/api";
 
@@ -14,7 +13,7 @@ import type {
  * a call goes and how to reshape it in both directions.
  *
  * The data layer already owns the runtime seam — registries of operation
- * overrides, endpoint overrides and transforms, plus the resolution logic that
+ * operation overrides and transforms, plus the runtime logic that
  * reads them. This module deliberately does not restate any of that. What it adds
  * is the declarative half: the shape those changes take inside an extension's own
  * config object, keyed per call, so an extension declares its API differences
@@ -28,8 +27,7 @@ import type {
  */
 
 /**
- * Reshapes one endpoint's traffic. Both hooks are optional — an extension that only
- * needs a different URL supplies neither.
+ * Reshapes one operation's traffic.
  *
  * Scoped to a single call, unlike the registry's global `ApiTransform`: the
  * installer is what turns a table of these into one registry entry that
@@ -51,7 +49,7 @@ export interface ExtensionEndpointTransform {
  * An extension's API overrides. `TCallId` is the data layer's own union of operation
  * and endpoint ids, so naming a call that does not exist is a compile error.
  */
-export interface ExtensionApi<TCallId extends string = string> {
+export interface ExtensionApi<TCallId extends string = OperationId> {
   /**
    * Replaces the host's API root for every call. Applied as a rewrite of the
    * resolved URL's prefix, since the base URL itself belongs to the data
@@ -65,14 +63,6 @@ export interface ExtensionApi<TCallId extends string = string> {
    * exactly as omitting the field does.
    */
   baseUrl?: string | (() => string | undefined);
-  /**
-   * Per-endpoint path overrides, relative to the API base URL.
-   *
-   * Only the calls still served over HTTP have a path to override — everything
-   * else is an RPC whose address the generated descriptor fixes. Use `operations`
-   * for those.
-   */
-  endpoints?: Partial<Record<EndpointId, string>>;
   /**
    * Replacement implementations, per operation.
    *

@@ -40,7 +40,7 @@ export class ApiError extends Error {
    * What was called, to make a failure traceable.
    *
    * A URL for the handful of endpoints still served over HTTP, and the RPC's
-   * fully-qualified name — `kagent.api.v1alpha1.AgentService/ListAgents` — for
+   * fully-qualified name — `kagent.api.v1alpha1.ModelService/ListModelConfigs` — for
    * everything else. The field keeps its name because every caller that logs it
    * only wants "which call was this".
    */

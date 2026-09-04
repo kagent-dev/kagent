@@ -4,8 +4,6 @@
   resources:
   - harnesses
   - agenttemplates
-  - sandboxagents
-  - agentharnesses
   - modelconfigs
   - modelproviderconfigs
   - toolservers
@@ -22,8 +20,6 @@
   resources:
   - harnesses/finalizers
   - agenttemplates/finalizers
-  - sandboxagents/finalizers
-  - agentharnesses/finalizers
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers

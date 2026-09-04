@@ -451,8 +451,7 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # build.
 #
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
-# cluster (make create-kind-cluster). agent-sandbox is not required — the
-# controller tolerates the missing CRD and these tests create no SandboxAgents.
+# cluster (make create-kind-cluster).
 #
 # Lazily evaluated and referenced only by the upgrade targets below, so unrelated
 # make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
@@ -504,9 +503,7 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 # complete application and schema rollback to the previous release.
 # KAGENT_LOCAL_HOST lets the agent reach the local mock LLM.
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
-# cluster (make create-kind-cluster). The controller tolerates the missing
-# agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
-# no SandboxAgents, so agent-sandbox is not required.
+# cluster (make create-kind-cluster).
 .PHONY: announce-upgrade-from
 announce-upgrade-from: ## Print the upgrade-from -> to versions (runs before the build so it is clear up front)
 	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION). Building current images next. ==="

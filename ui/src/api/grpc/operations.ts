@@ -5,22 +5,11 @@
  * controller's gRPC services plus the conversion between its proto messages and
  * this app's domain types. Nothing above this file names a service or a method.
  *
- * ## The map from ids to RPCs, and the four places it is not one-to-one
+ * ## The map from ids to RPCs
  *
  * Most ids are a single RPC. These are not, and each is a decision rather than a
  * detail:
  *
- * - **`agents.get`** has two RPCs behind it, `GetSandboxAgent` and
- *   `GetAgentHarness`, because a `SandboxAgent` and an `AgentHarness` are
- *   different resources. A caller holding only a namespace and a name — a detail
- *   page reading a URL — cannot know which, so this tries the sandbox first and
- *   falls back to the harness on a `NotFound`. Any other failure is reported as
- *   itself rather than retried, so a permission error does not come back as
- *   "no such agent".
- * - **`agents.update`** is `UpdateSandboxAgent` and nothing else. `AgentHarness`
- *   has **no Update RPC** in `agents.proto`. Asking to update one fails here,
- *   loudly, rather than at the server: the alternative is a request the server
- *   cannot possibly satisfy and an error message about the wrong thing.
  * - **`models.providers`** merges `ListSupportedModelProviders` (the providers the
  *   controller ships with) and `ListConfiguredProviders` (the ones an operator
  *   added). The old REST endpoint returned one list and the UI's provider picker
@@ -36,22 +25,16 @@
  * `ListProviderModels` (refresh one provider's catalogue),
  * `ListSupportedMemoryProviders`, `ListToolServerTypes`, the MCP-app RPCs
  * (`ListMCPAppTools`, `CallMCPAppTool`, `ReadMCPAppResource`), the
- * `AgentHarness` session-actor RPCs and `SystemService`'s `GetVersion` and
- * `GetCurrentUser` all exist on the controller and have no operation id, because
+ * `SystemService`'s `GetVersion` and `GetCurrentUser` exist on the controller and
+ * have no operation id, because
  * nothing in the app calls them yet. Adding one is a new id here, not a new path
  * anywhere else.
  *
- * Four of `AgentInstanceService`'s RPCs are absent for a stronger reason than "not
- * yet". `CreateAgentInstance` needs a harness *and* an AgentTemplate chosen, and
- * `AgentTemplate` has no service to choose one from — it is a shipped CRD that
- * appears in no proto and on no route. `DeleteAgentInstance` is destructive and
- * irreversible. `CheckpointService` — including `ForkAgentInstance` — and the three
- * share RPCs are whole features rather than a control on a list. Each is a product
- * decision, and until one is taken the honest surface is the one that reads and
- * the two lifecycle operations that undo each other.
+ * `CheckpointService` is not exposed in the UI yet. Adding it requires product
+ * behavior for naming, listing, and restoring checkpoints, not another transport
+ * mapping hidden in this file.
  */
 
-import { AgentKind, AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
@@ -68,7 +51,6 @@ import {
 } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
-import type { Agent as PbAgent } from "@/generated/kagent/api/v1alpha1/agents_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
   GetSubstrateStatusResponse,
@@ -78,7 +60,7 @@ import type {
   SubstrateWorkerPool as PbSubstrateWorkerPool,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
-import { ApiError, fromConnectError, isNotFound, rethrowIfAborted } from "../ApiError";
+import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
 import { operationContext, serviceClient } from "../transport";
 import {
   KAGENT_API_VERSION,
@@ -90,14 +72,6 @@ import {
   unwrap,
   wrap,
 } from "./wire";
-import type {
-  Agent,
-  AgentCreateRequest,
-  AgentKindName,
-  AgentResponse,
-  Tool,
-} from "../domain/agents";
-import { normaliseAgentResponse } from "../domain/agents";
 import type { ModelConfig, ModelConfigSpec, Provider } from "../domain/models";
 import type {
   ToolServerResponse,
@@ -125,7 +99,6 @@ import type {
 } from "../domain/agentInstances";
 import type {
   ApiOperations,
-  AgentRef,
   OperationCallOptions,
   SubstratePageInput,
 } from "../operations";
@@ -136,7 +109,7 @@ import { createContextValues } from "@connectrpc/connect";
  *
  * `contextValues` is what carries the operation id into the transport, where the
  * interceptor that runs registered transforms can read it — a service and a
- * method are not enough to identify an operation (see `agents.get`).
+ * method are not enough to identify an operation (`models.providers` uses two).
  */
 function call(operation: keyof ApiOperations, options: OperationCallOptions) {
   return {
@@ -158,197 +131,6 @@ async function rpc<T>(
     throw fromConnectError(error, name);
   }
 }
-
-// region Agents
-
-const KIND_BY_ENUM: Record<AgentKind, AgentKindName | "unknown"> = {
-  [AgentKind.UNSPECIFIED]: "unknown",
-  [AgentKind.SANDBOX_AGENT]: "SandboxAgent",
-  [AgentKind.AGENT_HARNESS]: "AgentHarness",
-};
-
-/**
- * One `Agent` message as the row every agent screen reads.
- *
- * The custom resource comes out of `resource.value` unchanged — it is the object
- * as JSON, which is the same thing the REST API used to return — while the
- * resolved fields beside it (`model`, `ready`, the tool list) are the
- * controller's own denormalisation and have no equivalent inside the resource.
- */
-function toAgentRow(agent: PbAgent, rpcName: string): AgentResponse {
-  const resource = unwrap<Agent>(agent.resource, rpcName, "agent resource");
-
-  return normaliseAgentResponse({
-    id: agent.id,
-    agent: resource,
-    model: agent.model,
-    modelProvider: agent.modelProvider,
-    modelConfigRef: refToString(agent.modelConfigRef),
-    tools: list(agent.tools).map((tool) => (tool.value ?? {}) as unknown as Tool),
-    memoryRefs: list(agent.memoryRefs),
-    // Two separate truths the controller reports separately: `accepted` is
-    // "the spec was valid", `ready` is "it is running". A screen showing only one
-    // of them tells half the story, so both are carried.
-    deploymentReady: agent.ready,
-    accepted: agent.accepted,
-    agentKind: KIND_BY_ENUM[agent.kind] ?? "unknown",
-    agentHarness: agent.agentHarness
-      ? {
-          backend: agent.agentHarness.backend,
-          actorId: agent.agentHarness.actorId,
-          backendRefId: agent.agentHarness.backendRefId,
-          endpoint: agent.agentHarness.endpoint,
-          acpPath: agent.agentHarness.acpPath,
-        }
-      : undefined,
-  });
-}
-
-/**
- * Which resource a draft is for.
- *
- * Read from the draft's own `kind`, because that is the only place the answer
- * exists: the create RPCs are per-kind and a form that does not say which kind it
- * built cannot be guessed at. Defaults to `SandboxAgent`, the kind every existing
- * form in this app produces.
- */
-function draftKind(draft: AgentCreateRequest): AgentKindName {
-  return draft.kind === "AgentHarness" ? "AgentHarness" : "SandboxAgent";
-}
-
-const agents: Pick<
-  ApiOperations,
-  "agents.list" | "agents.get" | "agents.create" | "agents.update" | "agents.delete"
-> = {
-  "agents.list": async (input, options) => {
-    const name = "AgentService/ListAgents";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentService).listAgents(
-        { namespace: input.namespace ?? "" },
-        call("agents.list", options),
-      ),
-    );
-    return list(response.agents).map((agent) => toAgentRow(agent, name));
-  },
-
-  "agents.get": async (input, options) => {
-    if (input.kind === "AgentHarness") return getHarness(input, options);
-    if (input.kind === "SandboxAgent") return getSandbox(input, options);
-
-    // No kind given: the caller holds a URL and nothing else. Sandbox first
-    // because it is the common case, and only a genuine 404 justifies asking
-    // again — anything else is this agent's real answer.
-    try {
-      return await getSandbox(input, options);
-    } catch (error) {
-      if (!isNotFound(error)) throw error;
-      return getHarness(input, options);
-    }
-  },
-
-  "agents.create": async (input, options) => {
-    const kind = draftKind(input.resource);
-    const ref = {
-      namespace: input.resource.metadata.namespace ?? "",
-      name: input.resource.metadata.name,
-    };
-    const resource = wrap(kind, input.resource, input.resource.apiVersion);
-
-    if (kind === "AgentHarness") {
-      const name = "AgentService/CreateAgentHarness";
-      const response = await rpc(name, options.signal, () =>
-        serviceClient(AgentService).createAgentHarness(
-          { ref, resource },
-          call("agents.create", options),
-        ),
-      );
-      return unwrap<Agent>(response.agent?.resource, name, "created agent");
-    }
-
-    const name = "AgentService/CreateSandboxAgent";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentService).createSandboxAgent(
-        { ref, resource },
-        call("agents.create", options),
-      ),
-    );
-    return unwrap<Agent>(response.agent?.resource, name, "created agent");
-  },
-
-  "agents.update": async (input, options) => {
-    const name = "AgentService/UpdateSandboxAgent";
-    const kind = draftKind(input.resource);
-
-    // Stated here rather than sent and refused, because `agents.proto` has no
-    // UpdateAgentHarness at all — there is no request that could succeed.
-    if (kind === "AgentHarness") {
-      throw new ApiError(
-        "An AgentHarness cannot be edited: the controller offers no update operation for one. " +
-          "Delete it and create it again.",
-        { kind: "http", status: 501, code: "Unimplemented", url: name },
-      );
-    }
-
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(AgentService).updateSandboxAgent(
-        {
-          ref: {
-            namespace: input.resource.metadata.namespace ?? "",
-            name: input.resource.metadata.name,
-          },
-          resource: wrap(kind, input.resource, input.resource.apiVersion),
-        },
-        call("agents.update", options),
-      ),
-    );
-    return unwrap<Agent>(response.agent?.resource, name, "updated agent");
-  },
-
-  "agents.delete": async (input, options) => {
-    const ref = { namespace: input.namespace, name: input.name };
-    const client = serviceClient(AgentService);
-
-    if (input.kind === "AgentHarness") {
-      await rpc("AgentService/DeleteAgentHarness", options.signal, () =>
-        client.deleteAgentHarness({ ref }, call("agents.delete", options)),
-      );
-      return;
-    }
-    await rpc("AgentService/DeleteSandboxAgent", options.signal, () =>
-      client.deleteSandboxAgent({ ref }, call("agents.delete", options)),
-    );
-  },
-};
-
-async function getSandbox(
-  input: AgentRef,
-  options: OperationCallOptions,
-): Promise<AgentResponse> {
-  const name = "AgentService/GetSandboxAgent";
-  const response = await rpc(name, options.signal, () =>
-    serviceClient(AgentService).getSandboxAgent(
-      { ref: { namespace: input.namespace, name: input.name } },
-      call("agents.get", options),
-    ),
-  );
-  return toAgentRow(required(response.agent, name, `agent ${input.namespace}/${input.name}`), name);
-}
-
-async function getHarness(
-  input: AgentRef,
-  options: OperationCallOptions,
-): Promise<AgentResponse> {
-  const name = "AgentService/GetAgentHarness";
-  const response = await rpc(name, options.signal, () =>
-    serviceClient(AgentService).getAgentHarness(
-      { ref: { namespace: input.namespace, name: input.name } },
-      call("agents.get", options),
-    ),
-  );
-  return toAgentRow(required(response.agent, name, `agent ${input.namespace}/${input.name}`), name);
-}
-
-// endregion
 
 // region Models
 
@@ -1501,7 +1283,6 @@ function required<T>(value: T | undefined, rpcName: string, what: string): T {
  * declared in `OperationMap` without appearing here — the compiler insists.
  */
 export const defaultOperations: ApiOperations = {
-  ...agents,
   ...agentBuildingBlocks,
   ...models,
   ...toolServers,

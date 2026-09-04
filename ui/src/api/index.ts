@@ -15,7 +15,6 @@ export type { ApiMode } from "./config";
 
 export { apiClient, createApiClient } from "./client";
 export type {
-  AgentsApi,
   KagentApiClient,
   McpServersApi,
   ModelsApi,
@@ -29,7 +28,6 @@ export type {
 export { invoke, operationIds } from "./operations";
 export type {
   AgentInstanceRef,
-  AgentRef,
   ApiOperation,
   ApiOperations,
   OperationCallOptions,
@@ -43,13 +41,9 @@ export type {
   SubstrateWorkerSortField,
 } from "./operations";
 
-export { endpointIds, resolveEndpoint } from "./endpoints";
-export type { EndpointId, EndpointParams, EndpointResolver } from "./endpoints";
-
 export {
   clearApiExtensions,
   registerApiTransform,
-  registerEndpointOverride,
   registerOperationOverride,
 } from "./extensionPoints";
 export type {
@@ -69,7 +63,6 @@ export {
 export type { AuthTokenSource } from "./transport";
 
 export * from "./domain/agentInstances";
-export * from "./domain/agents";
 export * from "./domain/common";
 export * from "./domain/mcpServers";
 export * from "./domain/models";
@@ -80,7 +73,6 @@ export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
 export * from "./domain/agentPairs";
 
-export { useAgent, useAgents } from "./hooks/useAgents";
 export { useMcpServers, useTools } from "./hooks/useMcpServers";
 export {
   useModel,
