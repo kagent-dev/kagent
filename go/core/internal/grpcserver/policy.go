@@ -26,7 +26,6 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.ModelService_UpdateModelConfig_FullMethodName:             auth.AccessUpdate,
 		apiv1alpha1.ModelService_DeleteModelConfig_FullMethodName:             auth.AccessDelete,
 		apiv1alpha1.ModelService_ListSupportedModelProviders_FullMethodName:   auth.AccessRead,
-		apiv1alpha1.ModelService_ListSupportedMemoryProviders_FullMethodName:  auth.AccessRead,
 		apiv1alpha1.ModelService_ListConfiguredProviders_FullMethodName:       auth.AccessRead,
 		apiv1alpha1.ModelService_ListProviderModels_FullMethodName:            auth.AccessRead,
 		apiv1alpha1.ModelService_ListSupportedModels_FullMethodName:           auth.AccessRead,

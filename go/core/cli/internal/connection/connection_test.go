@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -17,7 +17,7 @@ type failingVersionClient struct {
 	err error
 }
 
-func (c failingVersionClient) GetVersion(context.Context) (*api.VersionResponse, error) {
+func (c failingVersionClient) GetVersion(context.Context) (*apiv1alpha1.GetVersionResponse, error) {
 	return nil, c.err
 }
 

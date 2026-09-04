@@ -9,7 +9,6 @@ import (
 	"time"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -33,14 +32,6 @@ func (service *recordingSystemService) GetVersion(ctx context.Context, _ *apiv1a
 	}, nil
 }
 
-func (service *recordingSystemService) ListNamespaces(ctx context.Context, _ *apiv1alpha1.ListNamespacesRequest) (*apiv1alpha1.ListNamespacesResponse, error) {
-	service.observe(ctx)
-	return &apiv1alpha1.ListNamespacesResponse{Namespaces: []*apiv1alpha1.Namespace{
-		{Name: "alpha", Status: "Active"},
-		{Name: "team", Status: "Terminating"},
-	}}, nil
-}
-
 func (service *recordingSystemService) observe(ctx context.Context) {
 	metadataValues, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
@@ -52,7 +43,7 @@ func (service *recordingSystemService) observe(ctx context.Context) {
 	})
 }
 
-func TestSystemClientsUseGeneratedGRPC(t *testing.T) {
+func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	systemService := &recordingSystemService{}
 	server := grpc.NewServer()
@@ -78,22 +69,12 @@ func TestSystemClientsUseGeneratedGRPC(t *testing.T) {
 
 	version, err := clientSet.Version.GetVersion(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, &api.VersionResponse{
-		KAgentVersion: "v1.2.3",
-		GitCommit:     "abc123",
-		BuildDate:     "2026-07-29",
-	}, version)
-
-	namespaces, err := clientSet.Namespace.ListNamespaces(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, "Successfully listed namespaces", namespaces.Message)
-	assert.Equal(t, []api.NamespaceResponse{
-		{Name: "alpha", Status: "Active"},
-		{Name: "team", Status: "Terminating"},
-	}, namespaces.Data)
+	assert.Equal(t, "v1.2.3", version.GetKagentVersion())
+	assert.Equal(t, "abc123", version.GetGitCommit())
+	assert.Equal(t, "2026-07-29", version.GetBuildDate())
 
 	systemService.mu.Lock()
-	require.Len(t, systemService.observations, 2)
+	require.Len(t, systemService.observations, 1)
 	for _, observation := range systemService.observations {
 		assert.Equal(t, callObservation{userID: "default-user", hasDeadline: true}, observation)
 	}

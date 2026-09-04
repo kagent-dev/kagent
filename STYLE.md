@@ -244,8 +244,7 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 ### CRD API design
 
-All new API surface goes in `v1alpha3`. `v1alpha1` and `v1alpha2` **MUST NOT** receive new
-features.
+All new CRD API surface goes in `v1alpha3`.
 
 - Every field carries explicit markers: `// +optional` or `// +required`,
   plus `// +kubebuilder:default=...`, `// +kubebuilder:validation:Enum=...`

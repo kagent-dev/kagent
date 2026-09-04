@@ -23,7 +23,7 @@
  * ## What is not reachable from here
  *
  * `ListProviderModels` (refresh one provider's catalogue),
- * `ListSupportedMemoryProviders`, `ListToolServerTypes`, the MCP-app RPCs
+ * `ListToolServerTypes`, the MCP-app RPCs
  * (`ListMCPAppTools`, `CallMCPAppTool`, `ReadMCPAppResource`), the
  * `SystemService`'s `GetVersion` and `GetCurrentUser` exist on the controller and
  * have no operation id, because

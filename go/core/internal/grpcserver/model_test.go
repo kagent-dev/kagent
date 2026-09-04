@@ -171,14 +171,6 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListSupportedModelProviders() = %+v", modelProviders.GetProviders())
 	}
 
-	memoryProviders, err := client.ListSupportedMemoryProviders(ctx, &apiv1alpha1.ListSupportedMemoryProvidersRequest{})
-	if err != nil {
-		t.Fatalf("ListSupportedMemoryProviders() error = %v", err)
-	}
-	if len(memoryProviders.GetProviders()) != 1 || memoryProviders.GetProviders()[0].GetName() != "Pinecone" {
-		t.Fatalf("ListSupportedMemoryProviders() = %+v", memoryProviders.GetProviders())
-	}
-
 	configuredProviders, err := client.ListConfiguredProviders(ctx, &apiv1alpha1.ListConfiguredProvidersRequest{})
 	if err != nil {
 		t.Fatalf("ListConfiguredProviders() error = %v", err)
