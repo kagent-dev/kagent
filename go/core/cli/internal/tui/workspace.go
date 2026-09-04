@@ -51,10 +51,10 @@ type instanceLister interface {
 }
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
-func RunWorkspace(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) error {
+func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, verbose bool) error {
 	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
 	kubeCatalog, catalogErr := newKubeCatalog()
-	m := newWorkspaceModel(ctx, cfg, clientSet, kubeCatalog, catalogErr, verbose)
+	m := newWorkspaceModel(ctx, cfg, api, gateway, kubeCatalog, catalogErr, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
@@ -93,7 +93,7 @@ type workspaceModel struct {
 	// ctx cancels in-flight I/O; Bubble Tea commands take no context of their own.
 	ctx        context.Context
 	cfg        Options
-	client     *client.ClientSet
+	client     *client.GatewayClientSet
 	lister     instanceLister
 	catalog    catalog
 	catalogErr error
@@ -127,16 +127,16 @@ type workspaceModel struct {
 }
 
 // newWorkspaceModel builds the model from resolved dependencies; it reads no configuration of its own.
-func newWorkspaceModel(ctx context.Context, cfg Options, clientSet *client.ClientSet, kubeCatalog catalog, catalogErr error, verbose bool) *workspaceModel {
+func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, kubeCatalog catalog, catalogErr error, verbose bool) *workspaceModel {
 	var lister instanceLister
-	if clientSet != nil {
-		lister = clientSet.AgentInstance
+	if api != nil {
+		lister = api.AgentInstance
 	}
 
 	return &workspaceModel{
 		ctx:        ctx,
 		cfg:        cfg,
-		client:     clientSet,
+		client:     gateway,
 		lister:     lister,
 		catalog:    kubeCatalog,
 		catalogErr: catalogErr,

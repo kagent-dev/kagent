@@ -53,7 +53,7 @@ func DefaultOptions() Options {
 	}
 }
 
-func (o *Options) Client() (*client.ClientSet, error) {
+func (o *Options) clientOptions() []client.ClientOption {
 	clientOptions := []client.ClientOption{client.WithUserID(o.UserID)}
 	if o.Timeout > 0 {
 		clientOptions = append(clientOptions, client.WithGRPCTimeout(o.Timeout))
@@ -64,7 +64,15 @@ func (o *Options) Client() (*client.ClientSet, error) {
 			ServerName: o.ServerName,
 		}))
 	}
-	return client.New(o.APIURL, o.GatewayURL, clientOptions...)
+	return clientOptions
+}
+
+func (o *Options) APIClient() (*client.APIClientSet, error) {
+	return client.NewAPI(o.APIURL, o.clientOptions()...)
+}
+
+func (o *Options) GatewayClient() (*client.GatewayClientSet, error) {
+	return client.NewGateway(o.GatewayURL, o.clientOptions()...)
 }
 
 func (o *Options) validate() error {
@@ -77,22 +85,9 @@ func (o *Options) validate() error {
 	return nil
 }
 
-func checkServer(ctx context.Context, clientSet *client.ClientSet) error {
-	if clientSet == nil {
-		return errServerConnection
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if _, err := clientSet.Version.GetVersion(ctx); err != nil {
-		return fmt.Errorf("%w: %w", errServerConnection, err)
-	}
-	return nil
-}
-
 // Connect checks the configured server and starts a port-forward only for an
 // unreachable default local endpoint.
-func Connect(ctx context.Context, cfg *Options) (*PortForward, error) {
+func Connect(ctx context.Context, cfg *Options, endpoint string) (*PortForward, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -100,33 +95,31 @@ func Connect(ctx context.Context, cfg *Options) (*PortForward, error) {
 		fmt.Fprintf(os.Stderr, "Using caller identity %q\n", cfg.UserID)
 	}
 
-	err := checkConfiguredServer(ctx, cfg)
+	err := checkConfiguredServer(ctx, cfg, endpoint)
 	if err == nil {
 		return nil, nil
 	}
-	if !shouldPortForward(cfg, err) {
+	if !shouldPortForward(cfg, endpoint, err) {
 		return nil, err
 	}
-	return NewPortForward(ctx, cfg)
+	return NewPortForward(ctx, cfg, endpoint)
 }
 
-func shouldPortForward(cfg *Options, err error) bool {
-	if cfg.CAFile != "" || cfg.ServerName != "" || strings.TrimRight(cfg.APIURL, "/") != defaultAPIURL || strings.TrimRight(cfg.GatewayURL, "/") != defaultGatewayURL {
+func shouldPortForward(cfg *Options, endpoint string, err error) bool {
+	if cfg.CAFile != "" || cfg.ServerName != "" || strings.TrimRight(endpoint, "/") != defaultAPIURL {
 		return false
 	}
 	code := status.Code(err)
 	return code == codes.Unavailable || code == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)
 }
 
-func checkConfiguredServer(ctx context.Context, cfg *Options) (err error) {
-	clientSet, err := cfg.Client()
-	if err != nil {
-		return err
+func checkConfiguredServer(ctx context.Context, cfg *Options, endpoint string) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := client.CheckHealth(ctx, endpoint, cfg.clientOptions()...); err != nil {
+		return fmt.Errorf("%w: %w", errServerConnection, err)
 	}
-	defer func() {
-		err = errors.Join(err, clientSet.Close())
-	}()
-	return checkServer(ctx, clientSet)
+	return nil
 }
 
 // PortForward is a running kubectl port-forward process.
@@ -138,7 +131,7 @@ type PortForward struct {
 }
 
 // NewPortForward starts a port-forward and waits for the server to become reachable.
-func NewPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
+func NewPortForward(ctx context.Context, cfg *Options, endpoint string) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
 	stderr := newBoundedBuffer(kubectlErrorLimit)
@@ -162,7 +155,7 @@ func NewPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
 
 	var lastErr error
 	for {
-		lastErr = checkConfiguredServer(readyCtx, cfg)
+		lastErr = checkConfiguredServer(readyCtx, cfg, endpoint)
 		if lastErr == nil {
 			return portForward, nil
 		}

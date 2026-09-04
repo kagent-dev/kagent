@@ -48,14 +48,14 @@ func runCreate(
 	}
 	ensureRequestID(cfg)
 
-	session, err := connection.Open(ctx, options)
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return create(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
+	return create(ctx, session.API.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func ensureRequestID(cfg *CreateCfg) {
@@ -75,14 +75,14 @@ func runDelete(
 	if err != nil {
 		return err
 	}
-	session, err := connection.Open(ctx, options)
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return deleteAgentInstance(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
+	return deleteAgentInstance(ctx, session.API.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func create(

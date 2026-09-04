@@ -100,24 +100,29 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	})
 
 	var dialCount atomic.Int32
-	clientSet, err := New(
-		"http://api.invalid:80",
-		"http://gateway.invalid:80",
+	options := []ClientOption{
 		WithUserID("caller"),
-		WithGRPCTimeout(5*time.Second),
+		WithGRPCTimeout(5 * time.Second),
 		WithGRPCDialOptions(grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			dialCount.Add(1)
 			return listener.Dial()
 		})),
+	}
+	apiClient, err := NewAPI(
+		"http://api.invalid:80",
+		options...,
 	)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, clientSet.Close()) })
+	t.Cleanup(func() { require.NoError(t, apiClient.Close()) })
+	gatewayClient, err := NewGateway("http://gateway.invalid:80", options...)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, gatewayClient.Close()) })
 
-	_, err = clientSet.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
+	_, err = apiClient.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
 
-	a2aClient, err := clientSet.A2A.ForAgentInstance(context.Background(), "kagent", agentInstanceClientTestID)
+	a2aClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), "kagent", agentInstanceClientTestID)
 	require.NoError(t, err)
 	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
 		"authorization": {"Bearer model-key"},

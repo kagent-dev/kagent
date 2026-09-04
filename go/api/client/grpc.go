@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -81,59 +80,57 @@ func parseGRPCURL(rawURL string) (string, bool, error) {
 	}
 }
 
-// WithGRPCTarget overrides both native gRPC targets for in-process tests.
+// WithGRPCTarget overrides the native gRPC target for in-process tests.
 func WithGRPCTarget(target string) ClientOption {
-	return func(client *BaseClient) {
-		client.api.target, client.gateway.target = target, target
+	return func(client *baseClient) {
+		client.transport.target = target
 	}
 }
 
 // WithGRPCTimeout sets the default deadline applied when a context has no
 // earlier deadline. A non-positive duration disables the default deadline.
 func WithGRPCTimeout(timeout time.Duration) ClientOption {
-	return func(client *BaseClient) {
-		client.api.timeout, client.gateway.timeout = timeout, timeout
+	return func(client *baseClient) {
+		client.transport.timeout = timeout
 	}
 }
 
 // WithGRPCMaxMessageSize sets the maximum size for gRPC requests, responses,
 // and StructuredObject payloads. A non-positive value uses gRPC defaults.
 func WithGRPCMaxMessageSize(maxMessageBytes int) ClientOption {
-	return func(client *BaseClient) {
-		client.api.maxMessageBytes, client.gateway.maxMessageBytes = maxMessageBytes, maxMessageBytes
+	return func(client *baseClient) {
+		client.transport.maxMessageBytes = maxMessageBytes
 	}
 }
 
 // WithGRPCTLS configures server-authenticated TLS for HTTPS endpoints.
 func WithGRPCTLS(config GRPCTLSConfig) ClientOption {
-	return func(client *BaseClient) {
-		for _, transport := range []*grpcTransport{client.api, client.gateway} {
-			if transport.tlsConfig != nil {
-				transport.tlsConfig = &config
-				transport.credentials = nil
-			}
+	return func(client *baseClient) {
+		if client.transport.tlsConfig != nil {
+			client.transport.tlsConfig = &config
+			client.transport.credentials = nil
 		}
 	}
 }
 
 // WithGRPCTransportCredentials sets custom gRPC transport credentials.
 func WithGRPCTransportCredentials(transportCredentials credentials.TransportCredentials) ClientOption {
-	return func(client *BaseClient) {
-		client.api.credentials, client.gateway.credentials = transportCredentials, transportCredentials
-		client.api.tlsConfig, client.gateway.tlsConfig = nil, nil
+	return func(client *baseClient) {
+		client.transport.credentials = transportCredentials
+		client.transport.tlsConfig = nil
 	}
 }
 
 // WithGRPCDialOptions appends low-level gRPC dial options. It is primarily
 // useful for custom resolvers and in-process test dialers.
 func WithGRPCDialOptions(options ...grpc.DialOption) ClientOption {
-	return func(client *BaseClient) {
-		client.api.dialOptions = append(client.api.dialOptions, options...)
-		client.gateway.dialOptions = append(client.gateway.dialOptions, options...)
+	return func(client *baseClient) {
+		client.transport.dialOptions = append(client.transport.dialOptions, options...)
 	}
 }
 
-func (c *BaseClient) grpcConnection(transport *grpcTransport) (*grpc.ClientConn, error) {
+func (c *baseClient) grpcConnection() (*grpc.ClientConn, error) {
+	transport := c.transport
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 
@@ -198,34 +195,30 @@ func grpcTransportCredentials(transport *grpcTransport) (credentials.TransportCr
 	return credentials.NewTLS(tlsConfig), nil
 }
 
-func (c *BaseClient) grpcCallContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return c.grpcCallContextForUser(ctx, c.UserID)
+func (c *baseClient) grpcCallContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return c.grpcCallContextForUser(ctx, c.userID)
 }
 
-func (c *BaseClient) grpcCallContextForUser(ctx context.Context, userID string) (context.Context, context.CancelFunc) {
+func (c *baseClient) grpcCallContextForUser(ctx context.Context, userID string) (context.Context, context.CancelFunc) {
 	if userID != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-user-id", userID)
 	}
-	if c.api.timeout <= 0 {
+	if c.transport.timeout <= 0 {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, c.api.timeout)
+	return context.WithTimeout(ctx, c.transport.timeout)
 }
 
-// Close releases the shared gRPC connection, if one was created.
-func (c *BaseClient) Close() error {
+func (c *baseClient) Close() error {
 	if c == nil {
 		return nil
 	}
-
-	var errs []error
-	for _, transport := range []*grpcTransport{c.api, c.gateway} {
-		transport.mu.Lock()
-		if transport.conn != nil {
-			errs = append(errs, transport.conn.Close())
-			transport.conn = nil
-		}
-		transport.mu.Unlock()
+	c.transport.mu.Lock()
+	defer c.transport.mu.Unlock()
+	if c.transport.conn == nil {
+		return nil
 	}
-	return errors.Join(errs...)
+	err := c.transport.conn.Close()
+	c.transport.conn = nil
+	return err
 }
