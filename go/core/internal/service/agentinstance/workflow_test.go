@@ -40,6 +40,13 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
+	actors.actors[actorKey("team-a", actorName(instance.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	if err := workflow.Pause(context.Background(), created); err != nil {
+		t.Fatal(err)
+	}
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+		t.Fatalf("paused Actor status = %s", actor.GetStatus().GetState())
+	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +190,12 @@ func (a *lifecycleTestActors) CreateActorFromSnapshotTag(_ context.Context, ates
 func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	return actor, nil
+}
+
+func (a *lifecycleTestActors) PauseActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor := a.actors[actorKey(atespace, name)]
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
 	return actor, nil
 }
 

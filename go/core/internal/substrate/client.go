@@ -198,6 +198,16 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetActor(), nil
+}
+
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()

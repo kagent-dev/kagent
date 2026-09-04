@@ -29,6 +29,7 @@ type actorClient interface {
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	CreateActorFromSnapshotTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
+	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
 	GetActorSnapshot(context.Context, string, string) (*ateapipb.ActorSnapshot, error)
 	DeleteActor(context.Context, string, string) error
@@ -44,6 +45,20 @@ type ActorWorkflow struct {
 
 func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors}
+}
+
+// Pause checkpoints the runtime on its current worker for a short input wait.
+// It intentionally produces no durable ActorSnapshot reference.
+func (w *ActorWorkflow) Pause(ctx context.Context, instance *apiv1alpha1.AgentInstance) error {
+	atespace, name := instance.GetNamespace(), actorName(instance.GetId())
+	actor, err := w.actors.PauseActor(ctx, atespace, name)
+	if err != nil {
+		return fmt.Errorf("pause Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+		return fmt.Errorf("pause Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
+	}
+	return nil
 }
 
 // Quiesce durably suspends the runtime without changing the AgentInstance's
