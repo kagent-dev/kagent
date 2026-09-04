@@ -41,6 +41,7 @@ dependencies = [
   "boto3>=1.28.57",
   "ollama >=0.3.6",  # Ollama SDK
   "numpy>=2.2.6",
+  "azure-identity>=1.19.0",  # Azure Workload Identity for Azure OpenAI / Foundry
 ]
 
 [tool.uv.sources]
