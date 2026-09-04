@@ -9,7 +9,7 @@ description = "Generated protobuf and gRPC contracts used by kagent Python runti
 requires-python = ">=3.11"
 dependencies = [
   "a2a-sdk>=1.1.0,<2",
-  "grpcio>=1.83.0",
+  "grpcio>=1.83.1",
   "protobuf>=6.33.5,<7",
 ]
 
