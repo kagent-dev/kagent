@@ -216,7 +216,7 @@ type OpenAIConfig struct {
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
 
-// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the Go ADK runtime.
+// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the ADK runtime.
 // +kubebuilder:validation:Enum=chatCompletions;responses
 type OpenAIAPIFormat string
 
