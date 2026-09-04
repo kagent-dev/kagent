@@ -262,7 +262,10 @@ func Run(ctx context.Context, opts Options) error {
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
-	system := systemservice.NewService(systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors))
+	system := systemservice.NewService(
+		systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors),
+		systemservice.WithRuntimeRevisions(store),
+	)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
