@@ -26,6 +26,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
@@ -102,6 +103,49 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 	if !ok || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
 		t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
 	}
+}
+
+func sendApprovedToolRequest(t *testing.T, fixture *interactionFixture, prompt, wantTool string) *a2atype.Task {
+	t.Helper()
+	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), kagenta2a.HITLExtensionURI)
+	_, _, waiting := fixture.send(t, prompt)
+	if waiting.Status.State != a2atype.TaskStateInputRequired {
+		t.Fatalf("A2A task state = %s, want INPUT_REQUIRED", waiting.Status.State)
+	}
+	request, err := kagenta2a.ParseToolApprovalRequest(waiting.Status.Message)
+	if err != nil {
+		t.Fatalf("parse tool approval request: %v", err)
+	}
+	if request == nil {
+		t.Fatal("INPUT_REQUIRED task has no tool approval request")
+	}
+	if len(request.Tools) != 1 || request.Tools[0].Name != wantTool {
+		t.Fatalf("tool approval request = %+v, want one request for %q", request.Tools, wantTool)
+	}
+
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	if err := kagenta2a.AttachHITL(reply, kagenta2a.ToolApprovalResponse{
+		Type: kagenta2a.HITLTypeToolApprovalResponse,
+		Approvals: []kagenta2a.ToolApproval{{
+			ID:       request.Tools[0].ID,
+			Approved: true,
+		}},
+	}); err != nil {
+		t.Fatalf("attach tool approval response: %v", err)
+	}
+	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatalf("resume A2A task after tool approval: %v", err)
+	}
+	completed, ok := response.(*a2atype.Task)
+	if !ok {
+		t.Fatalf("resumed A2A response = %T, want Task", response)
+	}
+	if completed.ID != waiting.ID || completed.ContextID != waiting.ContextID {
+		t.Fatalf("resumed task = %s/%s, want %s/%s", completed.ContextID, completed.ID, waiting.ContextID, waiting.ID)
+	}
+	return completed
 }
 
 func TestAgentInstanceCheckpoint(t *testing.T) {
