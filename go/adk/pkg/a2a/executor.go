@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
@@ -32,7 +33,7 @@ type KAgentExecutorConfig struct {
 	SessionService adksession.Service
 	Stream         bool
 	AppName        string
-	Logger         logr.Logger
+	Logger         *slog.Logger
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -41,7 +42,7 @@ type KAgentExecutor struct {
 	builtin        a2asrv.AgentExecutor
 	sessionService adksession.Service
 	appName        string
-	logger         logr.Logger
+	logger         *slog.Logger
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -84,7 +85,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		builtin:        builtin,
 		sessionService: runnerConfig.SessionService,
 		appName:        cfg.AppName,
-		logger:         cfg.Logger.WithName("kagent-executor"),
+		logger:         cfg.Logger.With("component", "kagent-executor"),
 	}
 }
 
@@ -146,11 +147,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		defer invocationSpan.End()
 		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 
-		e.logger.Info("Execute",
-			"taskID", reqCtx.TaskID,
-			"contextID", reqCtx.ContextID,
-			"appName", e.appName,
-			"userID", userID,
+		e.logger.InfoContext(ctx, "execute",
+			"task_id", reqCtx.TaskID,
+			"context_id", reqCtx.ContextID,
+			"app_name", e.appName,
+			"user_id", userID,
 		)
 
 		// Run our own session management before upstream executor runs its prepareSession function.
@@ -212,7 +213,7 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 		return nil
 	}
 	if err != nil {
-		e.logger.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
+		e.logger.DebugContext(ctx, "session lookup failed, will create", "error", err, "session_id", sessionID)
 	}
 
 	state := make(map[string]any)
