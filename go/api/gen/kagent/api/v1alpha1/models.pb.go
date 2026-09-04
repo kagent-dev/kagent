@@ -753,86 +753,6 @@ func (x *ListSupportedModelProvidersResponse) GetProviders() []*ProviderDefiniti
 	return nil
 }
 
-type ListSupportedMemoryProvidersRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListSupportedMemoryProvidersRequest) Reset() {
-	*x = ListSupportedMemoryProvidersRequest{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListSupportedMemoryProvidersRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListSupportedMemoryProvidersRequest) ProtoMessage() {}
-
-func (x *ListSupportedMemoryProvidersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListSupportedMemoryProvidersRequest.ProtoReflect.Descriptor instead.
-func (*ListSupportedMemoryProvidersRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{15}
-}
-
-type ListSupportedMemoryProvidersResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Providers     []*ProviderDefinition  `protobuf:"bytes,1,rep,name=providers,proto3" json:"providers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListSupportedMemoryProvidersResponse) Reset() {
-	*x = ListSupportedMemoryProvidersResponse{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListSupportedMemoryProvidersResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListSupportedMemoryProvidersResponse) ProtoMessage() {}
-
-func (x *ListSupportedMemoryProvidersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListSupportedMemoryProvidersResponse.ProtoReflect.Descriptor instead.
-func (*ListSupportedMemoryProvidersResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *ListSupportedMemoryProvidersResponse) GetProviders() []*ProviderDefinition {
-	if x != nil {
-		return x.Providers
-	}
-	return nil
-}
-
 type ConfiguredProvider struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -844,7 +764,7 @@ type ConfiguredProvider struct {
 
 func (x *ConfiguredProvider) Reset() {
 	*x = ConfiguredProvider{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[17]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +776,7 @@ func (x *ConfiguredProvider) String() string {
 func (*ConfiguredProvider) ProtoMessage() {}
 
 func (x *ConfiguredProvider) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[17]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +789,7 @@ func (x *ConfiguredProvider) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfiguredProvider.ProtoReflect.Descriptor instead.
 func (*ConfiguredProvider) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{17}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ConfiguredProvider) GetName() string {
@@ -901,7 +821,7 @@ type ListConfiguredProvidersRequest struct {
 
 func (x *ListConfiguredProvidersRequest) Reset() {
 	*x = ListConfiguredProvidersRequest{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[18]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -913,7 +833,7 @@ func (x *ListConfiguredProvidersRequest) String() string {
 func (*ListConfiguredProvidersRequest) ProtoMessage() {}
 
 func (x *ListConfiguredProvidersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[18]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -926,7 +846,7 @@ func (x *ListConfiguredProvidersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConfiguredProvidersRequest.ProtoReflect.Descriptor instead.
 func (*ListConfiguredProvidersRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{18}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{16}
 }
 
 type ListConfiguredProvidersResponse struct {
@@ -938,7 +858,7 @@ type ListConfiguredProvidersResponse struct {
 
 func (x *ListConfiguredProvidersResponse) Reset() {
 	*x = ListConfiguredProvidersResponse{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[19]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +870,7 @@ func (x *ListConfiguredProvidersResponse) String() string {
 func (*ListConfiguredProvidersResponse) ProtoMessage() {}
 
 func (x *ListConfiguredProvidersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[19]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +883,7 @@ func (x *ListConfiguredProvidersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConfiguredProvidersResponse.ProtoReflect.Descriptor instead.
 func (*ListConfiguredProvidersResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{19}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListConfiguredProvidersResponse) GetProviders() []*ConfiguredProvider {
@@ -983,7 +903,7 @@ type ListProviderModelsRequest struct {
 
 func (x *ListProviderModelsRequest) Reset() {
 	*x = ListProviderModelsRequest{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[20]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -995,7 +915,7 @@ func (x *ListProviderModelsRequest) String() string {
 func (*ListProviderModelsRequest) ProtoMessage() {}
 
 func (x *ListProviderModelsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[20]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1008,7 +928,7 @@ func (x *ListProviderModelsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderModelsRequest.ProtoReflect.Descriptor instead.
 func (*ListProviderModelsRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{20}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ListProviderModelsRequest) GetProviderName() string {
@@ -1035,7 +955,7 @@ type ListProviderModelsResponse struct {
 
 func (x *ListProviderModelsResponse) Reset() {
 	*x = ListProviderModelsResponse{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[21]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1047,7 +967,7 @@ func (x *ListProviderModelsResponse) String() string {
 func (*ListProviderModelsResponse) ProtoMessage() {}
 
 func (x *ListProviderModelsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[21]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1060,7 +980,7 @@ func (x *ListProviderModelsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProviderModelsResponse.ProtoReflect.Descriptor instead.
 func (*ListProviderModelsResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{21}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListProviderModelsResponse) GetProvider() string {
@@ -1087,7 +1007,7 @@ type ModelInfo struct {
 
 func (x *ModelInfo) Reset() {
 	*x = ModelInfo{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[22]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1099,7 +1019,7 @@ func (x *ModelInfo) String() string {
 func (*ModelInfo) ProtoMessage() {}
 
 func (x *ModelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[22]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1112,7 +1032,7 @@ func (x *ModelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelInfo.ProtoReflect.Descriptor instead.
 func (*ModelInfo) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{22}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ModelInfo) GetName() string {
@@ -1139,7 +1059,7 @@ type ProviderModels struct {
 
 func (x *ProviderModels) Reset() {
 	*x = ProviderModels{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[23]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1151,7 +1071,7 @@ func (x *ProviderModels) String() string {
 func (*ProviderModels) ProtoMessage() {}
 
 func (x *ProviderModels) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[23]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1164,7 +1084,7 @@ func (x *ProviderModels) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderModels.ProtoReflect.Descriptor instead.
 func (*ProviderModels) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{23}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ProviderModels) GetProvider() string {
@@ -1189,7 +1109,7 @@ type ListSupportedModelsRequest struct {
 
 func (x *ListSupportedModelsRequest) Reset() {
 	*x = ListSupportedModelsRequest{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[24]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1201,7 +1121,7 @@ func (x *ListSupportedModelsRequest) String() string {
 func (*ListSupportedModelsRequest) ProtoMessage() {}
 
 func (x *ListSupportedModelsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[24]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1214,7 +1134,7 @@ func (x *ListSupportedModelsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSupportedModelsRequest.ProtoReflect.Descriptor instead.
 func (*ListSupportedModelsRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{24}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{22}
 }
 
 type ListSupportedModelsResponse struct {
@@ -1226,7 +1146,7 @@ type ListSupportedModelsResponse struct {
 
 func (x *ListSupportedModelsResponse) Reset() {
 	*x = ListSupportedModelsResponse{}
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[25]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1238,7 +1158,7 @@ func (x *ListSupportedModelsResponse) String() string {
 func (*ListSupportedModelsResponse) ProtoMessage() {}
 
 func (x *ListSupportedModelsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[25]
+	mi := &file_kagent_api_v1alpha1_models_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1251,7 +1171,7 @@ func (x *ListSupportedModelsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSupportedModelsResponse.ProtoReflect.Descriptor instead.
 func (*ListSupportedModelsResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{25}
+	return file_kagent_api_v1alpha1_models_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ListSupportedModelsResponse) GetProviders() []*ProviderModels {
@@ -1306,9 +1226,6 @@ const file_kagent_api_v1alpha1_models_proto_rawDesc = "" +
 	"\x0foptional_params\x18\x04 \x03(\tR\x0eoptionalParams\"$\n" +
 	"\"ListSupportedModelProvidersRequest\"l\n" +
 	"#ListSupportedModelProvidersResponse\x12E\n" +
-	"\tproviders\x18\x01 \x03(\v2'.kagent.api.v1alpha1.ProviderDefinitionR\tproviders\"%\n" +
-	"#ListSupportedMemoryProvidersRequest\"m\n" +
-	"$ListSupportedMemoryProvidersResponse\x12E\n" +
 	"\tproviders\x18\x01 \x03(\v2'.kagent.api.v1alpha1.ProviderDefinitionR\tproviders\"X\n" +
 	"\x12ConfiguredProvider\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
@@ -1331,15 +1248,14 @@ const file_kagent_api_v1alpha1_models_proto_rawDesc = "" +
 	"\x06models\x18\x02 \x03(\v2\x1e.kagent.api.v1alpha1.ModelInfoR\x06models\"\x1c\n" +
 	"\x1aListSupportedModelsRequest\"`\n" +
 	"\x1bListSupportedModelsResponse\x12A\n" +
-	"\tproviders\x18\x01 \x03(\v2#.kagent.api.v1alpha1.ProviderModelsR\tproviders2\xe7\t\n" +
+	"\tproviders\x18\x01 \x03(\v2#.kagent.api.v1alpha1.ProviderModelsR\tproviders2\xd1\b\n" +
 	"\fModelService\x12o\n" +
 	"\x10ListModelConfigs\x12,.kagent.api.v1alpha1.ListModelConfigsRequest\x1a-.kagent.api.v1alpha1.ListModelConfigsResponse\x12i\n" +
 	"\x0eGetModelConfig\x12*.kagent.api.v1alpha1.GetModelConfigRequest\x1a+.kagent.api.v1alpha1.GetModelConfigResponse\x12r\n" +
 	"\x11CreateModelConfig\x12-.kagent.api.v1alpha1.CreateModelConfigRequest\x1a..kagent.api.v1alpha1.CreateModelConfigResponse\x12r\n" +
 	"\x11UpdateModelConfig\x12-.kagent.api.v1alpha1.UpdateModelConfigRequest\x1a..kagent.api.v1alpha1.UpdateModelConfigResponse\x12r\n" +
 	"\x11DeleteModelConfig\x12-.kagent.api.v1alpha1.DeleteModelConfigRequest\x1a..kagent.api.v1alpha1.DeleteModelConfigResponse\x12\x90\x01\n" +
-	"\x1bListSupportedModelProviders\x127.kagent.api.v1alpha1.ListSupportedModelProvidersRequest\x1a8.kagent.api.v1alpha1.ListSupportedModelProvidersResponse\x12\x93\x01\n" +
-	"\x1cListSupportedMemoryProviders\x128.kagent.api.v1alpha1.ListSupportedMemoryProvidersRequest\x1a9.kagent.api.v1alpha1.ListSupportedMemoryProvidersResponse\x12\x84\x01\n" +
+	"\x1bListSupportedModelProviders\x127.kagent.api.v1alpha1.ListSupportedModelProvidersRequest\x1a8.kagent.api.v1alpha1.ListSupportedModelProvidersResponse\x12\x84\x01\n" +
 	"\x17ListConfiguredProviders\x123.kagent.api.v1alpha1.ListConfiguredProvidersRequest\x1a4.kagent.api.v1alpha1.ListConfiguredProvidersResponse\x12u\n" +
 	"\x12ListProviderModels\x12..kagent.api.v1alpha1.ListProviderModelsRequest\x1a/.kagent.api.v1alpha1.ListProviderModelsResponse\x12x\n" +
 	"\x13ListSupportedModels\x12/.kagent.api.v1alpha1.ListSupportedModelsRequest\x1a0.kagent.api.v1alpha1.ListSupportedModelsResponseBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
@@ -1356,82 +1272,77 @@ func file_kagent_api_v1alpha1_models_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1alpha1_models_proto_rawDescData
 }
 
-var file_kagent_api_v1alpha1_models_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_kagent_api_v1alpha1_models_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_kagent_api_v1alpha1_models_proto_goTypes = []any{
-	(*SecretMaterial)(nil),                       // 0: kagent.api.v1alpha1.SecretMaterial
-	(*ListModelConfigsRequest)(nil),              // 1: kagent.api.v1alpha1.ListModelConfigsRequest
-	(*ModelConfig)(nil),                          // 2: kagent.api.v1alpha1.ModelConfig
-	(*ListModelConfigsResponse)(nil),             // 3: kagent.api.v1alpha1.ListModelConfigsResponse
-	(*GetModelConfigRequest)(nil),                // 4: kagent.api.v1alpha1.GetModelConfigRequest
-	(*GetModelConfigResponse)(nil),               // 5: kagent.api.v1alpha1.GetModelConfigResponse
-	(*CreateModelConfigRequest)(nil),             // 6: kagent.api.v1alpha1.CreateModelConfigRequest
-	(*CreateModelConfigResponse)(nil),            // 7: kagent.api.v1alpha1.CreateModelConfigResponse
-	(*UpdateModelConfigRequest)(nil),             // 8: kagent.api.v1alpha1.UpdateModelConfigRequest
-	(*UpdateModelConfigResponse)(nil),            // 9: kagent.api.v1alpha1.UpdateModelConfigResponse
-	(*DeleteModelConfigRequest)(nil),             // 10: kagent.api.v1alpha1.DeleteModelConfigRequest
-	(*DeleteModelConfigResponse)(nil),            // 11: kagent.api.v1alpha1.DeleteModelConfigResponse
-	(*ProviderDefinition)(nil),                   // 12: kagent.api.v1alpha1.ProviderDefinition
-	(*ListSupportedModelProvidersRequest)(nil),   // 13: kagent.api.v1alpha1.ListSupportedModelProvidersRequest
-	(*ListSupportedModelProvidersResponse)(nil),  // 14: kagent.api.v1alpha1.ListSupportedModelProvidersResponse
-	(*ListSupportedMemoryProvidersRequest)(nil),  // 15: kagent.api.v1alpha1.ListSupportedMemoryProvidersRequest
-	(*ListSupportedMemoryProvidersResponse)(nil), // 16: kagent.api.v1alpha1.ListSupportedMemoryProvidersResponse
-	(*ConfiguredProvider)(nil),                   // 17: kagent.api.v1alpha1.ConfiguredProvider
-	(*ListConfiguredProvidersRequest)(nil),       // 18: kagent.api.v1alpha1.ListConfiguredProvidersRequest
-	(*ListConfiguredProvidersResponse)(nil),      // 19: kagent.api.v1alpha1.ListConfiguredProvidersResponse
-	(*ListProviderModelsRequest)(nil),            // 20: kagent.api.v1alpha1.ListProviderModelsRequest
-	(*ListProviderModelsResponse)(nil),           // 21: kagent.api.v1alpha1.ListProviderModelsResponse
-	(*ModelInfo)(nil),                            // 22: kagent.api.v1alpha1.ModelInfo
-	(*ProviderModels)(nil),                       // 23: kagent.api.v1alpha1.ProviderModels
-	(*ListSupportedModelsRequest)(nil),           // 24: kagent.api.v1alpha1.ListSupportedModelsRequest
-	(*ListSupportedModelsResponse)(nil),          // 25: kagent.api.v1alpha1.ListSupportedModelsResponse
-	(*ResourceReference)(nil),                    // 26: kagent.api.v1alpha1.ResourceReference
-	(*StructuredObject)(nil),                     // 27: kagent.api.v1alpha1.StructuredObject
+	(*SecretMaterial)(nil),                      // 0: kagent.api.v1alpha1.SecretMaterial
+	(*ListModelConfigsRequest)(nil),             // 1: kagent.api.v1alpha1.ListModelConfigsRequest
+	(*ModelConfig)(nil),                         // 2: kagent.api.v1alpha1.ModelConfig
+	(*ListModelConfigsResponse)(nil),            // 3: kagent.api.v1alpha1.ListModelConfigsResponse
+	(*GetModelConfigRequest)(nil),               // 4: kagent.api.v1alpha1.GetModelConfigRequest
+	(*GetModelConfigResponse)(nil),              // 5: kagent.api.v1alpha1.GetModelConfigResponse
+	(*CreateModelConfigRequest)(nil),            // 6: kagent.api.v1alpha1.CreateModelConfigRequest
+	(*CreateModelConfigResponse)(nil),           // 7: kagent.api.v1alpha1.CreateModelConfigResponse
+	(*UpdateModelConfigRequest)(nil),            // 8: kagent.api.v1alpha1.UpdateModelConfigRequest
+	(*UpdateModelConfigResponse)(nil),           // 9: kagent.api.v1alpha1.UpdateModelConfigResponse
+	(*DeleteModelConfigRequest)(nil),            // 10: kagent.api.v1alpha1.DeleteModelConfigRequest
+	(*DeleteModelConfigResponse)(nil),           // 11: kagent.api.v1alpha1.DeleteModelConfigResponse
+	(*ProviderDefinition)(nil),                  // 12: kagent.api.v1alpha1.ProviderDefinition
+	(*ListSupportedModelProvidersRequest)(nil),  // 13: kagent.api.v1alpha1.ListSupportedModelProvidersRequest
+	(*ListSupportedModelProvidersResponse)(nil), // 14: kagent.api.v1alpha1.ListSupportedModelProvidersResponse
+	(*ConfiguredProvider)(nil),                  // 15: kagent.api.v1alpha1.ConfiguredProvider
+	(*ListConfiguredProvidersRequest)(nil),      // 16: kagent.api.v1alpha1.ListConfiguredProvidersRequest
+	(*ListConfiguredProvidersResponse)(nil),     // 17: kagent.api.v1alpha1.ListConfiguredProvidersResponse
+	(*ListProviderModelsRequest)(nil),           // 18: kagent.api.v1alpha1.ListProviderModelsRequest
+	(*ListProviderModelsResponse)(nil),          // 19: kagent.api.v1alpha1.ListProviderModelsResponse
+	(*ModelInfo)(nil),                           // 20: kagent.api.v1alpha1.ModelInfo
+	(*ProviderModels)(nil),                      // 21: kagent.api.v1alpha1.ProviderModels
+	(*ListSupportedModelsRequest)(nil),          // 22: kagent.api.v1alpha1.ListSupportedModelsRequest
+	(*ListSupportedModelsResponse)(nil),         // 23: kagent.api.v1alpha1.ListSupportedModelsResponse
+	(*ResourceReference)(nil),                   // 24: kagent.api.v1alpha1.ResourceReference
+	(*StructuredObject)(nil),                    // 25: kagent.api.v1alpha1.StructuredObject
 }
 var file_kagent_api_v1alpha1_models_proto_depIdxs = []int32{
-	26, // 0: kagent.api.v1alpha1.ModelConfig.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	27, // 1: kagent.api.v1alpha1.ModelConfig.resource:type_name -> kagent.api.v1alpha1.StructuredObject
+	24, // 0: kagent.api.v1alpha1.ModelConfig.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	25, // 1: kagent.api.v1alpha1.ModelConfig.resource:type_name -> kagent.api.v1alpha1.StructuredObject
 	2,  // 2: kagent.api.v1alpha1.ListModelConfigsResponse.model_configs:type_name -> kagent.api.v1alpha1.ModelConfig
-	26, // 3: kagent.api.v1alpha1.GetModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	24, // 3: kagent.api.v1alpha1.GetModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
 	2,  // 4: kagent.api.v1alpha1.GetModelConfigResponse.model_config:type_name -> kagent.api.v1alpha1.ModelConfig
-	26, // 5: kagent.api.v1alpha1.CreateModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	27, // 6: kagent.api.v1alpha1.CreateModelConfigRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
+	24, // 5: kagent.api.v1alpha1.CreateModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	25, // 6: kagent.api.v1alpha1.CreateModelConfigRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
 	0,  // 7: kagent.api.v1alpha1.CreateModelConfigRequest.secrets:type_name -> kagent.api.v1alpha1.SecretMaterial
 	2,  // 8: kagent.api.v1alpha1.CreateModelConfigResponse.model_config:type_name -> kagent.api.v1alpha1.ModelConfig
-	26, // 9: kagent.api.v1alpha1.UpdateModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	27, // 10: kagent.api.v1alpha1.UpdateModelConfigRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
+	24, // 9: kagent.api.v1alpha1.UpdateModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	25, // 10: kagent.api.v1alpha1.UpdateModelConfigRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
 	0,  // 11: kagent.api.v1alpha1.UpdateModelConfigRequest.secrets:type_name -> kagent.api.v1alpha1.SecretMaterial
 	2,  // 12: kagent.api.v1alpha1.UpdateModelConfigResponse.model_config:type_name -> kagent.api.v1alpha1.ModelConfig
-	26, // 13: kagent.api.v1alpha1.DeleteModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	24, // 13: kagent.api.v1alpha1.DeleteModelConfigRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
 	12, // 14: kagent.api.v1alpha1.ListSupportedModelProvidersResponse.providers:type_name -> kagent.api.v1alpha1.ProviderDefinition
-	12, // 15: kagent.api.v1alpha1.ListSupportedMemoryProvidersResponse.providers:type_name -> kagent.api.v1alpha1.ProviderDefinition
-	17, // 16: kagent.api.v1alpha1.ListConfiguredProvidersResponse.providers:type_name -> kagent.api.v1alpha1.ConfiguredProvider
-	22, // 17: kagent.api.v1alpha1.ProviderModels.models:type_name -> kagent.api.v1alpha1.ModelInfo
-	23, // 18: kagent.api.v1alpha1.ListSupportedModelsResponse.providers:type_name -> kagent.api.v1alpha1.ProviderModels
-	1,  // 19: kagent.api.v1alpha1.ModelService.ListModelConfigs:input_type -> kagent.api.v1alpha1.ListModelConfigsRequest
-	4,  // 20: kagent.api.v1alpha1.ModelService.GetModelConfig:input_type -> kagent.api.v1alpha1.GetModelConfigRequest
-	6,  // 21: kagent.api.v1alpha1.ModelService.CreateModelConfig:input_type -> kagent.api.v1alpha1.CreateModelConfigRequest
-	8,  // 22: kagent.api.v1alpha1.ModelService.UpdateModelConfig:input_type -> kagent.api.v1alpha1.UpdateModelConfigRequest
-	10, // 23: kagent.api.v1alpha1.ModelService.DeleteModelConfig:input_type -> kagent.api.v1alpha1.DeleteModelConfigRequest
-	13, // 24: kagent.api.v1alpha1.ModelService.ListSupportedModelProviders:input_type -> kagent.api.v1alpha1.ListSupportedModelProvidersRequest
-	15, // 25: kagent.api.v1alpha1.ModelService.ListSupportedMemoryProviders:input_type -> kagent.api.v1alpha1.ListSupportedMemoryProvidersRequest
-	18, // 26: kagent.api.v1alpha1.ModelService.ListConfiguredProviders:input_type -> kagent.api.v1alpha1.ListConfiguredProvidersRequest
-	20, // 27: kagent.api.v1alpha1.ModelService.ListProviderModels:input_type -> kagent.api.v1alpha1.ListProviderModelsRequest
-	24, // 28: kagent.api.v1alpha1.ModelService.ListSupportedModels:input_type -> kagent.api.v1alpha1.ListSupportedModelsRequest
-	3,  // 29: kagent.api.v1alpha1.ModelService.ListModelConfigs:output_type -> kagent.api.v1alpha1.ListModelConfigsResponse
-	5,  // 30: kagent.api.v1alpha1.ModelService.GetModelConfig:output_type -> kagent.api.v1alpha1.GetModelConfigResponse
-	7,  // 31: kagent.api.v1alpha1.ModelService.CreateModelConfig:output_type -> kagent.api.v1alpha1.CreateModelConfigResponse
-	9,  // 32: kagent.api.v1alpha1.ModelService.UpdateModelConfig:output_type -> kagent.api.v1alpha1.UpdateModelConfigResponse
-	11, // 33: kagent.api.v1alpha1.ModelService.DeleteModelConfig:output_type -> kagent.api.v1alpha1.DeleteModelConfigResponse
-	14, // 34: kagent.api.v1alpha1.ModelService.ListSupportedModelProviders:output_type -> kagent.api.v1alpha1.ListSupportedModelProvidersResponse
-	16, // 35: kagent.api.v1alpha1.ModelService.ListSupportedMemoryProviders:output_type -> kagent.api.v1alpha1.ListSupportedMemoryProvidersResponse
-	19, // 36: kagent.api.v1alpha1.ModelService.ListConfiguredProviders:output_type -> kagent.api.v1alpha1.ListConfiguredProvidersResponse
-	21, // 37: kagent.api.v1alpha1.ModelService.ListProviderModels:output_type -> kagent.api.v1alpha1.ListProviderModelsResponse
-	25, // 38: kagent.api.v1alpha1.ModelService.ListSupportedModels:output_type -> kagent.api.v1alpha1.ListSupportedModelsResponse
-	29, // [29:39] is the sub-list for method output_type
-	19, // [19:29] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	15, // 15: kagent.api.v1alpha1.ListConfiguredProvidersResponse.providers:type_name -> kagent.api.v1alpha1.ConfiguredProvider
+	20, // 16: kagent.api.v1alpha1.ProviderModels.models:type_name -> kagent.api.v1alpha1.ModelInfo
+	21, // 17: kagent.api.v1alpha1.ListSupportedModelsResponse.providers:type_name -> kagent.api.v1alpha1.ProviderModels
+	1,  // 18: kagent.api.v1alpha1.ModelService.ListModelConfigs:input_type -> kagent.api.v1alpha1.ListModelConfigsRequest
+	4,  // 19: kagent.api.v1alpha1.ModelService.GetModelConfig:input_type -> kagent.api.v1alpha1.GetModelConfigRequest
+	6,  // 20: kagent.api.v1alpha1.ModelService.CreateModelConfig:input_type -> kagent.api.v1alpha1.CreateModelConfigRequest
+	8,  // 21: kagent.api.v1alpha1.ModelService.UpdateModelConfig:input_type -> kagent.api.v1alpha1.UpdateModelConfigRequest
+	10, // 22: kagent.api.v1alpha1.ModelService.DeleteModelConfig:input_type -> kagent.api.v1alpha1.DeleteModelConfigRequest
+	13, // 23: kagent.api.v1alpha1.ModelService.ListSupportedModelProviders:input_type -> kagent.api.v1alpha1.ListSupportedModelProvidersRequest
+	16, // 24: kagent.api.v1alpha1.ModelService.ListConfiguredProviders:input_type -> kagent.api.v1alpha1.ListConfiguredProvidersRequest
+	18, // 25: kagent.api.v1alpha1.ModelService.ListProviderModels:input_type -> kagent.api.v1alpha1.ListProviderModelsRequest
+	22, // 26: kagent.api.v1alpha1.ModelService.ListSupportedModels:input_type -> kagent.api.v1alpha1.ListSupportedModelsRequest
+	3,  // 27: kagent.api.v1alpha1.ModelService.ListModelConfigs:output_type -> kagent.api.v1alpha1.ListModelConfigsResponse
+	5,  // 28: kagent.api.v1alpha1.ModelService.GetModelConfig:output_type -> kagent.api.v1alpha1.GetModelConfigResponse
+	7,  // 29: kagent.api.v1alpha1.ModelService.CreateModelConfig:output_type -> kagent.api.v1alpha1.CreateModelConfigResponse
+	9,  // 30: kagent.api.v1alpha1.ModelService.UpdateModelConfig:output_type -> kagent.api.v1alpha1.UpdateModelConfigResponse
+	11, // 31: kagent.api.v1alpha1.ModelService.DeleteModelConfig:output_type -> kagent.api.v1alpha1.DeleteModelConfigResponse
+	14, // 32: kagent.api.v1alpha1.ModelService.ListSupportedModelProviders:output_type -> kagent.api.v1alpha1.ListSupportedModelProvidersResponse
+	17, // 33: kagent.api.v1alpha1.ModelService.ListConfiguredProviders:output_type -> kagent.api.v1alpha1.ListConfiguredProvidersResponse
+	19, // 34: kagent.api.v1alpha1.ModelService.ListProviderModels:output_type -> kagent.api.v1alpha1.ListProviderModelsResponse
+	23, // 35: kagent.api.v1alpha1.ModelService.ListSupportedModels:output_type -> kagent.api.v1alpha1.ListSupportedModelsResponse
+	27, // [27:36] is the sub-list for method output_type
+	18, // [18:27] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_models_proto_init() }
@@ -1447,7 +1358,7 @@ func file_kagent_api_v1alpha1_models_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1alpha1_models_proto_rawDesc), len(file_kagent_api_v1alpha1_models_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

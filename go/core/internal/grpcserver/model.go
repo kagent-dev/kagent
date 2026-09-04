@@ -125,12 +125,6 @@ func (s *modelServer) ListSupportedModelProviders(ctx context.Context, _ *apiv1a
 	}, nil
 }
 
-func (s *modelServer) ListSupportedMemoryProviders(ctx context.Context, _ *apiv1alpha1.ListSupportedMemoryProvidersRequest) (*apiv1alpha1.ListSupportedMemoryProvidersResponse, error) {
-	return &apiv1alpha1.ListSupportedMemoryProvidersResponse{
-		Providers: providerDefinitions(s.service.ListSupportedMemoryProviders(ctx)),
-	}, nil
-}
-
 func (s *modelServer) ListConfiguredProviders(ctx context.Context, _ *apiv1alpha1.ListConfiguredProvidersRequest) (*apiv1alpha1.ListConfiguredProvidersResponse, error) {
 	result, err := s.service.ListConfiguredProviders(ctx)
 	if err != nil {

@@ -1,4 +1,4 @@
-/** ModelConfig domain models, mirroring the `kagent.dev/v1alpha2` ModelConfig CRD. */
+/** ModelConfig domain models, mirroring the `kagent.dev/v1alpha3` ModelConfig CRD. */
 
 import type { TLSConfig } from "./common";
 

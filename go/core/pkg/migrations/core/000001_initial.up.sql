@@ -1,10 +1,9 @@
--- Baseline migration: matches the schema produced by GORM AutoMigrate as of
--- kagent v0.8.0. Upgrading to v0.8.0 before this version is required.
+-- Baseline schema for clean kagent installations.
 --
 -- Notes on column definitions vs. what you might expect:
 --   - created_at/updated_at are nullable: GORM sets these in Go code, not via a
 --     DB default or NOT NULL constraint.
---   - version, write_idx, access_count are BIGINT: GORM maps Go `int` to bigint.
+--   - access_count is BIGINT: GORM maps Go `int` to bigint.
 
 CREATE TABLE IF NOT EXISTS tool (
     id          TEXT        NOT NULL,
@@ -29,64 +28,3 @@ CREATE TABLE IF NOT EXISTS toolserver (
     PRIMARY KEY (name, group_kind)
 );
 CREATE INDEX IF NOT EXISTS idx_toolserver_deleted_at ON toolserver(deleted_at);
-
-CREATE TABLE IF NOT EXISTS lg_checkpoint (
-    user_id              TEXT        NOT NULL,
-    thread_id            TEXT        NOT NULL,
-    checkpoint_ns        TEXT        NOT NULL DEFAULT '',
-    checkpoint_id        TEXT        NOT NULL,
-    parent_checkpoint_id TEXT,
-    created_at           TIMESTAMPTZ,
-    updated_at           TIMESTAMPTZ,
-    deleted_at           TIMESTAMPTZ,
-    metadata             TEXT        NOT NULL,
-    checkpoint           TEXT        NOT NULL,
-    checkpoint_type      TEXT        NOT NULL,
-    version              BIGINT      NOT NULL DEFAULT 1,
-    PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id)
-);
-CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_parent_checkpoint_id ON lg_checkpoint(parent_checkpoint_id);
-CREATE INDEX IF NOT EXISTS idx_lgcp_list                          ON lg_checkpoint(created_at);
-CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_deleted_at           ON lg_checkpoint(deleted_at);
-
-CREATE TABLE IF NOT EXISTS lg_checkpoint_write (
-    user_id       TEXT        NOT NULL,
-    thread_id     TEXT        NOT NULL,
-    checkpoint_ns TEXT        NOT NULL DEFAULT '',
-    checkpoint_id TEXT        NOT NULL,
-    write_idx     BIGINT      NOT NULL,
-    value         TEXT        NOT NULL,
-    value_type    TEXT        NOT NULL,
-    channel       TEXT        NOT NULL,
-    task_id       TEXT        NOT NULL,
-    created_at    TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ,
-    PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx)
-);
-CREATE INDEX IF NOT EXISTS idx_lg_checkpoint_write_deleted_at ON lg_checkpoint_write(deleted_at);
-
-CREATE TABLE IF NOT EXISTS crewai_agent_memory (
-    user_id     TEXT        NOT NULL,
-    thread_id   TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ,
-    updated_at  TIMESTAMPTZ,
-    deleted_at  TIMESTAMPTZ,
-    memory_data TEXT        NOT NULL,
-    PRIMARY KEY (user_id, thread_id)
-);
-CREATE INDEX IF NOT EXISTS idx_crewai_memory_list             ON crewai_agent_memory(created_at);
-CREATE INDEX IF NOT EXISTS idx_crewai_agent_memory_deleted_at ON crewai_agent_memory(deleted_at);
-
-CREATE TABLE IF NOT EXISTS crewai_flow_state (
-    user_id     TEXT        NOT NULL,
-    thread_id   TEXT        NOT NULL,
-    method_name TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ,
-    updated_at  TIMESTAMPTZ,
-    deleted_at  TIMESTAMPTZ,
-    state_data  TEXT        NOT NULL,
-    PRIMARY KEY (user_id, thread_id, method_name)
-);
-CREATE INDEX IF NOT EXISTS idx_crewai_flow_state_list       ON crewai_flow_state(created_at);
-CREATE INDEX IF NOT EXISTS idx_crewai_flow_state_deleted_at ON crewai_flow_state(deleted_at);

@@ -90,13 +90,6 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 	assert.Equal(t, []string{"deployment", "endpoint"}, modelProviders[3].RequiredParams)
 	assert.Equal(t, []string{"apiVersion", "apiFormat"}, modelProviders[3].OptionalParams)
 	assert.Equal(t, []string{"", "maxOutputTokens", "candidateCount", "responseMimeType"}, modelProviders[6].OptionalParams)
-
-	memoryProviders := service.ListSupportedMemoryProviders(context.Background())
-	require.Len(t, memoryProviders, 1)
-	assert.Equal(t, "Pinecone", memoryProviders[0].Name)
-	assert.Equal(t, "Pinecone", memoryProviders[0].Type)
-	assert.Equal(t, []string{"indexHost"}, memoryProviders[0].RequiredParams)
-	assert.Equal(t, []string{"topK", "namespace", "recordFields", "scoreThreshold"}, memoryProviders[0].OptionalParams)
 }
 
 func TestDiscoveryStaticModelCatalog(t *testing.T) {
