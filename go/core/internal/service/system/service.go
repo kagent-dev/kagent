@@ -441,14 +441,10 @@ func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 }
 
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
-	assignment := worker.GetStatus().GetAssignment()
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  assignment.GetActorTemplateRef().GetAtespace(),
-		ActorTemplate:   assignment.GetActorTemplateRef().GetName(),
-		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
 	}

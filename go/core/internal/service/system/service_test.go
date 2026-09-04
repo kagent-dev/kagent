@@ -157,10 +157,6 @@ func TestGetSubstrateStatus(t *testing.T) {
 				WorkerNamespace: "team",
 				WorkerPool:      "pool",
 				WorkerPod:       "worker-0",
-				Status: &ateapipb.WorkerStatus{Assignment: &ateapipb.ActorAssignment{
-					ActorTemplateRef: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
-					Actor:            &ateapipb.ObjectRef{Name: "actor-1"},
-				}},
 			}},
 		}
 		revisions := &fakeRuntimeRevisionStore{harnesses: []dbpkg.ActorTemplateHarness{{
@@ -186,8 +182,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.Actors, 1)
 		assert.Equal(t, "Running", result.Actors[0].Status)
 		require.Len(t, result.Workers, 1)
-		assert.Equal(t, "template", result.Workers[0].ActorTemplate)
-		assert.Equal(t, "actor-1", result.Workers[0].ActorID)
+		assert.Equal(t, "worker-0", result.Workers[0].WorkerPod)
 		assert.Equal(t, int64(3), result.Workers[0].Version)
 	})
 
