@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
+	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 )
 
 // ProcessConfig contains validated, compiler-owned inputs for one Codex App

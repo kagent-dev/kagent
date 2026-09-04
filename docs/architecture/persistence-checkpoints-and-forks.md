@@ -67,4 +67,4 @@ Checkpoint sharing is not implemented. Future sharing must be restricted to data
 snapshots without process state.
 
 The workflow lives in
-[`go/core/v2/checkpoint`](../../go/core/v2/checkpoint).
+[`go/core/internal/service/checkpoint`](../../go/core/internal/service/checkpoint).

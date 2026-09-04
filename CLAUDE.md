@@ -63,7 +63,7 @@ Every component has a single responsibility. If code reaches into another compon
 | `go/core/internal/grpcserver` | gRPC transport |
 | `go/core/internal/service` | Control-plane services and workflows |
 | `go/core/internal/database` | PostgreSQL queries and persistence |
-| `go/core/v2` | API v2 execution and A2A gateway |
+| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | API v2 execution and A2A gateway |
 | `go/adk` | Go agent development kit |
 | `python/packages` | Python agent packages and ADK |
 | `proto` | gRPC API definitions |

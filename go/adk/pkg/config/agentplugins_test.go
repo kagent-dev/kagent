@@ -9,7 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 )
 
 func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {

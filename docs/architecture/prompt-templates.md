@@ -25,4 +25,4 @@ Resolution happens before harness compilation. Missing ConfigMaps or keys,
 duplicate include identifiers, and invalid templates fail the prepared revision
 rather than producing a partially configured runtime. The semantic implementation
 and focused tests live in
-[`go/core/v2/translator/template.go`](../../go/core/v2/translator/template.go).
+[`go/core/internal/translator/template.go`](../../go/core/internal/translator/template.go).
