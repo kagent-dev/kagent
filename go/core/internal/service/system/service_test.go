@@ -92,7 +92,7 @@ func TestListNamespaces(t *testing.T) {
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "Zoo"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceActive}},
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alpha"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceTerminating}},
 		).Build()
-		service := system.NewService(system.WithInventory(kubeClient, nil, nil, nil))
+		service := system.NewService(system.WithInventory(kubeClient, nil, nil, nil, nil))
 
 		result, err := service.ListNamespaces(t.Context())
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestListNamespaces(t *testing.T) {
 				return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
 			},
 		}).Build()
-		service := system.NewService(system.WithInventory(kubeClient, []string{"team-b", "team-a"}, nil, nil))
+		service := system.NewService(system.WithInventory(kubeClient, []string{"team-b", "team-a"}, nil, nil, nil))
 
 		result, err := service.ListNamespaces(t.Context())
 		require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
 	t.Run("disabled does not read Kubernetes", func(t *testing.T) {
-		service := system.NewService(system.WithInventory(nil, nil, &authimpl.NoopAuthorizer{}, nil))
+		service := system.NewService(system.WithInventory(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil))
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
 		assert.False(t, result.Enabled)
@@ -163,8 +163,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
 		}}}
 		service := system.NewService(
-			system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient),
-			system.WithRuntimeRevisions(revisions),
+			system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions),
 		)
 
 		result, err := service.GetSubstrateStatus(ctx, "team")
@@ -187,11 +186,11 @@ func TestGetSubstrateStatus(t *testing.T) {
 	})
 
 	t.Run("validates and authorizes", func(t *testing.T) {
-		service := system.NewService(system.WithInventory(nil, nil, &authimpl.NoopAuthorizer{}, nil))
+		service := system.NewService(system.WithInventory(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil))
 		_, err := service.GetSubstrateStatus(ctx, "INVALID_NAMESPACE")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), err)
 
-		service = system.NewService(system.WithInventory(nil, nil, systemDenyAuthorizer{}, nil))
+		service = system.NewService(system.WithInventory(nil, nil, systemDenyAuthorizer{}, nil, nil))
 		_, err = service.GetSubstrateStatus(ctx, "")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 	})

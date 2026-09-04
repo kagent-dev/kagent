@@ -120,17 +120,13 @@ func WithInventory(
 	observedNamespaces []string,
 	authorizer auth.Authorizer,
 	ateClient ATEClient,
+	revisions runtimeRevisionStore,
 ) Option {
 	return func(service *Service) {
 		service.kubeClient = kubeClient
 		service.observedNamespaces = slices.Clone(observedNamespaces)
 		service.authorizer = authorizer
 		service.ateClient = ateClient
-	}
-}
-
-func WithRuntimeRevisions(revisions runtimeRevisionStore) Option {
-	return func(service *Service) {
 		service.revisions = revisions
 	}
 }

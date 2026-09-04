@@ -33,7 +33,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
-		SystemService: systemservice.NewService(systemservice.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, nil)),
+		SystemService: systemservice.NewService(systemservice.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, nil, nil)),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
