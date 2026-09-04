@@ -95,7 +95,25 @@ const NAMESPACE_PARAM = "namespace";
 const ALL_NAMESPACES = "";
 
 /**
- * What a status or phase is telling you, as four readings rather than a dozen strings.
+ * A wire enum as a word: `ACTOR_STATE_CRASHED` reads as `Crashed`.
+ *
+ * The controller names the states it knows, but falls back to the protobuf constant for
+ * any it does not, so an unmapped state reaches this page as a wire symbol. Proto names
+ * every value after its own enum, and that prefix only repeats the column header, so it
+ * goes rather than being spelled out as `Actor state crashed`.
+ *
+ * Anything not shaped like a constant is returned untouched: a status the controller has
+ * already written for a reader must not be rewritten by a guess about its casing.
+ */
+function humanizeEnum(label: string): string {
+  const value = label.trim();
+  if (!/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$/.test(value)) return value;
+  const words = value.replace(/^[A-Z0-9]+_STATE_/, "").toLowerCase().replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * What a status or phase is telling you, as five readings rather than a dozen strings.
  *
  * The substrate's vocabulary is not a closed enum on the wire: `phase` and `status` are
  * plain strings that ate-api and the ActorTemplate controller each fill in their own way,
@@ -103,17 +121,20 @@ const ALL_NAMESPACES = "";
  * `neutral` and is shown as it arrived — inventing a colour for a word this page has
  * never seen would be a claim about health nobody made.
  */
-type StatusTone = "healthy" | "warning" | "progress" | "idle" | "neutral";
+type StatusTone = "healthy" | "danger" | "progress" | "idle" | "neutral";
 
 function statusTone(label: string): StatusTone {
-  const value = label.trim().toLowerCase();
+  const value = humanizeEnum(label).trim().toLowerCase();
   if (value === "ready" || value === "running") return "healthy";
-  if (value === "failed" || value === "suspending") return "warning";
-  if (value === "suspended" || value === "unknown" || value === "") return "idle";
-  // Substrings, because these arrive spelled several ways: `Resuming`, `WaitingForWorker`,
-  // `GoldenSnapshotPending`. All of them mean the same thing to a reader — something is
-  // under way and the next read will say something different.
-  if (value.includes("resume") || value.includes("wait") || value.includes("golden")) {
+  // A crashed or failed actor is not a caution, it is the thing that went wrong.
+  if (value === "failed" || value === "crashed") return "danger";
+  if (value === "suspended" || value === "paused" || value === "unknown" || value === "") {
+    return "idle";
+  }
+  // Shapes rather than words, because these arrive spelled several ways: `Resuming`,
+  // `Deleting`, `WaitingForWorker`, `GoldenSnapshotPending`. All of them mean the same
+  // thing to a reader — something is under way and the next read will say otherwise.
+  if (value.endsWith("ing") || value.includes("wait") || value.includes("golden")) {
     return "progress";
   }
   return "neutral";
@@ -127,9 +148,10 @@ function statusTone(label: string): StatusTone {
  * of a light page. `primary` is not among them in any tone — it is a fill chosen to carry
  * light text, and as ink on this page it measures about 2.2:1.
  */
-function StatusChip({ label }: { label: string }) {
+function StatusChip({ label, count }: { label: string; count?: number }) {
   const theme = useTheme();
   const tone = statusTone(label);
+  const text = humanizeEnum(label);
 
   const pill = {
     healthy: {
@@ -137,10 +159,10 @@ function StatusChip({ label }: { label: string }) {
       borderColor: theme.color.successBorder,
       color: theme.color.successText,
     },
-    warning: {
-      background: theme.color.warningBg,
-      borderColor: theme.color.warningBorder,
-      color: theme.color.warningText,
+    danger: {
+      background: theme.color.dangerBg,
+      borderColor: theme.color.dangerBorder,
+      color: theme.color.dangerText,
     },
     progress: {
       background: theme.color.infoBg,
@@ -166,9 +188,9 @@ function StatusChip({ label }: { label: string }) {
         /*
          * The substrate's vocabulary is open-ended: `phase` and `status` are plain
          * strings, and a value this build has never seen is shown as it arrived. Some
-         * of them are long — a cluster answered with `ACTOR_STATE_CRASHED`, which at
-         * one line overflowed its column and printed itself across the next one. So
-         * the tag wraps inside the width it is given rather than spilling out of it.
+         * of them are long — `WaitingForWorker` at one line overflowed its column and
+         * printed itself across the next one. So the tag wraps inside the width it is
+         * given rather than spilling out of it.
          */
         whiteSpace: "normal",
         maxWidth: "100%",
@@ -176,7 +198,8 @@ function StatusChip({ label }: { label: string }) {
       }}
       data-tone={tone}
     >
-      {label.trim() === "" ? "not reported" : label}
+      {text === "" ? "not reported" : text}
+      {count === undefined ? null : `: ${count.toLocaleString()}`}
     </Tag>
   );
 }
@@ -945,8 +968,8 @@ export function SubstratePage() {
           />
         ),
         key: "status",
-        // Wide enough for the longest status seen on a real cluster
-        // (`ACTOR_STATE_CRASHED`) without wrapping it to three lines.
+        // Wide enough for the longest status seen on a real cluster (`Snapshotting`)
+        // without wrapping it to three lines.
         width: 190,
         render: (_, actor) => <StatusChip label={actor.status} />,
       },
@@ -1281,9 +1304,7 @@ export function SubstratePage() {
           <Space size={6} wrap data-testid="substrate-actor-status-counts">
             <Text css={{ ...muted, fontSize: 12 }}>Actors by status</Text>
             {inventory.actorStatusCounts.map((entry) => (
-              <Tag key={entry.status} css={mono}>
-                {entry.status || "not reported"}: {entry.count.toLocaleString()}
-              </Tag>
+              <StatusChip key={entry.status} label={entry.status} count={entry.count} />
             ))}
           </Space>
         ) : null}

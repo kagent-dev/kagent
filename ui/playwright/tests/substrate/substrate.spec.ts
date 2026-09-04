@@ -42,7 +42,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // depending on how many there are. Both numbers, or the tile is not worth its space.
     await expect(page.getByTestId("substrate-stat-pools-value")).toHaveText("2");
     await expect(page.getByTestId("substrate-stat-templates-value")).toHaveText("1/2");
-    // Two running of four: one of the fixture's actors is `Failed` and another
+    // Two running of four: one of the fixture's actors is crashed and another
     // `Snapshotting`, which is exactly the case a bare count would hide.
     await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/4");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
@@ -91,6 +91,13 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // The pod, with its IP appended — the two facts an operator needs to go and look.
     await expect(actors).toContainText("kagent/ateom-default-pool-0");
     await expect(actors).toContainText("10.42.1.19");
+
+    // A wire constant is read to the operator as a word, and coloured as the failure it
+    // is. `ACTOR_STATE_CRASHED` on screen is the controller's vocabulary leaking through.
+    await expect(actors).not.toContainText("ACTOR_STATE_CRASHED");
+    await expect(
+      actors.locator("[data-tone]").filter({ hasText: "Crashed" }),
+    ).toHaveAttribute("data-tone", "danger");
   });
 
   await test.step("6. the workers, including the one holding nothing", async () => {
@@ -233,7 +240,7 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
 
   const actors = page.getByTestId("substrate-actors-table");
 
-  // Sorted by status, then by id. `Failed` precedes `Running` precedes `Snapshotting`,
+  // Sorted by status, then by id. `Crashed` precedes `Running` precedes `Snapshotting`,
   // and the fixture lists them in none of that order.
   const ids = await actors.locator(".ant-table-row").evaluateAll((rows) =>
     rows.map((row) => row.querySelector(".ant-table-cell")?.textContent?.trim() ?? ""),
@@ -372,7 +379,7 @@ test("substrate: the actor and worker tables offer no sort, and the inline ones 
       .getByTestId("substrate-actors-table")
       .locator(".ant-table-row")
       .evaluateAll((rows) =>
-        rows.map((row) => row.textContent?.match(/Failed|Running|Snapshotting/)?.[0] ?? ""),
+        rows.map((row) => row.textContent?.match(/Crashed|Running|Snapshotting/)?.[0] ?? ""),
       );
     expect(statuses).toEqual([...statuses].sort());
   });

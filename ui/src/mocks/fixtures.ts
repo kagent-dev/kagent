@@ -308,7 +308,11 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
     // Last in the fixture and first once sorted: ate-api returns actors in no
     // particular order, so a fixture that is already in the right order cannot tell
     // a page that sorts from one that does not.
-    { actorId: "actor-0aa1", status: "Failed", version: 1 },
+    //
+    // The raw wire constant, because that is what a real controller sends for a state
+    // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
+    // reach the page unread and no test object.
+    { actorId: "actor-0aa1", status: "ACTOR_STATE_CRASHED", version: 1 },
     // Shares "Running" with actor-7f21, which is what makes a two-key sort observable:
     // with every status distinct, sorting by status then by id looks the same as
     // sorting by status alone.
