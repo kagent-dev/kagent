@@ -194,7 +194,7 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 }
 
 func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace string) (SubstrateStatus, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Agent"}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return SubstrateStatus{}, err
 	}
 

@@ -20,7 +20,7 @@ import {
  * ## What is no longer here
  *
  * The capabilities panel — an agent's tools and skills beside its conversation. It
- * read them off a `SandboxAgent`, and an instance has neither: what an agent can
+ * read them from an AgentTemplate, and an instance has neither: what an agent can
  * reach is described by its `AgentTemplate`, which has no surface in this build yet.
  * Recorded in `playwright/DEFERRED.md` rather than left as a passing test of
  * something that is gone.

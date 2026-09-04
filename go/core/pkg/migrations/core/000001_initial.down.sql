@@ -4,5 +4,3 @@ DROP TABLE IF EXISTS lg_checkpoint_write;
 DROP TABLE IF EXISTS lg_checkpoint;
 DROP TABLE IF EXISTS toolserver;
 DROP TABLE IF EXISTS tool;
-DROP TABLE IF EXISTS feedback;
-DROP TABLE IF EXISTS agent;

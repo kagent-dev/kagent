@@ -26,11 +26,8 @@ If you wish to use the memory persistence integration with KAgent, edit `poem_fl
      --dry-run=client -o yaml | kubectl apply -f -
    ```
 
-3. **Deploy the agent**:
-
-   ```bash
-   kubectl apply -f agent.yaml
-   ```
+3. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
+   API v2 examples and E2E fixtures for the current resource shape.
 
 When interacting with the agent, you do not need to provide any input because the design of the flow does not take in user input for its tasks.
 

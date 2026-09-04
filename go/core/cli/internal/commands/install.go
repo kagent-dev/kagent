@@ -94,11 +94,11 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 	// setup profile if provided
 	if cfg.Profile = strings.TrimSpace(cfg.Profile); cfg.Profile != "" {
 		if !slices.Contains(profiles.Profiles, cfg.Profile) {
-			fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to demo\n", cfg.Profile)
-			cfg.Profile = profiles.ProfileDemo
+			fmt.Fprintf(os.Stderr, "Invalid --profile value (%s), defaulting to minimal\n", cfg.Profile)
+			cfg.Profile = profiles.ProfileMinimal
 		}
 
-		helmConfig.inlineValues = profiles.GetProfileYaml(cfg.Profile)
+		helmConfig.inlineValues = profiles.MinimalProfileYaml
 	}
 
 	return install(ctx, &options, helmConfig, modelProvider)
@@ -205,9 +205,8 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 // This is a workaround for the fact that helm doesn't delete CRDs automatically
 func deleteCRDs(ctx context.Context) error {
 	crds := []string{
-		"sandboxagents.kagent.dev",
 		"modelconfigs.kagent.dev",
-		"toolservers.kagent.dev",
+		"sandboxagents.kagent.dev",
 	}
 
 	var deleteErrors []string
@@ -320,7 +319,7 @@ func NewInstallCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal|demo)")
+	cmd.Flags().StringVar(&cfg.Profile, "profile", "", "Installation profile (minimal)")
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})

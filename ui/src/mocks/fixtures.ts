@@ -7,7 +7,6 @@
  */
 
 import type { AgentInstance } from "@/api/domain/agentInstances";
-import type { AgentResponse } from "@/api/domain/agents";
 import type { ToolServerResponse, ToolsResponse } from "@/api/domain/mcpServers";
 import type {
   ModelConfig,
@@ -19,219 +18,6 @@ import type { NamespaceResponse } from "@/api/domain/namespaces";
 import type { SubstrateStatusResponse } from "@/api/domain/substrate";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
-
-export const mockAgents: AgentResponse[] = [
-  {
-    id: 1,
-    model: "gpt-4.1",
-    modelProvider: "OpenAI",
-    modelConfigRef: "kagent/default-model-config",
-    deploymentReady: true,
-    accepted: true,
-    agentKind: "SandboxAgent",
-    memoryRefs: [],
-    tools: [
-      {
-        type: "McpServer",
-        mcpServer: {
-          kind: "MCPServer",
-          apiGroup: "kagent.dev",
-          name: "kagent-tool-server",
-          namespace: "kagent",
-          toolNames: ["k8s_get_pods", "k8s_describe_resource", "k8s_get_events"],
-          // Mirrors the spec below, because the response carries its own copy of the
-          // bindings and that copy is what the UI reads. Setting it on only one of the two
-          // left the approval marker rendered by nothing and asserted by nothing.
-          requireApproval: ["k8s_describe_resource"],
-        },
-      },
-    ],
-    agent: {
-      apiVersion: "kagent.dev/v1alpha2",
-      kind: "Agent",
-      metadata: {
-        name: "k8s-agent",
-        namespace: "kagent",
-        creationTimestamp: "2026-06-02T09:14:00Z",
-        resourceVersion: "10241",
-      },
-      spec: {
-        type: "Declarative",
-        description: "Investigates cluster state and explains what it finds.",
-        declarative: {
-          // Bare, as the CRD requires and as every agent on a real cluster
-          // stores it: "The name of the model config to use… Must be in the same
-          // namespace as the Agent." The response's own `modelConfigRef` above is
-          // the namespaced form — two different fields, and the fixture used to
-          // carry the namespaced value in both. That made the edit form show
-          // "kagent/kagent/default-model-config", because it rebuilds the select's
-          // `namespace/name` ref from the agent's namespace and this name.
-          modelConfig: "default-model-config",
-          stream: true,
-          systemMessage:
-            "You are a Kubernetes expert. Diagnose problems from real cluster state and never guess.",
-          tools: [
-            {
-              type: "McpServer",
-              mcpServer: {
-                name: "kagent-tool-server",
-                namespace: "kagent",
-                toolNames: ["k8s_get_pods", "k8s_describe_resource", "k8s_get_events"],
-                requireApproval: ["k8s_describe_resource"],
-              },
-            },
-          ],
-          // Both meanings of "skills", because they are different things and the panel
-          // that shows them has to keep them apart: capabilities this agent advertises,
-          // and packages fetched into its filesystem.
-          a2aConfig: {
-            skills: [
-              {
-                id: "cluster-triage",
-                name: "Cluster triage",
-                description: "Finds what is broken and explains why.",
-                tags: ["kubernetes", "diagnostics"],
-                examples: [
-                  "Which pods are crash-looping?",
-                  "Why is the checkout deployment not ready?",
-                ],
-                inputModes: ["text"],
-                outputModes: ["text"],
-              },
-            ],
-          },
-          skills: {
-            refs: ["ghcr.io/kagent-dev/skills/kubernetes:0.4.1"],
-            gitRefs: [
-              {
-                url: "https://github.com/kagent-dev/runbooks",
-                ref: "main",
-                path: "sre",
-                name: "runbooks",
-              },
-            ],
-          },
-        },
-      },
-      status: {
-        observedGeneration: 3,
-        conditions: [
-          {
-            type: "Ready",
-            status: "True",
-            reason: "DeploymentReady",
-            lastTransitionTime: "2026-06-02T09:15:11Z",
-          },
-        ],
-      },
-    },
-  },
-  {
-    id: 2,
-    model: "claude-sonnet-4",
-    modelProvider: "Anthropic",
-    modelConfigRef: "kagent/anthropic-model-config",
-    deploymentReady: true,
-    accepted: true,
-    agentKind: "SandboxAgent",
-    memoryRefs: [],
-    tools: [
-      {
-        type: "Agent",
-        agent: {
-          kind: "Agent",
-          apiGroup: "kagent.dev",
-          name: "k8s-agent",
-          namespace: "kagent",
-        },
-      },
-    ],
-    agent: {
-      apiVersion: "kagent.dev/v1alpha2",
-      kind: "Agent",
-      metadata: {
-        name: "incident-commander",
-        namespace: "platform",
-        creationTimestamp: "2026-06-11T16:40:00Z",
-        resourceVersion: "18877",
-      },
-      spec: {
-        type: "Declarative",
-        description: "Coordinates an incident and delegates to specialist agents.",
-        declarative: {
-          modelConfig: "anthropic-model-config",
-          systemMessage: "You run incident response. Delegate, then summarise.",
-          tools: [
-            {
-              type: "Agent",
-              agent: { name: "k8s-agent", namespace: "kagent" },
-            },
-          ],
-        },
-      },
-      status: {
-        observedGeneration: 1,
-        conditions: [
-          {
-            type: "Ready",
-            status: "True",
-            reason: "DeploymentReady",
-            lastTransitionTime: "2026-06-11T16:41:02Z",
-          },
-        ],
-      },
-    },
-  },
-  {
-    id: 3,
-    model: "",
-    modelProvider: "",
-    modelConfigRef: "",
-    deploymentReady: false,
-    accepted: false,
-    // Declared by the substrate rather than held as an Agent resource — the cluster has
-    // two of these, and they are why `hasAgentResource` exists: the list reports them
-    // with a uid and a resourceVersion, `GET /agents/{ns}/{name}` answers 404, and a PUT
-    // answers 400. Without one in the fixtures nothing exercises the screens that have
-    // to decline to edit them.
-    agentKind: "AgentHarness",
-    memoryRefs: [],
-    tools: [],
-    agent: {
-      apiVersion: "kagent.dev/v1alpha2",
-      kind: "Agent",
-      metadata: {
-        name: "reporting-agent",
-        namespace: "analytics",
-        creationTimestamp: "2026-07-21T08:02:00Z",
-        resourceVersion: "20913",
-      },
-      spec: {
-        type: "BYO",
-        description: "Bring-your-own image that renders weekly reports.",
-        byo: {
-          deployment: {
-            image: "ghcr.io/kagent-dev/reporting-agent:0.4.2",
-            replicas: 1,
-            imagePullPolicy: "IfNotPresent",
-          },
-        },
-      },
-      status: {
-        observedGeneration: 1,
-        conditions: [
-          {
-            type: "Ready",
-            status: "False",
-            reason: "ImagePullBackOff",
-            message: "Back-off pulling image ghcr.io/kagent-dev/reporting-agent:0.4.2",
-            lastTransitionTime: "2026-07-21T08:05:44Z",
-          },
-        ],
-      },
-    },
-  },
-];
 
 export const mockModels: ModelConfig[] = [
   {
@@ -283,6 +69,13 @@ export const mockProviderModels: ProviderModelsResponse = {
     { name: "claude-haiku-4", function_calling: true },
   ],
   Ollama: [{ name: "llama3.2", function_calling: false }],
+  Foundry: [
+    { name: "gpt-4.1", function_calling: true },
+    { name: "gpt-4.1-mini", function_calling: true },
+    { name: "claude-haiku-4-5", function_calling: true },
+    { name: "claude-sonnet-4-6", function_calling: true },
+    { name: "claude-opus-4-8", function_calling: true },
+  ],
 };
 
 /**
@@ -347,6 +140,12 @@ export const mockProviders: Provider[] = [
     type: "SAPAICore",
     requiredParams: ["baseUrl"],
     optionalParams: ["resourceGroup", "authUrl"],
+  },
+  {
+    name: "Foundry",
+    type: "Foundry",
+    requiredParams: ["deployment", "endpoint"],
+    optionalParams: ["apiVersion", "apiFormat"],
   },
   /*
    * One provider an operator added, rather than one the controller ships with.

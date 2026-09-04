@@ -38,7 +38,6 @@ const PROPERTY = "__kagentMockCalls";
  * typo in a spec is a compile error rather than a lookup that throws at runtime.
  */
 export const rpc = {
-  listAgents: "kagent.api.v1alpha1.AgentService/ListAgents",
   listModelConfigs: "kagent.api.v1alpha1.ModelService/ListModelConfigs",
   listToolServers: "kagent.api.v1alpha1.ToolService/ListToolServers",
   listPromptTemplates: "kagent.api.v1alpha1.PromptTemplateService/ListPromptTemplates",

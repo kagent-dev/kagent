@@ -124,16 +124,13 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		cfg.AgentPlugins = &pluginConfig
 	}
 	for _, tool := range input.MCPTools {
-		ref := &v1alpha3.McpServerTool{TypedReference: v1alpha3.TypedReference{
-			ApiGroup: "kagent.dev", Kind: tool.Binding.Server.Kind, Name: tool.Binding.Server.Name,
-		}, ToolNames: append([]string(nil), tool.Binding.Tools...)}
 		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, ref, headers); err != nil {
+		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)

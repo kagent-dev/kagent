@@ -143,12 +143,12 @@ spec:
             {{- end }}
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: SUBSTRATE_ATE_API_ENDPOINT
-              value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
+              value: {{ include "kagent.substrate.ateApiEndpoint" . | quote }}
             - name: SUBSTRATE_ATE_API_CA_FILE
               value: /run/substrate-servicedns/trust-bundle.pem
             - name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
               value: /run/substrate-podidentity/credential-bundle.pem
-            {{- with .Values.controller.substrate.atenetRouterURL }}
+            {{- with include "kagent.substrate.atenetRouterURL" . }}
             - name: SUBSTRATE_ATENET_ROUTER_URL
               value: {{ . | quote }}
             {{- end }}
