@@ -121,6 +121,8 @@ type ModelConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
 	Resource      *StructuredObject      `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
+	CanUpdate     bool                   `protobuf:"varint,3,opt,name=can_update,json=canUpdate,proto3" json:"can_update,omitempty"`
+	CanDelete     bool                   `protobuf:"varint,4,opt,name=can_delete,json=canDelete,proto3" json:"can_delete,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -169,9 +171,24 @@ func (x *ModelConfig) GetResource() *StructuredObject {
 	return nil
 }
 
+func (x *ModelConfig) GetCanUpdate() bool {
+	if x != nil {
+		return x.CanUpdate
+	}
+	return false
+}
+
+func (x *ModelConfig) GetCanDelete() bool {
+	if x != nil {
+		return x.CanDelete
+	}
+	return false
+}
+
 type ListModelConfigsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModelConfigs  []*ModelConfig         `protobuf:"bytes,1,rep,name=model_configs,json=modelConfigs,proto3" json:"model_configs,omitempty"`
+	CanCreate     bool                   `protobuf:"varint,2,opt,name=can_create,json=canCreate,proto3" json:"can_create,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -211,6 +228,13 @@ func (x *ListModelConfigsResponse) GetModelConfigs() []*ModelConfig {
 		return x.ModelConfigs
 	}
 	return nil
+}
+
+func (x *ListModelConfigsResponse) GetCanCreate() bool {
+	if x != nil {
+		return x.CanCreate
+	}
+	return false
 }
 
 type GetModelConfigRequest struct {
@@ -1190,12 +1214,18 @@ const file_kagent_api_v1alpha1_models_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\tR\x05value\"\x19\n" +
-	"\x17ListModelConfigsRequest\"\x8a\x01\n" +
+	"\x17ListModelConfigsRequest\"\xc8\x01\n" +
 	"\vModelConfig\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
-	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"a\n" +
+	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\x12\x1d\n" +
+	"\n" +
+	"can_update\x18\x03 \x01(\bR\tcanUpdate\x12\x1d\n" +
+	"\n" +
+	"can_delete\x18\x04 \x01(\bR\tcanDelete\"\x80\x01\n" +
 	"\x18ListModelConfigsResponse\x12E\n" +
-	"\rmodel_configs\x18\x01 \x03(\v2 .kagent.api.v1alpha1.ModelConfigR\fmodelConfigs\"Q\n" +
+	"\rmodel_configs\x18\x01 \x03(\v2 .kagent.api.v1alpha1.ModelConfigR\fmodelConfigs\x12\x1d\n" +
+	"\n" +
+	"can_create\x18\x02 \x01(\bR\tcanCreate\"Q\n" +
 	"\x15GetModelConfigRequest\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\"]\n" +
 	"\x16GetModelConfigResponse\x12C\n" +

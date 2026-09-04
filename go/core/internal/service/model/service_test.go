@@ -30,6 +30,33 @@ func (denyAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Ve
 	return errors.New("denied")
 }
 
+func (denyAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ string) (pkgauth.AuthorizationScope, error) {
+	return pkgauth.AuthorizationScope{}, errors.New("denied")
+}
+
+type authorizationCall struct {
+	verb     pkgauth.Verb
+	resource pkgauth.Resource
+}
+
+type recordingAuthorizer struct {
+	scope      pkgauth.AuthorizationScope
+	scopeVerb  pkgauth.Verb
+	scopeType  string
+	checkCalls []authorizationCall
+}
+
+func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resource pkgauth.Resource) error {
+	a.checkCalls = append(a.checkCalls, authorizationCall{verb: verb, resource: resource})
+	return nil
+}
+
+func (a *recordingAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resourceType string) (pkgauth.AuthorizationScope, error) {
+	a.scopeVerb = verb
+	a.scopeType = resourceType
+	return a.scope, nil
+}
+
 type modelUpdateConflictOnceClient struct {
 	ctrlclient.Client
 	conflicted bool
@@ -56,7 +83,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 
-	newService := func(authorizer pkgauth.Authorizer, objects ...ctrlclient.Object) (*model.Service, ctrlclient.Client, context.Context) {
+	newService := func(authorizer pkgauth.CollectionAuthorizer, objects ...ctrlclient.Object) (*model.Service, ctrlclient.Client, context.Context) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 		service := model.NewService(kubeClient, authorizer, "default")
 		ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
@@ -292,4 +319,78 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 	})
+}
+
+func TestListAppliesModelConfigScope(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	authorizer := &recordingAuthorizer{scope: pkgauth.AuthorizationScope{
+		Kind: pkgauth.ScopeAnyOf,
+		AnyOf: []pkgauth.ScopeClause{{All: []pkgauth.ScopePredicate{{
+			Attribute: pkgauth.AttributeNamespace,
+			Operator:  pkgauth.ScopeIn,
+			Values:    []string{"team-a"},
+		}}}},
+	}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "allowed"}},
+		&v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-b", Name: "denied"}},
+	).Build()
+	service := model.NewService(kubeClient, authorizer, "default")
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+
+	list, err := service.List(ctx, model.ListRequest{})
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "allowed", list.Items[0].Name)
+	assert.Equal(t, pkgauth.VerbList, authorizer.scopeVerb)
+	assert.Equal(t, "ModelConfig", authorizer.scopeType)
+
+	authorizer.scope = pkgauth.AuthorizationScope{Kind: pkgauth.ScopeAnyOf}
+	_, err = service.List(ctx, model.ListRequest{})
+	require.Error(t, err)
+	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+}
+
+func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	existing := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "existing"},
+		Spec:       v1alpha3.ModelConfigSpec{Model: "old", Provider: v1alpha3.ModelProviderOpenAI},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	authorizer := &recordingAuthorizer{scope: pkgauth.AuthorizationScope{Kind: pkgauth.ScopeAll}}
+	service := model.NewService(kubeClient, authorizer, "default")
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+
+	if _, err := service.Get(ctx, model.GetRequest{Ref: types.NamespacedName{Namespace: "team", Name: "existing"}}); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if _, err := service.Create(ctx, model.CreateRequest{
+		Ref:  "team/created",
+		Spec: v1alpha3.ModelConfigSpec{Model: "created", Provider: v1alpha3.ModelProviderOpenAI},
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := service.Update(ctx, model.UpdateRequest{
+		Ref:  types.NamespacedName{Namespace: "team", Name: "existing"},
+		Spec: v1alpha3.ModelConfigSpec{Model: "updated", Provider: v1alpha3.ModelProviderOpenAI},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if _, err := service.Delete(ctx, model.DeleteRequest{Ref: types.NamespacedName{Namespace: "team", Name: "existing"}}); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbUpdate, pkgauth.VerbDelete}
+	wantNames := []string{"existing", "created", "existing", "existing", "existing"}
+	require.Len(t, authorizer.checkCalls, len(wantVerbs))
+	for index, call := range authorizer.checkCalls {
+		assert.Equal(t, wantVerbs[index], call.verb)
+		assert.Equal(t, "ModelConfig", call.resource.Type)
+		assert.Equal(t, []string{"team"}, call.resource.Attributes[pkgauth.AttributeNamespace])
+		assert.Equal(t, []string{wantNames[index]}, call.resource.Attributes[pkgauth.AttributeName])
+	}
 }

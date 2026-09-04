@@ -29,10 +29,13 @@ message ListModelConfigsRequest {}
 message ModelConfig {
   ResourceReference ref = 1;
   StructuredObject resource = 2;
+  bool can_update = 3;
+  bool can_delete = 4;
 }
 
 message ListModelConfigsResponse {
   repeated ModelConfig model_configs = 1;
+  bool can_create = 2;
 }
 
 message GetModelConfigRequest {

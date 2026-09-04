@@ -29,15 +29,19 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 	if err != nil {
 		return nil, err
 	}
+	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	if err != nil {
+		return nil, err
+	}
 	templates := make([]*apiv1alpha1.AgentTemplate, 0, len(items))
 	for _, item := range items {
-		template, err := s.agentTemplate(item)
+		template, err := s.agentTemplate(item, capabilities)
 		if err != nil {
 			return nil, err
 		}
 		templates = append(templates, template)
 	}
-	return &apiv1alpha1.ListAgentTemplatesResponse{AgentTemplates: templates}, nil
+	return &apiv1alpha1.ListAgentTemplatesResponse{AgentTemplates: templates, CanCreate: capabilities.canCreate}, nil
 }
 
 func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *apiv1alpha1.GetAgentTemplateRequest) (*apiv1alpha1.GetAgentTemplateResponse, error) {
@@ -49,7 +53,11 @@ func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *api
 	if err != nil {
 		return nil, err
 	}
-	template, err := s.agentTemplate(result)
+	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	if err != nil {
+		return nil, err
+	}
+	template, err := s.agentTemplate(result, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +70,15 @@ func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *
 		return nil, err
 	}
 	incoming.Status = v1alpha3.AgentTemplateStatus{}
+	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	if err != nil {
+		return nil, err
+	}
 	result, err := s.service.Create(ctx, incoming)
 	if err != nil {
 		return nil, err
 	}
-	template, err := s.agentTemplate(result)
+	template, err := s.agentTemplate(result, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -82,17 +94,18 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	existing, err := s.service.GetForUpdate(ctx, ref)
+	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
 	if err != nil {
 		return nil, err
 	}
-	existing.Spec = *incoming.Spec.DeepCopy()
-	existing.Labels = maps.Clone(incoming.Labels)
-	result, err := s.service.SaveUpdate(ctx, existing)
+	result, err := s.service.Update(ctx, ref, func(existing *v1alpha3.AgentTemplate) {
+		existing.Spec = *incoming.Spec.DeepCopy()
+		existing.Labels = maps.Clone(incoming.Labels)
+	})
 	if err != nil {
 		return nil, err
 	}
-	template, err := s.agentTemplate(result)
+	template, err := s.agentTemplate(result, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +123,7 @@ func (s *agentTemplateServer) DeleteAgentTemplate(ctx context.Context, request *
 	return &apiv1alpha1.DeleteAgentTemplateResponse{}, nil
 }
 
-func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*apiv1alpha1.AgentTemplate, error) {
+func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate, capabilities resourceCapabilities) (*apiv1alpha1.AgentTemplate, error) {
 	resource, err := structuredobject.FromGo(template, v1alpha3.GroupVersion.String(), agentTemplateKind, s.maxMessageBytes)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode AgentTemplate resource", err)
@@ -131,6 +144,8 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 		Resource:           resource,
 		Description:        template.Spec.Description,
 		AdmittingHarnesses: admitting,
+		CanUpdate:          capabilities.canUpdate(template),
+		CanDelete:          capabilities.canDelete(template),
 	}, nil
 }
 
