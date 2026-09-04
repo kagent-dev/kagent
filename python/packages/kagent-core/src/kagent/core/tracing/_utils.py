@@ -3,12 +3,14 @@ import logging
 import os
 
 from fastapi import FastAPI
-from opentelemetry import _logs, trace
+from opentelemetry import _logs, metrics, trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -46,6 +48,17 @@ def _create_log_exporter(**kwargs):
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
     logging.info("Using %s protocol for log exporter", protocol)
     return OTLPLogExporter(**kwargs)
+
+
+def _create_metric_exporter(**kwargs):
+    """Create an OTLPMetricExporter using the protocol from env vars."""
+    protocol = _resolve_otlp_protocol("METRICS")
+    if protocol == "http/protobuf":
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    logging.info("Using %s protocol for metric exporter", protocol)
+    return OTLPMetricExporter(**kwargs)
 
 
 def _resolve_otlp_timeout_seconds(signal: str) -> float:
@@ -125,13 +138,14 @@ def _resolve_flush_timeout_millis() -> int:
 
 
 def force_flush(timeout_millis: int | None = None) -> None:
-    """Export any spans still buffered in the tracer provider's batch processor.
+    """Export any telemetry still buffered by the tracer and meter providers.
 
     Call before a response completes when the process may be suspended right
     afterwards: Agent Substrate checkpoints the actor as soon as the A2A
-    response body closes, so unexported spans stay frozen in the snapshot
-    until the session's next resume (or forever, for a session's last
-    message). No-op when the provider has no force_flush (tracing disabled).
+    response body closes, so unexported spans (and metric points from a
+    periodic reader that may never fire before suspension) stay frozen in the
+    snapshot until the session's next resume (or forever, for a session's last
+    message). No-op when a provider has no force_flush (signal disabled).
     The timeout defaults to 3000ms, configurable via
     KAGENT_TRACE_FLUSH_TIMEOUT_MS.
     """
@@ -139,12 +153,18 @@ def force_flush(timeout_millis: int | None = None) -> None:
         timeout_millis = _resolve_flush_timeout_millis()
     provider = trace.get_tracer_provider()
     flush = getattr(provider, "force_flush", None)
-    if flush is None:
-        return
-    try:
-        flush(timeout_millis)
-    except Exception:
-        logging.warning("Failed to flush pending spans", exc_info=True)
+    if flush is not None:
+        try:
+            flush(timeout_millis)
+        except Exception:
+            logging.warning("Failed to flush pending spans", exc_info=True)
+    meter_provider = metrics.get_meter_provider()
+    meter_flush = getattr(meter_provider, "force_flush", None)
+    if meter_flush is not None:
+        try:
+            meter_flush(timeout_millis)
+        except Exception:
+            logging.warning("Failed to flush pending metrics", exc_info=True)
 
 
 # High-frequency probe endpoints with nothing worth flushing.
@@ -218,10 +238,10 @@ def configure(
     fastapi_app: FastAPI | None = None,
     instrument_openai_client: bool = True,
 ):
-    """Configure OpenTelemetry tracing and logging for this service.
+    """Configure OpenTelemetry tracing, logging and metrics for this service.
 
-    This sets up OpenTelemetry providers and exporters for tracing and logging,
-    using environment variables to determine whether each is enabled.
+    This sets up OpenTelemetry providers and exporters for tracing, logging and
+    metrics, using environment variables to determine whether each is enabled.
 
     Args:
         name: service name to report to OpenTelemetry (used as ``service.name``). Default is "kagent".
@@ -235,6 +255,7 @@ def configure(
     """
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
+    metrics_enabled = os.getenv("OTEL_METRICS_ENABLED", "false").lower() == "true"
 
     # Resource.create merges in OTEL_RESOURCE_ATTRIBUTES and the telemetry.sdk.*
     # attributes; the bare constructor drops both, so deployment.environment.name,
@@ -321,6 +342,32 @@ def configure(
             OpenAIInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
         _instrument_anthropic(logger_provider)
         _instrument_google_generativeai(logger_provider)
+    # Configure metrics if enabled. google-adk already defines and records its
+    # GenAI metric instruments (duration histograms, inference/tool-call counts,
+    # gen_ai.client.token.usage) under meter scope gcp.vertex.agent; installing a
+    # MeterProvider here is what turns those recorded data points into exports.
+    if metrics_enabled:
+        logging.info("Enabling metrics")
+        metric_endpoint = (
+            os.getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+            or os.getenv("OTEL_METRICS_EXPORTER_OTLP_ENDPOINT")  # Backward compatibility
+            or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        )
+        metric_timeout_seconds = _resolve_otlp_timeout_seconds("METRICS")
+        logging.info("Metrics endpoint: %s", metric_endpoint or "<default>")
+        # A periodic reader exports on an interval, exactly like the batch
+        # processors for traces and logs. On Agent Substrate the actor can be
+        # checkpointed before the interval elapses, so KAGENT_PRE_RESPONSE_*
+        # flushing (see force_flush) also drains the metric reader.
+        if metric_endpoint:
+            metric_reader = PeriodicExportingMetricReader(
+                _create_metric_exporter(endpoint=metric_endpoint, timeout=metric_timeout_seconds)
+            )
+        else:
+            metric_reader = PeriodicExportingMetricReader(_create_metric_exporter(timeout=metric_timeout_seconds))
+        metric_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
+        metrics.set_meter_provider(metric_provider)
+        logging.info("Meter provider configured with OTLP")
     elif tracing_enabled:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
