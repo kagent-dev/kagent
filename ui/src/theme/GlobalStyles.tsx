@@ -56,12 +56,15 @@ export function GlobalStyles() {
          * pointer while every other static table had stopped. The class is on the cells
          * of both bodies, so one rule covers both.
          *
-         * A selected row keeps its own hover: that is the checkbox's feedback, not a
-         * claim that the row is a link.
+         * Selected rows need no exception of their own. The one table in the app with
+         * row selection is the conversations list, where a row is selectable exactly
+         * when it is openable — an unopenable row gets a disabled checkbox — so every
+         * row that can be selected already carries clickable-table-row, and this rule
+         * has passed it by before selection is reached.
          */
         .ant-table-wrapper
           .ant-table-tbody
-          .ant-table-row:not(.clickable-table-row):not(.ant-table-row-selected)
+          .ant-table-row:not(.clickable-table-row)
           > .ant-table-cell-row-hover {
           background: inherit;
         }
@@ -103,8 +106,10 @@ export function GlobalStyles() {
          * action, and the smaller one won on the mouse. It keeps its shape and its
          * plus/minus, and takes the row's states.
          */
+        /* Class-based for the reason the hover rules above are: a virtual body has no
+           tr for this to match, so keying off the row class covers both bodies. */
         .ant-table-wrapper
-          tr.clickable-table-row
+          .ant-table-row.clickable-table-row
           .ant-table-row-expand-icon {
           cursor: pointer;
           transition: none;

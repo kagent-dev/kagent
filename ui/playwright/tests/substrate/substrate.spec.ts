@@ -317,7 +317,7 @@ test("substrate: each list narrows on its own, and a match is found wherever it 
 });
 
 /**
- * All four tables sort the same way, and the paged two sort honestly.
+ * All four tables sort the same way, and the paged two say honestly what they sorted.
  *
  * The actor and worker columns used to carry a header of this page's own: a button around
  * the title, an arrow beside it, and nothing outside those few words to click. It was
@@ -328,14 +328,17 @@ test("substrate: each list narrows on its own, and a match is found wherever it 
  * sort by clicking a header and two that sort by clicking the words inside one, which is
  * a page a reader has to learn twice. What the columns declare now is `sorter: true` —
  * antd's header, with no comparator behind it — so the whole cell is the target and the
- * chevrons show the direction, while the table still reorders nothing. The order goes out
- * as the next read and the rows come back in it.
+ * chevrons show the direction, while the table still reorders nothing itself. A click
+ * becomes the next read, which orders every row before this page gets a slice of it.
  *
- * So this pins both halves: the same header everywhere, and the paged tables' order
- * coming from the server rather than from the browser. If these reads are ever sorted
- * locally again, the second half is what would object.
+ * Not the server, which takes a namespace and nothing else: the ordering is applied in
+ * `localPage` over the whole inventory. That is still the honest claim at this size —
+ * the order holds over the cluster rather than over the hundred rows on screen — and
+ * what the strip beside each table has to say, which is the half this pins. If a
+ * comparator is ever handed to one of these tables, the order would hold over the page
+ * alone and these assertions are what would object.
  */
-test("substrate: every table sorts through the same header, and the paged two ask the server", async ({
+test("substrate: every table sorts through the same header, and the paged two order the lot", async ({
   page,
 }) => {
   await loadPage(page, routes.substrate, { title: "Substrate" });
@@ -361,7 +364,7 @@ test("substrate: every table sorts through the same header, and the paged two as
     }
   });
 
-  await test.step("2. the actors' order is the server's, and cycles back to the default", async () => {
+  await test.step("2. the actors' order covers every row, and cycles back to the default", async () => {
     const order = page.getByTestId("substrate-actors-order");
     await expect(order).toContainText("status, then actor");
 
@@ -369,10 +372,10 @@ test("substrate: every table sorts through the same header, and the paged two as
     // two tables above, and this is the assertion that the same click works here.
     const header = page.getByTestId("substrate-actors-table").locator("th").first();
     await header.click();
-    await expect(order).toContainText("Sorted by the server: actor, ascending");
+    await expect(order).toContainText("Sorted across the whole inventory: actor, ascending");
 
     await header.click();
-    await expect(order).toContainText("Sorted by the server: actor, descending");
+    await expect(order).toContainText("Sorted across the whole inventory: actor, descending");
 
     // antd's third click clears the sort, which for a read that always arrives ordered
     // means the order it falls back to rather than no order at all.
@@ -385,7 +388,7 @@ test("substrate: every table sorts through the same header, and the paged two as
     await expect(order).toContainText("pool, then pod");
 
     await page.getByTestId("substrate-workers-table").locator("th").nth(1).click();
-    await expect(order).toContainText("Sorted by the server: pool, ascending");
+    await expect(order).toContainText("Sorted across the whole inventory: pool, ascending");
   });
 
   await test.step("4. the actors are grouped by status, in an order nobody asked for", async () => {
@@ -433,6 +436,13 @@ test("substrate: rows nobody can click do not light up under the pointer", async
 
     const atRest = (await paint(cell)).background;
     await row.hover();
+    /*
+     * That the hover landed is asserted before what it painted. antd marks the hovered
+     * row's cells whatever the app then does with them, so this separates "the rule
+     * suppressed the highlight" from "the pointer never arrived" — which the colour
+     * comparison alone cannot do, and which a fixed wait on a loaded box invites.
+     */
+    await expect(cell).toHaveClass(/ant-table-cell-row-hover/);
     // Waited out rather than polled: the claim is that nothing happens, and there is no
     // event for a transition that never starts. See `helpers/style`.
     const hovered = (await settledPaint(cell)).background;

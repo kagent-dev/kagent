@@ -218,10 +218,11 @@ export function AgentTemplateForm({
         {isCreate ? (
           <Form.Item
             label="Name"
-            /* Marked required only while the form authors: read-only is the details
-               page showing a template that already has a name, and an asterisk there
-               would be asking a reader for something. Same for the model below. */
-            required={!readOnly}
+            /* Unconditional: this field only exists while creating, and the only
+               caller that creates does not render read-only, so `!readOnly` was a
+               condition that could not be false. The model configuration below is the
+               genuinely conditional one. */
+            required
             extra="A Kubernetes object name, so it cannot be changed afterwards."
           >
             <Input
@@ -236,6 +237,9 @@ export function AgentTemplateForm({
 
         <Form.Item
           label="Model configuration"
+          /* Marked required only while the form authors: read-only is the details page
+             showing a template that already has a model, and an asterisk there would be
+             asking a reader for something the template has. */
           required={!readOnly}
           extra="The only field the CRD requires. It names a ModelConfig in this template's own namespace."
         >

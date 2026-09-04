@@ -392,19 +392,20 @@ type PagedSort<Field extends string> = {
 };
 
 /**
- * What antd should draw on a column's header, from the order the *server* applied.
+ * What antd should draw on a column's header, from the order that was applied.
  *
  * The header is antd's own — the whole cell is the target, and the direction is its
  * pair of chevrons — because a page where two tables sort by clicking a header and two
- * more by clicking the words inside one is a page a reader has to learn twice. What is
- * not antd's is the sorting: the columns below declare `sorter: true`, which is the
- * form that gives the header its control and no comparator to run, so the table
- * reorders nothing. The order goes out with the next read, and the rows come back in
- * it — ordered over the whole set rather than over the page on screen.
+ * more by clicking the words inside one is a page a reader has to learn twice.
  *
- * That distinction is the honest one at this size. A comparator here would reorder the
- * hundred rows the table was handed, and one page out of 410,110 reordered is not the
- * cluster sorted: the first row of the sorted set is almost certainly not on it.
+ * What is not antd's is the sorting: the columns below declare `sorter: true`, the form
+ * that gives a column that header and leaves the table no comparator to run. That is
+ * right here, but for the opposite reason to the one this comment used to give. No
+ * order is sent anywhere — `GetSubstrateStatus` takes a namespace and nothing else —
+ * so the read hands back the whole inventory and `localPage` orders all of it before
+ * slicing out a page. The ordering is already over every row, and a comparator would
+ * re-sort the hundred on screen: one page out of 410,110 reordered is not the cluster
+ * sorted, and the first row of the sorted set is almost certainly not on it.
  */
 function sortDirectionFor<Field extends string>(
   sort: PagedSort<Field>,
@@ -447,15 +448,21 @@ function pagedSortChange<Row, Field extends string>(
 }
 
 /**
- * What the server actually did, said beside the table.
+ * Which order the rows on screen are in, said beside the table.
  *
- * The order applied comes back on the response rather than being assumed from the
- * control, so a request the server did not honour reads as what it did rather than
- * as what was asked for. The age is here for the same reason: these reads are
- * memoised for a fraction of a second, and a page that showed cached numbers while
- * claiming to poll would be the polling bug this codebase has already shipped once.
+ * "Across the whole inventory" is the claim worth making, and it is the true one: the
+ * read fetches every row and orders all of them before this page gets a slice, so the
+ * order holds over the cluster rather than over the hundred rows in front of the
+ * reader. It does not say the server sorted them, because nothing asks the server to —
+ * that sentence stood here over a client-side sort.
+ *
+ * The order comes back on the response rather than being assumed from the control, so
+ * what is claimed is what was applied. The age is here for a related reason: these
+ * reads are memoised for a fraction of a second, and a page that showed cached numbers
+ * while claiming to poll would be the polling bug this codebase has already shipped
+ * once.
  */
-function ServerOrder({
+function AppliedOrder({
   field,
   order,
   computedAt,
@@ -476,7 +483,7 @@ function ServerOrder({
       data-testid={testId}
       css={{ color: theme.color.textMuted, fontSize: 12 }}
     >
-      Sorted by the server: {labels[field] ?? field}
+      Sorted across the whole inventory: {labels[field] ?? field}
       {order === "desc" ? ", descending" : ", ascending"}
       {age ? ` · ${age}` : ""}
     </Text>
@@ -628,8 +635,9 @@ export function SubstratePage() {
   const workerFilter = useDebounced(workerQuery.trim(), FILTER_DEBOUNCE_MS);
 
   /*
-   * The order each paged table is read in, sent to the server rather than applied
-   * here — see `sortDirectionFor` for why a local sort would be a lie at this size.
+   * The order each paged table is read in, applied by the read rather than by the
+   * table — see `sortDirectionFor` for why sorting the page in hand would be a lie at
+   * this size, and `useSubstrateActors` for what carrying it in the read key costs.
    */
   const [actorSort, setActorSort] = useState<PagedSort<SubstrateActorSortField>>({
     field: "default",
@@ -927,19 +935,22 @@ export function SubstratePage() {
   );
 
   /*
-   * Every column asks the server to sort, and none of them sorts locally.
+   * Every column orders the whole inventory, and none of them sorts the page locally.
    *
    * `sorter: true` rather than a comparator: it is the form that gives a column antd's
    * own header — the whole cell clickable, the direction in its chevrons, the same as
-   * the two tables above — while leaving the table nothing to reorder. The order is
-   * carried in `sortOrder` from what the server said it applied, and a click goes back
-   * out as the next read. A comparator here would sort the hundred rows on screen and
-   * call it the cluster sorted.
+   * the two tables above — while leaving the table nothing to reorder. A click becomes
+   * the next read, which orders every row before slicing this page out of it; see
+   * `sortDirectionFor` for why that is not the same as sorting on the server.
    *
-   * Each column's `key` is the server's own sort field, which is what lets the change
-   * handler send `columnKey` straight on.
+   * Each column's `key` *is* its sort field, which is what lets the change handler send
+   * `columnKey` straight on — so the type says so, and a key that is not one of them
+   * fails to compile rather than silently sorting by nothing. That is the shape that
+   * let `pod` stand where `workerPod` belonged.
    */
-  const actorColumns: ColumnsType<SubstrateActorEntry> = useMemo(
+  const actorColumns: (ColumnsType<SubstrateActorEntry>[number] & {
+    key: SubstrateActorSortField;
+  })[] = useMemo(
     () => [
       {
         title: "Actor",
@@ -990,8 +1001,10 @@ export function SubstratePage() {
     [actorSort, mono, muted, qualified],
   );
 
-  /** The same, for the workers: antd's header, the server's order. */
-  const workerColumns: ColumnsType<SubstrateWorkerEntry> = useMemo(
+  /** The same, for the workers: antd's header, the order the read applied. */
+  const workerColumns: (ColumnsType<SubstrateWorkerEntry>[number] & {
+    key: SubstrateWorkerSortField;
+  })[] = useMemo(
     () => [
       {
         title: "Pod",
@@ -1414,7 +1427,7 @@ export function SubstratePage() {
             }}
           />
 
-          <ServerOrder
+          <AppliedOrder
             testId="substrate-actors-order"
             field={actors.data?.appliedSortField ?? "default"}
             order={actors.data?.appliedSortOrder ?? "asc"}
@@ -1500,7 +1513,7 @@ export function SubstratePage() {
             }}
           />
 
-          <ServerOrder
+          <AppliedOrder
             testId="substrate-workers-order"
             field={workers.data?.appliedSortField ?? "default"}
             order={workers.data?.appliedSortOrder ?? "asc"}
