@@ -30,8 +30,12 @@ runs:
     - name: Resolve upgrade-from version
       id: resolve
       shell: bash
+      env:
+        MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
       run: |
-        base_ref="${GITHUB_BASE_REF:-${GITHUB_REF_NAME:-}}"
+        # A merge group has no GITHUB_BASE_REF; its ref name is gh-readonly-queue/<base>/pr-N-<sha>.
+        base_ref="${GITHUB_BASE_REF:-${MERGE_GROUP_BASE_REF#refs/heads/}}"
+        base_ref="${base_ref:-${GITHUB_REF_NAME:-}}"
         is_release_line=false
         if [[ "$base_ref" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
           is_release_line=true
