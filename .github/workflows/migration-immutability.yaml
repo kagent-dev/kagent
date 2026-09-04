@@ -5,6 +5,7 @@ on:
     branches: [main, "release/**"]
     paths:
       - "go/core/pkg/migrations/**"
+  merge_group:
 
 jobs:
   check:
@@ -15,11 +16,14 @@ jobs:
           fetch-depth: 0
 
       - name: Fail if any existing migration file was modified
+        env:
+          # A merge group has no base_ref; it only exposes the base branch as refs/heads/<branch>.
+          BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
         run: |
           # List files under go/core/pkg/migrations/ that were changed relative
           # to the merge base of this PR.  We only care about modifications (M)
           # and renames (R); additions (A) are fine.
-          BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
+          BASE=$(git merge-base HEAD "origin/${BASE_REF#refs/heads/}")
           MODIFIED=$(git diff --name-only --diff-filter=MR "$BASE" HEAD \
             -- 'go/core/pkg/migrations/**/*.sql')
 
