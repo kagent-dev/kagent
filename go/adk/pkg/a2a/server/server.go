@@ -59,6 +59,11 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux := http.NewServeMux()
 	RegisterHealthEndpoints(mux)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
+	// Serve Prometheus metrics for scraping when the metrics gate is on. This
+	// endpoint is excluded from request tracing and span flushing below.
+	if telemetry.MetricsEnabled() {
+		mux.Handle("/metrics", telemetry.MetricsHandler())
+	}
 	mux.Handle("/", jsonrpcHandler)
 
 	grpcServer := grpc.NewServer()
@@ -80,6 +85,8 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
 			return false
 		case r.URL.Path == "/health", r.URL.Path == "/healthz", r.URL.Path == a2asrv.WellKnownAgentCardPath:
+			return false
+		case r.URL.Path == "/metrics":
 			return false
 		default:
 			return true
