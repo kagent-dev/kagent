@@ -42,6 +42,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"go.uber.org/zap/zapcore"
@@ -166,13 +167,18 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
-	sources := append(migrations.BuiltinSources(false), opts.ExtraMigrations...)
-	if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
+	if kagentenv.SkipMigrations.Get() {
+		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+			return fmt.Errorf("verify database migrations: %w", err)
+		}
+	} else if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL})
+	db, err := database.Connect(ctx, &database.PostgresConfig{URL: dbURL, VectorEnabled: vectorEnabled})
 	if err != nil {
 		return err
 	}
@@ -256,7 +262,7 @@ func Run(ctx context.Context, opts Options) error {
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
-	system := systemservice.NewService(systemservice.WithInventory(manager.GetClient(), watchNamespaces, authorizer, actors))
+	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors, store)
 	memory := memoryservice.NewService(store)
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)

@@ -62,6 +62,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
+		SystemService: testSystemService(),
 		ModelService:  service,
 	})
 	if err != nil {

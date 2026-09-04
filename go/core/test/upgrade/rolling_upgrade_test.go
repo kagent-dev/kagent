@@ -19,24 +19,25 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	env := loadUpgradeEnv(t)
 	targetCoreVersion := latestCoreMigrationVersion(t)
 	seed := fmt.Sprintf("%d", time.Now().UnixNano())
-	baselineAgentID := "rolling-baseline-agent-" + seed
-	compatAgentID := "rolling-compat-agent-" + seed
-	compatUserID := "rolling-compat-user-" + seed
+	baselineToolID := "rolling-baseline-tool-" + seed
+	compatToolID := "rolling-compat-tool-" + seed
+	toolServerName := "rolling-toolserver-" + seed
+	groupKind := "upgrade.rolling/v1/Canary"
 
 	t.Logf("rolling upgrade test: %s -> %s (registry=%s, kubeContext=%s)",
 		env.upgradeFromVersion, env.version, env.dockerRegistry, env.kubeContext)
 
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
-	waitForPostgresAgentTable(t, env, 3*time.Minute)
+	waitForPostgresSchema(t, env, 3*time.Minute)
+	if !hasGooseMigrationTable(t, env) {
+		t.Skip("the baseline release does not use Goose")
+	}
 
 	// Run even when there is no migration delta: a rolling upgrade rolls the new
 	// image regardless of migrations, so the deploy can still break for
 	// non-schema reasons (a crashing new image, readiness, old pods against
 	// new-code-created resources). When the target build does add migrations, the
 	// same flow additionally exercises the old-code/new-schema window below.
-	baselineState := pgMigrationState(t, env)
-	require.False(t, baselineState.dirty, "baseline Postgres migrations are dirty")
-
 	// Keep multiple old controller pods around during the rollout. With a single
 	// replica the old-code/new-schema window can be too small to observe reliably.
 	kubectl(t, env, 2*time.Minute,
@@ -55,7 +56,9 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	// Seed with the baseline schema before the target controller applies new
 	// migrations. The compatibility canary below verifies this row is still
 	// readable while old pods are alive against the target schema.
-	pgExec(t, env, fmt.Sprintf("INSERT INTO agent (id, type) VALUES (%s, 'Deployment')", pgQuote(baselineAgentID)))
+	pgExec(t, env, fmt.Sprintf(
+		"INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'rolling baseline tool')",
+		pgQuote(baselineToolID), pgQuote(toolServerName), pgQuote(groupKind)))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 	defer cancel()
@@ -89,9 +92,7 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return state.version == targetCoreVersion &&
-			!state.dirty &&
-			anyPodsReady(t, env, oldPods)
+		return state.version == targetCoreVersion && anyPodsReady(t, env, oldPods)
 	}, 6*time.Minute, 500*time.Millisecond, "target schema was not observed while old controller pods were still ready")
 	require.NoError(t, helmErr, "helm upgrade failed before target schema was observed:\n%s", helmOut)
 
@@ -99,18 +100,17 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	// not prove every previous-release code path works, but they catch migrations
 	// that break basic old read/write assumptions during a rolling deployment.
 	require.Equal(t, 1,
-		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s AND type = 'Deployment'", pgQuote(baselineAgentID))),
+		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s",
+			pgQuote(baselineToolID), pgQuote(toolServerName), pgQuote(groupKind))),
 		"old-shape read failed after target schema was applied",
 	)
-	pgExec(t, env, fmt.Sprintf("INSERT INTO agent (id, type) VALUES (%s, 'Deployment')", pgQuote(compatAgentID)))
-	pgExec(t, env, fmt.Sprintf("INSERT INTO feedback (user_id, feedback_text) VALUES (%s, 'rolling compatibility feedback')", pgQuote(compatUserID)))
+	pgExec(t, env, fmt.Sprintf(
+		"INSERT INTO tool (id, server_name, group_kind, description) VALUES (%s, %s, %s, 'rolling compatibility tool')",
+		pgQuote(compatToolID), pgQuote(toolServerName), pgQuote(groupKind)))
 	require.Equal(t, 1,
-		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM agent WHERE id = %s", pgQuote(compatAgentID))),
-		"old-shape agent write did not survive against target schema",
-	)
-	require.Equal(t, 1,
-		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(compatUserID))),
-		"old-shape feedback write did not survive against target schema",
+		pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM tool WHERE id = %s AND server_name = %s AND group_kind = %s",
+			pgQuote(compatToolID), pgQuote(toolServerName), pgQuote(groupKind))),
+		"old-shape tool write did not survive against target schema",
 	)
 
 	result := <-done
@@ -122,7 +122,6 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 		"--timeout=3m",
 	)
 	finalState := pgMigrationState(t, env)
-	require.False(t, finalState.dirty, "post-rollout Postgres migrations are dirty")
 	require.Equal(t, targetCoreVersion, finalState.version, "final migration version")
 }
 

@@ -98,4 +98,18 @@ var (
 		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
 		ComponentAgentRuntime,
 	)
+
+	DatabaseVectorEnabled = RegisterBoolVar(
+		"DATABASE_VECTOR_ENABLED",
+		false,
+		"Enable vector database migrations and vector-backed database functionality.",
+		ComponentDatabase,
+	)
+
+	SkipMigrations = RegisterBoolVar(
+		"SKIP_MIGRATIONS",
+		false,
+		"Verify required database migrations at startup without applying them.",
+		ComponentDatabase,
+	)
 )

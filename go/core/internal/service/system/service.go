@@ -46,8 +46,6 @@ type Service struct {
 	revisions          runtimeRevisionStore
 }
 
-type Option func(*Service)
-
 type Namespace struct {
 	Name   string
 	Status string
@@ -107,31 +105,19 @@ type SubstrateWorker struct {
 	Version         int64
 }
 
-func NewService(options ...Option) *Service {
-	service := &Service{}
-	for _, option := range options {
-		option(service)
-	}
-	return service
-}
-
-func WithInventory(
+func NewService(
 	kubeClient client.Client,
 	observedNamespaces []string,
 	authorizer auth.Authorizer,
 	ateClient ATEClient,
-) Option {
-	return func(service *Service) {
-		service.kubeClient = kubeClient
-		service.observedNamespaces = slices.Clone(observedNamespaces)
-		service.authorizer = authorizer
-		service.ateClient = ateClient
-	}
-}
-
-func WithRuntimeRevisions(revisions runtimeRevisionStore) Option {
-	return func(service *Service) {
-		service.revisions = revisions
+	revisions runtimeRevisionStore,
+) *Service {
+	return &Service{
+		kubeClient:         kubeClient,
+		observedNamespaces: slices.Clone(observedNamespaces),
+		authorizer:         authorizer,
+		ateClient:          ateClient,
+		revisions:          revisions,
 	}
 }
 
@@ -441,14 +427,10 @@ func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 }
 
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
-	assignment := worker.GetStatus().GetAssignment()
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  assignment.GetActorTemplateRef().GetAtespace(),
-		ActorTemplate:   assignment.GetActorTemplateRef().GetName(),
-		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
 	}

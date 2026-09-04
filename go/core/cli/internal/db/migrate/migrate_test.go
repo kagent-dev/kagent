@@ -3,15 +3,12 @@ package migrate
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"strings"
 	"testing"
 	"testing/fstest"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -20,15 +17,25 @@ import (
 // --- fixtures ---
 
 var alphaFS = fstest.MapFS{
-	"alpha/000001_create.up.sql":   {Data: []byte(`CREATE TABLE IF NOT EXISTS cli_alpha (id SERIAL PRIMARY KEY);`)},
-	"alpha/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS cli_alpha;`)},
-	"alpha/000002_alter.up.sql":    {Data: []byte(`ALTER TABLE cli_alpha ADD COLUMN IF NOT EXISTS name TEXT;`)},
-	"alpha/000002_alter.down.sql":  {Data: []byte(`ALTER TABLE cli_alpha DROP COLUMN IF EXISTS name;`)},
+	"alpha/000001_create.sql": {Data: migrationFile(
+		`CREATE TABLE IF NOT EXISTS cli_alpha (id SERIAL PRIMARY KEY);`,
+		`DROP TABLE IF EXISTS cli_alpha;`,
+	)},
+	"alpha/000002_alter.sql": {Data: migrationFile(
+		`ALTER TABLE cli_alpha ADD COLUMN IF NOT EXISTS name TEXT;`,
+		`ALTER TABLE cli_alpha DROP COLUMN IF EXISTS name;`,
+	)},
 }
 
 var betaFS = fstest.MapFS{
-	"beta/000001_create.up.sql":   {Data: []byte(`CREATE TABLE IF NOT EXISTS cli_beta (id SERIAL PRIMARY KEY);`)},
-	"beta/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS cli_beta;`)},
+	"beta/000001_create.sql": {Data: migrationFile(
+		`CREATE TABLE IF NOT EXISTS cli_beta (id SERIAL PRIMARY KEY);`,
+		`DROP TABLE IF EXISTS cli_beta;`,
+	)},
+}
+
+func migrationFile(up, down string) []byte {
+	return []byte("-- +goose Up\n" + up + "\n-- +goose Down\n" + down + "\n")
 }
 
 func testSources() []migrations.Source {
@@ -121,7 +128,7 @@ func TestResolveSource(t *testing.T) {
 		{name: "single source inferred", sources: single, want: "alpha"},
 		{name: "single source explicit match", sources: single, flag: "alpha", want: "alpha"},
 		{name: "single source mismatch", sources: single, flag: "beta", wantErr: "not registered"},
-		{name: "multi requires flag", sources: multi, wantErr: "pass --source"},
+		{name: "multi requires flag", sources: multi, wantErr: "Pass --source"},
 		{name: "multi explicit", sources: multi, flag: "beta", want: "beta"},
 		{name: "multi unknown", sources: multi, flag: "nope", wantErr: "not registered"},
 		{name: "none registered", sources: nil, wantErr: "no migration sources"},
@@ -161,11 +168,10 @@ func TestArgValidation(t *testing.T) {
 		{name: "down zero", args: []string{"down", "0"}, wantErr: "positive integer"},
 		{name: "goto non-integer", args: []string{"goto", "abc"}, wantErr: "non-negative integer"},
 		{name: "goto negative", args: []string{"goto", "--", "-1"}, wantErr: "non-negative integer"},
-		{name: "force non-integer", args: []string{"force", "abc"}, wantErr: "non-negative integer"},
 		{name: "up rejects source flag", args: []string{"up", "--source", "alpha"}, wantErr: "--source is not applicable"},
 		{name: "status rejects source flag", args: []string{"status", "--source", "alpha"}, wantErr: "--source is not applicable"},
 		{name: "status invalid output", args: []string{"status", "--output", "yaml"}, wantErr: "invalid --output"},
-		{name: "no dsn", args: []string{"version"}, wantErr: "database URL not set"},
+		{name: "no dsn", args: []string{"version"}, wantErr: "set the database URL"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -216,7 +222,7 @@ func TestNewCommandFromFunc(t *testing.T) {
 		cmd.SetErr(io.Discard)
 		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused"})
 		err := cmd.ExecuteContext(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "configured twice") {
+		if err == nil || !strings.Contains(err.Error(), "appears twice") {
 			t.Fatalf("error = %v, want duplicate-name error", err)
 		}
 	})
@@ -229,13 +235,13 @@ func TestStatusJSONShape(t *testing.T) {
 	payload := statusJSON{
 		Applied: 3,
 		Pending: 1,
-		Sources: []statusSourceJSON{{Name: "alpha", Applied: 2, Pending: 1, Version: 2, Downgraded: false, Dirty: true}},
+		Sources: []statusSourceJSON{{Name: "alpha", Applied: 2, Pending: 1, Version: 2, Downgraded: false}},
 	}
 	got, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"applied":3,"pending":1,"sources":[{"name":"alpha","applied":2,"pending":1,"version":2,"downgraded":false,"dirty":true}]}`
+	want := `{"applied":3,"pending":1,"sources":[{"name":"alpha","applied":2,"pending":1,"version":2,"downgraded":false}]}`
 	if string(got) != want {
 		t.Errorf("status JSON shape changed:\n got: %s\nwant: %s", got, want)
 	}
@@ -244,7 +250,7 @@ func TestStatusJSONShape(t *testing.T) {
 // --- database-backed tests ---
 
 // TestCLIAgainstPostgres walks the operator surface end to end against a real
-// Postgres: up, status, version, down, goto, dirty refusal, and force. The
+// Postgres: up, status, version, down, and goto. The
 // subtests share one container and run in order — each builds on the schema
 // state the previous one left.
 func TestCLIAgainstPostgres(t *testing.T) {
@@ -271,11 +277,11 @@ func TestCLIAgainstPostgres(t *testing.T) {
 	}
 
 	t.Run("up applies all sources", func(t *testing.T) {
-		mustContain(t, mustRun(t, "up"), "applied 3 migration(s)")
+		mustContain(t, mustRun(t, "up"), "schema is up to date")
 	})
 
 	t.Run("up is idempotent", func(t *testing.T) {
-		mustContain(t, mustRun(t, "up"), "no pending migrations")
+		mustContain(t, mustRun(t, "up"), "schema is up to date")
 	})
 
 	t.Run("status text", func(t *testing.T) {
@@ -312,7 +318,7 @@ func TestCLIAgainstPostgres(t *testing.T) {
 	})
 
 	t.Run("goto zero empties the source", func(t *testing.T) {
-		mustContain(t, mustRun(t, "goto", "0", "--source", "beta"), "version 0 (empty)")
+		mustContain(t, mustRun(t, "goto", "0", "--source", "beta"), "version 0 (no migrations applied)")
 		mustContain(t, mustRun(t, "version", "--source", "beta"), "no migrations applied")
 	})
 
@@ -320,67 +326,35 @@ func TestCLIAgainstPostgres(t *testing.T) {
 		mustContain(t, mustRun(t, "down", "1", "--source", "beta"), "no migrations to roll back")
 	})
 
-	t.Run("dirty source is refused and force recovers", func(t *testing.T) {
-		markDirty(t, dsn, "alpha_schema_migrations")
-		for _, args := range [][]string{{"up"}, {"down", "1", "--source", "alpha"}, {"goto", "1", "--source", "alpha"}} {
-			_, _, err := runCLI(t, sources, append(args, "--db-url", dsn)...)
-			if err == nil || !strings.Contains(err.Error(), "dirty") {
-				t.Fatalf("%v: error = %v, want dirty refusal", args, err)
-			}
-		}
-		// status still reports rather than refusing, and annotates the row.
-		mustContain(t, mustRun(t, "status"), "(dirty)")
-
-		mustContain(t, mustRun(t, "force", "2", "--source", "alpha"), "version 2 marked as applied")
-		mustContain(t, mustRun(t, "up"), "applied 1 migration(s)") // beta was left at 0 by the goto above
+	t.Run("up restores a source after goto zero", func(t *testing.T) {
+		mustContain(t, mustRun(t, "up"), "schema is up to date")
 	})
-
-	t.Run("force rejects unshipped version", func(t *testing.T) {
-		_, _, err := runCLI(t, sources, "force", "99", "--source", "alpha", "--db-url", dsn)
-		if err == nil || !strings.Contains(err.Error(), "not a shipped migration") {
-			t.Fatalf("error = %v, want unshipped-version rejection", err)
-		}
-	})
-
-	t.Run("force zero clears the version record", func(t *testing.T) {
-		mustContain(t, mustRun(t, "force", "0", "--source", "beta"), "version record cleared")
-		mustContain(t, mustRun(t, "version", "--source", "beta"), "no migrations applied")
-		mustContain(t, mustRun(t, "up"), "applied 1 migration(s)")
-	})
-}
-
-// markDirty flips the dirty flag on a tracking table, simulating a process
-// that died mid-migration.
-func markDirty(t *testing.T, dsn, table string) {
-	t.Helper()
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec("UPDATE " + table + " SET dirty = true"); err != nil {
-		t.Fatalf("mark %s dirty: %v", table, err)
-	}
 }
 
 func TestSourceFileVersions(t *testing.T) {
 	tests := []struct {
-		name  string
-		files []string
-		want  []int
+		name    string
+		files   []string
+		want    []int64
+		wantErr bool
 	}{
-		{"standard format", []string{"000001_create.up.sql", "000002_alter.up.sql"}, []int{1, 2}},
-		{"no underscore ignored", []string{"000003foo.up.sql"}, nil},
-		{"no leading digits ignored", []string{"notes.up.sql"}, nil},
-		{"down files ignored", []string{"000001_create.down.sql", "000001_create.up.sql"}, []int{1}},
+		{"standard format", []string{"000001_create.sql", "000002_alter.sql"}, []int64{1, 2}, false},
+		{"non-SQL ignored", []string{"README.md"}, nil, false},
+		{"legacy split rejected", []string{"000001_create.up.sql"}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mfs := fstest.MapFS{}
 			for _, f := range tt.files {
-				mfs["m/"+f] = &fstest.MapFile{Data: []byte("-- sql")}
+				mfs["m/"+f] = &fstest.MapFile{Data: migrationFile("SELECT 1;", "SELECT 1;")}
 			}
 			got, err := sourceFileVersions(migrations.Source{FS: mfs, Dir: "m"})
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("sourceFileVersions succeeded")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

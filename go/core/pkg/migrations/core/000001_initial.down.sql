@@ -1,2 +1,0 @@
-DROP TABLE IF EXISTS toolserver;
-DROP TABLE IF EXISTS tool;
