@@ -133,10 +133,17 @@ test("substrate: the polling interval is the reader's, and zero stops it", async
     await expect(page.getByTestId("substrate-poll-interval")).toHaveCount(0);
   });
 
-  await test.step("2. switching polling on offers one, defaulting to a second", async () => {
+  await test.step("2. switching polling on offers one, defaulting to the floor", async () => {
     await page.getByTestId("substrate-poll-toggle").click();
-    await expect(interval).toHaveValue("1");
+    // The fastest this page will ask: someone who turned polling on wants to see movement.
+    await expect(interval).toHaveValue("0.5");
+    await expect(page.getByTestId("substrate-poll-interval")).toContainText("seconds");
+  });
+
+  await test.step("2b. one second reads as one, not as ones", async () => {
     // Singular for exactly one: "1 seconds" reads as a page not reading its own value.
+    await interval.fill("1");
+    await interval.blur();
     await expect(page.getByTestId("substrate-poll-interval")).toContainText("second");
   });
 

@@ -397,6 +397,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		}
 		workers = append(workers, workerFromProto(worker))
 	}
+	placeActorsOnWorkers(workers, actors)
 	return templates, actors, workers, nil
 }
 
@@ -433,6 +434,38 @@ func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
 		WorkerPod:       worker.GetWorkerPod(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
+	}
+}
+
+// placeActorsOnWorkers fills in what each worker is holding.
+//
+// `ateapi.Worker` carries no actor reference — only the actor names its pod — so this is
+// the one place both whole lists are in hand to join them.
+//
+// A worker holds several actors since v0.0.25 and `SubstrateWorker` has room for one, so
+// the lowest actor id wins. Lowest rather than first seen: ate-api returns actors
+// unordered, so by arrival the cell would name a different actor on each poll.
+func placeActorsOnWorkers(workers []SubstrateWorker, actors []SubstrateActor) {
+	type pod struct{ namespace, name string }
+	holding := make(map[pod]SubstrateActor, len(actors))
+	for _, actor := range actors {
+		if actor.AteomPodName == "" {
+			continue
+		}
+		key := pod{actor.AteomPodNamespace, actor.AteomPodName}
+		if held, ok := holding[key]; ok && held.ActorID <= actor.ActorID {
+			continue
+		}
+		holding[key] = actor
+	}
+	for i := range workers {
+		actor, ok := holding[pod{workers[i].WorkerNamespace, workers[i].WorkerPod}]
+		if !ok {
+			continue
+		}
+		workers[i].ActorNamespace = actor.ActorTemplateNamespace
+		workers[i].ActorTemplate = actor.ActorTemplateName
+		workers[i].ActorID = actor.ActorID
 	}
 }
 

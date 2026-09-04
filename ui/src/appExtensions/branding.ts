@@ -27,17 +27,32 @@ export interface ExtensionBranding {
   AppIcon?: ComponentType<ExtensionAppIconProps>;
   /** Product name, used for the document title. */
   appName?: string;
+  /**
+   * Replaces the tab icon. A URL and not a component, unlike `AppIcon`: the browser
+   * loads this itself from a `<link>`, so there is nothing for us to render.
+   */
+  faviconUrl?: string;
 }
 
 /**
- * Applies the document title a distribution asked for.
+ * Applies the title and tab icon a distribution asked for.
  *
  * Takes the merged branding rather than the install, so the "later extension wins"
  * rule is applied once, where every other singular capability applies it — see
  * `selectors.ts`.
+ *
+ * Both are left alone when unset rather than reset to a default: the document already
+ * carries this application's own, and writing them unconditionally would mean every
+ * extension had to restate the branding it was happy with.
  */
-export function applyExtensionDocumentTitle(
-  branding: ExtensionBranding | undefined,
-): void {
+export function applyExtensionBranding(branding: ExtensionBranding | undefined): void {
   if (branding?.appName) document.title = branding.appName;
+  if (!branding?.faviconUrl) return;
+
+  // The tag `index.html` ships, or a fresh one if a host page dropped it — a missing
+  // icon is not a reason to leave the extension's branding unapplied.
+  const link =
+    document.querySelector<HTMLLinkElement>("link[data-app-favicon]") ??
+    document.head.appendChild(Object.assign(document.createElement("link"), { rel: "icon" }));
+  link.href = branding.faviconUrl;
 }
