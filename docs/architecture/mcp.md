@@ -34,4 +34,4 @@ contains the authorized namespace, AgentInstance, and A2A task identity.
 same durable A2A task, including `input-required` continuation. There is no
 separate MCP task or session store.
 
-The implementation is in [`go/core/v2/mcp`](../../go/core/v2/mcp).
+The implementation is in [`go/core/internal/mcp`](../../go/core/internal/mcp).

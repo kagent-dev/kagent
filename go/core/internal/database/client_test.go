@@ -149,8 +149,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	// changes type OIDs and breaks existing pool connections.
 	_, err := sharedDB.Exec(context.Background(), `
 		TRUNCATE TABLE
-			tool, toolserver, lg_checkpoint, lg_checkpoint_write,
-			crewai_agent_memory, crewai_flow_state, memory,
+			tool, toolserver, memory,
 			agent_instance_share,
 			agent_instance, a2a_context, agent_template_harness_pair, runtime_revision
 		RESTART IDENTITY CASCADE
@@ -462,7 +461,6 @@ func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
 	ctx := context.Background()
-	missing := "missing"
 
 	tests := []struct {
 		name string
@@ -470,10 +468,6 @@ func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
 	}{
 		{name: "GetTool", read: func() error { _, err := client.GetTool(ctx, "missing"); return err }},
 		{name: "GetToolServer", read: func() error { _, err := client.GetToolServer(ctx, "missing"); return err }},
-		{name: "ListCheckpoints by ID", read: func() error {
-			_, err := client.ListCheckpoints(ctx, "user", "thread", "namespace", &missing, 0)
-			return err
-		}},
 	}
 
 	for _, tt := range tests {

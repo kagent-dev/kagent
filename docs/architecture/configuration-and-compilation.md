@@ -58,8 +58,8 @@ running instance.
 
 Harness compilers only translate inputs. The controller and Substrate adapter own
 application and readiness. The central entry points are
-[`translator/compiler.go`](../../go/core/v2/translator/compiler.go) and
-[`controller/reconciler.go`](../../go/core/v2/controller/reconciler.go).
+[`translator/compiler.go`](../../go/core/internal/translator/compiler.go) and
+[`controller/reconciler.go`](../../go/core/internal/controller/reconciler.go).
 
 ## Harness-specific output
 

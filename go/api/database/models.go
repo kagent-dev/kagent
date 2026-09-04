@@ -28,55 +28,6 @@ type ToolServer struct {
 	LastConnected *time.Time `json:"last_connected,omitempty"`
 }
 
-type LangGraphCheckpoint struct {
-	UserID             string     `json:"user_id"`
-	ThreadID           string     `json:"thread_id"`
-	CheckpointNS       string     `json:"checkpoint_ns"`
-	CheckpointID       string     `json:"checkpoint_id"`
-	ParentCheckpointID *string    `json:"parent_checkpoint_id,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
-	Metadata           string     `json:"metadata"`
-	Checkpoint         string     `json:"checkpoint"`
-	CheckpointType     string     `json:"checkpoint_type"`
-	Version            int64      `json:"version"`
-}
-
-type LangGraphCheckpointWrite struct {
-	UserID       string     `json:"user_id"`
-	ThreadID     string     `json:"thread_id"`
-	CheckpointNS string     `json:"checkpoint_ns"`
-	CheckpointID string     `json:"checkpoint_id"`
-	WriteIdx     int64      `json:"write_idx"`
-	Value        string     `json:"value"`
-	ValueType    string     `json:"value_type"`
-	Channel      string     `json:"channel"`
-	TaskID       string     `json:"task_id"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
-}
-
-type CrewAIAgentMemory struct {
-	UserID     string     `json:"user_id"`
-	ThreadID   string     `json:"thread_id"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
-	MemoryData string     `json:"memory_data"`
-}
-
-type CrewAIFlowState struct {
-	UserID     string     `json:"user_id"`
-	ThreadID   string     `json:"thread_id"`
-	MethodName string     `json:"method_name"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
-	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
-	StateData  string     `json:"state_data"`
-}
-
 type Memory struct {
 	ID          string          `json:"id"`
 	AgentName   string          `json:"agent_name"`
@@ -93,15 +44,6 @@ type Memory struct {
 type AgentMemorySearchResult struct {
 	Memory
 	Score float64 `json:"score"`
-}
-
-type SessionShare struct {
-	ID        int64     `json:"id"`
-	Token     string    `json:"token"`
-	SessionID string    `json:"session_id"`
-	UserID    string    `json:"user_id"`
-	ReadOnly  bool      `json:"read_only"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 type AgentTemplateHarnessPair struct {

@@ -46,4 +46,4 @@ Tasks contain current materialized A2A state. Complete message history is rebuil
 from ordered event rows, not stored as one history blob.
 
 The implementation is in
-[`go/core/v2/a2agateway`](../../go/core/v2/a2agateway).
+[`go/core/internal/a2agateway`](../../go/core/internal/a2agateway).

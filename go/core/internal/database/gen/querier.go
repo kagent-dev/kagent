@@ -38,14 +38,11 @@ type Querier interface {
 	GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (GetAgentInstanceShareByTokenHashRow, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
-	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
-	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
 	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
 	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
-	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
 	// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
 	InsertA2AContext(ctx context.Context, arg InsertA2AContextParams) error
@@ -72,9 +69,6 @@ type Querier interface {
 	// therefore matches no template or harness filter.
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
-	ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error)
-	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
-	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
@@ -92,11 +86,7 @@ type Querier interface {
 	// Memory uses hard DELETE (not soft deletes), so no deleted_at filter is needed.
 	// COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 	SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error)
-	SearchCrewAIMemoryByTask(ctx context.Context, arg SearchCrewAIMemoryByTaskParams) ([]CrewaiAgentMemory, error)
-	SearchCrewAIMemoryByTaskLimit(ctx context.Context, arg SearchCrewAIMemoryByTaskLimitParams) ([]CrewaiAgentMemory, error)
 	SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error
-	SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error
-	SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
@@ -107,10 +97,6 @@ type Querier interface {
 	UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error)
 	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
-	UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error
-	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
-	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
-	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
 	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)

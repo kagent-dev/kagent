@@ -27,67 +27,6 @@ CREATE TABLE toolserver (
 );
 CREATE INDEX idx_toolserver_deleted_at ON toolserver(deleted_at);
 
-CREATE TABLE lg_checkpoint (
-    user_id              TEXT        NOT NULL,
-    thread_id            TEXT        NOT NULL,
-    checkpoint_ns        TEXT        NOT NULL DEFAULT '',
-    checkpoint_id        TEXT        NOT NULL,
-    parent_checkpoint_id TEXT,
-    created_at           TIMESTAMPTZ,
-    updated_at           TIMESTAMPTZ,
-    deleted_at           TIMESTAMPTZ,
-    metadata             TEXT        NOT NULL,
-    checkpoint           TEXT        NOT NULL,
-    checkpoint_type      TEXT        NOT NULL,
-    version              BIGINT      NOT NULL DEFAULT 1,
-    PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id)
-);
-CREATE INDEX idx_lg_checkpoint_parent_checkpoint_id ON lg_checkpoint(parent_checkpoint_id);
-CREATE INDEX idx_lgcp_list                          ON lg_checkpoint(created_at);
-CREATE INDEX idx_lg_checkpoint_deleted_at           ON lg_checkpoint(deleted_at);
-
-CREATE TABLE lg_checkpoint_write (
-    user_id       TEXT        NOT NULL,
-    thread_id     TEXT        NOT NULL,
-    checkpoint_ns TEXT        NOT NULL DEFAULT '',
-    checkpoint_id TEXT        NOT NULL,
-    write_idx     BIGINT      NOT NULL,
-    value         TEXT        NOT NULL,
-    value_type    TEXT        NOT NULL,
-    channel       TEXT        NOT NULL,
-    task_id       TEXT        NOT NULL,
-    created_at    TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ,
-    PRIMARY KEY (user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx)
-);
-CREATE INDEX idx_lg_checkpoint_write_deleted_at ON lg_checkpoint_write(deleted_at);
-
-CREATE TABLE crewai_agent_memory (
-    user_id     TEXT        NOT NULL,
-    thread_id   TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ,
-    updated_at  TIMESTAMPTZ,
-    deleted_at  TIMESTAMPTZ,
-    memory_data TEXT        NOT NULL,
-    PRIMARY KEY (user_id, thread_id)
-);
-CREATE INDEX idx_crewai_memory_list             ON crewai_agent_memory(created_at);
-CREATE INDEX idx_crewai_agent_memory_deleted_at ON crewai_agent_memory(deleted_at);
-
-CREATE TABLE crewai_flow_state (
-    user_id     TEXT        NOT NULL,
-    thread_id   TEXT        NOT NULL,
-    method_name TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ,
-    updated_at  TIMESTAMPTZ,
-    deleted_at  TIMESTAMPTZ,
-    state_data  TEXT        NOT NULL,
-    PRIMARY KEY (user_id, thread_id, method_name)
-);
-CREATE INDEX idx_crewai_flow_state_list       ON crewai_flow_state(created_at);
-CREATE INDEX idx_crewai_flow_state_deleted_at ON crewai_flow_state(deleted_at);
-
 CREATE TABLE runtime_revision (
     revision                 TEXT        PRIMARY KEY,
     namespace                TEXT        NOT NULL,
@@ -250,9 +189,5 @@ DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
 DROP TABLE agent_template_harness_pair;
 DROP TABLE runtime_revision;
-DROP TABLE crewai_flow_state;
-DROP TABLE crewai_agent_memory;
-DROP TABLE lg_checkpoint_write;
-DROP TABLE lg_checkpoint;
 DROP TABLE toolserver;
 DROP TABLE tool;
