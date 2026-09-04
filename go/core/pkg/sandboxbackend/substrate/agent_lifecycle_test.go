@@ -1,6 +1,8 @@
 package substrate
 
 import (
+	"fmt"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -325,4 +327,139 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			require.Equal(t, atev1alpha1.SnapshotScopeFull, tmpl.Spec.SnapshotsConfig.OnPause)
 		})
 	}
+}
+
+// byoSandboxAgentWithSidecar builds a BYO SandboxAgent whose translated pod template carries a
+// credential-brokering sidecar next to the kagent container, the shape byo.deployment
+// .extraContainers produces.
+func byoSandboxAgentWithSidecar(extra corev1.Container) (*v1alpha2.SandboxAgent, corev1.PodTemplateSpec) {
+	const pinnedImage = "registry.example/kagent-dev/kagent/app@sha256:1111111111111111111111111111111111111111111111111111111111111111111"
+	cmd := "/serve"
+	sa := &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "byo-sidecar", Namespace: "kagent"},
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd},
+			}},
+		},
+	}
+	podTemplate := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{
+		{Name: defaultKagentContainer, Image: pinnedImage, Command: []string{"/serve"}, Env: []corev1.EnvVar{{Name: "ADDR", Value: "0.0.0.0:80"}}},
+		extra,
+	}}}
+	return sa, podTemplate
+}
+
+func TestBuildSandboxAgentActorTemplateExtraContainers(t *testing.T) {
+	t.Parallel()
+	const sidecarImage = "registry.example/videoamp/central@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
+
+	sidecar := corev1.Container{
+		Name:    "agent-vault",
+		Image:   sidecarImage,
+		Command: []string{"/sidecar"},
+		Env: []corev1.EnvVar{
+			{Name: "AGENT_VAULT_LISTEN_ADDR", Value: "127.0.0.1:14322"},
+			{Name: "AGENT_VAULT_SECRET_ANTHROPIC_AUTH_TOKEN", ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "vault-secrets"}, Key: "anthropic-token"},
+			}},
+			{Name: "DROPPED_CONFIGMAP", ValueFrom: &corev1.EnvVarSource{
+				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "cm"}, Key: "k"},
+			}},
+		},
+		ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt32(8080)}}},
+	}
+
+	t.Run("renders alongside the agent", func(t *testing.T) {
+		t.Parallel()
+		p := newTestLifecycle(t)
+		sa, podTemplate := byoSandboxAgentWithSidecar(sidecar)
+		tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podTemplate)
+		require.NoError(t, err)
+		require.Len(t, tmpl.Spec.Containers, 2)
+
+		agent := tmpl.Spec.Containers[0]
+		require.Equal(t, defaultKagentContainer, agent.Name, "the agent stays container 0: /data is mounted there")
+		require.Equal(t, durableDataMount, agent.VolumeMounts[0].MountPath)
+		require.Equal(t, "/.well-known/agent-card.json", agent.Readyz.HTTPGet.Path)
+
+		sc := tmpl.Spec.Containers[1]
+		require.Equal(t, "agent-vault", sc.Name)
+		require.Equal(t, sidecarImage, sc.Image, "extra images must stay digest-pinned")
+		require.Equal(t, []string{"/sidecar"}, sc.Command)
+		require.NotNil(t, sc.Readyz, "an HTTP readiness probe maps to readyz so actor readiness gates on the sidecar")
+		require.Equal(t, "/readyz", sc.Readyz.HTTPGet.Path)
+		require.Equal(t, int32(8080), sc.Readyz.HTTPGet.Port)
+		names := actorEnvNames(sc.Env)
+		require.True(t, names["AGENT_VAULT_LISTEN_ADDR"])
+		require.True(t, names["AGENT_VAULT_SECRET_ANTHROPIC_AUTH_TOKEN"], "secretKeyRef env survives (substrate resolves it server-side)")
+		require.False(t, names["DROPPED_CONFIGMAP"], "configMapKeyRef is not expressible in an ActorTemplate and is dropped")
+		require.Empty(t, sc.VolumeMounts, "extra containers get no volume mounts: durableDir belongs to the agent's /data")
+
+		// The sidecar changes the shape hash, so it fans out blue-green like any spec change.
+		p2 := newTestLifecycle(t)
+		sa2, bare := byoSandboxAgentWithSidecar(corev1.Container{})
+		bare.Spec.Containers = bare.Spec.Containers[:1]
+		tmpl2, err := p2.buildSandboxAgentActorTemplate(sa2, wpKey, bare)
+		require.NoError(t, err)
+		require.NotEqual(t, tmpl.Name, tmpl2.Name, "extra containers must change the ActorTemplate name (shape hash)")
+	})
+
+	t.Run("named readiness port resolves against the container ports", func(t *testing.T) {
+		t.Parallel()
+		p := newTestLifecycle(t)
+		named := sidecar
+		named.Ports = []corev1.ContainerPort{{Name: "health", ContainerPort: 8081}}
+		named.ReadinessProbe.HTTPGet.Port = intstr.FromString("health")
+		sa, podTemplate := byoSandboxAgentWithSidecar(named)
+		tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podTemplate)
+		require.NoError(t, err)
+		require.Equal(t, int32(8081), tmpl.Spec.Containers[1].Readyz.HTTPGet.Port)
+	})
+
+	for _, tc := range []struct {
+		name  string
+		extra corev1.Container
+	}{
+		{
+			name:  "unpinned image is rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: "registry.example/videoamp/central:latest", Command: []string{"/sidecar"}},
+		},
+		{
+			name:  "missing command is rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage},
+		},
+		{
+			name: "volume mounts are rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
+				VolumeMounts: []corev1.VolumeMount{{Name: "secrets", MountPath: "/etc/agent-vault/secrets"}}},
+		},
+		{
+			name: "unresolvable named readiness port is rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
+				ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromString("nope")}}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newTestLifecycle(t)
+			sa, podTemplate := byoSandboxAgentWithSidecar(tc.extra)
+			_, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podTemplate)
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("more than 10 containers is rejected", func(t *testing.T) {
+		t.Parallel()
+		p := newTestLifecycle(t)
+		sa, podTemplate := byoSandboxAgentWithSidecar(sidecar)
+		for i := 0; i < maxActorTemplateContainers; i++ {
+			podTemplate.Spec.Containers = append(podTemplate.Spec.Containers, corev1.Container{
+				Name: fmt.Sprintf("extra-%d", i), Image: sidecarImage, Command: []string{"/bin/true"},
+			})
+		}
+		_, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podTemplate)
+		require.Error(t, err)
+	})
 }
