@@ -279,7 +279,7 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 build-controller: ## Build and push the API v2 controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
+		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 

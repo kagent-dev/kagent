@@ -22,7 +22,7 @@ Lifecycle operations are implemented as retryable workflows:
 Explicit suspend and resume update the logical lifecycle state. Deletion fences
 the instance, deletes the Actor, then removes control-plane state. The workflow
 entry points are in
-[`go/core/v2/agentinstance`](../../go/core/v2/agentinstance).
+[`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
 
 ## Automatic quiescence
 

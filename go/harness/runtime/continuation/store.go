@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
+	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 )
 
 const stateVersion = 2

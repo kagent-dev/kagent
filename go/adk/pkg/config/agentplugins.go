@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 )
 
 // AgentPluginPaths contains the ADK runtime destinations for Agent Plugin

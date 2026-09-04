@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
-	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
+	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/db"
+	dbmigrate "github.com/kagent-dev/kagent/go/core/cli/internal/db/migrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"

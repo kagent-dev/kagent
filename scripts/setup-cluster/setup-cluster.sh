@@ -84,7 +84,7 @@ step "7/10  The controller and the UI, both built from this checkout"
 ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH=amd64; [ "$ARCH" = "aarch64" ] && ARCH=arm64
 docker buildx build --push --platform "linux/${ARCH}" \
   --build-arg BASE_IMAGE_REGISTRY=cgr.dev \
-  --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
+  --build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
   -t localhost:5001/kagent-dev/kagent/controller:dev -f go/Dockerfile ./go
 kubectl -n kagent set image deploy/kagent-controller controller=localhost:5001/kagent-dev/kagent/controller:dev
 
