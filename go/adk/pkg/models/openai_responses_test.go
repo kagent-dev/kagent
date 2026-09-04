@@ -127,7 +127,7 @@ func TestResponseToLLMResponse(t *testing.T) {
 				"status":"completed"
 			}
 		],
-		"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}
+		"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"input_tokens_details":{"cached_tokens":42},"output_tokens_details":{"reasoning_tokens":0}}
 	}`)
 	var resp responses.Response
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -146,6 +146,9 @@ func TestResponseToLLMResponse(t *testing.T) {
 	if out.UsageMetadata == nil || out.UsageMetadata.PromptTokenCount != 10 {
 		t.Fatalf("usage = %#v", out.UsageMetadata)
 	}
+	if out.UsageMetadata.CachedContentTokenCount != 42 {
+		t.Fatalf("cachedContentTokenCount = %d, want 42", out.UsageMetadata.CachedContentTokenCount)
+	}
 }
 
 func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
@@ -160,7 +163,7 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 			"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-4o",
 			"output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed",
 				"content":[{"type":"output_text","text":"pong","annotations":[]}]}],
-			"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}
+			"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4,"input_tokens_details":{"cached_tokens":7},"output_tokens_details":{"reasoning_tokens":0}}
 		}`))
 	}))
 	defer srv.Close()
@@ -194,6 +197,9 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	if got == nil || got.Content == nil || len(got.Content.Parts) != 1 || got.Content.Parts[0].Text != "pong" {
 		t.Fatalf("response = %#v", got)
 	}
+	if got == nil || got.UsageMetadata == nil || got.UsageMetadata.CachedContentTokenCount != 7 {
+		t.Fatalf("cachedContentTokenCount = %#v, want 7", got.UsageMetadata)
+	}
 }
 
 func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
@@ -208,7 +214,7 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 		}
 		write(`{"type":"response.output_text.delta","content_index":0,"delta":"hel","item_id":"msg_1","output_index":0,"sequence_number":1,"logprobs":[]}`)
 		write(`{"type":"response.output_text.delta","content_index":0,"delta":"lo","item_id":"msg_1","output_index":0,"sequence_number":2,"logprobs":[]}`)
-		write(`{"type":"response.completed","sequence_number":3,"response":{"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-4o","output":[],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}}`)
+		write(`{"type":"response.completed","sequence_number":3,"response":{"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-4o","output":[],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3,"input_tokens_details":{"cached_tokens":5},"output_tokens_details":{"reasoning_tokens":0}}}}`)
 		_, _ = io.WriteString(w, "data: [DONE]\n\n")
 	}))
 	defer srv.Close()
@@ -243,6 +249,9 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 	}
 	if final == nil || final.Content.Parts[0].Text != "hello" {
 		t.Fatalf("final = %#v", final)
+	}
+	if final == nil || final.UsageMetadata == nil || final.UsageMetadata.CachedContentTokenCount != 5 {
+		t.Fatalf("cachedContentTokenCount = %#v, want 5", final.UsageMetadata)
 	}
 }
 

@@ -1061,3 +1061,31 @@ class TestConvertOpenAIResponseToLlmResponse:
         tool_messages = [m for m in messages if m["role"] == "tool"]
         assert len(tool_messages) == 1
         assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
+
+
+    def test_usage_metadata_populates_cached_content_token_count(self):
+        # Openai reports prompt-cache hits via usage.prompt_tokens_details.cached_tokens.
+        class _MockPromptTokensDetails:
+            cached_tokens = 12
+
+        response = self._MockResponse(self._MockMessage(content="hi"))
+        response.usage.prompt_tokens_details = _MockPromptTokensDetails()
+
+        llm_response = _convert_openai_response_to_llm_response(response)
+
+        assert llm_response.usage_metadata is not None, "usage metadata should be populated"
+        assert llm_response.usage_metadata.cached_content_token_count == 12, (
+            "cached_content_token_count should equal cached prompt tokens",
+            llm_response.usage_metadata
+        )
+
+    def test_opens_metadata_cached_content_token_zero_when_absent(self):
+        response = self._MockResponse(self._MockMessage("hi"))
+
+        llm_response = _convert_openai_response_to_llm_response(response)
+
+        assert llm_response.usage_metadata is not None
+        assert llm_response.usage_metadata.cached_content_token_count == 0, (
+            "cached_content_token_count should default to 0 when provider omits it",
+            llm_response.usage_metadata.cached_content_token_count,
+        )
