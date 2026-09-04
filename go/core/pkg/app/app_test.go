@@ -28,6 +28,10 @@ func (stubAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Res
 	return nil
 }
 
+func (stubAuthorizer) Scope(context.Context, auth.Principal, auth.Verb, string) (auth.AuthorizationScope, error) {
+	return auth.AuthorizationScope{Kind: auth.ScopeAll}, nil
+}
+
 func TestOptionsResolve(t *testing.T) {
 	consumerAuthn := stubAuthenticator{}
 	consumerAuthz := stubAuthorizer{}
@@ -36,7 +40,7 @@ func TestOptionsResolve(t *testing.T) {
 		name      string
 		opts      Options
 		wantAuthn auth.AuthProvider
-		wantAuthz auth.Authorizer
+		wantAuthz auth.CollectionAuthorizer
 	}{
 		{
 			name:      "both nil selects core defaults",

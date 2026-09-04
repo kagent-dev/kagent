@@ -4,11 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 )
 
 type Verb string
 
 const (
+	VerbList   Verb = "list"
 	VerbGet    Verb = "get"
 	VerbCreate Verb = "create"
 	VerbUpdate Verb = "update"
@@ -16,8 +19,9 @@ const (
 )
 
 type Resource struct {
-	Name string
-	Type string
+	Type       string
+	Name       string
+	Attributes map[string][]string
 }
 
 type User struct {
@@ -71,6 +75,34 @@ const (
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
 }
+
+type CollectionAuthorizer interface {
+	Authorizer
+	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (AuthorizationScope, error)
+}
+
+type ScopeKind = apiauthorization.ScopeKind
+
+const (
+	AttributeNamespace = apiauthorization.AttributeNamespace
+	AttributeName      = apiauthorization.AttributeName
+
+	ScopeAll   = apiauthorization.ScopeAll
+	ScopeNone  = apiauthorization.ScopeNone
+	ScopeAnyOf = apiauthorization.ScopeAnyOf
+)
+
+type ScopeOperator = apiauthorization.ScopeOperator
+
+const (
+	ScopeIn = apiauthorization.ScopeIn
+)
+
+type AuthorizationScope = apiauthorization.AuthorizationScope
+
+type ScopeClause = apiauthorization.ScopeClause
+
+type ScopePredicate = apiauthorization.ScopePredicate
 
 // context utils
 

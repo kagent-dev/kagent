@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,13 +26,13 @@ type Service[T Object, L client.ObjectList] struct {
 	client     client.Client
 	object     T
 	list       L
-	authorizer auth.Authorizer
+	authorizer auth.CollectionAuthorizer
 	resource   string
 }
 
 func NewService[T Object, L client.ObjectList](
 	client client.Client,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	object T,
 	list L,
 	resource string,
@@ -42,11 +43,16 @@ func NewService[T Object, L client.ObjectList](
 }
 
 func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: s.resource}); err != nil {
-		return nil, err
-	}
 	if namespace == "" {
 		return nil, serviceerrors.NewInvalidArgument("namespace is required", nil)
+	}
+	scope, err := s.Scope(ctx, auth.VerbList)
+	if err != nil {
+		return nil, err
+	}
+	matches, err := kubeauth.ScopeMatcher(scope)
+	if err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	list := s.list.DeepCopyObject().(L)
 	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -54,7 +60,10 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	}
 	items := make([]T, 0)
 	if err := meta.EachListItem(list, func(item runtime.Object) error {
-		items = append(items, item.(T))
+		object := item.(T)
+		if matches(object) {
+			items = append(items, object)
+		}
 		return nil
 	}); err != nil {
 		return nil, serviceerrors.NewInternal("Failed to read "+s.resource+" list", err)
@@ -68,10 +77,14 @@ func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, e
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	object, err := s.get(ctx, ref)
+	if err != nil {
 		return zero, err
 	}
-	return s.get(ctx, ref)
+	if err := s.authorize(ctx, auth.VerbGet, kubeauth.Resource(s.resource, object)); err != nil {
+		return zero, err
+	}
+	return object, nil
 }
 
 // Create persists an object already prepared by the resource-specific service.
@@ -84,7 +97,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	if err := s.validateNewRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, kubeauth.Resource(s.resource, object)); err != nil {
 		return zero, err
 	}
 	if err := s.client.Create(ctx, object); err != nil {
@@ -100,21 +113,23 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	return object, nil
 }
 
-// GetForUpdate authorizes an update and loads the live object that owns metadata and status.
-func (s *Service[T, L]) GetForUpdate(ctx context.Context, ref types.NamespacedName) (T, error) {
+// Update loads the stored object, applies the resource-specific change, and persists it.
+func (s *Service[T, L]) Update(ctx context.Context, ref types.NamespacedName, apply func(T)) (T, error) {
 	var zero T
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	object, err := s.get(ctx, ref)
+	if err != nil {
 		return zero, err
 	}
-	return s.get(ctx, ref)
-}
-
-// SaveUpdate persists an object returned by GetForUpdate after its spec is changed.
-func (s *Service[T, L]) SaveUpdate(ctx context.Context, object T) (T, error) {
-	var zero T
+	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
+		return zero, err
+	}
+	apply(object)
+	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
+		return zero, err
+	}
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
 			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
@@ -128,17 +143,29 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 	if err := s.validateRef(ref); err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
-		return err
-	}
 	object, err := s.get(ctx, ref)
 	if err != nil {
+		return err
+	}
+	if err := s.authorize(ctx, auth.VerbDelete, kubeauth.Resource(s.resource, object)); err != nil {
 		return err
 	}
 	if err := s.client.Delete(ctx, object); err != nil {
 		return serviceerrors.NewInternal("Failed to delete "+s.resource, err)
 	}
 	return nil
+}
+
+func (s *Service[T, L]) Scope(ctx context.Context, verb auth.Verb) (auth.AuthorizationScope, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok || session == nil {
+		return auth.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+	}
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, s.resource)
+	if err != nil {
+		return auth.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	return scope, nil
 }
 
 func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, error) {

@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -28,6 +29,18 @@ const testHarnessImage = "example.test/runtime@sha256:00000000000000000000000000
 
 func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object) *grpc.ClientConn {
 	t.Helper()
+	connection, _ := newScopedConnection(t, &authimpl.NoopAuthorizer{}, objects...)
+	return connection
+}
+
+// newScopedConnection serves under a supplied authorizer and returns the store,
+// so a test can prove what a failed call wrote.
+func newScopedConnection(
+	t *testing.T,
+	authorizer auth.CollectionAuthorizer,
+	objects ...ctrlclient.Object,
+) (*grpc.ClientConn, ctrlclient.Client) {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatalf("v1alpha3.AddToScheme() error = %v", err)
@@ -40,8 +53,8 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
-		AgentTemplateService: kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
+		AgentTemplateService: kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:       kubecrud.NewService(kubeClient, authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -65,7 +78,7 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		t.Fatalf("grpc.NewClient() error = %v", err)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
-	return connection
+	return connection, kubeClient
 }
 
 func testAgentTemplate(namespace, name, modelConfig string) *v1alpha3.AgentTemplate {
@@ -166,6 +179,9 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	if len(listed.GetAgentTemplates()) != 2 {
 		t.Fatalf("ListAgentTemplates() count = %d, want 2", len(listed.GetAgentTemplates()))
 	}
+	if !listed.GetCanCreate() || !listed.GetAgentTemplates()[0].GetCanUpdate() || !listed.GetAgentTemplates()[0].GetCanDelete() {
+		t.Fatal("ListAgentTemplates() did not report no-op authorizer capabilities")
+	}
 	if name := listed.GetAgentTemplates()[0].GetRef().GetName(); name != "a-created" {
 		t.Fatalf("ListAgentTemplates()[0] = %q, want a-created first", name)
 	}
@@ -243,6 +259,9 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	}
 	if len(listed.GetHarnesses()) != 2 {
 		t.Fatalf("ListHarnesses() count = %d, want 2", len(listed.GetHarnesses()))
+	}
+	if !listed.GetCanCreate() || !listed.GetHarnesses()[0].GetCanDelete() {
+		t.Fatal("ListHarnesses() did not report no-op authorizer capabilities")
 	}
 	if !listed.GetHarnesses()[1].GetReady() {
 		t.Fatal("ListHarnesses()[1].ready = false, want the Ready condition reflected")

@@ -72,9 +72,9 @@ type Options struct {
 	// Authenticator identifies the caller. Nil selects UnsecureAuthenticator,
 	// which admits every request.
 	Authenticator auth.AuthProvider
-	// Authorizer decides what an identified caller may do. Nil selects
-	// NoopAuthorizer, which permits every action.
-	Authorizer auth.Authorizer
+	// Authorizer decides what an identified caller may do and which collection
+	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
+	Authorizer auth.CollectionAuthorizer
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
 	// a scheme added here is in place before any cache is built. Returning an
@@ -107,7 +107,7 @@ type Options struct {
 
 // resolve substitutes core's defaults for whichever components the caller left
 // nil. It never returns a nil component, so callers do not have to check.
-func (o Options) resolve() (auth.AuthProvider, auth.Authorizer) {
+func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 	authenticator := o.Authenticator
 	if authenticator == nil {
 		authenticator = &authimpl.UnsecureAuthenticator{}
