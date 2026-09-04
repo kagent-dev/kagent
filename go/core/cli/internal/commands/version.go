@@ -45,7 +45,10 @@ func NewVersionCmd() *cobra.Command {
 			// unreachable server reports its version as "unknown".
 			session, _ := connection.Open(cmd.Context(), options)
 			if session == nil {
-				clientSet := options.Client()
+				clientSet, err := options.Client()
+				if err != nil {
+					return err
+				}
 				defer clientSet.Close() //nolint:errcheck
 				runVersion(clientSet)
 				return nil

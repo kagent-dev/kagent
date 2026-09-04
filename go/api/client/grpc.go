@@ -44,22 +44,23 @@ type grpcTransport struct {
 
 	mu   sync.Mutex
 	conn *grpc.ClientConn
-	err  error
 }
 
-func newGRPCTransport(rawURL string) *grpcTransport {
+func newGRPCTransport(rawURL string) (*grpcTransport, error) {
 	target, secure, err := parseGRPCURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
 	transport := grpcTransport{
 		url:             rawURL,
 		target:          target,
 		timeout:         defaultGRPCTimeout,
 		maxMessageBytes: defaultGRPCMaxMessageSize,
-		err:             err,
 	}
 	if secure {
 		transport.tlsConfig = &GRPCTLSConfig{}
 	}
-	return &transport
+	return &transport, nil
 }
 
 func parseGRPCURL(rawURL string) (string, bool, error) {
@@ -84,7 +85,6 @@ func parseGRPCURL(rawURL string) (string, bool, error) {
 func WithGRPCTarget(target string) ClientOption {
 	return func(client *BaseClient) {
 		client.api.target, client.gateway.target = target, target
-		client.api.err, client.gateway.err = nil, nil
 	}
 }
 
@@ -137,9 +137,6 @@ func (c *BaseClient) grpcConnection(transport *grpcTransport) (*grpc.ClientConn,
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 
-	if transport.err != nil {
-		return nil, transport.err
-	}
 	if transport.conn != nil {
 		return transport.conn, nil
 	}

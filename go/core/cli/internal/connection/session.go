@@ -23,8 +23,13 @@ func Open(ctx context.Context, options Options) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to kagent: %w", err)
 	}
+	clientSet, err := options.Client()
+	if err != nil {
+		portForward.Stop()
+		return nil, fmt.Errorf("create kagent client: %w", err)
+	}
 	return &Session{
-		Client:      options.Client(),
+		Client:      clientSet,
 		Namespace:   options.Namespace,
 		portForward: portForward,
 	}, nil

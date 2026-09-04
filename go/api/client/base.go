@@ -18,15 +18,23 @@ type BaseClient struct {
 }
 
 // NewBaseClient creates a new base client with the given configuration
-func NewBaseClient(apiURL, gatewayURL string, options ...ClientOption) *BaseClient {
+func NewBaseClient(apiURL, gatewayURL string, options ...ClientOption) (*BaseClient, error) {
+	api, err := newGRPCTransport(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	gateway, err := newGRPCTransport(gatewayURL)
+	if err != nil {
+		return nil, err
+	}
 	client := &BaseClient{
-		api:     newGRPCTransport(apiURL),
-		gateway: newGRPCTransport(gatewayURL),
+		api:     api,
+		gateway: gateway,
 	}
 
 	for _, option := range options {
 		option(client)
 	}
 
-	return client
+	return client, nil
 }

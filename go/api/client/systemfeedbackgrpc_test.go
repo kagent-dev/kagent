@@ -55,7 +55,7 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	})
 
 	var dialCount atomic.Int32
-	clientSet := New(
+	clientSet, err := New(
 		"http://api.invalid",
 		"http://gateway.invalid",
 		WithUserID("default-user"),
@@ -66,6 +66,7 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 			return listener.Dial()
 		})),
 	)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, clientSet.Close()) })
 
 	version, err := clientSet.Version.GetVersion(t.Context())

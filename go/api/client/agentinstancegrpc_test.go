@@ -100,7 +100,7 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	})
 
 	var dialCount atomic.Int32
-	clientSet := New(
+	clientSet, err := New(
 		"http://api.invalid:80",
 		"http://gateway.invalid:80",
 		WithUserID("caller"),
@@ -110,9 +110,10 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 			return listener.Dial()
 		})),
 	)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, clientSet.Close()) })
 
-	_, err := clientSet.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
+	_, err = clientSet.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
 

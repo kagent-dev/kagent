@@ -53,7 +53,7 @@ func DefaultOptions() Options {
 	}
 }
 
-func (o *Options) Client() *client.ClientSet {
+func (o *Options) Client() (*client.ClientSet, error) {
 	clientOptions := []client.ClientOption{client.WithUserID(o.UserID)}
 	if o.Timeout > 0 {
 		clientOptions = append(clientOptions, client.WithGRPCTimeout(o.Timeout))
@@ -119,7 +119,10 @@ func shouldPortForward(cfg *Options, err error) bool {
 }
 
 func checkConfiguredServer(ctx context.Context, cfg *Options) (err error) {
-	clientSet := cfg.Client()
+	clientSet, err := cfg.Client()
+	if err != nil {
+		return err
+	}
 	defer func() {
 		err = errors.Join(err, clientSet.Close())
 	}()

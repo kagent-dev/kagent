@@ -46,9 +46,15 @@ func TestParseGRPCURL(t *testing.T) {
 }
 
 func TestWithGRPCTLSOnlyConfiguresHTTPSEndpoints(t *testing.T) {
-	client := NewBaseClient("http://api.example.com", "https://gateway.example.com", WithGRPCTLS(GRPCTLSConfig{ServerName: "gateway.internal"}))
+	client, err := NewBaseClient("http://api.example.com", "https://gateway.example.com", WithGRPCTLS(GRPCTLSConfig{ServerName: "gateway.internal"}))
+	require.NoError(t, err)
 
 	assert.Nil(t, client.api.tlsConfig)
 	require.NotNil(t, client.gateway.tlsConfig)
 	assert.Equal(t, "gateway.internal", client.gateway.tlsConfig.ServerName)
+}
+
+func TestNewRejectsInvalidURL(t *testing.T) {
+	_, err := New("localhost:8083", "http://gateway.example.com")
+	require.Error(t, err)
 }
