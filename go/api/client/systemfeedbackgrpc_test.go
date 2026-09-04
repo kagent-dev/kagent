@@ -33,14 +33,6 @@ func (service *recordingSystemService) GetVersion(ctx context.Context, _ *apiv1a
 	}, nil
 }
 
-func (service *recordingSystemService) ListNamespaces(ctx context.Context, _ *apiv1alpha1.ListNamespacesRequest) (*apiv1alpha1.ListNamespacesResponse, error) {
-	service.observe(ctx)
-	return &apiv1alpha1.ListNamespacesResponse{Namespaces: []*apiv1alpha1.Namespace{
-		{Name: "alpha", Status: "Active"},
-		{Name: "team", Status: "Terminating"},
-	}}, nil
-}
-
 func (service *recordingSystemService) observe(ctx context.Context) {
 	metadataValues, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
@@ -52,7 +44,7 @@ func (service *recordingSystemService) observe(ctx context.Context) {
 	})
 }
 
-func TestSystemClientsUseGeneratedGRPC(t *testing.T) {
+func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	systemService := &recordingSystemService{}
 	server := grpc.NewServer()
@@ -84,16 +76,8 @@ func TestSystemClientsUseGeneratedGRPC(t *testing.T) {
 		BuildDate:     "2026-07-29",
 	}, version)
 
-	namespaces, err := clientSet.Namespace.ListNamespaces(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, "Successfully listed namespaces", namespaces.Message)
-	assert.Equal(t, []api.NamespaceResponse{
-		{Name: "alpha", Status: "Active"},
-		{Name: "team", Status: "Terminating"},
-	}, namespaces.Data)
-
 	systemService.mu.Lock()
-	require.Len(t, systemService.observations, 2)
+	require.Len(t, systemService.observations, 1)
 	for _, observation := range systemService.observations {
 		assert.Equal(t, callObservation{userID: "default-user", hasDeadline: true}, observation)
 	}

@@ -40,3 +40,11 @@ func (c *versionClient) GetVersion(ctx context.Context) (*api.VersionResponse, e
 		BuildDate:     response.GetBuildDate(),
 	}, nil
 }
+
+func (c *BaseClient) systemServiceClient() (apiv1alpha1.SystemServiceClient, error) {
+	connection, err := c.grpcConnection()
+	if err != nil {
+		return nil, err
+	}
+	return apiv1alpha1.NewSystemServiceClient(connection), nil
+}
