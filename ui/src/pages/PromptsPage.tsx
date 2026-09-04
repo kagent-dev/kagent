@@ -117,9 +117,26 @@ export function PromptsPage() {
         render: (_, row) => `${row.keyCount} ${row.keyCount === 1 ? "key" : "keys"}`,
       },
       {
-        // Editing and deleting were both in the client, both unit-tested, and
-        // unreachable from anywhere in the app — so a library could be created and
-        // read and then never changed or removed.
+        title: "Fragments",
+        key: "keys",
+        render: (_, row) =>
+          row.keys?.length ? (
+            <Space size={4} wrap>
+              {row.keys.map((key) => (
+                <Tag key={key} css={{ fontFamily: theme.font.mono, marginInlineEnd: 0 }}>
+                  {key}
+                </Tag>
+              ))}
+            </Space>
+          ) : (
+            "—"
+          ),
+      },
+      {
+        // Last and untitled, as on every other list: a row's actions belong at the
+        // end of it, past the data they act on. This column sat before the fragment
+        // keys, which put two buttons through the middle of the row and left its
+        // widest, most ragged column hanging off the end.
         title: "",
         key: "actions",
         width: 76,
@@ -147,22 +164,6 @@ export function PromptsPage() {
             />
           </Space>
         ),
-      },
-      {
-        title: "Fragments",
-        key: "keys",
-        render: (_, row) =>
-          row.keys?.length ? (
-            <Space size={4} wrap>
-              {row.keys.map((key) => (
-                <Tag key={key} css={{ fontFamily: theme.font.mono, marginInlineEnd: 0 }}>
-                  {key}
-                </Tag>
-              ))}
-            </Space>
-          ) : (
-            "—"
-          ),
       },
     ],
     [theme, refresh, view],
