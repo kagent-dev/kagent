@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -134,17 +135,20 @@ sleep 5
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, ok := outcome.InputRequired.(*runtime.ApprovalRequest)
+	if outcome.Pending == nil {
+		t.Fatal("Run() did not return a pending turn")
+	}
+	request, ok := outcome.Pending.Request().(*runtime.ApprovalRequest)
 	if !ok || request.ID != "7" || request.CallID != "call-1" || request.Name != "protected.write" {
-		t.Fatalf("input required = %#v", outcome.InputRequired)
+		t.Fatalf("pending request = %#v", outcome.Pending.Request())
 	}
 	if _, err := os.Stat(capture); !os.IsNotExist(err) {
 		t.Fatalf("MCP call was resolved before approval: %v", err)
 	}
-	outcome, err = driver.Run(t.Context(), runtime.Turn{InputResponse: &runtime.ApprovalDecision{
+	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{
 		ID: "7", Approved: false, RejectionReason: "production is still serving traffic",
-	}}, sink)
-	if err != nil || outcome.InputRequired != nil || outcome.Failure != nil {
+	}, sink)
+	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
 	}
 	response, err := os.ReadFile(capture)
@@ -192,9 +196,12 @@ sleep 5
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, ok := outcome.InputRequired.(*runtime.AskUserRequest)
-	if !ok || request.ID != "8" || len(request.Questions) != 2 || request.Questions[0].ID != "namespace" || !request.Questions[0].IsOther {
-		t.Fatalf("ask-user request = %#v", outcome.InputRequired)
+	if outcome.Pending == nil {
+		t.Fatal("Run() did not return a pending turn")
+	}
+	request, ok := outcome.Pending.Request().(*runtime.AskUserRequest)
+	if !ok || request.ID != "8" || len(request.Questions) != 2 || request.Questions[0].ID != "namespace" || !slices.Equal(request.Questions[0].Choices, []string{"default"}) {
+		t.Fatalf("ask-user request = %#v", outcome.Pending.Request())
 	}
 	initialize, err := os.ReadFile(initializeCapture)
 	if err != nil {
@@ -204,10 +211,10 @@ sleep 5
 		t.Fatalf("experimental API was not enabled: %s", initialize)
 	}
 
-	outcome, err = driver.Run(t.Context(), runtime.Turn{InputResponse: &runtime.AskUserResponse{
+	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{
 		ID: "8", Answers: [][]string{{"default"}, {"production"}},
-	}}, &recordingSink{})
-	if err != nil || outcome.InputRequired != nil || outcome.Failure != nil {
+	}, &recordingSink{})
+	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
 	}
 	response, err := os.ReadFile(responseCapture)
@@ -280,10 +287,10 @@ sleep 5
 		ApprovalServers: map[string]struct{}{"protected": {}},
 	})
 	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.InputRequired == nil {
+	if err != nil || outcome.Pending == nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
-	if err := driver.CancelParked(t.Context()); err != nil {
+	if err := outcome.Pending.Cancel(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,13 +308,16 @@ sleep 5
 	if !bytes.Contains(interrupt, []byte(`"method":"turn/interrupt"`)) || !bytes.Contains(interrupt, []byte(`"threadId":"thread-1"`)) || !bytes.Contains(interrupt, []byte(`"turnId":"turn-1"`)) {
 		t.Fatalf("interrupt request = %s", interrupt)
 	}
-	if driver.parked != nil {
-		t.Fatal("driver retained canceled session")
-	}
 }
 
 func TestApprovalResponseAcceptsWithEmptyRequestedContent(t *testing.T) {
-	response := approvalResponse(runtime.ApprovalDecision{ID: "7", Approved: true})
+	response, err := codexInputResponse(
+		&runtime.ApprovalRequest{ID: "7"},
+		&runtime.ApprovalDecision{ID: "7", Approved: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if response["action"] != "accept" {
 		t.Fatalf("approval response = %#v", response)
 	}

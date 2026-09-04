@@ -462,7 +462,7 @@ func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
 	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which namespace?"))
 	if err := apia2a.AttachHITL(question, apia2a.AskUserRequest{
 		Type: apia2a.HITLTypeAskUserRequest, ID: "ask-1",
-		Questions: []map[string]any{{"question": "Which namespace?", "choices": []string{}, "multiple": false}},
+		Questions: []apia2a.HITLQuestion{{Question: "Which namespace?"}},
 	}); err != nil {
 		t.Fatal(err)
 	}

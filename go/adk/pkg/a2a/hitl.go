@@ -56,6 +56,8 @@ type NestedHitlRequest = apia2a.NestedHITLRequest
 
 type ToolApprovalRequest = apia2a.ToolApprovalRequest
 
+type HitlQuestion = apia2a.HITLQuestion
+
 type AskUserRequest = apia2a.AskUserRequest
 
 type ToolApproval = apia2a.ToolApproval
@@ -443,23 +445,53 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		})
 	}
 	if len(tools) == 1 && tools[0].Name == "ask_user" {
-		var questions []map[string]any
-		if raw, ok := tools[0].Args["questions"].([]any); ok {
-			for _, item := range raw {
-				if m, ok := item.(map[string]any); ok {
-					questions = append(questions, m)
-				}
-			}
-		} else if typed, ok := tools[0].Args["questions"].([]map[string]any); ok {
-			questions = typed
-		}
 		return AttachHitlExtension(public, &AskUserRequest{
-			Type: HITLTypeAskUserRequest, ID: tools[0].ID, Questions: questions,
+			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
+			Questions: publicAskUserQuestions(tools[0].Args["questions"]),
 		})
 	}
 	return AttachHitlExtension(public, &ToolApprovalRequest{
 		Type: HITLTypeToolApprovalRequest, Hint: hint, Tools: tools, Nested: nested,
 	})
+}
+
+func publicAskUserQuestions(value any) []HitlQuestion {
+	items, ok := value.([]any)
+	if !ok {
+		if maps, typed := value.([]map[string]any); typed {
+			items = make([]any, len(maps))
+			for index := range maps {
+				items[index] = maps[index]
+			}
+		}
+	}
+	questions := make([]HitlQuestion, 0, len(items))
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		question, _ := raw["question"].(string)
+		multiple, _ := raw["multiple"].(bool)
+		questions = append(questions, HitlQuestion{
+			Question: question, Choices: stringSlice(raw["choices"]), Multiple: multiple,
+		})
+	}
+	return questions
+}
+
+func stringSlice(value any) []string {
+	if values, ok := value.([]string); ok {
+		return append([]string(nil), values...)
+	}
+	values, _ := value.([]any)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 // BuildResumeHITLMessage: client HITL response + stored request → ADK FunctionResponse parts.
