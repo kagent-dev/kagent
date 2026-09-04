@@ -613,6 +613,11 @@ function SectionTitle({
  * been run against the cluster. That second sentence is the one that matters: a
  * reader who searches for an actor sitting on page nine is told there are no matches
  * here, not that there are none.
+ *
+ * With no total at all — the summary failed while the page read succeeded, which is
+ * why they are separate reads — the count keeps "on this page". A bare "100" is the
+ * one thing this component exists to prevent: it is indistinguishable from a total,
+ * and it would be claiming a cluster of 410,110 actors is running a hundred.
  */
 function PagedSectionTitle({
   title,
@@ -633,9 +638,11 @@ function PagedSectionTitle({
   const theme = useTheme();
   const count = searching
     ? `${shown} of ${onPage} on this page`
-    : total !== undefined && total !== onPage
-      ? `${onPage} of ${total.toLocaleString()}`
-      : String(onPage);
+    : total === undefined
+      ? `${onPage} on this page`
+      : total === onPage
+        ? String(onPage)
+        : `${onPage} of ${total.toLocaleString()}`;
 
   return (
     <Space size={8}>
@@ -1620,7 +1627,7 @@ export function SubstratePage() {
             testId="substrate-stat-workers"
             value={
               inventory
-                ? `${inventory.busyWorkerCount}/${inventory.workerCount}`
+                ? `${inventory.busyWorkerCount.toLocaleString()}/${inventory.workerCount.toLocaleString()}`
                 : undefined
             }
             isLoading={summary.isLoading}

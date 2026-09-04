@@ -325,7 +325,11 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]Subs
 func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []SubstrateActor, []SubstrateWorker, error) {
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
-	templates, err := s.substrateActorTemplates(ctx, allowAll, allowed)
+	harnesses, err := s.actorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	templates, err := s.substrateActorTemplates(ctx, harnesses, allowAll, allowed)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -417,20 +421,20 @@ ate-api pages templates as it pages actors, and this drains that pagination — 
 the actor and worker reads. Templates are configuration: their count is set by what
 operators have declared rather than by what the cluster is running, so the list is
 small enough to answer with whole and small enough to send.
+
+The harnesses are passed in rather than read here, so that a caller can tell an ate-api
+failure from a database one. Both used to come back as the same error, and the summary
+reported a Postgres outage to the reader as "ate-api answered with an error".
 */
-func (s *Service) substrateActorTemplates(ctx context.Context, allowAll bool, allowed map[string]struct{}) ([]SubstrateActorTemplate, error) {
+func (s *Service) substrateActorTemplates(
+	ctx context.Context,
+	harnesses map[actorTemplateKey]string,
+	allowAll bool,
+	allowed map[string]struct{},
+) ([]SubstrateActorTemplate, error) {
 	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, "")
 	if err != nil {
 		return nil, err
-	}
-	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
-	if err != nil {
-		return nil, err
-	}
-	type templateKey struct{ atespace, name, uid string }
-	harnesses := make(map[templateKey]string, len(harnessesFromDB))
-	for _, template := range harnessesFromDB {
-		harnesses[templateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
 	}
 	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
 	for _, template := range templatesFromAPI {
@@ -453,7 +457,7 @@ func (s *Service) substrateActorTemplates(ctx context.Context, allowAll bool, al
 			GoldenSnapshot:  golden.GetGoldenSnapshot().GetSnapshotUri(),
 			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
 			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
-			HarnessName:     harnesses[templateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
+			HarnessName:     harnesses[actorTemplateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
 			ManagedByKagent: true,
 		})
 	}
@@ -462,4 +466,22 @@ func (s *Service) substrateActorTemplates(ctx context.Context, allowAll bool, al
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
 	return templates, nil
+}
+
+// actorTemplateKey identifies one ActorTemplate revision: a name in an atespace at a
+// particular UID, which is what the harness a template was compiled from is keyed by.
+type actorTemplateKey struct{ atespace, name, uid string }
+
+// actorTemplateHarnesses reads, from the control-plane database, which harness each
+// ActorTemplate revision was compiled from. Nothing here touches ate-api.
+func (s *Service) actorTemplateHarnesses(ctx context.Context) (map[actorTemplateKey]string, error) {
+	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	harnesses := make(map[actorTemplateKey]string, len(harnessesFromDB))
+	for _, template := range harnessesFromDB {
+		harnesses[actorTemplateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
+	}
+	return harnesses, nil
 }

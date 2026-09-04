@@ -46,14 +46,22 @@ type fakeATEClient struct {
 	// was followed rather than that the rows came back.
 	actorReads  int
 	workerReads int
+	// Fail from this page read onwards, counting from one. Zero never fails. A
+	// mid-walk failure is the case worth covering: ate-api going down between pages
+	// is ordinary, and it is what decides whether a caller loses the rest of a list.
+	failFromRead int
+	// The page sizes asked for, so a caller that asks for a whole page when it only
+	// needs the rest of one is visible.
+	actorPageSizes []int32
 }
 
 type fakeRuntimeRevisionStore struct {
 	harnesses []database.ActorTemplateHarness
+	err       error
 }
 
 func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error) {
-	return store.harnesses, nil
+	return store.harnesses, store.err
 }
 
 func (client *fakeATEClient) ListActors(context.Context, string) ([]*ateapipb.Actor, error) {
@@ -71,26 +79,44 @@ func (client *fakeATEClient) ListActorTemplates(context.Context, string) ([]*ate
 	return client.templates, client.err
 }
 
-func (client *fakeATEClient) ListActorsPage(_ context.Context, _ string, _ int32, pageToken string) ([]*ateapipb.Actor, string, error) {
+func (client *fakeATEClient) ListActorsPage(_ context.Context, _ string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
 	client.actorReads++
-	if client.err != nil {
-		return nil, "", client.err
+	client.actorPageSizes = append(client.actorPageSizes, pageSize)
+	if err := client.readError(client.actorReads); err != nil {
+		return nil, "", err
 	}
-	return fakePage(client.actors, client.pageSize, pageToken)
+	return fakePage(client.actors, client.pageSize, pageSize, pageToken)
 }
 
-func (client *fakeATEClient) ListWorkersPage(_ context.Context, _ int32, pageToken string) ([]*ateapipb.Worker, string, error) {
+func (client *fakeATEClient) ListWorkersPage(_ context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error) {
 	client.workerReads++
-	if client.err != nil {
-		return nil, "", client.err
+	if err := client.readError(client.workerReads); err != nil {
+		return nil, "", err
 	}
-	return fakePage(client.workers, client.pageSize, pageToken)
+	return fakePage(client.workers, client.pageSize, pageSize, pageToken)
 }
 
-// fakePage slices rows the way ate-api pages them: an opaque token, and an empty one
-// on the last page. The token here is an offset, which ate-api's is not — nothing
-// under test reads it, which is the property that matters.
-func fakePage[T any](rows []T, pageSize int, pageToken string) ([]T, string, error) {
+func (client *fakeATEClient) readError(read int) error {
+	if client.err != nil && (client.failFromRead == 0 || read >= client.failFromRead) {
+		return client.err
+	}
+	return nil
+}
+
+/*
+fakePage slices rows the way ate-api pages them: an opaque token, and an empty one on
+the last page. The token here is an offset, which ate-api's is not — nothing under test
+reads it, which is the property that matters.
+
+It answers with the smaller of what was asked for and its own ceiling, as ate-api does:
+a fake that always filled the request would hide a caller asking for a whole page when
+it needs only the rest of one.
+*/
+func fakePage[T any](rows []T, ceiling int, requested int32, pageToken string) ([]T, string, error) {
+	pageSize := ceiling
+	if requested > 0 && (ceiling <= 0 || int(requested) < ceiling) {
+		pageSize = int(requested)
+	}
 	start := 0
 	if pageToken != "" {
 		parsed, err := strconv.Atoi(pageToken)
@@ -450,4 +476,127 @@ func TestGetSubstrateSummary(t *testing.T) {
 		assert.False(t, result.Enabled)
 		assert.Empty(t, result.WorkerPools)
 	})
+}
+
+// A read that dies between pages must not look like the end of the list: the rows
+// already collected are kept, and the token names the page that failed so a retry
+// resumes there instead of losing everything behind it.
+func TestListSubstrateActorsKeepsRowsWhenAPageFailsMidway(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ateClient := &fakeATEClient{
+		pageSize:     1,
+		err:          errors.New("ate-api unreachable"),
+		failFromRead: 2,
+		actors: []*ateapipb.Actor{
+			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
+			substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-1"),
+			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-2"),
+		},
+	}
+	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 10})
+	require.NoError(t, err)
+	require.Len(t, page.Actors, 1)
+	assert.Equal(t, "actor-1", page.Actors[0].ActorID)
+	assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
+	// The token of the page that failed. Empty here would hide "actor-2" behind a
+	// missing Next button, with the summary beside it still counting three actors.
+	assert.Equal(t, "1", page.NextPageToken)
+}
+
+// With nothing collected there is no page to continue after: the token names the page
+// the caller already asked for, and offering it as "next" is a control that goes nowhere.
+func TestListSubstrateActorsOffersNoNextPageWhenTheFirstReadFails(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ateClient := &fakeATEClient{pageSize: 1, err: errors.New("ate-api unreachable")}
+	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{PageToken: "2", PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Actors)
+	assert.Empty(t, page.NextPageToken)
+}
+
+// A page must not come back larger than it was asked for: a caller sizes a table or a
+// buffer by the number it sent, and the proto caps it at 100.
+func TestListSubstrateActorsNeverOverfillsAPage(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	actors := []*ateapipb.Actor{
+		substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-0"),
+	}
+	for index := range 6 {
+		actors = append(actors, substrateActor(
+			fmt.Sprintf("actor-%d", index), "team",
+			ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0",
+		))
+	}
+	// Three rows a page: the first page contributes one in-scope row, so a second read
+	// asking for the full three again would return four rows for a page of three.
+	ateClient := &fakeATEClient{pageSize: 3, actors: actors}
+	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 3})
+	require.NoError(t, err)
+	assert.Len(t, page.Actors, 3)
+	// Each read asks only for what is still missing.
+	assert.Equal(t, []int32{3, 1}, ateClient.actorPageSizes)
+}
+
+/*
+The summary's three ate-api reads are independent, and a database failure is not one
+of them.
+
+Both halves of this were wrong together: the harnesses were read inside the template
+listing, so a PostgreSQL outage reached the reader as "ate-api answered with an error";
+and every count was gated on that same field, so one failed read reported a cluster of
+410,110 actors as running none.
+*/
+func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	actors := []*ateapipb.Actor{
+		substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
+		substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+	}
+	workers := []*ateapipb.Worker{{WorkerNamespace: "team", WorkerPool: "pool", WorkerPod: "worker-0"}}
+
+	t.Run("a failed template listing still counts the actors and the workers", func(t *testing.T) {
+		// The template listing is the first ate-api read, so failing from read one
+		// fails it and leaves the two walks to answer.
+		ateClient := &failingTemplatesATEClient{
+			fakeATEClient: fakeATEClient{actors: actors, workers: workers},
+		}
+		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+		result, err := service.GetSubstrateSummary(ctx, "team")
+		require.NoError(t, err)
+		assert.Equal(t, "templates unavailable", result.ATEAPIError)
+		assert.Empty(t, result.ActorTemplates)
+		// The counts the tiles read. Zero here is the page reporting an empty cluster.
+		assert.Equal(t, int64(2), result.ActorCount)
+		assert.Equal(t, int64(1), result.RunningActorCount)
+		assert.Equal(t, int64(1), result.WorkerCount)
+		assert.Equal(t, int64(1), result.BusyWorkerCount)
+	})
+
+	t.Run("a database failure is an internal error, not a warning about ate-api", func(t *testing.T) {
+		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, &fakeATEClient{actors: actors, workers: workers}, &fakeRuntimeRevisionStore{err: errors.New("connection refused")})
+
+		_, err := service.GetSubstrateSummary(ctx, "team")
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal), err)
+	})
+}
+
+// failingTemplatesATEClient answers every read but the template listing.
+type failingTemplatesATEClient struct {
+	fakeATEClient
+}
+
+func (client *failingTemplatesATEClient) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
+	return nil, errors.New("templates unavailable")
 }

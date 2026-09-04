@@ -474,9 +474,16 @@ export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstr
   enabled: boolean;
 
   /**
-   * Set when the ate-api walk failed on an otherwise successful call. The counts
-   * are then short and the Kubernetes-derived lists complete — a warning to show
-   * beside the data rather than an error to fail the call with.
+   * Set when one of the three ate-api reads behind this answer failed.
+   *
+   * They do not gate each other: a failed template listing still leaves the actors and
+   * the workers counted, and a walk that dies partway keeps what it had tallied. So the
+   * figures here may be short while the Kubernetes-derived lists are complete — a
+   * warning to show beside the data rather than an error to fail the call with.
+   *
+   * Never a database failure. Those are internal errors, because reporting a
+   * control-plane outage as "ate-api answered with an error" sends an operator to fix
+   * a healthy component.
    *
    * @generated from field: string ate_api_error = 2;
    */
@@ -557,8 +564,8 @@ export type ListSubstrateActorsRequest = Message<"kagent.api.v1alpha1.ListSubstr
   namespace: string;
 
   /**
-   * Rows to ask ate-api for. Zero means the server's default. Above 100 is refused
-   * rather than clamped, so a caller learns its page size was not honoured.
+   * The most rows to answer with. Zero means the server's default. Above 100 is
+   * refused rather than clamped, so a caller learns its page size was not honoured.
    *
    * @generated from field: int32 page_size = 2;
    */
@@ -594,15 +601,21 @@ export type ListSubstrateActorsResponse = Message<"kagent.api.v1alpha1.ListSubst
   ateApiError: string;
 
   /**
-   * May hold fewer rows than page_size and still not be the last page: rows outside
-   * the requested namespace are dropped after ate-api has counted them into its page.
+   * Never more than page_size, and possibly fewer while still not being the last
+   * page: rows outside the requested namespace are dropped after ate-api has counted
+   * them into its page. next_page_token, not the row count, is what says there is more.
    *
    * @generated from field: repeated kagent.api.v1alpha1.SubstrateActor actors = 3;
    */
   actors: SubstrateActor[];
 
   /**
-   * Empty on the last page. Presence, not row count, is what says there is more.
+   * Empty on the last page.
+   *
+   * When ate_api_error is set partway through a page, this is the token of the page
+   * that failed, so retrying resumes there rather than losing the rest of the list.
+   * It is empty when no rows were read at all: there is then no page to continue
+   * after, and offering one would point back at the page just asked for.
    *
    * @generated from field: string next_page_token = 4;
    */

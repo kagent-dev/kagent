@@ -981,9 +981,16 @@ type GetSubstrateSummaryResponse struct {
 	// False when the controller has no ate-api endpoint configured. A deployment
 	// choice, not a failure: the Kubernetes-derived fields are still answered.
 	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// Set when the ate-api walk failed on an otherwise successful call. The counts
-	// are then short and the Kubernetes-derived lists complete — a warning to show
-	// beside the data rather than an error to fail the call with.
+	// Set when one of the three ate-api reads behind this answer failed.
+	//
+	// They do not gate each other: a failed template listing still leaves the actors and
+	// the workers counted, and a walk that dies partway keeps what it had tallied. So the
+	// figures here may be short while the Kubernetes-derived lists are complete — a
+	// warning to show beside the data rather than an error to fail the call with.
+	//
+	// Never a database failure. Those are internal errors, because reporting a
+	// control-plane outage as "ate-api answered with an error" sends an operator to fix
+	// a healthy component.
 	AteApiError       string                    `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
 	WorkerPools       []*SubstrateWorkerPool    `protobuf:"bytes,3,rep,name=worker_pools,json=workerPools,proto3" json:"worker_pools,omitempty"`
 	ActorTemplates    []*SubstrateActorTemplate `protobuf:"bytes,4,rep,name=actor_templates,json=actorTemplates,proto3" json:"actor_templates,omitempty"`
@@ -1112,8 +1119,8 @@ type ListSubstrateActorsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Empty means every namespace the controller observes.
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// Rows to ask ate-api for. Zero means the server's default. Above 100 is refused
-	// rather than clamped, so a caller learns its page size was not honoured.
+	// The most rows to answer with. Zero means the server's default. Above 100 is
+	// refused rather than clamped, so a caller learns its page size was not honoured.
 	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// Empty for the first page; otherwise the previous response's next_page_token.
 	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
@@ -1176,10 +1183,16 @@ type ListSubstrateActorsResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	Enabled     bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
-	// May hold fewer rows than page_size and still not be the last page: rows outside
-	// the requested namespace are dropped after ate-api has counted them into its page.
+	// Never more than page_size, and possibly fewer while still not being the last
+	// page: rows outside the requested namespace are dropped after ate-api has counted
+	// them into its page. next_page_token, not the row count, is what says there is more.
 	Actors []*SubstrateActor `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
-	// Empty on the last page. Presence, not row count, is what says there is more.
+	// Empty on the last page.
+	//
+	// When ate_api_error is set partway through a page, this is the token of the page
+	// that failed, so retrying resumes there rather than losing the rest of the list.
+	// It is empty when no rows were read at all: there is then no page to continue
+	// after, and offering one would point back at the page just asked for.
 	NextPageToken string                 `protobuf:"bytes,4,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields

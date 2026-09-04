@@ -1394,6 +1394,18 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
       .map((actor) => `${actor.ateomPodNamespace ?? ""}/${actor.ateomPodName}`),
   );
 
+  /*
+   * The error and the complete counts together, which is a state the controller really
+   * does produce — worth spelling out, because a fixture that models an impossible one
+   * makes every assertion resting on it worthless.
+   *
+   * `GetSubstrateSummary` makes three independent ate-api reads and none of them gates
+   * the others, so a walk that fails keeps whatever it had already tallied and the
+   * reads beside it still answer in full. This is that: the actor walk failed fetching
+   * a token after counting everything it could reach, and the template listing and the
+   * worker walk succeeded. Before those reads were made independent, one failure zeroed
+   * every count, and this shape could not have occurred.
+   */
   return {
     enabled: status.enabled,
     ateApiError: status.ateApiError ?? "",

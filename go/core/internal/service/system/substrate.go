@@ -49,6 +49,20 @@ A short page with a next token is the honest answer once the bound is reached.
 */
 const maxATEPagesPerRequest = 10
 
+/*
+How many ate-api pages a counting walk will read before giving up.
+
+A drain used to be bounded by a deadline: the client wrapped the whole loop in one
+call timeout, so a token that never drained ran out of time. Each page now carries its
+own timeout, which is right — a page should not be charged for the pages before it —
+and it leaves the loop itself unbounded. A cyclic or non-advancing `next_page_token`
+would then spin against ate-api until the inbound request was cancelled.
+
+At ate-api's own ceiling of 1,000 rows a page this allows ten million actors, which is
+far above any cluster this has to count and far below forever.
+*/
+const maxATEPagesPerWalk = 10_000
+
 // SubstrateListInput is what both paged substrate reads take.
 type SubstrateListInput struct {
 	// Empty means every namespace the controller observes.
@@ -90,6 +104,21 @@ type SubstrateSummary struct {
 	BusyWorkerCount   int64
 	ActorStatusCounts []SubstrateActorStatusCount
 	ComputedAt        time.Time
+}
+
+/*
+recordATEError keeps the first ate-api failure of the summary's three reads.
+
+The first rather than the last, because the reads run in a fixed order and the earliest
+failure is the one most likely to explain the others — a controller that has lost
+ate-api fails all three, and reporting the last would name the worker walk for an
+outage the template listing already found.
+*/
+func (summary *SubstrateSummary) recordATEError(ctx context.Context, err error) {
+	logging.FromContext(ctx).ErrorContext(ctx, "failed to summarise ate-api state", "error", err)
+	if summary.ATEAPIError == "" {
+		summary.ATEAPIError = err.Error()
+	}
 }
 
 // SubstrateActorStatusCount is one status and how many actors hold it.
@@ -141,58 +170,65 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
 	/*
-	 * An ate-api failure leaves the counts short and the Kubernetes halves complete,
-	 * which is a warning to show beside the data rather than a reason to fail the call
-	 * — the same contract GetSubstrateStatus has. Whatever was tallied before the
-	 * failure is kept: a partial count next to the words that say it is partial beats
-	 * an empty page.
+	 * The harnesses come from PostgreSQL, and a failure there is an internal error
+	 * rather than a warning about ate-api.
+	 *
+	 * These used to be read inside the template listing, so a database outage arrived
+	 * here indistinguishable from an ate-api one: the page told the reader that ate-api
+	 * had answered with an error while ate-api was healthy, and — because the counts
+	 * were gated on that same field — reported a cluster of 410,110 actors as running
+	 * none.
 	 */
-	templates, err := s.substrateActorTemplates(ctx, allowAll, allowed)
-	if err == nil {
-		result.ActorTemplates = templates
+	harnesses, err := s.actorTemplateHarnesses(ctx)
+	if err != nil {
+		return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", err)
+	}
+
+	/*
+	 * Three independent ate-api reads, each contributing whatever it can.
+	 *
+	 * None of them gates the others. They are separate calls against separate
+	 * collections, so a template listing that fails says nothing about whether the
+	 * actors can be counted, and skipping the walks because of it would turn one
+	 * failed read into a page reporting zero of everything. What each one reached is
+	 * kept; the first failure is reported beside it, and the reader is told the figures
+	 * may be short rather than shown a blank page.
+	 */
+	if templates, err := s.substrateActorTemplates(ctx, harnesses, allowAll, allowed); err != nil {
+		result.recordATEError(ctx, err)
 	} else {
-		result.ATEAPIError = err.Error()
+		result.ActorTemplates = templates
 	}
 
 	statusCounts := map[string]int64{}
 	busyWorkers := map[string]struct{}{}
-	if result.ATEAPIError == "" {
-		err = s.walkActors(ctx, func(actor *ateapipb.Actor) {
-			if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
-				return
-			}
-			entry := actorFromProto(actor)
-			result.ActorCount++
-			statusCounts[entry.Status]++
-			if strings.EqualFold(entry.Status, "Running") {
-				result.RunningActorCount++
-			}
-			// A worker is busy when an actor is placed on it. The binding is on the
-			// actor, not the worker: ate-api's Worker carries capacity and allocation
-			// but no actor reference, so this walk is the only place it can be counted.
-			if entry.AteomPodName != "" {
-				busyWorkers[entry.AteomPodNamespace+"/"+entry.AteomPodName] = struct{}{}
-			}
-		})
-		if err != nil {
-			result.ATEAPIError = err.Error()
+	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
+		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
+			return
 		}
+		entry := actorFromProto(actor)
+		result.ActorCount++
+		statusCounts[entry.Status]++
+		if strings.EqualFold(entry.Status, "Running") {
+			result.RunningActorCount++
+		}
+		// A worker is busy when an actor is placed on it. The binding is on the
+		// actor, not the worker: ate-api's Worker carries capacity and allocation
+		// but no actor reference, so this walk is the only place it can be counted.
+		if entry.AteomPodName != "" {
+			busyWorkers[entry.AteomPodNamespace+"/"+entry.AteomPodName] = struct{}{}
+		}
+	}); err != nil {
+		result.recordATEError(ctx, err)
 	}
 
-	if result.ATEAPIError == "" {
-		err = s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
-			if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
-				return
-			}
-			result.WorkerCount++
-		})
-		if err != nil {
-			result.ATEAPIError = err.Error()
+	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
+		if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
+			return
 		}
-	}
-
-	if result.ATEAPIError != "" {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to summarise ate-api state", "error", result.ATEAPIError)
+		result.WorkerCount++
+	}); err != nil {
+		result.recordATEError(ctx, err)
 	}
 
 	result.BusyWorkerCount = int64(len(busyWorkers))
@@ -227,34 +263,26 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
-	token := input.PageToken
-	for range maxATEPagesPerRequest {
-		actors, next, err := s.ateClient.ListActorsPage(ctx, "", pageSize, token)
-		if err != nil {
-			/*
-			 * A page that could not be read is an empty page with the error beside it,
-			 * not a failed call — the same contract the summary has, and for the same
-			 * reason: the request succeeded and only the runtime half is missing.
-			 *
-			 * NextPageToken stays empty, so the caller does not advance past a page it
-			 * never saw. Its own token is unchanged, so retrying asks for this page again.
-			 */
-			result.ATEAPIError = err.Error()
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
-			return result, nil
-		}
-		for _, actor := range actors {
+	actors, next, err := collectSubstratePage(
+		ctx,
+		pageSize,
+		input.PageToken,
+		func(ctx context.Context, size int32, token string) ([]*ateapipb.Actor, string, error) {
+			return s.ateClient.ListActorsPage(ctx, "", size, token)
+		},
+		func(actor *ateapipb.Actor) (SubstrateActor, bool) {
 			if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
-				continue
+				return SubstrateActor{}, false
 			}
-			result.Actors = append(result.Actors, actorFromProto(actor))
-		}
-		token = next
-		if token == "" || int32(len(result.Actors)) >= pageSize {
-			break
-		}
+			return actorFromProto(actor), true
+		},
+	)
+	result.Actors = actors
+	result.NextPageToken = next
+	if err != nil {
+		result.ATEAPIError = err.Error()
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
 	}
-	result.NextPageToken = token
 	return result, nil
 }
 
@@ -279,63 +307,114 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input SubstrateListI
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
-	token := input.PageToken
-	for range maxATEPagesPerRequest {
-		workers, next, err := s.ateClient.ListWorkersPage(ctx, pageSize, token)
-		if err != nil {
-			result.ATEAPIError = err.Error()
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
-			return result, nil
-		}
-		for _, worker := range workers {
+	workers, next, err := collectSubstratePage(
+		ctx,
+		pageSize,
+		input.PageToken,
+		s.ateClient.ListWorkersPage,
+		func(worker *ateapipb.Worker) (SubstrateWorker, bool) {
 			if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
-				continue
+				return SubstrateWorker{}, false
 			}
-			result.Workers = append(result.Workers, workerFromProto(worker))
+			return workerFromProto(worker), true
+		},
+	)
+	result.Workers = workers
+	result.NextPageToken = next
+	if err != nil {
+		result.ATEAPIError = err.Error()
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
+	}
+	return result, nil
+}
+
+/*
+collectSubstratePage fills one page of rows from ate-api, dropping those out of scope.
+
+Rows outside the requested namespace are dropped after ate-api has counted them into
+its page, so filling a page can take more than one read of it. Each read asks only for
+what is still missing, which is what keeps the answer from overshooting the page size a
+caller sized a buffer or a table to — asking for the full size every time could return
+`pageSize` rows on top of the ones already collected.
+
+On failure the rows collected so far are kept and the token handed back is the failed
+page's, so a caller resumes at the page it did not get rather than losing the rest of
+the list. With nothing collected there is no page to resume after, and the token is
+empty: offering "next" for a page that is also the current one is a broken control.
+*/
+func collectSubstratePage[Row any, Entry any](
+	ctx context.Context,
+	pageSize int32,
+	pageToken string,
+	read func(ctx context.Context, pageSize int32, pageToken string) ([]Row, string, error),
+	keep func(Row) (Entry, bool),
+) ([]Entry, string, error) {
+	entries := []Entry{}
+	token := pageToken
+	for range maxATEPagesPerRequest {
+		rows, next, err := read(ctx, pageSize-int32(len(entries)), token)
+		if err != nil {
+			if len(entries) == 0 {
+				return entries, "", err
+			}
+			return entries, token, err
+		}
+		for _, row := range rows {
+			if entry, ok := keep(row); ok {
+				entries = append(entries, entry)
+			}
 		}
 		token = next
-		if token == "" || int32(len(result.Workers)) >= pageSize {
+		if token == "" || int32(len(entries)) >= pageSize {
 			break
 		}
 	}
-	result.NextPageToken = token
-	return result, nil
+	return entries, token, nil
 }
 
 // walkActors calls visit for every actor ate-api holds, one page at a time.
 func (s *Service) walkActors(ctx context.Context, visit func(*ateapipb.Actor)) error {
-	token := ""
-	for {
-		actors, next, err := s.ateClient.ListActorsPage(ctx, "", 0, token)
-		if err != nil {
-			return err
-		}
-		for _, actor := range actors {
-			visit(actor)
-		}
-		if next == "" {
-			return nil
-		}
-		token = next
+	// Every atespace, narrowed by the caller's own filter: an actor whose template has
+	// no atespace is in scope everywhere, and asking ate-api for one atespace would
+	// drop it.
+	read := func(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
+		return s.ateClient.ListActorsPage(ctx, "", pageSize, pageToken)
 	}
+	return walkSubstrate(ctx, read, visit)
 }
 
 // walkWorkers calls visit for every worker ate-api holds, one page at a time.
 func (s *Service) walkWorkers(ctx context.Context, visit func(*ateapipb.Worker)) error {
+	return walkSubstrate(ctx, s.ateClient.ListWorkersPage, visit)
+}
+
+/*
+walkSubstrate calls visit for every row ate-api holds, one page at a time.
+
+One page in memory at a time, whatever the cluster's size: the callers reduce these
+rows to counts, so what they cost is the time to read them and not the space to hold
+them. Bounded by maxATEPagesPerWalk — see there for what that is defending against.
+*/
+func walkSubstrate[Row any](
+	ctx context.Context,
+	read func(ctx context.Context, pageSize int32, pageToken string) ([]Row, string, error),
+	visit func(Row),
+) error {
 	token := ""
-	for {
-		workers, next, err := s.ateClient.ListWorkersPage(ctx, 0, token)
+	for range maxATEPagesPerWalk {
+		rows, next, err := read(ctx, 0, token)
 		if err != nil {
 			return err
 		}
-		for _, worker := range workers {
-			visit(worker)
+		for _, row := range rows {
+			visit(row)
 		}
 		if next == "" {
 			return nil
 		}
 		token = next
 	}
+	return fmt.Errorf("ate-api did not finish paging after %d pages", maxATEPagesPerWalk)
 }
 
 /*
