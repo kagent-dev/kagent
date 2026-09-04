@@ -18,6 +18,7 @@ package v1alpha3
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -189,6 +190,61 @@ func TestOpenAIConfigValidation(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := cl.Create(ctx, c.build())
+			if c.wantReject == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), c.wantReject)
+		})
+	}
+}
+
+// TestPassthroughHeadersValidation pins the passthroughHeaders admission rules:
+// the Authorization header is rejected case-insensitively (credential
+// forwarding goes through apiKeyPassthrough instead), while ordinary custom
+// header names are accepted.
+func TestPassthroughHeadersValidation(t *testing.T) {
+	testEnv := &envtest.Environment{
+		BinaryAssetsDirectory: envtestAssetsDir(t),
+		CRDDirectoryPaths:     []string{crdBasesDir(t)},
+		ErrorIfCRDPathMissing: true,
+	}
+	cfg, err := testEnv.Start()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = testEnv.Stop() })
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, AddToScheme(scheme))
+	cl, err := ctrl_client.New(cfg, ctrl_client.Options{Scheme: scheme})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	const ns = "passthrough-cel"
+	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
+
+	cases := []struct {
+		name       string
+		headers    []string
+		wantReject string // substring in admission error; empty means accept
+	}{
+		{name: "custom header names accepted", headers: []string{"x-guardrail-token", "X-Request-Id"}},
+		{name: "authorization rejected lowercase", headers: []string{"authorization"}, wantReject: "apiKeyPassthrough"},
+		{name: "authorization rejected mixed case", headers: []string{"Authorization"}, wantReject: "apiKeyPassthrough"},
+		{name: "empty header name rejected", headers: []string{""}, wantReject: "passthroughHeaders"},
+	}
+
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := cl.Create(ctx, &ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("mc-passthrough-%d", i), Namespace: ns},
+				Spec: ModelConfigSpec{
+					Model:              "gpt-4",
+					Provider:           ModelProviderOpenAI,
+					PassthroughHeaders: c.headers,
+				},
+			})
 			if c.wantReject == "" {
 				require.NoError(t, err)
 				return

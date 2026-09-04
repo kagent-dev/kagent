@@ -121,6 +121,14 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) 
 	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
 }
 
+// populateHeaderFields writes the header-related spec fields onto an adk.BaseModel.
+// Like populateTLSFields, it is called by every provider branch in
+// translateModel, so a new header field only needs to be wired here.
+func populateHeaderFields(baseModel *adk.BaseModel, spec *v1alpha3.ModelConfigSpec) {
+	baseModel.Headers = spec.DefaultHeaders
+	baseModel.PassthroughHeaders = spec.PassthroughHeaders
+}
+
 // addTLSConfiguration mounts a CA Secret as a per-Secret read-only volume on
 // modelDeploymentData. Safe to call multiple times for the same agent with
 // the same OR different TLSConfigs:
@@ -264,12 +272,12 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		openai := &adk.OpenAI{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&openai.BaseModel, &model.Spec)
 		// Populate TokenExchange fields (OpenAI-specific)
 		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
@@ -328,12 +336,12 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		anthropic := &adk.Anthropic{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&anthropic.BaseModel, &model.Spec)
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Anthropic != nil {
@@ -386,8 +394,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		azureOpenAI := &adk.AzureOpenAI{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.AzureOpenAI.DeploymentName,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.AzureOpenAI.DeploymentName,
 			},
 			Endpoint:    model.Spec.AzureOpenAI.Endpoint,
 			Deployment:  model.Spec.AzureOpenAI.DeploymentName,
@@ -398,6 +405,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&azureOpenAI.BaseModel, &model.Spec)
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return azureOpenAI, modelDeploymentData, nil
@@ -437,12 +445,12 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		gemini := &adk.GeminiVertexAI{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&gemini.BaseModel, &model.Spec)
 		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
@@ -482,12 +490,12 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		anthropic := &adk.GeminiAnthropic{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&anthropic.BaseModel, &model.Spec)
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return anthropic, modelDeploymentData, nil
@@ -505,13 +513,13 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		})
 		ollama := &adk.Ollama{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 			Options: model.Spec.Ollama.Options,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&ollama.BaseModel, &model.Spec)
 		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return ollama, modelDeploymentData, nil
@@ -529,12 +537,12 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		})
 		gemini := &adk.Gemini{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&gemini.BaseModel, &model.Spec)
 		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
 			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
 		}
@@ -618,8 +626,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 		bedrock := &adk.Bedrock{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 			Region:                       model.Spec.Bedrock.Region,
 			AdditionalModelRequestFields: additionalFields,
@@ -638,6 +645,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&bedrock.BaseModel, &model.Spec)
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, nil
@@ -673,8 +681,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 
 		sapAICore := &adk.SAPAICore{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 			BaseUrl:       model.Spec.SAPAICore.BaseURL,
 			ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
@@ -682,6 +689,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 		}
 
 		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&sapAICore.BaseModel, &model.Spec)
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, nil
@@ -745,8 +753,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 
 		foundry := &adk.Foundry{
 			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
+				Model: model.Spec.Model,
 			},
 			Endpoint:   endpoint,
 			Deployment: cfg.Deployment,
@@ -754,6 +761,7 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 			APIFormat:  apiFormat,
 		}
 		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
+		populateHeaderFields(&foundry.BaseModel, &model.Spec)
 		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return foundry, modelDeploymentData, nil

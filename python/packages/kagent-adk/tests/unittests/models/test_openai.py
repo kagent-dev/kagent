@@ -414,6 +414,42 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
 
 
 @pytest.mark.asyncio
+async def test_generate_content_async_forwards_passthrough_headers(llm_request, generate_content_response):
+    """Headers resolved onto llm_request.config.http_options are sent as per-call extra_headers."""
+    openai_llm = OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake")
+    llm_request.config.http_options = types.HttpOptions(headers={"x-guardrail-token": "caller-token"})
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_coro(*args, **kwargs):
+            return generate_content_response
+
+        mock_client.chat.completions.create.return_value = mock_coro()
+
+        _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        mock_client.chat.completions.create.assert_called_once()
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert kwargs["extra_headers"] == {"x-guardrail-token": "caller-token"}
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_without_passthrough_headers_sends_no_extra_headers(
+    openai_llm, llm_request, generate_content_response
+):
+    """Regression: a config with only static default_headers produces an unchanged request."""
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_coro(*args, **kwargs):
+            return generate_content_response
+
+        mock_client.chat.completions.create.return_value = mock_coro()
+
+        _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        mock_client.chat.completions.create.assert_called_once()
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert "extra_headers" not in kwargs
+
+
+@pytest.mark.asyncio
 async def test_generate_content_async_with_max_completion_tokens(
     llm_request, generate_content_response, generate_llm_response
 ):
