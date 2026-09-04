@@ -53,8 +53,16 @@ test("prompt libraries: the edit form opens from the list and from the library, 
     await expect(page.getByTestId("prompt-fragments-note")).toContainText("is deleted");
     // And the identity is locked, because the ref addresses the ConfigMap: an edit
     // cannot rename a library or move it to another namespace.
-    await expect(page.getByTestId("prompt-name")).toBeDisabled();
-    await expect(page.getByTestId("prompt-namespace")).toBeDisabled();
+    /*
+     * Read-only rather than disabled, and the difference is the point: these two are
+     * shown so the reader is sure which library they are editing, and a disabled field
+     * is dimmed. Both attributes are asserted so a change back to `disabled` fails
+     * here rather than only being noticed as a colour.
+     */
+    for (const field of ["prompt-name", "prompt-namespace"]) {
+      await expect(page.getByTestId(field)).toHaveAttribute("readonly", "");
+      await expect(page.getByTestId(field)).toBeEnabled();
+    }
   });
 
   await test.step("4. leaving with a draft asks before throwing it away", async () => {
@@ -84,6 +92,9 @@ test("prompt libraries: the edit form opens from the list and from the library, 
       await leave.click();
       await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
       await page.getByRole("button", { name: "Keep editing" }).click();
+      // Waited out before the next exit is tried: the dialog's overlay outlives the
+      // click that dismissed it, and swallows whatever is aimed at the page beneath.
+      await expect(page.getByTestId("prompt-discard-body")).toBeHidden();
       await expect(page).toHaveURL(/\/edit$/);
       await expect(fragmentValue(page, 2)).toHaveValue("Edited by the suite.");
     }
@@ -205,8 +216,10 @@ test("prompt libraries: the create form is the same form, and refuses the same t
     // The other half of the shared form: these two are editable when the library
     // does not exist yet, and marked required because nothing can be created
     // without them.
-    await expect(page.getByTestId("prompt-name")).toBeEnabled();
-    await expect(page.getByTestId("prompt-namespace")).toBeEnabled();
+    for (const field of ["prompt-name", "prompt-namespace"]) {
+      await expect(page.getByTestId(field)).toBeEnabled();
+      await expect(page.getByTestId(field)).not.toHaveAttribute("readonly", "");
+    }
 
     await page.getByTestId("prompt-submit").click();
     await expect(page.getByTestId("prompt-form-errors")).toContainText(

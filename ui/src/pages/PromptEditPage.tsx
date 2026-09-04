@@ -45,7 +45,15 @@ export function PromptEditPage() {
       : paths.prompts;
 
   async function saveLibrary(payload: CreatePromptTemplateRequest): Promise<void> {
-    if (!namespace || !name) return;
+    /*
+     * Thrown rather than returned. The route cannot match without both, so this is
+     * unreachable — but returning would hand the form a save that wrote nothing and
+     * said nothing: no toast, no navigation, no error, and a draft it has already
+     * stopped guarding. A throw reaches the form's own failure path.
+     */
+    if (!namespace || !name) {
+      throw new Error("A prompt library is addressed by both a namespace and a name.");
+    }
 
     await apiClient.prompts.update(namespace, name, { data: payload.data });
     /*

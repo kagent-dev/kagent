@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Form, Input, Modal, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useBlocker } from "react-router-dom";
@@ -80,9 +80,15 @@ export function PromptForm({
    */
   const contents = (of: PromptDraft) =>
     JSON.stringify([of.namespace, of.name, of.rows.map((row) => [row.key, row.value])]);
-  const baseline = useRef(contents(draft));
-  const saved = useRef(false);
-  const isDirty = !saved.current && contents(draft) !== baseline.current;
+  /*
+   * Both are state rather than refs, and not only because reading a ref during render
+   * is against the rules of React — which `react-hooks/refs` says out loud. A ref
+   * cannot re-render, so the guard below would re-arm on whatever render happened
+   * next: as refs, `saved` worked only because the `setSaving` beside it forced one.
+   */
+  const [baseline] = useState(() => contents(draft));
+  const [saved, setSaved] = useState(false);
+  const isDirty = !saved && contents(draft) !== baseline;
 
   /*
    * Leaving with a draft asks first — every way out, not just this form's Cancel.
@@ -125,12 +131,12 @@ export function PromptForm({
       // Marked before the call, because the caller navigates as part of a successful
       // save: a draft still counted as unsaved at that moment would have the guard
       // above stop the save's own navigation and ask whether to discard it.
-      saved.current = true;
+      setSaved(true);
       await onSubmit(promptPayloadFrom(draft));
     } catch (error) {
       // Nothing was written, so the work on screen is unsaved again and worth
       // guarding — the reader is still on the form with it.
-      saved.current = false;
+      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);
@@ -172,7 +178,11 @@ export function PromptForm({
             data-testid="prompt-name"
             placeholder="team-prompts"
             value={draft.name}
-            disabled={identityLocked}
+            /* `readOnly` rather than `disabled`: these two are shown so the reader is
+               sure which library they are editing, and a disabled field is dimmed —
+               which makes the answer to that question the least legible thing on the
+               form. Uneditable either way. */
+            readOnly={identityLocked}
             onChange={(event) => update({ name: event.target.value })}
             css={{ fontFamily: theme.font.mono }}
           />
@@ -194,7 +204,7 @@ export function PromptForm({
             data-testid="prompt-namespace"
             placeholder="kagent"
             value={draft.namespace}
-            disabled={identityLocked}
+            readOnly={identityLocked}
             onChange={(event) => update({ namespace: event.target.value })}
           />
         </Form.Item>
