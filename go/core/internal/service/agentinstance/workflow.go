@@ -47,9 +47,13 @@ func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors}
 }
 
-// Pause checkpoints the runtime on its current worker for a short input wait.
-// It intentionally produces no durable ActorSnapshot reference.
-func (w *ActorWorkflow) Pause(ctx context.Context, instance *apiv1alpha1.AgentInstance) error {
+// PauseForInput checkpoints the runtime on its current worker, then commits the
+// durable input-required transition. If the commit fails, it resumes the Actor
+// so durable task state and runtime availability cannot disagree.
+func (w *ActorWorkflow) PauseForInput(ctx context.Context, instance *apiv1alpha1.AgentInstance, commit func(context.Context) error) error {
+	if commit == nil {
+		return fmt.Errorf("input-required commit is required")
+	}
 	atespace, name := instance.GetNamespace(), actorName(instance.GetId())
 	actor, err := w.actors.PauseActor(ctx, atespace, name)
 	if err != nil {
@@ -57,6 +61,20 @@ func (w *ActorWorkflow) Pause(ctx context.Context, instance *apiv1alpha1.AgentIn
 	}
 	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
 		return fmt.Errorf("pause Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
+	}
+	if err := commit(ctx); err != nil {
+		commitErr := fmt.Errorf("persist input-required transition: %w", err)
+		// The request context commonly carries the database failure or cancellation
+		// that made the commit fail. Compensation must still get its own bounded
+		// Substrate call through the client.
+		actor, resumeErr := w.actors.ResumeActor(context.WithoutCancel(ctx), atespace, name)
+		if resumeErr == nil && actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+			resumeErr = fmt.Errorf("resume Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
+		}
+		if resumeErr != nil {
+			resumeErr = fmt.Errorf("resume Actor %s/%s after failed input-required transition: %w", atespace, name, resumeErr)
+		}
+		return errors.Join(commitErr, resumeErr)
 	}
 	return nil
 }

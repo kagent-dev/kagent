@@ -152,12 +152,15 @@ type gatewayTestWorkflow struct {
 	onQuiesce    func()
 }
 
-func (w *gatewayTestWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error {
+func (w *gatewayTestWorkflow) PauseForInput(ctx context.Context, _ *apiv1alpha1.AgentInstance, commit func(context.Context) error) error {
 	w.pauseCalls++
 	if w.onQuiesce != nil {
 		w.onQuiesce()
 	}
-	return w.err
+	if w.err != nil {
+		return w.err
+	}
+	return commit(ctx)
 }
 
 func (w *gatewayTestWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error) {

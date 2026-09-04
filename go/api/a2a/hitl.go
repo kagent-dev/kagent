@@ -17,6 +17,14 @@ const (
 	HITLTypeAskUserResponse      = "ask_user_response"
 )
 
+// HITLExtension returns the optional Agent Card capability implemented by
+// managed kagent harnesses.
+func HITLExtension() a2atype.AgentExtension {
+	return a2atype.AgentExtension{
+		URI: HITLExtensionURI, Description: "Human approval and user input", Required: false,
+	}
+}
+
 // HITLTool describes one tool invocation awaiting a human decision.
 type HITLTool struct {
 	ID     string         `json:"id"`

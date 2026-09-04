@@ -344,7 +344,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 		t.Fatalf("approval-required MCP binding Compile() error = %v", err)
 	}
 	var compiled claudeconfig.Config
-	if err := json.Unmarshal(revision.Revision.ConfigJSON, &compiled); err != nil {
+	if err := json.Unmarshal(revision.ConfigJSON, &compiled); err != nil {
 		t.Fatal(err)
 	}
 	if !compiled.MCPServers["tools"].RequireApproval {

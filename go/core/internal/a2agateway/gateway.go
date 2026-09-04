@@ -54,7 +54,7 @@ type runtimeDialer interface {
 }
 
 type instanceWorkflow interface {
-	Pause(context.Context, *apiv1alpha1.AgentInstance) error
+	PauseForInput(context.Context, *apiv1alpha1.AgentInstance, func(context.Context) error) error
 	Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error)
 }
 
@@ -760,9 +760,12 @@ func (g *Gateway) storeEvent(ctx context.Context, instance *apiv1alpha1.AgentIns
 			return fmt.Errorf("quiesce AgentInstance runtime: %w", err)
 		}
 	} else if task != nil && requiresInput(task.Status.State) {
-		if err := g.workflow.Pause(ctx, instance); err != nil {
+		if err := g.workflow.PauseForInput(ctx, instance, func(ctx context.Context) error {
+			return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event, nil)
+		}); err != nil {
 			return fmt.Errorf("pause AgentInstance runtime: %w", err)
 		}
+		return nil
 	}
 	return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event, snapshot)
 }

@@ -376,7 +376,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 		e.mu.Lock()
 		switch state := e.state.(type) {
 		case *activeTask:
-			if !state.taskRef.matches(ref) {
+			if !state.matches(ref) {
 				e.mu.Unlock()
 				yield(nil, fmt.Errorf("cancellation does not match the active task"))
 				return
@@ -388,7 +388,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			yieldCancellation(ctx, reqCtx, done, nil, yield)
 			return
 		case *parkedTask:
-			if !state.taskRef.matches(ref) {
+			if !state.matches(ref) {
 				e.mu.Unlock()
 				yield(nil, fmt.Errorf("cancellation does not match the parked task"))
 				return
@@ -408,7 +408,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			yieldCancellation(ctx, reqCtx, canceling.done, err, yield)
 			return
 		case *cancelingTask:
-			if !state.taskRef.matches(ref) {
+			if !state.matches(ref) {
 				e.mu.Unlock()
 				yield(nil, fmt.Errorf("cancellation does not match the task being canceled"))
 				return
@@ -463,7 +463,7 @@ func (e *Executor) activate(task *activeTask, resuming bool) (runtime.PendingTur
 		if !resuming {
 			return nil, errBusy
 		}
-		if !state.taskRef.matches(task.taskRef) {
+		if !state.matches(task.taskRef) {
 			return nil, fmt.Errorf("continuation does not match the parked task")
 		}
 		e.state = task

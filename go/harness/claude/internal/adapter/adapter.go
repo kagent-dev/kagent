@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -100,9 +101,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 		permissionPromptTool = "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
 		mcpServers := make(map[string]config.MCPServer, len(cfg.MCPServers)+1)
-		for name, server := range cfg.MCPServers {
-			mcpServers[name] = server
-		}
+		maps.Copy(mcpServers, cfg.MCPServers)
 		mcpServers[approvalMCPServerName] = config.MCPServer{
 			Type: "http", URL: approvalBroker.URL(), Headers: approvalBroker.Headers(),
 		}
