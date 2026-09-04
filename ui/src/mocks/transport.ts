@@ -1395,7 +1395,6 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
       actorNamespace: worker.actorNamespace ?? "",
       actorTemplate: worker.actorTemplate ?? "",
       actorId: worker.actorId ?? "",
-      actorStatus: worker.actorStatus ?? "",
       ip: worker.ip ?? "",
       version: BigInt(worker.version ?? 0),
     })),

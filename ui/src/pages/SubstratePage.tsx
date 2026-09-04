@@ -272,9 +272,6 @@ const ACTOR_STATES = [
   "Unknown",
 ];
 
-/** The same, for a worker: whatever is on it, or nothing. */
-const WORKER_STATES = ["Idle", ...ACTOR_STATES];
-
 /**
  * How many actors the bar will draw one segment each for.
  *
@@ -1212,31 +1209,6 @@ export function SubstratePage() {
     () => (workers.error ? [] : (workers.data?.workers ?? [])),
     [workers.error, workers.data?.workers],
   );
-
-  /*
-   * The workers bar: one segment per pod, coloured by what the actor on it is doing.
-   *
-   * The status comes from the worker entry itself, which the controller fills by joining
-   * the two whole lists. Derived here from the loaded actors instead, it moved whenever
-   * the *actors* table was searched, sorted or paged — narrowing one list recoloured the
-   * other, and a pod whose actor was off the page read as a status no cluster reports.
-   */
-  const workerBar = useMemo(() => {
-    const byStatus = new Map<string, number>();
-    for (const worker of workerRows) {
-      const status = worker.actorId ? (worker.actorStatus || "Unknown") : "Idle";
-      byStatus.set(status, (byStatus.get(status) ?? 0) + 1);
-    }
-    const counts = [...byStatus].map(([status, count]) => ({ status, count }));
-    const matches = workers.data?.totalSize ?? workerRows.length;
-    if (!workerFilter && workerRows.length >= matches) return { counts, caption: undefined };
-    const shown = `${atAGlance(workerRows.length)} of ${atAGlance(matches)} shown`;
-    return {
-      counts,
-      caption: workerFilter ? `Matching “${workerFilter}”: ${shown}` : shown,
-    };
-  }, [workerRows, workerFilter, workers.data?.totalSize]);
-
   /*
    * The tiles, from the summary's own counts.
    *
@@ -1945,24 +1917,7 @@ export function SubstratePage() {
             />
           ) : null}
 
-          <StatusBar
-            testId="substrate-worker-status-counts"
-            title="Worker status"
-            vocabulary={WORKER_STATES}
-            noun="Workers"
-            unread={Boolean(summary.error || workers.error)}
-            counts={workerBar.counts}
-            caption={workerBar.caption}
-            emptyText={
-              workerFilter
-                ? "No workers match your search."
-                : ateApiEnabled
-                  ? "No workers in this scope."
-                  : "ate-api is not configured, so there are no workers to show."
-            }
-          />
-
-          <Table<SubstrateWorkerEntry>
+<Table<SubstrateWorkerEntry>
             data-testid="substrate-workers-table"
             rowKey={(worker) =>
               `${worker.workerNamespace}/${worker.workerPool}/${worker.workerPod}`

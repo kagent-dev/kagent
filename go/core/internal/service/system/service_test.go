@@ -146,35 +146,10 @@ func TestGetSubstrateStatus(t *testing.T) {
 				}},
 			}},
 			actors: []*ateapipb.Actor{{
-				// Two actors on one pod, because workers hold several since v0.0.25, and
-				// ate-api returns them in no particular order. This one is later in the
-				// alphabet and arrives first: a join that kept whichever it saw first
-				// would report it here and change its mind on the next read.
-				Metadata:      &ateapipb.ResourceMetadata{Name: "actor-2"},
-				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
-				Status: &ateapipb.ActorStatus{
-					State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
-					WorkerAssignment: &ateapipb.WorkerAssignment{
-						WorkerNamespace: "team",
-						WorkerPool:      "pool",
-						WorkerPod:       "worker-0",
-					},
-				},
-			}, {
 				Metadata:      &ateapipb.ResourceMetadata{Name: "actor-1"},
 				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
 				Status: &ateapipb.ActorStatus{
-					// Parked, and the lower id: the pod must still be reported as running
-					// actor-2, because a suspended actor says nothing about a busy pod.
-					State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-					// Where this actor is placed. `ateapi.Worker` carries no actor
-					// reference, so this is the only record of the binding.
-					WorkerAssignment: &ateapipb.WorkerAssignment{
-						WorkerNamespace: "team",
-						WorkerPool:      "pool",
-						WorkerPod:       "worker-0",
-						WorkerPodIp:     "10.42.0.7",
-					},
+					State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
 				},
 			}},
 			workers: []*ateapipb.Worker{{
@@ -201,23 +176,10 @@ func TestGetSubstrateStatus(t *testing.T) {
 		assert.Equal(t, "gvisor", result.ActorTemplates[0].SandboxClass)
 		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
 		assert.True(t, result.ActorTemplates[0].ManagedByKagent)
-		require.Len(t, result.Actors, 2)
-		// By status rather than by position: the fixture now holds one of each, and an
-		// index here would assert the sort order under the guise of asserting the label.
-		actorStatuses := map[string]string{}
-		for _, actor := range result.Actors {
-			actorStatuses[actor.ActorID] = actor.Status
-		}
-		assert.Equal(t, map[string]string{"actor-1": "Suspended", "actor-2": "Running"}, actorStatuses)
+		require.Len(t, result.Actors, 1)
+		assert.Equal(t, "Running", result.Actors[0].Status)
 		require.Len(t, result.Workers, 1)
 		assert.Equal(t, "worker-0", result.Workers[0].WorkerPod)
-		// The worker says what is on it. Read from the actor's own assignment, because
-		// the worker message has no field for it — without the join every pod reports
-		// holding nothing and a running fleet reads as an idle one.
-		assert.Equal(t, "actor-2", result.Workers[0].ActorID)
-		assert.Equal(t, "Running", result.Workers[0].ActorStatus)
-		assert.Equal(t, "template", result.Workers[0].ActorTemplate)
-		assert.Equal(t, "team", result.Workers[0].ActorNamespace)
 		assert.Equal(t, int64(3), result.Workers[0].Version)
 	})
 

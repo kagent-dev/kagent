@@ -94,7 +94,4 @@ message SubstrateWorker {
   string actor_id = 6;
   string ip = 7;
   int64 version = 8;
-  // What the actor on this pod is doing, so a reader of the worker list is not
-  // sent to the actor list to find out. Empty when the pod holds nothing.
-  string actor_status = 9;
 }

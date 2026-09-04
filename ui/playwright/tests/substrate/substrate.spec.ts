@@ -161,19 +161,6 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     ).toHaveAttribute("data-tone", "danger");
   });
 
-  await test.step("5b. the workers bar is one segment per pod, coloured by what is on it", async () => {
-    const bar = page.getByTestId("substrate-worker-status-counts");
-    // A pod holding a running actor and a pod holding nothing: the busy one takes the
-    // actor's own colour, and the free one is parked, so it sorts to the end.
-    await expect(
-      bar.locator("[data-tone]").evaluateAll((els) => els.map((el) => el.getAttribute("data-tone"))),
-    ).resolves.toEqual(["healthy", "idle"]);
-    await expect(bar).toHaveAttribute(
-      "aria-label",
-      "Worker status. Running Workers: 1, Idle Workers: 1",
-    );
-  });
-
   await test.step("6. the workers, including the one holding nothing", async () => {
     const workers = page.getByTestId("substrate-workers-table");
     await expect(workers).toBeVisible();
@@ -283,9 +270,6 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
   await expect(page.getByTestId("substrate-actor-status-counts").locator("[data-tone]")).toHaveCount(0);
   await expect(page.getByTestId("substrate-actor-status-counts-empty")).toHaveText(
     "ate-api is not configured, so there are no actors to show.",
-  );
-  await expect(page.getByTestId("substrate-worker-status-counts-empty")).toHaveText(
-    "ate-api is not configured, so there are no workers to show.",
   );
 
   // The two runtime sections name the setting to change. The two Kubernetes ones do not —

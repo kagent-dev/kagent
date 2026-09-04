@@ -336,9 +336,6 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       actorNamespace: "kagent",
       actorTemplate: "coder-template",
       actorId: "actor-7f21",
-      // The controller carries the actor's status onto the worker, so the page never
-      // has to join two paged reads to colour a pod.
-      actorStatus: "Running",
       ip: "10.42.1.19",
       version: 4,
     },

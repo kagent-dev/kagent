@@ -101,7 +101,6 @@ type SubstrateWorker struct {
 	ActorNamespace  string
 	ActorTemplate   string
 	ActorID         string
-	ActorStatus     string
 	IP              string
 	Version         int64
 }
@@ -375,20 +374,14 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 	}
 
 	actors := make([]SubstrateActor, 0, len(actorsFromAPI))
-	// Every actor, scope or no scope. The workers below are filtered by *their* namespace
-	// and an actor by its template's, so a worker running an actor whose template lives
-	// elsewhere finds no match in the scoped list and reports itself idle.
-	placed := make([]SubstrateActor, 0, len(actorsFromAPI))
 	for _, actor := range actorsFromAPI {
 		if actor == nil {
 			continue
 		}
-		converted := actorFromProto(actor)
-		placed = append(placed, converted)
 		if !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			continue
 		}
-		actors = append(actors, converted)
+		actors = append(actors, actorFromProto(actor))
 	}
 
 	workers := make([]SubstrateWorker, 0, len(workersFromAPI))
@@ -404,7 +397,6 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		}
 		workers = append(workers, workerFromProto(worker))
 	}
-	placeActorsOnWorkers(workers, placed)
 	return templates, actors, workers, nil
 }
 
@@ -441,57 +433,6 @@ func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
 		WorkerPod:       worker.GetWorkerPod(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
-	}
-}
-
-// placeActorsOnWorkers fills in what each worker is holding.
-//
-// `ateapi.Worker` carries no actor reference — only the actor names its pod — so this is
-// the one place both whole lists are in hand to join them.
-//
-// A worker holds several actors since v0.0.25 and `SubstrateWorker` has room for one, so
-// a live actor wins over a parked one and the lowest id breaks the tie. Never first seen:
-// ate-api returns actors unordered, so the cell would name a different actor on each poll.
-// supersedes reports whether one actor on a pod should be named over another: a running
-// one over a parked one, and otherwise the lower id, so the answer does not depend on the
-// order ate-api happened to return them in.
-func supersedes(candidate, held SubstrateActor) bool {
-	if parkedActor(candidate) != parkedActor(held) {
-		return parkedActor(held)
-	}
-	return candidate.ActorID < held.ActorID
-}
-
-func parkedActor(actor SubstrateActor) bool {
-	switch actor.Status {
-	case "Suspended", "Paused", "Unknown", "":
-		return true
-	}
-	return false
-}
-
-func placeActorsOnWorkers(workers []SubstrateWorker, actors []SubstrateActor) {
-	type pod struct{ namespace, name string }
-	holding := make(map[pod]SubstrateActor, len(actors))
-	for _, actor := range actors {
-		if actor.AteomPodName == "" {
-			continue
-		}
-		key := pod{actor.AteomPodNamespace, actor.AteomPodName}
-		if held, ok := holding[key]; ok && !supersedes(actor, held) {
-			continue
-		}
-		holding[key] = actor
-	}
-	for i := range workers {
-		actor, ok := holding[pod{workers[i].WorkerNamespace, workers[i].WorkerPod}]
-		if !ok {
-			continue
-		}
-		workers[i].ActorNamespace = actor.ActorTemplateNamespace
-		workers[i].ActorTemplate = actor.ActorTemplateName
-		workers[i].ActorID = actor.ActorID
-		workers[i].ActorStatus = actor.Status
 	}
 }
 
