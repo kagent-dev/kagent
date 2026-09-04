@@ -67,4 +67,4 @@ data:
   {{- if .Values.controller.a2aClientTimeout }}
   KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
   {{- end }}
-  ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  LOG_LEVEL: {{ .Values.controller.loglevel | quote }}

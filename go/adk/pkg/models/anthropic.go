@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -10,7 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/vertex"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // anthropicPassthroughOpts returns a per-request option that sets the Anthropic API key
@@ -39,11 +40,11 @@ type AnthropicConfig struct {
 type AnthropicModel struct {
 	Config *AnthropicConfig
 	Client anthropic.Client
-	Logger logr.Logger
+	Logger *slog.Logger
 }
 
-// NewAnthropicModelWithLogger creates a new Anthropic model instance with a logger
-func NewAnthropicModelWithLogger(config *AnthropicConfig, logger logr.Logger) (*AnthropicModel, error) {
+// NewAnthropicModel creates a new Anthropic model instance with a logger
+func NewAnthropicModel(ctx context.Context, config *AnthropicConfig) (*AnthropicModel, error) {
 	apiKey := "passthrough" // placeholder; real auth set per-request by transport
 	if !config.APIKeyPassthrough {
 		apiKey = os.Getenv("ANTHROPIC_API_KEY")
@@ -51,10 +52,11 @@ func NewAnthropicModelWithLogger(config *AnthropicConfig, logger logr.Logger) (*
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set")
 		}
 	}
-	return newAnthropicModelFromConfig(config, apiKey, logger)
+	return newAnthropicModelFromConfig(ctx, config, apiKey)
 }
 
-func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger logr.Logger) (*AnthropicModel, error) {
+func newAnthropicModelFromConfig(ctx context.Context, config *AnthropicConfig, apiKey string) (*AnthropicModel, error) {
+	logger := logging.FromContext(ctx)
 	opts := []option.RequestOption{
 		option.WithAPIKey(apiKey),
 	}
@@ -69,15 +71,13 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	if err != nil {
 		return nil, err
 	}
-	if len(config.Headers) > 0 && logger.GetSink() != nil {
-		logger.Info("Setting default headers for Anthropic client", "headersCount", len(config.Headers))
+	if len(config.Headers) > 0 {
+		logger.InfoContext(ctx, "setting default headers for Anthropic client", "headers_count", len(config.Headers))
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Anthropic model", "model", config.Model, "baseUrl", config.BaseUrl)
-	}
+	logger.InfoContext(ctx, "initialized Anthropic model", "model", config.Model, "base_url", config.BaseUrl)
 
 	return &AnthropicModel{
 		Config: config,
@@ -86,10 +86,11 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	}, nil
 }
 
-// NewAnthropicVertexAIModelWithLogger creates an Anthropic model that authenticates
+// NewAnthropicVertexAIModel creates an Anthropic model that authenticates
 // via Google Cloud Vertex AI using Application Default Credentials (ADC).
 // This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
-func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
+func NewAnthropicVertexAIModel(ctx context.Context, config *AnthropicConfig, region, projectID string) (*AnthropicModel, error) {
+	logger := logging.FromContext(ctx)
 	opts := []option.RequestOption{
 		vertex.WithGoogleAuth(ctx, region, projectID),
 	}
@@ -102,7 +103,7 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)
-	logger.Info("Initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
+	logger.InfoContext(ctx, "initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
 
 	return &AnthropicModel{
 		Config: config,
@@ -111,14 +112,15 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 	}, nil
 }
 
-// NewAnthropicBedrockModelWithLogger creates an Anthropic model that uses
+// NewAnthropicBedrockModel creates an Anthropic model that uses
 // AWS Bedrock as the backend. Authentication is handled by the AWS SDK:
 //   - If AWS_BEARER_TOKEN_BEDROCK is set, bearer token auth is used.
 //   - Otherwise, standard AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
 //     AWS_SESSION_TOKEN) or IAM roles are used via SigV4 signing.
 //
 // The region must be provided (e.g. "us-east-1") and determines the Bedrock endpoint.
-func NewAnthropicBedrockModelWithLogger(ctx context.Context, config *AnthropicConfig, region string, logger logr.Logger) (*AnthropicModel, error) {
+func NewAnthropicBedrockModel(ctx context.Context, config *AnthropicConfig, region string) (*AnthropicModel, error) {
+	logger := logging.FromContext(ctx)
 	opts := []option.RequestOption{
 		bedrock.WithLoadDefaultConfig(ctx,
 			awsconfig.WithRegion(region),
@@ -133,7 +135,7 @@ func NewAnthropicBedrockModelWithLogger(ctx context.Context, config *AnthropicCo
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := anthropic.NewClient(opts...)
-	logger.Info("Initialized Anthropic Bedrock model", "model", config.Model, "region", region)
+	logger.InfoContext(ctx, "initialized Anthropic Bedrock model", "model", config.Model, "region", region)
 
 	return &AnthropicModel{
 		Config: config,
