@@ -67,7 +67,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			StorageLocation: spec.SnapshotLocation,
 			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
-			OnResume:        &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_COLD_BOOT},
+			OnResume:        &ateapipb.OnResumeConfig{FromData: ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN},
 		},
 		Volumes: []*ateapipb.Volume{{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}}},
 	}
