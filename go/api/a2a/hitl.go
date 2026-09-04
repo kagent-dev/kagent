@@ -54,13 +54,18 @@ type ToolApprovalResponse struct {
 	Approvals []ToolApproval `json:"approvals"`
 }
 
-// AskUserRequest is the public request payload for one or more questions. The
-// question schema remains runtime-defined so native Harnesses can preserve the
-// choices and presentation hints supplied by their backend.
+// HITLQuestion is one question supported by the public HITL extension.
+type HITLQuestion struct {
+	Question string   `json:"question"`
+	Choices  []string `json:"choices"`
+	Multiple bool     `json:"multiple"`
+}
+
+// AskUserRequest is the public request payload for one or more questions.
 type AskUserRequest struct {
 	Type      string             `json:"type"`
 	ID        string             `json:"id"`
-	Questions []map[string]any   `json:"questions"`
+	Questions []HITLQuestion     `json:"questions"`
 	Nested    *NestedHITLRequest `json:"nested,omitempty"`
 }
 

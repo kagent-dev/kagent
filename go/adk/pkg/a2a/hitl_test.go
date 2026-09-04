@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -83,11 +84,14 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("ask user", func(t *testing.T) {
-		questions := []any{map[string]any{"question": "Which database?"}}
+		questions := []any{map[string]any{
+			"question": "Which databases?", "choices": []any{"PostgreSQL", "MySQL"}, "multiple": true,
+		}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
 		payload := GetAskUserRequest(BuildHITLStatusMessage(internal, true))
-		if payload == nil || len(payload.Questions) != 1 {
+		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which databases?" ||
+			!slices.Equal(payload.Questions[0].Choices, []string{"PostgreSQL", "MySQL"}) || !payload.Questions[0].Multiple {
 			t.Fatalf("payload = %#v", payload)
 		}
 	})
@@ -178,7 +182,7 @@ func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
 		State: a2atype.TaskStateInputRequired,
 		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: "parent-confirm",
-			Questions: []map[string]any{{"question": "Which namespace?"}},
+			Questions: []HitlQuestion{{Question: "Which namespace?"}},
 			Nested: &NestedHitlRequest{
 				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
 				Tools: []HitlTool{{ID: "child-confirm", CallID: "child-call", Name: "ask_user", Args: map[string]any{}}},

@@ -3,7 +3,6 @@ package a2a
 import (
 	"context"
 	"errors"
-	"fmt"
 	"iter"
 	"reflect"
 	"slices"
@@ -24,19 +23,30 @@ const (
 )
 
 type fakeRunner struct {
-	run          func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error)
-	cancelParked func(context.Context) error
+	run func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error)
 }
 
 func (f fakeRunner) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 	return f.run(ctx, turn, sink)
 }
 
-func (f fakeRunner) CancelParked(ctx context.Context) error {
-	if f.cancelParked == nil {
-		return fmt.Errorf("fake runner has no parked cancellation")
+type fakePendingTurn struct {
+	request runtime.InputRequest
+	resume  func(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error)
+	cancel  func(context.Context) error
+}
+
+func (f *fakePendingTurn) Request() runtime.InputRequest { return f.request }
+
+func (f *fakePendingTurn) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
+	return f.resume(ctx, response, sink)
+}
+
+func (f *fakePendingTurn) Cancel(ctx context.Context) error {
+	if f.cancel == nil {
+		return nil
 	}
-	return f.cancelParked(ctx)
+	return f.cancel(ctx)
 }
 
 type fakeContinuation struct {
@@ -278,9 +288,9 @@ func TestExecuteReleasesActiveTaskBeforeTerminalEvent(t *testing.T) {
 			t.Fatal("terminal event was published before the runtime runner returned")
 		}
 		executor.mu.Lock()
-		active := executor.active
+		state := executor.state
 		executor.mu.Unlock()
-		if active != nil {
+		if state != nil {
 			t.Fatal("terminal event was published before the active task was released")
 		}
 	}
@@ -313,17 +323,69 @@ func TestBusyAndCancellation(t *testing.T) {
 	<-firstDone
 }
 
+func TestCancellationWinsPendingTurnRace(t *testing.T) {
+	started := make(chan struct{})
+	pendingCanceled := make(chan struct{})
+	executor, err := New(fakeRunner{run: func(ctx context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+		close(started)
+		<-ctx.Done()
+		return runtime.Outcome{Pending: &fakePendingTurn{
+			request: &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write"},
+			cancel: func(context.Context) error {
+				close(pendingCanceled)
+				return nil
+			},
+		}}, nil
+	}}, &fakeContinuation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type executionResult struct {
+		events []a2atype.Event
+		errs   []error
+	}
+	executionDone := make(chan executionResult, 1)
+	go func() {
+		events, errs := collect(executor.Execute(context.Background(), requestContext("task-1", "write")))
+		executionDone <- executionResult{events: events, errs: errs}
+	}()
+	<-started
+
+	cancelEvents, cancelErrs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
+	result := <-executionDone
+	if len(cancelErrs) != 0 || len(cancelEvents) != 1 {
+		t.Fatalf("Cancel() events/errors = %#v/%v", cancelEvents, cancelErrs)
+	}
+	if len(result.errs) != 0 || len(result.events) != 1 {
+		t.Fatalf("Execute() events/errors = %#v/%v, want only WORKING", result.events, result.errs)
+	}
+	select {
+	case <-pendingCanceled:
+	default:
+		t.Fatal("pending turn was not canceled")
+	}
+	executor.mu.Lock()
+	state := executor.state
+	executor.mu.Unlock()
+	if state != nil {
+		t.Fatalf("executor retained task state: %#v", state)
+	}
+}
+
 func TestCancelParkedTurn(t *testing.T) {
 	canceled := false
 	executor, err := New(fakeRunner{
 		run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
-			return runtime.Outcome{InputRequired: &runtime.ApprovalRequest{
-				ID: "approval-1", CallID: "call-1", Name: "protected.write", Hint: "Approve?",
+			return runtime.Outcome{Pending: &fakePendingTurn{
+				request: &runtime.ApprovalRequest{
+					ID: "approval-1", CallID: "call-1", Name: "protected.write", Hint: "Approve?",
+				},
+				cancel: func(context.Context) error {
+					canceled = true
+					return nil
+				},
 			}}, nil
-		},
-		cancelParked: func(context.Context) error {
-			canceled = true
-			return nil
 		},
 	}, &fakeContinuation{})
 	if err != nil {
@@ -343,10 +405,10 @@ func TestCancelParkedTurn(t *testing.T) {
 		t.Fatalf("cancel event = %#v", cancelEvents[0])
 	}
 	executor.mu.Lock()
-	active, parked := executor.active, executor.parked
+	state := executor.state
 	executor.mu.Unlock()
-	if active != nil || parked != nil {
-		t.Fatalf("executor retained active/parked task: %#v/%#v", active, parked)
+	if state != nil {
+		t.Fatalf("executor retained task state: %#v", state)
 	}
 }
 
@@ -357,15 +419,15 @@ func requestContext(taskID a2atype.TaskID, text string) *a2asrv.ExecutorContext 
 }
 
 func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
-	var calls int
 	var decision *runtime.ApprovalDecision
-	executor, err := New(fakeRunner{run: func(_ context.Context, turn runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
-		calls++
-		if calls == 1 {
-			return runtime.Outcome{InputRequired: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write", Args: map[string]any{"value": 7}, Hint: "Allow tools.write?"}}, nil
-		}
-		decision, _ = turn.InputResponse.(*runtime.ApprovalDecision)
-		return runtime.Outcome{}, nil
+	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{Pending: &fakePendingTurn{
+			request: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write", Args: map[string]any{"value": 7}, Hint: "Allow tools.write?"},
+			resume: func(_ context.Context, response runtime.InputResponse, _ runtime.EventSink) (runtime.Outcome, error) {
+				decision, _ = response.(*runtime.ApprovalDecision)
+				return runtime.Outcome{}, nil
+			},
+		}}, nil
 	}}, &fakeContinuation{})
 	if err != nil {
 		t.Fatal(err)
@@ -392,21 +454,20 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 }
 
 func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
-	var calls int
 	var response *runtime.AskUserResponse
-	executor, err := New(fakeRunner{run: func(_ context.Context, turn runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
-		calls++
-		if calls == 1 {
-			return runtime.Outcome{InputRequired: &runtime.AskUserRequest{
+	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{Pending: &fakePendingTurn{
+			request: &runtime.AskUserRequest{
 				ID: "ask-1", Hint: "Choose a target.",
 				Questions: []runtime.AskUserQuestion{{
-					ID: "namespace", Header: "Namespace", Question: "Which namespace?",
-					Options: []runtime.AskUserOption{{Label: "default", Description: "Default namespace"}}, IsOther: true,
+					ID: "namespace", Question: "Which namespace?", Choices: []string{"default"},
 				}},
-			}}, nil
-		}
-		response, _ = turn.InputResponse.(*runtime.AskUserResponse)
-		return runtime.Outcome{}, nil
+			},
+			resume: func(_ context.Context, input runtime.InputResponse, _ runtime.EventSink) (runtime.Outcome, error) {
+				response, _ = input.(*runtime.AskUserResponse)
+				return runtime.Outcome{}, nil
+			},
+		}}, nil
 	}}, &fakeContinuation{})
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +485,7 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 	if err != nil || request == nil || request.ID != "ask-1" || len(request.Questions) != 1 {
 		t.Fatalf("ask-user request = %#v, %v", request, err)
 	}
-	if got := request.Questions[0]["choices"]; !reflect.DeepEqual(got, []any{"default"}) {
+	if got := request.Questions[0].Choices; !reflect.DeepEqual(got, []string{"default"}) {
 		t.Fatalf("ask-user choices = %#v", got)
 	}
 	answer := a2atype.NewMessage(a2atype.MessageRoleUser)

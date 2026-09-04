@@ -22,13 +22,6 @@ type Runner interface {
 	Run(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error)
 }
 
-// ParkedTurnCanceler is implemented by native runtimes that retain a live turn
-// after returning input-required. The Executor owns public task correlation;
-// the Runner owns interruption and cleanup of its private native session.
-type ParkedTurnCanceler interface {
-	CancelParked(context.Context) error
-}
-
 // ContinuationStore persists the one native conversation owned by an Actor.
 // A2A contexts identify controller history; they do not select native sessions.
 type ContinuationStore interface {
@@ -43,22 +36,46 @@ type Executor struct {
 	runner       Runner
 	continuation ContinuationStore
 
-	mu     sync.Mutex
-	active *activeTask
-	parked *parkedTask
+	mu sync.Mutex
+	// state serializes access to the Actor's one native conversation. It also
+	// identifies the component that currently owns native process cleanup:
+	// nil -> active -> parked -> active, or parked -> canceling -> nil.
+	state executorState
+}
+
+type executorState interface{ isExecutorState() }
+
+type taskRef struct {
+	taskID    a2atype.TaskID
+	contextID string
 }
 
 type activeTask struct {
-	taskID    a2atype.TaskID
-	contextID string
-	cancel    context.CancelFunc
-	done      chan struct{}
+	taskRef
+	// Execute closes done after Run or Resume has relinquished the native turn.
+	// Cancel sets cancelRequested before interrupting the execution context.
+	cancel          context.CancelFunc
+	done            chan struct{}
+	cancelRequested bool
 }
 
+// parkedTask owns the PendingTurn while its A2A task is waiting for input.
 type parkedTask struct {
-	taskID    a2atype.TaskID
-	contextID string
+	taskRef
+	pending runtime.PendingTurn
 }
+
+// cancelingTask keeps the Actor occupied while PendingTurn.Cancel performs
+// native RPC and process cleanup outside the executor mutex.
+type cancelingTask struct {
+	taskRef
+	done chan struct{}
+	err  error
+}
+
+func (*activeTask) isExecutorState()    {}
+func (*parkedTask) isExecutorState()    {}
+func (*cancelingTask) isExecutorState() {}
 
 type executionSink struct {
 	reqCtx         *a2asrv.ExecutorContext
@@ -95,27 +112,38 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		runCtx, cancel := context.WithCancel(ctx)
-		active := &activeTask{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID, cancel: cancel, done: make(chan struct{})}
+		active := &activeTask{
+			taskRef: taskRef{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID},
+			cancel:  cancel,
+			done:    make(chan struct{}),
+		}
 		resuming := reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
-		if err := e.activate(active, resuming); err != nil {
+		pending, err := e.activate(active, resuming)
+		if err != nil {
 			cancel()
 			yield(nil, err)
 			return
 		}
 		var finishOnce sync.Once
-		finish := func() {
+		finishedCanceled := false
+		// Exactly one exit path either releases the Actor or parks the native
+		// handle. The deferred finish covers every early return.
+		finish := func() bool {
 			finishOnce.Do(func() {
 				cancel()
-				e.deactivate(active)
+				finishedCanceled = e.deactivate(active)
 				close(active.done)
 			})
+			return finishedCanceled
 		}
-		park := func() {
+		park := func(pending runtime.PendingTurn) bool {
+			parked := false
 			finishOnce.Do(func() {
 				cancel()
-				e.park(active)
+				parked = e.park(active, pending)
 				close(active.done)
 			})
+			return parked
 		}
 		defer finish()
 
@@ -124,7 +152,15 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		}
 		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
 		turn.ContinuationID = continuationID
-		outcome, runErr := e.runner.Run(runCtx, turn, sink)
+		var outcome runtime.Outcome
+		var runErr error
+		// activate returns a handle only when this request continues the task
+		// currently waiting for input. New turns enter through Runner.Run.
+		if pending == nil {
+			outcome, runErr = e.runner.Run(runCtx, turn, sink)
+		} else {
+			outcome, runErr = pending.Resume(runCtx, turn.InputResponse, sink)
+		}
 		if errors.Is(runErr, errYieldStopped) {
 			return
 		}
@@ -133,30 +169,46 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		}
 		if runErr != nil {
 			a2alog.Error(ctx, "Harness runtime execution failed", runErr)
-			finish()
+			if finish() {
+				return
+			}
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
+		if outcome.Failure != nil && outcome.Pending != nil {
+			_ = outcome.Pending.Cancel(context.Background())
+			if finish() {
+				return
+			}
+			yield(nil, fmt.Errorf("runtime returned both a failure and a pending turn"))
+			return
+		}
 
-		if outcome.InputRequired != nil {
-			// Retain task ownership before publishing input-required. The native
-			// Runner has parked its live turn and can now be resumed or canceled.
-			park()
-			message, err := inputRequiredMessage(reqCtx, outcome.InputRequired)
+		if outcome.Pending != nil {
+			message, err := inputRequiredMessage(reqCtx, outcome.Pending.Request())
 			if err != nil {
+				_ = outcome.Pending.Cancel(context.Background())
 				yield(nil, err)
+				return
+			}
+			// Transfer the live native turn into executor state before telling the
+			// caller that it can submit a response or cancellation.
+			if !park(outcome.Pending) {
+				_ = outcome.Pending.Cancel(context.Background())
 				return
 			}
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
 			return
 		}
+		if finish() {
+			return
+		}
 		// Reap the runtime process and release the Actor's active-task slot before
 		// publishing a terminal state. A client may submit its next turn as soon
 		// as it observes this event.
-		finish()
 		if outcome.Failure == nil {
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
 			return
@@ -290,35 +342,16 @@ func inputRequiredMessage(reqCtx *a2asrv.ExecutorContext, request runtime.InputR
 		if request.ID == "" || len(request.Questions) == 0 {
 			return nil, fmt.Errorf("runtime ask-user request is incomplete")
 		}
-		questions := make([]map[string]any, 0, len(request.Questions))
+		questions := make([]apia2a.HITLQuestion, 0, len(request.Questions))
 		for _, question := range request.Questions {
 			if question.Question == "" {
 				return nil, fmt.Errorf("runtime ask-user request contains an empty question")
 			}
-			choices := make([]string, 0, len(question.Options))
-			options := make([]map[string]any, 0, len(question.Options))
-			for _, option := range question.Options {
-				choices = append(choices, option.Label)
-				options = append(options, map[string]any{"label": option.Label, "description": option.Description})
-			}
-			public := map[string]any{
-				"question": question.Question,
-				"choices":  choices,
-				"multiple": false,
-			}
-			if question.Header != "" {
-				public["header"] = question.Header
-			}
-			if question.IsOther {
-				public["is_other"] = true
-			}
-			if question.IsSecret {
-				public["is_secret"] = true
-			}
-			if len(options) != 0 {
-				public["options"] = options
-			}
-			questions = append(questions, public)
+			questions = append(questions, apia2a.HITLQuestion{
+				Question: question.Question,
+				Choices:  append([]string(nil), question.Choices...),
+				Multiple: question.Multiple,
+			})
 		}
 		message := taskMessage(reqCtx, request.Hint)
 		if err := apia2a.AttachHITL(message, apia2a.AskUserRequest{
@@ -339,97 +372,130 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			yield(nil, fmt.Errorf("task ID and context ID are required for cancellation"))
 			return
 		}
+		ref := taskRef{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID}
 		e.mu.Lock()
-		active := e.active
-		if active != nil {
-			if active.taskID != reqCtx.TaskID || active.contextID != reqCtx.ContextID {
+		switch state := e.state.(type) {
+		case *activeTask:
+			if !state.taskRef.matches(ref) {
 				e.mu.Unlock()
 				yield(nil, fmt.Errorf("cancellation does not match the active task"))
 				return
 			}
-			active.cancel()
-			done := active.done
+			state.cancelRequested = true
+			state.cancel()
+			done := state.done
+			e.mu.Unlock()
+			yieldCancellation(ctx, reqCtx, done, nil, yield)
+			return
+		case *parkedTask:
+			if !state.taskRef.matches(ref) {
+				e.mu.Unlock()
+				yield(nil, fmt.Errorf("cancellation does not match the parked task"))
+				return
+			}
+			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{})}
+			e.state = canceling
+			e.mu.Unlock()
+
+			err := state.pending.Cancel(ctx)
+			e.mu.Lock()
+			canceling.err = err
+			if e.state == canceling {
+				e.state = nil
+			}
+			close(canceling.done)
+			e.mu.Unlock()
+			yieldCancellation(ctx, reqCtx, canceling.done, err, yield)
+			return
+		case *cancelingTask:
+			if !state.taskRef.matches(ref) {
+				e.mu.Unlock()
+				yield(nil, fmt.Errorf("cancellation does not match the task being canceled"))
+				return
+			}
+			done := state.done
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
+				yieldCancellation(ctx, reqCtx, done, state.err, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
 			return
+		case nil:
+			e.mu.Unlock()
+			return
+		default:
+			e.mu.Unlock()
+			yield(nil, fmt.Errorf("runtime actor has an invalid task state"))
 		}
+	}
+}
 
-		parked := e.parked
-		if parked == nil {
-			e.mu.Unlock()
-			return
-		}
-		if parked.taskID != reqCtx.TaskID || parked.contextID != reqCtx.ContextID {
-			e.mu.Unlock()
-			yield(nil, fmt.Errorf("cancellation does not match the parked task"))
-			return
-		}
-		canceler, ok := e.runner.(ParkedTurnCanceler)
-		if !ok {
-			e.mu.Unlock()
-			yield(nil, fmt.Errorf("runtime cannot cancel a parked turn"))
-			return
-		}
-		canceling := &activeTask{
-			taskID: reqCtx.TaskID, contextID: reqCtx.ContextID,
-			cancel: func() {}, done: make(chan struct{}),
-		}
-		e.parked, e.active = nil, canceling
-		e.mu.Unlock()
-
-		err := canceler.CancelParked(ctx)
-		e.deactivate(canceling)
-		close(canceling.done)
-		if err != nil {
-			yield(nil, err)
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, knownErr error, yield func(a2atype.Event, error) bool) {
+	select {
+	case <-done:
+		if knownErr != nil {
+			yield(nil, knownErr)
 			return
 		}
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
+	case <-ctx.Done():
+		yield(nil, ctx.Err())
 	}
 }
 
-func (e *Executor) activate(task *activeTask, resuming bool) error {
+func (r taskRef) matches(other taskRef) bool {
+	return r.taskID == other.taskID && r.contextID == other.contextID
+}
+
+func (e *Executor) activate(task *activeTask, resuming bool) (runtime.PendingTurn, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.active != nil {
-		return errBusy
-	}
-	if e.parked != nil {
+	switch state := e.state.(type) {
+	case nil:
+		if resuming {
+			return nil, fmt.Errorf("runtime has no parked turn to continue")
+		}
+		e.state = task
+		return nil, nil
+	case *parkedTask:
 		if !resuming {
-			return errBusy
+			return nil, errBusy
 		}
-		if e.parked.taskID != task.taskID || e.parked.contextID != task.contextID {
-			return fmt.Errorf("continuation does not match the parked task")
+		if !state.taskRef.matches(task.taskRef) {
+			return nil, fmt.Errorf("continuation does not match the parked task")
 		}
-		e.parked = nil
-	} else if resuming {
-		return fmt.Errorf("runtime has no parked turn to continue")
+		e.state = task
+		return state.pending, nil
+	default:
+		return nil, errBusy
 	}
-	e.active = task
-	return nil
 }
 
-func (e *Executor) park(task *activeTask) {
+func (e *Executor) park(task *activeTask, pending runtime.PendingTurn) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.active != task {
-		return
+	if e.state != task {
+		return false
 	}
-	e.active = nil
-	e.parked = &parkedTask{taskID: task.taskID, contextID: task.contextID}
+	if task.cancelRequested {
+		// Cancellation won while the runtime was producing its input request.
+		// The caller must cancel the newly returned handle instead of parking it.
+		e.state = nil
+		return false
+	}
+	e.state = &parkedTask{taskRef: task.taskRef, pending: pending}
+	return true
 }
 
-func (e *Executor) deactivate(task *activeTask) {
+func (e *Executor) deactivate(task *activeTask) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.active == task {
-		e.active = nil
+	if e.state == task {
+		e.state = nil
 	}
+	return task.cancelRequested
 }
 
 func validateRequest(reqCtx *a2asrv.ExecutorContext) (runtime.Turn, error) {

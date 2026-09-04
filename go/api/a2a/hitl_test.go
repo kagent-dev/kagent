@@ -44,9 +44,9 @@ func TestParseAndValidateAskUserResponse(t *testing.T) {
 	if err := AttachHITL(requestMessage, AskUserRequest{
 		Type: HITLTypeAskUserRequest,
 		ID:   "question-1",
-		Questions: []map[string]any{
-			{"question": "Which namespace?"},
-			{"question": "Which cluster?"},
+		Questions: []HITLQuestion{
+			{Question: "Which namespace?"},
+			{Question: "Which cluster?"},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestParseAndValidateAskUserResponse(t *testing.T) {
 }
 
 func TestValidateAskUserResponseRequiresEveryAnswer(t *testing.T) {
-	request := &AskUserRequest{ID: "question-1", Questions: []map[string]any{{"question": "One?"}, {"question": "Two?"}}}
+	request := &AskUserRequest{ID: "question-1", Questions: []HITLQuestion{{Question: "One?"}, {Question: "Two?"}}}
 	response := &AskUserResponse{ID: "question-1", Answers: []AskUserAnswer{{Answer: []string{"one"}}}}
 	if err := ValidateAskUserResponse(request, response); err == nil {
 		t.Fatal("ValidateAskUserResponse() accepted an incomplete response")

@@ -26,11 +26,10 @@ harness.
   absolute HTTP(S) base URL.
 - Amazon Bedrock through either `AWS_BEARER_TOKEN_BEDROCK` or standard AWS
   access-key credentials in one Secret.
-- Streaming text, command and file activity, direct Streamable HTTP MCP, and
-  native Shared agents.
+- Streaming text, command and file activity, direct Streamable HTTP MCP (with
+  allowed-tools selection), and native Shared agents.
 - Per-server MCP tool approval with live App Server pause, resume, and cancel.
-- Native ask-user questions in default mode through App Server's experimental
-  API.
+- Native ask-user questions in default mode
 - Standalone and plugin-selected skills without plugin hooks, commands,
   executables, or implicit plugin MCP servers.
 - Exact native thread resume and bounded cancellation through `turn/interrupt`.
