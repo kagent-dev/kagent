@@ -9,6 +9,7 @@ on:
     branches: [main, "release/**"]
     paths-ignore:
       - "**/*.md"
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +19,8 @@ concurrency:
 env:
   # Cache key components for better organization
   CACHE_KEY_PREFIX: kagent-v2
-  BRANCH_CACHE_KEY: ${{ github.head_ref || github.ref_name }}
+  # Merge groups share one cache scope; their ref names are unique and would each write a throwaway one.
+  BRANCH_CACHE_KEY: ${{ github.head_ref || (github.event.merge_group.base_ref && 'merge-queue') || github.ref_name }}
   # Consistent builder configuration
   BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
   BUILDX_VERSION: v0.23.0
