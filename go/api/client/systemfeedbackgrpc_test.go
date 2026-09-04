@@ -9,7 +9,6 @@ import (
 	"time"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -70,11 +69,9 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 
 	version, err := clientSet.Version.GetVersion(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, &api.VersionResponse{
-		KAgentVersion: "v1.2.3",
-		GitCommit:     "abc123",
-		BuildDate:     "2026-07-29",
-	}, version)
+	assert.Equal(t, "v1.2.3", version.GetKagentVersion())
+	assert.Equal(t, "abc123", version.GetGitCommit())
+	assert.Equal(t, "2026-07-29", version.GetBuildDate())
 
 	systemService.mu.Lock()
 	require.Len(t, systemService.observations, 1)

@@ -24,7 +24,7 @@ func runVersion(clientSet *client.ClientSet) {
 	if err != nil {
 		versionInfo["backend_version"] = "unknown"
 	} else {
-		versionInfo["backend_version"] = serverVersion.KAgentVersion
+		versionInfo["backend_version"] = serverVersion.GetKagentVersion()
 	}
 
 	json.NewEncoder(os.Stdout).Encode(versionInfo) //nolint:errcheck
