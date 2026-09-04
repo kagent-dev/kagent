@@ -25,13 +25,13 @@ func NewA2AClient(client *BaseClient) *A2AClient {
 
 // ForAgentInstance creates an upstream A2A client routed to one AgentInstance.
 func (c *A2AClient) ForAgentInstance(ctx context.Context, namespace, id string) (*a2aclient.Client, error) {
-	connection, err := c.client.grpcConnection()
+	connection, err := c.client.grpcConnection(c.client.gateway)
 	if err != nil {
 		return nil, err
 	}
 	transport := a2agrpc.NewGRPCTransportFromClient(a2apb.NewA2AServiceClient(connection))
 	return a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{{
-		URL:             c.client.grpc.target,
+		URL:             c.client.gateway.url,
 		ProtocolBinding: a2atype.TransportProtocolGRPC,
 		ProtocolVersion: a2atype.Version,
 	}},
@@ -45,7 +45,7 @@ func (c *A2AClient) ForAgentInstance(ctx context.Context, namespace, id string) 
 			namespace: namespace,
 			id:        id,
 			userID:    c.client.UserID,
-			timeout:   c.client.grpc.timeout,
+			timeout:   c.client.gateway.timeout,
 		}),
 	)
 }

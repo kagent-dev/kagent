@@ -22,7 +22,7 @@ KAGENT_E2E_RUNTIME_IMAGE=<registry>/kagent-dev/kagent/golang-adk@sha256:<digest>
 KAGENT_E2E_BYO_IMAGE=<registry>/kagent-dev/kagent/byo-a2a@sha256:<digest> \
 KAGENT_E2E_CLAUDE_IMAGE=<registry>/kagent-dev/kagent/claude-harness@sha256:<digest> \
   envsubst < go/core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -
-KAGENT_E2E_GRPC_TARGET=<controller-address>:8084 make -C go e2e
+KAGENT_E2E_API_URL=http://<controller-address>:8083 make -C go e2e
 ```
 
 `TestAgentInstanceInteraction` starts the deterministic mock LLM on the test

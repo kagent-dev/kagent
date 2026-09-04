@@ -26,7 +26,7 @@ def make_app(address: str = "127.0.0.1:0"):
     return KAgentApp(
         root_agent_factory=lambda: None,
         agent_card=card,
-        kagent_url="http://unused",
+        kagent_api_url="http://unused",
         app_name="test-app",
         a2a_grpc_address=address,
     ).build(local=True)

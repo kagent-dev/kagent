@@ -283,7 +283,6 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-      grpc: 8084
     annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
@@ -305,10 +304,9 @@ controller:
     service:
       type: ClusterIP
       port: 8443
-  # -- Native gRPC application API settings. This port is internal unless a
-  # separate TLS-capable GRPCRoute or ingress is configured.
+  # -- gRPC application API settings. Native gRPC, gRPC-Web, MCP, and health
+  # share the controller service port.
   grpc:
-    bindAddress: ":8084"
     maxMessageBytes: 16777216
     reflection: false
     tlsCertFile: ""
@@ -696,7 +694,7 @@ kagent-tools:
   tools:
     loglevel: "debug"
     metrics:
-      port: 8085 # Use a different port than the main service port (8084) to avoid duplicate port definitions
+      port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
 
 # ==============================================================================
 # PROXY CONFIGURATION

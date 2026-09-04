@@ -37,7 +37,7 @@ func TestOptionsValidate(t *testing.T) {
 }
 
 func TestShouldPortForward(t *testing.T) {
-	defaultConfig := Options{KAgentURL: defaultKAgentURL, KAgentGRPCURL: defaultKAgentGRPCURL}
+	defaultConfig := Options{APIURL: defaultAPIURL, GatewayURL: defaultGatewayURL}
 	tests := []struct {
 		name   string
 		config Options
@@ -47,12 +47,11 @@ func TestShouldPortForward(t *testing.T) {
 		{name: "default endpoint unavailable", config: defaultConfig, err: status.Error(codes.Unavailable, "offline"), want: true},
 		{name: "default endpoint gRPC deadline", config: defaultConfig, err: status.Error(codes.DeadlineExceeded, "deadline"), want: true},
 		{name: "default endpoint context deadline", config: defaultConfig, err: context.DeadlineExceeded, want: true},
-		{name: "empty gRPC endpoint uses client default", config: Options{KAgentURL: defaultKAgentURL}, err: status.Error(codes.Unavailable, "offline"), want: true},
 		{name: "authentication failure", config: defaultConfig, err: status.Error(codes.Unauthenticated, "unauthenticated")},
 		{name: "authorization failure", config: defaultConfig, err: status.Error(codes.PermissionDenied, "denied")},
-		{name: "explicit TLS", config: Options{KAgentURL: defaultKAgentURL, KAgentGRPCURL: defaultKAgentGRPCURL, KAgentGRPCTLS: true}, err: status.Error(codes.Unavailable, "TLS failed")},
-		{name: "explicit gRPC endpoint", config: Options{KAgentURL: defaultKAgentURL, KAgentGRPCURL: "api.example.test:443"}, err: status.Error(codes.Unavailable, "offline")},
-		{name: "explicit HTTP endpoint", config: Options{KAgentURL: "https://api.example.test", KAgentGRPCURL: defaultKAgentGRPCURL}, err: status.Error(codes.Unavailable, "offline")},
+		{name: "custom TLS", config: Options{APIURL: defaultAPIURL, GatewayURL: defaultGatewayURL, CAFile: "/ca.pem"}, err: status.Error(codes.Unavailable, "TLS failed")},
+		{name: "explicit API endpoint", config: Options{APIURL: "https://api.example.test", GatewayURL: defaultGatewayURL}, err: status.Error(codes.Unavailable, "offline")},
+		{name: "explicit gateway endpoint", config: Options{APIURL: defaultAPIURL, GatewayURL: "https://gateway.example.test"}, err: status.Error(codes.Unavailable, "offline")},
 		{name: "other error", config: defaultConfig, err: errors.New("invalid CA")},
 	}
 

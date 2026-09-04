@@ -33,7 +33,7 @@ func (c *versionClient) GetVersion(ctx context.Context) (*apiv1alpha1.GetVersion
 }
 
 func (c *BaseClient) systemServiceClient() (apiv1alpha1.SystemServiceClient, error) {
-	connection, err := c.grpcConnection()
+	connection, err := c.grpcConnection(c.api)
 	if err != nil {
 		return nil, err
 	}

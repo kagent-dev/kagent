@@ -9,9 +9,9 @@ type ClientSet struct {
 	A2A           *A2AClient
 }
 
-// New creates a new KAgent client set
-func New(baseURL string, options ...ClientOption) *ClientSet {
-	baseClient := NewBaseClient(baseURL, options...)
+// New creates a client set with separate control-plane and agent-traffic endpoints.
+func New(apiURL, gatewayURL string, options ...ClientOption) *ClientSet {
+	baseClient := NewBaseClient(apiURL, gatewayURL, options...)
 
 	return &ClientSet{
 		baseClient:    baseClient,

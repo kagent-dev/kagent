@@ -59,8 +59,7 @@ sequenceDiagram
 
 ## Runtime boundaries
 
-- Public native gRPC listens on port `8084`.
-- Port `8083` serves health, gRPC-Web, and authenticated MCP.
+- Port `8083` serves native gRPC, gRPC-Web, A2A, authenticated MCP, and health.
 - Actor A2A gRPC is private on port `80`.
 - Runtime readiness is private HTTP `/readyz` on port `8081`.
 - ate-api defaults to `dns:///api.ate-system.svc:443`.

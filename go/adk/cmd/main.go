@@ -57,7 +57,7 @@ func main() {
 		configDir = "/config"
 	}
 
-	kagentGRPCURL := os.Getenv("KAGENT_GRPC_URL")
+	kagentAPIURL := os.Getenv("KAGENT_API_URL")
 
 	if err := config.MaterializeFromEnv(configDir); err != nil {
 		logger.Error("failed to materialize agent config from environment", "error", err, "config_dir", configDir)
@@ -124,7 +124,7 @@ func main() {
 	// Create one authenticated controller channel for all kagent persistence.
 	var controllerClient *controllerclient.Client
 	var tokenService *auth.KAgentTokenService
-	if kagentGRPCURL != "" {
+	if kagentAPIURL != "" {
 		tokenService = auth.NewKAgentTokenService(appName)
 		if err := tokenService.Start(context.Background()); err != nil {
 			logger.Error("failed to start token service", "error", err)
@@ -133,12 +133,12 @@ func main() {
 		}
 		defer tokenService.Stop()
 		controllerClient, err = controllerclient.New(controllerclient.Config{
-			Target:        kagentGRPCURL,
+			APIURL:        kagentAPIURL,
 			AgentName:     appName,
 			TokenProvider: tokenService,
 		})
 		if err != nil {
-			logger.Error("failed to create controller gRPC client", "error", err, "target", kagentGRPCURL)
+			logger.Error("failed to create controller API client", "error", err, "url", kagentAPIURL)
 			os.Exit(1)
 		}
 		defer func() {

@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"python -c \\\"print('PY_OK')\\\" && node -e \\\"console.log('NODE_OK')\\\" && python - <<'PY'\\nimport os\\nimport urllib.request\\nurl = os.environ['KAGENT_URL'] + '/health'\\ntry:\\n    urllib.request.urlopen(url, timeout=5).read()\\n    print('NETWORK_ALLOWED')\\nexcept Exception:\\n    print('NETWORK_DENIED')\\nPY\"}"
+                    "arguments": "{\"command\": \"python -c \\\"print('PY_OK')\\\" && node -e \\\"console.log('NODE_OK')\\\" && python - <<'PY'\\nimport os\\nimport urllib.request\\nurl = os.environ['KAGENT_API_URL'] + '/health'\\ntry:\\n    urllib.request.urlopen(url, timeout=5).read()\\n    print('NETWORK_ALLOWED')\\nexcept Exception:\\n    print('NETWORK_DENIED')\\nPY\"}"
                   }
                 }
               ]

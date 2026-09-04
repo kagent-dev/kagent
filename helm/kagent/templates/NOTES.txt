@@ -11,14 +11,12 @@ ACCESSING THE UI:
   2. Open your browser and visit:
      http://localhost:8080
 
-ACCESSING THE CONTROLLER APPLICATION API (gRPC):
-  kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.grpc }}:{{ .Values.controller.service.ports.grpc }}
+ACCESSING THE CONTROLLER:
+  kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.port }}:{{ .Values.controller.service.ports.port }}
 
-  gRPC endpoint: localhost:{{ .Values.controller.service.ports.grpc }}
+  API and gateway URL: http://localhost:{{ .Values.controller.service.ports.port }}
 
-The controller HTTP port {{ .Values.controller.service.ports.port }} remains for A2A, MCP, ACP,
-health, and other protocol-native or operational endpoints. It does not expose
-the kagent application REST API.
+The controller port serves native gRPC, gRPC-Web, A2A, MCP, and health.
 
 DEPLOYED COMPONENTS:
   - Controller: {{ include "kagent.fullname" . }}-controller (manages Kubernetes resources)

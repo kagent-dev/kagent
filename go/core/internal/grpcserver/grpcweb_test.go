@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// The prefix rule, which is the subtle half of WebHandlerOr.
+// The prefix rule, which is the subtle half of HandlerOr.
 func TestTrimAPIPrefix(t *testing.T) {
 	tests := []struct {
 		name    string
