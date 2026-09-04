@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
@@ -10,7 +12,15 @@ service SystemService {
   rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
   rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+  // Deprecated in favour of GetSubstrateSummary and the two list calls below.
+  // It answers with every actor and worker in one message, which a large cluster
+  // cannot fit: at 410,110 actors the response is roughly 43MB against gRPC's 16MB
+  // ceiling, so the call fails outright rather than returning a truncated inventory.
   rpc GetSubstrateStatus(GetSubstrateStatusRequest) returns (GetSubstrateStatusResponse);
+
+  rpc GetSubstrateSummary(GetSubstrateSummaryRequest) returns (GetSubstrateSummaryResponse);
+  rpc ListSubstrateActors(ListSubstrateActorsRequest) returns (ListSubstrateActorsResponse);
+  rpc ListSubstrateWorkers(ListSubstrateWorkersRequest) returns (ListSubstrateWorkersResponse);
 }
 
 message GetVersionRequest {}
@@ -94,4 +104,96 @@ message SubstrateWorker {
   string actor_id = 6;
   string ip = 7;
   int64 version = 8;
+}
+
+// The inventory as counts, plus the two lists whose length is set by configuration
+// rather than by the cluster.
+//
+// This is the only place a *total* comes from. The actor and worker calls below
+// answer with a page, and a page's length is not a total: counting the rows on
+// screen and labelling the result "Actors" reports 100 for a cluster running four
+// hundred thousand.
+//
+// Producing these counts costs a walk of every ate-api page, because ate-api
+// reports no totals of its own — ListActorsResponse is a page plus a token. The
+// walk stays on the server and only the counts cross the wire, so this call has no
+// message-size ceiling; it is not free, and it is the read to poll least often.
+message GetSubstrateSummaryRequest {
+  string namespace = 1;
+}
+
+message SubstrateActorStatusCount {
+  string status = 1;
+  int64 count = 2;
+}
+
+message GetSubstrateSummaryResponse {
+  // False when the controller has no ate-api endpoint configured. A deployment
+  // choice, not a failure: the Kubernetes-derived fields are still answered.
+  bool enabled = 1;
+  // Set when the ate-api walk failed on an otherwise successful call. The counts
+  // are then short and the Kubernetes-derived lists complete — a warning to show
+  // beside the data rather than an error to fail the call with.
+  string ate_api_error = 2;
+  repeated SubstrateWorkerPool worker_pools = 3;
+  repeated SubstrateActorTemplate actor_templates = 4;
+  int64 actor_count = 5;
+  int64 worker_count = 6;
+  int64 running_actor_count = 7;
+  // A worker is busy when an actor is bound to it.
+  int64 busy_worker_count = 8;
+  // Every actor status present, with how many hold it. The whole distribution
+  // rather than the running count alone: knowing 12 of 410,110 are running says
+  // nothing about the other 410,098.
+  repeated SubstrateActorStatusCount actor_status_counts = 9;
+  // When this answer was computed, which is not when it was received.
+  google.protobuf.Timestamp computed_at = 10;
+}
+
+// One page of actors, passed through to ate-api's own pagination.
+//
+// ate-api offers paging and nothing else — no ordering, no filter, no total — so
+// neither does this. Ordering and searching a page are the client's, over the rows
+// it was given, and a client that presents that as ordering the cluster is lying to
+// its reader.
+message ListSubstrateActorsRequest {
+  // Empty means every namespace the controller observes.
+  string namespace = 1;
+  // Rows to ask ate-api for. Zero means the server's default. Above 100 is refused
+  // rather than clamped, so a caller learns its page size was not honoured.
+  int32 page_size = 2 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+  // Empty for the first page; otherwise the previous response's next_page_token.
+  string page_token = 3;
+}
+
+message ListSubstrateActorsResponse {
+  bool enabled = 1;
+  string ate_api_error = 2;
+  // May hold fewer rows than page_size and still not be the last page: rows outside
+  // the requested namespace are dropped after ate-api has counted them into its page.
+  repeated SubstrateActor actors = 3;
+  // Empty on the last page. Presence, not row count, is what says there is more.
+  string next_page_token = 4;
+  google.protobuf.Timestamp computed_at = 5;
+}
+
+// One page of worker assignments. The mirror of ListSubstrateActors.
+message ListSubstrateWorkersRequest {
+  string namespace = 1;
+  int32 page_size = 2 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+  string page_token = 3;
+}
+
+message ListSubstrateWorkersResponse {
+  bool enabled = 1;
+  string ate_api_error = 2;
+  repeated SubstrateWorker workers = 3;
+  string next_page_token = 4;
+  google.protobuf.Timestamp computed_at = 5;
 }

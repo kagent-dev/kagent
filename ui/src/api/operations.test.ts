@@ -24,6 +24,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
@@ -416,6 +417,90 @@ describe("the cluster", () => {
     await apiClient.substrate.status("kagent");
     await apiClient.substrate.status();
     expect(asked).toEqual(["kagent", ""]);
+  });
+
+  it("reads the summary's counts rather than counting rows", async () => {
+    serve(({ service }) => {
+      service(SystemService, {
+        getSubstrateSummary: () => ({
+          enabled: true,
+          workerPools: [
+            { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
+          ],
+          actorTemplates: [{ namespace: "kagent", name: "tpl", phase: "Ready" }],
+          actorCount: 410110n,
+          workerCount: 900n,
+          runningActorCount: 12n,
+          busyWorkerCount: 11n,
+          actorStatusCounts: [
+            { status: "Crashed", count: 410098n },
+            { status: "Running", count: 12n },
+          ],
+          computedAt: timestampFromDate(new Date("2026-09-04T12:00:00Z")),
+        }),
+      });
+    });
+
+    const summary = await apiClient.substrate.summary();
+    // `int64` on the wire: a count that stayed a bigint formats as "410110n" and
+    // arithmetic against it throws.
+    expect(summary.actorCount).toBe(410110);
+    expect(summary.runningActorCount).toBe(12);
+    expect(summary.busyWorkerCount).toBe(11);
+    expect(summary.actorStatusCounts).toEqual([
+      { status: "Crashed", count: 410098 },
+      { status: "Running", count: 12 },
+    ]);
+    expect(summary.computedAt).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  it("sends the page size and token, and reads the next token back", async () => {
+    const asked: { namespace: string; pageSize: number; pageToken: string }[] = [];
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: (request) => {
+          asked.push({
+            namespace: request.namespace,
+            pageSize: request.pageSize,
+            pageToken: request.pageToken,
+          });
+          return {
+            enabled: true,
+            actors: [{ actorId: "a1", status: "Running", version: 3n }],
+            nextPageToken: "cursor-2",
+          };
+        },
+      });
+    });
+
+    const page = await apiClient.substrate.actors({
+      namespace: "kagent",
+      limit: 100,
+      pageToken: "cursor-1",
+    });
+    expect(asked).toEqual([
+      { namespace: "kagent", pageSize: 100, pageToken: "cursor-1" },
+    ]);
+    expect(page.actors[0].version).toBe(3);
+    expect(page.nextPageToken).toBe("cursor-2");
+  });
+
+  // Absent rather than empty, so "there is more" is a question about presence: an
+  // empty token sent back as the next page would re-read page one for ever.
+  it("reads the last page's empty token as no next page", async () => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateWorkers: () => ({
+          enabled: true,
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
+          nextPageToken: "",
+        }),
+      });
+    });
+
+    const page = await apiClient.substrate.workers({ limit: 100 });
+    expect(page.nextPageToken).toBeUndefined();
+    expect(page.workers).toHaveLength(1);
   });
 });
 

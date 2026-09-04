@@ -207,3 +207,89 @@ func newTestTLSCert(t *testing.T) tls.Certificate {
 	require.NoError(t, err)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
+
+// listWorkersFake pages workers the way ate-api does: one row per page, and an empty
+// token on the last.
+type listWorkersFake struct {
+	ateapipb.ControlClient
+	pageTokens []string
+}
+
+func (f *listWorkersFake) ListWorkers(_ context.Context, in *ateapipb.ListWorkersRequest, _ ...grpc.CallOption) (*ateapipb.ListWorkersResponse, error) {
+	f.pageTokens = append(f.pageTokens, in.GetPageToken())
+	name, next := "first", "next"
+	if in.GetPageToken() != "" {
+		name = "second"
+		next = ""
+	}
+	return &ateapipb.ListWorkersResponse{
+		Workers:       []*ateapipb.Worker{{WorkerPod: name}},
+		NextPageToken: next,
+	}, nil
+}
+
+// ListWorkers used to read one page and drop the token, so a fleet past ate-api's page
+// ceiling was silently truncated and reported as the whole of it.
+func TestListWorkersFollowsPagination(t *testing.T) {
+	fake := &listWorkersFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	workers, err := client.ListWorkers(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []string{"first", "second"}, []string{workers[0].GetWorkerPod(), workers[1].GetWorkerPod()})
+	require.Equal(t, []string{"", "next"}, fake.pageTokens)
+}
+
+func TestListWorkersPageReturnsOnePageAndItsToken(t *testing.T) {
+	fake := &listWorkersFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+
+	workers, next, err := client.ListWorkersPage(t.Context(), 25, "")
+	require.NoError(t, err)
+	require.Len(t, workers, 1)
+	require.Equal(t, "next", next)
+	require.Equal(t, []string{""}, fake.pageTokens)
+}
+
+// listActorsFake records what each page was asked for, so a caller that drops the page
+// size or re-reads page one is visible.
+type listActorsFake struct {
+	ateapipb.ControlClient
+	requests []*ateapipb.ListActorsRequest
+}
+
+func (f *listActorsFake) ListActors(_ context.Context, in *ateapipb.ListActorsRequest, _ ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
+	f.requests = append(f.requests, in)
+	name, next := "first", "next"
+	if in.GetPageToken() != "" {
+		name = "second"
+		next = ""
+	}
+	return &ateapipb.ListActorsResponse{
+		Actors:        []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Name: name}}},
+		NextPageToken: next,
+	}, nil
+}
+
+func TestListActorsPagePassesPageSizeAndTokenThrough(t *testing.T) {
+	fake := &listActorsFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+
+	actors, next, err := client.ListActorsPage(t.Context(), "team-a", 25, "cursor")
+	require.NoError(t, err)
+	require.Equal(t, "second", actors[0].GetMetadata().GetName())
+	require.Empty(t, next)
+	require.Len(t, fake.requests, 1)
+	require.Equal(t, "team-a", fake.requests[0].GetAtespace())
+	require.Equal(t, int32(25), fake.requests[0].GetPageSize())
+	require.Equal(t, "cursor", fake.requests[0].GetPageToken())
+}
+
+func TestListActorsDrainsPagination(t *testing.T) {
+	fake := &listActorsFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+
+	actors, err := client.ListActors(t.Context(), "team-a")
+	require.NoError(t, err)
+	require.Len(t, actors, 2)
+	require.Equal(t, []string{"", "next"}, []string{fake.requests[0].GetPageToken(), fake.requests[1].GetPageToken()})
+}

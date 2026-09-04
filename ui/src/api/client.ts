@@ -43,11 +43,7 @@ import type {
   AgentTemplate,
   AgentTemplateResource,
 } from "./domain/agentTemplates";
-import type {
-  SubstrateActorSortField,
-  SubstratePageInput,
-  SubstrateWorkerSortField,
-} from "./operations";
+import type { SubstratePageInput } from "./operations";
 import type {
   AgentInstance,
   AgentInstanceShare,
@@ -116,14 +112,11 @@ export interface SubstrateApi {
   status(namespace?: string, options?: ReadOptions): Promise<SubstrateStatusResponse>;
   /** Counts and the two small lists. The only honest source of a total. */
   summary(namespace?: string, options?: ReadOptions): Promise<SubstrateSummary>;
-  /** One page of actors, narrowed and ordered server-side. */
-  actors(
-    input: SubstratePageInput<SubstrateActorSortField>,
-    options?: ReadOptions,
-  ): Promise<SubstrateActorPage>;
-  /** One page of worker assignments, narrowed and ordered server-side. */
+  /** One page of actors. Paged and nothing else — ate-api offers nothing else. */
+  actors(input: SubstratePageInput, options?: ReadOptions): Promise<SubstrateActorPage>;
+  /** One page of workers. The mirror of `actors`. */
   workers(
-    input: SubstratePageInput<SubstrateWorkerSortField>,
+    input: SubstratePageInput,
     options?: ReadOptions,
   ): Promise<SubstrateWorkerPage>;
 }
@@ -304,9 +297,9 @@ export function createApiClient(): KagentApiClient {
         invoke("substrate.status", { namespace }, options),
       summary: (namespace, options) =>
         invoke("substrate.summary", { namespace }, options),
-      // Not sorted here, unlike every other list: the server orders these pages,
-      // and re-sorting a page would order it within itself while leaving it in the
-      // wrong place in the whole — which reads as a list that shuffles as you page.
+      // Not sorted here, unlike every other list. Nothing sorts these: ate-api
+      // pages and offers no order, so the rows arrive in whatever order it holds
+      // them and the page that shows them decides what to do about that.
       actors: (input, options) => invoke("substrate.actors", input, options),
       workers: (input, options) => invoke("substrate.workers", input, options),
     },

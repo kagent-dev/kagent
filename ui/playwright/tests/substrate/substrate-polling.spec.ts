@@ -27,24 +27,35 @@ import { operationCallCounts, rpc } from "../../helpers/mockCalls";
  * implementation here did — the caching layer deduplicated its revalidations over a window
  * longer than the interval, turning "twice a second" into once every two and a half.
  *
- * ## Why two RPCs are watched and only one is expected to climb
+ * ## Why three RPCs are watched and only two are expected to climb
  *
- * The page reads the inventory and the list of namespaces, and polling deliberately
- * re-reads only the first: the namespace list is the page's scope control, not its data,
- * and re-reading it twice a second is a request per tick that can only ever answer the
- * same thing. Watching both is what makes that a tested decision rather than an
- * accident — a timer wired to "refresh everything" would show up here as the namespace
- * count climbing too.
+ * The page reads its inventory as three calls — a page of actors, a page of workers,
+ * and the summary the tiles are counted from — plus the list of namespaces. Polling
+ * deliberately re-reads the inventory and not the namespace list: that one is the
+ * page's scope control, not its data, and re-reading it twice a second is a request per
+ * tick that can only ever answer the same thing. Watching it alongside is what makes
+ * that a tested decision rather than an accident — a timer wired to "refresh
+ * everything" would show up here as the namespace count climbing too.
+ *
+ * The summary is watched beside the actors because the two must move together. It is
+ * the expensive read of the three — ate-api reports no totals, so the controller walks
+ * every page of it to count — and it would be tempting to leave it out of the tick. A
+ * page whose rows moved while its tiles stood still would be reporting two different
+ * moments as one.
  */
 
 const SUBSTRATE = "/substrate";
 
-const POLLED = rpc.substrateStatus;
+/** The rows a reader turns polling on to watch move. */
+const POLLED = rpc.substrateActors;
+
+/** The counts beside them, which must not be left behind. */
+const POLLED_TOO = rpc.substrateSummary;
 
 /** The scope control's own read, which must stay still while the inventory moves. */
 const NOT_POLLED = rpc.listNamespaces;
 
-const READS = [POLLED, NOT_POLLED] as const;
+const READS = [POLLED, POLLED_TOO, NOT_POLLED] as const;
 
 const readCounts = (page: import("@playwright/test").Page) =>
   operationCallCounts(page, READS);
@@ -93,6 +104,11 @@ test("substrate: polling is off until asked for, then re-reads the inventory", a
         message: "the inventory should be re-read while polling",
       })
       .toBeGreaterThanOrEqual(2);
+
+    expect(
+      (await readCounts(page))[POLLED_TOO],
+      "the tiles must not stand still while the rows beneath them move",
+    ).toBeGreaterThan(before[POLLED_TOO]);
 
     expect(
       (await readCounts(page))[NOT_POLLED],

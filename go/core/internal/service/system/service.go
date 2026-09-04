@@ -32,6 +32,11 @@ type ATEClient interface {
 	ListActors(context.Context, string) ([]*ateapipb.Actor, error)
 	ListWorkers(context.Context) ([]*ateapipb.Worker, error)
 	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
+	// The paged reads the substrate page is served from. Separate from the draining
+	// ones above rather than replacing them, because the two have different callers:
+	// a page is what an answer is built from, and a drain is what a count is.
+	ListActorsPage(ctx context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error)
+	ListWorkersPage(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error)
 }
 
 type runtimeRevisionStore interface {
@@ -318,15 +323,9 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]Subs
 }
 
 func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []SubstrateActor, []SubstrateWorker, error) {
-	allowAll := len(namespaces) == 1 && namespaces[0] == ""
-	allowed := make(map[string]struct{}, len(namespaces))
-	for _, namespace := range namespaces {
-		if namespace != "" {
-			allowed[namespace] = struct{}{}
-		}
-	}
+	allowAll, allowed := substrateScopeFilter(namespaces)
 
-	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, "")
+	templates, err := s.substrateActorTemplates(ctx, allowAll, allowed)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -338,41 +337,6 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	type templateKey struct{ atespace, name, uid string }
-	harnesses := make(map[templateKey]string, len(harnessesFromDB))
-	for _, template := range harnessesFromDB {
-		harnesses[templateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
-	}
-	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
-	for _, template := range templatesFromAPI {
-		if template == nil || !allowedAtespace(template.GetMetadata().GetAtespace(), allowAll, allowed) {
-			continue
-		}
-		golden := template.GetStatus().GetGoldenSnapshotStatus()
-		phase := "Pending"
-		if golden.GetErrorMessage() != "" {
-			phase = "Failed"
-		} else if golden.GetGoldenSnapshot() != nil {
-			phase = "Ready"
-		}
-		metadata := template.GetMetadata()
-		templates = append(templates, SubstrateActorTemplate{
-			Namespace:       metadata.GetAtespace(),
-			Name:            metadata.GetName(),
-			Phase:           phase,
-			GoldenActorID:   metadata.GetUid(),
-			GoldenSnapshot:  golden.GetGoldenSnapshot().GetSnapshotUri(),
-			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
-			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
-			HarnessName:     harnesses[templateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
-			ManagedByKagent: true,
-		})
-	}
-
 	actors := make([]SubstrateActor, 0, len(actorsFromAPI))
 	for _, actor := range actorsFromAPI {
 		if actor == nil {
@@ -389,11 +353,8 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		if worker == nil {
 			continue
 		}
-		namespace := strings.TrimSpace(worker.GetWorkerNamespace())
-		if !allowAll && namespace != "" {
-			if _, ok := allowed[namespace]; !ok {
-				continue
-			}
+		if !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
+			continue
 		}
 		workers = append(workers, workerFromProto(worker))
 	}
@@ -446,4 +407,59 @@ func labelSelectorString(ctx context.Context, selector *metav1.LabelSelector) st
 		return "<invalid selector>"
 	}
 	return result.String()
+}
+
+/*
+substrateActorTemplates lists the ActorTemplates in scope, with the harness each one
+was compiled from.
+
+ate-api pages templates as it pages actors, and this drains that pagination — unlike
+the actor and worker reads. Templates are configuration: their count is set by what
+operators have declared rather than by what the cluster is running, so the list is
+small enough to answer with whole and small enough to send.
+*/
+func (s *Service) substrateActorTemplates(ctx context.Context, allowAll bool, allowed map[string]struct{}) ([]SubstrateActorTemplate, error) {
+	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type templateKey struct{ atespace, name, uid string }
+	harnesses := make(map[templateKey]string, len(harnessesFromDB))
+	for _, template := range harnessesFromDB {
+		harnesses[templateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
+	}
+	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
+	for _, template := range templatesFromAPI {
+		if template == nil || !allowedAtespace(template.GetMetadata().GetAtespace(), allowAll, allowed) {
+			continue
+		}
+		golden := template.GetStatus().GetGoldenSnapshotStatus()
+		phase := "Pending"
+		if golden.GetErrorMessage() != "" {
+			phase = "Failed"
+		} else if golden.GetGoldenSnapshot() != nil {
+			phase = "Ready"
+		}
+		metadata := template.GetMetadata()
+		templates = append(templates, SubstrateActorTemplate{
+			Namespace:       metadata.GetAtespace(),
+			Name:            metadata.GetName(),
+			Phase:           phase,
+			GoldenActorID:   metadata.GetUid(),
+			GoldenSnapshot:  golden.GetGoldenSnapshot().GetSnapshotUri(),
+			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
+			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
+			HarnessName:     harnesses[templateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
+			ManagedByKagent: true,
+		})
+	}
+
+	slices.SortStableFunc(templates, func(left, right SubstrateActorTemplate) int {
+		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
+	})
+	return templates, nil
 }

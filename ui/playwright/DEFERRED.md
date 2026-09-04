@@ -247,55 +247,74 @@ when it holds one page of them, and only the proto says which.
 | `ListModelConfigs` | `ListModelConfigsRequest {}` | nothing at all | `PageRequest page`, `string filter`, a sort field enum and `SortOrder` |
 | `ListToolServers` | `ListToolServersRequest {}` | nothing at all | the same four |
 | `ListPromptTemplates` | `ListPromptTemplatesRequest { string namespace = 1 }` | one namespace | `PageRequest page`, `string filter`, sort field and order — the namespace is already there |
-| `GetSubstrateStatus` | `GetSubstrateStatusRequest { namespace }` | one namespace | the same four, twice: actors and workers are separate lists in one message |
+| `ListSubstrateActors` | `ListSubstrateActorsRequest { namespace, page_size, page_token }` | a page | `string filter` and a sort field enum — **and ate-api has to grow them first** |
+| `ListSubstrateWorkers` | `ListSubstrateWorkersRequest { namespace, page_size, page_token }` | a page | the same two, on the same condition |
 
-**The substrate page used to be the exception, and is not any more.** It read three
-RPCs — `GetSubstrateSummary` for the counts and a page each from `ListSubstrateActors`
-and `ListSubstrateWorkers` — which between them carried `PageRequest{limit, page_token}`,
-a case-insensitive substring `filter`, and a sort-field enum whose every order ended in a
-unique column so a page token named exactly one row. Those three were removed in
-`refactor: simplify UI backend support`, and `GetSubstrateStatus` returns the whole
-inventory in one message again. `api/grpc/operations.ts` keeps the four operation names
-and answers all of them from that one read, filtering and sorting in memory.
+**The substrate page is the worked precedent again, and it is a partial one.** It reads
+three RPCs — `GetSubstrateSummary` for the counts, and a page each from
+`ListSubstrateActors` and `ListSubstrateWorkers`, both passing `page_token` straight
+through to ate-api's own pagination. Those three had existed before, were removed in
+`refactor: simplify UI backend support`, and were restored by the fix for
+[#2704](https://github.com/kagent-dev/kagent/issues/2704).
 
-So there is **no worked precedent left in this repository to copy**. Whoever pages one
-of these lists is designing the request, not following one — and the deleted commentary
-in `system.proto` is worth recovering from git history first, because it had already
-solved the part that is easy to get wrong: a sort order whose last key is not unique
-gives a page token that names more than one row.
+What came back is narrower than what was removed, deliberately. The earlier versions
+carried a `filter` and a sort-field enum; these carry neither, **because ate-api has
+neither to offer**. `ListActors` there takes an atespace, a page size and a token, and
+answers with a page and a token: no order, no filter, no total. A controller-side sort
+or filter would therefore have to read every actor to apply it, which is the read the
+paging exists to remove. So the actor and worker tables sort and search the page in the
+browser, and `SubstratePage` says so in three places — the note under each table, the
+heading that distinguishes "1 of 4 on this page" from "4 of 4,312", and the empty state
+that names what it searched.
 
-That removal also took the counts argument with it. `GetSubstrateSummary` existed so the
-tiles could report a true total while the tables showed one page; with the whole
-inventory in the browser the totals are simply true, and nothing has to be prevented.
+**Copy the request shape, not the whole answer.** For the other three reads in this
+table, whose backends can order and filter, the earlier substrate design solved the part
+that is easy to get wrong: a sort order whose last key is not unique gives a page token
+that names more than one row. That commentary is worth recovering from git history
+before designing another paged read.
+
+**Two things are still deferred here, and they are upstream.**
+
+- **Sort and filter across the whole inventory** need `ateapipb.ListActorsRequest` and
+  `ListWorkersRequest` to take them. Until then the page-scoped versions are the honest
+  ceiling, and the three sentences above are what must change alongside any push
+  upstream.
+- **A total from ate-api.** `ListActorsResponse` reports no count, so
+  `GetSubstrateSummary` walks every page to produce one — about 1.6s on a cluster of
+  410,110 actors. The answer is a handful of integers, so it has no message-size ceiling
+  the way `GetSubstrateStatus` does, but it is the read to poll least often and the page
+  shows its age for that reason.
+
+**Which actor is on a worker is not deferred; it is not available.** ate-api's `Worker`
+carries capacity and allocation and no actor reference — the binding lives on the actor —
+so the workers table has no Actor column. `busyWorkerCount` on the summary is that join,
+done once server-side during a walk that was happening anyway. A column would need the
+walk per page.
 
 **A single-message read is defensible only while the message really holds everything.**
-`GetSubstrateStatus` is the read that already failed this way once: a cluster of 410,110
-actors produced a response gRPC refused to send, which is why it was split in the first
-place. It is back, so that ceiling is back with it. **The moment any of these reads
-starts paging — or starts truncating to survive — its page must lose its client-side
-search and sort in the same change**, because a filter over a page reports "no matches"
-about a row on page nine.
+`GetSubstrateStatus` is the read that failed this way once: a cluster of 410,110 actors
+produces a response gRPC refused to send, which is why the substrate page was split into
+three reads in the first place. It is still on `SystemService`, deprecated, and the UI no
+longer calls it. For the three reads at the top of this table that do still answer with
+everything, **the moment one starts paging — or starts truncating to survive — its
+client-side search and sort must be labelled or removed in the same change**, because an
+unlabelled filter over a page reports "no matches" about a row on page nine.
 
 The prompts page is a partial exception worth not losing: `ListPromptTemplates` takes a
 namespace, so `usePrompts` fans out one call per namespace and its **namespace filter is
 genuinely server-side already**. Only its search and sort are not.
 
-Two assertions in `substrate.spec.ts` were written against the paged shape and now
-describe something that no longer exists: "the searches are the server's, and a match is
-found wherever it is" is passing over an in-memory filter, and "the paged tables do not
-pretend to sort, and the inline ones do" withholds a sort from tables that could now
-honestly offer one. They pass, which is the problem — the behaviour they check still
-holds when every row is in the browser, so nothing objected when the reason for it went
-away.
-
 ### Not deferred, but named here so it is not looked for: paging is client-side too
 
-Every one of these tables shows a page control. It pages rows that are already in the
-browser, which is a real convenience on a long list and is not a claim about the server.
-The totals beside the controls and in the pager are therefore true totals — which is
-only true because the reads return everything. Under a paged read, counting what arrived
-and calling it a total is a lie, and a separate summary read is what fixes it; that is
-what `GetSubstrateSummary` was for before it was removed.
+Every one of these tables shows a page control, and for the model, tool and prompt lists
+it pages rows that are already in the browser — a real convenience on a long list, and
+not a claim about the server. The totals beside those controls are therefore true
+totals, which is only true because those reads return everything.
+
+The substrate tables are the exception and now the model: their page control turns real
+pages, and none of their totals is `rows.length`. Counting what arrived and calling it a
+total is the lie a separate summary read exists to prevent, which is what
+`GetSubstrateSummary` is for.
 
 ---
 

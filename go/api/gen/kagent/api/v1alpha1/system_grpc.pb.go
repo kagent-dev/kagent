@@ -19,10 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SystemService_GetVersion_FullMethodName         = "/kagent.api.v1alpha1.SystemService/GetVersion"
-	SystemService_GetCurrentUser_FullMethodName     = "/kagent.api.v1alpha1.SystemService/GetCurrentUser"
-	SystemService_ListNamespaces_FullMethodName     = "/kagent.api.v1alpha1.SystemService/ListNamespaces"
-	SystemService_GetSubstrateStatus_FullMethodName = "/kagent.api.v1alpha1.SystemService/GetSubstrateStatus"
+	SystemService_GetVersion_FullMethodName           = "/kagent.api.v1alpha1.SystemService/GetVersion"
+	SystemService_GetCurrentUser_FullMethodName       = "/kagent.api.v1alpha1.SystemService/GetCurrentUser"
+	SystemService_ListNamespaces_FullMethodName       = "/kagent.api.v1alpha1.SystemService/ListNamespaces"
+	SystemService_GetSubstrateStatus_FullMethodName   = "/kagent.api.v1alpha1.SystemService/GetSubstrateStatus"
+	SystemService_GetSubstrateSummary_FullMethodName  = "/kagent.api.v1alpha1.SystemService/GetSubstrateSummary"
+	SystemService_ListSubstrateActors_FullMethodName  = "/kagent.api.v1alpha1.SystemService/ListSubstrateActors"
+	SystemService_ListSubstrateWorkers_FullMethodName = "/kagent.api.v1alpha1.SystemService/ListSubstrateWorkers"
 )
 
 // SystemServiceClient is the client API for SystemService service.
@@ -32,7 +35,14 @@ type SystemServiceClient interface {
 	GetVersion(ctx context.Context, in *GetVersionRequest, opts ...grpc.CallOption) (*GetVersionResponse, error)
 	GetCurrentUser(ctx context.Context, in *GetCurrentUserRequest, opts ...grpc.CallOption) (*GetCurrentUserResponse, error)
 	ListNamespaces(ctx context.Context, in *ListNamespacesRequest, opts ...grpc.CallOption) (*ListNamespacesResponse, error)
+	// Deprecated in favour of GetSubstrateSummary and the two list calls below.
+	// It answers with every actor and worker in one message, which a large cluster
+	// cannot fit: at 410,110 actors the response is roughly 43MB against gRPC's 16MB
+	// ceiling, so the call fails outright rather than returning a truncated inventory.
 	GetSubstrateStatus(ctx context.Context, in *GetSubstrateStatusRequest, opts ...grpc.CallOption) (*GetSubstrateStatusResponse, error)
+	GetSubstrateSummary(ctx context.Context, in *GetSubstrateSummaryRequest, opts ...grpc.CallOption) (*GetSubstrateSummaryResponse, error)
+	ListSubstrateActors(ctx context.Context, in *ListSubstrateActorsRequest, opts ...grpc.CallOption) (*ListSubstrateActorsResponse, error)
+	ListSubstrateWorkers(ctx context.Context, in *ListSubstrateWorkersRequest, opts ...grpc.CallOption) (*ListSubstrateWorkersResponse, error)
 }
 
 type systemServiceClient struct {
@@ -83,6 +93,36 @@ func (c *systemServiceClient) GetSubstrateStatus(ctx context.Context, in *GetSub
 	return out, nil
 }
 
+func (c *systemServiceClient) GetSubstrateSummary(ctx context.Context, in *GetSubstrateSummaryRequest, opts ...grpc.CallOption) (*GetSubstrateSummaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSubstrateSummaryResponse)
+	err := c.cc.Invoke(ctx, SystemService_GetSubstrateSummary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) ListSubstrateActors(ctx context.Context, in *ListSubstrateActorsRequest, opts ...grpc.CallOption) (*ListSubstrateActorsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSubstrateActorsResponse)
+	err := c.cc.Invoke(ctx, SystemService_ListSubstrateActors_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) ListSubstrateWorkers(ctx context.Context, in *ListSubstrateWorkersRequest, opts ...grpc.CallOption) (*ListSubstrateWorkersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSubstrateWorkersResponse)
+	err := c.cc.Invoke(ctx, SystemService_ListSubstrateWorkers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemServiceServer is the server API for SystemService service.
 // All implementations must embed UnimplementedSystemServiceServer
 // for forward compatibility.
@@ -90,7 +130,14 @@ type SystemServiceServer interface {
 	GetVersion(context.Context, *GetVersionRequest) (*GetVersionResponse, error)
 	GetCurrentUser(context.Context, *GetCurrentUserRequest) (*GetCurrentUserResponse, error)
 	ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error)
+	// Deprecated in favour of GetSubstrateSummary and the two list calls below.
+	// It answers with every actor and worker in one message, which a large cluster
+	// cannot fit: at 410,110 actors the response is roughly 43MB against gRPC's 16MB
+	// ceiling, so the call fails outright rather than returning a truncated inventory.
 	GetSubstrateStatus(context.Context, *GetSubstrateStatusRequest) (*GetSubstrateStatusResponse, error)
+	GetSubstrateSummary(context.Context, *GetSubstrateSummaryRequest) (*GetSubstrateSummaryResponse, error)
+	ListSubstrateActors(context.Context, *ListSubstrateActorsRequest) (*ListSubstrateActorsResponse, error)
+	ListSubstrateWorkers(context.Context, *ListSubstrateWorkersRequest) (*ListSubstrateWorkersResponse, error)
 	mustEmbedUnimplementedSystemServiceServer()
 }
 
@@ -112,6 +159,15 @@ func (UnimplementedSystemServiceServer) ListNamespaces(context.Context, *ListNam
 }
 func (UnimplementedSystemServiceServer) GetSubstrateStatus(context.Context, *GetSubstrateStatusRequest) (*GetSubstrateStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSubstrateStatus not implemented")
+}
+func (UnimplementedSystemServiceServer) GetSubstrateSummary(context.Context, *GetSubstrateSummaryRequest) (*GetSubstrateSummaryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSubstrateSummary not implemented")
+}
+func (UnimplementedSystemServiceServer) ListSubstrateActors(context.Context, *ListSubstrateActorsRequest) (*ListSubstrateActorsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSubstrateActors not implemented")
+}
+func (UnimplementedSystemServiceServer) ListSubstrateWorkers(context.Context, *ListSubstrateWorkersRequest) (*ListSubstrateWorkersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSubstrateWorkers not implemented")
 }
 func (UnimplementedSystemServiceServer) mustEmbedUnimplementedSystemServiceServer() {}
 func (UnimplementedSystemServiceServer) testEmbeddedByValue()                       {}
@@ -206,6 +262,60 @@ func _SystemService_GetSubstrateStatus_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_GetSubstrateSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSubstrateSummaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).GetSubstrateSummary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_GetSubstrateSummary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).GetSubstrateSummary(ctx, req.(*GetSubstrateSummaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_ListSubstrateActors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSubstrateActorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).ListSubstrateActors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_ListSubstrateActors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).ListSubstrateActors(ctx, req.(*ListSubstrateActorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_ListSubstrateWorkers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSubstrateWorkersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).ListSubstrateWorkers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_ListSubstrateWorkers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).ListSubstrateWorkers(ctx, req.(*ListSubstrateWorkersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemService_ServiceDesc is the grpc.ServiceDesc for SystemService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -228,6 +338,18 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSubstrateStatus",
 			Handler:    _SystemService_GetSubstrateStatus_Handler,
+		},
+		{
+			MethodName: "GetSubstrateSummary",
+			Handler:    _SystemService_GetSubstrateSummary_Handler,
+		},
+		{
+			MethodName: "ListSubstrateActors",
+			Handler:    _SystemService_ListSubstrateActors_Handler,
+		},
+		{
+			MethodName: "ListSubstrateWorkers",
+			Handler:    _SystemService_ListSubstrateWorkers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

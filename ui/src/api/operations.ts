@@ -84,44 +84,13 @@ export interface AgentInstanceRef {
   id: string;
 }
 
-/** Which direction a paged substrate read is sorted in. */
-export type SubstrateSortOrder = "asc" | "desc";
-
-/** The columns `substrate.actors` can order by. */
-export type SubstrateActorSortField =
-  /** Groups by status and orders by id within each group. The default. */
-  | "default"
-  | "status"
-  | "actorId"
-  | "template"
-  | "workerPod";
-
-/** The columns `substrate.workers` can order by. */
-export type SubstrateWorkerSortField =
-  /** Groups by pool and orders by pod within each group. The default. */
-  | "default"
-  | "pool"
-  | "pod"
-  | "actor";
-
-/** What a paged, filtered substrate read takes. */
-export interface SubstratePageInput<Sort = string> {
+/** What a paged substrate read takes. */
+export interface SubstratePageInput {
   namespace?: string;
-  /** Matched server-side against the fields the row displays. Empty matches everything. */
-  filter?: string;
   /** Rows per page. The controller refuses anything over 100 rather than clamping. */
   limit?: number;
   /** Empty for the first page; otherwise the previous response's `nextPageToken`. */
   pageToken?: string;
-  /**
-   * Which column to order by, and in which direction.
-   *
-   * Sent rather than applied here, for the same reason the filter is: the rows are
-   * one page of hundreds of thousands, so ordering them locally reorders the page
-   * rather than the result — which looks like sorting and is not.
-   */
-  sortField?: Sort;
-  sortOrder?: SubstrateSortOrder;
 }
 
 /**
@@ -313,19 +282,21 @@ export interface OperationMap {
     output: SubstrateSummary;
   };
   /**
-   * One page of actors, narrowed server-side.
+   * One page of actors.
    *
-   * The filter is sent rather than applied here, because filtering a page that has
-   * already been fetched searches only what was fetched — a match on page nine
-   * reads on screen as "no matches".
+   * A page and nothing else: no order and no filter, because ate-api has neither to
+   * offer. `ListActors` there takes a page size and a token, so anything the
+   * controller sorted or searched it would first have to read whole — the read this
+   * call exists to stop. Ordering and searching are the page's, over the rows it was
+   * given, and what says so on screen is the page's business too.
    */
   "substrate.actors": {
-    input: SubstratePageInput<SubstrateActorSortField>;
+    input: SubstratePageInput;
     output: SubstrateActorPage;
   };
   /** One page of worker assignments. The mirror of `substrate.actors`. */
   "substrate.workers": {
-    input: SubstratePageInput<SubstrateWorkerSortField>;
+    input: SubstratePageInput;
     output: SubstrateWorkerPage;
   };
 }

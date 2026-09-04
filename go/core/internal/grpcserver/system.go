@@ -7,6 +7,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type systemServer struct {
@@ -68,53 +69,148 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 		Workers:        make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
 	}
 	for _, workerPool := range result.WorkerPools {
-		response.WorkerPools = append(response.WorkerPools, &apiv1alpha1.SubstrateWorkerPool{
-			Namespace:  workerPool.Namespace,
-			Name:       workerPool.Name,
-			Replicas:   workerPool.Replicas,
-			AteomImage: workerPool.AteomImage,
-		})
+		response.WorkerPools = append(response.WorkerPools, substrateWorkerPoolProto(workerPool))
 	}
 	for _, actorTemplate := range result.ActorTemplates {
-		response.ActorTemplates = append(response.ActorTemplates, &apiv1alpha1.SubstrateActorTemplate{
-			Namespace:       actorTemplate.Namespace,
-			Name:            actorTemplate.Name,
-			Phase:           actorTemplate.Phase,
-			GoldenActorId:   actorTemplate.GoldenActorID,
-			GoldenSnapshot:  actorTemplate.GoldenSnapshot,
-			SandboxClass:    actorTemplate.SandboxClass,
-			WorkerSelector:  actorTemplate.WorkerSelector,
-			HarnessName:     actorTemplate.HarnessName,
-			ManagedByKagent: actorTemplate.ManagedByKagent,
-		})
+		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
 	}
 	for _, actor := range result.Actors {
-		response.Actors = append(response.Actors, &apiv1alpha1.SubstrateActor{
-			ActorId:                actor.ActorID,
-			Atespace:               actor.Atespace,
-			Status:                 actor.Status,
-			ActorTemplateNamespace: actor.ActorTemplateNamespace,
-			ActorTemplateName:      actor.ActorTemplateName,
-			AteomPodNamespace:      actor.AteomPodNamespace,
-			AteomPodName:           actor.AteomPodName,
-			AteomPodIp:             actor.AteomPodIP,
-			LatestSnapshot:         actor.LatestSnapshot,
-			WorkerPoolName:         actor.WorkerPoolName,
-			InProgressSnapshot:     actor.InProgressSnapshot,
-			Version:                actor.Version,
-		})
+		response.Actors = append(response.Actors, substrateActorProto(actor))
 	}
 	for _, worker := range result.Workers {
-		response.Workers = append(response.Workers, &apiv1alpha1.SubstrateWorker{
-			WorkerNamespace: worker.WorkerNamespace,
-			WorkerPool:      worker.WorkerPool,
-			WorkerPod:       worker.WorkerPod,
-			ActorNamespace:  worker.ActorNamespace,
-			ActorTemplate:   worker.ActorTemplate,
-			ActorId:         worker.ActorID,
-			Ip:              worker.IP,
-			Version:         worker.Version,
+		response.Workers = append(response.Workers, substrateWorkerProto(worker))
+	}
+	return response, nil
+}
+
+func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1alpha1.GetSubstrateSummaryRequest) (*apiv1alpha1.GetSubstrateSummaryResponse, error) {
+	result, err := s.service.GetSubstrateSummary(ctx, request.GetNamespace())
+	if err != nil {
+		return nil, err
+	}
+	response := &apiv1alpha1.GetSubstrateSummaryResponse{
+		Enabled:           result.Enabled,
+		AteApiError:       result.ATEAPIError,
+		WorkerPools:       make([]*apiv1alpha1.SubstrateWorkerPool, 0, len(result.WorkerPools)),
+		ActorTemplates:    make([]*apiv1alpha1.SubstrateActorTemplate, 0, len(result.ActorTemplates)),
+		ActorCount:        result.ActorCount,
+		WorkerCount:       result.WorkerCount,
+		RunningActorCount: result.RunningActorCount,
+		BusyWorkerCount:   result.BusyWorkerCount,
+		ActorStatusCounts: make([]*apiv1alpha1.SubstrateActorStatusCount, 0, len(result.ActorStatusCounts)),
+		ComputedAt:        timestamppb.New(result.ComputedAt),
+	}
+	for _, workerPool := range result.WorkerPools {
+		response.WorkerPools = append(response.WorkerPools, substrateWorkerPoolProto(workerPool))
+	}
+	for _, actorTemplate := range result.ActorTemplates {
+		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
+	}
+	for _, statusCount := range result.ActorStatusCounts {
+		response.ActorStatusCounts = append(response.ActorStatusCounts, &apiv1alpha1.SubstrateActorStatusCount{
+			Status: statusCount.Status,
+			Count:  statusCount.Count,
 		})
 	}
 	return response, nil
+}
+
+func (s *systemServer) ListSubstrateActors(ctx context.Context, request *apiv1alpha1.ListSubstrateActorsRequest) (*apiv1alpha1.ListSubstrateActorsResponse, error) {
+	result, err := s.service.ListSubstrateActors(ctx, systemservice.SubstrateListInput{
+		Namespace: request.GetNamespace(),
+		PageSize:  request.GetPageSize(),
+		PageToken: request.GetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	response := &apiv1alpha1.ListSubstrateActorsResponse{
+		Enabled:       result.Enabled,
+		AteApiError:   result.ATEAPIError,
+		Actors:        make([]*apiv1alpha1.SubstrateActor, 0, len(result.Actors)),
+		NextPageToken: result.NextPageToken,
+		ComputedAt:    timestamppb.New(result.ComputedAt),
+	}
+	for _, actor := range result.Actors {
+		response.Actors = append(response.Actors, substrateActorProto(actor))
+	}
+	return response, nil
+}
+
+func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1alpha1.ListSubstrateWorkersRequest) (*apiv1alpha1.ListSubstrateWorkersResponse, error) {
+	result, err := s.service.ListSubstrateWorkers(ctx, systemservice.SubstrateListInput{
+		Namespace: request.GetNamespace(),
+		PageSize:  request.GetPageSize(),
+		PageToken: request.GetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	response := &apiv1alpha1.ListSubstrateWorkersResponse{
+		Enabled:       result.Enabled,
+		AteApiError:   result.ATEAPIError,
+		Workers:       make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
+		NextPageToken: result.NextPageToken,
+		ComputedAt:    timestamppb.New(result.ComputedAt),
+	}
+	for _, worker := range result.Workers {
+		response.Workers = append(response.Workers, substrateWorkerProto(worker))
+	}
+	return response, nil
+}
+
+// The four row conversions, shared by the whole-inventory read and the paged ones so
+// that a column cannot be filled on one path and left blank on the other.
+
+func substrateWorkerPoolProto(workerPool systemservice.SubstrateWorkerPool) *apiv1alpha1.SubstrateWorkerPool {
+	return &apiv1alpha1.SubstrateWorkerPool{
+		Namespace:  workerPool.Namespace,
+		Name:       workerPool.Name,
+		Replicas:   workerPool.Replicas,
+		AteomImage: workerPool.AteomImage,
+	}
+}
+
+func substrateActorTemplateProto(actorTemplate systemservice.SubstrateActorTemplate) *apiv1alpha1.SubstrateActorTemplate {
+	return &apiv1alpha1.SubstrateActorTemplate{
+		Namespace:       actorTemplate.Namespace,
+		Name:            actorTemplate.Name,
+		Phase:           actorTemplate.Phase,
+		GoldenActorId:   actorTemplate.GoldenActorID,
+		GoldenSnapshot:  actorTemplate.GoldenSnapshot,
+		SandboxClass:    actorTemplate.SandboxClass,
+		WorkerSelector:  actorTemplate.WorkerSelector,
+		HarnessName:     actorTemplate.HarnessName,
+		ManagedByKagent: actorTemplate.ManagedByKagent,
+	}
+}
+
+func substrateActorProto(actor systemservice.SubstrateActor) *apiv1alpha1.SubstrateActor {
+	return &apiv1alpha1.SubstrateActor{
+		ActorId:                actor.ActorID,
+		Atespace:               actor.Atespace,
+		Status:                 actor.Status,
+		ActorTemplateNamespace: actor.ActorTemplateNamespace,
+		ActorTemplateName:      actor.ActorTemplateName,
+		AteomPodNamespace:      actor.AteomPodNamespace,
+		AteomPodName:           actor.AteomPodName,
+		AteomPodIp:             actor.AteomPodIP,
+		LatestSnapshot:         actor.LatestSnapshot,
+		WorkerPoolName:         actor.WorkerPoolName,
+		InProgressSnapshot:     actor.InProgressSnapshot,
+		Version:                actor.Version,
+	}
+}
+
+func substrateWorkerProto(worker systemservice.SubstrateWorker) *apiv1alpha1.SubstrateWorker {
+	return &apiv1alpha1.SubstrateWorker{
+		WorkerNamespace: worker.WorkerNamespace,
+		WorkerPool:      worker.WorkerPool,
+		WorkerPod:       worker.WorkerPod,
+		ActorNamespace:  worker.ActorNamespace,
+		ActorTemplate:   worker.ActorTemplate,
+		ActorId:         worker.ActorID,
+		Ip:              worker.IP,
+		Version:         worker.Version,
+	}
 }
