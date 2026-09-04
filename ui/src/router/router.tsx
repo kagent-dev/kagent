@@ -31,6 +31,7 @@ import { McpServerNewPage } from "@/pages/McpServerNewPage";
 import { PromptsPage } from "@/pages/PromptsPage";
 import { PromptNewPage } from "@/pages/PromptNewPage";
 import { PromptDetailPage } from "@/pages/PromptDetailPage";
+import { PromptEditPage } from "@/pages/PromptEditPage";
 import { SubstratePage } from "@/pages/SubstratePage";
 import { AppDetailPage } from "@/pages/AppDetailPage";
 import { SharedAgentPage } from "@/pages/SharedAgentPage";
@@ -80,6 +81,7 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "prompts", path: paths.prompts, element: <PromptsPage /> },
   { key: "promptNew", path: paths.promptNew, element: <PromptNewPage /> },
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },
+  { key: "promptEdit", path: paths.promptEdit, element: <PromptEditPage /> },
   { key: "substrate", path: paths.substrate, element: <SubstratePage /> },
   { key: "appDetail", path: paths.appDetail, element: <AppDetailPage /> },
   { key: "sharedAgent", path: paths.sharedAgent, element: <SharedAgentPage /> },
