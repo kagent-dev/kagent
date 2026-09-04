@@ -60,7 +60,7 @@ func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 
 	tokens := &mutableTokenProvider{token: "first-token"}
 	client, err := New(Config{
-		Target:        "passthrough:///bufnet",
+		APIURL:        "http://bufnet:80",
 		AgentName:     "default/agent",
 		TokenProvider: tokens,
 		DialOptions: []grpc.DialOption{grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
@@ -90,9 +90,16 @@ func TestClientAddsDynamicMetadataAndDeadlines(t *testing.T) {
 	assert.Equal(t, []bool{true, true}, service.deadlines)
 }
 
-func TestClientRequiresTarget(t *testing.T) {
+func TestClientRequiresAPIURL(t *testing.T) {
 	_, err := New(Config{})
-	require.EqualError(t, err, "controller gRPC target is required")
+	require.EqualError(t, err, "controller API URL \"\" must contain only a scheme and authority")
+}
+
+func TestTargetFromURL(t *testing.T) {
+	target, secure, err := targetFromURL("https://api.example.com:8443")
+	require.NoError(t, err)
+	assert.Equal(t, "passthrough:///api.example.com:8443", target)
+	assert.True(t, secure)
 }
 
 func TestClientCanDisableDefaultDeadline(t *testing.T) {

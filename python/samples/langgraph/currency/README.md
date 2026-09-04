@@ -49,7 +49,8 @@ uv sync
 
 ```bash
 export OPENAI_API_KEY=your_api_key_here
-export KAGENT_URL=http://localhost:8083
+export KAGENT_API_URL=http://localhost:8083
+export KAGENT_GATEWAY_URL=http://localhost:8083
 ```
 
 3. Run the agent server:
@@ -80,7 +81,8 @@ The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/
 The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for OpenAI API access
-- `KAGENT_URL`: Required. KAgent server URL; for local development, the controller commonly runs at `http://localhost:8083`
+- `KAGENT_API_URL`: Required. KAgent control-plane API URL; locally, `http://localhost:8083`
+- `KAGENT_GATEWAY_URL`: Required. KAgent A2A and MCP gateway URL; locally, `http://localhost:8083`
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
 

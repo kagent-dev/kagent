@@ -275,7 +275,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
-		env("A2A_GATEWAY_URL", "http://127.0.0.1:8084"))
+		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
 	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)
 	if err != nil {
 		return err
@@ -284,10 +284,15 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
 	server, err := grpcserver.New(grpcserver.Config{
 		MethodPolicies:        policies,
 		RegisterServices:      opts.GRPCServices,
-		BindAddress:           env("GRPC_BIND_ADDRESS", ":8084"),
+		BindAddress:           env("HTTP_BIND_ADDRESS", ":8083"),
 		Reflection:            envBool("GRPC_REFLECTION"),
 		Authenticator:         authenticator,
 		ShareStore:            store,
@@ -303,41 +308,16 @@ func Run(ctx context.Context, opts Options) error {
 		HarnessService:       kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		CheckpointService:    checkpoints,
 		A2AHandler:           gateway,
+		HTTPHandler:          mux,
 	})
 	if err != nil {
 		return err
 	}
 
-	// The HTTP port serves health *and* gRPC-Web, because a browser cannot speak
-	// gRPC and this is the only port a page can reach: the chart's nginx proxies
-	// /api here, while :8084 speaks native gRPC that `fetch` has no way to talk to.
-	//
-	// Worth stating because the previous shape of this looked correct and was not.
-	// It answered every path with an empty 200 and ignored the request entirely, so
-	// a browser calling an RPC got a success with no body — which reads as a
-	// serialisation fault in the client rather than as a server that never had the
-	// endpoint. The router below serves MCP and hands other non-gRPC-Web requests
-	// to the same health response as before.
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.Handle("/mcp", auth.AuthnMiddleware(authenticator)(mcpHandler))
-	health := &http.Server{Addr: env("HTTP_BIND_ADDRESS", ":8083"), Handler: server.WebHandlerOr(mux)}
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return runtime.Start(ctx) })
 	group.Go(func() error { return manager.Start(ctx) })
 	group.Go(func() error { return server.Start(ctx) })
-	group.Go(func() error {
-		go func() {
-			<-ctx.Done()
-			_ = health.Shutdown(context.Background())
-		}()
-		if err := health.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			return fmt.Errorf("serve health endpoint: %w", err)
-		}
-		return nil
-	})
 	return group.Wait()
 }
 

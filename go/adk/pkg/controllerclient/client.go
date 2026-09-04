@@ -2,7 +2,9 @@ package controllerclient
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -24,7 +26,7 @@ type TokenProvider interface {
 }
 
 type Config struct {
-	Target               string
+	APIURL               string
 	AgentName            string
 	TokenProvider        TokenProvider
 	Timeout              time.Duration
@@ -45,8 +47,9 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
-	if config.Target == "" {
-		return nil, fmt.Errorf("controller gRPC target is required")
+	target, secure, err := targetFromURL(config.APIURL)
+	if err != nil {
+		return nil, err
 	}
 	if config.Timeout == 0 {
 		config.Timeout = defaultTimeout
@@ -56,7 +59,11 @@ func New(config Config) (*Client, error) {
 	}
 	transportCredentials := config.TransportCredentials
 	if transportCredentials == nil {
-		transportCredentials = insecure.NewCredentials()
+		if secure {
+			transportCredentials = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+		} else {
+			transportCredentials = insecure.NewCredentials()
+		}
 	}
 	dialOptions := make([]grpc.DialOption, 0, len(config.DialOptions)+2)
 	dialOptions = append(dialOptions, grpc.WithTransportCredentials(transportCredentials))
@@ -68,9 +75,9 @@ func New(config Config) (*Client, error) {
 	}
 	dialOptions = append(dialOptions, config.DialOptions...)
 
-	connection, err := grpc.NewClient(config.Target, dialOptions...)
+	connection, err := grpc.NewClient(target, dialOptions...)
 	if err != nil {
-		return nil, fmt.Errorf("create controller gRPC client for %q: %w", config.Target, err)
+		return nil, fmt.Errorf("create controller API client for %q: %w", config.APIURL, err)
 	}
 	return &Client{
 		connection:      connection,
@@ -80,6 +87,24 @@ func New(config Config) (*Client, error) {
 		tokenProvider:   config.TokenProvider,
 		memoryService:   apiv1alpha1.NewMemoryServiceClient(connection),
 	}, nil
+}
+
+func targetFromURL(rawURL string) (string, bool, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false, fmt.Errorf("parse controller API URL %q: %w", rawURL, err)
+	}
+	if u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", false, fmt.Errorf("controller API URL %q must contain only a scheme and authority", rawURL)
+	}
+	switch u.Scheme {
+	case "http":
+		return "passthrough:///" + u.Host, false, nil
+	case "https":
+		return "passthrough:///" + u.Host, true, nil
+	default:
+		return "", false, fmt.Errorf("controller API URL %q must use http or https", rawURL)
+	}
 }
 
 func (client *Client) MemoryService() apiv1alpha1.MemoryServiceClient {

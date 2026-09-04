@@ -56,7 +56,8 @@ func testWorkspace(t *testing.T, lister instanceLister) *workspaceModel {
 	conn := connection.DefaultOptions()
 	conn.Namespace = "kagent"
 	conn.Timeout = 30 * time.Second
-	clientSet := conn.Client()
+	clientSet, err := conn.Client()
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = clientSet.Close() })
 
 	m := newWorkspaceModel(t.Context(), Options{Namespace: conn.Namespace}, clientSet, nil, nil, false)

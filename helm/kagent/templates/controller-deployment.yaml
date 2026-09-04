@@ -124,8 +124,6 @@ spec:
             - name: METRICS_SECURE
               value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
-            - name: GRPC_BIND_ADDRESS
-              value: {{ .Values.controller.grpc.bindAddress | quote }}
             - name: GRPC_MAX_MESSAGE_BYTES
               value: {{ printf "%.0f" (.Values.controller.grpc.maxMessageBytes | float64) | quote }}
             - name: GRPC_REFLECTION
@@ -166,9 +164,6 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
-              protocol: TCP
-            - name: grpc
-              containerPort: {{ .Values.controller.service.ports.grpc }}
               protocol: TCP
             {{- if .Values.controller.metrics.enabled }}
             - name: metrics

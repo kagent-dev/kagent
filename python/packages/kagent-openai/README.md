@@ -114,7 +114,7 @@ COPY agent.py .
 CMD ["uvicorn", "agent:fastapi_app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Set `KAGENT_URL` environment variable to connect to KAgent backend.
+Set `KAGENT_API_URL` and `KAGENT_GATEWAY_URL` to connect to kagent.
 
 ---
 
@@ -130,7 +130,8 @@ Set `KAGENT_URL` environment variable to connect to KAgent backend.
 
 ## Environment Variables
 
-- `KAGENT_URL` - KAgent backend URL (default: http://localhost:8083)
+- `KAGENT_API_URL` - KAgent control-plane API URL
+- `KAGENT_GATEWAY_URL` - KAgent A2A and MCP gateway URL
 - `LOG_LEVEL` - Logging level (default: INFO)
 
 ---

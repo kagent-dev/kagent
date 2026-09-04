@@ -53,7 +53,7 @@ func (c *AgentInstanceClient) DeleteAgentInstance(ctx context.Context, request *
 }
 
 func (c *BaseClient) agentInstanceCall(ctx context.Context) (apiv1alpha1.AgentInstanceServiceClient, context.Context, context.CancelFunc, error) {
-	connection, err := c.grpcConnection()
+	connection, err := c.grpcConnection(c.api)
 	if err != nil {
 		return nil, nil, nil, err
 	}

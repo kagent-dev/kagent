@@ -59,13 +59,12 @@ class KAgentApp:
         self,
         root_agent_factory: Callable[[], BaseAgent],
         agent_card: AgentCard,
-        kagent_url: str,
+        kagent_api_url: str,
         app_name: str,
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
         agent_config: Optional[AgentConfig] = None,
-        kagent_grpc_url: Optional[str] = None,
         a2a_grpc_address: Optional[str] = None,
     ):
         """Initialize the KAgent application.
@@ -73,7 +72,7 @@ class KAgentApp:
         Args:
             root_agent_factory: Root agent factory function that returns a new agent instance
             agent_card: Agent card configuration for A2A protocol
-            kagent_url: URL of the KAgent backend server
+            kagent_api_url: URL of the KAgent control-plane API
             app_name: Application name for identification
             lifespan: Optional lifespan function
             plugins: Optional list of plugins
@@ -82,8 +81,7 @@ class KAgentApp:
             a2a_grpc_address: Address for the A2A gRPC listener
         """
         self.root_agent_factory = root_agent_factory
-        self.kagent_url = kagent_url
-        self.kagent_grpc_url = kagent_grpc_url or os.getenv("KAGENT_GRPC_URL")
+        self.kagent_api_url = kagent_api_url
         self.a2a_grpc_address = a2a_grpc_address or os.getenv("KAGENT_A2A_GRPC_ADDRESS", "[::]:80")
         self.app_name = app_name
         self.agent_card = agent_card
@@ -104,11 +102,9 @@ class KAgentApp:
         session_db_url = self.agent_config.session_db_url if self.agent_config else None
 
         if not local:
-            if not self.kagent_grpc_url:
-                raise ValueError("KAGENT_GRPC_URL environment variable is not set")
             token_service = KAgentTokenService(self.app_name)
             controller_client = AsyncControllerClient(
-                self.kagent_grpc_url,
+                self.kagent_api_url,
                 agent_name=self.app_name,
                 token_provider=token_service,
             )

@@ -86,7 +86,7 @@ func (s *recordingA2AService) observe(ctx context.Context) {
 	})
 }
 
-func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
+func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	agentInstanceService := &recordingAgentInstanceService{}
 	a2aService := &recordingA2AService{}
@@ -100,19 +100,20 @@ func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
 	})
 
 	var dialCount atomic.Int32
-	clientSet := New(
-		"http://rest-must-not-be-used.invalid",
+	clientSet, err := New(
+		"http://api.invalid:80",
+		"http://gateway.invalid:80",
 		WithUserID("caller"),
-		WithGRPCTarget("passthrough:///bufnet"),
 		WithGRPCTimeout(5*time.Second),
 		WithGRPCDialOptions(grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			dialCount.Add(1)
 			return listener.Dial()
 		})),
 	)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, clientSet.Close()) })
 
-	_, err := clientSet.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
+	_, err = clientSet.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
 
@@ -138,7 +139,7 @@ func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
 		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
 	a2aService.mu.Unlock()
-	assert.Equal(t, int32(1), dialCount.Load())
+	assert.Equal(t, int32(2), dialCount.Load())
 }
 
 func TestStreamingA2AMethodsMatchUpstreamService(t *testing.T) {

@@ -12,19 +12,29 @@ func WithUserID(userID string) ClientOption {
 
 // BaseClient contains the shared transport configuration used by all sub-clients.
 type BaseClient struct {
-	UserID string // Default user ID for requests that require it
-	grpc   grpcTransport
+	UserID  string // Default user ID for requests that require it
+	api     *grpcTransport
+	gateway *grpcTransport
 }
 
 // NewBaseClient creates a new base client with the given configuration
-func NewBaseClient(_ string, options ...ClientOption) *BaseClient {
+func NewBaseClient(apiURL, gatewayURL string, options ...ClientOption) (*BaseClient, error) {
+	api, err := newGRPCTransport(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	gateway, err := newGRPCTransport(gatewayURL)
+	if err != nil {
+		return nil, err
+	}
 	client := &BaseClient{
-		grpc: newGRPCTransport(),
+		api:     api,
+		gateway: gateway,
 	}
 
 	for _, option := range options {
 		option(client)
 	}
 
-	return client
+	return client, nil
 }

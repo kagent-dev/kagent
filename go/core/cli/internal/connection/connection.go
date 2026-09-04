@@ -21,9 +21,9 @@ import (
 var errServerConnection = errors.New("error connecting to server")
 
 const (
-	defaultKAgentURL     = "http://localhost:8083"
-	defaultKAgentGRPCURL = client.DefaultGRPCTarget
-	defaultUserID        = "admin@kagent.dev"
+	defaultAPIURL     = client.DefaultAPIURL
+	defaultGatewayURL = client.DefaultGatewayURL
+	defaultUserID     = "admin@kagent.dev"
 
 	portForwardReadyTimeout = 15 * time.Second
 	portForwardRetryDelay   = 100 * time.Millisecond
@@ -33,42 +33,38 @@ const (
 // Options is how the CLI reaches kagent: where to dial, who to dial as, the
 // namespace to port-forward into, and whether to narrate the attempt.
 type Options struct {
-	KAgentURL            string
-	KAgentGRPCURL        string
-	KAgentGRPCTLS        bool
-	KAgentGRPCCAFile     string
-	KAgentGRPCServerName string
-	Namespace            string
-	Verbose              bool
-	Timeout              time.Duration
-	UserID               string
+	APIURL     string
+	GatewayURL string
+	CAFile     string
+	ServerName string
+	Namespace  string
+	Verbose    bool
+	Timeout    time.Duration
+	UserID     string
 }
 
 func DefaultOptions() Options {
 	return Options{
-		KAgentURL:     defaultKAgentURL,
-		KAgentGRPCURL: defaultKAgentGRPCURL,
-		Namespace:     "kagent",
-		Timeout:       300 * time.Second,
-		UserID:        defaultUserID,
+		APIURL:     defaultAPIURL,
+		GatewayURL: defaultGatewayURL,
+		Namespace:  "kagent",
+		Timeout:    300 * time.Second,
+		UserID:     defaultUserID,
 	}
 }
 
-func (o *Options) Client() *client.ClientSet {
+func (o *Options) Client() (*client.ClientSet, error) {
 	clientOptions := []client.ClientOption{client.WithUserID(o.UserID)}
-	if o.KAgentGRPCURL != "" {
-		clientOptions = append(clientOptions, client.WithGRPCTarget(o.KAgentGRPCURL))
-	}
 	if o.Timeout > 0 {
 		clientOptions = append(clientOptions, client.WithGRPCTimeout(o.Timeout))
 	}
-	if o.KAgentGRPCTLS {
+	if o.CAFile != "" || o.ServerName != "" {
 		clientOptions = append(clientOptions, client.WithGRPCTLS(client.GRPCTLSConfig{
-			CAFile:     o.KAgentGRPCCAFile,
-			ServerName: o.KAgentGRPCServerName,
+			CAFile:     o.CAFile,
+			ServerName: o.ServerName,
 		}))
 	}
-	return client.New(o.KAgentURL, clientOptions...)
+	return client.New(o.APIURL, o.GatewayURL, clientOptions...)
 }
 
 func (o *Options) validate() error {
@@ -115,11 +111,7 @@ func Connect(ctx context.Context, cfg *Options) (*PortForward, error) {
 }
 
 func shouldPortForward(cfg *Options, err error) bool {
-	grpcURL := cfg.KAgentGRPCURL
-	if grpcURL == "" {
-		grpcURL = defaultKAgentGRPCURL
-	}
-	if cfg.KAgentGRPCTLS || grpcURL != defaultKAgentGRPCURL || strings.TrimRight(cfg.KAgentURL, "/") != defaultKAgentURL {
+	if cfg.CAFile != "" || cfg.ServerName != "" || strings.TrimRight(cfg.APIURL, "/") != defaultAPIURL || strings.TrimRight(cfg.GatewayURL, "/") != defaultGatewayURL {
 		return false
 	}
 	code := status.Code(err)
@@ -127,7 +119,10 @@ func shouldPortForward(cfg *Options, err error) bool {
 }
 
 func checkConfiguredServer(ctx context.Context, cfg *Options) (err error) {
-	clientSet := cfg.Client()
+	clientSet, err := cfg.Client()
+	if err != nil {
+		return err
+	}
 	defer func() {
 		err = errors.Join(err, clientSet.Close())
 	}()
@@ -145,7 +140,7 @@ type PortForward struct {
 // NewPortForward starts a port-forward and waits for the server to become reachable.
 func NewPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
 	stderr := newBoundedBuffer(kubectlErrorLimit)
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {

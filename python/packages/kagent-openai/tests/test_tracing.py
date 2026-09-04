@@ -108,7 +108,12 @@ def test_build_drops_native_exporter_even_if_configure_tracing_fails(monkeypatch
     app = _a2a.KAgentApp(
         agent=Agent(name="test"),
         agent_card=agent_card,
-        config=KAgentConfig(url="http://localhost", name="test", namespace="test"),
+        config=KAgentConfig(
+            api_url="http://localhost",
+            gateway_url="http://localhost",
+            name="test",
+            namespace="test",
+        ),
     )
     app.build()
 

@@ -68,11 +68,11 @@ The package mirrors the structure of `kagent-adk` but uses LangGraph instead of 
 
 ## Configuration
 
-Set both controller endpoints when running locally. `KAGENT_URL` remains the HTTP base URL for protocol traffic, while application persistence uses `KAGENT_GRPC_URL` independently.
+Set both endpoints when running locally. A2A and MCP use `KAGENT_GATEWAY_URL`, while control-plane calls use `KAGENT_API_URL`.
 
 ```bash
-export KAGENT_URL=http://localhost:8083
-export KAGENT_GRPC_URL=localhost:8084
+export KAGENT_API_URL=http://localhost:8083
+export KAGENT_GATEWAY_URL=http://localhost:8083
 export KAGENT_NAME=my-agent
 export KAGENT_NAMESPACE=default
 ```

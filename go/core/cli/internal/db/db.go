@@ -41,7 +41,7 @@ func newCommand(migrateCmd *cobra.Command) *cobra.Command {
 	// after. Children of `db` that don't set their own HelpFunc walk the
 	// parent chain and pick this one up.
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		for _, name := range []string{"config", "kagent-url", "namespace", "output-format", "timeout", "verbose"} {
+		for _, name := range []string{"config", "api-url", "gateway-url", "namespace", "output-format", "timeout", "verbose"} {
 			if f := c.InheritedFlags().Lookup(name); f != nil {
 				f.Hidden = true
 				defer func(f *pflag.Flag) { f.Hidden = false }(f)

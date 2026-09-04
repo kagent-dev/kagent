@@ -23,11 +23,10 @@ func TestOptionsFromCommandReadsInheritedFlags(t *testing.T) {
 	})
 	root.SetArgs([]string{
 		"child",
-		"--kagent-url", "https://api.example.test",
-		"--grpc-url", "grpc.example.test:443",
-		"--grpc-tls",
-		"--grpc-ca-file", "/tmp/ca.pem",
-		"--grpc-server-name", "grpc.example.test",
+		"--api-url", "https://api.example.test",
+		"--gateway-url", "https://gateway.example.test",
+		"--ca-file", "/tmp/ca.pem",
+		"--server-name", "api.example.test",
 		"--namespace", "agents",
 		"--verbose",
 		"--timeout", "12s",
@@ -36,14 +35,13 @@ func TestOptionsFromCommandReadsInheritedFlags(t *testing.T) {
 
 	require.NoError(t, root.ExecuteContext(t.Context()))
 	assert.Equal(t, Options{
-		KAgentURL:            "https://api.example.test",
-		KAgentGRPCURL:        "grpc.example.test:443",
-		KAgentGRPCTLS:        true,
-		KAgentGRPCCAFile:     "/tmp/ca.pem",
-		KAgentGRPCServerName: "grpc.example.test",
-		Namespace:            "agents",
-		Verbose:              true,
-		Timeout:              12 * time.Second,
-		UserID:               "reviewer@example.test",
+		APIURL:     "https://api.example.test",
+		GatewayURL: "https://gateway.example.test",
+		CAFile:     "/tmp/ca.pem",
+		ServerName: "api.example.test",
+		Namespace:  "agents",
+		Verbose:    true,
+		Timeout:    12 * time.Second,
+		UserID:     "reviewer@example.test",
 	}, got)
 }

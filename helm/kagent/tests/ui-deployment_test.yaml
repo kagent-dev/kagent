@@ -388,7 +388,6 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: BACKEND_GRPC_URL
-            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8084"
 
   - it: should not mount a nextjs build cache
     template: ui-deployment.yaml
