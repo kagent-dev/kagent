@@ -1428,47 +1428,54 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
   };
 });
 
+/*
+The envelope both paged reads answer with, around the rows each one holds.
+
+No `ateApiError`, unlike the summary above, and that pairing is the fixture's point.
+The controller answers a *failed* page with no rows, so a page carrying both rows and
+an error is a state it cannot produce. The fixture's error belongs to the summary's
+walk — the read that visits every ate-api page to count, and the one that times out —
+while a single page still comes back.
+*/
+function substratePageResponse<Row, Message>(
+  rows: readonly Row[],
+  input: { namespace: string; pageSize: number; pageToken: string },
+  inScope: (row: Row) => boolean,
+  message: (row: Row) => Message,
+) {
+  const page = substratePage(rows.filter(inScope), input.pageSize, input.pageToken);
+  return {
+    enabled: mockSubstrateStatus.enabled,
+    rows: page.rows.map(message),
+    nextPageToken: page.nextPageToken,
+    computedAt: timestampFromDate(new Date()),
+  };
+}
+
 on(SystemService.method.listSubstrateActors, (input, call) => {
   if (call.scenario === "empty") return { enabled: false };
 
   const inScope = substrateScope(input.namespace);
-  const page = substratePage(
-    mockSubstrateStatus.actors.filter((actor) =>
-      inScope(actor.actorTemplateNamespace),
-    ),
-    input.pageSize,
-    input.pageToken,
+  const { rows, ...page } = substratePageResponse(
+    mockSubstrateStatus.actors,
+    input,
+    (actor) => inScope(actor.actorTemplateNamespace),
+    substrateActorMessage,
   );
-  return {
-    enabled: mockSubstrateStatus.enabled,
-    /*
-     * No `ateApiError`, unlike the summary above, and that pairing is the fixture's
-     * point. The controller answers a *failed* page with no rows; a page carrying both
-     * rows and an error is a state it cannot produce. The fixture's error belongs to
-     * the summary's walk, which reads every ate-api page to count and is the one that
-     * times out, while a single page still comes back.
-     */
-    actors: page.rows.map(substrateActorMessage),
-    nextPageToken: page.nextPageToken,
-    computedAt: timestampFromDate(new Date()),
-  };
+  return { ...page, actors: rows };
 });
 
 on(SystemService.method.listSubstrateWorkers, (input, call) => {
   if (call.scenario === "empty") return { enabled: false };
 
   const inScope = substrateScope(input.namespace);
-  const page = substratePage(
-    mockSubstrateStatus.workers.filter((worker) => inScope(worker.workerNamespace)),
-    input.pageSize,
-    input.pageToken,
+  const { rows, ...page } = substratePageResponse(
+    mockSubstrateStatus.workers,
+    input,
+    (worker) => inScope(worker.workerNamespace),
+    substrateWorkerMessage,
   );
-  return {
-    enabled: mockSubstrateStatus.enabled,
-    workers: page.rows.map(substrateWorkerMessage),
-    nextPageToken: page.nextPageToken,
-    computedAt: timestampFromDate(new Date()),
-  };
+  return { ...page, workers: rows };
 });
 
 /**

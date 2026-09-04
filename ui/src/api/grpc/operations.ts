@@ -98,7 +98,12 @@ import type {
   AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
-import type { ApiOperations, OperationCallOptions } from "../operations";
+import type {
+  ApiOperations,
+  OperationCallOptions,
+  SubstratePageInput,
+} from "../operations";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { createContextValues } from "@connectrpc/connect";
 
 /**
@@ -1106,6 +1111,39 @@ async function substrateStatus(
   return toSubstrateStatus(response);
 }
 
+/**
+ * What both paged substrate reads send, and what both read back from the answer.
+ *
+ * Shared so the two cannot drift: they are the same request and the same envelope
+ * around a different row type, and a `pageSize` defaulted one way here and another way
+ * below is the kind of difference nothing would notice.
+ */
+function substratePageRequest(input: SubstratePageInput) {
+  return {
+    namespace: input.namespace ?? "",
+    // Zero is "the controller's own default", which is a better answer than a number
+    // invented here — and it refuses anything over 100 outright.
+    pageSize: input.limit ?? 0,
+    pageToken: input.pageToken ?? "",
+  };
+}
+
+function substratePageResult(response: {
+  enabled: boolean;
+  ateApiError: string;
+  nextPageToken: string;
+  computedAt?: Timestamp;
+}) {
+  return {
+    enabled: response.enabled,
+    ateApiError: orUndefined(response.ateApiError),
+    // Absent rather than empty: a caller testing presence must not be handed `""`,
+    // which would send it back to page one for ever.
+    nextPageToken: orUndefined(response.nextPageToken),
+    computedAt: orUndefined(isoFrom(response.computedAt)),
+  };
+}
+
 const cluster: Pick<
   ApiOperations,
   | "namespaces.list"
@@ -1155,20 +1193,13 @@ const cluster: Pick<
   "substrate.actors": async (input, options) => {
     const response = await rpc("SystemService/ListSubstrateActors", options.signal, () =>
       serviceClient(SystemService).listSubstrateActors(
-        {
-          namespace: input.namespace ?? "",
-          pageSize: input.limit ?? 0,
-          pageToken: input.pageToken ?? "",
-        },
+        substratePageRequest(input),
         call("substrate.actors", options),
       ),
     );
     return {
-      enabled: response.enabled,
-      ateApiError: orUndefined(response.ateApiError),
+      ...substratePageResult(response),
       actors: list(response.actors).map(toActorEntry),
-      nextPageToken: orUndefined(response.nextPageToken),
-      computedAt: orUndefined(isoFrom(response.computedAt)),
     };
   },
 
@@ -1178,20 +1209,13 @@ const cluster: Pick<
       options.signal,
       () =>
         serviceClient(SystemService).listSubstrateWorkers(
-          {
-            namespace: input.namespace ?? "",
-            pageSize: input.limit ?? 0,
-            pageToken: input.pageToken ?? "",
-          },
+          substratePageRequest(input),
           call("substrate.workers", options),
         ),
     );
     return {
-      enabled: response.enabled,
-      ateApiError: orUndefined(response.ateApiError),
+      ...substratePageResult(response),
       workers: list(response.workers).map(toWorkerEntry),
-      nextPageToken: orUndefined(response.nextPageToken),
-      computedAt: orUndefined(isoFrom(response.computedAt)),
     };
   },
 };

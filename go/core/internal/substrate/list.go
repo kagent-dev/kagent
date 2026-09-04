@@ -2,9 +2,66 @@ package substrate
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
+
+/*
+How many pages a drain will read before giving up.
+
+A drain has no natural end but ate-api's own token, so it needs one imposed. At
+ate-api's ceiling of 1,000 rows a page this allows ten million rows — far above any
+cluster this has to read, and far below forever.
+*/
+const maxDrainPages = 10_000
+
+/*
+AdvancePageToken moves a paging loop on, and refuses the one move that is not one.
+
+A server answering with the token it was just given is not advancing, and a loop that
+follows it re-reads the same page until whatever cap is above it — burning a request
+per attempt against a backend that is already misbehaving. Caught on the second read
+instead, where the reason is still obvious. The UI's own drain over ListAgentInstances
+has made this check since it was written; this is the same check on the same shape.
+
+Exported because the pathology is ate-api's, so every loop over its pagination wants
+it — including the ones in the service that visit pages rather than collecting them.
+*/
+func AdvancePageToken(previous, next string) (string, error) {
+	if next != "" && next == previous {
+		return "", fmt.Errorf("ate-api repeated page token %q instead of advancing", next)
+	}
+	return next, nil
+}
+
+/*
+drainPages reads every page ate-api holds and returns the rows as one slice.
+
+The whole list in memory at once, which is why the three callers below say who should
+want it. Callers answering a request with these rows want the paged read instead.
+*/
+func drainPages[Row any](
+	ctx context.Context,
+	read func(ctx context.Context, pageToken string) ([]Row, string, error),
+) ([]Row, error) {
+	var rows []Row
+	pageToken := ""
+	for range maxDrainPages {
+		page, next, err := read(ctx, pageToken)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, page...)
+		if next == "" {
+			return rows, nil
+		}
+		if pageToken, err = AdvancePageToken(pageToken, next); err != nil {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("ate-api offered more than %d pages; the list was not read to the end", maxDrainPages)
+}
 
 // ListActorsPage returns one page of actors in the given atespace (empty atespace =
 // all atespaces, including substrate's reserved golden atespace), with the token for
@@ -40,19 +97,9 @@ func (c *Client) ListActors(ctx context.Context, atespace string) ([]*ateapipb.A
 	if c == nil {
 		return nil, nil
 	}
-	var actors []*ateapipb.Actor
-	pageToken := ""
-	for {
-		page, next, err := c.ListActorsPage(ctx, atespace, 0, pageToken)
-		if err != nil {
-			return nil, err
-		}
-		actors = append(actors, page...)
-		if next == "" {
-			return actors, nil
-		}
-		pageToken = next
-	}
+	return drainPages(ctx, func(ctx context.Context, pageToken string) ([]*ateapipb.Actor, string, error) {
+		return c.ListActorsPage(ctx, atespace, 0, pageToken)
+	})
 }
 
 // ListWorkersPage returns one page of workers, with the token for the next page or ""
@@ -82,41 +129,44 @@ func (c *Client) ListWorkers(ctx context.Context) ([]*ateapipb.Worker, error) {
 	if c == nil {
 		return nil, nil
 	}
-	var workers []*ateapipb.Worker
-	pageToken := ""
-	for {
-		page, next, err := c.ListWorkersPage(ctx, 0, pageToken)
-		if err != nil {
-			return nil, err
-		}
-		workers = append(workers, page...)
-		if next == "" {
-			return workers, nil
-		}
-		pageToken = next
-	}
+	return drainPages(ctx, func(ctx context.Context, pageToken string) ([]*ateapipb.Worker, string, error) {
+		return c.ListWorkersPage(ctx, 0, pageToken)
+	})
 }
 
-// ListActorTemplates returns all templates in an atespace, following pagination.
+// ListActorTemplatesPage returns one page of templates in the given atespace, with the
+// token for the next page or "" on the last one.
+func (c *Client) ListActorTemplatesPage(ctx context.Context, atespace string, pageToken string) ([]*ateapipb.ActorTemplate, string, error) {
+	if c == nil {
+		return nil, "", nil
+	}
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.ListActorTemplates(ctx, &ateapipb.ListActorTemplatesRequest{
+		Atespace:  atespace,
+		PageToken: pageToken,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return resp.GetActorTemplates(), resp.GetNextPageToken(), nil
+}
+
+/*
+ListActorTemplates returns every template in an atespace, following pagination.
+
+Draining is right here where it is not for actors: templates are configuration, so
+their count is set by what operators have declared rather than by what the cluster is
+running. Each page now carries its own deadline rather than the whole drain sharing
+one, which is the shape the actor and worker reads have.
+*/
 func (c *Client) ListActorTemplates(ctx context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
 	if c == nil {
 		return nil, nil
 	}
-	ctx, cancel := c.callCtx(ctx)
-	defer cancel()
-	var templates []*ateapipb.ActorTemplate
-	pageToken := ""
-	for {
-		resp, err := c.ControlClient.ListActorTemplates(ctx, &ateapipb.ListActorTemplatesRequest{Atespace: atespace, PageToken: pageToken})
-		if err != nil {
-			return nil, err
-		}
-		templates = append(templates, resp.GetActorTemplates()...)
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			return templates, nil
-		}
-	}
+	return drainPages(ctx, func(ctx context.Context, pageToken string) ([]*ateapipb.ActorTemplate, string, error) {
+		return c.ListActorTemplatesPage(ctx, atespace, pageToken)
+	})
 }
 
 // ActorStatusLabel returns a stable human-readable actor status.

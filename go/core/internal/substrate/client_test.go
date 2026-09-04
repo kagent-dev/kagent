@@ -293,3 +293,42 @@ func TestListActorsDrainsPagination(t *testing.T) {
 	require.Len(t, actors, 2)
 	require.Equal(t, []string{"", "next"}, []string{fake.requests[0].GetPageToken(), fake.requests[1].GetPageToken()})
 }
+
+// stuckPageFake answers every request with the token it was given, which is a server
+// that is not advancing.
+type stuckPageFake struct {
+	ateapipb.ControlClient
+	reads int
+}
+
+func (f *stuckPageFake) ListActors(_ context.Context, in *ateapipb.ListActorsRequest, _ ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
+	f.reads++
+	return &ateapipb.ListActorsResponse{
+		Actors:        []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Name: "actor"}}},
+		NextPageToken: "stuck",
+	}, nil
+}
+
+// A drain that follows a repeated token re-reads the same page until whatever cap sits
+// above it, spending a request per attempt on a backend that is already misbehaving.
+func TestListActorsRefusesAPageTokenThatDoesNotAdvance(t *testing.T) {
+	fake := &stuckPageFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+
+	_, err := client.ListActors(t.Context(), "team-a")
+	require.ErrorContains(t, err, "repeated page token")
+	// Caught on the second read, where the reason is still obvious — not after
+	// maxDrainPages of them.
+	require.Equal(t, 2, fake.reads)
+}
+
+func TestAdvancePageTokenAllowsTheLastPageAndARealMove(t *testing.T) {
+	next, err := AdvancePageToken("first", "second")
+	require.NoError(t, err)
+	require.Equal(t, "second", next)
+
+	// An empty token is the last page, not a repeat, even from an empty one.
+	next, err = AdvancePageToken("", "")
+	require.NoError(t, err)
+	require.Empty(t, next)
+}

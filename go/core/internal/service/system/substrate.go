@@ -10,6 +10,7 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -364,10 +365,14 @@ func collectSubstratePage[Row any, Entry any](
 				entries = append(entries, entry)
 			}
 		}
-		token = next
-		if token == "" || int32(len(entries)) >= pageSize {
-			break
+		if next == "" || int32(len(entries)) >= pageSize {
+			return entries, next, nil
 		}
+		advanced, err := substrate.AdvancePageToken(token, next)
+		if err != nil {
+			return entries, "", err
+		}
+		token = advanced
 	}
 	return entries, token, nil
 }
@@ -412,7 +417,9 @@ func walkSubstrate[Row any](
 		if next == "" {
 			return nil
 		}
-		token = next
+		if token, err = substrate.AdvancePageToken(token, next); err != nil {
+			return err
+		}
 	}
 	return fmt.Errorf("ate-api did not finish paging after %d pages", maxATEPagesPerWalk)
 }

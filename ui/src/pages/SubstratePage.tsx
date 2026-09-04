@@ -692,6 +692,43 @@ function byNumber<T>(of: (row: T) => number) {
 }
 
 /**
+ * A paged table's rows: what arrived, and what is left of it after the search box.
+ *
+ * Both, because the heading needs to tell them apart — "3 of 100 on this page" is a
+ * different claim from "100 of 4,312", and only one of them is true at a time.
+ *
+ * One hook for both tables rather than four memos, so the two cannot drift into
+ * filtering or ordering by different rules. Memoised because this page can be polling:
+ * filtering and sorting in the render body would run on every tick whether or not
+ * anything changed.
+ */
+function usePagedRows<Row>(
+  // Only the failure is read from the resource; the rows are passed separately
+  // because which field holds them differs between the two.
+  read: { error?: unknown },
+  rows: readonly Row[] | undefined,
+  query: string,
+  text: (row: Row) => string,
+  key: (row: Row) => string,
+): { page: readonly Row[]; shown: Row[] } {
+  // A failed read shows no rows: its banner says why, and leaving the previous page
+  // underneath it would date the table without dating the message above it.
+  const page = useMemo(
+    () => (read.error ? [] : (rows ?? [])),
+    [read.error, rows],
+  );
+  const shown = useMemo(
+    () => orderedBy(filterRows(page, query, text), key),
+    // `text` and `key` are declared inline by the caller, so they are new on every
+    // render and deliberately not dependencies: what decides these rows is the page
+    // and the term.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [page, query],
+  );
+  return { page, shown };
+}
+
+/**
  * The order a paged table's rows are in before a reader clicks anything.
  *
  * ate-api returns actors and workers in whatever order it holds them, which is not an
@@ -1088,49 +1125,36 @@ export function SubstratePage() {
    * time. Memoised because this page can be polling — filtering in the render body
    * would run on every tick whether or not anything changed.
    */
-  const actorPageRows = useMemo(
-    () => (actors.error ? [] : (actors.data?.actors ?? [])),
-    [actors.data?.actors, actors.error],
-  );
-  const actorRows = useMemo(
-    () =>
-      orderedBy(
-        filterRows(actorPageRows, actorQuery, (actor) =>
-          [
-            actor.actorId,
-            actor.status,
-            actor.actorTemplateNamespace,
-            actor.actorTemplateName,
-            actor.ateomPodNamespace,
-            actor.ateomPodName,
-            actor.ateomPodIp,
-          ]
-            .filter(Boolean)
-            .join(" "),
-        ),
-        // Status, then id. Two keys because the second breaks ties in the first: with
-        // status alone, two Running actors could swap places between polls.
-        (actor) => `${actor.status}\u0000${actor.actorId}`,
-      ),
-    [actorPageRows, actorQuery],
+  const { page: actorPageRows, shown: actorRows } = usePagedRows(
+    actors,
+    actors.data?.actors,
+    actorQuery,
+    (actor) =>
+      [
+        actor.actorId,
+        actor.status,
+        actor.actorTemplateNamespace,
+        actor.actorTemplateName,
+        actor.ateomPodNamespace,
+        actor.ateomPodName,
+        actor.ateomPodIp,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    // Status, then id. Two keys because the second breaks ties in the first: with
+    // status alone, two Running actors could swap places between polls.
+    (actor) => `${actor.status}\u0000${actor.actorId}`,
   );
 
-  const workerPageRows = useMemo(
-    () => (workers.error ? [] : (workers.data?.workers ?? [])),
-    [workers.data?.workers, workers.error],
-  );
-  const workerRows = useMemo(
-    () =>
-      orderedBy(
-        filterRows(workerPageRows, workerQuery, (worker) =>
-          [worker.workerNamespace, worker.workerPool, worker.workerPod, worker.ip]
-            .filter(Boolean)
-            .join(" "),
-        ),
-        (worker) =>
-          `${worker.workerPool}\u0000${worker.workerNamespace}/${worker.workerPod}`,
-      ),
-    [workerPageRows, workerQuery],
+  const { page: workerPageRows, shown: workerRows } = usePagedRows(
+    workers,
+    workers.data?.workers,
+    workerQuery,
+    (worker) =>
+      [worker.workerNamespace, worker.workerPool, worker.workerPod, worker.ip]
+        .filter(Boolean)
+        .join(" "),
+    (worker) => `${worker.workerPool}\u0000${worker.workerNamespace}/${worker.workerPod}`,
   );
 
   /*
