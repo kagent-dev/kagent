@@ -2,6 +2,7 @@ package models
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"google.golang.org/genai"
@@ -213,4 +214,51 @@ func TestConvertGenaiContentsToOllamaMessages(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConvertGenaiToolsToOllamaPropertyOrderIsStable guards prompt prefix
+// caching. api.ToolPropertiesMap preserves insertion order, so if the
+// conversion ranges over the Go map of properties directly, every call emits a
+// different property order. Servers that cache on the prompt prefix then
+// re-process the whole prompt on every request.
+func TestConvertGenaiToolsToOllamaPropertyOrderIsStable(t *testing.T) {
+	props := map[string]*genai.Schema{
+		"project": {Type: genai.TypeString, Description: "project slug"},
+		"family":  {Type: genai.TypeString, Description: "change family"},
+		"bucket":  {Type: genai.TypeString, Description: "severity bucket"},
+		"since":   {Type: genai.TypeString, Description: "lower bound"},
+		"limit":   {Type: genai.TypeInteger, Description: "max rows"},
+	}
+	tools := []*genai.Tool{{
+		FunctionDeclarations: []*genai.FunctionDeclaration{{
+			Name:       "list_changes",
+			Parameters: &genai.Schema{Type: genai.TypeObject, Properties: props},
+		}},
+	}}
+
+	want := names(t, tools)
+	for i := 0; i < 100; i++ {
+		if got := names(t, tools); !reflect.DeepEqual(got, want) {
+			t.Fatalf("property order changed between calls:\n first: %v\n call %d: %v", want, i, got)
+		}
+	}
+
+	if !sort.StringsAreSorted(want) {
+		t.Errorf("property order is not deterministic across processes: %v", want)
+	}
+}
+
+// names returns the parameter property names of the first converted tool, in
+// the order they would be serialized.
+func names(t *testing.T, tools []*genai.Tool) []string {
+	t.Helper()
+	converted := convertGenaiToolsToOllama(tools)
+	if len(converted) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(converted))
+	}
+	var out []string
+	for name := range converted[0].Function.Parameters.Properties.All() {
+		out = append(out, name)
+	}
+	return out
 }
