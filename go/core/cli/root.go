@@ -39,6 +39,7 @@ func Root() *cobra.Command {
 		getCmd,
 		createCmd,
 		deleteCmd,
+		commands.NewApplyAgentTemplateCmd(),
 		agentinstancecli.NewInvokeCmd(),
 		commands.NewInstallCmd(),
 		commands.NewUninstallCmd(),

@@ -13,6 +13,7 @@ type ClientSet struct {
 	Model               Model
 	Namespace           Namespace
 	AgentInstance       *AgentInstanceClient
+	AgentTemplate       *AgentTemplateClient
 	A2A                 *A2AClient
 }
 
@@ -31,6 +32,7 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 		Model:               NewModelClient(baseClient),
 		Namespace:           NewNamespaceClient(baseClient),
 		AgentInstance:       NewAgentInstanceClient(baseClient),
+		AgentTemplate:       NewAgentTemplateClient(baseClient),
 		A2A:                 NewA2AClient(baseClient),
 	}
 }

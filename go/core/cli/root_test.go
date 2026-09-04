@@ -124,6 +124,10 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "agent-instance ID", deleteInstanceCmd.Use)
 
+	applyCmd, _, err := rootCmd.Find([]string{"apply"})
+	require.NoError(t, err)
+	assert.Equal(t, "apply -f FILE", applyCmd.Use)
+	assert.NotNil(t, applyCmd.Flags().Lookup("file"))
 	for _, command := range []string{"suspend", "resume"} {
 		_, _, err := rootCmd.Find([]string{command, "agent-instance"})
 		assert.Error(t, err, "%s must not be exposed by the CLI", command)
@@ -140,7 +144,13 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp"} {
 		assert.NotContains(t, rootCommands, command)
 	}
+	assert.NotContains(t, rootCommands, "update")
 	assert.Contains(t, rootCommands, "mcp")
+
+	createCmd, _, err := rootCmd.Find([]string{"create"})
+	require.NoError(t, err)
+	assert.Len(t, createCmd.Commands(), 1)
+	assert.Equal(t, "agent-instance", createCmd.Commands()[0].Name())
 
 	getCmd, _, err := rootCmd.Find([]string{"get"})
 	require.NoError(t, err)
@@ -173,6 +183,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 		"get agent-instance":    {"get", "agent-instance"},
 		"get agent-template":    {"get", "agent-template"},
 		"create agent-instance": {"create", "agent-instance", "--harness", "kagent", "--agent-template", "example"},
+		"apply agent-template":  {"apply", "--file", "template.yaml"},
 		"delete agent-instance": {"delete", "agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
 		"invoke":                {"invoke", "--agent-instance", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
 	} {
