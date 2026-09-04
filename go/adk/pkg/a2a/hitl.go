@@ -23,7 +23,7 @@ const (
 	KAgentMetadataKeyPrefix      = "kagent_"
 )
 
-var hitlAgentExtension = a2atype.AgentExtension{URI: HITLExtensionURI, Required: false}
+var hitlAgentExtension = apia2a.HITLExtension()
 
 // HITLActivationInterceptor activates HITL when the client requested the exact
 // versioned extension URI. The A2A transports then echo activated URIs.
