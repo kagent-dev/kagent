@@ -412,7 +412,7 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	if store.id != gatewayTestID || store.userID != "alice" {
 		t.Fatalf("store lookup = %q user %q", store.id, store.userID)
 	}
-	if authorizer.verb != auth.VerbCreate || authorizer.resource != (auth.Resource{Type: "AgentInstance", Name: gatewayTestID}) {
+	if authorizer.verb != auth.VerbCreate || authorizer.resource.Type != "AgentInstance" || authorizer.resource.Name != gatewayTestID || authorizer.resource.Attributes != nil {
 		t.Fatalf("authorization = %q %#v", authorizer.verb, authorizer.resource)
 	}
 }
