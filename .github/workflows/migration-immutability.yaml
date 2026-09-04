@@ -5,6 +5,7 @@ on:
     branches: [main, "release/**"]
     paths:
       - "go/core/pkg/migrations/**"
+  merge_group:
 
 jobs:
   check:
@@ -15,8 +16,10 @@ jobs:
           fetch-depth: 0
 
       - name: Fail if any existing migration file was modified
+        env:
+          BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
         run: |
-          BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
+          BASE=$(git merge-base HEAD "origin/${BASE_REF#refs/heads/}")
           CHANGED=$(git diff --no-renames --name-status --diff-filter=MDR "$BASE" HEAD \
             -- 'go/core/pkg/migrations/**/*.sql' \
             | awk '$1 != "D" || $2 !~ /\.(up|down)\.sql$/ { print $2 }')
