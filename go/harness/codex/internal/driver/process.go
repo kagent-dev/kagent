@@ -134,7 +134,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if threadID == "" {
 		result, err := client.call(ctx, 2, "thread/start", map[string]any{
 			"cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
-			"approvalPolicy": "never", "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
+			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
 		})
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
@@ -146,7 +146,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	} else {
 		result, err := client.call(ctx, 2, "thread/resume", map[string]any{
 			"threadId": threadID, "cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
-			"approvalPolicy": "never", "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
+			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
 		})
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
@@ -178,6 +178,19 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
+}
+
+// mcpOnlyApprovalPolicy lets Codex surface MCP approval prompts while rejecting
+// its command, sandbox, rule, skill, and request_permissions approval flows.
+// Per-server approval modes still decide which MCP tool calls actually prompt.
+func mcpOnlyApprovalPolicy() map[string]any {
+	return map[string]any{"granular": map[string]bool{
+		"sandbox_approval":    false,
+		"rules":               false,
+		"skill_approval":      false,
+		"request_permissions": false,
+		"mcp_elicitations":    true,
+	}}
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
