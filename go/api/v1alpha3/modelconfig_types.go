@@ -616,6 +616,7 @@ type ModelConfigStatus struct {
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:categories=kagent,shortName=mc
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"

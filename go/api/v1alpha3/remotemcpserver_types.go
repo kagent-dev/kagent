@@ -133,6 +133,7 @@ type MCPTool struct {
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:shortName=rmcps,categories=kagent
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Protocol",type="string",JSONPath=".spec.protocol"

@@ -23,7 +23,6 @@ type ProviderModelsResult struct {
 // ModelProviderConfig defines the model provider config operations
 type ModelProviderConfig interface {
 	ListSupportedModelProviders(ctx context.Context) (*api.StandardResponse[[]api.ProviderInfo], error)
-	ListSupportedMemoryProviders(ctx context.Context) (*api.StandardResponse[[]api.ProviderInfo], error)
 	ListConfiguredProviders(ctx context.Context) (*api.StandardResponse[[]ConfiguredProvider], error)
 	ListProviderModels(ctx context.Context, providerName string, refresh bool) (*api.StandardResponse[ProviderModelsResult], error)
 }
@@ -56,27 +55,6 @@ func (c *modelProviderConfigClient) ListSupportedModelProviders(ctx context.Cont
 		providers = append(providers, providerInfo(provider))
 	}
 	result := api.NewResponse(providers, "Successfully listed supported model providers", false)
-	return &result, nil
-}
-
-// ListSupportedMemoryProviders lists all supported memory providers
-func (c *modelProviderConfigClient) ListSupportedMemoryProviders(ctx context.Context) (*api.StandardResponse[[]api.ProviderInfo], error) {
-	client, err := c.client.modelServiceClient()
-	if err != nil {
-		return nil, err
-	}
-	callContext, cancel := c.client.grpcCallContext(ctx)
-	defer cancel()
-	response, err := client.ListSupportedMemoryProviders(callContext, &apiv1alpha1.ListSupportedMemoryProvidersRequest{})
-	if err != nil {
-		return nil, err
-	}
-
-	providers := make([]api.ProviderInfo, 0, len(response.GetProviders()))
-	for _, provider := range response.GetProviders() {
-		providers = append(providers, providerInfo(provider))
-	}
-	result := api.NewResponse(providers, "Successfully listed supported memory providers", false)
 	return &result, nil
 }
 

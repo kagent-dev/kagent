@@ -29,8 +29,6 @@ go/
 ├── Dockerfile            # Shared multi-stage Docker build
 │
 ├── api/                  # Shared types module
-│   ├── v1alpha1/         # Legacy CRD types
-│   ├── v1alpha2/         # Compatibility CRD types
 │   ├── v1alpha3/         # Current CRD types
 │   ├── adk/              # ADK config & model types
 │   ├── database/         # database model structs & Client interface

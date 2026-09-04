@@ -7,7 +7,6 @@
   - modelconfigs
   - modelproviderconfigs
   - toolservers
-  - memories
   - remotemcpservers
   - mcpservers
   verbs:
@@ -23,7 +22,6 @@
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - toolservers/finalizers
-  - memories/finalizers
   - remotemcpservers/finalizers
   - mcpservers/finalizers
   verbs:

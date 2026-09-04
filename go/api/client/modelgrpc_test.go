@@ -98,15 +98,6 @@ func (s *recordingModelService) ListSupportedModelProviders(ctx context.Context,
 	}}}, nil
 }
 
-func (s *recordingModelService) ListSupportedMemoryProviders(ctx context.Context, _ *apiv1alpha1.ListSupportedMemoryProvidersRequest) (*apiv1alpha1.ListSupportedMemoryProvidersResponse, error) {
-	s.observe(ctx)
-	return &apiv1alpha1.ListSupportedMemoryProvidersResponse{Providers: []*apiv1alpha1.ProviderDefinition{{
-		Name:           "Pinecone",
-		Type:           "memory",
-		RequiredParams: []string{"apiKey"},
-	}}}, nil
-}
-
 func (s *recordingModelService) ListConfiguredProviders(ctx context.Context, _ *apiv1alpha1.ListConfiguredProvidersRequest) (*apiv1alpha1.ListConfiguredProvidersResponse, error) {
 	s.observe(ctx)
 	return &apiv1alpha1.ListConfiguredProvidersResponse{Providers: []*apiv1alpha1.ConfiguredProvider{{
@@ -213,10 +204,6 @@ func TestModelClientsUseGeneratedGRPC(t *testing.T) {
 		OptionalParams: []string{"baseUrl"},
 	}}, modelProviders.Data)
 
-	memoryProviders, err := clientSet.ModelProviderConfig.ListSupportedMemoryProviders(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, "Pinecone", memoryProviders.Data[0].Name)
-
 	configuredProviders, err := clientSet.ModelProviderConfig.ListConfiguredProviders(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, []ConfiguredProvider{{
@@ -275,7 +262,7 @@ func TestModelClientsUseGeneratedGRPC(t *testing.T) {
 		ProviderName: "configured-openai",
 		Refresh:      true,
 	}, service.providerModelsRequest))
-	require.Len(t, service.observations, 12)
+	require.Len(t, service.observations, 11)
 	for _, observation := range service.observations {
 		assert.Equal(t, "test-user", observation.userID)
 		assert.True(t, observation.hasDeadline)
