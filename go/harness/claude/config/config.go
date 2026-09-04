@@ -17,7 +17,7 @@ var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
 	Version                             = 4
-	PinnedClaudeVersion                 = "2.1.217"
+	PinnedClaudeVersion                 = "2.1.260"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
 	GoogleApplicationCredentialsEnvName = "GOOGLE_APPLICATION_CREDENTIALS"
