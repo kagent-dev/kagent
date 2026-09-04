@@ -63,6 +63,7 @@ function statusFrame(options: {
     role: Role;
     parts: (ReturnType<typeof text> | ReturnType<typeof data>)[];
     metadata?: Record<string, unknown>;
+    extensions?: string[];
   };
   seconds?: bigint;
 }) {
@@ -83,7 +84,10 @@ function statusFrame(options: {
 }
 
 /** Serves one scripted turn and returns everything the client emitted. */
-async function turn(frames: unknown[]): Promise<ChatEvent[]> {
+async function turn(
+  frames: unknown[],
+  input: Partial<Parameters<A2AGrpcChatClient["send"]>[0]> = {},
+): Promise<ChatEvent[]> {
   serve(({ service }) => {
     service(A2AService, {
       sendStreamingMessage: async function* () {
@@ -96,6 +100,7 @@ async function turn(frames: unknown[]): Promise<ChatEvent[]> {
   for await (const event of new A2AGrpcChatClient().send({
     conversation: CONVERSATION,
     text: "why is checkout crashlooping?",
+    ...input,
   })) {
     events.push(event);
   }
@@ -249,6 +254,134 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it("shows only the interactive card when ask_user parks the turn", async () => {
+    const events = await turn([
+      {
+        payload: {
+          case: "artifactUpdate",
+          value: {
+            taskId: "task-1",
+            artifact: {
+              artifactId: "ask-call",
+              parts: [data({ name: "ask_user", args: { questions: [] } })],
+            },
+          },
+        },
+      },
+      statusFrame({
+        state: TaskState.INPUT_REQUIRED,
+        message: {
+          messageId: "ask-request",
+          role: Role.AGENT,
+          parts: [text("What size would you like?")],
+          extensions: ["https://kagent.dev/extensions/hitl/v1"],
+          metadata: {
+            "https://kagent.dev/extensions/hitl/v1": {
+              type: "ask_user_request",
+              id: "ask-1",
+              questions: [{ question: "What size?", choices: ["Large"] }],
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status",
+      state: "input_required",
+      taskId: "task-1",
+      awaiting: {
+        kind: "ask_user",
+        taskId: "task-1",
+        requestId: "ask-1",
+        questions: [{ question: "What size?", choices: ["Large"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
+  it("does not render ADK's confirmation-required FunctionResponse as an error", async () => {
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "confirmation-result",
+          role: Role.AGENT,
+          parts: [
+            data({
+              name: "k8s_get_resources",
+              response: {
+                error:
+                  'error tool "k8s_get_resources" requires confirmation, please approve or reject',
+              },
+            }),
+          ],
+        },
+      }),
+    ]);
+
+    expect(transcript(events)).toEqual([]);
+  });
+
+  it("keeps a structured approval request out of the message transcript", async () => {
+    const events = await turn([
+      statusFrame({
+        state: TaskState.INPUT_REQUIRED,
+        message: {
+          messageId: "approval-request",
+          role: Role.AGENT,
+          parts: [text("Tool request approval")],
+          extensions: ["https://kagent.dev/extensions/hitl/v1"],
+          metadata: {
+            "https://kagent.dev/extensions/hitl/v1": {
+              type: "tool_approval_request",
+              tools: [{ id: "approval-1", name: "delete_pod", args: {} }],
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status",
+      state: "input_required",
+      taskId: "task-1",
+      awaiting: {
+        kind: "tool_approval",
+        taskId: "task-1",
+        tools: [{ id: "approval-1", name: "delete_pod", args: {} }],
+        hint: undefined,
+        askedBy: undefined,
+      },
+    });
+  });
+
+  it("does not let echoed fallback text replace a locally rendered decision", async () => {
+    const events = await turn(
+      [
+        statusFrame({
+          state: TaskState.SUBMITTED,
+          message: {
+            messageId: "approval-response",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "approval-1", approved: true }],
+              },
+            },
+          },
+        }),
+      ],
+      { messageId: "approval-response" },
+    );
+
+    expect(transcript(events)).toEqual([]);
+  });
+
   it("delivers the user's own message exactly once", async () => {
     const echoed = {
       messageId: "m-user",
@@ -611,6 +744,229 @@ describe("A2AGrpcChatClient.history", () => {
     });
   }
 
+  it("replays a completed approval as one structured record without protocol text", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [
+                  { id: "approval-1", name: "delete_pod", args: { name: "old" } },
+                ],
+              },
+            },
+          },
+          {
+            messageId: "response",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "approval-1", approved: true }],
+              },
+            },
+          },
+        ],
+        artifacts: [],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: "response",
+        role: "user",
+        parts: [
+          {
+            kind: "tool_approval",
+            approval: {
+              tools: [{ id: "approval-1", name: "delete_pod", args: { name: "old" } }],
+              decisions: [{ id: "approval-1", approved: true, rejectionReason: undefined }],
+              askedBy: undefined,
+            },
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it("replays a completed ask_user exchange as one structured record", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("What size would you like?")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "ask_user_request",
+                id: "ask-1",
+                questions: [{ question: "What size?", choices: ["Small", "Large"] }],
+              },
+            },
+          },
+          {
+            messageId: "response",
+            role: Role.USER,
+            parts: [text("Large")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "ask_user_response",
+                id: "ask-1",
+                answers: [{ answer: ["Large"] }],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          { artifactId: "call", parts: [data({ name: "ask_user", args: {} })] },
+          {
+            artifactId: "result",
+            parts: [data({ name: "ask_user", response: { result: "Large" } })],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: "response",
+        role: "user",
+        parts: [
+          {
+            kind: "ask_user",
+            interaction: {
+              questions: [
+                {
+                  question: "What size?",
+                  choices: ["Small", "Large"],
+                  multiple: false,
+                },
+              ],
+              answers: [["Large"]],
+              askedBy: undefined,
+            },
+          },
+        ],
+      }),
+    ]);
+  });
+
+  it("renders an unpaired legacy rejection as not run rather than failed", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [],
+        artifacts: [
+          {
+            artifactId: "rejected",
+            parts: [
+              data({
+                name: "k8s_get_resources",
+                response: { error: 'error tool "k8s_get_resources" call is rejected' },
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages[0].parts).toEqual([
+      expect.objectContaining({ kind: "data", dataKind: "tool_not_run" }),
+    ]);
+  });
+
+  it("hides a rejected FunctionResponse when the structured decision records it", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [{ id: "approval-1", name: "delete_pod", args: {} }],
+              },
+            },
+          },
+          {
+            messageId: "response",
+            role: Role.USER,
+            parts: [text("Rejected: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [
+                  {
+                    id: "approval-1",
+                    approved: false,
+                    rejection_reason: "Production is serving traffic",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          {
+            artifactId: "rejected-result",
+            parts: [
+              data({
+                name: "delete_pod",
+                response: { error: 'error tool "delete_pod" call is rejected' },
+              }),
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].parts).toEqual([
+      expect.objectContaining({
+        kind: "tool_approval",
+        approval: expect.objectContaining({
+          decisions: [
+            {
+              id: "approval-1",
+              approved: false,
+              rejectionReason: "Production is serving traffic",
+            },
+          ],
+        }),
+      }),
+    ]);
+  });
+
   it("orders messages and artifacts by their timeline positions", async () => {
     const position = (value: string) => ({ "kagent.dev/timeline-position": value });
     serveTasks([
@@ -631,7 +987,9 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages.map((message) => message.id)).toEqual(["u0", "a0", "a1", "u1", "a2"]);
+    // The raw ask_user call participates in ordering internally, then is removed
+    // from the rendered transcript.
+    expect(messages.map((message) => message.id)).toEqual(["u0", "a1", "u1", "a2"]);
   });
 
   it("replays text on both sides of tool activity in its original order", async () => {
