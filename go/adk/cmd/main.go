@@ -20,6 +20,7 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -57,7 +58,7 @@ func main() {
 		configDir = "/config"
 	}
 
-	kagentAPIURL := os.Getenv("KAGENT_API_URL")
+	kagentAPIURL := env.KagentAPIURL.Get()
 
 	if err := config.MaterializeFromEnv(configDir); err != nil {
 		logger.Error("failed to materialize agent config from environment", "error", err, "config_dir", configDir)
@@ -88,8 +89,8 @@ func main() {
 		"sse_tools", len(agentConfig.SseTools),
 		"remote_agents", len(agentConfig.RemoteAgents))
 
-	kagentName := os.Getenv("KAGENT_NAME")
-	kagentNamespace := os.Getenv("KAGENT_NAMESPACE")
+	kagentName := env.KagentName.Get()
+	kagentNamespace := env.KagentNamespace.Get()
 
 	// Derive app name from env or agent card.
 	appName := deriveAppName(kagentName, kagentNamespace, agentCard, logger)
