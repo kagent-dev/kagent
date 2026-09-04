@@ -12,7 +12,7 @@ package app
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"maps"
 	"net/http"
 	"os"
@@ -44,8 +44,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
-	"go.uber.org/zap/zapcore"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
@@ -56,7 +56,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
@@ -120,7 +119,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.Authorizer) {
 }
 
 // SetupLogger installs the controller-runtime logger, at the level named by
-// ZAP_LOG_LEVEL.
+// LOG_LEVEL.
 //
 // Run calls this itself, so a library consumer needs it only when it logs
 // before Run — and it must then call it first, because controller-runtime
@@ -132,13 +131,12 @@ func (o Options) resolve() (auth.AuthProvider, auth.Authorizer) {
 // Calling it twice is harmless. SetLogger fulfils a promise that can only be
 // fulfilled once, so the first caller wins and Run's own call does nothing.
 func SetupLogger() error {
-	logLevel := zapcore.InfoLevel
-	if value := os.Getenv("ZAP_LOG_LEVEL"); value != "" {
-		if err := logLevel.Set(value); err != nil {
-			return fmt.Errorf("parse ZAP_LOG_LEVEL: %w", err)
-		}
+	logger, err := logging.NewFromEnv(os.Stderr)
+	if err != nil {
+		return fmt.Errorf("parse LOG_LEVEL: %w", err)
 	}
-	ctrl.SetLogger(zap.New(zap.Level(logLevel)))
+	slog.SetDefault(logger)
+	ctrl.SetLogger(logging.AsLogr(logger))
 	return nil
 }
 
@@ -149,6 +147,8 @@ func Run(ctx context.Context, opts Options) error {
 	if err := SetupLogger(); err != nil {
 		return err
 	}
+	logger := slog.Default()
+	ctx = logging.IntoContext(ctx, logger)
 	// otelgrpc snapshots the global TracerProvider and propagator when its handler
 	// is constructed, so tracing has to be registered before any server is built.
 	shutdownTracing, err := telemetry.InitTracerProvider(ctx, version.Version)
@@ -159,7 +159,7 @@ func Run(ctx context.Context, opts Options) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := shutdownTracing(shutdownCtx); err != nil {
-			log.Printf("shutdown tracing: %v", err)
+			logger.ErrorContext(shutdownCtx, "failed to shut down tracing", "error", err)
 		}
 	}()
 

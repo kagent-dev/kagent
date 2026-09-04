@@ -6,12 +6,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkmemory "google.golang.org/adk/v2/memory"
 	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
@@ -36,7 +38,7 @@ func CreateRunnerConfig(
 	memoryService *kagentmemory.KagentMemoryService,
 	controllerClient *controllerclient.Client,
 ) (runner.Config, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	var extraTools []adktool.Tool
 	if memoryService != nil {
@@ -95,7 +97,7 @@ func CreateRunnerConfig(
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.TokenPropagationPlugin, error) {
 	propagateToken := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PROPAGATE_TOKEN")), "true")
 	stsWellKnownURI := strings.TrimSpace(os.Getenv("STS_WELL_KNOWN_URI"))
 	if !propagateToken && stsWellKnownURI == "" {
@@ -104,7 +106,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 
 	// Propagate-only mode: keep parity with Python by enabling plugin without STS exchange.
 	if stsWellKnownURI == "" {
-		log.Info("Enabling token propagation plugin without STS exchange")
+		log.InfoContext(ctx, "enabling token propagation plugin without STS exchange")
 		return sts.NewTokenPropagationPlugin(nil, log, nil, nil), nil
 	}
 	defaultSTSConfig := sts.DefaultSTSConfig(stsWellKnownURI)
@@ -127,7 +129,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 	resource := splitCSV(os.Getenv("KAGENT_STS_RESOURCE"))
 	audience := splitCSV(os.Getenv("KAGENT_STS_AUDIENCE"))
 
-	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
+	log.InfoContext(ctx, "enabling STS token propagation plugin", "well_known_uri", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
 }
 

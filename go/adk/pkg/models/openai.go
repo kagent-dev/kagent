@@ -3,10 +3,11 @@ package models
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -54,11 +55,11 @@ type OpenAIModel struct {
 	Config  *OpenAIConfig
 	Client  openai.Client
 	IsAzure bool
-	Logger  logr.Logger
+	Logger  *slog.Logger
 }
 
-// NewOpenAIModelWithLogger creates a new OpenAI model instance with a logger
-func NewOpenAIModelWithLogger(config *OpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
+// NewOpenAIModel creates a new OpenAI model instance.
+func NewOpenAIModel(ctx context.Context, config *OpenAIConfig) (*OpenAIModel, error) {
 	apiKey := "passthrough" // placeholder; real auth set per-request by transport
 	if !config.APIKeyPassthrough {
 		apiKey = os.Getenv("OPENAI_API_KEY")
@@ -66,13 +67,13 @@ func NewOpenAIModelWithLogger(config *OpenAIConfig, logger logr.Logger) (*OpenAI
 			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
 		}
 	}
-	return newOpenAIModelFromConfig(config, apiKey, logger)
+	return newOpenAIModelFromConfig(ctx, config, apiKey)
 }
 
-// NewOpenAICompatibleModelWithLogger creates an OpenAI-compatible model (e.g. LiteLLM, Ollama).
+// NewOpenAICompatibleModel creates an OpenAI-compatible model (e.g. LiteLLM, Ollama).
 // baseURL is the API base (e.g. http://localhost:11434/v1 for Ollama). apiKey is optional; if empty,
 // OPENAI_API_KEY is used, then a placeholder for endpoints that do not require a key.
-func NewOpenAICompatibleModelWithLogger(baseURL, modelName string, headers map[string]string, apiKey string, logger logr.Logger) (*OpenAIModel, error) {
+func NewOpenAICompatibleModel(ctx context.Context, baseURL, modelName string, headers map[string]string, apiKey string) (*OpenAIModel, error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
@@ -84,12 +85,13 @@ func NewOpenAICompatibleModelWithLogger(baseURL, modelName string, headers map[s
 		Model:           modelName,
 		BaseUrl:         baseURL,
 	}
-	return newOpenAIModelFromConfig(config, apiKey, logger)
+	return newOpenAIModelFromConfig(ctx, config, apiKey)
 }
 
-// TODO: consider support for Azure OpenAI, when used from NewOpenAICompatibleModelWithLogger,
+// TODO: consider support for Azure OpenAI, when used from NewOpenAICompatibleModel,
 // Anthropic and Gemini might use Azure OpenAI, so we need to support it.
-func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.Logger) (*OpenAIModel, error) {
+func newOpenAIModelFromConfig(ctx context.Context, config *OpenAIConfig, apiKey string) (*OpenAIModel, error) {
+	logger := logging.FromContext(ctx)
 	opts := []option.RequestOption{
 		option.WithAPIKey(apiKey),
 	}
@@ -100,15 +102,13 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 	if err != nil {
 		return nil, err
 	}
-	if logger.GetSink() != nil && len(config.Headers) > 0 {
-		logger.Info("Setting default headers for OpenAI client", "headersCount", len(config.Headers), "headers", config.Headers)
+	if len(config.Headers) > 0 {
+		logger.InfoContext(ctx, "setting default headers for OpenAI client", "headers_count", len(config.Headers))
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := openai.NewClient(opts...)
-	if logger.GetSink() != nil {
-		logger.Info("Initialized OpenAI model", "model", config.Model, "baseUrl", config.BaseUrl)
-	}
+	logger.InfoContext(ctx, "initialized OpenAI model", "model", config.Model, "base_url", config.BaseUrl)
 	return &OpenAIModel{
 		Config:  config,
 		Client:  client,
@@ -117,7 +117,7 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 	}, nil
 }
 
-// NewAzureOpenAIModelWithLogger creates a new Azure OpenAI model instance with a logger.
+// NewAzureOpenAIModel creates a new Azure OpenAI model instance with a logger.
 // It targets the Azure OpenAI OpenAI-compatible data plane
 // (POST {endpoint}/openai/deployments/{deployment}/chat/completions) through the
 // shared azureai client. Endpoint, api-version, and deployment come from the
@@ -129,7 +129,8 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 // Identity in-cluster (or the az CLI in local development). The Workload Identity
 // path eagerly acquires a token so a missing or misconfigured identity fails
 // readiness at startup instead of on the first inference request.
-func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
+func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenAIModel, error) {
+	logger := logging.FromContext(ctx)
 	endpoint := config.Endpoint
 	if endpoint == "" {
 		endpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
@@ -183,9 +184,7 @@ func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfi
 	if err != nil {
 		return nil, err
 	}
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "apiVersion", apiVersion)
-	}
+	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
 			TransportConfig: config.TransportConfig,

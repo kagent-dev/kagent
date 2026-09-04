@@ -207,13 +207,16 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 ### Logging
 
-- Structured logging only (`logr` via controller-runtime); key-value pairs,
-  never `fmt.Sprintf` inside a log call, never `fmt.Printf` for logging.
-- Controllers/HTTP: `ctrllog.FromContext(ctx).WithName("...").WithValues(...)`.
-  ADK: `logr.FromContextOrDiscard(ctx)`.
-- Verbose or per-item output **MUST** be debug level (`log.V(1)` or higher),
-  not `Info`. If the information is already returned to the caller (e.g. an
-  HTTP response), don't also log it at info level.
+- Use standard-library `log/slog`. Binaries write JSON to stderr and read the
+  minimum level from `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
+- Carry loggers in `context.Context` with `pkg/logging`; do not add logger
+  parameters, package-global loggers, or `NewXxxWithLogger` constructors.
+- Use `DebugContext`, `InfoContext`, `WarnContext`, or `ErrorContext` whenever
+  a context is in scope. Messages are static and lower-case; keys are
+  snake_case. Record errors under the `error` key and never log secrets,
+  credentials, authorization headers, or request/response payloads.
+- Verbose or per-item output **MUST** be debug level. If information is already
+  returned to the caller, do not also log it at info level.
 
 ### Naming
 
