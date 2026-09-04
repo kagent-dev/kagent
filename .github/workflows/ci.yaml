@@ -9,6 +9,7 @@ on:
     branches: [main, "release/**"]
     paths-ignore:
       - "**/*.md"
+  merge_group:
   workflow_dispatch:
 
 concurrency:
