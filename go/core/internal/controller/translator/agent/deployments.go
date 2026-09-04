@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -124,7 +125,7 @@ func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, e
 	digest := PythonADKImageDigest
 	imageLabel := "app"
 	if full {
-		digest = PythonADKFullImageDigest
+		digest = fullRuntimeDigest(PythonADKFullImageDigest, PythonADKFullImageDigestOverride, pinDigest)
 		imageLabel = "app-full"
 	}
 	return resolveRuntimeImage(registry, repo, DefaultImageConfig.Tag, digest, imageLabel, full, pinDigest)
@@ -135,7 +136,7 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 	digest := GoADKImageDigest
 	imageLabel := "golang-adk"
 	if full {
-		digest = GoADKFullImageDigest
+		digest = fullRuntimeDigest(GoADKFullImageDigest, GoADKFullImageDigestOverride, pinDigest)
 		imageLabel = "golang-adk-full"
 	}
 	return resolveRuntimeImage(registry, repo, DefaultGoImageConfig.Tag, digest, imageLabel, full, pinDigest)
@@ -149,23 +150,54 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 // the repository and are published under "<tag>-full" (see APP_FULL_IMAGE_TAG /
 // GOLANG_ADK_FULL_IMAGE_TAG in the Makefile).
 //
+// IMAGE_TAG is parsed as a tag, a tag@digest, or a digest-only value. The
+// "-full" suffix is applied only to the tag name. A digest embedded in IMAGE_TAG
+// is never reused on the full variant (the slim and full images have different
+// manifests). If IMAGE_TAG includes a digest, the full image is referenced by
+// tag only unless the operator set an explicit runtime full digest (Helm
+// fullDigest / APP_FULL_IMAGE_DIGEST / --app-full-image-digest). The link-time
+// baked digest is not that signal: released builds always populate it.
+//
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)
 // runtime image digests.
 func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, full, pinDigest bool) (string, error) {
-	if !pinDigest {
-		if full {
-			tag += "-full"
+	name, embeddedDigest, err := splitImageTag(tag)
+	if err != nil {
+		return "", fmt.Errorf("invalid %s image tag %q: %w", imageLabel, tag, err)
+	}
+
+	if pinDigest {
+		if d := normalizeImageDigest(digest); d != "" {
+			return formatImageRef(registry, repository, "", d), nil
 		}
-		return fmt.Sprintf("%s/%s:%s", registry, repository, tag), nil
+		return "", fmt.Errorf(
+			"%s image digest is not set; rebuild the controller after pushing agent runtime images, or override it via --%s-image-digest",
+			imageLabel, imageLabel,
+		)
 	}
-	if d := normalizeImageDigest(digest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repository, d), nil
+
+	if !full {
+		return formatImageRef(registry, repository, name, embeddedDigest), nil
 	}
-	return "", fmt.Errorf(
-		"%s image digest is not set; rebuild the controller after pushing agent runtime images, or override it via --%s-image-digest",
-		imageLabel, imageLabel,
-	)
+
+	fullTag, err := fullVariantTag(name)
+	if err != nil {
+		if d := normalizeImageDigest(digest); d != "" {
+			return formatImageRef(registry, repository, "", d), nil
+		}
+		return "", fmt.Errorf(
+			"cannot derive %s image from digest-only tag %q: set a tag (for example 0.10.0-rc3) so the controller can use the published %s-full tag, or pin the full image via --%s-image-digest",
+			imageLabel, tag, strings.TrimSuffix(imageLabel, "-full"), imageLabel,
+		)
+	}
+
+	// Never reuse the slim digest on the full image.
+	var fullDigest string
+	if embeddedDigest != "" {
+		fullDigest = normalizeImageDigest(digest)
+	}
+	return formatImageRef(registry, repository, fullTag, fullDigest), nil
 }
 
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {

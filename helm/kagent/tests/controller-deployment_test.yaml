@@ -235,6 +235,31 @@ tests:
       - equal:
           path: data.IMAGE_PULL_SECRET
           value: "pull-secret"
+  - it: should set APP_FULL_IMAGE_DIGEST when agentImage.fullDigest is set
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentImage:
+          fullDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    asserts:
+      - equal:
+          path: data.APP_FULL_IMAGE_DIGEST
+          value: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  - it: should not set APP_FULL_IMAGE_DIGEST when agentImage.fullDigest is unset
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.APP_FULL_IMAGE_DIGEST
+  - it: should set GOLANG_ADK_FULL_IMAGE_DIGEST when goAgentImage.fullDigest is set
+    template: controller-configmap.yaml
+    set:
+      controller:
+        goAgentImage:
+          fullDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    asserts:
+      - equal:
+          path: data.GOLANG_ADK_FULL_IMAGE_DIGEST
+          value: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   - it: should not use controller.agentImage.pullSecret when not set
     template: controller-configmap.yaml
     set:
