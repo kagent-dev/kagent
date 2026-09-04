@@ -427,7 +427,6 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 	if got := request.Questions[0]["choices"]; !reflect.DeepEqual(got, []any{"default"}) {
 		t.Fatalf("ask-user choices = %#v", got)
 	}
-
 	answer := a2atype.NewMessage(a2atype.MessageRoleUser)
 	answer.TaskID, answer.ContextID = first.TaskID, first.ContextID
 	if err := apia2a.AttachHITL(answer, apia2a.AskUserResponse{

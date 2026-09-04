@@ -85,14 +85,48 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 		}
 	}
+	var approvalBroker *driver.ApprovalBroker
+	var settingsPath string
+	protectedServers, unprotectedServers := approvalServerNames(cfg.MCPServers)
+	if len(protectedServers) != 0 {
+		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
+			return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
+		}
+		approvalBroker, err = driver.NewApprovalBroker(protectedServers, cfg.MaxEventBytes)
+		if err != nil {
+			return nil, fmt.Errorf("start Claude approval broker: %w", err)
+		}
+		settingsJSON, settingsErr := approvalBroker.SettingsJSON(unprotectedServers)
+		if settingsErr != nil {
+			_ = approvalBroker.Close()
+			return nil, settingsErr
+		}
+		settingsPath = filepath.Join(input.EphemeralDir, "settings.json")
+		if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
+			_ = approvalBroker.Close()
+			return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
+		}
+	}
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
+		SettingsPath: settingsPath, ApprovalBroker: approvalBroker,
 		SkillRoot: skillRoot, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(),
 	}), nil
+}
+
+func approvalServerNames(servers map[string]config.MCPServer) (protected, unprotected []string) {
+	for name, server := range servers {
+		if server.RequireApproval {
+			protected = append(protected, name)
+		} else {
+			unprotected = append(unprotected, name)
+		}
+	}
+	return protected, unprotected
 }
 
 func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {

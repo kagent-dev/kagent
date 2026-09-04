@@ -18,7 +18,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
 	runner, err := New(context.Background(), Input{
-		ConfigJSON: []byte(`{"version":3,"claude_executable":"claude","expected_claude_version":"2.1.217","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
+		ConfigJSON: []byte(`{"version":4,"claude_executable":"claude","expected_claude_version":"2.1.217","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
 		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_UPDATES=0"},
@@ -80,6 +80,48 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
 		t.Fatalf("arguments do not expose materialized skills to bare mode: %s", args)
+	}
+}
+
+func TestNewMaterializesApprovalSettings(t *testing.T) {
+	durableDir := filepath.Join(t.TempDir(), "data")
+	ephemeralDir := filepath.Join(t.TempDir(), "generated")
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{
+		"protected": {Type: "http", URL: "https://mcp.example.com/write", RequireApproval: true},
+		"readonly":  {Type: "http", URL: "https://mcp.example.com/read"},
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := New(context.Background(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close() })
+	settings, err := os.ReadFile(filepath.Join(ephemeralDir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(settings)
+	if !strings.Contains(text, `mcp__protected__.*`) || !strings.Contains(text, `mcp__readonly__*`) {
+		t.Fatalf("approval settings = %s", settings)
+	}
+	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
+	for _, required := range []string{"--setting-sources\n\n", "--settings\n" + filepath.Join(ephemeralDir, "settings.json"), "--permission-mode\ndontAsk"} {
+		if !strings.Contains(args, required) {
+			t.Fatalf("approval arguments do not contain %q: %s", required, args)
+		}
+	}
+	for _, forbidden := range []string{"--bare", "--dangerously-skip-permissions"} {
+		if strings.Contains(args, forbidden) {
+			t.Fatalf("approval arguments contain %q: %s", forbidden, args)
+		}
 	}
 }
 
