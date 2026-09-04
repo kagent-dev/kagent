@@ -17,6 +17,7 @@ const { Text } = Typography;
 export function ToolCallCard({ part }: { part: ChatDataPart }) {
   const theme = useTheme();
   const isCall = part.dataKind === "tool_call";
+  const wasNotRun = part.dataKind === "tool_not_run";
   const name = typeof part.data.name === "string" ? part.data.name : "tool";
   const { body, failed } = describe(part);
 
@@ -41,10 +42,10 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
         )}
         <Text css={{ fontWeight: 600, fontSize: 13 }}>{name}</Text>
         <Tag
-          color={failed ? "error" : isCall ? "processing" : "success"}
+          color={failed ? "error" : isCall ? "processing" : wasNotRun ? "default" : "success"}
           css={{ marginInlineStart: "auto" }}
         >
-          {failed ? "failed" : isCall ? "called" : "result"}
+          {failed ? "failed" : isCall ? "called" : wasNotRun ? "not run" : "result"}
         </Tag>
       </div>
       <pre
@@ -76,6 +77,9 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
 function describe(part: ChatDataPart): { body: string; failed: boolean } {
   if (part.dataKind === "tool_call") {
     return { body: stableJson(part.data.args ?? {}), failed: false };
+  }
+  if (part.dataKind === "tool_not_run") {
+    return { body: "Permission was denied, so this tool was not run.", failed: false };
   }
 
   const response = part.data.response;
