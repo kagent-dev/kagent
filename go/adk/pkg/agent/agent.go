@@ -285,6 +285,10 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		})
 
 	case *adk.GeminiVertexAI:
+		// The Vertex AI client has no custom HTTP transport (same gap as defaultHeaders/TLS).
+		if len(m.PassthroughHeaders) > 0 {
+			log.Info("Warning: passthroughHeaders are not supported for GeminiVertexAI models and will be ignored")
+		}
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
 		location := os.Getenv("GOOGLE_CLOUD_LOCATION")
 		if location == "" {
@@ -392,6 +396,10 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		return models.NewAnthropicVertexAIModelWithLogger(ctx, cfg, region, project, log)
 
 	case *adk.SAPAICore:
+		// SAP AI Core builds its own HTTP client without the shared transport.
+		if len(m.PassthroughHeaders) > 0 {
+			log.Info("Warning: passthroughHeaders are not supported for SAPAICore models and will be ignored")
+		}
 		cfg := models.SAPAICoreConfig{
 			Model:         m.Model,
 			BaseUrl:       m.BaseUrl,
@@ -431,6 +439,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 func transportConfigFromBase(b adk.BaseModel, timeout *int) models.TransportConfig {
 	return models.TransportConfig{
 		Headers:               extractHeaders(b.Headers),
+		PassthroughHeaders:    b.PassthroughHeaders,
 		TLSInsecureSkipVerify: b.TLSInsecureSkipVerify,
 		TLSCACertPath:         b.TLSCACertPath,
 		TLSDisableSystemCAs:   b.TLSDisableSystemCAs,

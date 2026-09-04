@@ -245,6 +245,9 @@ class RemoteAgentConfig(BaseModel):
 class BaseLLM(BaseModel):
     model: str
     headers: dict[str, str] | None = None
+    # Header names forwarded per request from the incoming A2A request onto the
+    # outbound LLM call (see LLMHeaderPassthroughPlugin).
+    passthrough_headers: list[str] | None = None
 
     # TLS/SSL configuration (applies to all model types)
     tls_disable_verify: bool | None = Field(
@@ -639,7 +642,15 @@ def _transport_kwargs(model_config: BaseLLM) -> dict[str, Any]:
 
 def _create_llm_from_model_config(model_config: ModelUnion):
     extra_headers = model_config.headers or {}
+    passthrough_headers = model_config.passthrough_headers or None
     base_url = getattr(model_config, "base_url", None)
+
+    def _warn_passthrough_unsupported() -> None:
+        if passthrough_headers:
+            logger.warning(
+                "passthrough_headers are not supported for %s models and will be ignored.",
+                model_config.type,
+            )
 
     if model_config.type == "openai":
         from .models._token_source import GDCHTokenSource
@@ -667,6 +678,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             type="openai",
             base_url=base_url,
             default_headers=extra_headers,
+            passthrough_headers=passthrough_headers,
             frequency_penalty=model_config.frequency_penalty,
             max_tokens=model_config.max_tokens,
             max_completion_tokens=model_config.max_completion_tokens,
@@ -686,16 +698,20 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
+            passthrough_headers=passthrough_headers,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":
+        _warn_passthrough_unsupported()
         return KAgentGeminiVertexAILlm(
             model=model_config.model,
             max_output_tokens=model_config.max_output_tokens,
         )
     if model_config.type == "gemini_anthropic":
+        _warn_passthrough_unsupported()
         return ClaudeLLM(model=model_config.model)
     if model_config.type == "ollama":
+        _warn_passthrough_unsupported()
         ollama_options = _convert_ollama_options(getattr(model_config, "options", None))
         # api key passthrough is not applicable for ollama
         return create_ollama_llm(
@@ -709,16 +725,19 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             type="azure_openai",
             default_headers=extra_headers,
+            passthrough_headers=passthrough_headers,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini":
         return KAgentGeminiLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+            passthrough_headers=passthrough_headers,
             max_output_tokens=model_config.max_output_tokens,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "bedrock":
+        _warn_passthrough_unsupported()
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
@@ -730,6 +749,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             **_transport_kwargs(model_config),
         )
     if model_config.type == "sap_ai_core":
+        _warn_passthrough_unsupported()
         from .models._sap_ai_core import KAgentSAPAICoreLlm
 
         return KAgentSAPAICoreLlm(

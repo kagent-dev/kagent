@@ -13,6 +13,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	"github.com/kagent-dev/kagent/go/adk/pkg/headers"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/v2/tool"
@@ -28,40 +29,6 @@ const (
 	// Default timeout matching Python KAGENT_REMOTE_AGENT_TIMEOUT
 	defaultTimeout = 30 * time.Minute
 )
-
-// allowedRequestHeaders reads the incoming A2A request metadata from ctx and
-// returns only the header key/value pairs whose names appear in allowed.
-// It reads directly from the A2A CallContext that is already present in the Go
-// context, avoiding a redundant copy.
-//
-// Lookup relies on RequestMeta.Get which already does a case-insensitive O(1)
-// lookup (NewRequestMeta lowercases keys at construction). Keys in the result
-// preserve the casing from the allowed list so the MCP server sees the header
-// names the operator configured. When a header has multiple values only the
-// first one is forwarded; additional values are intentionally dropped.
-func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]string {
-	if len(allowed) == 0 {
-		return nil
-	}
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok {
-		return nil
-	}
-	meta := callCtx.ServiceParams()
-	if meta == nil {
-		return nil
-	}
-	result := make(map[string]string)
-	for _, name := range allowed {
-		if vals, ok := meta.Get(name); ok && len(vals) > 0 && vals[0] != "" {
-			result[name] = vals[0]
-		}
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
 
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
@@ -317,7 +284,7 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	}
 
 	// Forward explicitly allowed headers from the incoming A2A request.
-	for k, v := range allowedRequestHeaders(req.Context(), rt.allowedHeaders) {
+	for k, v := range headers.AllowedRequestHeaders(req.Context(), rt.allowedHeaders) {
 		req.Header.Set(k, v)
 	}
 

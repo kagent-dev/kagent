@@ -2,6 +2,7 @@
 
 from unittest import mock
 
+import pytest
 from anthropic import AsyncAnthropic
 from anthropic.types import ThinkingBlock
 from google.adk.models.anthropic_llm import content_block_to_part
@@ -52,6 +53,36 @@ class TestKAgentAnthropicLlm:
             _ = llm._anthropic_client
             assert mock_anthropic.call_args.kwargs["api_key"] == "sk-test-key"
 
+    def test_set_passthrough_headers_invalidates_cached_client(self):
+        llm = KAgentAnthropicLlm(model="claude-3-sonnet-20240229", passthrough_headers=["x-guardrail-token"])
+        with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic"):
+            _ = llm._anthropic_client
+            assert "_anthropic_client" in llm.__dict__
+        llm.set_passthrough_headers({"x-guardrail-token": "caller-token"})
+        assert "_anthropic_client" not in llm.__dict__
+
+    def test_set_passthrough_headers_same_value_keeps_cached_client(self):
+        llm = KAgentAnthropicLlm(model="claude-3-sonnet-20240229")
+        llm.set_passthrough_headers({"x-guardrail-token": "caller-token"})
+        with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic"):
+            _ = llm._anthropic_client
+        llm.set_passthrough_headers({"x-guardrail-token": "caller-token"})
+        assert "_anthropic_client" in llm.__dict__
+
+    def test_client_merges_passthrough_headers_over_extra_headers(self):
+        llm = KAgentAnthropicLlm(
+            model="claude-3-sonnet-20240229",
+            extra_headers={"x-tenant": "config-tenant", "x-static": "static-value"},
+        )
+        llm.set_passthrough_headers({"x-tenant": "caller-tenant"})
+        with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic") as mock_anthropic:
+            mock_anthropic.return_value = mock.MagicMock(spec=AsyncAnthropic)
+            _ = llm._anthropic_client
+            assert mock_anthropic.call_args.kwargs["default_headers"] == {
+                "x-tenant": "caller-tenant",
+                "x-static": "static-value",
+            }
+
     def test_create_llm_from_anthropic_model_config(self):
         """Integration: _create_llm_from_model_config returns KAgentAnthropicLlm for anthropic type."""
         from kagent.adk.types import Anthropic, _create_llm_from_model_config
@@ -65,6 +96,48 @@ class TestKAgentAnthropicLlm:
         assert isinstance(result, KAgentAnthropicLlm)
         assert result.model == "claude-3-sonnet-20240229"
         assert result.base_url == "https://api.anthropic.com"
+
+    def test_create_llm_from_anthropic_model_config_with_passthrough_headers(self):
+        from kagent.adk.types import Anthropic, _create_llm_from_model_config
+
+        config = Anthropic(
+            type="anthropic",
+            model="claude-3-sonnet-20240229",
+            passthrough_headers=["x-guardrail-token"],
+        )
+        result = _create_llm_from_model_config(config)
+        assert isinstance(result, KAgentAnthropicLlm)
+        assert result.passthrough_headers == ["x-guardrail-token"]
+
+    @pytest.mark.asyncio
+    async def test_second_caller_without_headers_does_not_inherit_previous_token(self):
+        """Regression: the shared cached client must not leak caller A's pass-through header to caller B."""
+        from kagent.adk._llm_header_passthrough_plugin import LLMHeaderPassthroughPlugin
+
+        llm = KAgentAnthropicLlm(model="claude-3-sonnet-20240229", passthrough_headers=["x-guardrail-token"])
+        plugin = LLMHeaderPassthroughPlugin()
+
+        def callback_context(headers):
+            ctx = mock.MagicMock()
+            ctx.state = {"headers": headers}
+            ctx._invocation_context.agent.model = llm
+            return ctx
+
+        llm_request = mock.MagicMock()
+
+        with mock.patch("kagent.adk.models._anthropic.AsyncAnthropic") as mock_anthropic:
+            mock_anthropic.return_value = mock.MagicMock(spec=AsyncAnthropic)
+
+            await plugin.before_model_callback(
+                callback_context=callback_context({"x-guardrail-token": "CALLER-A-TOKEN"}),
+                llm_request=llm_request,
+            )
+            _ = llm._anthropic_client
+            assert mock_anthropic.call_args.kwargs["default_headers"] == {"x-guardrail-token": "CALLER-A-TOKEN"}
+
+            await plugin.before_model_callback(callback_context=callback_context({}), llm_request=llm_request)
+            _ = llm._anthropic_client
+            assert "default_headers" not in mock_anthropic.call_args.kwargs
 
 
 class TestAnthropicThinkingBlock:

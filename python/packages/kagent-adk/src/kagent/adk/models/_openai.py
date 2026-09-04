@@ -352,6 +352,10 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: Optional[bool] = None
 
+    # Header names forwarded per request from the incoming A2A request (see
+    # LLMHeaderPassthroughPlugin, which resolves them onto llm_request.config.http_options).
+    passthrough_headers: Optional[list[str]] = None
+
     # GDCH token exchange: refreshes a short-lived bearer token before each model call.
     token_exchange: Optional[GDCHTokenSource] = Field(default=None, exclude=True)
 
@@ -449,6 +453,12 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
             kwargs["temperature"] = self.temperature
         if self.top_p is not None:
             kwargs["top_p"] = self.top_p
+
+        # Per-request headers resolved by LLMHeaderPassthroughPlugin ride on
+        # llm_request.config.http_options; the OpenAI SDK applies extra_headers
+        # on top of the client-level default_headers.
+        if llm_request.config and llm_request.config.http_options and llm_request.config.http_options.headers:
+            kwargs["extra_headers"] = dict(llm_request.config.http_options.headers)
 
         # Handle tools
         if llm_request.config and llm_request.config.tools:
