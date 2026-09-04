@@ -1,12 +1,20 @@
 import Link from "next/link";
 import KagentLogo from "@/components/kagent-logo";
+import { sanitizeRedirect } from "@/lib/loginRedirect";
 import { skipToContentLinkClassName } from "@/lib/skipToContent";
 import { cn } from "@/lib/utils";
 
 // SSO redirect path - defaults to oauth2-proxy's start endpoint
 const SSO_REDIRECT_PATH = process.env.SSO_REDIRECT_PATH || "/oauth2/start";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ rd?: string }>;
+}) {
+  const { rd } = await searchParams;
+  const redirectTo = sanitizeRedirect(rd);
+
   return (
     <>
       {/* Preload background image for faster rendering */}
@@ -53,7 +61,7 @@ export default function LoginPage() {
 
             <div className="relative z-10">
               <Link
-                href={`${SSO_REDIRECT_PATH}?rd=/`}
+                href={`${SSO_REDIRECT_PATH}?rd=${encodeURIComponent(redirectTo)}`}
                 className="group relative inline-flex items-center justify-center gap-3 px-9 py-4 bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full text-white font-semibold text-lg border-2 border-white/90 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_25px_-5px_rgba(139,92,246,0.5)]"
               >
                 {/* Glow ring */}
