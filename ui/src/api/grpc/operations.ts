@@ -1107,6 +1107,7 @@ function toWorkerEntry(worker: PbSubstrateWorker): SubstrateWorkerEntry {
     actorNamespace: orUndefined(worker.actorNamespace),
     actorTemplate: orUndefined(worker.actorTemplate),
     actorId: orUndefined(worker.actorId),
+    actorStatus: orUndefined(worker.actorStatus),
     ip: orUndefined(worker.ip),
     version: toNumber(worker.version),
   };

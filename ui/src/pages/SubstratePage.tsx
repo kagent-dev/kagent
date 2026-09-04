@@ -284,7 +284,7 @@ const WORKER_STATES = ["Idle", ...ACTOR_STATES];
  * proportional band per status. The number is where counting gives out, not where the
  * browser does.
  */
-const ACTORS_DRAWN_INDIVIDUALLY = 120;
+const ACTORS_DRAWN_INDIVIDUALLY = 80;
 
 /**
  * The whole actor inventory as one bar, coloured by what each actor is doing.
@@ -307,12 +307,15 @@ function StatusBar({
   testId,
   vocabulary,
   noun,
+  unread,
 }: {
   counts: SubstrateStatusCount[];
   /** Every status worth listing at zero. Anything counted but missing is added to it. */
   vocabulary: string[];
   /** What is being counted, for the places with room to say it: `Actors`, `Workers`. */
   noun: string;
+  /** True when the read failed, so nothing here is a count of anything. */
+  unread?: boolean;
   /**
    * The bar's accessible name, announced with its breakdown. Not drawn: the legend
    * beneath already names every colour on it, and a heading over a card that is already
@@ -531,12 +534,19 @@ function StatusBar({
       {total === 0 ? (
         <>
           {track}
-          <Text
-            data-testid={`${testId}-empty`}
-            css={{ color: theme.color.textMuted, fontSize: 12, display: "block", marginTop: 8 }}
-          >
-            {emptyText}
-          </Text>
+          {/* Silent when the read failed: the banner above already says so, and "no actors
+              in this scope" under a broken backend reports a healthy empty cluster. The
+              legend stays either way — it is ten keys and two rows tall, and dropping it
+              as the last actor drains moves the table under whoever is reading it. */}
+          {unread ? null : (
+            <Text
+              data-testid={`${testId}-empty`}
+              css={{ color: theme.color.textMuted, fontSize: 12, display: "block", marginTop: 8 }}
+            >
+              {emptyText}
+            </Text>
+          )}
+          {legend}
         </>
       ) : (
         <Tooltip
@@ -1162,7 +1172,13 @@ export function SubstratePage() {
     [inventory?.actorTemplates, templateQuery],
   );
 
-  const actorRows = actors.error ? [] : (actors.data?.actors ?? []);
+  /* Memoised so the two bars below have a stable dependency: both branches allocate a new
+     array, so an inline expression changed identity on every render and the memos it fed
+     recomputed every tick — which is the one thing they exist to avoid. */
+  const actorRows = useMemo(
+    () => (actors.error ? [] : (actors.data?.actors ?? [])),
+    [actors.error, actors.data?.actors],
+  );
 
   /*
    * What the bar above the actor table counts.
@@ -1192,27 +1208,23 @@ export function SubstratePage() {
           : `Matching “${actorFilter}”: ${atAGlance(matches)}`,
     };
   }, [actorFilter, actorRows, actors.data?.totalSize, inventory?.actorStatusCounts]);
-  const workerRows = workers.error ? [] : (workers.data?.workers ?? []);
+  const workerRows = useMemo(
+    () => (workers.error ? [] : (workers.data?.workers ?? [])),
+    [workers.error, workers.data?.workers],
+  );
 
   /*
    * The workers bar: one segment per pod, coloured by what the actor on it is doing.
    *
-   * The worker entry carries the actor's id but not its status, so the status is joined
-   * here from the actors that came back. Both lists are pages, so a worker whose actor is
-   * not on the loaded page reads as `Not loaded` rather than being coloured by a guess —
-   * the join is complete exactly when both fit in one page, which is the common case
-   * locally and not the case on a large cluster.
-   *
-   * A client-side join, complete only within a page. The durable fix is the controller
-   * sending the actor's status on the worker entry, which would remove this.
+   * The status comes from the worker entry itself, which the controller fills by joining
+   * the two whole lists. Derived here from the loaded actors instead, it moved whenever
+   * the *actors* table was searched, sorted or paged — narrowing one list recoloured the
+   * other, and a pod whose actor was off the page read as a status no cluster reports.
    */
   const workerBar = useMemo(() => {
-    const statusByActor = new Map(actorRows.map((actor) => [actor.actorId, actor.status]));
     const byStatus = new Map<string, number>();
     for (const worker of workerRows) {
-      const status = !worker.actorId
-        ? "Idle"
-        : (statusByActor.get(worker.actorId) ?? "Not loaded");
+      const status = worker.actorId ? (worker.actorStatus || "Unknown") : "Idle";
       byStatus.set(status, (byStatus.get(status) ?? 0) + 1);
     }
     const counts = [...byStatus].map(([status, count]) => ({ status, count }));
@@ -1223,7 +1235,7 @@ export function SubstratePage() {
       counts,
       caption: workerFilter ? `Matching “${workerFilter}”: ${shown}` : shown,
     };
-  }, [actorRows, workerRows, workerFilter, workers.data?.totalSize]);
+  }, [workerRows, workerFilter, workers.data?.totalSize]);
 
   /*
    * The tiles, from the summary's own counts.
@@ -1833,6 +1845,7 @@ export function SubstratePage() {
             title="Actor status"
             vocabulary={ACTOR_STATES}
             noun="Actors"
+            unread={Boolean(summary.error || actors.error)}
             counts={actorBar.counts}
             caption={actorBar.caption}
             emptyText={
@@ -1937,6 +1950,7 @@ export function SubstratePage() {
             title="Worker status"
             vocabulary={WORKER_STATES}
             noun="Workers"
+            unread={Boolean(summary.error || workers.error)}
             counts={workerBar.counts}
             caption={workerBar.caption}
             emptyText={

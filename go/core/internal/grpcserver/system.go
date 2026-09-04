@@ -112,6 +112,7 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 			ActorNamespace:  worker.ActorNamespace,
 			ActorTemplate:   worker.ActorTemplate,
 			ActorId:         worker.ActorID,
+			ActorStatus:     worker.ActorStatus,
 			Ip:              worker.IP,
 			Version:         worker.Version,
 		})

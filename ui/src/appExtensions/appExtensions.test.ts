@@ -458,10 +458,18 @@ describe("applyExtensionBranding", () => {
     document.head.innerHTML = "";
 
     applyExtensionBranding({ faviconUrl: "/my-mark.svg" });
+    // Twice: the link it creates carries the marker, so the second call retargets the
+    // first rather than leaving two icons for the browser to choose between.
+    applyExtensionBranding({ faviconUrl: "/other-mark.svg" });
 
-    expect(
-      document.querySelector<HTMLLinkElement>('link[rel="icon"]')?.href,
-    ).toContain("/my-mark.svg");
+    expect(document.querySelectorAll('link[rel="icon"]')).toHaveLength(1);
+    expect(favicon()?.href).toContain("/other-mark.svg");
+  });
+
+  it("does not advertise SVG for an icon that is not one", () => {
+    applyExtensionBranding({ faviconUrl: "/my-mark.png" });
+
+    expect(favicon()?.getAttribute("type")).toBe("");
   });
 });
 

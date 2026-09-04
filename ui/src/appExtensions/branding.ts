@@ -50,9 +50,17 @@ export function applyExtensionBranding(branding: ExtensionBranding | undefined):
   if (!branding?.faviconUrl) return;
 
   // The tag `index.html` ships, or a fresh one if a host page dropped it — a missing
-  // icon is not a reason to leave the extension's branding unapplied.
-  const link =
-    document.querySelector<HTMLLinkElement>("link[data-app-favicon]") ??
-    document.head.appendChild(Object.assign(document.createElement("link"), { rel: "icon" }));
+  // icon is not a reason to leave the extension's branding unapplied. The new one carries
+  // the marker too, so a second call retargets this link instead of appending another.
+  let link = document.querySelector<HTMLLinkElement>("link[data-app-favicon]");
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    link.dataset.appFavicon = "";
+    document.head.appendChild(link);
+  }
   link.href = branding.faviconUrl;
+  // `index.html` declares SVG. Left alone, a PNG would be served under a type that says
+  // otherwise, which browsers are entitled to act on when choosing between icons.
+  link.type = branding.faviconUrl.endsWith(".svg") ? "image/svg+xml" : "";
 }

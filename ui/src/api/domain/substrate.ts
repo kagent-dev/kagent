@@ -73,6 +73,8 @@ export interface SubstrateWorkerEntry {
   actorNamespace?: string;
   actorTemplate?: string;
   actorId?: string;
+  /** What the actor on this pod is doing. Absent when the pod holds nothing. */
+  actorStatus?: string;
   ip?: string;
   version?: number;
 }

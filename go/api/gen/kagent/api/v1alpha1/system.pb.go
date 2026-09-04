@@ -776,8 +776,11 @@ type SubstrateWorker struct {
 	ActorId         string                 `protobuf:"bytes,6,opt,name=actor_id,json=actorId,proto3" json:"actor_id,omitempty"`
 	Ip              string                 `protobuf:"bytes,7,opt,name=ip,proto3" json:"ip,omitempty"`
 	Version         int64                  `protobuf:"varint,8,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// What the actor on this pod is doing, so a reader of the worker list is not
+	// sent to the actor list to find out. Empty when the pod holds nothing.
+	ActorStatus   string `protobuf:"bytes,9,opt,name=actor_status,json=actorStatus,proto3" json:"actor_status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SubstrateWorker) Reset() {
@@ -866,6 +869,13 @@ func (x *SubstrateWorker) GetVersion() int64 {
 	return 0
 }
 
+func (x *SubstrateWorker) GetActorStatus() string {
+	if x != nil {
+		return x.ActorStatus
+	}
+	return ""
+}
+
 var File_kagent_api_v1alpha1_system_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
@@ -928,7 +938,7 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x10worker_pool_name\x18\n" +
 	" \x01(\tR\x0eworkerPoolName\x120\n" +
 	"\x14in_progress_snapshot\x18\v \x01(\tR\x12inProgressSnapshot\x12\x18\n" +
-	"\aversion\x18\f \x01(\x03R\aversion\"\x91\x02\n" +
+	"\aversion\x18\f \x01(\x03R\aversion\"\xb4\x02\n" +
 	"\x0fSubstrateWorker\x12)\n" +
 	"\x10worker_namespace\x18\x01 \x01(\tR\x0fworkerNamespace\x12\x1f\n" +
 	"\vworker_pool\x18\x02 \x01(\tR\n" +
@@ -939,7 +949,8 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x0eactor_template\x18\x05 \x01(\tR\ractorTemplate\x12\x19\n" +
 	"\bactor_id\x18\x06 \x01(\tR\aactorId\x12\x0e\n" +
 	"\x02ip\x18\a \x01(\tR\x02ip\x12\x18\n" +
-	"\aversion\x18\b \x01(\x03R\aversion2\xbb\x03\n" +
+	"\aversion\x18\b \x01(\x03R\aversion\x12!\n" +
+	"\factor_status\x18\t \x01(\tR\vactorStatus2\xbb\x03\n" +
 	"\rSystemService\x12]\n" +
 	"\n" +
 	"GetVersion\x12&.kagent.api.v1alpha1.GetVersionRequest\x1a'.kagent.api.v1alpha1.GetVersionResponse\x12i\n" +
