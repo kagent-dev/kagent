@@ -6,7 +6,7 @@ from a2a.server.context import ServerCallContext
 from a2a.server.tasks import TaskStore
 from a2a.types import MessageSendParams, Task
 
-from ._context import set_request_user_id
+from ._context import get_call_context_user_id, set_request_user_id
 
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
@@ -43,13 +43,13 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
         task: Task | None = None,
         context: ServerCallContext | None = None,
     ) -> RequestContext:
+        user_id = get_call_context_user_id(context)
+        set_request_user_id(user_id)
         if context:
             headers = context.state.get("headers", {})
             # Extract the authenticated user ID forwarded by the parent agent
-            user_id = headers.get("x-user-id", None)
             if user_id:
                 context.user = KAgentUser(user_id=user_id)
-                set_request_user_id(user_id)
             # Propagate x-kagent-source so downstream code (e.g. session
             # creation) can tag this session as agent-originated.
             source = headers.get("x-kagent-source", None)
