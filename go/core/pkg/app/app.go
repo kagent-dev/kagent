@@ -42,6 +42,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"go.uber.org/zap/zapcore"
@@ -166,11 +167,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	vectorEnabled := envBool("DATABASE_VECTOR_ENABLED")
+	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
 	// Appended, not merged: the built-in tracks must reach their final version
 	// before a library consumer's tables, which may reference them.
 	sources := append(migrations.BuiltinSources(vectorEnabled), opts.ExtraMigrations...)
-	if envBool("SKIP_MIGRATIONS") {
+	if kagentenv.SkipMigrations.Get() {
 		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
