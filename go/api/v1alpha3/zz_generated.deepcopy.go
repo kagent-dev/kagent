@@ -975,6 +975,11 @@ func (in *ModelConfigSpec) DeepCopyInto(out *ModelConfigSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.PassthroughHeaders != nil {
+		in, out := &in.PassthroughHeaders, &out.PassthroughHeaders
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.OpenAI != nil {
 		in, out := &in.OpenAI, &out.OpenAI
 		*out = new(OpenAIConfig)

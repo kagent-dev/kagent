@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/headers"
 )
 
 // defaultTimeout is the default execution timeout used by model implementations.
@@ -18,6 +20,7 @@ const defaultTimeout = 30 * time.Minute
 // TransportConfig holds TLS, passthrough, and header settings shared by all model providers.
 type TransportConfig struct {
 	Headers               map[string]string
+	PassthroughHeaders    []string // header names forwarded per request from the incoming A2A call context
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
@@ -49,8 +52,9 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 		}
 	}
 
-	if len(tc.Headers) > 0 {
-		transport = &headerTransport{base: transport, headers: tc.Headers}
+	passthrough := headers.FilterRestricted(tc.PassthroughHeaders)
+	if len(tc.Headers) > 0 || len(passthrough) > 0 {
+		transport = &headerTransport{base: transport, headers: tc.Headers, passthrough: passthrough}
 	}
 
 	timeout := defaultTimeout
@@ -96,15 +100,23 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 
 type contextKey struct{}
 
-// headerTransport wraps an http.RoundTripper and adds custom headers to all requests
+// headerTransport wraps an http.RoundTripper and adds custom headers to all
+// requests: static headers first, then pass-through headers resolved per
+// request from the incoming A2A call context, which therefore win on
+// collision. Provider credentials are never affected — restricted names are
+// stripped from the pass-through list at construction (headers.FilterRestricted).
 type headerTransport struct {
-	base    http.RoundTripper
-	headers map[string]string
+	base        http.RoundTripper
+	headers     map[string]string
+	passthrough []string
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	for k, v := range headers.AllowedRequestHeaders(req.Context(), t.passthrough) {
 		req.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(req)

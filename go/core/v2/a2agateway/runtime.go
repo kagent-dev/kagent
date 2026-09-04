@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/headers"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"go.opentelemetry.io/otel/propagation"
@@ -72,6 +75,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),
 			&upstreamAuthInterceptor{authenticator: d.authenticator, instance: instance},
+			&callerHeadersInterceptor{},
 		),
 	)
 }
@@ -103,4 +107,50 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		}
 	}
 	return ctx, nil, nil
+}
+
+// callerHeadersInterceptor forwards caller-supplied custom headers from the
+// public gateway request onto the private runtime call, where the per-feature
+// allowlists (ModelConfig passthroughHeaders, MCP tool allowedHeaders) decide
+// what is actually used. Credential and hop-by-hop names (headers.IsRestricted)
+// and transport/system metadata are dropped; Authorization on this hop belongs
+// to upstreamAuthInterceptor and trace context to its propagation injector.
+type callerHeadersInterceptor struct {
+	a2aclient.PassthroughInterceptor
+}
+
+func (c *callerHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ctx, nil, nil
+	}
+	params := callCtx.ServiceParams()
+	if params == nil {
+		return ctx, nil, nil
+	}
+	for key, values := range params.List() {
+		if !forwardableCallerHeader(key) || len(values) == 0 || values[0] == "" {
+			continue
+		}
+		req.ServiceParams.Append(key, values[0])
+	}
+	return ctx, nil, nil
+}
+
+// forwardableCallerHeader reports whether a public-request metadata key is a
+// caller-supplied custom header safe to relay to the runtime. gRPC pseudo and
+// grpc-* keys never leave their hop; the named transport headers describe the
+// public request rather than the caller's intent; traceparent/tracestate and
+// x-a2a-extensions are owned by the other interceptors on this client.
+func forwardableCallerHeader(name string) bool {
+	lowered := strings.ToLower(name)
+	if headers.IsRestricted(lowered) || strings.HasPrefix(lowered, ":") || strings.HasPrefix(lowered, "grpc-") {
+		return false
+	}
+	switch lowered {
+	case "accept", "accept-encoding", "content-type", "user-agent",
+		"traceparent", "tracestate", "x-a2a-extensions":
+		return false
+	}
+	return true
 }

@@ -104,6 +104,13 @@ def static(
             plugins = []
         plugins.append(LLMPassthroughPlugin())
 
+    if agent_config.model.passthrough_headers:
+        from ._llm_header_passthrough_plugin import LLMHeaderPassthroughPlugin
+
+        if plugins is None:
+            plugins = []
+        plugins.append(LLMHeaderPassthroughPlugin())
+
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
 
