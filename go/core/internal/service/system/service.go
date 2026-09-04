@@ -397,6 +397,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		}
 		workers = append(workers, workerFromProto(worker))
 	}
+	placeActorsOnWorkers(workers, actors)
 	return templates, actors, workers, nil
 }
 
@@ -433,6 +434,47 @@ func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
 		WorkerPod:       worker.GetWorkerPod(),
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
+	}
+}
+
+// placeActorsOnWorkers fills in what each worker is holding.
+//
+// The binding is recorded on the actor — `ActorStatus.worker_assignment` names the pod —
+// and nowhere on the worker: `ateapi.Worker` carries no actor reference at all, so
+// `workerFromProto` above has nothing to read and every worker came back holding nothing.
+// A page that reads an absent actor as an idle pod then reports the whole fleet idle
+// while it is running, which is what it did.
+//
+// Joined here rather than in the caller, because this is the one place both whole lists
+// are in hand: the reads that reach a browser are pages, and a join across two pages
+// matches only where they happen to overlap.
+//
+// ponytail: a worker can hold several actors since v0.0.25, and `SubstrateWorker` has one
+// actor's worth of fields, so this reports the lowest actor id on the pod and says nothing
+// about the rest. Lowest rather than first seen because ate-api returns actors in no
+// particular order — picked by arrival, the cell would name a different actor on each poll.
+// Carrying the whole set needs a repeated field on `SubstrateWorker` in system.proto.
+func placeActorsOnWorkers(workers []SubstrateWorker, actors []SubstrateActor) {
+	type pod struct{ namespace, name string }
+	holding := make(map[pod]SubstrateActor, len(actors))
+	for _, actor := range actors {
+		if actor.AteomPodName == "" {
+			continue
+		}
+		key := pod{actor.AteomPodNamespace, actor.AteomPodName}
+		if held, ok := holding[key]; ok && held.ActorID <= actor.ActorID {
+			continue
+		}
+		holding[key] = actor
+	}
+	for i := range workers {
+		actor, ok := holding[pod{workers[i].WorkerNamespace, workers[i].WorkerPod}]
+		if !ok {
+			continue
+		}
+		workers[i].ActorNamespace = actor.ActorTemplateNamespace
+		workers[i].ActorTemplate = actor.ActorTemplateName
+		workers[i].ActorID = actor.ActorID
 	}
 }
 
