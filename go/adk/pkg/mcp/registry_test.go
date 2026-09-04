@@ -79,9 +79,49 @@ func TestAllowedRequestHeaders_ForwardsMatchingHeaders(t *testing.T) {
 	}
 }
 
-// TestAllowedRequestHeaders_StaticOverridesDynamic verifies that a statically
-// configured header wins over the same header forwarded from the A2A request.
-func TestAllowedRequestHeaders_StaticOverridesDynamic(t *testing.T) {
+// TestUnlistedRequestHeader_DoesNotOverrideStatic verifies the override in
+// TestAllowedRequestHeaders_DynamicOverridesStatic is gated on the header
+// being explicitly opted in. An incoming request carrying the same header
+// name as a static default, with neither allowedHeaders nor propagateToken
+// configured for it, must not override the static value — a request cannot
+// silently clobber a static header just by sending one with a matching name.
+func TestUnlistedRequestHeader_DoesNotOverrideStatic(t *testing.T) {
+	t.Parallel()
+	var capturedAuth string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := a2aCtx(map[string][]string{
+		"Authorization": {"Bearer incoming"},
+	})
+
+	rt := &headerRoundTripper{
+		base:    newTestTransport(t),
+		headers: map[string]string{"Authorization": "Bearer static"},
+		// Deliberately no allowedHeaders, no propagateToken, no headerProvider:
+		// nothing opts Authorization into being forwarded from the request.
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer static" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
+	}
+}
+
+// TestAllowedRequestHeaders_DynamicOverridesStatic verifies that a header
+// forwarded from the A2A request (via allowedHeaders) wins over a statically
+// configured header of the same name — the static header is only a default.
+func TestAllowedRequestHeaders_DynamicOverridesStatic(t *testing.T) {
 	t.Parallel()
 	var capturedAuth string
 
@@ -108,8 +148,8 @@ func TestAllowedRequestHeaders_StaticOverridesDynamic(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if capturedAuth != "Bearer static" {
-		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
+	if capturedAuth != "Bearer incoming" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer incoming")
 	}
 }
 
@@ -535,9 +575,12 @@ func TestDynamicHeaders_OverridePropagatedAndAllowedHeaders(t *testing.T) {
 	}
 }
 
-// TestStaticHeaders_OverrideDynamic verifies static configured headers remain
-// the highest-precedence source.
-func TestStaticHeaders_OverrideDynamic(t *testing.T) {
+// TestDynamicHeaders_OverrideStatic verifies a headerProvider-sourced header
+// (e.g. an STS-exchanged or propagated Authorization) wins over a static header
+// of the same name configured on the MCP server spec. This is what lets a
+// per-user token override a RemoteMCPServer's static headersFrom Authorization
+// that the controller needs for its own tool-discovery handshake.
+func TestDynamicHeaders_OverrideStatic(t *testing.T) {
 	t.Parallel()
 	var capturedAuth string
 
@@ -562,7 +605,47 @@ func TestStaticHeaders_OverrideDynamic(t *testing.T) {
 	}
 	resp.Body.Close()
 
+	if capturedAuth != "Bearer dynamic" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer dynamic")
+	}
+}
+
+// TestStaticHeaders_ApplyWhenNoDynamicSource verifies the static header is
+// still used when no dynamic source sets the same header name — e.g. an
+// autonomous run with no caller token, or an unrelated static header.
+func TestStaticHeaders_ApplyWhenNoDynamicSource(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedOther string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedOther = r.Header.Get("X-Other")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt := &headerRoundTripper{
+		base: newTestTransport(t),
+		headers: map[string]string{
+			"Authorization": "Bearer static",
+			"X-Other":       "static-other",
+		},
+		headerProvider: func(context.Context) map[string]string {
+			return map[string]string{"X-Different": "dynamic-value"}
+		},
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
 	if capturedAuth != "Bearer static" {
 		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
+	}
+	if capturedOther != "static-other" {
+		t.Errorf("X-Other: got %q, want %q", capturedOther, "static-other")
 	}
 }
