@@ -364,10 +364,17 @@ const notFound = (what: string) =>
 // Agents
 // ---------------------------------------------------------------------------
 
-function modelMessage(model: ModelConfig) {
+/** Capabilities the mock reports. Every action is refused under `denied`. */
+function allows(call: { scenario: MockScenario }): boolean {
+  return call.scenario !== "denied";
+}
+
+function modelMessage(model: ModelConfig, call: { scenario: MockScenario }) {
   const ref = splitRef(model.ref);
   return {
     ref,
+    canUpdate: allows(call),
+    canDelete: allows(call),
     resource: structured("ModelConfig", {
       apiVersion: "kagent.dev/v1alpha3",
       kind: "ModelConfig",
@@ -382,7 +389,8 @@ const specOf = (resource: { value?: JsonObject } | undefined) =>
   ({} as ModelConfigSpec);
 
 on(ModelService.method.listModelConfigs, (_input, call) => ({
-  modelConfigs: call.scenario === "empty" ? [] : allModels().map(modelMessage),
+  modelConfigs: call.scenario === "empty" ? [] : allModels().map((m) => modelMessage(m, call)),
+  canCreate: allows(call),
 }));
 
 on(ModelService.method.getModelConfig, (input, call) => {
@@ -392,16 +400,16 @@ on(ModelService.method.getModelConfig, (input, call) => {
       ? undefined
       : allModels().find((model) => model.ref === wanted);
   if (!found) throw notFound(`model configuration ${wanted}`);
-  return { modelConfig: modelMessage(found) };
+  return { modelConfig: modelMessage(found, call) };
 });
 
-on(ModelService.method.createModelConfig, (input) => ({
+on(ModelService.method.createModelConfig, (input, call) => ({
   // The API key is accepted and never echoed back, which is what write-only means.
-  modelConfig: modelMessage(saveModel(refString(input.ref), specOf(input.resource))),
+  modelConfig: modelMessage(saveModel(refString(input.ref), specOf(input.resource)), call),
 }));
 
-on(ModelService.method.updateModelConfig, (input) => ({
-  modelConfig: modelMessage(saveModel(refString(input.ref), specOf(input.resource))),
+on(ModelService.method.updateModelConfig, (input, call) => ({
+  modelConfig: modelMessage(saveModel(refString(input.ref), specOf(input.resource)), call),
 }));
 
 on(ModelService.method.deleteModelConfig, (input) => {
@@ -1057,7 +1065,7 @@ const instanceShareMessage = (share: AgentInstanceShare) => ({
 // ---------------------------------------------------------------------------
 
 on(HarnessService.method.listHarnesses, (input, call) => {
-  if (call.scenario === "empty") return { harnesses: [] };
+  if (call.scenario === "empty") return { harnesses: [], canCreate: allows(call) };
   const scope = input.namespace.trim();
   return {
     harnesses: allHarnesses()
@@ -1068,16 +1076,20 @@ on(HarnessService.method.listHarnesses, (input, call) => {
         runtime: harness.runtime,
         workloadImage: harness.workloadImage,
         ready: harness.ready,
+        canDelete: allows(call),
       })),
+    canCreate: allows(call),
   };
 });
 
-const agentTemplateMessage = (template: AgentTemplate) => ({
+const agentTemplateMessage = (template: AgentTemplate, call: { scenario: MockScenario }) => ({
   ref: { namespace: template.namespace, name: template.name },
   resource: structured("AgentTemplate", template.resource as unknown as JsonObject),
   modelConfigRef: refPair(template.modelConfigRef),
   description: template.description,
   admittingHarnesses: template.admittingHarnesses,
+  canUpdate: allows(call),
+  canDelete: allows(call),
 });
 
 /** The template at this ref, or the controller's own `NotFound`. */
@@ -1166,18 +1178,20 @@ function templateFromResource(
 }
 
 on(AgentTemplateService.method.listAgentTemplates, (input, call) => {
-  if (call.scenario === "empty") return { agentTemplates: [] };
+  if (call.scenario === "empty") return { agentTemplates: [], canCreate: allows(call) };
   const scope = input.namespace.trim();
   return {
     agentTemplates: allAgentTemplates()
       .filter((template) => scope === "" || template.namespace === scope)
-      .map(agentTemplateMessage),
+      .map((template) => agentTemplateMessage(template, call)),
+    canCreate: allows(call),
   };
 });
 
-on(AgentTemplateService.method.getAgentTemplate, (input) => ({
+on(AgentTemplateService.method.getAgentTemplate, (input, call) => ({
   agentTemplate: agentTemplateMessage(
     templateFor(requireNamespace(input.ref?.namespace ?? ""), input.ref?.name ?? ""),
+    call,
   ),
 }));
 
@@ -1233,6 +1247,7 @@ on(HarnessService.method.createHarness, (input, call) => {
       runtime: saved.runtime,
       workloadImage: saved.workloadImage,
       ready: saved.ready,
+      canDelete: allows(call),
     },
   };
 });
@@ -1265,6 +1280,7 @@ on(AgentTemplateService.method.createAgentTemplate, (input, call) => {
   return {
     agentTemplate: agentTemplateMessage(
       saveAgentTemplate(templateFromResource(namespace, name, value)),
+      call,
     ),
   };
 });
@@ -1282,6 +1298,7 @@ on(AgentTemplateService.method.updateAgentTemplate, (input, call) => {
   return {
     agentTemplate: agentTemplateMessage(
       saveAgentTemplate(templateFromResource(namespace, name, value)),
+      call,
     ),
   };
 });

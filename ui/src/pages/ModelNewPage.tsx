@@ -1,9 +1,9 @@
-import { Button } from "antd";
+import { Alert, Button, Skeleton } from "antd";
 import { Link, useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { paths } from "@/router/routes";
-import { apiClient, type CreateModelConfigRequest } from "@/api";
+import { apiClient, useModels, type CreateModelConfigRequest } from "@/api";
 
 /**
  * Create a model configuration.
@@ -13,6 +13,7 @@ import { apiClient, type CreateModelConfigRequest } from "@/api";
  */
 export function ModelNewPage() {
   const navigate = useNavigate();
+  const models = useModels();
 
   async function createModel(payload: CreateModelConfigRequest): Promise<void> {
     await apiClient.models.create(payload);
@@ -31,7 +32,17 @@ export function ModelNewPage() {
         </Link>
       }
     >
-      <ModelForm onSubmit={createModel} />
+      {models.isLoading ? (
+        <Skeleton active paragraph={{ rows: 6 }} />
+      ) : models.canCreate ? (
+        <ModelForm onSubmit={createModel} />
+      ) : (
+        <Alert
+          type="info"
+          showIcon
+          title="You cannot create model configurations"
+        />
+      )}
     </PageFrame>
   );
 }

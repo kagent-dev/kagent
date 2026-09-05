@@ -113,7 +113,7 @@ export const agentDetail = (id: string) =>
  * `src/mocks/scenario.ts`), which is what makes the loading, empty and failure
  * paths drivable from a test without a second build or a stubbed module.
  */
-export type MockScenario = "ok" | "empty" | "error" | "slow";
+export type MockScenario = "ok" | "empty" | "error" | "slow" | "denied";
 
 /**
  * Adds the scenario to a path.

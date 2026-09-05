@@ -70,6 +70,7 @@ import type {
   AgentTemplate,
   AgentTemplateResource,
 } from "./domain/agentTemplates";
+import type { ResourceCollection } from "./domain/common";
 
 /** An operation that takes nothing. Written `{}` at the call site. */
 export type NoInput = Record<string, never>;
@@ -145,7 +146,7 @@ export interface OperationMap {
   "scheduledRuns.delete": ScheduledRunRpc<"deleteScheduledRun">;
   "scheduledRuns.trigger": ScheduledRunRpc<"triggerScheduledRun">;
   "scheduledRuns.executions": ScheduledRunRpc<"listScheduledRunExecutions">;
-  "models.list": { input: NoInput; output: ModelConfig[] };
+  "models.list": { input: NoInput; output: ResourceCollection<ModelConfig> };
   "models.get": { input: ResourceRefInput; output: ModelConfig };
   "models.create": { input: { payload: CreateModelConfigRequest }; output: ModelConfig };
   "models.update": {
@@ -290,7 +291,7 @@ export interface OperationMap {
   "agentInstances.suspend": { input: AgentInstanceRef; output: AgentInstance };
   "agentInstances.resume": { input: AgentInstanceRef; output: AgentInstance };
 
-  "harnesses.list": { input: { namespace?: string }; output: Harness[] };
+  "harnesses.list": { input: { namespace?: string }; output: ResourceCollection<Harness> };
   /**
    * Creates a harness from a whole custom resource.
    *
@@ -304,7 +305,10 @@ export interface OperationMap {
   };
   "harnesses.delete": { input: ResourceRefInput; output: void };
   /** The agent templates in one namespace, or in every observed namespace. */
-  "agentTemplates.list": { input: { namespace?: string }; output: AgentTemplate[] };
+  "agentTemplates.list": {
+    input: { namespace?: string };
+    output: ResourceCollection<AgentTemplate>;
+  };
   "agentTemplates.get": { input: ResourceRefInput; output: AgentTemplate };
   /**
    * Creates an agent template from a whole custom resource.
