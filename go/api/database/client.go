@@ -70,7 +70,7 @@ type Client interface {
 	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
-	DeleteAgentInstance(context.Context, string) error
+	DeleteAgentInstance(context.Context, string) (*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
 	// GetAgentInstanceShareByTokenHash resolves a share token to its share and the

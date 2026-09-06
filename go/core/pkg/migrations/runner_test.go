@@ -481,3 +481,54 @@ func TestEmptySources(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAgentInstanceTombstoneMigrationBackfillsAndRollsBack(t *testing.T) {
+	dsn := startTestDB(t)
+	source := BuiltinSources(false)[0]
+	if err := WithProvider(t.Context(), dsn, source, func(provider *goose.Provider) error {
+		_, err := provider.UpTo(t.Context(), 1)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id := "00000000-0000-0000-0000-000000000004"
+	execSQL(t, dsn, `INSERT INTO runtime_revision (revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, actor_template_atespace, actor_template_name, agent_card)
+        VALUES ('revision', 'team', 'assistant', 'template-uid', 'runtime', 'harness-uid', '{}', 'team', 'runtime', '{}')`)
+	execSQL(t, dsn, "INSERT INTO a2a_context (id, namespace, user_id) VALUES ($1, 'team', 'alice')", id)
+	execSQL(t, dsn, "INSERT INTO agent_instance (id, namespace, user_id, request_id, prepared_revision, state, data, context_id) VALUES ($1, 'team', 'alice', 'request', 'revision', 'READY', $2, $1)", id, []byte{})
+	if err := RunUp(t.Context(), dsn, []Source{source}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var template, harness string
+	if err := db.QueryRowContext(t.Context(), "SELECT agent_template_name, harness_name FROM agent_instance WHERE id = $1", id).Scan(&template, &harness); err != nil {
+		t.Fatal(err)
+	}
+	if template != "assistant" || harness != "runtime" {
+		t.Fatalf("backfilled pair = %s/%s", template, harness)
+	}
+	execSQL(t, dsn, "UPDATE agent_instance SET state = 'DELETED', deleted_at = clock_timestamp(), prepared_revision = NULL WHERE id = $1", id)
+	if err := WithProvider(t.Context(), dsn, source, func(provider *goose.Provider) error {
+		_, err := provider.DownTo(t.Context(), 1)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if testColumnExists(t, dsn, "agent_instance", "deleted_at") {
+		t.Fatal("down retained deleted_at")
+	}
+	var instances, contexts int
+	if err := db.QueryRowContext(t.Context(), "SELECT (SELECT count(*) FROM agent_instance), (SELECT count(*) FROM a2a_context)").Scan(&instances, &contexts); err != nil {
+		t.Fatal(err)
+	}
+	if instances != 0 || contexts != 1 {
+		t.Fatalf("down left %d instances and %d contexts", instances, contexts)
+	}
+	if err := RunUp(t.Context(), dsn, []Source{source}); err != nil {
+		t.Fatal(err)
+	}
+}

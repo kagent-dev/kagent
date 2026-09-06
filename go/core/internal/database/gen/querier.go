@@ -15,9 +15,9 @@ type Querier interface {
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
-	DeleteAgentInstance(ctx context.Context, id uuid.UUID) error
 	DeleteAgentInstanceCheckpoint(ctx context.Context, arg DeleteAgentInstanceCheckpointParams) (int64, error)
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
+	DeleteAgentInstanceShares(ctx context.Context, instanceID uuid.UUID) error
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
@@ -59,14 +59,7 @@ type Querier interface {
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
-	// Lists the conversations an instance is, optionally narrowed to one agent.
-	//
-	// An agent is an (AgentTemplate, Harness) pair, and the instance row carries
-	// neither name as a column -- both live inside `data`. They are resolved through
-	// `prepared_revision`, which is a foreign key to `runtime_revision` and does
-	// carry them, so the filter needs no new column and matches rows written before
-	// it existed. An instance with no prepared revision belongs to no pair and
-	// therefore matches no template or harness filter.
+	// Pair names remain queryable after a tombstone releases its runtime revision.
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
@@ -89,6 +82,7 @@ type Querier interface {
 	SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
+	TombstoneAgentInstance(ctx context.Context, arg TombstoneAgentInstanceParams) (AgentInstance, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
 	// Renames an instance in place. The row's `data` blob also carries the message,
 	// but `toAgentInstance` reads the name from this column, exactly as it does for

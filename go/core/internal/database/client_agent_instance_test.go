@@ -333,7 +333,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || failed.State != "FAILED" || failed.Failure != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
 	}
-	if err := client.DeleteAgentInstance(ctx, instanceID); err != nil {
+	if _, err := client.DeleteAgentInstance(ctx, instanceID); err != nil {
 		t.Fatal(err)
 	}
 	replayed, err = client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
@@ -410,7 +410,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("99999999-9999-4999-8999-999999999999"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(source.GetId()), UserID: "alice", RequestID: "checkpoint-request-1",
+		ID: uuid.MustParse("99999999-9999-4999-8999-99999999999a"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(source.GetId()), UserID: "alice", RequestID: "checkpoint-request-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +428,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		&dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-2", UID: "snapshot-uid-2", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.DeleteAgentInstance(ctx, source.GetId()); err != nil {
+	if _, err := client.DeleteAgentInstance(ctx, source.GetId()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -471,7 +471,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if initialMessageID != nil || requestHash != nil || snapshotUID != "snapshot-uid-1" {
 		t.Fatalf("copied persistence metadata = message %v hash %v snapshot %q", initialMessageID, requestHash, snapshotUID)
 	}
-	replayed, created, err := client.ForkAgentInstance(ctx, "team-a", checkpoint.ID.String(), "alice", "fork-request-1", "ignored")
+	replayed, created, err := client.ForkAgentInstance(ctx, "team-a", "99999999-9999-4999-8999-99999999999A", "alice", "fork-request-1", "ignored")
 	if err != nil || created || replayed.GetId() != fork.GetId() {
 		t.Fatalf("replayed fork = %+v, created %v, error %v", replayed, created, err)
 	}
@@ -494,8 +494,19 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint2.ID.String(), "tag-uid-2", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.DeleteAgentInstance(ctx, fork.GetId()); err != nil {
+	if _, err := client.DeleteAgentInstance(ctx, fork.GetId()); err != nil {
 		t.Fatal(err)
+	}
+	// Deleting a fork releases its checkpoint without losing request identity.
+	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID.String(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID.String(), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	replayed, created, err = client.ForkAgentInstance(ctx, "team-a", "99999999-9999-4999-8999-99999999999A", "alice", "fork-request-1", "ignored")
+	if err != nil || created || replayed.GetId() != fork.GetId() || replayed.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		t.Fatalf("deleted fork replay = %v, created %v, error %v", replayed, created, err)
 	}
 	fork2, created, err := client.ForkAgentInstance(ctx, "team-a", checkpoint2.ID.String(), "alice", "fork-request-2", fork2ID)
 	if err != nil || !created || fork2.GetId() != fork2ID {

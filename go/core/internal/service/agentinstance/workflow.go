@@ -20,7 +20,7 @@ type workflowStore interface {
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
-	DeleteAgentInstance(context.Context, string) error
+	DeleteAgentInstance(context.Context, string) (*apiv1alpha1.AgentInstance, error)
 }
 
 type actorClient interface {
@@ -322,8 +322,14 @@ func (w *ActorWorkflow) release(ctx context.Context, instance *apiv1alpha1.Agent
 // template identity is checked and it is suspended before deletion, as
 // required by Substrate's lifecycle contract.
 func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return instance, nil
+	}
 	originalState := instance.GetState()
 	instance, claimed, err := w.claim(ctx, instance, originalState, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
+	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) && instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return instance, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -358,20 +364,15 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 	return w.finishDelete(ctx, instance)
 }
 
-// finishDelete removes the durable AgentInstance row only after the Actor is
-// gone. The returned message is detached from storage and scrubbed of runtime
-// routing details so the synchronous Delete RPC can describe the completed
-// operation without leaving a tombstone in the database.
+// finishDelete retains the instance identity after the Actor is gone. The store
+// atomically releases runtime references, revokes shares, and timestamps deletion.
 func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	if err := w.store.DeleteAgentInstance(ctx, instance.GetId()); err != nil {
+	deleted, err := w.store.DeleteAgentInstance(ctx, instance.GetId())
+	if err != nil {
 		return nil, fmt.Errorf("delete AgentInstance: %w", err)
 	}
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED
-	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
-	instance.PreparedRevision = ""
-	instance.A2AAuthority = ""
 	// TODO: Trigger runtime revision garbage collection outside the AgentInstance delete workflow.
-	return instance, nil
+	return deleted, nil
 }
 
 func actorName(instanceID string) string { return "ai-" + strings.ToLower(instanceID) }

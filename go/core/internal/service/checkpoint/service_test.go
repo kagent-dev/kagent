@@ -203,3 +203,14 @@ func TestForkCreatesAgentInstanceFromCheckpoint(t *testing.T) {
 		t.Fatalf("fork = %+v, checkpoint = %+v", instance, workflow.checkpoint)
 	}
 }
+
+func TestForkRetryReturnsDeletedInstanceAfterCheckpointDeletion(t *testing.T) {
+	tombstone := &apiv1alpha1.AgentInstance{Id: uuid.NewString(), State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED}
+	store := &testStore{forked: tombstone}
+	service := NewService(store, testAuthorizer{}, nil, nil)
+	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+	result, err := service.Fork(ctx, "team-a", uuid.NewString(), "original-request")
+	if err != nil || result != tombstone {
+		t.Fatalf("fork retry = %v, %v", result, err)
+	}
+}

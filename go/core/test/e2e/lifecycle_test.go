@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // TestAgentInstanceLifecycle verifies the synchronous public lifecycle contract
@@ -39,9 +40,10 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	defer cancel()
 	client := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 
-	created, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
+	request := &apiv1alpha1.CreateAgentInstanceRequest{
 		Namespace: "kagent", AgentTemplate: "smoke", Harness: "kagent", RequestId: uuid.NewString(),
-	})
+	}
+	created, err := client.CreateAgentInstance(ctx, request)
 	if err != nil {
 		t.Fatalf("create AgentInstance: %v", err)
 	}
@@ -65,5 +67,18 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("get deleted AgentInstance error = %v, want NotFound", err)
+	}
+
+	tombstone, err := client.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{Namespace: "kagent", AgentInstanceId: instance.Id, IncludeDeleted: true})
+	if err != nil || !proto.Equal(deleted.AgentInstance, tombstone.GetAgentInstance()) || tombstone.GetAgentInstance().GetDeletedAt() == nil {
+		t.Fatalf("get tombstone = %v, error %v", tombstone, err)
+	}
+	again, err := client.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{Namespace: "kagent", AgentInstanceId: instance.Id})
+	if err != nil || !proto.Equal(deleted, again) {
+		t.Fatalf("delete retry = %v, error %v", again, err)
+	}
+	replayed, err := client.CreateAgentInstance(ctx, request)
+	if err != nil || !proto.Equal(deleted.AgentInstance, replayed.GetAgentInstance()) {
+		t.Fatalf("create retry = %v, error %v", replayed, err)
 	}
 }

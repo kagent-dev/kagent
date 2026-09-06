@@ -27,6 +27,7 @@ func (a serviceTestAuthorizer) Check(context.Context, auth.Principal, auth.Verb,
 }
 
 type serviceTestStore struct {
+	tombstone    *apiv1alpha1.AgentInstance
 	createInput  *apiv1alpha1.AgentInstance
 	requestID    string
 	createErr    error
@@ -44,6 +45,9 @@ type serviceTestStore struct {
 }
 
 func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
+	if s.tombstone != nil {
+		return s.tombstone, false, nil
+	}
 	s.createInput = instance
 	s.requestID = requestID
 	if s.createErr != nil {
@@ -54,6 +58,9 @@ func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv
 }
 
 func (s *serviceTestStore) GetAgentInstance(_ context.Context, _, _, creator string) (*apiv1alpha1.AgentInstance, error) {
+	if s.tombstone != nil {
+		return s.tombstone, nil
+	}
 	s.getCreator = creator
 	return &apiv1alpha1.AgentInstance{State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}, nil
 }
@@ -448,5 +455,37 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 				t.Fatalf("store query pair = %v, want %v", got, test.wantPair)
 			}
 		})
+	}
+}
+
+func TestServiceTombstonesNeverEnterRuntimeWorkflows(t *testing.T) {
+	tombstone := &apiv1alpha1.AgentInstance{Id: uuid.NewString(), State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED}
+	service := NewService(&serviceTestStore{tombstone: tombstone}, serviceTestAuthorizer{}, serviceTestWorkflow{err: errors.New("workflow must not run")})
+	ctx := serviceTestContext("alice")
+	created, err := service.Create(ctx, "team-a", "runtime", "assistant", "request", "")
+	if err != nil || created != tombstone {
+		t.Fatalf("create retry = %v, %v", created, err)
+	}
+	deleted, err := service.Delete(ctx, "team-a", tombstone.Id)
+	if err != nil || deleted != tombstone {
+		t.Fatalf("delete retry = %v, %v", deleted, err)
+	}
+	_, err = service.Get(ctx, "team-a", tombstone.Id, false)
+	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+		t.Fatalf("ordinary get = %v", err)
+	}
+	found, err := service.Get(ctx, "team-a", tombstone.Id, true)
+	if err != nil || found != tombstone {
+		t.Fatalf("history get = %v, %v", found, err)
+	}
+	for _, call := range []func(context.Context, string, string) (*apiv1alpha1.AgentInstance, error){service.Suspend, service.Resume} {
+		_, err := call(ctx, "team-a", tombstone.Id)
+		if !serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition) {
+			t.Fatalf("mutation = %v", err)
+		}
+	}
+	_, _, err = service.CreateShare(ctx, "team-a", tombstone.Id, "READ_ONLY")
+	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+		t.Fatalf("share = %v", err)
 	}
 }
