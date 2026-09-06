@@ -305,6 +305,55 @@ controller:
     service:
       type: ClusterIP
       port: 8443
+    # -- Prometheus Operator `ServiceMonitor` for the metrics `Service`.
+    # Requires `controller.metrics.enabled` and the
+    # `monitoring.coreos.com/v1` CRDs. The endpoint follows
+    # `secureServing`: port name, scheme, bearer token and TLS settings are
+    # all derived from it, so flipping `secureServing` alone keeps the
+    # scrape working. With `secureServing` enabled the scrape is also
+    # authorized only once `<fullname>-metrics-reader` is bound to the
+    # Prometheus ServiceAccount; set `prometheusServiceAccount` below and
+    # the chart renders that binding for you.
+    # @default -- disabled
+    serviceMonitor:
+      enabled: false
+      # -- ServiceAccount Prometheus scrapes with. When `name` is set and
+      # `secureServing` is enabled, the chart binds
+      # `<fullname>-metrics-reader` to it with a `ClusterRoleBinding` so
+      # the scrape does not fail with 403. Leave `name` empty to manage
+      # the binding yourself.
+      prometheusServiceAccount:
+        name: ""
+        # -- Namespace of the Prometheus ServiceAccount.
+        # @default -- `serviceMonitor.namespace`, then the release namespace
+        namespace: ""
+      # -- Namespace to create the `ServiceMonitor` in. The scrape target
+      # stays the release namespace either way.
+      # @default -- the release namespace
+      namespace: ""
+      # -- Extra labels for the `ServiceMonitor` (merged with the chart
+      # labels). Set whatever label your Prometheus
+      # `serviceMonitorSelector` matches on.
+      labels: {}
+      # -- Annotations for the `ServiceMonitor`.
+      annotations: {}
+      # -- Scrape interval. Prometheus' global default when empty.
+      interval: ""
+      # -- Scrape timeout. Prometheus' global default when empty.
+      scrapeTimeout: ""
+      # -- Keep the scraped labels when they collide with server-side ones.
+      honorLabels: false
+      # -- `relabelings` applied to the scrape targets.
+      relabelings: []
+      # -- `metricRelabelings` applied to the scraped samples.
+      metricRelabelings: []
+      # -- Token presented to the authenticated metrics endpoint. Only used
+      # when `secureServing` is enabled; set to `""` to omit it.
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      # -- `tlsConfig` for the scrape. Only used when `secureServing` is
+      # enabled, where the controller serves a self-signed certificate.
+      # @default -- insecureSkipVerify: true
+      tlsConfig: {}
   # -- Native gRPC application API settings. This port is internal unless a
   # separate TLS-capable GRPCRoute or ingress is configured.
   grpc:

@@ -1,0 +1,224 @@
+suite: test controller service monitor
+templates:
+  - controller-servicemonitor.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when only metrics are enabled
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when only the service monitor is enabled
+    set:
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when bindAddress disables metrics
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when metrics and the service monitor are enabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - isKind:
+          of: ServiceMonitor
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-controller-metrics
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - hasDocuments:
+          count: 1
+
+  - it: should select the controller metrics service
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+      - equal:
+          path: spec.namespaceSelector.matchNames[0]
+          value: NAMESPACE
+
+  - it: should scrape the https port when secure serving is enabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: https
+      - equal:
+          path: spec.endpoints[0].path
+          value: /metrics
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].bearerTokenFile
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: true
+
+  - it: should scrape the plaintext port when secure serving is disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.secureServing: false
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: http-metrics
+      - notExists:
+          path: spec.endpoints[0].scheme
+      - notExists:
+          path: spec.endpoints[0].bearerTokenFile
+      - notExists:
+          path: spec.endpoints[0].tlsConfig
+
+  - it: should omit the bearer token file when cleared
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.bearerTokenFile: ""
+    asserts:
+      - notExists:
+          path: spec.endpoints[0].bearerTokenFile
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+
+  - it: should override the tls config
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.tlsConfig:
+        insecureSkipVerify: false
+        serverName: kagent-controller-metrics.kagent.svc
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: false
+      - equal:
+          path: spec.endpoints[0].tlsConfig.serverName
+          value: kagent-controller-metrics.kagent.svc
+
+  - it: should omit optional scrape settings by default
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - notExists:
+          path: spec.endpoints[0].interval
+      - notExists:
+          path: spec.endpoints[0].scrapeTimeout
+      - notExists:
+          path: spec.endpoints[0].relabelings
+      - notExists:
+          path: spec.endpoints[0].metricRelabelings
+      - equal:
+          path: spec.endpoints[0].honorLabels
+          value: false
+
+  - it: should apply scrape settings from values
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.interval: 30s
+      controller.metrics.serviceMonitor.scrapeTimeout: 10s
+      controller.metrics.serviceMonitor.honorLabels: true
+      controller.metrics.serviceMonitor.relabelings:
+        - action: replace
+          targetLabel: cluster
+          replacement: prod
+      controller.metrics.serviceMonitor.metricRelabelings:
+        - action: drop
+          sourceLabels:
+            - __name__
+          regex: go_.*
+    asserts:
+      - equal:
+          path: spec.endpoints[0].interval
+          value: 30s
+      - equal:
+          path: spec.endpoints[0].scrapeTimeout
+          value: 10s
+      - equal:
+          path: spec.endpoints[0].honorLabels
+          value: true
+      - equal:
+          path: spec.endpoints[0].relabelings[0].targetLabel
+          value: cluster
+      - equal:
+          path: spec.endpoints[0].metricRelabelings[0].regex
+          value: go_.*
+
+  - it: should merge extra labels and annotations
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.labels:
+        release: kube-prometheus-stack
+      controller.metrics.serviceMonitor.annotations:
+        example.com/owner: platform
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: controller
+      - equal:
+          path: metadata.labels.release
+          value: kube-prometheus-stack
+      - equal:
+          path: metadata.annotations["example.com/owner"]
+          value: platform
+
+  - it: should render in the release namespace override
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      namespaceOverride: custom-namespace
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace
+      - equal:
+          path: spec.namespaceSelector.matchNames[0]
+          value: custom-namespace
+
+  - it: should render in a dedicated monitoring namespace
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.namespace: monitoring
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: monitoring
+      - equal:
+          path: spec.namespaceSelector.matchNames[0]
+          value: NAMESPACE

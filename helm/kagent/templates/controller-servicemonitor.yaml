@@ -1,0 +1,53 @@
+{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller-metrics
+  namespace: {{ default (include "kagent.namespace" .) .Values.controller.metrics.serviceMonitor.namespace }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+    {{- with .Values.controller.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.controller.metrics.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "kagent.namespace" . }}
+  endpoints:
+    - port: {{ include "kagent.controller.metricsPortName" . }}
+      path: /metrics
+      {{- with .Values.controller.metrics.serviceMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .Values.controller.metrics.serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      honorLabels: {{ .Values.controller.metrics.serviceMonitor.honorLabels }}
+      {{- if .Values.controller.metrics.secureServing }}
+      scheme: https
+      {{- with .Values.controller.metrics.serviceMonitor.bearerTokenFile }}
+      bearerTokenFile: {{ . | quote }}
+      {{- end }}
+      tlsConfig:
+        {{- with .Values.controller.metrics.serviceMonitor.tlsConfig }}
+        {{- toYaml . | nindent 8 }}
+        {{- else }}
+        insecureSkipVerify: true
+        {{- end }}
+      {{- end }}
+      {{- with .Values.controller.metrics.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.metrics.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

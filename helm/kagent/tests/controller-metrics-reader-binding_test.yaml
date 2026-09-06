@@ -1,0 +1,93 @@
+suite: test controller metrics reader binding
+templates:
+  - rbac/metrics-reader-clusterrolebinding.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render without a prometheus service account
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when the service monitor is disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when secure serving is disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secureServing: false
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when bindAddress disables metrics
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should bind metrics-reader to the prometheus service account
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+      controller.metrics.serviceMonitor.prometheusServiceAccount.namespace: monitoring
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-metrics-reader-rolebinding
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-metrics-reader
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+      - equal:
+          path: subjects[0].name
+          value: prometheus-k8s
+      - equal:
+          path: subjects[0].namespace
+          value: monitoring
+
+  - it: should default the subject namespace to the service monitor namespace
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.namespace: monitoring
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - equal:
+          path: subjects[0].namespace
+          value: monitoring
+
+  - it: should default the subject namespace to the release namespace
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
