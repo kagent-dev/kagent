@@ -56,10 +56,14 @@ func testWorkspace(t *testing.T, lister instanceLister) *workspaceModel {
 	conn := connection.DefaultOptions()
 	conn.Namespace = "kagent"
 	conn.Timeout = 30 * time.Second
-	clientSet := conn.Client()
-	t.Cleanup(func() { _ = clientSet.Close() })
+	api, err := conn.APIClient()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = api.Close() })
+	gateway, err := conn.GatewayClient()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = gateway.Close() })
 
-	m := newWorkspaceModel(t.Context(), Options{Namespace: conn.Namespace}, clientSet, nil, nil, false)
+	m := newWorkspaceModel(t.Context(), Options{Namespace: conn.Namespace}, api, gateway, nil, nil, false)
 	m.lister = lister
 	m.width, m.height = 120, 40
 	return m

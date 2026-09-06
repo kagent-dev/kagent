@@ -171,7 +171,8 @@ Run the agent locally as well, with `--net=host` option, so it can connect to th
 
 ```bash
 docker run --rm \
-  -e KAGENT_URL=http://localhost:8083 \
+  -e KAGENT_API_URL=http://localhost:8083 \
+  -e KAGENT_GATEWAY_URL=http://localhost:8083 \
   -e KAGENT_NAME=kebab-agent \
   -e KAGENT_NAMESPACE=kagent \
   --net=host \

@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -48,6 +50,9 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	systemService := &recordingSystemService{}
 	server := grpc.NewServer()
 	apiv1alpha1.RegisterSystemServiceServer(server, systemService)
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(server, healthServer)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
 		server.Stop()
@@ -55,8 +60,8 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	})
 
 	var dialCount atomic.Int32
-	clientSet := New(
-		"http://rest-must-not-be-used.invalid",
+	clientSet, err := NewAPI(
+		"http://api.invalid",
 		WithUserID("default-user"),
 		WithGRPCTarget("passthrough:///bufnet"),
 		WithGRPCTimeout(5*time.Second),
@@ -65,6 +70,7 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 			return listener.Dial()
 		})),
 	)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, clientSet.Close()) })
 
 	version, err := clientSet.Version.GetVersion(t.Context())
@@ -80,4 +86,12 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	}
 	systemService.mu.Unlock()
 	assert.Equal(t, int32(1), dialCount.Load())
+	require.NoError(t, CheckHealth(t.Context(), "http://api.invalid",
+		WithGRPCTarget("passthrough:///bufnet"),
+		WithGRPCDialOptions(grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			dialCount.Add(1)
+			return listener.Dial()
+		})),
+	))
+	assert.Equal(t, int32(2), dialCount.Load())
 }

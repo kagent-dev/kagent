@@ -15,11 +15,10 @@ const userIDHeader = "x-user-id"
 
 // A2AClient creates upstream A2A clients routed to an AgentInstance.
 type A2AClient struct {
-	client *BaseClient
+	client *baseClient
 }
 
-// NewA2AClient creates an A2A client factory over the shared gRPC connection.
-func NewA2AClient(client *BaseClient) *A2AClient {
+func newA2AClient(client *baseClient) *A2AClient {
 	return &A2AClient{client: client}
 }
 
@@ -31,7 +30,7 @@ func (c *A2AClient) ForAgentInstance(ctx context.Context, namespace, id string) 
 	}
 	transport := a2agrpc.NewGRPCTransportFromClient(a2apb.NewA2AServiceClient(connection))
 	return a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{{
-		URL:             c.client.grpc.target,
+		URL:             c.client.transport.url,
 		ProtocolBinding: a2atype.TransportProtocolGRPC,
 		ProtocolVersion: a2atype.Version,
 	}},
@@ -44,8 +43,8 @@ func (c *A2AClient) ForAgentInstance(ctx context.Context, namespace, id string) 
 		a2aclient.WithCallInterceptors(&agentInstanceRoutingInterceptor{
 			namespace: namespace,
 			id:        id,
-			userID:    c.client.UserID,
-			timeout:   c.client.grpc.timeout,
+			userID:    c.client.userID,
+			timeout:   c.client.transport.timeout,
 		}),
 	)
 }

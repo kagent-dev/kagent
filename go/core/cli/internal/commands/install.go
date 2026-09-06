@@ -193,7 +193,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig helmConfig
 	s.Stop()
 	fmt.Fprintln(os.Stdout, "kagent installed successfully")
 
-	pf, err := connection.NewPortForward(ctx, cfg)
+	pf, err := connection.NewPortForward(ctx, cfg, cfg.APIURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
 		return nil

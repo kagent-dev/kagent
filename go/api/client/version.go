@@ -13,11 +13,10 @@ type Version interface {
 
 // versionClient handles version-related requests
 type versionClient struct {
-	client *BaseClient
+	client *baseClient
 }
 
-// NewVersionClient creates a new version client
-func NewVersionClient(client *BaseClient) Version {
+func newVersionClient(client *baseClient) Version {
 	return &versionClient{client: client}
 }
 
@@ -32,7 +31,7 @@ func (c *versionClient) GetVersion(ctx context.Context) (*apiv1alpha1.GetVersion
 	return client.GetVersion(callContext, &apiv1alpha1.GetVersionRequest{})
 }
 
-func (c *BaseClient) systemServiceClient() (apiv1alpha1.SystemServiceClient, error) {
+func (c *baseClient) systemServiceClient() (apiv1alpha1.SystemServiceClient, error) {
 	connection, err := c.grpcConnection()
 	if err != nil {
 		return nil, err

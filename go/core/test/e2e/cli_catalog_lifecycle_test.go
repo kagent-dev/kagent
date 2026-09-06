@@ -21,8 +21,8 @@ func TestE2ECLIAgentTemplateCatalogAndInstanceLifecycle(t *testing.T) {
 	templateName := createInteractionTemplate(t, startInteractionMock(t))
 	binary := kagentCLI(t)
 	baseArgs := []string{
-		"--grpc-url", target,
-		"--grpc-tls=false",
+		"--api-url", "http://" + target,
+		"--gateway-url", "http://" + target,
 		"--namespace", "kagent",
 		"--user-id", "e2e",
 	}
@@ -96,8 +96,8 @@ func TestE2ECLIAgentInstanceDiscoveryAndInvoke(t *testing.T) {
 	fixture := newInteractionFixture(t, target, startInteractionMock(t))
 	binary := kagentCLI(t)
 	baseArgs := []string{
-		"--grpc-url", target,
-		"--grpc-tls=false",
+		"--api-url", "http://" + target,
+		"--gateway-url", "http://" + target,
 		"--namespace", "kagent",
 		"--user-id", "e2e",
 	}

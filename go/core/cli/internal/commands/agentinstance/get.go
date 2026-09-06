@@ -48,14 +48,14 @@ func runGet(
 		return err
 	}
 
-	session, err := connection.Open(ctx, options)
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return get(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
+	return get(ctx, session.API.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func validateGetCfg(cfg *GetCfg) error {

@@ -38,7 +38,6 @@ def _split_csv(value: Optional[str]) -> Optional[list[str]]:
     return entries or None
 
 
-kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
 token_resource = _split_csv(os.getenv("KAGENT_STS_RESOURCE"))
@@ -114,12 +113,11 @@ def static(
     kagent_app = KAgentApp(
         root_agent_factory,
         agent_card,
-        app_cfg.url,
+        app_cfg.api_url,
         app_cfg.app_name,
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
         agent_config=agent_config,
-        kagent_grpc_url=app_cfg.grpc_url,
     )
 
     server = kagent_app.build()
@@ -212,13 +210,12 @@ def run(
     kagent_app = KAgentApp(
         root_agent_factory,
         agent_card,
-        app_cfg.url,
+        app_cfg.api_url,
         app_cfg.app_name,
         lifespan=lifespan,
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
         agent_config=agent_config,
-        kagent_grpc_url=app_cfg.grpc_url,
     )
 
     if local:
@@ -240,8 +237,8 @@ def run(
 
 async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
     app_cfg = KAgentConfig(
-        url="http://fake-url.example.com",
-        grpc_url="fake-grpc.example.com:8084",
+        api_url="http://fake-api.example.com",
+        gateway_url="http://fake-gateway.example.com",
         name="test-agent",
         namespace="kagent",
     )
@@ -256,7 +253,7 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         return root_agent
 
     app = KAgentApp(
-        root_agent_factory, agent_card, app_cfg.url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
+        root_agent_factory, agent_card, app_cfg.api_url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
     )
     await app.test(task)
 
