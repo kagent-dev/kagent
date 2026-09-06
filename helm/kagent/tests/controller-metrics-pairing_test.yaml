@@ -1,0 +1,65 @@
+suite: test controller metrics secure serving pairing
+templates:
+  - controller-metrics-service.yaml
+  - controller-servicemonitor.yaml
+  - rbac/metrics-auth-clusterrolebinding.yaml
+  - rbac/metrics-reader-clusterrolebinding.yaml
+tests:
+  - it: should pair the service and service monitor on the https port when secure serving is enabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: https
+        template: controller-metrics-service.yaml
+      - equal:
+          path: spec.endpoints[0].port
+          value: https
+        template: controller-servicemonitor.yaml
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+        template: controller-servicemonitor.yaml
+      - exists:
+          path: spec.endpoints[0].bearerTokenFile
+        template: controller-servicemonitor.yaml
+      - hasDocuments:
+          count: 1
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+      - hasDocuments:
+          count: 1
+        template: rbac/metrics-reader-clusterrolebinding.yaml
+
+  - it: should pair the service and service monitor on the plaintext port when secure serving is disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secureServing: false
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: http-metrics
+        template: controller-metrics-service.yaml
+      - equal:
+          path: spec.endpoints[0].port
+          value: http-metrics
+        template: controller-servicemonitor.yaml
+      - notExists:
+          path: spec.endpoints[0].scheme
+        template: controller-servicemonitor.yaml
+      - notExists:
+          path: spec.endpoints[0].bearerTokenFile
+        template: controller-servicemonitor.yaml
+      - notExists:
+          path: spec.endpoints[0].tlsConfig
+        template: controller-servicemonitor.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-reader-clusterrolebinding.yaml
