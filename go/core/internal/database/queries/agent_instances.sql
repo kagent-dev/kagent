@@ -33,7 +33,7 @@ RETURNING *;
 -- name: GetAgentInstanceByID :one
 SELECT * FROM agent_instance WHERE id = $1;
 
--- name: LockAgentInstance :one
+-- name: GetAgentInstanceForUpdate :one
 SELECT * FROM agent_instance WHERE id = $1 FOR UPDATE;
 
 -- name: GetAgentInstanceForUser :one

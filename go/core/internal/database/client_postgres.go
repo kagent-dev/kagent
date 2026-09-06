@@ -312,7 +312,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 	instanceUUID := uuid.MustParse(instanceID)
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		checkpoint, err := q.LockReadyAgentInstanceCheckpoint(ctx, dbgen.LockReadyAgentInstanceCheckpointParams{
+		checkpoint, err := q.GetReadyAgentInstanceCheckpointForUpdate(ctx, dbgen.GetReadyAgentInstanceCheckpointForUpdateParams{
 			Namespace: namespace, ID: checkpointUUID, UserID: userID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -662,7 +662,7 @@ func agentInstanceOperationName(operation apiv1alpha1.AgentInstanceOperation) st
 func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -702,7 +702,7 @@ func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare
 func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	var row dbgen.AgentInstanceShare
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		instance, err := q.LockAgentInstance(ctx, share.InstanceID)
+		instance, err := q.GetAgentInstanceForUpdate(ctx, share.InstanceID)
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -778,7 +778,7 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 	created := false
 	contextID := uuid.MustParse(instanceID)
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		instance, err := q.LockAgentInstance(ctx, contextID)
+		instance, err := q.GetAgentInstanceForUpdate(ctx, contextID)
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
@@ -848,7 +848,7 @@ func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, i
 	interruptedTask := false
 	contextID := uuid.MustParse(instanceID)
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockActiveAgentInstanceTask(ctx, contextID)
+		row, err := q.GetActiveAgentInstanceTaskForUpdate(ctx, contextID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -1034,7 +1034,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 			return fmt.Errorf("get AgentInstance checkpoint by request: %w", err)
 		}
 
-		instance, err := q.LockAgentInstance(ctx, checkpoint.SourceInstanceID)
+		instance, err := q.GetAgentInstanceForUpdate(ctx, checkpoint.SourceInstanceID)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.Namespace != checkpoint.Namespace || instance.UserID != checkpoint.UserID)) {
 			return dbpkg.ErrNotFound
 		}

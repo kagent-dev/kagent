@@ -24,10 +24,14 @@ type Querier interface {
 	ExtendMemoryTTL(ctx context.Context) error
 	FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
+	// GetActiveAgentInstanceTaskForUpdate holds the instance's non-terminal task for the
+	// rest of the transaction so reclamation cannot overwrite concurrent progress.
+	GetActiveAgentInstanceTaskForUpdate(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
+	GetAgentInstanceForUpdate(ctx context.Context, id uuid.UUID) (AgentInstance, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
 	// Resolves a share token to the share and the instance's owner.
 	//
@@ -40,6 +44,7 @@ type Querier interface {
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
+	GetReadyAgentInstanceCheckpointForUpdate(ctx context.Context, arg GetReadyAgentInstanceCheckpointForUpdateParams) (AgentInstanceCheckpoint, error)
 	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
@@ -66,11 +71,6 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
-	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
-	// rest of the transaction so reclamation cannot overwrite concurrent progress.
-	LockActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
-	LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error)
-	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error

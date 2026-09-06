@@ -237,6 +237,44 @@ func (q *Queries) GetLatestQuiescentAgentInstanceTask(ctx context.Context, conte
 	return i, err
 }
 
+const getReadyAgentInstanceCheckpointForUpdate = `-- name: GetReadyAgentInstanceCheckpointForUpdate :one
+SELECT id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at, source_context_id, prepared_revision, source_labels FROM agent_instance_checkpoint
+WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'READY'
+FOR UPDATE
+`
+
+type GetReadyAgentInstanceCheckpointForUpdateParams struct {
+	Namespace string
+	ID        uuid.UUID
+	UserID    string
+}
+
+func (q *Queries) GetReadyAgentInstanceCheckpointForUpdate(ctx context.Context, arg GetReadyAgentInstanceCheckpointForUpdateParams) (AgentInstanceCheckpoint, error) {
+	row := q.db.QueryRow(ctx, getReadyAgentInstanceCheckpointForUpdate, arg.Namespace, arg.ID, arg.UserID)
+	var i AgentInstanceCheckpoint
+	err := row.Scan(
+		&i.ID,
+		&i.Namespace,
+		&i.SourceInstanceID,
+		&i.UserID,
+		&i.RequestID,
+		&i.HeadTaskID,
+		&i.HistorySequence,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.SnapshotContentScope,
+		&i.TagUid,
+		&i.State,
+		&i.Failure,
+		&i.CreatedAt,
+		&i.SourceContextID,
+		&i.PreparedRevision,
+		&i.SourceLabels,
+	)
+	return i, err
+}
+
 const insertAgentInstanceCheckpoint = `-- name: InsertAgentInstanceCheckpoint :one
 INSERT INTO agent_instance_checkpoint (
     id, namespace, source_instance_id, user_id, request_id, head_task_id,
@@ -451,42 +489,4 @@ func (q *Queries) ListAgentInstanceCheckpoints(ctx context.Context, arg ListAgen
 		return nil, err
 	}
 	return items, nil
-}
-
-const lockReadyAgentInstanceCheckpoint = `-- name: LockReadyAgentInstanceCheckpoint :one
-SELECT id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at, source_context_id, prepared_revision, source_labels FROM agent_instance_checkpoint
-WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'READY'
-FOR UPDATE
-`
-
-type LockReadyAgentInstanceCheckpointParams struct {
-	Namespace string
-	ID        uuid.UUID
-	UserID    string
-}
-
-func (q *Queries) LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error) {
-	row := q.db.QueryRow(ctx, lockReadyAgentInstanceCheckpoint, arg.Namespace, arg.ID, arg.UserID)
-	var i AgentInstanceCheckpoint
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.SourceInstanceID,
-		&i.UserID,
-		&i.RequestID,
-		&i.HeadTaskID,
-		&i.HistorySequence,
-		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
-		&i.SnapshotContentScope,
-		&i.TagUid,
-		&i.State,
-		&i.Failure,
-		&i.CreatedAt,
-		&i.SourceContextID,
-		&i.PreparedRevision,
-		&i.SourceLabels,
-	)
-	return i, err
 }
