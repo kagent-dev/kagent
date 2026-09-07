@@ -81,12 +81,12 @@ func (CheckpointState) EnumDescriptor() ([]byte, []int) {
 type Checkpoint struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	AgentInstanceId string                 `protobuf:"bytes,3,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	HeadTaskId      string                 `protobuf:"bytes,4,opt,name=head_task_id,json=headTaskId,proto3" json:"head_task_id,omitempty"`
-	HistorySequence uint64                 `protobuf:"varint,5,opt,name=history_sequence,json=historySequence,proto3" json:"history_sequence,omitempty"`
-	State           CheckpointState        `protobuf:"varint,6,opt,name=state,proto3,enum=kagent.api.v1alpha1.CheckpointState" json:"state,omitempty"`
-	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Failure         *Failure               `protobuf:"bytes,8,opt,name=failure,proto3" json:"failure,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	HeadTaskId      string                 `protobuf:"bytes,3,opt,name=head_task_id,json=headTaskId,proto3" json:"head_task_id,omitempty"`
+	HistorySequence uint64                 `protobuf:"varint,4,opt,name=history_sequence,json=historySequence,proto3" json:"history_sequence,omitempty"`
+	State           CheckpointState        `protobuf:"varint,5,opt,name=state,proto3,enum=kagent.api.v1alpha1.CheckpointState" json:"state,omitempty"`
+	CreatedAt       *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Failure         *Failure               `protobuf:"bytes,7,opt,name=failure,proto3" json:"failure,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -172,8 +172,8 @@ func (x *Checkpoint) GetFailure() *Failure {
 
 type CreateCheckpointRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	RequestId       string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	RequestId       string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -268,7 +268,7 @@ func (x *CreateCheckpointResponse) GetCheckpoint() *Checkpoint {
 
 type GetCheckpointRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	CheckpointId  string                 `protobuf:"bytes,2,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
+	CheckpointId  string                 `protobuf:"bytes,1,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -356,8 +356,8 @@ func (x *GetCheckpointResponse) GetCheckpoint() *Checkpoint {
 
 type ListCheckpointsRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	AgentInstanceId string                 `protobuf:"bytes,2,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Page            *PageRequest           `protobuf:"bytes,3,opt,name=page,proto3" json:"page,omitempty"`
+	AgentInstanceId string                 `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
+	Page            *PageRequest           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -460,7 +460,7 @@ func (x *ListCheckpointsResponse) GetPage() *PageResponse {
 
 type DeleteCheckpointRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	CheckpointId  string                 `protobuf:"bytes,2,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
+	CheckpointId  string                 `protobuf:"bytes,1,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -540,8 +540,8 @@ func (*DeleteCheckpointResponse) Descriptor() ([]byte, []int) {
 
 type ForkAgentInstanceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	CheckpointId  string                 `protobuf:"bytes,2,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
-	RequestId     string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	CheckpointId  string                 `protobuf:"bytes,1,opt,name=checkpoint_id,json=checkpointId,proto3" json:"checkpoint_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -638,47 +638,47 @@ var File_kagent_api_v1alpha1_checkpoints_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\n" +
-	"%kagent/api/v1alpha1/checkpoints.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a)kagent/api/v1alpha1/agent_instances.proto\x1a kagent/api/v1alpha1/common.proto\"\xd5\x02\n" +
+	"%kagent/api/v1alpha1/checkpoints.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a)kagent/api/v1alpha1/agent_instances.proto\x1a kagent/api/v1alpha1/common.proto\"\xc4\x02\n" +
 	"\n" +
 	"Checkpoint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12*\n" +
-	"\x11agent_instance_id\x18\x03 \x01(\tR\x0fagentInstanceId\x12 \n" +
-	"\fhead_task_id\x18\x04 \x01(\tR\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\x12 \n" +
+	"\fhead_task_id\x18\x03 \x01(\tR\n" +
 	"headTaskId\x12)\n" +
-	"\x10history_sequence\x18\x05 \x01(\x04R\x0fhistorySequence\x12:\n" +
-	"\x05state\x18\x06 \x01(\x0e2$.kagent.api.v1alpha1.CheckpointStateR\x05state\x129\n" +
+	"\x10history_sequence\x18\x04 \x01(\x04R\x0fhistorySequence\x12:\n" +
+	"\x05state\x18\x05 \x01(\x0e2$.kagent.api.v1alpha1.CheckpointStateR\x05state\x129\n" +
 	"\n" +
-	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
-	"\afailure\x18\b \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailureJ\x04\b\x02\x10\x03R\tnamespace\"\x8a\x01\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
+	"\afailure\x18\a \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\"y\n" +
 	"\x17CreateCheckpointRequest\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x12)\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x12)\n" +
 	"\n" +
-	"request_id\x18\x03 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestIdJ\x04\b\x01\x10\x02R\tnamespace\"[\n" +
+	"request_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"[\n" +
 	"\x18CreateCheckpointResponse\x12?\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.CheckpointR\n" +
-	"checkpoint\"U\n" +
+	"checkpoint\"D\n" +
 	"\x14GetCheckpointRequest\x12,\n" +
-	"\rcheckpoint_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointIdJ\x04\b\x01\x10\x02R\tnamespace\"X\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\"X\n" +
 	"\x15GetCheckpointResponse\x12?\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.CheckpointR\n" +
-	"checkpoint\"\x94\x01\n" +
+	"checkpoint\"\x83\x01\n" +
 	"\x16ListCheckpointsRequest\x123\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x124\n" +
-	"\x04page\x18\x03 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04pageJ\x04\b\x01\x10\x02R\tnamespace\"\x93\x01\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x124\n" +
+	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\x93\x01\n" +
 	"\x17ListCheckpointsResponse\x12A\n" +
 	"\vcheckpoints\x18\x01 \x03(\v2\x1f.kagent.api.v1alpha1.CheckpointR\vcheckpoints\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"X\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"G\n" +
 	"\x17DeleteCheckpointRequest\x12,\n" +
-	"\rcheckpoint_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointIdJ\x04\b\x01\x10\x02R\tnamespace\"\x1a\n" +
-	"\x18DeleteCheckpointResponse\"\x84\x01\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\"\x1a\n" +
+	"\x18DeleteCheckpointResponse\"s\n" +
 	"\x18ForkAgentInstanceRequest\x12,\n" +
-	"\rcheckpoint_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\x12)\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\x12)\n" +
 	"\n" +
-	"request_id\x18\x03 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestIdJ\x04\b\x01\x10\x02R\tnamespace\"f\n" +
+	"request_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"f\n" +
 	"\x19ForkAgentInstanceResponse\x12I\n" +
 	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance*\xaa\x01\n" +
 	"\x0fCheckpointState\x12 \n" +
