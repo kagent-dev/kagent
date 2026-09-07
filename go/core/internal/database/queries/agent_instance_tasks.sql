@@ -110,3 +110,6 @@ WHERE context_id = $1
       'TASK_STATE_AUTH_REQUIRED'
   )
 FOR UPDATE;
+
+-- name: LockAgentInstanceTask :one
+SELECT * FROM agent_instance_task WHERE context_id = $1 AND id = $2 FOR UPDATE;

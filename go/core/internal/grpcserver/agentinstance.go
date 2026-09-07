@@ -3,10 +3,8 @@ package grpcserver
 import (
 	"context"
 
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type agentInstanceServer struct {
@@ -82,7 +80,7 @@ func (s *agentInstanceServer) CreateAgentInstanceShare(ctx context.Context, requ
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.CreateAgentInstanceShareResponse{Share: agentInstanceShareProto(share), Token: token}, nil
+	return &apiv1alpha1.CreateAgentInstanceShareResponse{Share: share.AgentInstanceShare, Token: token}, nil
 }
 
 func (s *agentInstanceServer) ListAgentInstanceShares(ctx context.Context, request *apiv1alpha1.ListAgentInstanceSharesRequest) (*apiv1alpha1.ListAgentInstanceSharesResponse, error) {
@@ -92,7 +90,7 @@ func (s *agentInstanceServer) ListAgentInstanceShares(ctx context.Context, reque
 	}
 	shares := make([]*apiv1alpha1.AgentInstanceShare, 0, len(result.Shares))
 	for index := range result.Shares {
-		shares = append(shares, agentInstanceShareProto(&result.Shares[index]))
+		shares = append(shares, result.Shares[index].AgentInstanceShare)
 	}
 	return &apiv1alpha1.ListAgentInstanceSharesResponse{
 		Shares: shares, Page: &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
@@ -104,17 +102,6 @@ func (s *agentInstanceServer) RevokeAgentInstanceShare(ctx context.Context, requ
 		return nil, err
 	}
 	return &apiv1alpha1.RevokeAgentInstanceShareResponse{}, nil
-}
-
-func agentInstanceShareProto(share *dbpkg.AgentInstanceShare) *apiv1alpha1.AgentInstanceShare {
-	return &apiv1alpha1.AgentInstanceShare{
-		Id: share.ID.String(), AgentInstanceId: share.InstanceID.String(),
-		Permission: agentInstanceSharePermission(share.Permission), CreatedAt: timestamppb.New(share.CreatedAt),
-	}
-}
-
-func agentInstanceSharePermission(value string) apiv1alpha1.AgentInstanceSharePermission {
-	return apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+value])
 }
 
 func sharePermissionName(value apiv1alpha1.AgentInstanceSharePermission) string {

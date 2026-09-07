@@ -282,8 +282,8 @@ func (s *Service) CreateShare(ctx context.Context, instanceID, permission string
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
 	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
-		ID: id, InstanceID: uuid.MustParse(instanceID),
-		Permission: permission, TokenHash: tokenHash,
+		AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: instanceID,
+			Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+permission])}, TokenHash: tokenHash,
 	})
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
@@ -315,7 +315,7 @@ func (s *Service) ListShares(ctx context.Context, instanceID string, pageSize in
 	}
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
-		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID.String())
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].GetId())
 		result.Shares = result.Shares[:pageSize]
 	}
 	return result, nil

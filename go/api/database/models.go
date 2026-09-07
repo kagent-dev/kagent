@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/google/uuid"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/pgvector/pgvector-go"
 )
@@ -65,7 +66,7 @@ type RuntimeRevision struct {
 	HarnessName           string
 	HarnessUID            string
 	SourceSnapshot        json.RawMessage
-	AgentCard             json.RawMessage
+	AgentCard             *a2apb.AgentCard
 	EgressDestinations    []string
 	ActorTemplateAtespace string
 	ActorTemplateName     string
@@ -96,12 +97,8 @@ type AgentInstanceQuery struct {
 }
 
 type AgentInstanceShare struct {
-	ID uuid.UUID
-
-	InstanceID uuid.UUID
-	Permission string
-	TokenHash  []byte
-	CreatedAt  time.Time
+	*apiv1alpha1.AgentInstanceShare
+	TokenHash []byte
 	// OwnerUserID is the user the shared AgentInstance belongs to.
 	//
 	// Populated only by the token lookup, which joins it in — that is what the
@@ -121,21 +118,12 @@ type AgentInstanceTaskSnapshot struct {
 }
 
 type AgentInstanceCheckpoint struct {
-	ID uuid.UUID
-
-	SourceInstanceID     uuid.UUID
-	SourceContextID      uuid.UUID
+	*apiv1alpha1.Checkpoint
 	UserID               string
 	RequestID            string
-	HeadTaskID           string
-	HistorySequence      int64
 	SnapshotAtespace     string
 	SnapshotName         string
 	SnapshotUID          string
 	SnapshotContentScope string
-	PreparedRevision     string
 	TagUID               string
-	State                string
-	Failure              string
-	CreatedAt            time.Time
 }

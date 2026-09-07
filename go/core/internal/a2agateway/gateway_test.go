@@ -2,6 +2,7 @@ package a2agateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"iter"
 	"net"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -690,12 +693,12 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 		instance: gatewayTestInstance(),
 		revision: &dbpkg.RuntimeRevision{
 			Revision: "revision-1",
-			AgentCard: []byte(`{
-				"name":"assistant","description":"pinned description","version":"v1",
-				"supportedInterfaces":[{"url":"http://127.0.0.1:80","protocolBinding":"GRPC","protocolVersion":"1.0"}],
-				"capabilities":{"pushNotifications":true,"extensions":[{"uri":"https://kagent.dev/extensions/hitl/v1","required":false}]},"skills":[],
-				"defaultInputModes":["text"],"defaultOutputModes":["text"]
-			}`),
+			AgentCard: &a2apb.AgentCard{
+				Name: "assistant", Description: "pinned description", Version: "v1",
+				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+				Capabilities:        &a2apb.AgentCapabilities{PushNotifications: new(true), Extensions: []*a2apb.AgentExtension{{Uri: "https://kagent.dev/extensions/hitl/v1"}}},
+				DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
+			},
 		},
 	}
 	authorizer := &gatewayTestAuthorizer{}
@@ -1124,3 +1127,43 @@ func TestGatewayIgnoresASessionShare(t *testing.T) {
 // question* (`ask_user` is a long-running call), so the send must be refused with
 // a reason the reader can act on, and the question must survive: only the reader
 // may give it up.
+
+func TestRuntimeAgentCardAfterBinaryRoundTrip(t *testing.T) {
+	for _, description := range []string{"", "description"} {
+		t.Run(description, func(t *testing.T) {
+			source := &a2apb.AgentCard{Name: "assistant", Description: description, Version: "v1",
+				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://runtime", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+				Capabilities:        &a2apb.AgentCapabilities{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}, Skills: []*a2apb.AgentSkill{},
+			}
+			data, err := proto.Marshal(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored := &a2apb.AgentCard{}
+			if err := proto.Unmarshal(data, stored); err != nil {
+				t.Fatal(err)
+			}
+			card, err := runtimeAgentCard(stored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if card.Description != description || card.Skills == nil || len(card.Skills) != 0 {
+				t.Fatalf("card = %#v", card)
+			}
+			encoded, err := json.Marshal(card)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var response a2atype.AgentCard
+			if err := json.Unmarshal(encoded, &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Name != source.Name || response.Description != description {
+				t.Fatalf("protocol response = %s", encoded)
+			}
+			if stored.Skills != nil || stored.Description != description {
+				t.Fatal("conversion changed persisted card")
+			}
+		})
+	}
+}

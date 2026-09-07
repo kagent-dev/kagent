@@ -389,6 +389,37 @@ func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID uui
 	return i, err
 }
 
+const lockAgentInstanceTask = `-- name: LockAgentInstanceTask :one
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task WHERE context_id = $1 AND id = $2 FOR UPDATE
+`
+
+type LockAgentInstanceTaskParams struct {
+	ContextID uuid.UUID
+	ID        string
+}
+
+func (q *Queries) LockAgentInstanceTask(ctx context.Context, arg LockAgentInstanceTaskParams) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, lockAgentInstanceTask, arg.ContextID, arg.ID)
+	var i AgentInstanceTask
+	err := row.Scan(
+		&i.ContextID,
+		&i.ID,
+		&i.State,
+		&i.StatusTimestamp,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.SnapshotContentScope,
+		&i.HistorySequence,
+	)
+	return i, err
+}
+
 const setAgentInstanceTaskSnapshot = `-- name: SetAgentInstanceTaskSnapshot :exec
 UPDATE agent_instance_task SET
     snapshot_atespace = $3,

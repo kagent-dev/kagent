@@ -15,7 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -78,9 +77,8 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	instanceUUID := uuid.MustParse(instanceID)
 	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: id, SourceInstanceID: instanceUUID, UserID: userID,
+		Checkpoint: &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID}, UserID: userID,
 		RequestID: requestID,
 	})
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
@@ -95,30 +93,30 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve checkpoint", err)
 	}
-	if checkpoint.State != "CREATING" {
-		return checkpointProto(checkpoint), nil
+	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING {
+		return checkpoint.Checkpoint, nil
 	}
 
 	tag, err := s.ensureTag(ctx, checkpoint)
 	if err != nil {
-		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String()))
+		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.GetId()))
 		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
-			_, _ = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "", err.Error())
+			_, _ = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "", err.Error())
 		}
 		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", err)
 	}
-	checkpoint, err = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), tag.GetMetadata().GetUid(), "")
+	checkpoint, err = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), tag.GetMetadata().GetUid(), "")
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to publish checkpoint", err)
 	}
-	return checkpointProto(checkpoint), nil
+	return checkpoint.Checkpoint, nil
 }
 
 func (s *Service) ensureTag(ctx context.Context, checkpoint *dbpkg.AgentInstanceCheckpoint) (*ateapipb.ActorSnapshotTag, error) {
 	if err := s.verifySnapshot(ctx, checkpoint); err != nil {
 		return nil, err
 	}
-	name := tagName(checkpoint.ID.String())
+	name := tagName(checkpoint.GetId())
 	tag, err := s.tags.CreateActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name, checkpoint.SnapshotName)
 	if err != nil {
 		tag, err = s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name)
@@ -168,7 +166,7 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Ch
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
 	}
-	return checkpointProto(checkpoint), nil
+	return checkpoint.Checkpoint, nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
@@ -196,10 +194,10 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 	result := ListResult{Checkpoints: make([]*apiv1alpha1.Checkpoint, min(len(rows), pageSize))}
 	for i := range result.Checkpoints {
-		result.Checkpoints[i] = checkpointProto(&rows[i])
+		result.Checkpoints[i] = rows[i].Checkpoint
 	}
 	if len(rows) > pageSize {
-		result.NextPageToken = encodePageToken(rows[pageSize-1].ID.String())
+		result.NextPageToken = encodePageToken(rows[pageSize-1].GetId())
 	}
 	return result, nil
 }
@@ -219,7 +217,7 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil {
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
-	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String()))
+	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.GetId()))
 	if err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
 	}
@@ -227,7 +225,7 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 		tag.GetSnapshot().GetAtespace() != checkpoint.SnapshotAtespace || tag.GetSnapshot().GetName() != checkpoint.SnapshotName) {
 		return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
 	}
-	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String())); err != nil && status.Code(err) != codes.NotFound {
+	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.GetId())); err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 	}
 	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, checkpointID, userID); err != nil {
@@ -285,33 +283,6 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, n
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return principal.User.ID, nil
-}
-
-func checkpointProto(checkpoint *dbpkg.AgentInstanceCheckpoint) *apiv1alpha1.Checkpoint {
-	result := &apiv1alpha1.Checkpoint{
-		Id: checkpoint.ID.String(), AgentInstanceId: checkpoint.SourceInstanceID.String(),
-		HeadTaskId: checkpoint.HeadTaskID, HistorySequence: uint64(checkpoint.HistorySequence),
-		State: checkpointState(checkpoint.State), CreatedAt: timestamppb.New(checkpoint.CreatedAt),
-	}
-	if checkpoint.Failure != "" {
-		result.Failure = &apiv1alpha1.Failure{Reason: "SnapshotTagFailed", Message: checkpoint.Failure}
-	}
-	return result
-}
-
-func checkpointState(state string) apiv1alpha1.CheckpointState {
-	switch state {
-	case "CREATING":
-		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
-	case "READY":
-		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY
-	case "FAILED":
-		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED
-	case "DELETING":
-		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
-	default:
-		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_UNSPECIFIED
-	}
 }
 
 func validateCreate(instanceID, requestID string) error {

@@ -2,11 +2,12 @@ package database
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ import (
 
 func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
-		Id:        "11111111-1111-4111-8111-111111111111",
+		Id: "11111111-1111-4111-8111-111111111111", Name: "Renamed later",
 		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED,
 	})
@@ -28,7 +29,7 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	}
 
 	instance, err := toAgentInstance(dbgen.AgentInstance{
-		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SUSPENDED", Operation: "RESUME", Name: "Renamed later",
+		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SUSPENDED", Operation: "RESUME",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,8 +38,7 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
 	}
-	// The name has to come from the column too: a rename writes only the column,
-	// so reading it from the blob would serve the original name forever.
+	// Display names live only in the protobuf payload.
 	if instance.GetName() != "Renamed later" {
 		t.Fatalf("name = %q, want the column's value", instance.GetName())
 	}
@@ -289,14 +289,14 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "22222222-2222-4222-8222-222222222222", AgentInstanceId: instanceID},
+		UserID:    "alice",
 		RequestID: "checkpoint-request",
 	})
 	if err != nil {
 		t.Fatalf("ReserveAgentInstanceCheckpoint() = %+v, error %v", checkpoint, err)
 	}
-	if checkpoint.HeadTaskID != "task-1" || checkpoint.SnapshotUID != "snapshot-uid" ||
+	if checkpoint.HeadTaskId != "task-1" || checkpoint.SnapshotUID != "snapshot-uid" ||
 		checkpoint.SnapshotContentScope != "DATA" || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
 	}
@@ -309,49 +309,49 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if !errors.Is(err, dbpkg.ErrAgentInstanceConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		t.Fatalf("lifecycle transition during checkpoint = %+v, error %v", current, err)
 	}
-	replayed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+	replayed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", AgentInstanceId: instanceID},
+		UserID:    "alice",
 		RequestID: "checkpoint-request",
 	})
-	if err != nil || replayed.ID != checkpoint.ID {
+	if err != nil || replayed.Id != checkpoint.Id {
 		t.Fatalf("replayed checkpoint = %+v, error %v", replayed, err)
 	}
-	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "tag-uid", "")
-	if err != nil || ready.State != "READY" || ready.TagUID != "tag-uid" {
+	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "")
+	if err != nil || ready.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY || ready.TagUID != "tag-uid" {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
 	}
-	if replayed, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "tag-uid", ""); err != nil || replayed.State != "READY" {
+	if replayed, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", ""); err != nil || replayed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
 	}
-	failed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("44444444-4444-4444-8444-444444444444"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+	failed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", AgentInstanceId: instanceID},
+		UserID:    "alice",
 		RequestID: "failed-checkpoint-request",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.ID.String(), "", "tag creation failed")
-	if err != nil || failed.State != "FAILED" || failed.Failure != "tag creation failed" {
+	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.GetId(), "", "tag creation failed")
+	if err != nil || failed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
 	}
 	if err := client.DeleteAgentInstance(ctx, instanceID); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err = client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("55555555-5555-4555-8555-555555555555"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+	replayed, err = client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", AgentInstanceId: instanceID},
+		UserID:    "alice",
 		RequestID: "checkpoint-request",
 	})
-	if err != nil || replayed.ID != checkpoint.ID {
+	if err != nil || replayed.Id != checkpoint.Id {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
 	listed, err := client.ListAgentInstanceCheckpoints(ctx, instanceID, "alice", "", 10)
-	if err != nil || len(listed) != 1 || listed[0].ID != checkpoint.ID {
+	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id {
 		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
 	}
-	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "alice"); err != nil {
+	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "alice"); err != nil {
+	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -367,7 +367,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		Revision: "revision-1", Namespace: "team-a",
 		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid",
-		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
@@ -410,13 +410,13 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		&dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("99999999-9999-4999-8999-999999999999"), SourceInstanceID: uuid.MustParse(source.GetId()), UserID: "alice", RequestID: "checkpoint-request-1",
+	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", AgentInstanceId: source.GetId()},
+		UserID: "alice", RequestID: "checkpoint-request-1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "tag-uid-1", ""); err != nil {
+	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -433,7 +433,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.ID.String(), "alice", "fork-request-1", forkID)
+	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)
 	if err != nil || !created {
 		t.Fatalf("ForkAgentInstance() = %+v, created %v, error %v", fork, created, err)
 	}
@@ -472,33 +472,33 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if initialMessageID != nil || requestHash != nil || snapshotUID != "snapshot-uid-1" {
 		t.Fatalf("copied persistence metadata = message %v hash %v snapshot %q", initialMessageID, requestHash, snapshotUID)
 	}
-	replayed, created, err := client.ForkAgentInstance(ctx, checkpoint.ID.String(), "alice", "fork-request-1", "ignored")
+	replayed, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", "ignored")
 	if err != nil || created || replayed.GetId() != fork.GetId() {
 		t.Fatalf("replayed fork = %+v, created %v, error %v", replayed, created, err)
 	}
 	if _, _, err := client.ForkAgentInstance(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "fork-request-1", "ignored"); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting fork request error = %v", err)
 	}
-	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "alice"); !errors.Is(err, dbpkg.ErrNotFound) {
+	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, dbpkg.ErrNotFound) {
 		t.Fatalf("delete referenced checkpoint error = %v", err)
 	}
 
 	if _, err := client.MarkAgentInstanceReady(ctx, fork.GetId(), "fork.example"); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint2, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), SourceInstanceID: uuid.MustParse(fork.GetId()), UserID: "alice", RequestID: "checkpoint-request-2",
+	checkpoint2, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", AgentInstanceId: fork.GetId()},
+		UserID: "alice", RequestID: "checkpoint-request-2",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint2.ID.String(), "tag-uid-2", ""); err != nil {
+	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint2.GetId(), "tag-uid-2", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.DeleteAgentInstance(ctx, fork.GetId()); err != nil {
 		t.Fatal(err)
 	}
-	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.ID.String(), "alice", "fork-request-2", fork2ID)
+	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}
@@ -511,7 +511,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 		Revision: "revision-1", Namespace: "team-a",
 		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid",
-		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
@@ -522,8 +522,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var storedCard map[string]string
-	if err := json.Unmarshal(storedRevision.AgentCard, &storedCard); err != nil || storedCard["name"] != "assistant" {
+	if storedRevision.AgentCard.GetName() != "assistant" {
 		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
 	}
 	pair := dbpkg.AgentTemplateHarnessPair{
@@ -676,7 +675,7 @@ func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context
 		Revision: revisionID, Namespace: namespace,
 		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
 		HarnessName: harness, HarnessUID: harness + "-uid",
-		SourceSnapshot: []byte("{}"), AgentCard: []byte("{}"), EgressDestinations: []string{},
+		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template",
 		ActorTemplateUID: revisionID + "-actor-uid",
 	}

@@ -226,11 +226,11 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if share.ID == uuid.Nil {
-		t.Fatalf("generated share id %q is not a UUID: %v", share.ID, err)
+	if uuid.MustParse(share.GetId()) == uuid.Nil {
+		t.Fatalf("generated share id %q is not a UUID: %v", uuid.MustParse(share.GetId()), err)
 	}
-	if share.ID.Version() != 7 {
-		t.Fatalf("generated share id %q is UUIDv%d, want UUIDv7", share.ID, share.ID.Version())
+	if uuid.MustParse(share.GetId()).Version() != 7 {
+		t.Fatalf("generated share id %q is UUIDv%d, want UUIDv7", uuid.MustParse(share.GetId()), uuid.MustParse(share.GetId()).Version())
 	}
 	digest := sha256.Sum256([]byte(token))
 	if !bytes.Equal(store.share.TokenHash, digest[:]) {
@@ -246,7 +246,7 @@ func TestServiceListSharesPaginatesInStore(t *testing.T) {
 		"44444444-4444-4444-8444-444444444444",
 	}
 	store := &serviceTestStore{shares: []dbpkg.AgentInstanceShare{
-		{ID: uuid.MustParse(ids[1])}, {ID: uuid.MustParse(ids[2])}, {ID: uuid.MustParse(ids[3])},
+		{AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{Id: ids[1]}}, {AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{Id: ids[2]}}, {AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{Id: ids[3]}},
 	}}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	result, err := service.ListShares(serviceTestContext("alice"), ids[0], 2, encodePageToken(ids[0]))

@@ -77,6 +77,8 @@ type Querier interface {
 	// rest of the transaction so reclamation cannot overwrite concurrent progress.
 	LockActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error)
+	LockAgentInstanceCheckpoint(ctx context.Context, id uuid.UUID) (AgentInstanceCheckpoint, error)
+	LockAgentInstanceTask(ctx context.Context, arg LockAgentInstanceTaskParams) (AgentInstanceTask, error)
 	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
@@ -90,13 +92,11 @@ type Querier interface {
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
-	// Renames an instance in place. The row's `data` blob also carries the message,
-	// but `toAgentInstance` reads the name from this column, exactly as it does for
-	// `state` and `operation`, so the column is the single authority and the two
-	// cannot drift.
+	// The store locks the row and changes only the display name in the payload.
 	UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error)
 	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
+	// The revision digest pins the card. Reconciliation only refreshes runtime identity.
 	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)

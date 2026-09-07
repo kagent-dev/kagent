@@ -74,7 +74,7 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			shareStore := &testShareStore{
 				instanceShare: &dbpkg.AgentInstanceShare{
-					InstanceID: testInstanceID, Permission: test.permission, OwnerUserID: "owner",
+					AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+test.permission])}, OwnerUserID: "owner",
 				},
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))

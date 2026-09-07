@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -88,7 +89,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		return ctx, status.Error(codes.Internal, "failed to validate share token")
 	}
 	// READ_WRITE also allows A2A send and cancel; anything else is read-only.
-	readOnly := instanceShare.Permission != agentInstanceShareReadWrite
+	readOnly := instanceShare.Permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE
 	if readOnly && access != auth.AccessPublic && access != auth.AccessRead {
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
@@ -98,16 +99,9 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		// to what the owner can see, and the instance read runs as the owner.
 		UserID:          instanceShare.OwnerUserID,
 		ReadOnly:        readOnly,
-		AgentInstanceID: instanceShare.InstanceID.String(),
+		AgentInstanceID: instanceShare.GetAgentInstanceId(),
 	}), nil
 }
-
-// agentInstanceShareReadWrite is the permission that allows more than reading.
-//
-// Spelled as the column's own value rather than derived from the proto enum: the
-// database stores 'READ_ONLY' or 'READ_WRITE' under a CHECK constraint, and that
-// string is what this has to match.
-const agentInstanceShareReadWrite = "READ_WRITE"
 
 func incomingHTTPHeaders(ctx context.Context) http.Header {
 	headers := make(http.Header)

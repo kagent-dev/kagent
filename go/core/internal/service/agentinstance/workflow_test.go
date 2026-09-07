@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/grpc/codes"
@@ -88,8 +87,8 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	checkpoint := &dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid",
+	checkpoint := &dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc"},
+		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid",
 	}
 	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint)
 	if err != nil {

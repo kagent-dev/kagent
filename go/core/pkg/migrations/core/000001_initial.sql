@@ -41,7 +41,7 @@ CREATE TABLE runtime_revision (
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    agent_card               JSONB       NOT NULL,
+    agent_card               BYTEA       NOT NULL,
     CONSTRAINT runtime_revision_actor_template_namespace_actor_template_na_key
         UNIQUE (actor_template_atespace, actor_template_name)
 );
@@ -82,8 +82,7 @@ CREATE TABLE agent_instance_checkpoint (
     snapshot_content_scope TEXT        NOT NULL,
     tag_uid                TEXT        NOT NULL DEFAULT '',
     state                  TEXT        NOT NULL,
-    failure                TEXT        NOT NULL DEFAULT '',
-    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    data                   BYTEA       NOT NULL,
     source_context_id      UUID        NOT NULL REFERENCES a2a_context(id) ON DELETE RESTRICT,
     prepared_revision      TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     source_labels          JSONB       NOT NULL DEFAULT '{}'
@@ -109,7 +108,6 @@ CREATE TABLE agent_instance (
     operation            TEXT        NOT NULL DEFAULT 'NONE',
     context_id           UUID        NOT NULL REFERENCES a2a_context(id) ON DELETE RESTRICT,
     source_checkpoint_id UUID        REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
-    name                 TEXT        NOT NULL DEFAULT '',
     CONSTRAINT agent_instance_operation_check
         CHECK (operation IN ('NONE', 'CREATE', 'SUSPEND', 'RESUME', 'DELETE')),
     CHECK (state IN ('CREATING', 'READY', 'SUSPENDED', 'FAILED')),
@@ -123,7 +121,7 @@ CREATE TABLE agent_instance_share (
     instance_id UUID        NOT NULL REFERENCES agent_instance(id) ON DELETE CASCADE,
     permission  TEXT        NOT NULL CHECK (permission IN ('READ_ONLY', 'READ_WRITE')),
     token_hash  BYTEA       NOT NULL UNIQUE,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    data        BYTEA       NOT NULL
 );
 CREATE INDEX agent_instance_share_instance_idx
     ON agent_instance_share (instance_id, id);

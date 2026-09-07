@@ -28,7 +28,6 @@ type AgentInstance struct {
 	Operation          string
 	ContextID          uuid.UUID
 	SourceCheckpointID *uuid.UUID
-	Name               string
 }
 
 type AgentInstanceCheckpoint struct {
@@ -44,8 +43,7 @@ type AgentInstanceCheckpoint struct {
 	SnapshotContentScope string
 	TagUid               string
 	State                string
-	Failure              string
-	CreatedAt            time.Time
+	Data                 []byte
 	SourceContextID      uuid.UUID
 	PreparedRevision     *string
 	SourceLabels         []byte
@@ -56,7 +54,7 @@ type AgentInstanceShare struct {
 	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
-	CreatedAt  time.Time
+	Data       []byte
 }
 
 type AgentInstanceTask struct {

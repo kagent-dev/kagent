@@ -26,7 +26,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
-	revision := &v2translator.Revision{}
+	revision := &v2translator.Revision{AgentCardJSON: []byte(`{"name":"assistant"}`)}
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)

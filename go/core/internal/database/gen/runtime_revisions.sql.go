@@ -263,7 +263,6 @@ INSERT INTO runtime_revision (
     $9, $10, $11, $12
 )
 ON CONFLICT (revision) DO UPDATE SET
-    agent_card = EXCLUDED.agent_card,
     actor_template_uid = EXCLUDED.actor_template_uid,
     updated_at = NOW()
 `
@@ -283,6 +282,7 @@ type UpsertRuntimeRevisionParams struct {
 	ActorTemplateUid      string
 }
 
+// The revision digest pins the card. Reconciliation only refreshes runtime identity.
 func (q *Queries) UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error {
 	_, err := q.db.Exec(ctx, upsertRuntimeRevision,
 		arg.Revision,

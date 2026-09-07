@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -20,6 +19,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
@@ -407,8 +407,8 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance runtime revision", "error", err, "revision", instance.GetPreparedRevision())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Agent Card")
 	}
-	card := &a2atype.AgentCard{}
-	if err := json.Unmarshal(revision.AgentCard, card); err != nil {
+	card, err := runtimeAgentCard(revision.AgentCard)
+	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to decode agent instance agent card", "error", err, "revision", revision.Revision)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Agent Card")
 	}
@@ -428,6 +428,34 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 	card.SecurityRequirements = nil
 	card.SecuritySchemes = nil
 	card.Signatures = nil
+	return card, nil
+}
+
+// Binary protobuf does not distinguish absent and empty repeated fields. The
+// upstream converter requires non-nil skills/tags and a description, while our
+// templates allow empty skills and descriptions. Normalize its input and retain
+// the template's description in the protocol response.
+func runtimeAgentCard(stored *a2apb.AgentCard) (*a2atype.AgentCard, error) {
+	if stored == nil {
+		return nil, fmt.Errorf("missing Agent Card")
+	}
+	value := proto.Clone(stored).(*a2apb.AgentCard)
+	if value.Skills == nil {
+		value.Skills = []*a2apb.AgentSkill{}
+	}
+	for _, skill := range value.Skills {
+		if skill.Tags == nil {
+			skill.Tags = []string{}
+		}
+	}
+	if value.Description == "" {
+		value.Description = value.Name
+	}
+	card, err := pbconv.FromProtoAgentCard(value)
+	if err != nil {
+		return nil, err
+	}
+	card.Description = stored.Description
 	return card, nil
 }
 

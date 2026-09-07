@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
@@ -127,8 +128,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("an AgentInstance share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: testInstanceID,
-				Permission: "READ_ONLY", OwnerUserID: "owner",
+				AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, OwnerUserID: "owner",
 			},
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
@@ -161,7 +161,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: testInstanceID, Permission: "READ_ONLY", OwnerUserID: "owner",
+				AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, OwnerUserID: "owner",
 			},
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
@@ -180,7 +180,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: testInstanceID, Permission: "READ_WRITE", OwnerUserID: "owner",
+				AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_WRITE"])}, OwnerUserID: "owner",
 			},
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))

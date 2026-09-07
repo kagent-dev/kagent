@@ -3,10 +3,10 @@ package checkpoint
 import (
 	"context"
 	"testing"
-	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -30,23 +30,23 @@ type testStore struct {
 }
 
 func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
-	checkpoint.HeadTaskID = "task-1"
+	checkpoint.HeadTaskId = "task-1"
 	checkpoint.HistorySequence = 7
 	checkpoint.SnapshotAtespace = "team-a"
 	checkpoint.SnapshotName = "snapshot-1"
 	checkpoint.SnapshotUID = "snapshot-uid"
 	checkpoint.SnapshotContentScope = "DATA"
-	checkpoint.State = "CREATING"
-	checkpoint.CreatedAt = time.Now()
+	checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
+	checkpoint.CreatedAt = timestamppb.Now()
 	s.prepared = &checkpoint
 	return &checkpoint, nil
 }
 
 func (s *testStore) FinalizeAgentInstanceCheckpoint(_ context.Context, _ string, tagUID, failure string) (*dbpkg.AgentInstanceCheckpoint, error) {
 	if failure != "" {
-		s.prepared.State, s.failed = "FAILED", failure
+		s.prepared.State, s.failed = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED, failure
 	} else {
-		s.prepared.State, s.prepared.TagUID = "READY", tagUID
+		s.prepared.State, s.prepared.TagUID = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, tagUID
 	}
 	return s.prepared, nil
 }
@@ -66,7 +66,7 @@ func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, 
 	if s.prepared == nil {
 		return nil, dbpkg.ErrNotFound
 	}
-	s.prepared.State = "DELETING"
+	s.prepared.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
 	return s.prepared, nil
 }
 
@@ -165,36 +165,36 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 }
 
 func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
-	checkpoint := &dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), UserID: "alice",
-		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", TagUID: "tag-uid", State: "READY",
+	checkpoint := &dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY},
+		UserID:           "alice",
+		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", TagUID: "tag-uid",
 	}
 	store := &testStore{prepared: checkpoint}
 	tags := &testTags{created: &ateapipb.ActorSnapshotTag{
-		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.ID.String()), Uid: "tag-uid"},
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.GetId()), Uid: "tag-uid"},
 		Snapshot: &ateapipb.ObjectRef{Atespace: "team-a", Name: "snapshot-1"},
 	}}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	if err := service.Delete(ctx, checkpoint.ID.String()); err != nil {
+	if err := service.Delete(ctx, checkpoint.GetId()); err != nil {
 		t.Fatal(err)
 	}
-	if checkpoint.State != "DELETING" || tags.deleteCalls != 1 || !store.deleted {
+	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 1 || !store.deleted {
 		t.Fatalf("checkpoint state = %s, tag deletes = %d, row deleted = %v", checkpoint.State, tags.deleteCalls, store.deleted)
 	}
 }
 func TestForkCreatesAgentInstanceFromCheckpoint(t *testing.T) {
-	checkpoint := &dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), UserID: "alice",
-		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid", SnapshotContentScope: "DATA", State: "READY",
+	checkpoint := &dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY},
+		UserID:           "alice",
+		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid", SnapshotContentScope: "DATA",
 	}
 	store := &testStore{prepared: checkpoint}
 	workflow := &testWorkflow{}
 	service := NewService(store, testAuthorizer{}, &testTags{}, workflow)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	instance, err := service.Fork(ctx, checkpoint.ID.String(), "fork-request")
+	instance, err := service.Fork(ctx, checkpoint.GetId(), "fork-request")
 	if err != nil {
 		t.Fatal(err)
 	}
