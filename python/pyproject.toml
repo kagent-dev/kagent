@@ -5,8 +5,8 @@ members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai
 dev = [
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
-  "ruff>=0.15.22",
-  "authlib>=1.7.2"
+  "ruff>=0.16.6",
+  "authlib>=1.8.0"
 ]
 
 [tool.uv]
