@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -235,7 +234,7 @@ func TestFullRuntimeDigest(t *testing.T) {
 	require.Equal(t, "", fullRuntimeDigest("", "", false))
 }
 
-func TestResolveRuntimeImageDigestPinnedTagDoesNotAppendFullToDigest(t *testing.T) {
+func TestResolveRuntimeImageDigestPinnedTagFailsWithoutExplicitFullDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
 	originalOverride := PythonADKFullImageDigestOverride
@@ -245,17 +244,17 @@ func TestResolveRuntimeImageDigestPinnedTagDoesNotAppendFullToDigest(t *testing.
 		PythonADKFullImageDigestOverride = originalOverride
 	})
 	// Released controller builds always bake a full digest. That must not pin
-	// the declarative full image, or IMAGE_TAG=tag@digest becomes tag-full@baked.
+	// the declarative full image, and tag@digest without an explicit full digest
+	// must fail closed instead of silently using tag-full.
 	DefaultImageConfig.Tag = "0.10.0-rc3@" + testSlimDigest
 	PythonADKFullImageDigest = testFullDigest
 	PythonADKFullImageDigestOverride = ""
 
-	got, err := resolvePythonRuntimeImage("ghcr.io", true, false)
-	require.NoError(t, err)
-	require.Equal(t, "ghcr.io/kagent-dev/kagent/app:0.10.0-rc3-full", got)
-	require.NotContains(t, got, "deadbeef")
-	require.NotContains(t, got, testFullDigest)
-	require.False(t, strings.Contains(got, testSlimDigest+"-full"), "must not append -full after the slim digest")
+	_, err := resolvePythonRuntimeImage("ghcr.io", true, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tag@digest")
+	require.Contains(t, err.Error(), "app-full-image-digest")
+	require.NotContains(t, err.Error(), "deadbeef-full")
 }
 
 func TestResolveRuntimeImageDigestPinnedTagUsesExplicitFullDigest(t *testing.T) {
@@ -278,7 +277,26 @@ func TestResolveRuntimeImageDigestPinnedTagUsesExplicitFullDigest(t *testing.T) 
 	require.NotContains(t, got, "baked")
 }
 
-func TestResolveRuntimeImageDigestPinnedTagDoesNotReuseSlimDigestForGo(t *testing.T) {
+func TestResolveRuntimeImageDigestPinnedTagFailsWithoutExplicitFullDigestForGo(t *testing.T) {
+	originalTag := DefaultGoImageConfig.Tag
+	originalFull := GoADKFullImageDigest
+	originalOverride := GoADKFullImageDigestOverride
+	t.Cleanup(func() {
+		DefaultGoImageConfig.Tag = originalTag
+		GoADKFullImageDigest = originalFull
+		GoADKFullImageDigestOverride = originalOverride
+	})
+	DefaultGoImageConfig.Tag = "0.10.0-rc3@" + testSlimDigest
+	GoADKFullImageDigest = testFullDigest
+	GoADKFullImageDigestOverride = ""
+
+	_, err := resolveGoRuntimeImage("ghcr.io", true, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tag@digest")
+	require.Contains(t, err.Error(), "golang-adk-full-image-digest")
+}
+
+func TestResolveRuntimeImageDigestPinnedTagUsesExplicitFullDigestForGo(t *testing.T) {
 	originalTag := DefaultGoImageConfig.Tag
 	originalFull := GoADKFullImageDigest
 	originalOverride := GoADKFullImageDigestOverride
@@ -395,7 +413,7 @@ func TestResolveRuntimeImageRejectsEmptyDigest(t *testing.T) {
 	require.Contains(t, err.Error(), "empty digest")
 }
 
-func TestResolveInlineDeploymentSkillsDropsEmbeddedSlimDigest(t *testing.T) {
+func TestResolveInlineDeploymentSkillsFailsWithoutExplicitFullDigest(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
 	originalFull := PythonADKFullImageDigest
 	originalOverride := PythonADKFullImageDigestOverride
@@ -415,9 +433,8 @@ func TestResolveInlineDeploymentSkillsDropsEmbeddedSlimDigest(t *testing.T) {
 			Skills:      &v1alpha2.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
 		},
 	}
-	dep, err := resolveInlineDeployment(agent, &modelDeploymentData{})
-	require.NoError(t, err)
-	require.Equal(t, "ghcr.io/kagent-dev/kagent/app:0.10.0-rc3-full", dep.Image)
-	require.NotContains(t, dep.Image, "deadbeef")
-	require.NotContains(t, dep.Image, testFullDigest)
+	_, err := resolveInlineDeployment(agent, &modelDeploymentData{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tag@digest")
+	require.Contains(t, err.Error(), "app-full-image-digest")
 }
