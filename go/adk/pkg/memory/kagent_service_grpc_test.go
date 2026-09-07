@@ -49,7 +49,7 @@ func newMemoryControllerClient(t *testing.T, service *memoryTestServer) *control
 	go func() { _ = server.Serve(listener) }()
 
 	client, err := controllerclient.New(controllerclient.Config{
-		Target: "passthrough:///bufnet",
+		APIURL: "http://bufnet:80",
 		DialOptions: []grpc.DialOption{grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return listener.Dial()
 		})},

@@ -437,13 +437,18 @@ type sharedInteractionFixture struct {
 
 func interactionTarget(t *testing.T) string {
 	t.Helper()
-	target := os.Getenv("KAGENT_E2E_GRPC_TARGET")
-	if target == "" {
-		target = os.Getenv("KAGENT_GRPC_URL")
+	rawURL := os.Getenv("KAGENT_E2E_API_URL")
+	if rawURL == "" {
+		rawURL = os.Getenv("KAGENT_API_URL")
 	}
-	if target == "" {
-		t.Skip("KAGENT_E2E_GRPC_TARGET is not set")
+	if rawURL == "" {
+		t.Skip("KAGENT_E2E_API_URL is not set")
 	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		t.Fatalf("invalid KAGENT_E2E_API_URL %q: %v", rawURL, err)
+	}
+	target := parsed.Host
 	return target
 }
 

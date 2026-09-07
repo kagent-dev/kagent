@@ -42,17 +42,17 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentURL = RegisterStringVar(
-		"KAGENT_URL",
+	KagentAPIURL = RegisterStringVar(
+		"KAGENT_API_URL",
 		"",
-		"Base URL for A2A communication with the kagent controller.",
+		"Base URL for kagent control-plane API calls.",
 		ComponentAgentRuntime,
 	)
 
-	KagentGRPCURL = RegisterStringVar(
-		"KAGENT_GRPC_URL",
+	KagentGatewayURL = RegisterStringVar(
+		"KAGENT_GATEWAY_URL",
 		"",
-		"Native gRPC target for kagent controller API calls.",
+		"Base URL for A2A and MCP traffic.",
 		ComponentAgentRuntime,
 	)
 

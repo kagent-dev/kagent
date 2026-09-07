@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
-  A2A_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
+  KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   {{- if .Values.ui.externalUrl }}

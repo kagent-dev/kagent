@@ -12,11 +12,10 @@ import (
 func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
 	rootCmd := cli.Root()
 
-	assert.Equal(t, "http://localhost:8083", rootCmd.PersistentFlags().Lookup("kagent-url").DefValue)
-	assert.Equal(t, "localhost:8084", rootCmd.PersistentFlags().Lookup("grpc-url").DefValue)
-	assert.Equal(t, "false", rootCmd.PersistentFlags().Lookup("grpc-tls").DefValue)
-	assert.Empty(t, rootCmd.PersistentFlags().Lookup("grpc-ca-file").DefValue)
-	assert.Empty(t, rootCmd.PersistentFlags().Lookup("grpc-server-name").DefValue)
+	assert.Equal(t, "http://localhost:8083", rootCmd.PersistentFlags().Lookup("api-url").DefValue)
+	assert.Equal(t, "http://localhost:8083", rootCmd.PersistentFlags().Lookup("gateway-url").DefValue)
+	assert.Empty(t, rootCmd.PersistentFlags().Lookup("ca-file").DefValue)
+	assert.Empty(t, rootCmd.PersistentFlags().Lookup("server-name").DefValue)
 	assert.Equal(t, "kagent", rootCmd.PersistentFlags().Lookup("namespace").DefValue)
 	assert.Equal(t, "table", rootCmd.PersistentFlags().Lookup("output-format").DefValue)
 	assert.Equal(t, "false", rootCmd.PersistentFlags().Lookup("verbose").DefValue)
@@ -27,11 +26,10 @@ func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
 func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
 	rootCmd := cli.Root()
 	require.NoError(t, rootCmd.ParseFlags([]string{
-		"--kagent-url", "http://flag.example.test",
-		"--grpc-url", "grpc.flag.example.test:8443",
-		"--grpc-tls",
-		"--grpc-ca-file", "/tmp/flag-ca.pem",
-		"--grpc-server-name", "grpc.flag.example.test",
+		"--api-url", "https://api.example.test",
+		"--gateway-url", "https://gateway.example.test",
+		"--ca-file", "/tmp/flag-ca.pem",
+		"--server-name", "api.example.test",
 		"--namespace", "flag-ns",
 		"--output-format", "yaml",
 		"--verbose",
@@ -40,16 +38,15 @@ func TestRootCommandFlagsOverrideOptionValues(t *testing.T) {
 	}))
 
 	want := map[string]string{
-		"kagent-url":       "http://flag.example.test",
-		"grpc-url":         "grpc.flag.example.test:8443",
-		"grpc-tls":         "true",
-		"grpc-ca-file":     "/tmp/flag-ca.pem",
-		"grpc-server-name": "grpc.flag.example.test",
-		"namespace":        "flag-ns",
-		"output-format":    "yaml",
-		"verbose":          "true",
-		"timeout":          "10s",
-		"user-id":          "flag-user",
+		"api-url":       "https://api.example.test",
+		"gateway-url":   "https://gateway.example.test",
+		"ca-file":       "/tmp/flag-ca.pem",
+		"server-name":   "api.example.test",
+		"namespace":     "flag-ns",
+		"output-format": "yaml",
+		"verbose":       "true",
+		"timeout":       "10s",
+		"user-id":       "flag-user",
 	}
 	for name, value := range want {
 		assert.Equal(t, value, rootCmd.PersistentFlags().Lookup(name).Value.String())

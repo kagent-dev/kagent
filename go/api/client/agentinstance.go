@@ -8,11 +8,10 @@ import (
 
 // AgentInstanceClient provides supported AgentInstance operations.
 type AgentInstanceClient struct {
-	client *BaseClient
+	client *baseClient
 }
 
-// NewAgentInstanceClient creates an AgentInstance client over the shared gRPC connection.
-func NewAgentInstanceClient(client *BaseClient) *AgentInstanceClient {
+func newAgentInstanceClient(client *baseClient) *AgentInstanceClient {
 	return &AgentInstanceClient{client: client}
 }
 
@@ -52,7 +51,7 @@ func (c *AgentInstanceClient) DeleteAgentInstance(ctx context.Context, request *
 	return client.DeleteAgentInstance(callContext, request)
 }
 
-func (c *BaseClient) agentInstanceCall(ctx context.Context) (apiv1alpha1.AgentInstanceServiceClient, context.Context, context.CancelFunc, error) {
+func (c *baseClient) agentInstanceCall(ctx context.Context) (apiv1alpha1.AgentInstanceServiceClient, context.Context, context.CancelFunc, error) {
 	connection, err := c.grpcConnection()
 	if err != nil {
 		return nil, nil, nil, err

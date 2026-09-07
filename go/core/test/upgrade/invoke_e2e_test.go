@@ -39,11 +39,18 @@ func checkoutPreviousRelease(t *testing.T, env upgradeEnv) string {
 	return filepath.Join(worktree, "go")
 }
 
+// runInvokeE2E runs the invoke e2e slice from treeGoDir against the controller
+// currently serving in the cluster. treeGoDir is the `go/` module dir of the
+// matching-version tree (repo root for HEAD, the worktree for the prior
+// release). It port-forwards the controller for KAGENT_API_URL — re-established per
+// state, so it survives the controller being reinstalled between states — and
+// relies on KAGENT_LOCAL_HOST (kind gateway IP, set by the make target) for the
+// agent→host mock-LLM callback. label identifies the state in messages.
 func runInvokeE2E(t *testing.T, env upgradeEnv, treeGoDir, label string) {
 	t.Helper()
 
 	requireInvokeEnvironment(t, treeGoDir, label)
-	port, stop := startPortForward(t, env, controllerServiceName, controllerGRPCPort)
+	port, stop := startPortForward(t, env, controllerServiceName, controllerAPIPort)
 	defer stop()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
@@ -65,8 +72,10 @@ func upgradeE2EEnv(t *testing.T, env upgradeEnv, port int) []string {
 	kubeconfig := kubectl(t, env, time.Minute, "config", "view", "--raw", "--flatten", "--minify")
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(kubeconfig), 0o600))
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 	return append(os.Environ(),
-		fmt.Sprintf("KAGENT_E2E_GRPC_TARGET=127.0.0.1:%d", port),
+		"KAGENT_E2E_API_URL="+endpoint,
+		"KAGENT_GATEWAY_URL="+endpoint,
 		"KUBECONFIG="+kubeconfigPath,
 	)
 }
