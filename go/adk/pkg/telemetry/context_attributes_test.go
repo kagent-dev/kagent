@@ -121,6 +121,30 @@ func TestContextWithPromotedMetadata(t *testing.T) {
 			metadata:  map[string]any{"bad key": "x", "user.id": "ok"},
 			want:      map[string]string{"user.id": "ok"},
 		},
+		{
+			name:      "rejects leftover hmac-sha256 hash mappings",
+			allowlist: `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`,
+			metadata:  map[string]any{"email": "person@example.test"},
+			want:      map[string]string{},
+		},
+		{
+			name:        "does not remap leftover hashed mappings from baggage",
+			allowlist:   `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`,
+			baggageVals: map[string]string{"email": "person@example.test"},
+			want:        map[string]string{"email": "person@example.test"},
+		},
+		{
+			name:      "rejects unknown leftover hash mappings",
+			allowlist: `[{"from":"email","to":"user.hash","hash":"sha3"}]`,
+			metadata:  map[string]any{"email": "person@example.test"},
+			want:      map[string]string{},
+		},
+		{
+			name:      "keeps mappings without hash when a hashed entry is dropped",
+			allowlist: `[{"from":"email","to":"user.hash","hash":"hmac-sha256"},{"from":"sub","to":"user.id"}]`,
+			metadata:  map[string]any{"email": "person@example.test", "sub": "opaque-subject"},
+			want:      map[string]string{"user.id": "opaque-subject"},
+		},
 	}
 
 	for _, tt := range tests {

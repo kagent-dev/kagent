@@ -142,12 +142,17 @@ def _parse_json_allowlist(raw: str) -> list[_ContextMapping]:
         if isinstance(item, str):
             mapping = _new_context_mapping(item, "")
         elif isinstance(item, dict):
-            from_key, from_ok = _json_string_field(item, "from")
-            to_key, to_ok = _json_string_field(item, "to")
-            if not from_ok or not to_ok:
+            # Leftover {hash:...} config is no longer supported. Drop the
+            # mapping rather than stamping the raw source value onto `to`.
+            if "hash" in item:
                 mapping = None
             else:
-                mapping = _new_context_mapping(from_key, to_key)
+                from_key, from_ok = _json_string_field(item, "from")
+                to_key, to_ok = _json_string_field(item, "to")
+                if not from_ok or not to_ok:
+                    mapping = None
+                else:
+                    mapping = _new_context_mapping(from_key, to_key)
         else:
             mapping = None
         if mapping is not None:

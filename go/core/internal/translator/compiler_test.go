@@ -295,6 +295,7 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 
 func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", "256")
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
@@ -318,15 +319,18 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := map[string]string{}
 	for _, variable := range spec.Environment {
-		if variable.Name == "OTEL_TRACING_ENABLED" {
-			if variable.Value != "true" {
-				t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q", variable.Value, "true")
-			}
-			return
+		if variable.Name == "OTEL_TRACING_ENABLED" || variable.Name == "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT" {
+			got[variable.Name] = variable.Value
 		}
 	}
-	t.Fatalf("OTEL_TRACING_ENABLED missing from runtime revision environment: %+v", spec.Environment)
+	if got["OTEL_TRACING_ENABLED"] != "true" {
+		t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q (env: %+v)", got["OTEL_TRACING_ENABLED"], "true", spec.Environment)
+	}
+	if got["OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT"] != "256" {
+		t.Fatalf("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT = %q, want %q (env: %+v)", got["OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT"], "256", spec.Environment)
+	}
 }
 
 func TestCompileAgentTemplateSharedAgent(t *testing.T) {

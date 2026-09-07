@@ -127,6 +127,28 @@ class TestContextWithPromotedMetadata:
         set_allowlist(monkeypatch, "bad key,user.id")
         assert baggage_values(context_with_promoted_metadata({"bad key": "x", "user.id": "ok"})) == {"user.id": "ok"}
 
+    def test_rejects_leftover_hmac_sha256_hash_mappings(self, monkeypatch):
+        set_allowlist(monkeypatch, '[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]')
+        assert baggage_values(context_with_promoted_metadata({"email": "person@example.test"})) == {}
+
+    def test_does_not_remap_leftover_hashed_mappings_from_baggage(self, monkeypatch):
+        set_allowlist(monkeypatch, '[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]')
+        ctx = baggage_context({"email": "person@example.test"})
+        assert baggage_values(context_with_promoted_metadata({}, ctx)) == {"email": "person@example.test"}
+
+    def test_rejects_unknown_leftover_hash_mappings(self, monkeypatch):
+        set_allowlist(monkeypatch, '[{"from":"email","to":"user.hash","hash":"sha3"}]')
+        assert baggage_values(context_with_promoted_metadata({"email": "person@example.test"})) == {}
+
+    def test_keeps_mappings_without_hash_when_hashed_entry_dropped(self, monkeypatch):
+        set_allowlist(
+            monkeypatch,
+            '[{"from":"email","to":"user.hash","hash":"hmac-sha256"},{"from":"sub","to":"user.id"}]',
+        )
+        assert baggage_values(
+            context_with_promoted_metadata({"email": "person@example.test", "sub": "opaque-subject"})
+        ) == {"user.id": "opaque-subject"}
+
     def test_caps_the_allowlist(self, monkeypatch):
         keys = [f"k{i}" for i in range(MAX_CONTEXT_KEYS + 4)]
         set_allowlist(monkeypatch, ",".join(keys))

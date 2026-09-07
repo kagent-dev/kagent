@@ -164,10 +164,16 @@ func parseJSONAllowlist(raw string) []contextMapping {
 			continue
 		}
 		var spec struct {
-			From string `json:"from"`
-			To   string `json:"to"`
+			From string          `json:"from"`
+			To   string          `json:"to"`
+			Hash json.RawMessage `json:"hash"`
 		}
 		if err := json.Unmarshal(item, &spec); err != nil {
+			continue
+		}
+		// Leftover {hash:...} config is no longer supported. Drop the
+		// mapping rather than stamping the raw source value onto `to`.
+		if spec.Hash != nil {
 			continue
 		}
 		if mapping, ok := newContextMapping(spec.From, spec.To); ok {
