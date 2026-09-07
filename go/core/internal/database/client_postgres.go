@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/pgvector/pgvector-go"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -378,24 +380,30 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, checkpointID, us
 		ids := newForkIDs(instanceID)
 		var copiedHistorySequence int64
 		for _, source := range tasks {
-			task, err := unmarshalAgentInstanceTask(source.Data)
+			task := &a2apb.Task{}
+			err := proto.Unmarshal(source.Data, task)
+			if err != nil {
+				return fmt.Errorf("decode checkpoint task %s: %w", source.ID, err)
+			}
+			decoded, err := pbconv.FromProtoTask(task)
 			if err != nil {
 				return fmt.Errorf("decode checkpoint task %s: %w", source.ID, err)
 			}
 			reidentifyForkTask(task, instanceID, ids)
 			if len(task.History) > 0 {
-				copiedHistorySequence, err = storeAgentInstanceTaskMessages(ctx, q, instanceUUID, string(task.ID), task.History)
+				copiedHistorySequence, err = storeProtoTaskMessages(ctx, q, instanceUUID, task.Id, task.History)
 				if err != nil {
 					return fmt.Errorf("copy checkpoint task %s history: %w", source.ID, err)
 				}
 			}
-			data, err := marshalAgentInstanceTask(task, source.Data)
+			task.History = nil
+			data, err := proto.Marshal(task)
 			if err != nil {
-				return fmt.Errorf("encode fork task %s: %w", task.ID, err)
+				return fmt.Errorf("encode fork task %s: %w", task.Id, err)
 			}
 			copy := dbgen.InsertCopiedAgentInstanceTaskParams{
-				ContextID: instanceUUID, ID: string(task.ID), State: string(task.Status.State),
-				StatusTimestamp: task.Status.Timestamp, Data: data,
+				ContextID: instanceUUID, ID: task.Id, State: string(decoded.Status.State),
+				StatusTimestamp: decoded.Status.Timestamp, Data: data,
 				CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt,
 			}
 			if err := q.InsertCopiedAgentInstanceTask(ctx, copy); err != nil {
@@ -407,12 +415,21 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, checkpointID, us
 			return fmt.Errorf("list checkpoint events: %w", err)
 		}
 		for _, source := range events {
-			event, err := unmarshalAgentInstanceTaskEvent(source.Data)
+			event := &a2apb.StreamResponse{}
+			err := proto.Unmarshal(source.Data, event)
 			if err != nil {
 				return fmt.Errorf("decode checkpoint event %d: %w", source.Sequence, err)
 			}
-			reidentifyForkEvent(event, derefStr(source.TaskID), instanceID, ids)
-			data, err := marshalAgentInstanceTaskEvent(event, source.Data)
+			decoded, err := pbconv.FromProtoStreamResponse(event)
+			if err != nil {
+				return fmt.Errorf("decode checkpoint event %d: %w", source.Sequence, err)
+			}
+			sourceTaskID := string(decoded.TaskInfo().TaskID)
+			if sourceTaskID == "" {
+				sourceTaskID = derefStr(source.TaskID)
+			}
+			taskID := reidentifyForkEvent(event, sourceTaskID, instanceID, ids)
+			data, err := proto.Marshal(event)
 			if err != nil {
 				return fmt.Errorf("encode checkpoint event %d: %w", source.Sequence, err)
 			}
@@ -422,7 +439,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, checkpointID, us
 				messageID = &mapped
 			}
 			copiedHistorySequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-				ContextID: instanceUUID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)),
+				ContextID: instanceUUID, TaskID: strPtrIfNotEmpty(taskID),
 				MessageID: messageID, Data: data,
 			})
 			if err != nil {
@@ -492,50 +509,46 @@ func (i *forkIDs) message(id string) string {
 	return mapped
 }
 
-func reidentifyForkTask(task *a2a.Task, contextID string, ids *forkIDs) {
-	task.ID = ids.task(task.ID)
-	task.ContextID = contextID
+// Fork identities change in the canonical protobuf, leaving all other fields intact.
+func reidentifyForkTask(task *a2apb.Task, contextID string, ids *forkIDs) {
+	task.Id = string(ids.task(a2a.TaskID(task.Id)))
+	task.ContextId = contextID
 	for _, message := range task.History {
-		reidentifyForkMessage(message, task.ID, contextID, ids)
+		reidentifyForkMessage(message, task.Id, contextID, ids)
 	}
-	if task.Status.Message != nil {
-		reidentifyForkMessage(task.Status.Message, task.ID, contextID, ids)
-	}
+	reidentifyForkMessage(task.GetStatus().GetMessage(), task.Id, contextID, ids)
 }
 
-func reidentifyForkMessage(message *a2a.Message, taskID a2a.TaskID, contextID string, ids *forkIDs) {
+func reidentifyForkMessage(message *a2apb.Message, taskID, contextID string, ids *forkIDs) {
 	if message == nil {
 		return
 	}
-	message.ID = ids.message(message.ID)
-	message.ContextID = contextID
-	message.TaskID = taskID
-	for index, reference := range message.ReferenceTasks {
-		message.ReferenceTasks[index] = ids.task(reference)
+	message.MessageId = ids.message(message.MessageId)
+	message.ContextId = contextID
+	message.TaskId = taskID
+	for index, reference := range message.ReferenceTaskIds {
+		message.ReferenceTaskIds[index] = string(ids.task(a2a.TaskID(reference)))
 	}
 }
 
-func reidentifyForkEvent(event a2a.Event, sourceTaskID, contextID string, ids *forkIDs) {
-	taskID := event.TaskInfo().TaskID
-	if taskID == "" {
-		taskID = a2a.TaskID(sourceTaskID)
+func reidentifyForkEvent(event *a2apb.StreamResponse, sourceTaskID, contextID string, ids *forkIDs) string {
+	// The row records the task even for messages whose payload omits it.
+	taskID := string(ids.task(a2a.TaskID(sourceTaskID)))
+	switch payload := event.Payload.(type) {
+	case *a2apb.StreamResponse_Message:
+		reidentifyForkMessage(payload.Message, taskID, contextID, ids)
+	case *a2apb.StreamResponse_Task:
+		reidentifyForkTask(payload.Task, contextID, ids)
+		taskID = payload.Task.Id
+	case *a2apb.StreamResponse_StatusUpdate:
+		payload.StatusUpdate.TaskId = taskID
+		payload.StatusUpdate.ContextId = contextID
+		reidentifyForkMessage(payload.StatusUpdate.GetStatus().GetMessage(), taskID, contextID, ids)
+	case *a2apb.StreamResponse_ArtifactUpdate:
+		payload.ArtifactUpdate.TaskId = taskID
+		payload.ArtifactUpdate.ContextId = contextID
 	}
-	switch event := event.(type) {
-	case *a2a.Message:
-		reidentifyForkMessage(event, ids.task(taskID), contextID, ids)
-	case *a2a.Task:
-		event.ID = taskID
-		reidentifyForkTask(event, contextID, ids)
-	case *a2a.TaskStatusUpdateEvent:
-		event.TaskID = ids.task(taskID)
-		event.ContextID = contextID
-		if event.Status.Message != nil {
-			reidentifyForkMessage(event.Status.Message, event.TaskID, contextID, ids)
-		}
-	case *a2a.TaskArtifactUpdateEvent:
-		event.TaskID = ids.task(taskID)
-		event.ContextID = contextID
-	}
+	return taskID
 }
 
 func (c *postgresClient) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
@@ -786,7 +799,7 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
 	message := task.History[0]
-	taskData, err := marshalAgentInstanceTask(task, nil)
+	taskData, err := marshalAgentInstanceTask(task)
 	if err != nil {
 		return nil, false, err
 	}
@@ -875,28 +888,34 @@ func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, i
 		if row.ID != taskID {
 			return nil
 		}
-		task, err := unmarshalAgentInstanceTask(row.Data)
-		if err != nil {
+		task := &a2apb.Task{}
+		if err := proto.Unmarshal(row.Data, task); err != nil {
+			return fmt.Errorf("decode interrupted task: %w", err)
+		}
+		if _, err := pbconv.FromProtoTask(task); err != nil {
 			return err
 		}
-		if err := loadAgentInstanceTaskHistories(ctx, q, contextID, []*a2a.Task{task}); err != nil {
-			return err
+		interrupted := &a2apb.Message{
+			MessageId: uuid.NewString(), TaskId: task.Id, ContextId: task.ContextId, Role: a2apb.Role_ROLE_AGENT,
+			Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: taskInterruptedMessage}}},
 		}
-		interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(taskInterruptedMessage))
 		now := time.Now()
-		task.History = append(task.History, interrupted)
-		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Message: interrupted, Timestamp: &now}
-		data, err := marshalAgentInstanceTask(task, row.Data)
+		task.Status.State = a2apb.TaskState_TASK_STATE_FAILED
+		task.Status.Message = interrupted
+		task.Status.Timestamp = timestamppb.New(now)
+		messages := append(task.History, interrupted)
+		task.History = nil
+		data, err := proto.Marshal(task)
 		if err != nil {
 			return err
 		}
 		if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-			ContextID: contextID, ID: string(task.ID), State: string(task.Status.State),
-			StatusTimestamp: task.Status.Timestamp, Data: data,
+			ContextID: contextID, ID: task.Id, State: string(a2a.TaskStateFailed),
+			StatusTimestamp: &now, Data: data,
 		}); err != nil {
-			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.ID, err)
+			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.Id, err)
 		}
-		if _, err := storeAgentInstanceTaskMessages(ctx, q, contextID, string(task.ID), task.History); err != nil {
+		if _, err := storeProtoTaskMessages(ctx, q, contextID, task.Id, messages); err != nil {
 			return fmt.Errorf("record AgentInstance task interruption: %w", err)
 		}
 		interruptedTask = true
@@ -912,31 +931,41 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 	contextID := uuid.MustParse(instanceID)
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		var sequence int64
-		var replacedStatusMessage *a2a.Message
-		var previousData []byte
+		var stored *a2apb.Task
 		if task != nil {
 			if row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{ContextID: contextID, ID: string(task.ID)}); err == nil {
-				previousData = row.Data
-				previous, err := unmarshalAgentInstanceTask(row.Data)
-				if err != nil {
+				stored = &a2apb.Task{}
+				if err := proto.Unmarshal(row.Data, stored); err != nil {
+					return fmt.Errorf("decode stored task: %w", err)
+				}
+				if _, err := pbconv.FromProtoTask(stored); err != nil {
 					return err
 				}
-				// A reply replaces the current status message, so archive both atomically.
-				if _, ok := event.(*a2a.Message); ok && previous.Status.Message != nil {
-					message := *previous.Status.Message
-					message.TaskID, message.ContextID = task.ID, task.ContextID
-					replacedStatusMessage = &message
+				messages := stored.History
+				// Replies and status updates archive the old status message before replacing it.
+				// Use the stored protobuf so its nested fields survive in history too.
+				switch event.(type) {
+				case *a2a.Message, *a2a.TaskStatusUpdateEvent:
+					if message := stored.Status.Message; message != nil {
+						message.TaskId, message.ContextId = string(task.ID), task.ContextID
+						messages = append(messages, message)
+					}
 				}
-				if len(previous.History) > 0 {
-					sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(task.ID), previous.History)
+				if len(messages) > 0 {
+					sequence, err = storeProtoTaskMessages(ctx, q, contextID, string(task.ID), messages)
 					if err != nil {
-						return fmt.Errorf("normalize legacy AgentInstance task history: %w", err)
+						return fmt.Errorf("archive AgentInstance task history: %w", err)
 					}
 				}
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
 			}
-			data, err := marshalAgentInstanceTask(task, previousData)
+			var err error
+			stored, err = applyAgentInstanceTaskEvent(stored, task, event)
+			if err != nil {
+				return err
+			}
+			data, err := proto.Marshal(stored)
 			if err != nil {
 				return err
 			}
@@ -951,9 +980,6 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 			}
 		}
 		messages := agentInstanceTaskEventMessages(task, event)
-		if replacedStatusMessage != nil {
-			messages = append([]*a2a.Message{replacedStatusMessage}, messages...)
-		}
 		if len(messages) > 0 {
 			var err error
 			sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(event.TaskInfo().TaskID), messages)
@@ -962,7 +988,10 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 			}
 		}
 		if _, ok := event.(*a2a.Message); !ok {
-			eventData, err := marshalAgentInstanceTaskEvent(event, nil)
+			eventData, err := marshalAgentInstanceTaskEvent(event)
+			if _, ok := event.(*a2a.Task); ok && stored != nil {
+				eventData, err = proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: stored}})
+			}
 			if err != nil {
 				return err
 			}
@@ -1234,21 +1263,131 @@ func (c *postgresClient) DeleteAgentInstanceCheckpoint(ctx context.Context, id, 
 	return nil
 }
 
-func marshalAgentInstanceTask(task *a2a.Task, previous []byte) ([]byte, error) {
+// applyAgentInstanceTaskEvent updates the durable protobuf according to the event's
+// scope. A status change leaves artifacts intact; an append keeps existing parts;
+// replacement artifacts replace their content; snapshots retain unchanged artifacts by ID.
+// Never infer the identity of an anonymous part from its position in a list.
+func applyAgentInstanceTaskEvent(stored *a2apb.Task, task *a2a.Task, event a2a.Event) (*a2apb.Task, error) {
+	projection := *task
+	projection.History = nil
+	next, err := pbconv.ToProtoTask(&projection)
+	if err != nil {
+		return nil, fmt.Errorf("convert task projection: %w", err)
+	}
+	if stored == nil {
+		return next, nil
+	}
+	if stored.Id != next.Id || stored.ContextId != next.ContextId {
+		return nil, fmt.Errorf("task update changes stored identity")
+	}
+	previous, err := pbconv.FromProtoTask(stored)
+	if err != nil {
+		return nil, err
+	}
+	knownPrevious, err := pbconv.ToProtoTask(previous)
+	if err != nil {
+		return nil, err
+	}
+	if info := event.TaskInfo(); info.TaskID != task.ID || info.ContextID != task.ContextID {
+		return nil, fmt.Errorf("task event changes stored identity")
+	}
+	update, err := pbconv.ToProtoStreamResponse(event)
+	if err != nil {
+		return nil, fmt.Errorf("convert task event: %w", err)
+	}
+	switch payload := update.Payload.(type) {
+	case *a2apb.StreamResponse_Task:
+		// A snapshot may reorder artifacts without changing their content. Keep
+		// those canonical subtrees; changed content is an explicit replacement.
+		artifacts := slices.Clone(next.Artifacts)
+		for index, artifact := range artifacts {
+			oldIndex := slices.IndexFunc(stored.Artifacts, func(a *a2apb.Artifact) bool { return a.ArtifactId == artifact.ArtifactId })
+			if oldIndex >= 0 && proto.Equal(knownPrevious.Artifacts[oldIndex], artifact) {
+				artifacts[index] = stored.Artifacts[oldIndex]
+			}
+		}
+		stored.Artifacts = artifacts
+		if !proto.Equal(knownPrevious.Metadata, next.Metadata) {
+			stored.Metadata = next.Metadata
+		}
+	case *a2apb.StreamResponse_StatusUpdate:
+		if !proto.Equal(payload.StatusUpdate.Status, next.Status) {
+			return nil, fmt.Errorf("task status does not match event")
+		}
+		if metadata := payload.StatusUpdate.Metadata; metadata != nil {
+			if stored.Metadata == nil {
+				stored.Metadata = &structpb.Struct{}
+			}
+			proto.Merge(stored.Metadata, metadata)
+		}
+	case *a2apb.StreamResponse_ArtifactUpdate:
+		artifact := payload.ArtifactUpdate.Artifact
+		index := slices.IndexFunc(stored.Artifacts, func(a *a2apb.Artifact) bool { return a.ArtifactId == artifact.ArtifactId })
+		switch {
+		case payload.ArtifactUpdate.Append:
+			if index < 0 {
+				return nil, fmt.Errorf("no artifact found for append")
+			}
+			existing := stored.Artifacts[index]
+			existing.Parts = append(existing.Parts, artifact.Parts...)
+			if artifact.Metadata != nil {
+				if existing.Metadata == nil {
+					existing.Metadata = &structpb.Struct{}
+				}
+				proto.Merge(existing.Metadata, artifact.Metadata)
+			}
+		case index < 0:
+			stored.Artifacts = append(stored.Artifacts, artifact)
+		default:
+			stored.Artifacts[index] = artifact
+		}
+	case *a2apb.StreamResponse_Message:
+		// The caller supplies the submitted/completed status for a reply/result.
+	default:
+		return nil, fmt.Errorf("unsupported task event %T", event)
+	}
+	if _, artifactUpdate := event.(*a2a.TaskArtifactUpdateEvent); !artifactUpdate {
+		stored.Status.State = next.Status.State
+		if !proto.Equal(knownPrevious.Status.Message, next.Status.Message) {
+			stored.Status.Message = next.Status.Message
+		}
+		if !proto.Equal(knownPrevious.Status.Timestamp, next.Status.Timestamp) {
+			stored.Status.Timestamp = next.Status.Timestamp
+		}
+	}
+	stored.History = nil
+
+	// The gateway owns A2A transition semantics. Reject a different projection
+	// rather than committing state/index columns that disagree with the payload.
+	known, err := pbconv.FromProtoTask(stored)
+	if err != nil {
+		return nil, err
+	}
+	knownProto, err := pbconv.ToProtoTask(known)
+	if err != nil {
+		return nil, err
+	}
+	if !proto.Equal(knownProto, next) {
+		return nil, fmt.Errorf("task projection does not match event")
+	}
+	return stored, nil
+}
+
+func marshalAgentInstanceTask(task *a2a.Task) ([]byte, error) {
 	projection := *task
 	projection.History = nil
 	pb, err := pbconv.ToProtoTask(&projection)
 	if err != nil {
 		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
 	}
-	data, err := marshalRetainingUnknown(pb, previous)
+	data, err := proto.Marshal(pb)
 	if err != nil {
 		return nil, fmt.Errorf("marshal AgentInstance task: %w", err)
 	}
 	return data, nil
 }
 
-func marshalAgentInstanceTaskEvent(event a2a.Event, previous []byte) ([]byte, error) {
+func marshalAgentInstanceTaskEvent(event a2a.Event) ([]byte, error) {
 	if task, ok := event.(*a2a.Task); ok {
 		projection := *task
 		projection.History = nil
@@ -1258,7 +1397,7 @@ func marshalAgentInstanceTaskEvent(event a2a.Event, previous []byte) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("convert AgentInstance task event: %w", err)
 	}
-	data, err := marshalRetainingUnknown(pb, previous)
+	data, err := proto.Marshal(pb)
 	if err != nil {
 		return nil, fmt.Errorf("marshal AgentInstance task event: %w", err)
 	}
@@ -1292,17 +1431,32 @@ func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Mess
 }
 
 func storeAgentInstanceTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, taskID string, messages []*a2a.Message) (int64, error) {
-	var sequence int64
+	converted := make([]*a2apb.Message, 0, len(messages))
 	for _, message := range messages {
 		if message == nil || message.ID == "" {
 			return 0, fmt.Errorf("AgentInstance task history contains a message without an ID")
 		}
-		data, err := marshalAgentInstanceTaskEvent(message, nil)
+		event, err := pbconv.ToProtoStreamResponse(message)
+		if err != nil {
+			return 0, err
+		}
+		converted = append(converted, event.GetMessage())
+	}
+	return storeProtoTaskMessages(ctx, q, contextID, taskID, converted)
+}
+
+func storeProtoTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, taskID string, messages []*a2apb.Message) (int64, error) {
+	var sequence int64
+	for _, message := range messages {
+		if message.GetMessageId() == "" {
+			return 0, fmt.Errorf("AgentInstance task history contains a message without an ID")
+		}
+		data, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Message{Message: message}})
 		if err != nil {
 			return 0, err
 		}
 		sequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-			ContextID: contextID, TaskID: &taskID, MessageID: &message.ID, Data: data,
+			ContextID: contextID, TaskID: &taskID, MessageID: &message.MessageId, Data: data,
 		})
 		if err != nil {
 			return 0, err

@@ -717,7 +717,8 @@ func (g *Gateway) failTask(ctx context.Context, instanceID string, task *a2atype
 	now := time.Now()
 	failed := *task
 	failed.Status = a2atype.TaskStatus{State: a2atype.TaskStateFailed, Timestamp: &now}
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instanceID, &failed, &failed, nil); err != nil {
+	event := &a2atype.TaskStatusUpdateEvent{TaskID: failed.ID, ContextID: failed.ContextID, Status: failed.Status}
+	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instanceID, &failed, event, nil); err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to record failed agent instance task", "error", err, "task_id", task.ID)
 	}
 }
@@ -727,7 +728,8 @@ func (g *Gateway) failAttempt(ctx context.Context, attempt *preparedSend) {
 		g.failTask(ctx, attempt.instance.GetId(), attempt.task)
 		return
 	}
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, attempt.instance.GetId(), attempt.previous, attempt.previous, nil); err != nil {
+	event := &a2atype.TaskStatusUpdateEvent{TaskID: attempt.previous.ID, ContextID: attempt.previous.ContextID, Status: attempt.previous.Status}
+	if err := g.store.StoreAgentInstanceTaskEvent(ctx, attempt.instance.GetId(), attempt.previous, event, nil); err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to restore task awaiting input", "error", err, "task_id", attempt.task.ID)
 	}
 }

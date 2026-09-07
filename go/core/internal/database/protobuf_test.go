@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aevent"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
@@ -45,43 +46,121 @@ func TestMalformedProtobufPayloads(t *testing.T) {
 	}
 }
 
-func TestA2AProtobufUpdatesRetainUnknownFields(t *testing.T) {
-	original := &a2apb.Task{Id: "task", ContextId: "context", Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
-		Artifacts: []*a2apb.Artifact{{ArtifactId: "one", Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "text"}}}}, {ArtifactId: "two"}},
+func TestA2AProtobufTaskEventScope(t *testing.T) {
+	pool := setupTestDB(t)
+	client, q, ctx := NewClient(pool), dbgen.New(pool), t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original"), "create")
+	require.NoError(t, err)
+	contextID := uuid.MustParse(instance.Id)
+	original := &a2apb.Task{Id: "task", ContextId: instance.Id, Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
+		Artifacts: []*a2apb.Artifact{{ArtifactId: "one", Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "first"}}, {Content: &a2apb.Part_Text{Text: "second"}}}}, {ArtifactId: "two"}},
 	}
 	addUnknown(original)
 	addUnknown(original.Status)
 	addUnknown(original.Artifacts[0])
 	addUnknown(original.Artifacts[0].Parts[0])
+	reordered, err := pbconv.FromProtoTask(original)
+	require.NoError(t, err)
+	reordered.Artifacts[0], reordered.Artifacts[1] = reordered.Artifacts[1], reordered.Artifacts[0]
+	for _, test := range []struct {
+		name  string
+		event a2a.Event
+	}{
+		{"reorder artifacts", reordered},
+		{"status", &a2a.TaskStatusUpdateEvent{TaskID: "task", ContextID: instance.Id, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Metadata: map[string]any{"status": "done"}}},
+		{"append", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.Id, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("third")}, Metadata: map[string]any{"chunk": "last"}}}},
+		{"replace parts", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.Id, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("second"), a2a.NewTextPart("first")}}}},
+		{"snapshot", &a2a.Task{ID: "task", ContextID: instance.Id, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Artifacts: []*a2a.Artifact{{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("replacement")}}}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			task, err := pbconv.FromProtoTask(original)
+			require.NoError(t, err)
+			next, err := a2aevent.ApplyUpdate(task, test.event)
+			require.NoError(t, err)
+			data, err := proto.Marshal(original)
+			require.NoError(t, err)
+			require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data}))
+			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, next, test.event, nil))
+			row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: original.Id})
+			require.NoError(t, err)
+			require.Equal(t, string(next.Status.State), row.State)
+			got := &a2apb.Task{}
+			require.NoError(t, proto.Unmarshal(row.Data, got))
+			require.Equal(t, original.ProtoReflect().GetUnknown(), got.ProtoReflect().GetUnknown())
+			require.Equal(t, original.Status.ProtoReflect().GetUnknown(), got.Status.ProtoReflect().GetUnknown())
+			switch test.name {
+			case "reorder artifacts":
+				require.True(t, proto.Equal(original.Artifacts[0], got.Artifacts[1]))
+			case "status", "append":
+				require.Equal(t, original.Artifacts[0].ProtoReflect().GetUnknown(), got.Artifacts[0].ProtoReflect().GetUnknown())
+				require.True(t, proto.Equal(original.Artifacts[0].Parts[0], got.Artifacts[0].Parts[0]))
+			default:
+				// Replacing content must not transplant fields from the previous parts.
+				require.Empty(t, got.Artifacts[0].ProtoReflect().GetUnknown())
+				for _, part := range got.Artifacts[0].Parts {
+					require.Empty(t, part.ProtoReflect().GetUnknown())
+				}
+			}
+		})
+	}
 	data, err := proto.Marshal(original)
 	require.NoError(t, err)
-	task, err := unmarshalAgentInstanceTask(data)
+	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data}))
+	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, original.Id)
 	require.NoError(t, err)
-	task.Status.State = a2a.TaskStateCompleted
-	task.Artifacts[0], task.Artifacts[1] = task.Artifacts[1], task.Artifacts[0]
-	updated, err := marshalAgentInstanceTask(task, data)
+	require.True(t, interrupted)
+	row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: original.Id})
 	require.NoError(t, err)
 	got := &a2apb.Task{}
-	require.NoError(t, proto.Unmarshal(updated, got))
+	require.NoError(t, proto.Unmarshal(row.Data, got))
 	require.Equal(t, original.ProtoReflect().GetUnknown(), got.ProtoReflect().GetUnknown())
 	require.Equal(t, original.Status.ProtoReflect().GetUnknown(), got.Status.ProtoReflect().GetUnknown())
-	require.Equal(t, original.Artifacts[0].ProtoReflect().GetUnknown(), got.Artifacts[1].ProtoReflect().GetUnknown())
-	require.Equal(t, original.Artifacts[0].Parts[0].ProtoReflect().GetUnknown(), got.Artifacts[1].Parts[0].ProtoReflect().GetUnknown())
-	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, got.Status.State)
-	_, err = marshalAgentInstanceTask(task, []byte{0xff})
-	require.Error(t, err)
+	require.True(t, proto.Equal(original.Artifacts[0], got.Artifacts[0]))
+	require.Equal(t, string(a2a.TaskStateFailed), row.State)
+	require.Equal(t, a2apb.TaskState_TASK_STATE_FAILED, got.Status.State)
+	require.Equal(t, row.StatusTimestamp.UnixMicro(), got.Status.Timestamp.AsTime().UnixMicro())
 
-	event := &a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: original}}
-	addUnknown(event)
-	eventData, err := proto.Marshal(event)
+	task, err := pbconv.FromProtoTask(original)
 	require.NoError(t, err)
-	decoded, err := unmarshalAgentInstanceTaskEvent(eventData)
-	require.NoError(t, err)
-	updatedEvent, err := marshalAgentInstanceTaskEvent(decoded, eventData)
-	require.NoError(t, err)
-	gotEvent := &a2apb.StreamResponse{}
-	require.NoError(t, proto.Unmarshal(updatedEvent, gotEvent))
-	require.True(t, proto.Equal(event, gotEvent))
+	event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}}
+	_, err = applyAgentInstanceTaskEvent(proto.Clone(original).(*a2apb.Task), task, event)
+	// The supplied projection still says working.
+	require.ErrorContains(t, err, "task status does not match event")
+	_, err = applyAgentInstanceTaskEvent(proto.Clone(original).(*a2apb.Task), task, &a2a.TaskArtifactUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("new")}}})
+	require.ErrorContains(t, err, "projection does not match event")
+}
+
+func TestForkProtobufEventsRetainUnknownFields(t *testing.T) {
+	message := &a2apb.Message{MessageId: "message", ContextId: "source", TaskId: "task", Role: a2apb.Role_ROLE_AGENT,
+		ReferenceTaskIds: []string{"task"}, Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "hello"}}}}
+	status := &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_COMPLETED, Message: message}
+	task := &a2apb.Task{Id: "task", ContextId: "source", Status: status, History: []*a2apb.Message{proto.Clone(message).(*a2apb.Message)}}
+	for _, pb := range []proto.Message{message, message.Parts[0], status, task} {
+		addUnknown(pb)
+	}
+	for _, event := range []*a2apb.StreamResponse{
+		{Payload: &a2apb.StreamResponse_Task{Task: task}},
+		{Payload: &a2apb.StreamResponse_Message{Message: message}},
+		{Payload: &a2apb.StreamResponse_StatusUpdate{StatusUpdate: &a2apb.TaskStatusUpdateEvent{TaskId: "task", ContextId: "source", Status: status}}},
+		{Payload: &a2apb.StreamResponse_ArtifactUpdate{ArtifactUpdate: &a2apb.TaskArtifactUpdateEvent{TaskId: "task", ContextId: "source", Artifact: &a2apb.Artifact{ArtifactId: "artifact", Parts: message.Parts}}}},
+	} {
+		addUnknown(event)
+		data, err := proto.Marshal(event)
+		require.NoError(t, err)
+		got := &a2apb.StreamResponse{}
+		require.NoError(t, proto.Unmarshal(data, got))
+		ids := newForkIDs("fork")
+		taskID := reidentifyForkEvent(got, "task", "fork", ids)
+		require.Equal(t, string(ids.task("task")), taskID)
+		converted, err := pbconv.FromProtoStreamResponse(got)
+		require.NoError(t, err)
+		require.Equal(t, "fork", converted.TaskInfo().ContextID)
+		// Reverse only the known identity changes and compare the whole protobuf.
+		reverse := &forkIDs{tasks: map[a2a.TaskID]a2a.TaskID{a2a.TaskID(taskID): "task"}, messages: map[string]string{ids.message("message"): "message"}}
+		reidentifyForkEvent(got, taskID, "source", reverse)
+		require.True(t, proto.Equal(event, got))
+	}
 }
 
 func TestProtobufPersistenceLifecycle(t *testing.T) {
@@ -134,11 +213,15 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, proto.Unmarshal(taskRow.Data, futureTask))
 	addUnknown(futureTask)
 	addUnknown(futureTask.Status)
+	futureTask.Status.Message = &a2apb.Message{MessageId: "question", Role: a2apb.Role_ROLE_AGENT, TaskId: string(task.ID), ContextId: instance.Id,
+		Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "question"}}}}
+	addUnknown(futureTask.Status.Message)
+	addUnknown(futureTask.Status.Message.Parts[0])
 	futureData, err := proto.Marshal(futureTask)
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: taskRow.ContextID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData}))
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot", UID: "snapshot-uid", ContentScope: "DATA"}))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot", UID: "snapshot-uid", ContentScope: "DATA"}))
 	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
 	addUnknown(checkpointRequest)
 	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{Checkpoint: checkpointRequest, UserID: "alice", RequestID: "checkpoint"})
@@ -159,7 +242,13 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
-	require.Len(t, tasks[0].History, 1)
+	require.Len(t, tasks[0].History, 2)
+	forkHistory, err := q.ListAgentInstanceTaskHistory(ctx, dbgen.ListAgentInstanceTaskHistoryParams{ContextID: uuid.MustParse(fork.Id), TaskIds: []string{string(tasks[0].ID)}})
+	require.NoError(t, err)
+	question := &a2apb.StreamResponse{}
+	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
+	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
+	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
 	require.NotEqual(t, task.ID, tasks[0].ID)
 	forkTaskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: uuid.MustParse(fork.Id), ID: string(tasks[0].ID)})
 	require.NoError(t, err)
