@@ -254,6 +254,10 @@ func TestResolveRuntimeImageDigestPinnedTagFailsWithoutExplicitFullDigest(t *tes
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tag@digest")
 	require.Contains(t, err.Error(), "app-full-image-digest")
+	require.Contains(t, err.Error(), "controller.agentImage.fullDigest")
+	require.Contains(t, err.Error(), "APP_FULL_IMAGE_DIGEST")
+	require.NotContains(t, err.Error(), "goAgentImage")
+	require.NotContains(t, err.Error(), "GOLANG_ADK_FULL_IMAGE_DIGEST")
 	require.NotContains(t, err.Error(), "deadbeef-full")
 }
 
@@ -294,6 +298,10 @@ func TestResolveRuntimeImageDigestPinnedTagFailsWithoutExplicitFullDigestForGo(t
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tag@digest")
 	require.Contains(t, err.Error(), "golang-adk-full-image-digest")
+	require.Contains(t, err.Error(), "controller.goAgentImage.fullDigest")
+	require.Contains(t, err.Error(), "GOLANG_ADK_FULL_IMAGE_DIGEST")
+	require.NotContains(t, err.Error(), "controller.agentImage.fullDigest")
+	require.NotContains(t, err.Error(), "APP_FULL_IMAGE_DIGEST")
 }
 
 func TestResolveRuntimeImageDigestPinnedTagUsesExplicitFullDigestForGo(t *testing.T) {
