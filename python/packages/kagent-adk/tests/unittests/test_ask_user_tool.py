@@ -37,16 +37,31 @@ from kagent.adk.tools.ask_user_tool import AskUserTool
             },
             "ask_user: question 2 must contain non-whitespace text",
         ),
+        # Previously AttributeError: the validation loop assumed every entry was a dict.
+        (
+            {"questions": ["show me active alarms"]},
+            "ask_user: question 1 must contain non-whitespace text",
+        ),
+        ({"questions": [{"choices": ["a", "b"]}]}, "ask_user: question 1 must contain non-whitespace text"),
+        ({"questions": [{"question": 42}]}, "ask_user: question 1 must contain non-whitespace text"),
+        # Previously ValueError; `questions` absent or not a list at all.
+        ({}, "ask_user: at least one question is required"),
+        ({"questions": None}, "ask_user: at least one question is required"),
+        ({"questions": "not-a-list"}, "ask_user: at least one question is required"),
     ],
 )
 async def test_rejects_invalid_questions_without_requesting_confirmation(args, expected_error):
+    """Rejected calls come back as a tool error, never as a raise.
+
+    Raising propagates out of ADK's function-call handling and fails the whole request,
+    so the caller receives an empty response instead of a retryable error.
+    """
     context = Mock(spec=ToolContext)
     context.tool_confirmation = None
 
-    with pytest.raises(ValueError) as exc_info:
-        await AskUserTool().run_async(args=args, tool_context=context)
+    result = await AskUserTool().run_async(args=args, tool_context=context)
 
-    assert str(exc_info.value) == expected_error
+    assert result["error"].startswith(expected_error)
     context.request_confirmation.assert_not_called()
 
 
