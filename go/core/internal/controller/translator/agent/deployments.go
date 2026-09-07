@@ -154,10 +154,12 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 // "-full" suffix is applied only to the tag name. A digest embedded in IMAGE_TAG
 // is never reused on the full variant (the slim and full images have different
 // manifests). If IMAGE_TAG includes a digest, the full image must be
-// digest-pinned via an explicit runtime full digest (Helm fullDigest /
-// APP_FULL_IMAGE_DIGEST / --app-full-image-digest). Reconciliation fails closed
-// rather than silently downgrading to a mutable tag. The link-time baked digest
-// is not that signal: released builds always populate it.
+// digest-pinned via an explicit runtime full digest (Python: Helm
+// controller.agentImage.fullDigest / APP_FULL_IMAGE_DIGEST /
+// --app-full-image-digest; Go: Helm controller.goAgentImage.fullDigest /
+// GOLANG_ADK_FULL_IMAGE_DIGEST / --golang-adk-full-image-digest). Reconciliation
+// fails closed rather than silently downgrading to a mutable tag. The link-time
+// baked digest is not that signal: released builds always populate it.
 //
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)
@@ -200,13 +202,24 @@ func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, f
 	if embeddedDigest != "" {
 		fullDigest = normalizeImageDigest(digest)
 		if fullDigest == "" {
+			helmPath, envName := fullVariantDigestHint(imageLabel)
 			return "", fmt.Errorf(
-				"cannot derive %s image from tag@digest %q without an explicit full-variant digest: set --%s-image-digest (Helm controller.agentImage.fullDigest / APP_FULL_IMAGE_DIGEST); the slim digest cannot be reused on the full image",
-				imageLabel, tag, imageLabel,
+				"cannot derive %s image from tag@digest %q without an explicit full-variant digest: set --%s-image-digest (Helm %s / %s); the slim digest cannot be reused on the full image",
+				imageLabel, tag, imageLabel, helmPath, envName,
 			)
 		}
 	}
 	return formatImageRef(registry, repository, fullTag, fullDigest), nil
+}
+
+// fullVariantDigestHint returns the Helm path and env var an operator should
+// set for an explicit full-variant digest. imageLabel is "app-full" (Python)
+// or "golang-adk-full" (Go).
+func fullVariantDigestHint(imageLabel string) (helmPath, envName string) {
+	if strings.HasPrefix(imageLabel, "golang-adk") {
+		return "controller.goAgentImage.fullDigest", "GOLANG_ADK_FULL_IMAGE_DIGEST"
+	}
+	return "controller.agentImage.fullDigest", "APP_FULL_IMAGE_DIGEST"
 }
 
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
