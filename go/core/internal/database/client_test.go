@@ -55,6 +55,99 @@ func TestConcurrentAgentUpserts(t *testing.T) {
 	assert.NotEmpty(t, agent.Type) // Should have some valid type from one of the upserts
 }
 
+func TestScheduledRunExecutions(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := context.Background()
+	start := time.Now().UTC().Truncate(time.Microsecond)
+	sessionID := "scheduled-session"
+	taskID := "scheduled-task"
+	message := "queued"
+	record := &dbpkg.ScheduledRunExecutionRecord{
+		ID:                    "scheduled-run-execution-z",
+		ScheduledRunNamespace: "default",
+		ScheduledRunName:      "daily-report",
+		ScheduledRunUID:       "daily-report-uid",
+		StartTime:             start,
+		Trigger:               v1alpha2.ScheduledRunExecutionTrigger_Manual,
+		SessionID:             &sessionID,
+		TaskID:                &taskID,
+		Status:                v1alpha2.ScheduledRunExecutionStatus_InProgress,
+		StatusMessage:         &message,
+	}
+	require.NoError(t, client.StoreScheduledRunExecution(ctx, record))
+	older := &dbpkg.ScheduledRunExecutionRecord{
+		ID:                    "scheduled-run-execution-older",
+		ScheduledRunNamespace: "default",
+		ScheduledRunName:      "daily-report",
+		ScheduledRunUID:       "daily-report-uid",
+		StartTime:             start.Add(-time.Hour),
+		Trigger:               v1alpha2.ScheduledRunExecutionTrigger_Scheduled,
+		Status:                v1alpha2.ScheduledRunExecutionStatus_Succeeded,
+	}
+	require.NoError(t, client.StoreScheduledRunExecution(ctx, older))
+	sameTime := &dbpkg.ScheduledRunExecutionRecord{
+		ID:                    "scheduled-run-execution-a",
+		ScheduledRunNamespace: "default",
+		ScheduledRunName:      "daily-report",
+		ScheduledRunUID:       "daily-report-uid",
+		StartTime:             start,
+		Trigger:               v1alpha2.ScheduledRunExecutionTrigger_Scheduled,
+		Status:                v1alpha2.ScheduledRunExecutionStatus_Succeeded,
+	}
+	require.NoError(t, client.StoreScheduledRunExecution(ctx, sameTime))
+	require.NoError(t, client.StoreScheduledRunExecution(ctx, &dbpkg.ScheduledRunExecutionRecord{
+		ID:                    "replacement-object-execution",
+		ScheduledRunNamespace: "default",
+		ScheduledRunName:      "daily-report",
+		ScheduledRunUID:       "replacement-uid",
+		StartTime:             start.Add(time.Hour),
+		Trigger:               v1alpha2.ScheduledRunExecutionTrigger_Scheduled,
+		Status:                v1alpha2.ScheduledRunExecutionStatus_Succeeded,
+	}))
+
+	end := start.Add(time.Minute)
+	record.Status = v1alpha2.ScheduledRunExecutionStatus_Succeeded
+	record.StatusMessage = nil
+	record.CompletionTime = &end
+	require.NoError(t, client.StoreScheduledRunExecution(ctx, record))
+
+	history, err := client.ListScheduledRunExecutions(ctx, "default", "daily-report", "daily-report-uid", dbpkg.ScheduledRunExecutionQueryOptions{Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, record.ID, history[0].ID)
+	assert.Equal(t, v1alpha2.ScheduledRunExecutionStatus_Succeeded, history[0].Status)
+	assert.Equal(t, &sessionID, history[0].SessionID)
+	assert.Equal(t, &taskID, history[0].TaskID)
+	require.NotNil(t, history[0].CompletionTime)
+	assert.True(t, end.Equal(*history[0].CompletionTime))
+	assert.Nil(t, history[0].StatusMessage)
+
+	sameTimePage, err := client.ListScheduledRunExecutions(ctx, "default", "daily-report", "daily-report-uid", dbpkg.ScheduledRunExecutionQueryOptions{
+		Before:   history[0].StartTime,
+		BeforeID: history[0].ID,
+		Limit:    1,
+	})
+	require.NoError(t, err)
+	require.Len(t, sameTimePage, 1)
+	assert.Equal(t, sameTime.ID, sameTimePage[0].ID)
+
+	olderPage, err := client.ListScheduledRunExecutions(ctx, "default", "daily-report", "daily-report-uid", dbpkg.ScheduledRunExecutionQueryOptions{
+		Before:   sameTimePage[0].StartTime,
+		BeforeID: sameTimePage[0].ID,
+		Limit:    1,
+	})
+	require.NoError(t, err)
+	require.Len(t, olderPage, 1)
+	assert.Equal(t, older.ID, olderPage[0].ID)
+
+	bySession, err := client.GetScheduledRunExecutionBySessionID(ctx, sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, record.ID, bySession.ID)
+
+	_, err = client.GetScheduledRunExecutionBySessionID(ctx, "missing-scheduled-session")
+	assert.ErrorIs(t, err, dbpkg.ErrNotFound)
+}
+
 // TestConcurrentToolServerUpserts verifies that concurrent StoreToolServer calls
 // work correctly without application-level locking.
 func TestConcurrentToolServerUpserts(t *testing.T) {
@@ -208,11 +301,13 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	userID := "test-user"
 	name1 := "Original"
 	agentID := "agent-1"
+	source := dbpkg.SessionSourceScheduledRun
 	session := &dbpkg.Session{
 		ID:      "idempotent-session",
 		UserID:  userID,
 		Name:    &name1,
 		AgentID: &agentID,
+		Source:  &source,
 	}
 
 	err := client.StoreSession(ctx, session)
@@ -224,14 +319,17 @@ func TestStoreSessionIdempotence(t *testing.T) {
 
 	// Third store with updated name should succeed (upsert)
 	name2 := "Updated"
-	session.Name = &name2
-	err = client.StoreSession(ctx, session)
+	err = client.StoreSession(ctx, &dbpkg.Session{
+		ID: session.ID, UserID: userID, Name: &name2, AgentID: &agentID,
+	})
 	require.NoError(t, err, "Third StoreSession with updated data should succeed")
 
 	// Verify final state
 	retrieved, err := client.GetSession(ctx, session.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", *retrieved.Name, "Session should have updated name")
+	require.NotNil(t, retrieved.Source)
+	assert.Equal(t, source, *retrieved.Source, "Upsert without a source should preserve the existing source")
 
 	_, err = client.GetSession(ctx, "no-such-session", userID)
 	require.Error(t, err)

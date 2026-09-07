@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit, GitBranch, HardDrive, Layers, ShieldAlert } from "lucide-react";
-import type { AgentResponse, GitRepo, S3SkillRef, Tool, ToolsResponse } from "@/types";
+import { ChevronRight, Clock, Edit, GitBranch, HardDrive, Layers, Plus, ShieldAlert } from "lucide-react";
+import type { AgentResponse, GitRepo, S3SkillRef, ScheduledRun, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
@@ -12,11 +12,13 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { getAgents } from "@/app/actions/agents";
+import { getScheduledRuns } from "@/app/actions/scheduledRuns";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { useParams } from "next/navigation";
 import { HarnessActorControl } from "@/components/sidebars/HarnessActorControl";
+import { getScheduledRunDisplayStatus, scheduledRunDetailPath } from "@/lib/scheduledRuns";
 
 interface AgentDetailsSidebarProps {
   currentAgent: AgentResponse;
@@ -27,10 +29,14 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const [agentScheduledRuns, setAgentScheduledRuns] = useState<ScheduledRun[]>([]);
   const routeParams = useParams<{ chatId?: string }>();
   const currentChatId = typeof routeParams?.chatId === "string" ? routeParams.chatId : undefined;
 
   const selectedTeam = currentAgent;
+  const agentName = currentAgent.agent.metadata?.name ?? "";
+  const agentNamespace = currentAgent.agent.metadata?.namespace ?? "";
+  const agentKind = currentAgent.agent.kind ?? "Agent";
 
   // Fetch agents for looking up agent tool descriptions
   useEffect(() => {
@@ -50,6 +56,27 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
 
     fetchAgents();
   }, []);
+
+  useEffect(() => {
+    const fetchScheduledRuns = async () => {
+      try {
+        const response = await getScheduledRuns();
+        if (response.data) {
+          const filtered = response.data.filter(
+            (sr) =>
+              sr.spec.targetRef.kind === agentKind &&
+              sr.spec.targetRef.name === agentName &&
+              (sr.metadata.namespace ?? "") === agentNamespace,
+          );
+          setAgentScheduledRuns(filtered);
+        }
+      } catch {
+        // non-critical: silently ignore
+      }
+    };
+
+    fetchScheduledRuns();
+  }, [agentName, agentNamespace, agentKind]);
 
 
 
@@ -440,6 +467,68 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
               </SidebarGroup>
               );
             })()}
+
+            <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+              <div className="flex items-center justify-between px-2 mb-2">
+                <SidebarGroupLabel className="mb-0 flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5" aria-hidden />
+                  Schedules
+                </SidebarGroupLabel>
+                <div className="flex items-center gap-1">
+                  {agentScheduledRuns.length > 0 && (
+                    <Badge variant="secondary" className="h-5">{agentScheduledRuns.length}</Badge>
+                  )}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-5 w-5" asChild>
+                          <Link
+                            href={`/schedules/new?${new URLSearchParams({
+                              agentName,
+                              agentNamespace,
+                              agentKind,
+                            }).toString()}`}
+                            aria-label="New Scheduled Run"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Link>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">New Scheduled Run</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              </div>
+              <SidebarMenu>
+                {agentScheduledRuns.length === 0 ? (
+                  <p className="px-2 text-xs text-muted-foreground italic">No schedules</p>
+                ) : (
+                  agentScheduledRuns.map((sr) => {
+                    const status = getScheduledRunDisplayStatus(sr);
+                    const srNs = sr.metadata.namespace ?? "";
+                    const srName = sr.metadata.name;
+                    return (
+                      <SidebarMenuItem key={`${srNs}/${srName}`}>
+                        <SidebarMenuButton asChild className="w-full h-auto py-1.5">
+                          <Link href={scheduledRunDetailPath(srNs, srName)}>
+                            <div className="flex items-center justify-between w-full min-w-0 gap-2">
+                              <span className="truncate text-sm">{srName}</span>
+                              <Badge
+                                variant={status.variant}
+                                className={cn("shrink-0 h-4 text-[10px] px-1", status.className)}
+                                title={status.title}
+                              >
+                                {status.label}
+                              </Badge>
+                            </div>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })
+                )}
+              </SidebarMenu>
+            </SidebarGroup>
 
           </ScrollArea>
         </SidebarContent>

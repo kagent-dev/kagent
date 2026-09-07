@@ -185,6 +185,224 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   return messages;
 }
 
+function appendArtifactMessages(
+  messages: Message[],
+  task: Task,
+  artifact: Artifact,
+  historicalHitlByCallId: ReadonlyMap<string, HistoricalHitl>,
+  emittedHistoricalHitl: Set<HistoricalHitl>,
+): void {
+  const metadata = artifact.metadata as ADKMetadata | undefined;
+  const source = getSourceFromMetadata(metadata, "assistant");
+  const tokenStats = getMessageTokenStats(metadata as Record<string, unknown> | undefined);
+  let text = "";
+
+  const flushText = () => {
+    if (!text) return;
+    messages.push(createMessage(text, source, {
+      originalType: "TextMessage",
+      contextId: task.contextId,
+      taskId: task.id,
+    }));
+    text = "";
+  };
+
+  const replaceFunctionCallWithHistoricalHitl = (callId: string | undefined): boolean => {
+    if (!callId) return false;
+    const hitl = historicalHitlByCallId.get(callId);
+    if (!hitl) return false;
+    if (!emittedHistoricalHitl.has(hitl)) {
+      messages.push(...buildHitlMessagesFromPayload(hitl.requestPayload, task.contextId, task.id, {
+        response: hitl.response,
+      }));
+      emittedHistoricalHitl.add(hitl);
+    }
+    return true;
+  };
+
+  const appendHistoricalHitlBeforeResponse = (callId: string | undefined): void => {
+    if (!callId) return;
+    const hitl = historicalHitlByCallId.get(callId);
+    if (!hitl || emittedHistoricalHitl.has(hitl)) return;
+    messages.push(...buildHitlMessagesFromPayload(hitl.requestPayload, task.contextId, task.id, {
+      response: hitl.response,
+    }));
+    emittedHistoricalHitl.add(hitl);
+  };
+
+  for (const part of artifact.parts ?? []) {
+    if (isTextPart(part)) {
+      text += part.content.value || "";
+      continue;
+    }
+
+    if (isDataPart(part)) {
+      const partMetadata = part.metadata as Record<string, unknown> | undefined;
+      const partType = getMetadataValue<string>(partMetadata, "type");
+      const data = part.content.value as Record<string, unknown> | undefined;
+
+      if (partType === "function_call" && data) {
+        const toolData = data as unknown as ToolCallData;
+        if (toolData.name === "adk_request_credential") {
+          continue;
+        }
+        flushText();
+        if (replaceFunctionCallWithHistoricalHitl(toolData.id)) {
+          continue;
+        }
+        messages.push(createMessage("", source, {
+          originalType: "ToolCallRequestEvent",
+          contextId: task.contextId,
+          taskId: task.id,
+          additionalMetadata: {
+            toolCallData: [{
+              id: toolData.id,
+              name: toolData.name,
+              args: toolData.args || {},
+            }],
+            ...(!isAgentToolName(toolData.name) && tokenStats ? { tokenStats } : {}),
+          },
+        }));
+        continue;
+      }
+
+      if (partType === "function_response" && data) {
+        const toolData = data as unknown as ToolResponseData;
+        const responseData = toolData.response as Record<string, unknown> | undefined;
+        const responseStatus = responseData?.status as string | undefined;
+        const isPendingAgentSession =
+          responseStatus === "pending" &&
+          isAgentToolName(toolData.name) &&
+          typeof responseData?.subagent_session_id === "string";
+        if (
+          (responseStatus === "confirmation_requested" || responseStatus === "pending") &&
+          !isPendingAgentSession
+        ) {
+          continue;
+        }
+
+        flushText();
+        // ADK executors may move the long-running function call exclusively
+        // into the INPUT_REQUIRED status. Once resolved, anchor that historical
+        // HITL interaction immediately before the matching artifact response.
+        appendHistoricalHitlBeforeResponse(toolData.id);
+        const subagentSessionId = isAgentToolName(toolData.name) &&
+          typeof responseData?.subagent_session_id === "string"
+          ? responseData.subagent_session_id
+          : undefined;
+        messages.push(createMessage("", source, {
+          originalType: "ToolCallExecutionEvent",
+          contextId: task.contextId,
+          taskId: task.id,
+          additionalMetadata: {
+            toolResultData: [{
+              call_id: toolData.id,
+              name: toolData.name,
+              content: normalizeToolResultToText(toolData),
+              is_error: toolData.response?.isError || false,
+              raw_result: getRawToolResult(toolData),
+              ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
+            }],
+          },
+        }));
+
+        const responseUsage = responseData?.kagent_usage_metadata;
+        const childStats = responseUsage
+          ? getMessageTokenStats({ kagent_usage_metadata: responseUsage })
+          : undefined;
+        if (childStats && isAgentToolName(toolData.name)) {
+          for (let i = messages.length - 2; i >= 0; i--) {
+            const messageMetadata = messages[i].metadata as ADKMetadata | undefined;
+            if (
+              messageMetadata?.originalType === "ToolCallRequestEvent" &&
+              messageMetadata.toolCallData?.some(call => call.id === toolData.id)
+            ) {
+              messages[i] = {
+                ...messages[i],
+                metadata: { ...(messages[i].metadata as object || {}), tokenStats: childStats },
+              };
+              break;
+            }
+          }
+        }
+        continue;
+      }
+
+      if (data && Object.keys(data).length > 0) {
+        try {
+          text += JSON.stringify(data);
+        } catch {
+          text += String(data);
+        }
+      }
+      continue;
+    }
+
+    if (part.content?.$case === "raw" || part.content?.$case === "url") {
+      text += `[File: ${part.filename || "unknown"}]`;
+    }
+  }
+
+  flushText();
+}
+
+function aggregatePartsToDisplayText(parts: Part[]): string {
+  return parts.map((part: Part) => {
+    if (isTextPart(part)) {
+      return part.content.value || "";
+    }
+    if (isDataPart(part)) {
+      if (isModelInternalDataPart(part.content.value)) {
+        return "";
+      }
+      try {
+        return JSON.stringify(part.content.value || "");
+      } catch {
+        return String(part.content.value);
+      }
+    }
+    if (part.content?.$case === "raw" || part.content?.$case === "url") {
+      return `[File: ${part.filename || "unknown"}]`;
+    }
+    return String(part);
+  }).join("");
+}
+
+type StoredSessionEvent = {
+  id?: string;
+  session_id?: string;
+  created_at?: string;
+  data: string;
+};
+
+type StoredADKEvent = {
+  ID: string;
+  Author: string;
+  Content: { role: string; parts?: Array<{ text?: string }> };
+};
+
+// ScheduledRuns persist ADK events without creating controller-side A2A tasks.
+export function extractMessagesFromSessionEvents(events: unknown[]): Message[] {
+  return [...events as StoredSessionEvent[]]
+    .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""))
+    .flatMap((event): Message[] => {
+      try {
+        const payload = JSON.parse(event.data) as StoredADKEvent;
+        const text = payload.Content.parts?.map((part) => part.text ?? "").join("");
+        if (!text) return [];
+        const source = payload.Content.role === "user"
+          ? "user"
+          : convertToUserFriendlyName(payload.Author);
+        return [createMessage(text, source, {
+          messageId: payload.ID,
+          contextId: event.session_id,
+        })];
+      } catch {
+        return [];
+      }
+    });
+}
+
 /** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
   if (message.role !== "user" || !message.parts) return false;

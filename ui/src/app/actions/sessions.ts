@@ -1,7 +1,6 @@
 "use server";
 
-import { BaseResponse, CreateSessionRequest } from "@/types";
-import { Session } from "@/types";
+import { BaseResponse, CreateSessionRequest, Session } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { Task } from "@a2a-js/sdk";
@@ -168,23 +167,5 @@ export async function getSessionWithEvents(sessionId: string, shareToken?: strin
     return data;
   } catch (error) {
     return createErrorResponse<SessionWithEvents>(error, "Error getting session");
-  }
-}
-
-/**
- * Check if a session exists
- * @param sessionId The session ID to check
- * @returns A promise with boolean indicating if session exists
- */
-export async function checkSessionExists(sessionId: string): Promise<BaseResponse<boolean>> {
-  try {
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions/${sessionId}`);
-    return { message: "Session exists successfully", data: !!response.data };
-  } catch (error: unknown) {
-    // If we get a 404, return success: true but data: false
-    if (typeof error === "object" && error !== null && "status" in error && (error as { status: unknown }).status === 404) {
-      return { message: "Session does not exist", data: false };
-    }
-    return createErrorResponse<boolean>(error, "Error checking session");
   }
 }

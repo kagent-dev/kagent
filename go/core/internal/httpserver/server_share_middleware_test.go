@@ -1,14 +1,26 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gorilla/mux"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	handlerpkg "github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 // stubShareDB only implements GetSessionShareByToken and RecordShareAccess; all other methods panic on call.
@@ -31,6 +43,17 @@ func newMiddlewareServer(getShare func(ctx context.Context, token string) (*dbpk
 			DbClient: &stubShareDB{getShare: getShare},
 		},
 	}
+}
+
+func TestNewHTTPServerInitializesSessionShares(t *testing.T) {
+	kube := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+	server, err := NewHTTPServer(ServerConfig{
+		Router:     mux.NewRouter(),
+		KubeClient: kube,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, server.handlers)
+	require.NotNil(t, server.handlers.SessionShares)
 }
 
 func withUser(r *http.Request, userID string) *http.Request {
@@ -248,4 +271,158 @@ func TestShareTokenMiddleware(t *testing.T) {
 			}
 		})
 	}
+}
+
+type stubScheduledRunSessionDB struct {
+	dbpkg.Client
+	sessionID  string
+	execution  *dbpkg.ScheduledRunExecutionRecord
+	sessionErr error
+}
+
+func (s *stubScheduledRunSessionDB) GetSession(_ context.Context, sessionID, userID string) (*dbpkg.Session, error) {
+	if s.sessionErr != nil {
+		return nil, s.sessionErr
+	}
+	if sessionID != s.sessionID || userID != scheduledrun.SessionUserID {
+		return nil, dbpkg.ErrNotFound
+	}
+	source := dbpkg.SessionSourceScheduledRun
+	return &dbpkg.Session{ID: sessionID, UserID: userID, Source: &source}, nil
+}
+
+func TestReservedScheduledRunUserMiddleware(t *testing.T) {
+	t.Run("rejects human principal", func(t *testing.T) {
+		req := withUser(httptest.NewRequest(http.MethodGet, APIPathSessions, nil), scheduledrun.SessionUserID)
+		recorder := httptest.NewRecorder()
+		reservedScheduledRunUserMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("inner handler was called")
+		})).ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusForbidden, recorder.Code)
+	})
+
+	t.Run("allows authenticated agent callback", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, APIPathTasks, nil)
+		req = req.WithContext(auth.AuthSessionTo(req.Context(), &authimpl.SimpleSession{P: auth.Principal{
+			User:  auth.User{ID: scheduledrun.SessionUserID},
+			Agent: auth.Agent{ID: "default/agent"},
+		}}))
+		recorder := httptest.NewRecorder()
+		called := false
+		reservedScheduledRunUserMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusNoContent)
+		})).ServeHTTP(recorder, req)
+		require.True(t, called)
+		require.Equal(t, http.StatusNoContent, recorder.Code)
+	})
+}
+
+func (s *stubScheduledRunSessionDB) GetScheduledRunExecutionBySessionID(_ context.Context, sessionID string) (*dbpkg.ScheduledRunExecutionRecord, error) {
+	if s.execution == nil || sessionID != s.sessionID {
+		return nil, dbpkg.ErrNotFound
+	}
+	return s.execution, nil
+}
+
+func TestScheduledRunSessionMiddleware(t *testing.T) {
+	for _, readOnly := range []bool{true, false} {
+		t.Run(map[bool]string{true: "read-only", false: "read-write"}[readOnly], func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha2.AddToScheme(scheme))
+			sessionID := "scheduled-session"
+			uid := types.UID("scheduled-run-uid")
+			allowSessionInteraction := !readOnly
+			apiGroup := scheduledrun.TargetAPIGroup
+			sr := &v1alpha2.ScheduledRun{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "nightly",
+					UID:       uid,
+				},
+				Spec: v1alpha2.ScheduledRunSpec{
+					AllowSessionInteraction: &allowSessionInteraction,
+					TargetRef: corev1.TypedLocalObjectReference{
+						APIGroup: &apiGroup,
+						Kind:     scheduledrun.TargetKindAgent,
+						Name:     "agent",
+					},
+				},
+			}
+			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sr).Build()
+			db := &stubScheduledRunSessionDB{
+				sessionID: sessionID,
+				execution: &dbpkg.ScheduledRunExecutionRecord{
+					ScheduledRunNamespace: "default",
+					ScheduledRunName:      "nightly",
+					ScheduledRunUID:       string(uid),
+				},
+			}
+			sessionHandler := handlerpkg.NewSessionsHandler(&handlerpkg.Base{
+				KubeClient:      kube,
+				DatabaseService: db,
+				Authorizer:      &authimpl.NoopAuthorizer{},
+			}, nil)
+			srv := &HTTPServer{
+				config:   ServerConfig{DbClient: db},
+				handlers: &handlerpkg.Handlers{Sessions: sessionHandler},
+			}
+
+			body := []byte(`{"jsonrpc":"2.0","method":"message/send","params":{"message":{"contextId":"scheduled-session"}}}`)
+			req := withUser(httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/agent", bytes.NewReader(body)), "caller")
+			req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "agent"})
+			var captured *auth.ShareContext
+			inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captured, _ = auth.ShareContextFrom(r.Context())
+				restoredBody, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				require.Equal(t, body, restoredBody)
+				w.WriteHeader(http.StatusOK)
+			})
+
+			recorder := httptest.NewRecorder()
+			srv.scheduledRunSessionMiddleware(inner).ServeHTTP(recorder, req)
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			require.NotNil(t, captured)
+			require.Equal(t, scheduledrun.SessionUserID, captured.UserID)
+			require.Equal(t, sessionID, captured.SessionID)
+			require.Equal(t, readOnly, captured.ReadOnly)
+
+			wrongTargetReq := withUser(
+				httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/other-agent", bytes.NewReader(body)),
+				"caller",
+			)
+			wrongTargetReq = mux.SetURLVars(wrongTargetReq, map[string]string{
+				"namespace": "default",
+				"name":      "other-agent",
+			})
+			wrongTargetRecorder := httptest.NewRecorder()
+			srv.scheduledRunSessionMiddleware(inner).ServeHTTP(wrongTargetRecorder, wrongTargetReq)
+			require.Equal(t, http.StatusForbidden, wrongTargetRecorder.Code)
+		})
+	}
+
+	t.Run("database failure returns internal server error", func(t *testing.T) {
+		scheme := runtime.NewScheme()
+		require.NoError(t, v1alpha2.AddToScheme(scheme))
+		db := &stubScheduledRunSessionDB{sessionErr: context.DeadlineExceeded}
+		sessionHandler := handlerpkg.NewSessionsHandler(&handlerpkg.Base{
+			KubeClient:      fake.NewClientBuilder().WithScheme(scheme).Build(),
+			DatabaseService: db,
+			Authorizer:      &authimpl.NoopAuthorizer{},
+		}, nil)
+		srv := &HTTPServer{
+			config:   ServerConfig{DbClient: db},
+			handlers: &handlerpkg.Handlers{Sessions: sessionHandler},
+		}
+		body := []byte(`{"jsonrpc":"2.0","method":"message/send","params":{"message":{"contextId":"scheduled-session"}}}`)
+		req := withUser(httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/agent", bytes.NewReader(body)), "caller")
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "agent"})
+		recorder := httptest.NewRecorder()
+		srv.scheduledRunSessionMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("inner handler was called")
+		})).ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusInternalServerError, recorder.Code)
+	})
 }
