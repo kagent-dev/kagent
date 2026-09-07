@@ -82,10 +82,11 @@ type ActorTemplateHarness struct {
 // filter on this", so an empty query lists the caller's own instances in the
 // namespace.
 type AgentInstanceQuery struct {
-	Namespace   string
-	UserID      string
-	AllUsers    bool
-	MatchLabels map[string]string
+	Namespace      string
+	UserID         string
+	AllUsers       bool
+	IncludeDeleted bool
+	MatchLabels    map[string]string
 	// AgentTemplate and Harness name the agent whose conversations are wanted.
 	// They are matched against the (AgentTemplate, Harness) pair the instance's
 	// prepared revision was built from, not against its labels, so they select

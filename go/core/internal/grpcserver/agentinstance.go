@@ -23,7 +23,7 @@ func (s *agentInstanceServer) CreateAgentInstance(ctx context.Context, request *
 }
 
 func (s *agentInstanceServer) GetAgentInstance(ctx context.Context, request *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error) {
-	instance, err := s.service.Get(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	instance, err := s.service.Get(ctx, request.GetNamespace(), request.GetAgentInstanceId(), request.GetIncludeDeleted())
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (s *agentInstanceServer) GetAgentInstance(ctx context.Context, request *api
 
 func (s *agentInstanceServer) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
 	result, err := s.service.List(ctx, agentinstance.ListRequest{
-		Namespace: request.GetNamespace(), MatchLabels: request.GetMatchLabels(), AllCreators: request.GetAllCreators(),
+		Namespace: request.GetNamespace(), MatchLabels: request.GetMatchLabels(), AllCreators: request.GetAllCreators(), IncludeDeleted: request.GetIncludeDeleted(),
 		AgentTemplate: request.GetAgentTemplate(), Harness: request.GetHarness(),
 		PageSize: int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
 	})

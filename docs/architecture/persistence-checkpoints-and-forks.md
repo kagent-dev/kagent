@@ -13,7 +13,7 @@ The core PostgreSQL records are:
 | --- | --- |
 | `runtime_revision` | Immutable compiled input and ate-api identity |
 | `agent_template_harness_pair` | Pair status and latest successful revision |
-| `agent_instance` | Compute identity, pinned revision, lifecycle phase, and Actor identity |
+| `agent_instance` | Compute identity, lifecycle, pinned revision, and deletion tombstone |
 | `agent_instance_share` | Instance authorization grants |
 | `a2a_context` | Durable owner of interaction history |
 | `agent_instance_task` | Materialized current A2A task state |
@@ -53,7 +53,8 @@ revision, labels, head task, and history sequence. The source AgentInstance may 
 deleted while its context and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
-the row. A checkpoint referenced by a fork cannot be deleted. Snapshot garbage
+the row. A checkpoint referenced by a live fork cannot be deleted. Deleted forks release
+the reference while retaining the original checkpoint ID for idempotent retries. Snapshot garbage
 collection is a separate concern.
 
 ## Forking

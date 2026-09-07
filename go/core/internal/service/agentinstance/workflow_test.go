@@ -2,6 +2,7 @@ package agentinstance
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestActorWorkflowLifecycle(t *testing.T) {
@@ -67,12 +69,21 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 		t.Fatalf("resumed instance = %+v", resumed)
 	}
 
+	actors.deleteErr = errors.New("runtime deletion failed")
+	if _, err := workflow.Delete(t.Context(), store.instance); err == nil || store.instance.GetDeletedAt() != nil || store.instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		t.Fatalf("failed runtime deletion left invalid state: %v, error %v", store.instance, err)
+	}
+	actors.deleteErr = nil
 	deleted, err := workflow.Delete(context.Background(), resumed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || store.instance != nil || len(actors.actors) != 0 {
+	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || store.instance.GetDeletedAt() == nil || len(actors.actors) != 0 {
 		t.Fatalf("deleted instance = %+v, actors = %v", deleted, actors.actors)
+	}
+	retried, err := workflow.Delete(t.Context(), deleted)
+	if err != nil || !proto.Equal(deleted, retried) || actors.deleteCalls != 2 {
+		t.Fatalf("delete retry = %v, error %v, runtime calls %d", retried, err, actors.deleteCalls)
 	}
 }
 
@@ -133,13 +144,19 @@ func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance
 	return s.instance, nil
 }
 
-func (s *lifecycleTestStore) DeleteAgentInstance(context.Context, string) error {
-	s.instance = nil
-	return nil
+func (s *lifecycleTestStore) DeleteAgentInstance(context.Context, string) (*apiv1alpha1.AgentInstance, error) {
+	s.instance = proto.CloneOf(s.instance)
+	s.instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED
+	s.instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	s.instance.PreparedRevision, s.instance.A2AAuthority = "", ""
+	s.instance.DeletedAt = timestamppb.Now()
+	return s.instance, nil
 }
 
 type lifecycleTestActors struct {
-	actors map[string]*ateapipb.Actor
+	deleteErr   error
+	deleteCalls int
+	actors      map[string]*ateapipb.Actor
 }
 
 func actorKey(atespace, name string) string { return atespace + "/" + name }
@@ -201,6 +218,10 @@ func (a *lifecycleTestActors) GetActorSnapshot(_ context.Context, atespace, name
 }
 
 func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {
+	a.deleteCalls++
+	if a.deleteErr != nil {
+		return a.deleteErr
+	}
 	delete(a.actors, actorKey(atespace, name))
 	return nil
 }

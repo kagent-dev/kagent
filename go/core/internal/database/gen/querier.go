@@ -15,19 +15,23 @@ type Querier interface {
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
-	DeleteAgentInstance(ctx context.Context, id uuid.UUID) error
 	DeleteAgentInstanceCheckpoint(ctx context.Context, arg DeleteAgentInstanceCheckpointParams) (int64, error)
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
+	DeleteAgentInstanceShares(ctx context.Context, instanceID uuid.UUID) error
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
+	// GetActiveAgentInstanceTaskForUpdate holds the instance's non-terminal task for the
+	// rest of the transaction so reclamation cannot overwrite concurrent progress.
+	GetActiveAgentInstanceTaskForUpdate(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
+	GetAgentInstanceForUpdate(ctx context.Context, id uuid.UUID) (AgentInstance, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
 	// Resolves a share token to the share and the instance's owner.
 	//
@@ -40,6 +44,7 @@ type Querier interface {
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
+	GetReadyAgentInstanceCheckpointForUpdate(ctx context.Context, arg GetReadyAgentInstanceCheckpointForUpdateParams) (AgentInstanceCheckpoint, error)
 	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
@@ -59,25 +64,13 @@ type Querier interface {
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
-	// Lists the conversations an instance is, optionally narrowed to one agent.
-	//
-	// An agent is an (AgentTemplate, Harness) pair, and the instance row carries
-	// neither name as a column -- both live inside `data`. They are resolved through
-	// `prepared_revision`, which is a foreign key to `runtime_revision` and does
-	// carry them, so the filter needs no new column and matches rows written before
-	// it existed. An instance with no prepared revision belongs to no pair and
-	// therefore matches no template or harness filter.
+	// Pair names remain queryable after a tombstone releases its runtime revision.
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
-	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
-	// rest of the transaction so reclamation cannot overwrite concurrent progress.
-	LockActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error)
-	LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error)
-	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
@@ -89,6 +82,7 @@ type Querier interface {
 	SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
+	TombstoneAgentInstance(ctx context.Context, arg TombstoneAgentInstanceParams) (AgentInstance, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
 	// Renames an instance in place. The row's `data` blob also carries the message,
 	// but `toAgentInstance` reads the name from this column, exactly as it does for

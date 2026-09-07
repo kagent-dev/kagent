@@ -40,9 +40,10 @@ type instanceWorkflow interface {
 }
 
 type ListRequest struct {
-	Namespace   string
-	MatchLabels map[string]string
-	AllCreators bool
+	Namespace      string
+	MatchLabels    map[string]string
+	AllCreators    bool
+	IncludeDeleted bool
 	// AgentTemplate and Harness narrow the page to one agent's conversations.
 	// Either may be given alone.
 	AgentTemplate string
@@ -100,6 +101,9 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve AgentInstance", err)
 	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return instance, nil
+	}
 	instance, err = s.workflow.Create(ctx, instance)
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to create AgentInstance", err)
@@ -107,7 +111,7 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 	return instance, nil
 }
 
-func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
+func (s *Service) Get(ctx context.Context, namespace, id string, includeDeleted bool) (*apiv1alpha1.AgentInstance, error) {
 	if err := validateIdentity(namespace, id); err != nil {
 		return nil, err
 	}
@@ -121,6 +125,10 @@ func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.A
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	_, shared := auth.ShareContextFrom(ctx)
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED && (!includeDeleted || shared) {
+		return nil, serviceerrors.NewNotFound("AgentInstance not found", nil)
 	}
 	return instance, nil
 }
@@ -168,7 +176,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
 	instances, err := s.store.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
-		Namespace: request.Namespace, UserID: userID, AllUsers: request.AllCreators,
+		Namespace: request.Namespace, UserID: userID, AllUsers: request.AllCreators, IncludeDeleted: request.IncludeDeleted,
 		MatchLabels:   request.MatchLabels,
 		AgentTemplate: request.AgentTemplate, Harness: request.Harness,
 		AfterID: afterID, Limit: pageSize + 1,
@@ -199,6 +207,9 @@ func (s *Service) Delete(ctx context.Context, namespace, id string) (*apiv1alpha
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return instance, nil
+	}
 	instance, err = s.workflow.Delete(ctx, instance)
 	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
@@ -223,6 +234,9 @@ func (s *Service) Suspend(ctx context.Context, namespace, id string) (*apiv1alph
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return nil, serviceerrors.NewFailedPrecondition("AgentInstance was deleted", nil)
 	}
 	instance, err = s.workflow.Suspend(ctx, instance)
 	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
@@ -249,6 +263,9 @@ func (s *Service) Resume(ctx context.Context, namespace, id string) (*apiv1alpha
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return nil, serviceerrors.NewFailedPrecondition("AgentInstance was deleted", nil)
+	}
 	instance, err = s.workflow.Resume(ctx, instance)
 	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
@@ -270,12 +287,15 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if err != nil {
 		return nil, "", err
 	}
-	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, userID)
+	instance, err := s.store.GetAgentInstance(ctx, namespace, instanceID, userID)
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
 		}
 		return nil, "", serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return nil, "", serviceerrors.NewNotFound("AgentInstance not found", nil)
 	}
 	token, tokenHash, err := generateShareToken()
 	if err != nil {
@@ -289,6 +309,9 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 		ID: id, Namespace: namespace, InstanceID: uuid.MustParse(instanceID),
 		Permission: permission, TokenHash: tokenHash,
 	})
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
 	}

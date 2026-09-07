@@ -69,6 +69,10 @@ message AgentInstance {
   // Reader-supplied display name for the conversation. Empty means unnamed,
   // which is the state every instance created before this field existed is in.
   string name = 14;
+  // Set after runtime deletion completes. Retained indefinitely for idempotency.
+  google.protobuf.Timestamp deleted_at = 15;
+  // Original fork source, retained even after that checkpoint is deleted.
+  string source_checkpoint_id = 16;
 }
 
 message CreateAgentInstanceRequest {
@@ -93,6 +97,8 @@ message CreateAgentInstanceResponse {
 message GetAgentInstanceRequest {
   string namespace = 1 [(buf.validate.field).string.min_len = 1];
   string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
+  // Return the tombstone if this instance has been deleted.
+  bool include_deleted = 3;
 }
 
 message GetAgentInstanceResponse {
@@ -107,8 +113,7 @@ message ListAgentInstancesRequest {
   PageRequest page = 4;
   // Narrows the list to the conversations of one agent, an agent being an
   // (AgentTemplate, Harness) pair. Either may be given alone. Both are matched
-  // against the pair the instance's prepared revision was built from, so they
-  // also select instances created before these fields existed.
+  // against the original pair, including after deletion releases its revision.
   string agent_template = 5 [(buf.validate.field).string = {
     max_len: 253
     pattern: "^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$"
@@ -117,6 +122,8 @@ message ListAgentInstancesRequest {
     max_len: 253
     pattern: "^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$"
   }];
+  // Include deleted instance identities; this does not restore runtime or A2A access.
+  bool include_deleted = 7;
 }
 
 message ListAgentInstancesResponse {

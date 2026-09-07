@@ -13,8 +13,8 @@ WHERE p.namespace = $1
 
 -- name: InsertAgentInstance :one
 INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, context_id, prepared_revision, state, operation, labels, name, data
-) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8, $9)
+    id, namespace, user_id, request_id, context_id, prepared_revision, state, operation, labels, name, data, agent_template_name, harness_name
+) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8, $9, $10, $11)
 ON CONFLICT (user_id, namespace, request_id) DO NOTHING
 RETURNING *;
 
@@ -25,37 +25,30 @@ VALUES ($1, $2, $3);
 -- name: InsertForkedAgentInstance :one
 INSERT INTO agent_instance (
     id, namespace, user_id, request_id, context_id, prepared_revision, source_checkpoint_id,
-    state, operation, labels, data
-) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
+    state, operation, labels, data, agent_template_name, harness_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9, $10, $11)
 ON CONFLICT (user_id, namespace, request_id) DO NOTHING
 RETURNING *;
 
 -- name: GetAgentInstanceByID :one
 SELECT * FROM agent_instance WHERE id = $1;
 
--- name: LockAgentInstance :one
+-- name: GetAgentInstanceForUpdate :one
 SELECT * FROM agent_instance WHERE id = $1 FOR UPDATE;
 
 -- name: GetAgentInstanceForUser :one
 SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
 
--- Lists the conversations an instance is, optionally narrowed to one agent.
---
--- An agent is an (AgentTemplate, Harness) pair, and the instance row carries
--- neither name as a column -- both live inside `data`. They are resolved through
--- `prepared_revision`, which is a foreign key to `runtime_revision` and does
--- carry them, so the filter needs no new column and matches rows written before
--- it existed. An instance with no prepared revision belongs to no pair and
--- therefore matches no template or harness filter.
+-- Pair names remain queryable after a tombstone releases its runtime revision.
 -- name: ListAgentInstances :many
 SELECT i.* FROM agent_instance i
-LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 WHERE i.namespace = sqlc.arg(namespace)
+  AND (sqlc.arg(include_deleted)::boolean OR i.deleted_at IS NULL)
   AND (sqlc.arg(all_users)::boolean OR i.user_id = sqlc.arg(user_id))
   AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR i.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
   AND i.labels @> sqlc.arg(match_labels)::jsonb
-  AND (sqlc.arg(agent_template)::text = '' OR r.agent_template_name = sqlc.arg(agent_template))
-  AND (sqlc.arg(harness)::text = '' OR r.harness_name = sqlc.arg(harness))
+  AND (sqlc.arg(agent_template)::text = '' OR i.agent_template_name = sqlc.arg(agent_template))
+  AND (sqlc.arg(harness)::text = '' OR i.harness_name = sqlc.arg(harness))
 ORDER BY i.id
 LIMIT sqlc.arg(page_size);
 
@@ -71,6 +64,7 @@ SET state = sqlc.arg(next_state), operation = sqlc.arg(next_operation), data = s
 WHERE agent_instance.id = sqlc.arg(id)
   AND agent_instance.state = sqlc.arg(expected_state)
   AND agent_instance.operation = sqlc.arg(expected_operation)
+  AND agent_instance.deleted_at IS NULL
   AND (
     sqlc.arg(expected_operation)::text <> 'NONE'
     OR NOT EXISTS (
@@ -87,11 +81,18 @@ RETURNING *;
 -- name: UpdateAgentInstanceName :one
 UPDATE agent_instance
 SET name = sqlc.arg(name)
-WHERE namespace = sqlc.arg(namespace) AND id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
+WHERE namespace = sqlc.arg(namespace) AND id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND deleted_at IS NULL AND operation <> 'DELETE'
 RETURNING *;
 
--- name: DeleteAgentInstance :exec
-DELETE FROM agent_instance WHERE id = $1;
+-- name: TombstoneAgentInstance :one
+UPDATE agent_instance
+SET state = 'DELETED', operation = 'NONE', deleted_at = clock_timestamp(),
+    prepared_revision = NULL, source_checkpoint_id = NULL, data = $2
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: DeleteAgentInstanceShares :exec
+DELETE FROM agent_instance_share WHERE instance_id = $1;
 
 -- name: CreateAgentInstanceShare :one
 INSERT INTO agent_instance_share (
@@ -109,12 +110,12 @@ RETURNING *;
 SELECT s.*, i.user_id AS owner_user_id
 FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
-WHERE s.token_hash = $1;
+WHERE s.token_hash = $1 AND i.deleted_at IS NULL AND i.operation <> 'DELETE';
 
 -- name: ListAgentInstanceShares :many
 SELECT s.* FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
-WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
+WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3 AND i.deleted_at IS NULL
   AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR s.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
 ORDER BY s.id
 LIMIT sqlc.arg(page_size);

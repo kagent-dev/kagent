@@ -20,7 +20,20 @@ Lifecycle operations are implemented as retryable workflows:
 - retries observe and continue the durable phase.
 
 Explicit suspend and resume update the logical lifecycle state. Deletion fences
-the instance, deletes the Actor, then removes control-plane state. The workflow
+the instance, deletes the Actor, then retains an indefinitely stored tombstone.
+Deletion releases prepared-revision and checkpoint references, revokes shares, and
+records `deleted_at`. Retrying create or fork with the original request ID returns
+the same deleted identity; it never provisions a replacement. Repeated deletion
+returns the original tombstone and timestamp.
+
+Get and list omit deleted instances by default. Their `include_deleted` option
+exposes creator-scoped metadata for history, including the original agent pair and
+fork source after runtime/checkpoint cleanup. Deleted instances cannot be renamed,
+suspended, resumed, shared, or accessed through A2A. A2A context/history retention
+is unchanged; retaining an instance tombstone does not restore transcript access.
+No purge or retention configuration is introduced.
+
+The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
 

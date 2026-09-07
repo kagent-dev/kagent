@@ -185,6 +185,9 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance", "error", err, "namespace", namespace, "instance_id", id)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load AgentInstance")
 	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
+	}
 	return instance, nil
 }
 

@@ -93,7 +93,7 @@ RETURNING *;
 DELETE FROM agent_instance_checkpoint
 WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'DELETING';
 
--- name: LockReadyAgentInstanceCheckpoint :one
+-- name: GetReadyAgentInstanceCheckpointForUpdate :one
 SELECT * FROM agent_instance_checkpoint
 WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'READY'
 FOR UPDATE;

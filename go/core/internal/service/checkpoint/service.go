@@ -246,21 +246,14 @@ func (s *Service) Fork(ctx context.Context, namespace, checkpointID, requestID s
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
-	if errors.Is(err, dbpkg.ErrNotFound) {
-		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
-	}
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
-	}
-	if checkpoint.SnapshotContentScope != "DATA" {
-		return nil, serviceerrors.NewFailedPrecondition("Checkpoint includes process state and cannot be forked", nil)
-	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
 	}
 	instance, _, err := s.store.ForkAgentInstance(ctx, namespace, checkpointID, userID, requestID, id.String())
+	if errors.Is(err, dbpkg.ErrCheckpointNotForkable) {
+		return nil, serviceerrors.NewFailedPrecondition("Checkpoint includes process state and cannot be forked", err)
+	}
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
@@ -269,6 +262,13 @@ func (s *Service) Fork(ctx context.Context, namespace, checkpointID, requestID s
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
+	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return instance, nil
+	}
+	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get reserved fork checkpoint", err)
 	}
 	instance, err = s.workflow.Fork(ctx, instance, checkpoint)
 	if err != nil {

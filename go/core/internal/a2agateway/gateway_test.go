@@ -1129,3 +1129,18 @@ func TestGatewayIgnoresASessionShare(t *testing.T) {
 // question* (`ask_user` is a long-running call), so the send must be refused with
 // a reason the reader can act on, and the question must survive: only the reader
 // may give it up.
+
+func TestGatewayRejectsDeletedInstanceBeforeReadingHistoryOrDialing(t *testing.T) {
+	instance := gatewayTestInstance()
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED
+	store := &gatewayTestStore{instance: instance, task: &a2atype.Task{ID: "retained-task"}}
+	gateway := New(store, &gatewayTestAuthorizer{}, nil, nil, gatewayTestURL)
+	_, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: "retained-task"})
+	if !errors.Is(err, a2atype.ErrUnauthorized) {
+		t.Fatalf("get deleted task = %v", err)
+	}
+	_, err = gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	if !errors.Is(err, a2atype.ErrUnauthorized) {
+		t.Fatalf("send to deleted instance = %v", err)
+	}
+}

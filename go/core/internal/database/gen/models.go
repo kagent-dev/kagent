@@ -31,6 +31,9 @@ type AgentInstance struct {
 	ContextID          uuid.UUID
 	SourceCheckpointID *uuid.UUID
 	Name               string
+	DeletedAt          *time.Time
+	AgentTemplateName  string
+	HarnessName        string
 }
 
 type AgentInstanceCheckpoint struct {
