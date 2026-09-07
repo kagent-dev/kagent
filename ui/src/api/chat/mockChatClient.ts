@@ -164,7 +164,7 @@ export class MockChatClient implements ChatClient {
      */
     const instance = allAgentInstances().find(
       (row) =>
-        row.namespace === conversation.namespace && row.id === conversation.id,
+        row.id === conversation.id,
     );
     if (instance && instance.state !== "ready") {
       yield {
@@ -506,7 +506,7 @@ function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
  * Built fresh per call so one test's turns cannot leak into the next.
  */
 const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
-  // Keyed by `namespace/instance-id`, which is what a conversation is addressed
+  // Keyed by `instance-id`, which is what a conversation is addressed
   // by now — the same key `conversationKey` builds. This is the first instance in
   // `mockAgentInstances`, so the fixture agent a reader opens first has a
   // conversation already in it.
@@ -655,7 +655,7 @@ async function stopped(signal: AbortSignal | undefined, ms: number): Promise<boo
  * recorded in `playwright/DEFERRED.md` rather than papered over here.
  */
 function refuseAnInvalidShare(conversation: ChatConversationRef): void {
-  const token = agentInstanceShareToken(conversation.namespace, conversation.id);
+  const token = agentInstanceShareToken(conversation.id);
   if (!token) return;
 
   const share = instanceShareForToken(token);

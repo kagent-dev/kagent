@@ -87,7 +87,7 @@ export interface AgentTemplatesAcrossNamespaces {
  * `AgentTemplateService.List` validates its namespace before anything else and answers
  * `InvalidArgument: namespace is required` for an empty one — it is not a wildcard. So
  * "all namespaces" is a request per namespace, merged, exactly as
- * `useAgentInstancesAcrossNamespaces` does for the same reason.
+ * `useAgentInstances` does for the same reason.
  *
  * **This is why the agents page cannot simply call `useAgentTemplates()` unscoped.** It
  * did, and against a real controller the whole page failed with "namespace is required"

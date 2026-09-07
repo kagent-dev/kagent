@@ -14,7 +14,7 @@ import (
 func TestCheckpointSummary(t *testing.T) {
 	created := time.Date(2026, time.August, 26, 10, 0, 0, 123, time.UTC)
 	got := checkpointSummary(&apiv1alpha1.Checkpoint{
-		Id: "22222222-2222-4222-8222-222222222222", Namespace: "team-a",
+		Id:              "22222222-2222-4222-8222-222222222222",
 		AgentInstanceId: testInstanceID, HeadTaskId: testTaskID, HistorySequence: 7,
 		State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, CreatedAt: timestamppb.New(created),
 		Failure: &apiv1alpha1.Failure{Message: "failed"},
@@ -50,7 +50,7 @@ func TestCheckpointToolsAreRegistered(t *testing.T) {
 
 func TestCheckpointToolErrorsAreToolResults(t *testing.T) {
 	h := &Handler{checkpoints: testCheckpointService()}
-	result, _, err := h.createCheckpoint(t.Context(), nil, CreateCheckpointInput{Namespace: "team-a", AgentInstanceID: "invalid"})
+	result, _, err := h.createCheckpoint(t.Context(), nil, CreateCheckpointInput{AgentInstanceID: "invalid"})
 	if err != nil || !result.IsError {
 		t.Fatalf("createCheckpoint() result = %#v, error = %v", result, err)
 	}

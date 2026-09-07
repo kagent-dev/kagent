@@ -182,12 +182,11 @@ export function agentPairsFrom(templates: readonly AgentTemplate[]): AgentPair[]
  * controller's own `LEFT JOIN` says about it.
  */
 export function pairIdOfInstance(instance: {
-  namespace: string;
   harness?: string;
   agentTemplate?: string;
 }): string | undefined {
   if (!instance.harness || !instance.agentTemplate) return undefined;
-  return `${instance.namespace}/${bareName(instance.agentTemplate)}/${bareName(instance.harness)}`;
+  return `${instance.agentTemplate}/${bareName(instance.harness)}`;
 }
 
 /**

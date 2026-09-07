@@ -274,7 +274,7 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     // A sibling instance: the same harness and template, so the rail lists it as
     // another conversation with this agent.
     await page.getByTestId(`chat-session-${SIBLING_OF_READY}`).click();
-    await page.waitForURL(new RegExp(`/agents/kagent/${SIBLING_OF_READY}/chat$`));
+    await page.waitForURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
 
     await expect(page.getByTestId("chat-empty")).toBeVisible();
     await expect(
@@ -372,7 +372,7 @@ test("chat: the composer stays put when switching conversations", async ({ page 
 
   const rail = page.getByTestId("chat-sessions");
   await rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`).click();
-  await page.waitForURL(new RegExp(`/agents/kagent/${SIBLING_OF_READY}/chat$`));
+  await page.waitForURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
   await expect(page.getByTestId("chat-composer")).toBeVisible();
   // Settled, not mid-transition — the assertion is about where it ends up.
   await page.waitForTimeout(1000);

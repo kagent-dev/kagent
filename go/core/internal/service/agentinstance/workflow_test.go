@@ -15,7 +15,7 @@ import (
 
 func TestActorWorkflowLifecycle(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
-		Id: "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", Namespace: "team-a",
+		Id:               "8bd650a8-9775-488f-8bc1-0d52bf7bdcab",
 		PreparedRevision: "revision-1", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 	}
 	store := &lifecycleTestStore{
@@ -78,7 +78,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 
 func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
-		Id: "fork-1", Namespace: "team-a", PreparedRevision: "revision-1",
+		Id: "fork-1", PreparedRevision: "revision-1",
 		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 	}
 	store := &lifecycleTestStore{

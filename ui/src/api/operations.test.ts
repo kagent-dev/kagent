@@ -489,8 +489,7 @@ describe("transforms reaching the wire", () => {
  * Agent instances differ from everything above in one structural way: an instance
  * is a row in the controller's own database rather than a custom resource, so
  * nothing arrives inside a `StructuredObject` and there is no envelope to unwrap.
- * What there *is* instead — two enums, a paged list, and a namespace that is part
- * of the address rather than a filter — is what these cover.
+ * These cover enum decoding, pagination, and ID-based addressing.
  */
 describe("agent instances", () => {
   const INSTANCE_ID = "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44";
@@ -498,7 +497,6 @@ describe("agent instances", () => {
   function instanceMessage(overrides: Record<string, unknown> = {}) {
     return {
       id: INSTANCE_ID,
-      namespace: "kagent",
       creator: "alice@example.com",
       harness: { namespace: "kagent", name: "k8s-agent" },
       agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
@@ -530,10 +528,8 @@ describe("agent instances", () => {
       });
     });
 
-    const rows = await apiClient.agentInstances.list("kagent");
-    // Sorted by namespace then id descending, like every other list here — so the
-    // `b28e…` row comes first. Asserted by looking each one up rather than by index,
-    // because the order is not what this test is about.
+    const rows = await apiClient.agentInstances.list();
+    // Look up each row by ID because this test covers decoding, not ordering.
     const ready = rows.find((row) => row.id === INSTANCE_ID);
     const suspended = rows.find((row) => row.id.startsWith("b28e"));
 
@@ -569,7 +565,7 @@ describe("agent instances", () => {
       });
     });
 
-    const [row] = await apiClient.agentInstances.list("kagent");
+    const [row] = await apiClient.agentInstances.list();
     expect(row.state).toBe("unknown");
     expect(row.operation).toBe("unknown");
   });
@@ -599,7 +595,7 @@ describe("agent instances", () => {
       });
     });
 
-    const [row] = await apiClient.agentInstances.list("kagent");
+    const [row] = await apiClient.agentInstances.list();
     expect(row.harness).toBeUndefined();
     expect(row.agentTemplate).toBeUndefined();
     expect(row.preparedRevision).toBeUndefined();
@@ -626,7 +622,7 @@ describe("agent instances", () => {
       });
     });
 
-    const [row] = await apiClient.agentInstances.list("kagent");
+    const [row] = await apiClient.agentInstances.list();
     expect(row.failure).toEqual({ reason: undefined, message: undefined });
   });
 
@@ -658,7 +654,7 @@ describe("agent instances", () => {
       });
     });
 
-    const rows = await apiClient.agentInstances.list("kagent");
+    const rows = await apiClient.agentInstances.list();
     expect(rows).toHaveLength(2);
     expect(tokensSeen).toEqual(["", "page-2"]);
   });
@@ -678,7 +674,7 @@ describe("agent instances", () => {
       });
     });
 
-    await expect(apiClient.agentInstances.list("kagent")).rejects.toThrow(
+    await expect(apiClient.agentInstances.list()).rejects.toThrow(
       /repeated the same page/,
     );
   });
@@ -694,17 +690,17 @@ describe("agent instances", () => {
       });
     });
 
-    await apiClient.agentInstances.list("kagent");
-    await apiClient.agentInstances.list("kagent", { allCreators: true });
+    await apiClient.agentInstances.list();
+    await apiClient.agentInstances.list({ allCreators: true });
     expect(asked).toEqual([false, true]);
   });
 
-  it("addresses one instance by namespace and id, and reports a missing one as a 404", async () => {
-    const asked: { namespace: string; id: string }[] = [];
+  it("addresses one instance by id, and reports a missing one as a 404", async () => {
+    const asked: { id: string }[] = [];
     serve(({ service }) => {
       service(AgentInstanceService, {
         getAgentInstance: (request) => {
-          asked.push({ namespace: request.namespace, id: request.agentInstanceId });
+          asked.push({ id: request.agentInstanceId });
           if (request.agentInstanceId !== INSTANCE_ID) {
             throw new ConnectError("no such instance", Code.NotFound);
           }
@@ -713,12 +709,12 @@ describe("agent instances", () => {
       });
     });
 
-    const instance = await apiClient.agentInstances.get("kagent", INSTANCE_ID);
+    const instance = await apiClient.agentInstances.get(INSTANCE_ID);
     expect(instance.id).toBe(INSTANCE_ID);
-    expect(asked[0]).toEqual({ namespace: "kagent", id: INSTANCE_ID });
+    expect(asked[0]).toEqual({ id: INSTANCE_ID });
 
     const missing = await apiClient.agentInstances
-      .get("kagent", "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05")
+      .get("b28e4f13-5c66-4d90-8f2b-77a1e9c34d05")
       .catch((error: unknown) => error);
     expect(isNotFound(missing)).toBe(true);
   });
@@ -733,27 +729,27 @@ describe("agent instances", () => {
     serve(({ service }) => {
       service(AgentInstanceService, {
         suspendAgentInstance: (request) => {
-          called.push(`suspend ${request.namespace}/${request.agentInstanceId}`);
+          called.push(`suspend ${request.agentInstanceId}`);
           return {
             agentInstance: instanceMessage({ state: PbAgentInstanceState.SUSPENDED }),
           };
         },
         resumeAgentInstance: (request) => {
-          called.push(`resume ${request.namespace}/${request.agentInstanceId}`);
+          called.push(`resume ${request.agentInstanceId}`);
           return { agentInstance: instanceMessage({ state: PbAgentInstanceState.READY }) };
         },
       });
     });
 
-    const suspended = await apiClient.agentInstances.suspend("kagent", INSTANCE_ID);
+    const suspended = await apiClient.agentInstances.suspend(INSTANCE_ID);
     expect(suspended.state).toBe("suspended");
 
-    const resumed = await apiClient.agentInstances.resume("kagent", INSTANCE_ID);
+    const resumed = await apiClient.agentInstances.resume(INSTANCE_ID);
     expect(resumed.state).toBe("ready");
 
     expect(called).toEqual([
-      `suspend kagent/${INSTANCE_ID}`,
-      `resume kagent/${INSTANCE_ID}`,
+      `suspend ${INSTANCE_ID}`,
+      `resume ${INSTANCE_ID}`,
     ]);
   });
 
@@ -776,7 +772,7 @@ describe("agent instances", () => {
     });
 
     const failure = await apiClient.agentInstances
-      .suspend("kagent", INSTANCE_ID)
+      .suspend(INSTANCE_ID)
       .catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(ApiError);

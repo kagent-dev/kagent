@@ -11,11 +11,10 @@
  * ## What a conversation is
  *
  * An `AgentInstance`. Not a session — there is no session id here. The gateway
- * routes on two headers rather than on a path, files every task under the
+ * routes on the instance ID header rather than on a path, files every task under the
  * instance as its A2A `contextId`, and answers `ListTasks` with that
  * conversation's turns. So the instance is the address, the context and the
- * transcript at once, and `ChatConversationRef` carries the two halves the
- * headers need.
+ * transcript at once, and `ChatConversationRef` carries that ID.
  *
  * ## Why this is so much shorter than the client it replaces
  *
@@ -90,16 +89,7 @@ import type {
   SendMessageInput,
 } from "./types";
 
-/**
- * The two headers the gateway routes on.
- *
- * `route()` in `go/core/v2/a2agateway/gateway.go` requires exactly one of each
- * and validates them — the namespace as a DNS-1123 label, the id as a UUID — so a
- * malformed pair is `InvalidRequest` rather than a call that reaches the wrong
- * agent. Sent as call metadata rather than baked into a URL because a gRPC method
- * is addressed by its descriptor: there is no path here to put them in.
- */
-const NAMESPACE_HEADER = "x-kagent-agent-instance-namespace";
+/** The gateway requires exactly one instance ID header and validates it as a UUID. */
 const INSTANCE_ID_HEADER = "x-kagent-agent-instance-id";
 
 /** The header the controller validates a share token from. */
@@ -283,7 +273,6 @@ export class A2AGrpcChatClient implements ChatClient {
    */
   private callOptions(conversation: ChatConversationRef, signal?: AbortSignal) {
     const headers: Record<string, string> = {
-      [NAMESPACE_HEADER]: conversation.namespace,
       [INSTANCE_ID_HEADER]: conversation.id,
       /*
        * Activate the human-in-the-loop extension, on every call.
@@ -306,7 +295,7 @@ export class A2AGrpcChatClient implements ChatClient {
      * untouched. `shareToken.ts` holds the registration for both kinds of share so
      * there is still only one place a token is spent from.
      */
-    const share = agentInstanceShareToken(conversation.namespace, conversation.id);
+    const share = agentInstanceShareToken(conversation.id);
     if (share) headers[SHARE_HEADER] = share;
     return { signal, headers };
   }

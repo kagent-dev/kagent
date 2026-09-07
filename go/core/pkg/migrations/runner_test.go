@@ -205,8 +205,8 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	// A context may outlive one AgentInstance, so these IDs intentionally differ.
 	contextID := "00000000-0000-0000-0000-000000000001"
 	instanceID := "00000000-0000-0000-0000-000000000002"
-	execSQL(t, dsn, "INSERT INTO a2a_context (id, namespace, user_id) VALUES ($1, 'test', 'user')", contextID)
-	execSQL(t, dsn, "INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data, context_id) VALUES ($1, 'test', 'user', 'request', 'READY', $2, $3)", instanceID, []byte{}, contextID)
+	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id) VALUES ($1, 'user')", contextID)
+	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id) VALUES ($1, 'user', 'request', 'READY', $2, $3)", instanceID, []byte{}, contextID)
 	execSQL(t, dsn, "INSERT INTO agent_instance_task (context_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", contextID, []byte{})
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {

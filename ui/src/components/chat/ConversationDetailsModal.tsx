@@ -35,7 +35,8 @@ export function ConversationDetailsModal({
 
   const agentHref = data?.agentTemplate && data.harness
     ? agentPageUrl({
-        namespace: data.namespace,
+      namespace: data.agentTemplate.split("/")[0],
+
         agentTemplate: bareName(data.agentTemplate),
         harness: bareName(data.harness),
       })
@@ -62,7 +63,6 @@ export function ConversationDetailsModal({
         <Skeleton active paragraph={{ rows: 6 }} />
       ) : (
         <>
-
 
         <Descriptions
           bordered

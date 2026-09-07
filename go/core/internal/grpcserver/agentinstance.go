@@ -15,7 +15,7 @@ type agentInstanceServer struct {
 }
 
 func (s *agentInstanceServer) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error) {
-	instance, err := s.service.Create(ctx, request.GetNamespace(), request.GetHarness(), request.GetAgentTemplate(), request.GetRequestId(), request.GetName())
+	instance, err := s.service.Create(ctx, request.GetHarness(), request.GetAgentTemplate(), request.GetRequestId(), request.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func (s *agentInstanceServer) CreateAgentInstance(ctx context.Context, request *
 }
 
 func (s *agentInstanceServer) GetAgentInstance(ctx context.Context, request *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error) {
-	instance, err := s.service.Get(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	instance, err := s.service.Get(ctx, request.GetAgentInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (s *agentInstanceServer) GetAgentInstance(ctx context.Context, request *api
 
 func (s *agentInstanceServer) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
 	result, err := s.service.List(ctx, agentinstance.ListRequest{
-		Namespace: request.GetNamespace(), MatchLabels: request.GetMatchLabels(), AllCreators: request.GetAllCreators(),
+		MatchLabels: request.GetMatchLabels(), AllCreators: request.GetAllCreators(),
 		AgentTemplate: request.GetAgentTemplate(), Harness: request.GetHarness(),
 		PageSize: int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
 	})
@@ -46,7 +46,7 @@ func (s *agentInstanceServer) ListAgentInstances(ctx context.Context, request *a
 }
 
 func (s *agentInstanceServer) UpdateAgentInstanceName(ctx context.Context, request *apiv1alpha1.UpdateAgentInstanceNameRequest) (*apiv1alpha1.UpdateAgentInstanceNameResponse, error) {
-	instance, err := s.service.Rename(ctx, request.GetNamespace(), request.GetAgentInstanceId(), request.GetName())
+	instance, err := s.service.Rename(ctx, request.GetAgentInstanceId(), request.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (s *agentInstanceServer) UpdateAgentInstanceName(ctx context.Context, reque
 }
 
 func (s *agentInstanceServer) SuspendAgentInstance(ctx context.Context, request *apiv1alpha1.SuspendAgentInstanceRequest) (*apiv1alpha1.SuspendAgentInstanceResponse, error) {
-	instance, err := s.service.Suspend(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	instance, err := s.service.Suspend(ctx, request.GetAgentInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (s *agentInstanceServer) SuspendAgentInstance(ctx context.Context, request 
 }
 
 func (s *agentInstanceServer) ResumeAgentInstance(ctx context.Context, request *apiv1alpha1.ResumeAgentInstanceRequest) (*apiv1alpha1.ResumeAgentInstanceResponse, error) {
-	instance, err := s.service.Resume(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	instance, err := s.service.Resume(ctx, request.GetAgentInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (s *agentInstanceServer) ResumeAgentInstance(ctx context.Context, request *
 }
 
 func (s *agentInstanceServer) DeleteAgentInstance(ctx context.Context, request *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error) {
-	instance, err := s.service.Delete(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	instance, err := s.service.Delete(ctx, request.GetAgentInstanceId())
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (s *agentInstanceServer) DeleteAgentInstance(ctx context.Context, request *
 }
 
 func (s *agentInstanceServer) CreateAgentInstanceShare(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceShareRequest) (*apiv1alpha1.CreateAgentInstanceShareResponse, error) {
-	share, token, err := s.service.CreateShare(ctx, request.GetNamespace(), request.GetAgentInstanceId(), sharePermissionName(request.GetPermission()))
+	share, token, err := s.service.CreateShare(ctx, request.GetAgentInstanceId(), sharePermissionName(request.GetPermission()))
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (s *agentInstanceServer) CreateAgentInstanceShare(ctx context.Context, requ
 }
 
 func (s *agentInstanceServer) ListAgentInstanceShares(ctx context.Context, request *apiv1alpha1.ListAgentInstanceSharesRequest) (*apiv1alpha1.ListAgentInstanceSharesResponse, error) {
-	result, err := s.service.ListShares(ctx, request.GetNamespace(), request.GetAgentInstanceId(), int(request.GetPage().GetLimit()), request.GetPage().GetPageToken())
+	result, err := s.service.ListShares(ctx, request.GetAgentInstanceId(), int(request.GetPage().GetLimit()), request.GetPage().GetPageToken())
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (s *agentInstanceServer) ListAgentInstanceShares(ctx context.Context, reque
 }
 
 func (s *agentInstanceServer) RevokeAgentInstanceShare(ctx context.Context, request *apiv1alpha1.RevokeAgentInstanceShareRequest) (*apiv1alpha1.RevokeAgentInstanceShareResponse, error) {
-	if err := s.service.RevokeShare(ctx, request.GetNamespace(), request.GetShareId()); err != nil {
+	if err := s.service.RevokeShare(ctx, request.GetShareId()); err != nil {
 		return nil, err
 	}
 	return &apiv1alpha1.RevokeAgentInstanceShareResponse{}, nil
@@ -108,7 +108,7 @@ func (s *agentInstanceServer) RevokeAgentInstanceShare(ctx context.Context, requ
 
 func agentInstanceShareProto(share *dbpkg.AgentInstanceShare) *apiv1alpha1.AgentInstanceShare {
 	return &apiv1alpha1.AgentInstanceShare{
-		Id: share.ID.String(), Namespace: share.Namespace, AgentInstanceId: share.InstanceID.String(),
+		Id: share.ID.String(), AgentInstanceId: share.InstanceID.String(),
 		Permission: agentInstanceSharePermission(share.Permission), CreatedAt: timestamppb.New(share.CreatedAt),
 	}
 }

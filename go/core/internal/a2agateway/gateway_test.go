@@ -37,27 +37,27 @@ func (gatewayTestSession) Principal() auth.Principal {
 }
 
 type gatewayTestStore struct {
-	instance              *apiv1alpha1.AgentInstance
-	revision              *dbpkg.RuntimeRevision
-	err                   error
-	task                  *a2atype.Task
-	created               *a2atype.Task
-	tasks                 []*a2atype.Task
-	total                 int
-	taskErr               error
-	replay                *a2atype.Task
-	active                *a2atype.Task
-	interruptResult       bool
-	interrupted           bool
-	createdTasks          int
-	stored                []a2atype.Event
-	snapshot              *dbpkg.AgentInstanceTaskSnapshot
-	onStore               func()
-	namespace, id, userID string
+	instance        *apiv1alpha1.AgentInstance
+	revision        *dbpkg.RuntimeRevision
+	err             error
+	task            *a2atype.Task
+	created         *a2atype.Task
+	tasks           []*a2atype.Task
+	total           int
+	taskErr         error
+	replay          *a2atype.Task
+	active          *a2atype.Task
+	interruptResult bool
+	interrupted     bool
+	createdTasks    int
+	stored          []a2atype.Event
+	snapshot        *dbpkg.AgentInstanceTaskSnapshot
+	onStore         func()
+	id, userID      string
 }
 
-func (s *gatewayTestStore) GetAgentInstance(_ context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
-	s.namespace, s.id, s.userID = namespace, id, userID
+func (s *gatewayTestStore) GetAgentInstance(_ context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	s.id, s.userID = id, userID
 	return s.instance, s.err
 }
 
@@ -295,14 +295,13 @@ func gatewayTestContext() context.Context {
 func gatewayTestContextWithRoute(namespace, id string) context.Context {
 	ctx := auth.AuthSessionTo(context.Background(), gatewayTestSession{})
 	return metadata.NewIncomingContext(ctx, metadata.Pairs(
-		apia2a.AgentInstanceNamespaceHeader, namespace,
 		apia2a.AgentInstanceIDHeader, id,
 	))
 }
 
 func gatewayTestInstance() *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
-		Id: gatewayTestID, Namespace: "team-a", Creator: "alice",
+		Id: gatewayTestID, Creator: "alice",
 		PreparedRevision: "revision-1",
 		A2AAuthority:     "private-runtime-authority",
 		State:            apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
@@ -337,10 +336,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339Nano, position); !ok || err != nil {
 		t.Fatalf("opening message timeline position = %#v: %v", store.created.History[0].Metadata[apia2a.TimelinePositionMetadataKey], err)
 	}
-	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
-		t.Fatalf("store lookup = %q/%q user %q", store.namespace, store.id, store.userID)
+	if store.id != gatewayTestID || store.userID != "alice" {
+		t.Fatalf("store lookup = %q user %q", store.id, store.userID)
 	}
-	if authorizer.verb != auth.VerbCreate || authorizer.resource != (auth.Resource{Type: "AgentInstance", Name: "team-a/" + gatewayTestID}) {
+	if authorizer.verb != auth.VerbCreate || authorizer.resource != (auth.Resource{Type: "AgentInstance", Name: gatewayTestID}) {
 		t.Fatalf("authorization = %q %#v", authorizer.verb, authorizer.resource)
 	}
 }
@@ -564,7 +563,6 @@ func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(
-		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
 		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 	if _, err := a2apb.NewA2AServiceClient(connection).SendMessage(ctx, request); err != nil {
@@ -1053,7 +1051,6 @@ func TestGatewayHonoursAgentInstanceShare(t *testing.T) {
 		ReadOnly:        true,
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
 		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
@@ -1084,7 +1081,6 @@ func TestGatewayRefusesAShareForADifferentInstance(t *testing.T) {
 		AgentInstanceID: "00000000-0000-0000-0000-000000000000",
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
 		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 
@@ -1110,7 +1106,6 @@ func TestGatewayIgnoresASessionShare(t *testing.T) {
 		SessionID: instance.GetId(),
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		apia2a.AgentInstanceNamespaceHeader, instance.GetNamespace(),
 		apia2a.AgentInstanceIDHeader, instance.GetId(),
 	))
 

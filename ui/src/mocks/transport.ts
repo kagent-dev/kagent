@@ -522,7 +522,7 @@ on(PromptTemplateService.method.listPromptTemplates, (input, call) => ({
       : allPromptSummaries()
           .filter((row) => !input.namespace || row.namespace === input.namespace)
           .map((row) => ({
-            ref: { namespace: row.namespace, name: row.name },
+            ref: { name: row.name },
             keyCount: row.keyCount,
             keys: row.keys ?? [],
           })),
@@ -603,7 +603,7 @@ function agentInstanceMessage(
 ): MessageInitShape<typeof AgentInstanceSchema> {
   return {
     id: row.id,
-    namespace: row.namespace,
+
     // Empty is what an unnamed conversation carries on the wire — proto3 has no
     // absent string — so it goes back empty rather than omitted, and the client
     // turns it into a title rather than treating it as a gap.
@@ -627,22 +627,13 @@ function agentInstanceMessage(
   };
 }
 
-/**
- * The namespace check the controller performs, performed here too.
- *
- * `validateNamespace` in `go/core/v2/agentinstance/service.go` requires a DNS-1123
- * label, so an empty namespace is an `InvalidArgument` and emphatically *not* "every
- * namespace". A fake that quietly listed everything for an empty namespace would
- * make a page that forgot to pass one look like it worked, right up until it met a
- * cluster.
- */
+/** Required Kubernetes target namespaces must be DNS-1123 labels. */
 const DNS_1123_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
 function requireNamespace(namespace: string): string {
   if (namespace.length > 63 || !DNS_1123_LABEL.test(namespace)) {
     throw new ConnectError(
-      `namespace is invalid: "${namespace}" is not a DNS-1123 label. ` +
-        `AgentInstanceService has no cross-namespace read.`,
+      `namespace is invalid: "${namespace}" is not a DNS-1123 label.`,
       Code.InvalidArgument,
     );
   }
@@ -673,11 +664,6 @@ function requireOptionalName(field: string, value: string | undefined): string {
 }
 
 /** The name half of a `namespace/name` ref, which is what the filters match on. */
-function bareRefName(ref: string | undefined): string | undefined {
-  if (!ref) return undefined;
-  const slash = ref.lastIndexOf("/");
-  return slash === -1 ? ref : ref.slice(slash + 1);
-}
 
 /**
  * The name check the controller performs: `validateName`.
@@ -739,19 +725,19 @@ const INSTANCE_MAX_PAGE_SIZE = 100;
  * read finds nothing, because that — and not an empty body — is the state a detail
  * page has to handle.
  */
-function instanceFor(namespace: string, id: string, call: MockCall): AgentInstance {
+function instanceFor(id: string, call: MockCall): AgentInstance {
   const found =
     call.scenario === "empty"
       ? undefined
       : allAgentInstances().find(
-          (row) => agentInstanceRef(row) === `${namespace}/${id}`,
+        (row) => agentInstanceRef(row) === id,
         );
-  if (!found) throw notFound(`AgentInstance ${namespace}/${id}`);
+  if (!found) throw notFound(`AgentInstance ${id}`);
   /*
    * Somebody else's conversation is not found, not forbidden.
    *
    * The controller resolves every single-instance read through
-   * `GetAgentInstanceForUser` — `WHERE namespace = $1 AND id = $2 AND user_id = $3`
+   * `GetAgentInstanceForUser` — `WHERE id = $1 AND user_id = $2`
    * — so an instance created by another user simply is not there as far as this
    * caller is concerned, and the A2A gateway reads through the same call. Every
    * lifecycle operation, the rename and the delete go through here, so all of them
@@ -762,7 +748,7 @@ function instanceFor(namespace: string, id: string, call: MockCall): AgentInstan
    * and the page could claim a link works when it does not.
    */
   if (found.creator !== MOCK_INSTANCE_CREATOR) {
-    throw notFound(`AgentInstance ${namespace}/${id}`);
+    throw notFound(`AgentInstance ${id}`);
   }
   return found;
 }
@@ -781,7 +767,6 @@ function instanceFor(namespace: string, id: string, call: MockCall): AgentInstan
  * record handed back is final, not a promise to look again later.
  */
 function lifecycle(
-  namespace: string,
   id: string,
   call: MockCall,
   from: AgentInstanceState,
@@ -789,7 +774,6 @@ function lifecycle(
   operation: AgentInstanceOperation,
 ): AgentInstance {
   const instance = instanceFor(
-    requireNamespace(namespace),
     requireInstanceId(id),
     call,
   );
@@ -819,7 +803,6 @@ function lifecycle(
 }
 
 on(AgentInstanceService.method.listAgentInstances, (input, call) => {
-  const namespace = requireNamespace(input.namespace);
   if (call.scenario === "empty") return { agentInstances: [], page: {} };
 
   const pageSize = input.page?.limit ? input.page.limit : INSTANCE_DEFAULT_PAGE_SIZE;
@@ -830,33 +813,19 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
     );
   }
 
-  /*
-   * The template and harness filters, refused where the controller refuses them.
-   *
-   * `validateOptionalName` requires a DNS-1123 subdomain for each when it is set,
-   * and a client that sent a qualified `namespace/name` ref would be rejected —
-   * which is easy to do by accident, since that is exactly the shape the instance
-   * *reports* its pair in.
-   */
-  const templateFilter = requireOptionalName("agent_template", input.agentTemplate);
-  const harnessFilter = requireOptionalName("harness", input.harness);
+  const templateFilter = input.agentTemplate ? `${requireNamespace(input.agentTemplate.namespace)}/${requireOptionalName("agent_template", input.agentTemplate.name)}` : "";
+  const harnessFilter = input.harness ? `${requireNamespace(input.harness.namespace)}/${requireOptionalName("harness", input.harness.name)}` : "";
 
   const matching = allAgentInstances().filter((row) => {
-    if (row.namespace !== namespace) return false;
     // Somebody else's instances are excluded unless asked for, which is what the
     // controller does with the authenticated user. Mock mode has nobody signed in,
     // so every caller is treated as one fixed person — see `MOCK_INSTANCE_CREATOR`.
     if (!input.allCreators && row.creator !== MOCK_INSTANCE_CREATOR) return false;
-    /*
-     * Matched on the bare name, because the controller resolves these through the
-     * instance's prepared revision rather than against the ref it reports. An
-     * instance with no pair matches no filter at all — the controller's own query
-     * left-joins the revision, so a NULL never satisfies an equality.
-     */
-    if (templateFilter && bareRefName(row.agentTemplate) !== templateFilter) {
+
+    if (templateFilter && row.agentTemplate !== templateFilter) {
       return false;
     }
-    if (harnessFilter && bareRefName(row.harness) !== harnessFilter) return false;
+    if (harnessFilter && row.harness !== harnessFilter) return false;
     return Object.entries(input.matchLabels ?? {}).every(
       ([key, value]) => row.labels[key] === value,
     );
@@ -879,7 +848,6 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
 on(AgentInstanceService.method.getAgentInstance, (input, call) => ({
   agentInstance: agentInstanceMessage(
     instanceFor(
-      requireNamespace(input.namespace),
       requireInstanceId(input.agentInstanceId),
       call,
     ),
@@ -888,33 +856,26 @@ on(AgentInstanceService.method.getAgentInstance, (input, call) => ({
 
 on(AgentInstanceService.method.suspendAgentInstance, (input, call) => ({
   agentInstance: agentInstanceMessage(
-    lifecycle(input.namespace, input.agentInstanceId, call, "ready", "suspended", "suspend"),
+    lifecycle(input.agentInstanceId, call, "ready", "suspended", "suspend"),
   ),
 }));
 
 on(AgentInstanceService.method.resumeAgentInstance, (input, call) => ({
   agentInstance: agentInstanceMessage(
-    lifecycle(input.namespace, input.agentInstanceId, call, "suspended", "ready", "resume"),
+    lifecycle(input.agentInstanceId, call, "suspended", "ready", "resume"),
   ),
 }));
 
 on(AgentInstanceService.method.createAgentInstance, (input, call) => {
-  const namespace = requireNamespace(input.namespace);
-  if (!input.harness.trim() || !input.agentTemplate.trim()) {
+  const namespace = requireNamespace(input.harness?.namespace ?? "");
+  if (namespace !== requireNamespace(input.agentTemplate?.namespace ?? "")) throw new ConnectError("Harness and AgentTemplate must be in the same namespace", Code.InvalidArgument);
+  if (!input.harness?.name.trim() || !input.agentTemplate?.name.trim()) {
     throw new ConnectError(
       "a harness and an agent template are both required",
       Code.InvalidArgument,
     );
   }
-  /*
-   * The controller's own rule, copied rather than approximated.
-   *
-   * `request_id` is required and this fixture used to accept its absence, so a build
-   * that never sent one passed every mock test and failed against a cluster with
-   * *"request_id must be 1-128 characters without surrounding whitespace"*. That is
-   * exactly the fixture-agrees-with-itself failure this codebase keeps having to
-   * undo, so the rule is enforced here in the same words.
-   */
+
   const requestId = input.requestId;
   if (
     requestId === "" ||
@@ -934,32 +895,22 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     // The controller's own refusal for a pair whose prepared revision is not ready,
     // which is the failure a reader is most likely to meet.
     throw new ConnectError(
-      `no ready prepared revision for ${input.harness}/${input.agentTemplate}`,
+      `no ready prepared revision for ${input.harness?.name}/${input.agentTemplate?.name}`,
       Code.FailedPrecondition,
     );
   }
 
-  /*
-   * A created instance is `READY` immediately here, where the controller takes a few
-   * seconds.
-   *
-   * That is a fixture being useful rather than a fixture lying: the interesting states
-   * are already reachable — `mockAgentInstances` carries a `creating` one and a
-   * `suspended` one — and making every create sit in `creating` would mean no
-   * fixture-backed test could ever reach a conversation.
-   */
   const created = {
     // A UUID, because the controller parses one: `validateIdentity` rejects
     // anything else, so a fixture id shaped differently would pass here and fail
     // against a cluster — which is this codebase's most expensive recurring bug.
     id: crypto.randomUUID(),
-    namespace,
     name,
     creator: MOCK_INSTANCE_CREATOR,
-    harness: `${namespace}/${input.harness}`,
-    agentTemplate: `${namespace}/${input.agentTemplate}`,
+    harness: `${namespace}/${input.harness?.name}`,
+    agentTemplate: `${namespace}/${input.agentTemplate?.name}`,
     preparedRevision: "rev-mock",
-    a2aAuthority: `${input.agentTemplate}.${namespace}.svc.cluster.local:8080`,
+    a2aAuthority: `${input.agentTemplate?.name}.${namespace}.svc.cluster.local:8080`,
     state: "ready" as const,
     operation: "unspecified" as const,
     createdAt: new Date().toISOString(),
@@ -970,20 +921,8 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
   return { agentInstance: agentInstanceMessage(created) };
 });
 
-/*
- * Retitling a conversation.
- *
- * Through `instanceFor`, so it inherits the creator scoping every other read has:
- * a conversation somebody else started cannot be renamed, and it is refused as
- * `NotFound` rather than as a permission error, because that is what a query
- * filtered on `user_id` produces.
- *
- * An empty name is accepted and clears the title. That is not laxity — it is the
- * controller's rule, and it is the only way a name can be taken away.
- */
 on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
   const instance = instanceFor(
-    requireNamespace(input.namespace),
     requireInstanceId(input.agentInstanceId),
     call,
   );
@@ -1002,7 +941,6 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
 
 on(AgentInstanceService.method.deleteAgentInstance, (input, call) => {
   const instance = instanceFor(
-    requireNamespace(input.namespace),
     requireInstanceId(input.agentInstanceId),
     call,
   );
@@ -1012,18 +950,8 @@ on(AgentInstanceService.method.deleteAgentInstance, (input, call) => {
   return { agentInstance: agentInstanceMessage(instance) };
 });
 
-/*
- * Share links over an instance.
- *
- * Tokens are handed out in full here and only their existence is remembered, which
- * is the opposite of the controller — it stores a digest and can never show a token
- * again. That difference is deliberate and bounded: this backend lives in one
- * browser tab, and a fixture that hashed its tokens could not then serve the link
- * the spec had just been handed.
- */
 on(AgentInstanceService.method.listAgentInstanceShares, (input, call) => {
   const instance = instanceFor(
-    requireNamespace(input.namespace),
     requireInstanceId(input.agentInstanceId),
     call,
   );
@@ -1037,12 +965,10 @@ on(AgentInstanceService.method.listAgentInstanceShares, (input, call) => {
 
 on(AgentInstanceService.method.createAgentInstanceShare, (input, call) => {
   const instance = instanceFor(
-    requireNamespace(input.namespace),
     requireInstanceId(input.agentInstanceId),
     call,
   );
   const { share, token } = createInstanceShare(
-    instance.namespace,
     instance.id,
     input.permission === PbSharePermission.READ_WRITE ? "readWrite" : "readOnly",
   );
@@ -1050,7 +976,6 @@ on(AgentInstanceService.method.createAgentInstanceShare, (input, call) => {
 });
 
 on(AgentInstanceService.method.revokeAgentInstanceShare, (input) => {
-  requireNamespace(input.namespace);
   if (!revokeInstanceShare(input.shareId)) {
     throw new ConnectError(`share ${input.shareId} not found`, Code.NotFound);
   }
@@ -1059,7 +984,6 @@ on(AgentInstanceService.method.revokeAgentInstanceShare, (input) => {
 
 const instanceShareMessage = (share: AgentInstanceShare) => ({
   id: share.id,
-  namespace: share.namespace,
   agentInstanceId: share.agentInstanceId,
   permission:
     share.permission === "readWrite"
@@ -1067,12 +991,6 @@ const instanceShareMessage = (share: AgentInstanceShare) => ({
       : PbSharePermission.READ_ONLY,
   createdAt: timestampFromDate(new Date(share.createdAt)),
 });
-
-/*
- * `CheckpointService` still has no fake, deliberately: nothing in the app calls it,
- * and an unregistered RPC answers `Unimplemented` naming itself. A fixture for a
- * feature nobody built is one that will be wrong by the time somebody does.
- */
 
 // ---------------------------------------------------------------------------
 // Harnesses and agent templates

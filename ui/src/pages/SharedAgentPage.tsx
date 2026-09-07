@@ -45,8 +45,7 @@ const { Text } = Typography;
  */
 export function SharedAgentPage() {
   const theme = useTheme();
-  const { namespace, id, token } = useParams<{
-    namespace: string;
+  const { id, token } = useParams<{
     id: string;
     token: string;
   }>();
@@ -54,18 +53,13 @@ export function SharedAgentPage() {
   // Before the read below, and that ordering is load-bearing: the chat client reads
   // the registered token when it builds a call, and registering after the first
   // request has gone means an unauthenticated read that looks like success.
-  useAgentInstanceShareToken(namespace, id, token);
+  useAgentInstanceShareToken(id, token);
 
   // Present, not truthy: `?reply` carries no value.
   const [searchParams] = useSearchParams();
   const mayReply = searchParams.has("reply");
 
-  const conversation = namespace && id ? { namespace, id } : undefined;
-
-
-
-
-
+  const conversation = id ? { id } : undefined;
 
   const chat = useChat(conversation);
 

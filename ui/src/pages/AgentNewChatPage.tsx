@@ -77,16 +77,15 @@ export function AgentNewChatPage() {
     setLastAttempt(text);
     try {
       const created = await apiClient.agentInstances.create({
-        namespace,
-        harness,
-        agentTemplate,
+        harness: { namespace, name: harness },
+        agentTemplate: { namespace, name: agentTemplate },
         requestId,
       });
       // Refreshed before leaving, so the rail on the page being navigated to already
       // lists this conversation rather than filling it in a moment later.
       await conversations.refresh();
       navigate(
-        buildPath(paths.agentChat, { namespace: created.namespace, id: created.id }),
+        buildPath(paths.agentChat, { id: created.id }),
         // The message the conversation was created *for*. Sent by the chat page on
         // arrival; see this file's note on why it is not sent here.
         { replace: true, state: { initialMessage: text } },
@@ -120,7 +119,7 @@ export function AgentNewChatPage() {
       >
         {namespace ? (
           <AgentRail
-            agentRef={{ namespace }}
+            agentRef={{}}
             agentTitle={{
               primary: agentTemplate ?? namespace,
               secondary: harness ? `on ${harness}` : namespace,

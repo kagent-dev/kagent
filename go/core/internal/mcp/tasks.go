@@ -20,7 +20,6 @@ import (
 const tasksExtension = "io.modelcontextprotocol/tasks"
 
 type taskReference struct {
-	Namespace  string `json:"namespace"`
 	InstanceID string `json:"instanceId"`
 	TaskID     string `json:"taskId"`
 }
@@ -101,8 +100,8 @@ func (h *Handler) taskAwareToolCall(next mcp.MethodHandler) mcp.MethodHandler {
 			return toolError(err), nil
 		}
 		taskRef := taskReference{
-			Namespace: input.Namespace, InstanceID: input.AgentInstanceID,
-			TaskID: string(task.ID),
+			InstanceID: input.AgentInstanceID,
+			TaskID:     string(task.ID),
 		}
 		ref, err := encodeTaskReference(taskRef)
 		if err != nil {
@@ -183,7 +182,7 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	events := h.gateway.SendStreamingMessage(
-		context.WithoutCancel(routeContext(ctx, ref.Namespace, ref.InstanceID)),
+		context.WithoutCancel(routeContext(ctx, ref.InstanceID)),
 		&a2atype.SendMessageRequest{Message: message},
 	)
 	go drain(events)
@@ -202,7 +201,7 @@ func (h *Handler) cancelTask(ctx context.Context, _ *mcp.ServerSession, params *
 		return nil, invalidParams(err)
 	}
 	if _, err := h.gateway.CancelTask(
-		routeContext(ctx, ref.Namespace, ref.InstanceID),
+		routeContext(ctx, ref.InstanceID),
 		&a2atype.CancelTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
 	); err != nil {
 		if errors.Is(err, a2atype.ErrTaskNotFound) {
@@ -219,7 +218,7 @@ func (h *Handler) resolveTask(ctx context.Context, id string) (taskReference, *a
 		return taskReference{}, nil, invalidParams(err)
 	}
 	task, err := h.gateway.GetTask(
-		routeContext(ctx, ref.Namespace, ref.InstanceID),
+		routeContext(ctx, ref.InstanceID),
 		&a2atype.GetTaskRequest{ID: a2atype.TaskID(ref.TaskID)},
 	)
 	if errors.Is(err, a2atype.ErrTaskNotFound) {
@@ -263,9 +262,6 @@ func decodeTaskReference(value string) (taskReference, error) {
 }
 
 func validateTaskReference(ref taskReference) error {
-	if ref.Namespace == "" {
-		return fmt.Errorf("namespace is required")
-	}
 	if _, err := uuid.Parse(ref.InstanceID); err != nil {
 		return fmt.Errorf("invalid AgentInstance ID: %w", err)
 	}
@@ -294,7 +290,7 @@ func detailedTask(id string, ref taskReference, task *a2atype.Task) *getTaskResu
 	case a2atype.TaskStateInputRequired:
 		result.InputRequests = inputRequests(task)
 	case a2atype.TaskStateCompleted, a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateAuthRequired:
-		callResult, output := invocationResult(InvokeAgentInstanceInput{Namespace: ref.Namespace, AgentInstanceID: ref.InstanceID}, task)
+		callResult, output := invocationResult(InvokeAgentInstanceInput{AgentInstanceID: ref.InstanceID}, task)
 		callResult.StructuredContent = output
 		result.Result = callResult
 	}

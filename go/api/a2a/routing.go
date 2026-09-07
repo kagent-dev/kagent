@@ -2,8 +2,6 @@
 package a2a
 
 const (
-	// AgentInstanceNamespaceHeader selects the namespace scope for the AgentInstance.
-	AgentInstanceNamespaceHeader = "x-kagent-agent-instance-namespace"
-	// AgentInstanceIDHeader selects the AgentInstance within that namespace scope.
+	// AgentInstanceIDHeader selects the AgentInstance by UUID.
 	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
 )

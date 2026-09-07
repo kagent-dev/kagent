@@ -310,7 +310,7 @@ const INSTANCE_SHARES_KEY = "kagent.mock.instanceShares";
  */
 export const SEEDED_INSTANCE_SHARE: AgentInstanceShare = {
   id: "mock-instance-share-seed",
-  namespace: "kagent",
+
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   permission: "readOnly",
   createdAt: "2026-08-01T09:00:00Z",
@@ -359,14 +359,12 @@ function readTokens(): Record<string, string> {
 }
 
 export function createInstanceShare(
-  namespace: string,
   agentInstanceId: string,
   permission: AgentInstanceSharePermission,
 ): { share: AgentInstanceShare; token: string } {
   const existing = readInstanceShares();
   const share: AgentInstanceShare = {
     id: `mock-share-${existing.length + 1}`,
-    namespace,
     agentInstanceId,
     permission,
     createdAt: new Date().toISOString(),
@@ -403,13 +401,8 @@ export function revokeInstanceShare(shareId: string): boolean {
 // Agent instances
 // ---------------------------------------------------------------------------
 
-/**
- * How an instance is addressed, and it is not a resource ref.
- *
- * `namespace/id` because that is the pair `AgentInstanceService` takes on every
- * call — an instance has no name, and the id is a UUID scoped to its namespace.
- */
-export const agentInstanceRef = (row: AgentInstance) => `${row.namespace}/${row.id}`;
+/** The UUID used to address a conversation. */
+export const agentInstanceRef = (row: AgentInstance) => row.id;
 
 /**
  * Every instance, with anything suspend or resume has done to it folded in.

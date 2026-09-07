@@ -251,7 +251,7 @@ test("agents: somebody else's conversation is listed, and plainly cannot be open
   await test.step("6. and opening one directly says so in the same terms", async () => {
     // The claim above is only worth making if it is what the backend actually does.
     // This is the same conversation, addressed directly.
-    await loadPage(page, `/agents/kagent/${instances.someoneElses}`, { scenario: "ok" });
+    await loadPage(page, `/agents/${instances.someoneElses}`, { scenario: "ok" });
     const missing = page.getByTestId("instance-not-found");
     await expect(missing).toBeVisible();
     await expect(missing).toContainText("not found");
@@ -288,7 +288,7 @@ test("agents: an agent links to its template, and a conversation links up to its
 
   await test.step("2. a conversation opens its chat", async () => {
     await page.getByTestId(`conversation-link-${instances.ready}`).click();
-    await expect(page).toHaveURL(new RegExp(`/agents/kagent/${instances.ready}/chat$`));
+    await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
     // Arrived somewhere a message can be typed, which is what opening a conversation
     // is for. A route that resolved but rendered no composer would pass a URL check.
     await expect(page.getByTestId("chat-input")).toBeEditable();
@@ -302,7 +302,7 @@ test("agents: an agent links to its template, and a conversation links up to its
   });
 
   await test.step("4. the conversation's own record links up too", async () => {
-    await loadPage(page, `/agents/kagent/${instances.ready}`, { scenario: "ok" });
+    await loadPage(page, `/agents/${instances.ready}`, { scenario: "ok" });
     await expectSettled(page);
 
     await expect(page.getByTestId("instance-agent-link")).toHaveAttribute(

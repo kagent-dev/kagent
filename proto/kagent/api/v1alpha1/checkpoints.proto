@@ -27,7 +27,8 @@ enum CheckpointState {
 
 message Checkpoint {
   string id = 1;
-  string namespace = 2;
+  reserved 2;
+  reserved "namespace";
   string agent_instance_id = 3;
   string head_task_id = 4;
   uint64 history_sequence = 5;
@@ -37,7 +38,8 @@ message Checkpoint {
 }
 
 message CreateCheckpointRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  reserved 1;
+  reserved "namespace";
   string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
   string request_id = 3 [(buf.validate.field).string = {
     min_len: 1
@@ -50,7 +52,8 @@ message CreateCheckpointResponse {
 }
 
 message GetCheckpointRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  reserved 1;
+  reserved "namespace";
   string checkpoint_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
@@ -59,7 +62,8 @@ message GetCheckpointResponse {
 }
 
 message ListCheckpointsRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  reserved 1;
+  reserved "namespace";
   string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
   PageRequest page = 3;
 }
@@ -70,14 +74,16 @@ message ListCheckpointsResponse {
 }
 
 message DeleteCheckpointRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  reserved 1;
+  reserved "namespace";
   string checkpoint_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message DeleteCheckpointResponse {}
 
 message ForkAgentInstanceRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  reserved 1;
+  reserved "namespace";
   string checkpoint_id = 2 [(buf.validate.field).string.min_len = 1];
   string request_id = 3 [(buf.validate.field).string = {
     min_len: 1

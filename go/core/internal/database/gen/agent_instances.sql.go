@@ -13,15 +13,12 @@ import (
 )
 
 const createAgentInstanceShare = `-- name: CreateAgentInstanceShare :one
-INSERT INTO agent_instance_share (
-    id, namespace, instance_id, permission, token_hash
-) VALUES ($1, $2, $3, $4, $5)
-RETURNING id, namespace, instance_id, permission, token_hash, created_at
+INSERT INTO agent_instance_share (id, instance_id, permission, token_hash) VALUES ($1, $2, $3, $4)
+RETURNING id, instance_id, permission, token_hash, created_at
 `
 
 type CreateAgentInstanceShareParams struct {
 	ID         uuid.UUID
-	Namespace  string
 	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
@@ -30,7 +27,6 @@ type CreateAgentInstanceShareParams struct {
 func (q *Queries) CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error) {
 	row := q.db.QueryRow(ctx, createAgentInstanceShare,
 		arg.ID,
-		arg.Namespace,
 		arg.InstanceID,
 		arg.Permission,
 		arg.TokenHash,
@@ -38,7 +34,6 @@ func (q *Queries) CreateAgentInstanceShare(ctx context.Context, arg CreateAgentI
 	var i AgentInstanceShare
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.InstanceID,
 		&i.Permission,
 		&i.TokenHash,
@@ -59,18 +54,17 @@ func (q *Queries) DeleteAgentInstance(ctx context.Context, id uuid.UUID) error {
 const deleteAgentInstanceShare = `-- name: DeleteAgentInstanceShare :execrows
 DELETE FROM agent_instance_share s
 USING agent_instance i
-WHERE s.namespace = $1 AND s.id = $2
-  AND i.id = s.instance_id AND i.user_id = $3
+WHERE s.id = $1
+  AND i.id = s.instance_id AND i.user_id = $2
 `
 
 type DeleteAgentInstanceShareParams struct {
-	Namespace string
-	ID        uuid.UUID
-	UserID    string
+	ID     uuid.UUID
+	UserID string
 }
 
 func (q *Queries) DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteAgentInstanceShare, arg.Namespace, arg.ID, arg.UserID)
+	result, err := q.db.Exec(ctx, deleteAgentInstanceShare, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -78,7 +72,7 @@ func (q *Queries) DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentI
 }
 
 const getAgentInstanceByID = `-- name: GetAgentInstanceByID :one
-SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance WHERE id = $1
+SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance WHERE id = $1
 `
 
 func (q *Queries) GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
@@ -86,7 +80,6 @@ func (q *Queries) GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (Agent
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -102,22 +95,20 @@ func (q *Queries) GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (Agent
 }
 
 const getAgentInstanceByRequest = `-- name: GetAgentInstanceByRequest :one
-SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance
-WHERE user_id = $1 AND namespace = $2 AND request_id = $3
+SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance
+WHERE user_id = $1 AND request_id = $2
 `
 
 type GetAgentInstanceByRequestParams struct {
 	UserID    string
-	Namespace string
 	RequestID string
 }
 
 func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceByRequest, arg.UserID, arg.Namespace, arg.RequestID)
+	row := q.db.QueryRow(ctx, getAgentInstanceByRequest, arg.UserID, arg.RequestID)
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -133,21 +124,19 @@ func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentIns
 }
 
 const getAgentInstanceForUser = `-- name: GetAgentInstanceForUser :one
-SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3
+SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance WHERE id = $1 AND user_id = $2
 `
 
 type GetAgentInstanceForUserParams struct {
-	Namespace string
-	ID        uuid.UUID
-	UserID    string
+	ID     uuid.UUID
+	UserID string
 }
 
 func (q *Queries) GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceForUser, arg.Namespace, arg.ID, arg.UserID)
+	row := q.db.QueryRow(ctx, getAgentInstanceForUser, arg.ID, arg.UserID)
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -163,7 +152,7 @@ func (q *Queries) GetAgentInstanceForUser(ctx context.Context, arg GetAgentInsta
 }
 
 const getAgentInstanceShareByTokenHash = `-- name: GetAgentInstanceShareByTokenHash :one
-SELECT s.id, s.namespace, s.instance_id, s.permission, s.token_hash, s.created_at, i.user_id AS owner_user_id
+SELECT s.id, s.instance_id, s.permission, s.token_hash, s.created_at, i.user_id AS owner_user_id
 FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.token_hash = $1
@@ -171,7 +160,6 @@ WHERE s.token_hash = $1
 
 type GetAgentInstanceShareByTokenHashRow struct {
 	ID          uuid.UUID
-	Namespace   string
 	InstanceID  uuid.UUID
 	Permission  string
 	TokenHash   []byte
@@ -190,7 +178,6 @@ func (q *Queries) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHas
 	var i GetAgentInstanceShareByTokenHashRow
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.InstanceID,
 		&i.Permission,
 		&i.TokenHash,
@@ -205,15 +192,17 @@ SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.h
 FROM agent_template_harness_pair p
 JOIN runtime_revision r ON r.revision = p.latest_successful_revision
 WHERE p.namespace = $1
-  AND p.agent_template_name = $2
-  AND p.harness_name = $3
+  AND p.namespace = $2
+  AND p.agent_template_name = $3
+  AND p.harness_name = $4
   AND p.retired_at IS NULL
 `
 
 type GetLatestRuntimeRevisionForInstanceParams struct {
-	Namespace         string
-	AgentTemplateName string
-	HarnessName       string
+	HarnessNamespace       string
+	AgentTemplateNamespace string
+	AgentTemplateName      string
+	HarnessName            string
 }
 
 type GetLatestRuntimeRevisionForInstanceRow struct {
@@ -235,7 +224,12 @@ type GetLatestRuntimeRevisionForInstanceRow struct {
 }
 
 func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error) {
-	row := q.db.QueryRow(ctx, getLatestRuntimeRevisionForInstance, arg.Namespace, arg.AgentTemplateName, arg.HarnessName)
+	row := q.db.QueryRow(ctx, getLatestRuntimeRevisionForInstance,
+		arg.HarnessNamespace,
+		arg.AgentTemplateNamespace,
+		arg.AgentTemplateName,
+		arg.HarnessName,
+	)
 	var i GetLatestRuntimeRevisionForInstanceRow
 	err := row.Scan(
 		&i.Revision,
@@ -258,32 +252,27 @@ func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg G
 }
 
 const insertA2AContext = `-- name: InsertA2AContext :exec
-INSERT INTO a2a_context (id, namespace, user_id)
-VALUES ($1, $2, $3)
+INSERT INTO a2a_context (id, user_id) VALUES ($1, $2)
 `
 
 type InsertA2AContextParams struct {
-	ID        uuid.UUID
-	Namespace string
-	UserID    string
+	ID     uuid.UUID
+	UserID string
 }
 
 func (q *Queries) InsertA2AContext(ctx context.Context, arg InsertA2AContextParams) error {
-	_, err := q.db.Exec(ctx, insertA2AContext, arg.ID, arg.Namespace, arg.UserID)
+	_, err := q.db.Exec(ctx, insertA2AContext, arg.ID, arg.UserID)
 	return err
 }
 
 const insertAgentInstance = `-- name: InsertAgentInstance :one
-INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, context_id, prepared_revision, state, operation, labels, name, data
-) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8, $9)
-ON CONFLICT (user_id, namespace, request_id) DO NOTHING
-RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
+INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, state, operation, labels, name, data) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7, $8)
+ON CONFLICT (user_id, request_id) DO NOTHING
+RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
 `
 
 type InsertAgentInstanceParams struct {
 	ID               uuid.UUID
-	Namespace        string
 	UserID           string
 	RequestID        string
 	ContextID        uuid.UUID
@@ -296,7 +285,6 @@ type InsertAgentInstanceParams struct {
 func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error) {
 	row := q.db.QueryRow(ctx, insertAgentInstance,
 		arg.ID,
-		arg.Namespace,
 		arg.UserID,
 		arg.RequestID,
 		arg.ContextID,
@@ -308,7 +296,6 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -324,17 +311,13 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 }
 
 const insertForkedAgentInstance = `-- name: InsertForkedAgentInstance :one
-INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, context_id, prepared_revision, source_checkpoint_id,
-    state, operation, labels, data
-) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
-ON CONFLICT (user_id, namespace, request_id) DO NOTHING
-RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
+INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
+ON CONFLICT (user_id, request_id) DO NOTHING
+RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
 `
 
 type InsertForkedAgentInstanceParams struct {
 	ID                 uuid.UUID
-	Namespace          string
 	UserID             string
 	RequestID          string
 	ContextID          uuid.UUID
@@ -347,7 +330,6 @@ type InsertForkedAgentInstanceParams struct {
 func (q *Queries) InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error) {
 	row := q.db.QueryRow(ctx, insertForkedAgentInstance,
 		arg.ID,
-		arg.Namespace,
 		arg.UserID,
 		arg.RequestID,
 		arg.ContextID,
@@ -359,7 +341,6 @@ func (q *Queries) InsertForkedAgentInstance(ctx context.Context, arg InsertForke
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -375,16 +356,15 @@ func (q *Queries) InsertForkedAgentInstance(ctx context.Context, arg InsertForke
 }
 
 const listAgentInstanceShares = `-- name: ListAgentInstanceShares :many
-SELECT s.id, s.namespace, s.instance_id, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
+SELECT s.id, s.instance_id, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
-WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
-  AND (NULLIF($4::text, '') IS NULL OR s.id > NULLIF($4::text, '')::uuid)
+WHERE s.instance_id = $1 AND i.user_id = $2
+  AND (NULLIF($3::text, '') IS NULL OR s.id > NULLIF($3::text, '')::uuid)
 ORDER BY s.id
-LIMIT $5
+LIMIT $4
 `
 
 type ListAgentInstanceSharesParams struct {
-	Namespace  string
 	InstanceID uuid.UUID
 	UserID     string
 	AfterID    string
@@ -393,7 +373,6 @@ type ListAgentInstanceSharesParams struct {
 
 func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error) {
 	rows, err := q.db.Query(ctx, listAgentInstanceShares,
-		arg.Namespace,
 		arg.InstanceID,
 		arg.UserID,
 		arg.AfterID,
@@ -408,7 +387,6 @@ func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInst
 		var i AgentInstanceShare
 		if err := rows.Scan(
 			&i.ID,
-			&i.Namespace,
 			&i.InstanceID,
 			&i.Permission,
 			&i.TokenHash,
@@ -425,27 +403,27 @@ func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInst
 }
 
 const listAgentInstances = `-- name: ListAgentInstances :many
-SELECT i.id, i.namespace, i.user_id, i.request_id, i.prepared_revision, i.state, i.labels, i.data, i.operation, i.context_id, i.source_checkpoint_id, i.name FROM agent_instance i
+SELECT i.id, i.user_id, i.request_id, i.prepared_revision, i.state, i.labels, i.data, i.operation, i.context_id, i.source_checkpoint_id, i.name FROM agent_instance i
 LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
-WHERE i.namespace = $1
-  AND ($2::boolean OR i.user_id = $3)
-  AND (NULLIF($4::text, '') IS NULL OR i.id > NULLIF($4::text, '')::uuid)
-  AND i.labels @> $5::jsonb
-  AND ($6::text = '' OR r.agent_template_name = $6)
-  AND ($7::text = '' OR r.harness_name = $7)
+WHERE ($1::boolean OR i.user_id = $2)
+  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
+  AND i.labels @> $4::jsonb
+  AND ($5::text = '' OR (r.agent_template_name = $5 AND r.namespace = $6))
+  AND ($7::text = '' OR (r.harness_name = $7 AND r.namespace = $8))
 ORDER BY i.id
-LIMIT $8
+LIMIT $9
 `
 
 type ListAgentInstancesParams struct {
-	Namespace     string
-	AllUsers      bool
-	UserID        string
-	AfterID       string
-	MatchLabels   []byte
-	AgentTemplate string
-	Harness       string
-	PageSize      int32
+	AllUsers               bool
+	UserID                 string
+	AfterID                string
+	MatchLabels            []byte
+	AgentTemplate          string
+	AgentTemplateNamespace string
+	Harness                string
+	HarnessNamespace       string
+	PageSize               int32
 }
 
 // Lists the conversations an instance is, optionally narrowed to one agent.
@@ -458,13 +436,14 @@ type ListAgentInstancesParams struct {
 // therefore matches no template or harness filter.
 func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error) {
 	rows, err := q.db.Query(ctx, listAgentInstances,
-		arg.Namespace,
 		arg.AllUsers,
 		arg.UserID,
 		arg.AfterID,
 		arg.MatchLabels,
 		arg.AgentTemplate,
+		arg.AgentTemplateNamespace,
 		arg.Harness,
+		arg.HarnessNamespace,
 		arg.PageSize,
 	)
 	if err != nil {
@@ -476,7 +455,6 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 		var i AgentInstance
 		if err := rows.Scan(
 			&i.ID,
-			&i.Namespace,
 			&i.UserID,
 			&i.RequestID,
 			&i.PreparedRevision,
@@ -499,7 +477,7 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 }
 
 const lockAgentInstance = `-- name: LockAgentInstance :one
-SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance WHERE id = $1 FOR UPDATE
+SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name FROM agent_instance WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
@@ -507,7 +485,6 @@ func (q *Queries) LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentIns
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -526,7 +503,7 @@ const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one
 UPDATE agent_instance
 SET state = 'READY', operation = 'NONE', data = $2
 WHERE id = $1 AND state = 'CREATING' AND operation = 'CREATE'
-RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
+RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
 `
 
 type MarkAgentInstanceReadyParams struct {
@@ -539,7 +516,6 @@ func (q *Queries) MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInsta
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -567,7 +543,7 @@ WHERE agent_instance.id = $4
       WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
     )
   )
-RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
+RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
 `
 
 type TransitionAgentInstanceParams struct {
@@ -591,7 +567,6 @@ func (q *Queries) TransitionAgentInstance(ctx context.Context, arg TransitionAge
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
@@ -609,15 +584,14 @@ func (q *Queries) TransitionAgentInstance(ctx context.Context, arg TransitionAge
 const updateAgentInstanceName = `-- name: UpdateAgentInstanceName :one
 UPDATE agent_instance
 SET name = $1
-WHERE namespace = $2 AND id = $3 AND user_id = $4
-RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
+WHERE id = $2 AND user_id = $3
+RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, name
 `
 
 type UpdateAgentInstanceNameParams struct {
-	Name      string
-	Namespace string
-	ID        uuid.UUID
-	UserID    string
+	Name   string
+	ID     uuid.UUID
+	UserID string
 }
 
 // Renames an instance in place. The row's `data` blob also carries the message,
@@ -625,16 +599,10 @@ type UpdateAgentInstanceNameParams struct {
 // `state` and `operation`, so the column is the single authority and the two
 // cannot drift.
 func (q *Queries) UpdateAgentInstanceName(ctx context.Context, arg UpdateAgentInstanceNameParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, updateAgentInstanceName,
-		arg.Name,
-		arg.Namespace,
-		arg.ID,
-		arg.UserID,
-	)
+	row := q.db.QueryRow(ctx, updateAgentInstanceName, arg.Name, arg.ID, arg.UserID)
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,

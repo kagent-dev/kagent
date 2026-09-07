@@ -209,12 +209,12 @@ func marshalAgentInstance(instance *apiv1alpha1.AgentInstance) ([]byte, error) {
 }
 
 func sameAgentInstanceRequest(instance, request *apiv1alpha1.AgentInstance) bool {
-	return instance.GetHarness().GetName() == request.GetHarness().GetName() && instance.GetAgentTemplate().GetName() == request.GetAgentTemplate().GetName()
+	return proto.Equal(instance.GetHarness(), request.GetHarness()) && proto.Equal(instance.GetAgentTemplate(), request.GetAgentTemplate())
 }
 
 func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	requestKey := dbgen.GetAgentInstanceByRequestParams{
-		UserID: request.GetCreator(), Namespace: request.GetNamespace(), RequestID: requestID,
+		UserID: request.GetCreator(), RequestID: requestID,
 	}
 	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
 	if err == nil {
@@ -229,7 +229,7 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	}
 
 	revision, err := c.q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
-		Namespace: request.GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
+		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
@@ -255,12 +255,12 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
-			ID: instanceID, Namespace: request.GetNamespace(), UserID: request.GetCreator(),
+			ID: instanceID, UserID: request.GetCreator(),
 		}); err != nil {
 			return fmt.Errorf("insert A2A context: %w", err)
 		}
 		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
-			ID: instanceID, Namespace: request.GetNamespace(), UserID: request.GetCreator(), RequestID: requestID,
+			ID: instanceID, UserID: request.GetCreator(), RequestID: requestID,
 			ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
 			Name: request.GetName(), Data: data,
 		})
@@ -284,9 +284,9 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	return instance, err == nil, err
 }
 
-func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
+func (c *postgresClient) ForkAgentInstance(ctx context.Context, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	checkpointUUID := uuid.MustParse(checkpointID)
-	requestKey := dbgen.GetAgentInstanceByRequestParams{UserID: userID, Namespace: namespace, RequestID: requestID}
+	requestKey := dbgen.GetAgentInstanceByRequestParams{UserID: userID, RequestID: requestID}
 	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
 	if err == nil {
 		if existing.SourceCheckpointID == nil || *existing.SourceCheckpointID != checkpointUUID {
@@ -303,7 +303,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		checkpoint, err := q.LockReadyAgentInstanceCheckpoint(ctx, dbgen.LockReadyAgentInstanceCheckpointParams{
-			Namespace: namespace, ID: checkpointUUID, UserID: userID,
+			ID: checkpointUUID, UserID: userID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return dbpkg.ErrNotFound
@@ -325,7 +325,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		}
 		now := timestamppb.Now()
 		instance := &apiv1alpha1.AgentInstance{
-			Id: instanceID, Namespace: namespace, Creator: userID,
+			Id: instanceID, Creator: userID,
 			Harness:          &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.HarnessName},
 			AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentTemplateName},
 			PreparedRevision: *checkpoint.PreparedRevision,
@@ -341,11 +341,11 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		if err != nil {
 			return fmt.Errorf("encode fork labels: %w", err)
 		}
-		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: instanceUUID, Namespace: namespace, UserID: userID}); err != nil {
+		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: instanceUUID, UserID: userID}); err != nil {
 			return fmt.Errorf("insert fork A2A context: %w", err)
 		}
 		row, err = q.InsertForkedAgentInstance(ctx, dbgen.InsertForkedAgentInstanceParams{
-			ID: instanceUUID, Namespace: namespace, UserID: userID, RequestID: requestID,
+			ID: instanceUUID, UserID: userID, RequestID: requestID,
 			ContextID: instanceUUID, PreparedRevision: checkpoint.PreparedRevision,
 			SourceCheckpointID: &checkpoint.ID, Labels: encodedLabels, Data: data,
 		})
@@ -520,10 +520,10 @@ func reidentifyForkEvent(event a2a.Event, sourceTaskID, contextID string, ids *f
 	}
 }
 
-func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
-	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *postgresClient) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
 	}
 	return toAgentInstance(row)
 }
@@ -538,9 +538,9 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.Age
 		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
 	}
 	rows, err := c.q.ListAgentInstances(ctx, dbgen.ListAgentInstancesParams{
-		Namespace: query.Namespace, UserID: query.UserID, AllUsers: query.AllUsers,
+		UserID: query.UserID, AllUsers: query.AllUsers,
 		AfterID: query.AfterID, MatchLabels: labels,
-		AgentTemplate: query.AgentTemplate, Harness: query.Harness,
+		AgentTemplate: query.AgentTemplate.GetName(), AgentTemplateNamespace: query.AgentTemplate.GetNamespace(), Harness: query.Harness.GetName(), HarnessNamespace: query.Harness.GetNamespace(),
 		PageSize: int32(query.Limit),
 	})
 	if err != nil {
@@ -559,12 +559,12 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.Age
 
 // UpdateAgentInstanceName writes only the name column, scoped to the instance's
 // owner so a rename cannot reach another reader's conversation.
-func (c *postgresClient) UpdateAgentInstanceName(ctx context.Context, namespace, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+func (c *postgresClient) UpdateAgentInstanceName(ctx context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
 	row, err := c.q.UpdateAgentInstanceName(ctx, dbgen.UpdateAgentInstanceNameParams{
-		Namespace: namespace, ID: uuid.MustParse(id), UserID: userID, Name: name,
+		ID: uuid.MustParse(id), UserID: userID, Name: name,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("rename AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+		return nil, fmt.Errorf("rename AgentInstance %s: %w", id, notFoundOr(err))
 	}
 	return toAgentInstance(row)
 }
@@ -653,14 +653,14 @@ func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) err
 
 func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
 	return dbpkg.AgentInstanceShare{
-		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
+		ID: row.ID, InstanceID: row.InstanceID,
 		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 	}
 }
 
 func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
-		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
+		ID: share.ID, InstanceID: share.InstanceID,
 		Permission: share.Permission, TokenHash: share.TokenHash,
 	})
 	if err != nil {
@@ -680,15 +680,15 @@ func (c *postgresClient) GetAgentInstanceShareByTokenHash(ctx context.Context, t
 		return nil, fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
 	}
 	return &dbpkg.AgentInstanceShare{
-		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
+		ID: row.ID, InstanceID: row.InstanceID,
 		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 		OwnerUserID: row.OwnerUserID,
 	}, nil
 }
 
-func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
-		Namespace: namespace, InstanceID: uuid.MustParse(instanceID), UserID: userID,
+		InstanceID: uuid.MustParse(instanceID), UserID: userID,
 		AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
@@ -701,10 +701,10 @@ func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace,
 	return result, nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, userID string) error {
-	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, id, userID string) error {
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
-		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
+		return fmt.Errorf("delete AgentInstance share %s: %w", id, err)
 	}
 	if count == 0 {
 		return dbpkg.ErrNotFound
@@ -969,7 +969,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 	var result *dbpkg.AgentInstanceCheckpoint
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		existing, err := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
-			UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+			UserID: checkpoint.UserID, RequestID: checkpoint.RequestID,
 		})
 		if err == nil {
 			if existing.SourceInstanceID != checkpoint.SourceInstanceID {
@@ -983,7 +983,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 		}
 
 		instance, err := q.LockAgentInstance(ctx, checkpoint.SourceInstanceID)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.Namespace != checkpoint.Namespace || instance.UserID != checkpoint.UserID)) {
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.UserID != checkpoint.UserID)) {
 			return dbpkg.ErrNotFound
 		}
 		if err != nil {
@@ -1005,7 +1005,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 		}
 
 		row, err := q.InsertAgentInstanceCheckpoint(ctx, dbgen.InsertAgentInstanceCheckpointParams{
-			ID: checkpoint.ID, Namespace: checkpoint.Namespace, SourceInstanceID: checkpoint.SourceInstanceID,
+			ID: checkpoint.ID, SourceInstanceID: checkpoint.SourceInstanceID,
 			UserID: checkpoint.UserID, RequestID: checkpoint.RequestID, HeadTaskID: boundary.ID,
 			HistorySequence: *boundary.HistorySequence, SnapshotAtespace: *boundary.SnapshotAtespace,
 			SnapshotName: *boundary.SnapshotName, SnapshotUid: *boundary.SnapshotUid,
@@ -1015,7 +1015,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, existingErr := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
-				UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+				UserID: checkpoint.UserID, RequestID: checkpoint.RequestID,
 			})
 			if existingErr == nil {
 				if existing.SourceInstanceID != checkpoint.SourceInstanceID {
@@ -1054,17 +1054,17 @@ func (c *postgresClient) FinalizeAgentInstanceCheckpoint(ctx context.Context, id
 	return toAgentInstanceCheckpoint(row), nil
 }
 
-func (c *postgresClient) GetAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *postgresClient) GetAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance checkpoint: %w", notFoundOr(err))
 	}
 	return toAgentInstanceCheckpoint(row), nil
 }
 
-func (c *postgresClient) ListAgentInstanceCheckpoints(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceCheckpoint, error) {
+func (c *postgresClient) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceCheckpoint, error) {
 	rows, err := c.q.ListAgentInstanceCheckpoints(ctx, dbgen.ListAgentInstanceCheckpointsParams{
-		Namespace: namespace, SourceInstanceID: uuid.MustParse(instanceID), UserID: userID, AfterID: afterID, PageSize: int32(limit),
+		SourceInstanceID: uuid.MustParse(instanceID), UserID: userID, AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance checkpoints: %w", err)
@@ -1076,9 +1076,9 @@ func (c *postgresClient) ListAgentInstanceCheckpoints(ctx context.Context, names
 	return result, nil
 }
 
-func (c *postgresClient) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
+func (c *postgresClient) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
 	row, err := c.q.BeginDeleteAgentInstanceCheckpoint(ctx, dbgen.BeginDeleteAgentInstanceCheckpointParams{
-		Namespace: namespace, ID: uuid.MustParse(id), UserID: userID,
+		ID: uuid.MustParse(id), UserID: userID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("begin delete AgentInstance checkpoint: %w", notFoundOr(err))
@@ -1086,8 +1086,8 @@ func (c *postgresClient) BeginDeleteAgentInstanceCheckpoint(ctx context.Context,
 	return toAgentInstanceCheckpoint(row), nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) error {
-	_, err := c.q.DeleteAgentInstanceCheckpoint(ctx, dbgen.DeleteAgentInstanceCheckpointParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *postgresClient) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) error {
+	_, err := c.q.DeleteAgentInstanceCheckpoint(ctx, dbgen.DeleteAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance checkpoint: %w", err)
 	}
@@ -1483,7 +1483,7 @@ func toToolServer(r dbgen.Toolserver) *dbpkg.ToolServer {
 
 func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentInstanceCheckpoint {
 	return &dbpkg.AgentInstanceCheckpoint{
-		ID: row.ID, Namespace: row.Namespace, SourceInstanceID: row.SourceInstanceID,
+		ID: row.ID, SourceInstanceID: row.SourceInstanceID,
 		SourceContextID: row.SourceContextID, UserID: row.UserID,
 		RequestID: row.RequestID, HeadTaskID: row.HeadTaskID, HistorySequence: row.HistorySequence,
 		SnapshotAtespace: row.SnapshotAtespace, SnapshotName: row.SnapshotName, SnapshotUID: row.SnapshotUid,

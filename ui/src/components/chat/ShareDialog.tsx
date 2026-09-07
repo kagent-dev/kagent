@@ -54,12 +54,11 @@ const { Text } = Typography;
  * its owner — and the toggle that granted it would do nothing they could see.
  */
 function shareLink(
-  namespace: string,
   id: string,
   token: string,
   allowWrites: boolean,
 ): string {
-  const path = buildPath(paths.sharedAgent, { namespace, id, token });
+  const path = buildPath(paths.sharedAgent, { id, token });
   return `${window.location.origin}${path}${allowWrites ? "?reply" : ""}`;
 }
 
@@ -69,7 +68,7 @@ export function ShareDialog({
   onClose,
 }: {
   /** The conversation being shared, which is an `AgentInstance`. */
-  conversation: { namespace: string; id: string };
+    conversation: { id: string };
   open: boolean;
   onClose: () => void;
 }) {
@@ -106,7 +105,7 @@ export function ShareDialog({
     let active = true;
 
     apiClient.agentInstances.shares
-      .list(conversation.namespace, conversation.id)
+      .list(conversation.id)
       .then((next) => {
         if (!active) return;
         setShares(next);
@@ -125,19 +124,19 @@ export function ShareDialog({
     return () => {
       active = false;
     };
-  }, [open, conversation.namespace, conversation.id, reloadToken]);
+  }, [open, conversation.id, reloadToken]);
 
   async function create() {
     setCreating(true);
     setError(undefined);
     try {
       const created = await apiClient.agentInstances.shares.create(
-        conversation.namespace,
+
         conversation.id,
         allowWrites ? "readWrite" : "readOnly",
       );
       setFreshLink(
-        shareLink(conversation.namespace, conversation.id, created.token, allowWrites),
+        shareLink(conversation.id, created.token, allowWrites),
       );
       reload();
     } catch (cause: unknown) {
@@ -150,7 +149,7 @@ export function ShareDialog({
   async function revoke(shareId: string) {
     setError(undefined);
     try {
-      await apiClient.agentInstances.shares.revoke(conversation.namespace, shareId);
+      await apiClient.agentInstances.shares.revoke(shareId);
       // The link on screen may be the one just revoked, and a copy button for a dead
       // link is worse than none.
       setFreshLink(undefined);

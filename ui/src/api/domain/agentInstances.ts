@@ -88,7 +88,6 @@ export interface AgentInstanceFailure {
 export interface AgentInstance {
   /** A UUID. The controller rejects anything else — `validateIdentity` parses it. */
   id: string;
-  namespace: string;
   /**
    * The reader's own title for this conversation. Empty means unnamed.
    *
@@ -229,7 +228,6 @@ export type AgentInstanceSharePermission = "readOnly" | "readWrite";
 /** One share link over one instance. The token itself is returned only on create. */
 export interface AgentInstanceShare {
   id: string;
-  namespace: string;
   agentInstanceId: string;
   permission: AgentInstanceSharePermission;
   /** RFC3339, or empty when the record carried no timestamp. */

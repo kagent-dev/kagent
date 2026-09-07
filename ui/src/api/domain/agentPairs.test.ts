@@ -123,7 +123,7 @@ describe("the pair a conversation belongs to", () => {
     // would count as belonging to no agent and every count would read zero.
     expect(
       pairIdOfInstance({
-        namespace: "kagent",
+
         agentTemplate: "kagent/k8s-agent-7f3a91c",
         harness: "kagent/k8s-agent",
       }),
@@ -134,9 +134,9 @@ describe("the pair a conversation belongs to", () => {
     // An instance with no prepared revision belongs to no pair — the controller's
     // own list query left-joins the revision — so this is a real answer rather than
     // a value that failed to arrive.
-    expect(pairIdOfInstance({ namespace: "kagent" })).toBeUndefined();
+    expect(pairIdOfInstance({})).toBeUndefined();
     expect(
-      pairIdOfInstance({ namespace: "kagent", agentTemplate: "kagent/only-half" }),
+      pairIdOfInstance({ agentTemplate: "kagent/only-half" }),
     ).toBeUndefined();
   });
 

@@ -109,7 +109,7 @@ Services:
 Semantics:
 
 - IDs are opaque and server-generated.
-- Creation requires namespace, Harness, AgentTemplate, and caller-scoped `request_id`.
+- Creation requires namespaced Harness and AgentTemplate references and caller-scoped `request_id`. Database objects are identified by UUID and ownership, without a namespace.
 - Listing defaults to creator ownership; audited operators may request all creators.
 - Labels are copied immutably from the root AgentTemplate.
 - Share creation returns the secret token once; listing returns share IDs and metadata; revocation uses share ID.
@@ -165,7 +165,7 @@ Add PostgreSQL tables and the registered service implementation:
 Creation:
 
 - Select the latest successful prepared revision.
-- Reserve caller/namespace/request ID transactionally.
+- Reserve caller/request ID transactionally.
 - Execute AgentInstance create and delete synchronously within their RPCs.
 - Create the deterministic Substrate Actor in its initial suspended state; Substrate establishes runtime readiness while preparing the ActorTemplate.
 - Publish the logical A2A authority and transition to `READY`.
@@ -438,7 +438,7 @@ Checkpoint contents exclude external MCP-owned mutable state.
 
 Implement `ForkAgentInstance`:
 
-- Require same-namespace target ownership.
+- Require checkpoint ownership; retain the checkpoint's prepared target references.
 - Create a new Actor identity from the checkpoint's retained snapshot tag.
 - Create a new AgentInstance, A2A authority, creator ownership, and labels.
 - Keep source instance, history, and snapshots immutable.
