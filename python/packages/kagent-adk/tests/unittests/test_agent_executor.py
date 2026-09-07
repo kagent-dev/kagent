@@ -107,7 +107,7 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
 
 
 @pytest.mark.asyncio
-async def test_execute_merges_caller_context_without_eager_decode(monkeypatch):
+async def test_execute_promotes_message_metadata_to_baggage(monkeypatch):
     context = _request_context()
     event_queue = object()
     runner = object()
@@ -124,11 +124,11 @@ async def test_execute_merges_caller_context_without_eager_decode(monkeypatch):
 
     recorded = {}
 
-    def fake_merge(existing, metadata=None, context=None, message=None):
-        recorded["existing"] = dict(existing)
+    def fake_promote(*, metadata=None, context=None, message=None):
         recorded["message"] = message
+        return None
 
-    monkeypatch.setattr(executor_module, "merge_caller_context_attributes", fake_merge)
+    monkeypatch.setattr(executor_module, "promote_message_metadata_to_baggage", fake_promote)
     decode = MagicMock(return_value={"thread_id": "T1"})
     if hasattr(executor_module, "read_message_metadata"):
         monkeypatch.setattr(executor_module, "read_message_metadata", decode)
@@ -145,5 +145,4 @@ async def test_execute_merges_caller_context_without_eager_decode(monkeypatch):
     await executor.execute(context, event_queue)
 
     assert recorded["message"] is context.message
-    assert recorded["existing"]["kagent.user_id"] == "user-1"
     decode.assert_not_called()

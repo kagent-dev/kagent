@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -195,11 +196,17 @@ func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.T
 		return nil, err
 	}
 
-	return sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-	), nil
+	}
+	// Baggagecopy runs first so the request-scoped bag can still win on
+	// keys the runtime already stamped (kagent.user_id, gen_ai.*).
+	if filter := AllowedBaggageCopyFilter(); filter != nil {
+		opts = append(opts, sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(filter)))
+	}
+	opts = append(opts, sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}))
+	return sdktrace.NewTracerProvider(opts...), nil
 }
 
 func newLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog.LoggerProvider, error) {

@@ -36,7 +36,7 @@ from agents.agent import Agent
 from agents.memory.session import SessionABC
 from agents.run import Runner
 from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
-from kagent.core.tracing import merge_caller_context_attributes
+from kagent.core.tracing import detach_promoted_metadata, promote_message_metadata_to_baggage
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -180,11 +180,13 @@ class OpenAIAgentExecutor(AgentExecutor):
             raise ValueError("A2A request must have a message")
 
         span_attributes = _convert_a2a_request_to_span_attributes(context)
+        promote_token = promote_message_metadata_to_baggage(message=context.message)
         context_token = set_kagent_span_attributes(span_attributes)
         try:
             await self._execute_agent(context, event_queue)
         finally:
             clear_kagent_span_attributes(context_token)
+            detach_promoted_metadata(promote_token)
 
     async def _execute_agent(
         self,
@@ -315,10 +317,5 @@ def _convert_a2a_request_to_span_attributes(
 
     if request.task_id:
         span_attributes["gen_ai.task.id"] = request.task_id
-
-    # Allowlisted caller context joins the request-scoped bag rather than a
-    # single span, so tool, sub-agent, and model spans all carry it.
-    # Fill-if-absent so a caller cannot override kagent.user_id.
-    merge_caller_context_attributes(span_attributes, message=request.message)
 
     return span_attributes

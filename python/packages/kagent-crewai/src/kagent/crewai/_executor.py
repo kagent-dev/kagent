@@ -23,7 +23,7 @@ from a2a.types import (
 )
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
-from kagent.core.tracing import merge_caller_context_attributes
+from kagent.core.tracing import detach_promoted_metadata, promote_message_metadata_to_baggage
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -70,6 +70,7 @@ class CrewAIAgentExecutor(AgentExecutor):
         # Convert the a2a request to kagent span attributes.
         span_attributes = _convert_a2a_request_to_span_attributes(context)
 
+        promote_token = promote_message_metadata_to_baggage(message=context.message)
         # Set kagent span attributes for all spans in context.
         context_token = set_kagent_span_attributes(span_attributes)
         try:
@@ -169,6 +170,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                 )
         finally:
             clear_kagent_span_attributes(context_token)
+            detach_promoted_metadata(promote_token)
 
 
 def _get_user_id(request: RequestContext) -> str:
@@ -193,10 +195,5 @@ def _convert_a2a_request_to_span_attributes(
 
     if request.task_id:
         span_attributes["gen_ai.task.id"] = request.task_id
-
-    # Allowlisted caller context joins the request-scoped bag rather than a
-    # single span, so tool, sub-agent, and model spans all carry it.
-    # Fill-if-absent so a caller cannot override kagent.user_id.
-    merge_caller_context_attributes(span_attributes, message=request.message)
 
     return span_attributes

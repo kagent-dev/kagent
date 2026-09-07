@@ -204,7 +204,7 @@ def test_otel_sdk_default_propagator_includes_baggage():
     """The OTEL SDK must propagate W3C Baggage by default.
 
     Baggage is how caller identity and context reach an agent and its
-    sub-agents (see caller_context_attributes). If an OTEL SDK upgrade drops
+    sub-agents. If an OTEL SDK upgrade drops
     baggage from the default propagator, this test will fail and explicit
     configuration will be needed.
     """

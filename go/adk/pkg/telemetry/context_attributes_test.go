@@ -2,13 +2,11 @@ package telemetry
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"strconv"
 	"strings"
 	"testing"
 
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	"go.opentelemetry.io/otel/baggage"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -39,427 +37,239 @@ func baggageContext(t *testing.T, members map[string]string) context.Context {
 	return baggage.ContextWithBaggage(context.Background(), bag)
 }
 
-func hmacSHA256Hex(t *testing.T, key, value string) string {
-	t.Helper()
-	mac := hmac.New(sha256.New, []byte(key))
-	_, _ = mac.Write([]byte(value))
-	return hex.EncodeToString(mac.Sum(nil))
+func baggageValues(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	for _, member := range baggage.FromContext(ctx).Members() {
+		out[member.Key()] = member.Value()
+	}
+	return out
 }
 
-func TestCallerContextAttributes(t *testing.T) {
+func TestContextWithPromotedMetadata(t *testing.T) {
 	tests := []struct {
 		name        string
 		allowlist   string
-		hashKey     string
 		baggageVals map[string]string
 		metadata    map[string]any
 		want        map[string]string
 	}{
 		{
-			name:        "empty allowlist disables promotion",
-			allowlist:   "",
+			name:        "empty allowlist is a no-op",
+			baggageVals: map[string]string{"user.id": "opaque-subject"},
+			metadata:    map[string]any{"user.id": "from-metadata"},
+			want:        map[string]string{"user.id": "opaque-subject"},
+		},
+		{
+			name:        "leaves existing baggage in place",
+			allowlist:   "user.id",
+			baggageVals: map[string]string{"user.id": "from-baggage"},
+			metadata:    map[string]any{"user.id": "from-metadata"},
+			want:        map[string]string{"user.id": "from-baggage"},
+		},
+		{
+			name:      "promotes allowlisted metadata into baggage",
+			allowlist: "user.id,thread_id",
+			metadata:  map[string]any{"user.id": "opaque-subject", "thread_id": "T123", "secret": "nope"},
+			want:      map[string]string{"user.id": "opaque-subject", "thread_id": "T123"},
+		},
+		{
+			name:        "empty metadata does not wipe baggage",
+			allowlist:   "user.id",
+			baggageVals: map[string]string{"user.id": "from-baggage"},
+			metadata:    map[string]any{"user.id": "  "},
+			want:        map[string]string{"user.id": "from-baggage"},
+		},
+		{
+			name:        "remaps baggage from onto to when to is absent",
+			allowlist:   `[{"from":"sub","to":"user.id"}]`,
 			baggageVals: map[string]string{"sub": "opaque-subject"},
-			metadata:    map[string]any{"thread_id": "T123"},
-			want:        nil,
+			want:        map[string]string{"sub": "opaque-subject", "user.id": "opaque-subject"},
 		},
 		{
-			name:        "promotes allowlisted baggage",
-			allowlist:   "sub,thread_id",
-			baggageVals: map[string]string{"sub": "opaque-subject", "thread_id": "T123"},
-			want: map[string]string{
-				"kagent.context.sub":       "opaque-subject",
-				"kagent.context.thread_id": "T123",
-			},
+			name:        "does not remap over an existing to",
+			allowlist:   `[{"from":"sub","to":"user.id"}]`,
+			baggageVals: map[string]string{"sub": "from-sub", "user.id": "already"},
+			want:        map[string]string{"sub": "from-sub", "user.id": "already"},
 		},
 		{
-			name:      "promotes allowlisted message metadata",
-			allowlist: "thread_id,channel",
-			metadata:  map[string]any{"thread_id": "1717171.4242", "channel": "C0AB1"},
-			want: map[string]string{
-				"kagent.context.thread_id": "1717171.4242",
-				"kagent.context.channel":   "C0AB1",
-			},
+			name:      "maps metadata from onto to",
+			allowlist: `[{"from":"sub","to":"user.id"},"gen_ai.conversation.id"]`,
+			metadata:  map[string]any{"sub": "opaque-subject", "gen_ai.conversation.id": "sess-1"},
+			want:      map[string]string{"user.id": "opaque-subject", "gen_ai.conversation.id": "sess-1"},
 		},
 		{
-			name:        "message metadata overrides baggage",
-			allowlist:   "sub",
-			baggageVals: map[string]string{"sub": "from-baggage"},
-			metadata:    map[string]any{"sub": "from-metadata"},
-			want:        map[string]string{"kagent.context.sub": "from-metadata"},
-		},
-		{
-			name:        "empty metadata does not override baggage",
-			allowlist:   "sub",
-			baggageVals: map[string]string{"sub": "from-baggage"},
-			metadata:    map[string]any{"sub": "   "},
-			want:        map[string]string{"kagent.context.sub": "from-baggage"},
-		},
-		{
-			name:        "ignores keys outside the allowlist",
-			allowlist:   "thread_id",
-			baggageVals: map[string]string{"secret.token": "s3cret"},
-			metadata:    map[string]any{"thread_id": "T1", "extra": "nope"},
-			want:        map[string]string{"kagent.context.thread_id": "T1"},
-		},
-		{
-			name:      "renders scalar metadata types",
-			allowlist: "count,ratio,enabled",
-			metadata: map[string]any{
-				"count":   float64(7),
-				"ratio":   float64(2.5),
-				"enabled": true,
-			},
-			want: map[string]string{
-				"kagent.context.count":   "7",
-				"kagent.context.ratio":   "2.5",
-				"kagent.context.enabled": "true",
-			},
-		},
-		{
-			name:      "formats large floats without scientific notation",
+			name:      "skips non-scalars",
 			allowlist: "value",
-			metadata:  map[string]any{"value": float64(1e20)},
-			want:      map[string]string{"kagent.context.value": "100000000000000000000"},
+			metadata:  map[string]any{"value": map[string]any{"nested": true}},
+			want:      map[string]string{},
 		},
 		{
-			name:      "formats tiny floats without rounding to zero",
-			allowlist: "value",
-			metadata:  map[string]any{"value": float64(1e-20)},
-			want:      map[string]string{"kagent.context.value": "0.00000000000000000001"},
-		},
-		{
-			name:      "skips non-scalar and empty metadata values",
-			allowlist: "nested,list,blank",
-			metadata: map[string]any{
-				"nested": map[string]any{"a": "b"},
-				"list":   []string{"a"},
-				"blank":  "",
-			},
-			want: nil,
+			name:      "renders scalar metadata",
+			allowlist: "flag,count",
+			metadata:  map[string]any{"flag": true, "count": float64(3)},
+			want:      map[string]string{"flag": "true", "count": "3"},
 		},
 		{
 			name:      "strips control characters",
 			allowlist: "note",
 			metadata:  map[string]any{"note": "line\nbreak\tand\x00nul"},
-			want:      map[string]string{"kagent.context.note": "linebreakandnul"},
+			want:      map[string]string{"note": "linebreakandnul"},
 		},
 		{
-			name:      "ignores allowlist entries that are not valid attribute keys",
-			allowlist: "good, bad key ,\tanother\tbad",
-			metadata:  map[string]any{"good": "yes", "bad key": "no"},
-			want:      map[string]string{"kagent.context.good": "yes"},
-		},
-		{
-			// Only the explicit registry set passes through unprefixed.
-			name:      "registry attributes stay unprefixed",
-			allowlist: "user.id,enduser.id,session.id,channel",
-			metadata: map[string]any{
-				"user.id":    "opaque-subject",
-				"enduser.id": "end-user",
-				"session.id": "sess-1",
-				"channel":    "C0AB1",
-			},
-			want: map[string]string{
-				"user.id":                "opaque-subject",
-				"enduser.id":             "end-user",
-				"session.id":             "sess-1",
-				"kagent.context.channel": "C0AB1",
-			},
-		},
-		{
-			name:      "unknown user attributes are prefixed",
-			allowlist: `[{"from":"x","to":"user.asdasd"},{"from":"y","to":"user.email"}]`,
-			metadata:  map[string]any{"x": "nope", "y": "also-nope"},
-			want: map[string]string{
-				"kagent.context.user.asdasd": "nope",
-				"kagent.context.user.email":  "also-nope",
-			},
-		},
-		{
-			// session.id is the registry name; other session.* keys are not.
-			name:      "session.id is unprefixed but session.foo is not",
-			allowlist: "session.id,session.foo",
-			metadata:  map[string]any{"session.id": "sess-1", "session.foo": "other"},
-			want: map[string]string{
-				"session.id":                 "sess-1",
-				"kagent.context.session.foo": "other",
-			},
-		},
-		{
-			name:      "maps source keys onto registry names",
-			allowlist: `[{"from":"sub","to":"user.id"},{"from":"thread_id","to":"session.id"},"channel"]`,
-			metadata: map[string]any{
-				"sub":       "opaque-subject",
-				"thread_id": "T123",
-				"channel":   "C0AB1",
-			},
-			want: map[string]string{
-				"user.id":                "opaque-subject",
-				"session.id":             "T123",
-				"kagent.context.channel": "C0AB1",
-			},
-		},
-		{
-			name:      "kagent destination names are prefixed",
-			allowlist: `[{"from":"uid","to":"kagent.user_id"},{"from":"tid","to":"kagent.thread_id"}]`,
-			metadata:  map[string]any{"uid": "attacker", "tid": "T123"},
-			want: map[string]string{
-				"kagent.context.kagent.user_id":   "attacker",
-				"kagent.context.kagent.thread_id": "T123",
-			},
-		},
-		{
-			name:      "invalid JSON allowlist promotes nothing",
-			allowlist: `[{"from":"sub"`,
-			metadata:  map[string]any{"sub": "opaque-subject"},
-			want:      nil,
-		},
-		{
-			name:      "non-string hash does not emit plaintext",
-			allowlist: `[{"from":"email","to":"user.hash","hash":123}]`,
-			hashKey:   "test-hmac-key",
-			metadata:  map[string]any{"email": "ada@example.com"},
-			want:      nil,
-		},
-		{
-			name:      "non-string to drops the mapping",
-			allowlist: `[{"from":"thread_id","to":123}]`,
-			metadata:  map[string]any{"thread_id": "T1"},
-			want:      nil,
+			name:      "drops keys with whitespace",
+			allowlist: "bad key,user.id",
+			metadata:  map[string]any{"bad key": "x", "user.id": "ok"},
+			want:      map[string]string{"user.id": "ok"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			setAllowlist(t, tt.allowlist)
-			if tt.hashKey != "" {
-				t.Setenv(traceContextHashKeyEnvVar, tt.hashKey)
-			}
-
-			got := CallerContextAttributes(baggageContext(t, tt.baggageVals), tt.metadata)
-
+			got := baggageValues(ContextWithPromotedMetadata(baggageContext(t, tt.baggageVals), tt.metadata))
 			if len(got) != len(tt.want) {
-				t.Fatalf("got %v, want %v", got, tt.want)
+				t.Fatalf("got %#v, want %#v", got, tt.want)
 			}
 			for key, want := range tt.want {
 				if got[key] != want {
-					t.Errorf("%s = %q, want %q", key, got[key], want)
+					t.Errorf("%s: got %q, want %q", key, got[key], want)
 				}
 			}
 		})
 	}
 }
 
-func TestMergeCallerContextAttributes_DoesNotOverrideExisting(t *testing.T) {
-	setAllowlist(t, `[{"from":"sub","to":"user.id"},"thread_id"]`)
-
-	dst := map[string]string{
-		"user.id":        "runtime-user",
-		"kagent.user_id": "runtime-user",
-	}
-	MergeCallerContextAttributes(dst, context.Background(), map[string]any{
-		"sub":       "attacker",
-		"thread_id": "T1",
-	})
-
-	if dst["user.id"] != "runtime-user" {
-		t.Errorf("user.id = %q, want runtime-user", dst["user.id"])
-	}
-	if dst["kagent.user_id"] != "runtime-user" {
-		t.Errorf("kagent.user_id = %q, want runtime-user", dst["kagent.user_id"])
-	}
-	if dst["kagent.context.thread_id"] != "T1" {
-		t.Errorf("thread_id = %q, want T1", dst["kagent.context.thread_id"])
-	}
-}
-
-func TestCallerContextAttributes_HashesWithHMACSHA256(t *testing.T) {
-	const key = "test-hmac-key"
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
-	t.Setenv(traceContextHashKeyEnvVar, key)
-
-	got := CallerContextAttributes(context.Background(), map[string]any{
-		"email": "ada@example.com",
-	})
-
-	want := hmacSHA256Hex(t, key, "ada@example.com")
-	if got["user.hash"] != want {
-		t.Errorf("user.hash = %q, want %q", got["user.hash"], want)
-	}
-	for name, value := range got {
-		if strings.Contains(value, "@example.com") {
-			t.Errorf("plaintext leaked onto %s", name)
-		}
-	}
-}
-
-func TestCallerContextAttributes_HashWithoutKeyEmitsNothing(t *testing.T) {
-	// Missing HMAC key must not fall back to putting the original value on the span.
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
-	t.Setenv(traceContextHashKeyEnvVar, "")
-
-	got := CallerContextAttributes(context.Background(), map[string]any{
-		"email": "ada@example.com",
-	})
-	if got != nil {
-		t.Errorf("got %v, want nothing when the HMAC key is unset", got)
-	}
-}
-
-func TestCallerContextAttributes_UnknownHashEmitsNothing(t *testing.T) {
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"md5"}]`)
-	t.Setenv(traceContextHashKeyEnvVar, "test-hmac-key")
-
-	got := CallerContextAttributes(context.Background(), map[string]any{
-		"email": "ada@example.com",
-	})
-	if got != nil {
-		t.Errorf("got %v, want nothing for an unsupported hash", got)
-	}
-}
-
-func TestCallerContextAttributes_TruncatesLongValues(t *testing.T) {
-	setAllowlist(t, "note")
-
-	got := CallerContextAttributes(context.Background(), map[string]any{
-		"note": strings.Repeat("a", maxContextValueLength*2),
-	})
-
-	if len(got["kagent.context.note"]) != maxContextValueLength {
-		t.Errorf("value length = %d, want %d", len(got["kagent.context.note"]), maxContextValueLength)
-	}
-}
-
-func TestAllowedContextMappings_CapsListLength(t *testing.T) {
-	keys := make([]string, 0, maxContextKeys*2)
-	for i := range maxContextKeys * 2 {
-		keys = append(keys, "key"+strconv.Itoa(i))
+func TestContextWithPromotedMetadata_CapsAllowlist(t *testing.T) {
+	keys := make([]string, maxContextKeys+4)
+	metadata := map[string]any{}
+	for i := range keys {
+		keys[i] = "k" + strconv.Itoa(i)
+		metadata[keys[i]] = "v"
 	}
 	setAllowlist(t, strings.Join(keys, ","))
-
-	if got := len(allowedContextMappings()); got != maxContextKeys {
-		t.Errorf("allowlist length = %d, want %d", got, maxContextKeys)
+	got := baggageValues(ContextWithPromotedMetadata(context.Background(), metadata))
+	if len(got) != maxContextKeys {
+		t.Fatalf("promoted %d keys, want %d", len(got), maxContextKeys)
 	}
 }
 
-func TestAllowedContextMappings_DropsOverLongAndDuplicateKeys(t *testing.T) {
-	setAllowlist(t, "a,a,"+strings.Repeat("b", maxContextKeyLength+1)+",c")
-
-	got := allowedContextMappings()
-
-	want := []string{"a", "c"}
-	if len(got) != len(want) {
-		t.Fatalf("got %#v, want %v", got, want)
+func TestAllowedBaggageCopyFilter(t *testing.T) {
+	if AllowedBaggageCopyFilter() != nil {
+		t.Fatal("empty allowlist must not install a baggagecopy filter")
 	}
-	for i, key := range want {
-		if got[i].source != key {
-			t.Errorf("key %d = %q, want %q", i, got[i].source, key)
-		}
+
+	setAllowlist(t, `[{"from":"sub","to":"user.id"},"thread_id"]`)
+	filter := AllowedBaggageCopyFilter()
+	if filter == nil {
+		t.Fatal("expected a filter")
 	}
-}
-
-func TestAllowedContextMappings_CountsKeyLengthInRunes(t *testing.T) {
-	kept := strings.Repeat("键", 40)
-	dropped := strings.Repeat("键", 65)
-	setAllowlist(t, kept+","+dropped)
-
-	got := allowedContextMappings()
-	if len(got) != 1 || got[0].source != kept {
-		t.Fatalf("got %#v, want the 40-rune CJK key kept and the 65-rune key dropped", got)
+	if !filter(mustMember(t, "user.id", "x")) {
+		t.Error("user.id should be copied")
+	}
+	if !filter(mustMember(t, "thread_id", "x")) {
+		t.Error("thread_id should be copied")
+	}
+	if filter(mustMember(t, "sub", "x")) {
+		t.Error("source-only key sub should not be copied")
+	}
+	if filter(mustMember(t, "secret", "x")) {
+		t.Error("non-allowlisted key should not be copied")
 	}
 }
 
-func TestAllowedContextMappings_CachesUntilReset(t *testing.T) {
-	setAllowlist(t, "a")
-	if got := allowedContextMappings(); len(got) != 1 || got[0].source != "a" {
-		t.Fatalf("got %#v, want [a]", got)
-	}
-
-	t.Setenv(traceContextKeysEnvVar, "b")
-	if got := allowedContextMappings(); len(got) != 1 || got[0].source != "a" {
-		t.Errorf("OnceValue lost the first parse: %#v", got)
-	}
-
-	resetAllowedContextMappings()
-	if got := allowedContextMappings(); len(got) != 1 || got[0].source != "b" {
-		t.Errorf("reset did not reparse: %#v", got)
-	}
-}
-
-// Langfuse and comparable backends filter on attributes present on each span,
-// so the promoted values must reach descendants, not just the root span.
-func TestCallerContextAttributes_ReachEverySpan(t *testing.T) {
-	setAllowlist(t, `[{"from":"sub","to":"user.id"}]`)
+func TestCallerContextLandsOnEverySpan(t *testing.T) {
+	setAllowlist(t, "user.id")
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
+		sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
 		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
 	)
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-	})
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
-	ctx := baggageContext(t, map[string]string{"sub": "opaque-subject"})
-	ctx = SetKAgentSpanAttributes(ctx, CallerContextAttributes(ctx, nil))
-
+	ctx := ContextWithPromotedMetadata(baggageContext(t, map[string]string{"user.id": "opaque-subject"}), nil)
+	ctx = SetKAgentSpanAttributes(ctx, map[string]string{"kagent.user_id": "runtime-user"})
 	tracer := tp.Tracer("test")
-	ctx, root := tracer.Start(ctx, "root")
-	ctx, tool := tracer.Start(ctx, "execute_tool")
+	ctx, root := tracer.Start(ctx, "invocation")
+	_, tool := tracer.Start(ctx, "tool")
 	_, model := tracer.Start(ctx, "generate_content")
 	model.End()
 	tool.End()
 	root.End()
 
-	spans := exporter.GetSpans()
-	if len(spans) != 3 {
-		t.Fatalf("expected 3 spans, got %d", len(spans))
-	}
-	for _, name := range []string{"root", "execute_tool", "generate_content"} {
-		attrs := spanAttributesByName(t, spans, name)
+	for _, name := range []string{"invocation", "tool", "generate_content"} {
+		attrs := spanAttributesByName(t, exporter.GetSpans(), name)
 		if got := attrs["user.id"].AsString(); got != "opaque-subject" {
-			t.Errorf("span %q: user.id = %q, want %q", name, got, "opaque-subject")
+			t.Errorf("%s user.id = %q, want opaque-subject", name, got)
+		}
+		if got := attrs["kagent.user_id"].AsString(); got != "runtime-user" {
+			t.Errorf("%s kagent.user_id = %q, want runtime-user", name, got)
 		}
 	}
 }
 
-func TestCallerContextAttributes_DisabledLeavesSpansUnchanged(t *testing.T) {
-	setAllowlist(t, "")
+func TestMetadataPromotionReachesGenerateContent(t *testing.T) {
+	setAllowlist(t, `[{"from":"sub","to":"user.id"}]`)
 
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exporter),
+		sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
 		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
 	)
-	t.Cleanup(func() {
-		_ = tp.Shutdown(context.Background())
-	})
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
-	ctx := baggageContext(t, map[string]string{"sub": "opaque-subject"})
-	ctx = SetKAgentSpanAttributes(ctx, CallerContextAttributes(ctx, map[string]any{"thread_id": "T1"}))
+	ctx := ContextWithPromotedMetadata(context.Background(), map[string]any{"sub": "opaque-subject"})
+	ctx = SetKAgentSpanAttributes(ctx, map[string]string{"gen_ai.conversation.id": "sess-runtime"})
+	tracer := tp.Tracer("test")
+	ctx, root := tracer.Start(ctx, "invocation")
+	_, model := tracer.Start(ctx, "generate_content")
+	model.End()
+	root.End()
 
-	_, span := tp.Tracer("test").Start(ctx, "root")
-	span.End()
-
-	for _, attr := range exporter.GetSpans()[0].Attributes {
-		key := string(attr.Key)
-		if strings.HasPrefix(key, contextAttributePrefix) || key == "user.id" {
-			t.Errorf("unexpected promoted attribute %q", attr.Key)
+	for _, name := range []string{"invocation", "generate_content"} {
+		attrs := spanAttributesByName(t, exporter.GetSpans(), name)
+		if got := attrs["user.id"].AsString(); got != "opaque-subject" {
+			t.Errorf("%s user.id = %q, want opaque-subject", name, got)
+		}
+		if got := attrs["gen_ai.conversation.id"].AsString(); got != "sess-runtime" {
+			t.Errorf("%s gen_ai.conversation.id = %q, want sess-runtime", name, got)
+		}
+		if _, exists := attrs["a2a.message.metadata.sub"]; exists {
+			t.Errorf("%s unexpectedly stamped a2a.message.metadata.sub", name)
 		}
 	}
 }
 
-// Custom keys still cannot shadow a semantic convention attribute such as
-// service.name. Registry names are the documented exception.
-func TestCallerContextAttributes_CannotShadowSemanticConventions(t *testing.T) {
-	setAllowlist(t, "service.name")
+func TestRuntimeAttributesWinOverAllowlistedBaggage(t *testing.T) {
+	setAllowlist(t, "gen_ai.conversation.id")
 
-	got := CallerContextAttributes(context.Background(), map[string]any{"service.name": "impostor"})
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(exporter),
+		sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
+		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
+	)
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
 
-	if _, shadowed := got["service.name"]; shadowed {
-		t.Error("service.name must not be settable by a caller")
+	ctx := baggageContext(t, map[string]string{"gen_ai.conversation.id": "from-caller"})
+	ctx = SetKAgentSpanAttributes(ctx, map[string]string{"gen_ai.conversation.id": "from-runtime"})
+	tracer := tp.Tracer("test")
+	_, span := tracer.Start(ctx, "generate_content")
+	span.End()
+
+	attrs := spanAttributesByName(t, exporter.GetSpans(), "generate_content")
+	if got := attrs["gen_ai.conversation.id"].AsString(); got != "from-runtime" {
+		t.Fatalf("gen_ai.conversation.id = %q, want runtime value to win", got)
 	}
-	if got["kagent.context.service.name"] != "impostor" {
-		t.Errorf("got %v, want the value namespaced under %q", got, contextAttributePrefix)
+}
+
+func mustMember(t *testing.T, key, value string) baggage.Member {
+	t.Helper()
+	member, err := baggage.NewMember(key, value)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return member
 }

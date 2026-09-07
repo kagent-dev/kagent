@@ -10,9 +10,11 @@ from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.processor.baggage import BaggageSpanProcessor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from ._context_attributes import allowed_baggage_key_predicate
 from ._span_processor import KagentAttributesSpanProcessor
 
 
@@ -46,6 +48,19 @@ def _create_log_exporter(**kwargs):
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
     logging.info("Using %s protocol for log exporter", protocol)
     return OTLPLogExporter(**kwargs)
+
+
+def _add_span_processors(provider: TracerProvider, otlp_processor) -> None:
+    """Install baggagecopy (if allowlisted), the OTLP exporter, then kagent attrs.
+
+    Baggagecopy runs before the request-scoped bag so runtime attributes such as
+    gen_ai.conversation.id still win on conflict.
+    """
+    provider.add_span_processor(otlp_processor)
+    predicate = allowed_baggage_key_predicate()
+    if predicate is not None:
+        provider.add_span_processor(BaggageSpanProcessor(predicate))
+    provider.add_span_processor(KagentAttributesSpanProcessor())
 
 
 def _resolve_otlp_timeout_seconds(signal: str) -> float:
@@ -263,14 +278,12 @@ def configure(
         current_provider = trace.get_tracer_provider()
         if isinstance(current_provider, TracerProvider):
             # TracerProvider already exists, just add our processors to it
-            current_provider.add_span_processor(processor)
-            current_provider.add_span_processor(KagentAttributesSpanProcessor())
+            _add_span_processors(current_provider, processor)
             logging.info("Added OTLP processors to existing TracerProvider")
         else:
             # No provider set, create new one
             tracer_provider = TracerProvider(resource=resource)
-            tracer_provider.add_span_processor(processor)
-            tracer_provider.add_span_processor(KagentAttributesSpanProcessor())
+            _add_span_processors(tracer_provider, processor)
             trace.set_tracer_provider(tracer_provider)
             logging.info("Created new TracerProvider")
 

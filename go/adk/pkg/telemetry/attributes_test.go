@@ -218,76 +218,19 @@ func TestSetMessageMetadataAttributes(t *testing.T) {
 	}
 }
 
-func TestSetMessageMetadataAttributes_DoesNotStampAllowlistedHashedPlaintext(t *testing.T) {
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
-	t.Setenv(traceContextHashKeyEnvVar, "test-hmac-key")
+func TestSetMessageMetadataAttributes_SkipsAllowlistedSources(t *testing.T) {
+	setAllowlist(t, `[{"from":"sub","to":"user.id"}]`)
 
 	attrs := recordMessageMetadata(t, map[string]any{
-		"email":   "ada@example.com",
+		"sub":     "opaque-subject",
 		"channel": "C0AB1",
 	})
 
-	if _, exists := attrs["a2a.message.metadata.email"]; exists {
-		t.Fatal("allowlisted hashed source must not be stamped as a2a.message.metadata.email")
+	if _, exists := attrs["a2a.message.metadata.sub"]; exists {
+		t.Fatal("allowlisted source must not be stamped as a2a.message.metadata.sub")
 	}
-	assertNoPlaintextEmail(t, attrs)
 	if got := attrs["a2a.message.metadata.channel"].AsString(); got != "C0AB1" {
 		t.Errorf("non-allowlisted channel = %q, want C0AB1", got)
-	}
-}
-
-func TestSetMessageMetadataAttributes_DoesNotStampWhenHMACKeyMissing(t *testing.T) {
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
-	t.Setenv(traceContextHashKeyEnvVar, "")
-
-	attrs := recordMessageMetadata(t, map[string]any{"email": "ada@example.com"})
-
-	if _, exists := attrs["a2a.message.metadata.email"]; exists {
-		t.Fatal("omitted hashed source must not leak as a2a.message.metadata.email")
-	}
-	assertNoPlaintextEmail(t, attrs)
-}
-
-func TestSetMessageMetadataAttributes_DoesNotStampMalformedHashSource(t *testing.T) {
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":123}]`)
-	t.Setenv(traceContextHashKeyEnvVar, "test-hmac-key")
-
-	attrs := recordMessageMetadata(t, map[string]any{"email": "ada@example.com"})
-
-	if _, exists := attrs["a2a.message.metadata.email"]; exists {
-		t.Fatal("malformed hash mapping must not leak plaintext as a2a.message.metadata.email")
-	}
-	assertNoPlaintextEmail(t, attrs)
-}
-
-func TestMergeThenMessageMetadata_DoesNotLeakHashedPlaintext(t *testing.T) {
-	setAllowlist(t, `[{"from":"email","to":"user.hash","hash":"hmac-sha256"}]`)
-	t.Setenv(traceContextHashKeyEnvVar, "test-hmac-key")
-
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(exporter),
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
-	)
-	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
-
-	metadata := map[string]any{"email": "ada@example.com"}
-	spanAttrs := map[string]string{}
-	MergeCallerContextAttributes(spanAttrs, context.Background(), metadata)
-
-	tracer := tp.Tracer("test")
-	ctx, span := tracer.Start(context.Background(), "invocation")
-	ctx = SetKAgentSpanAttributes(ctx, spanAttrs)
-	SetMessageMetadataAttributes(ctx, metadata)
-	span.End()
-
-	attrs := spanAttributesByName(t, exporter.GetSpans(), "invocation")
-	if _, exists := attrs["a2a.message.metadata.email"]; exists {
-		t.Fatal("hashed source leaked as a2a.message.metadata.email")
-	}
-	assertNoPlaintextEmail(t, attrs)
-	if got := attrs["user.hash"].AsString(); got == "" || strings.Contains(got, "@example.com") {
-		t.Errorf("user.hash = %q, want the HMAC digest", got)
 	}
 }
 
@@ -311,15 +254,6 @@ func recordMessageMetadata(t *testing.T, metadata map[string]any) map[string]att
 		attrs[string(a.Key)] = a.Value
 	}
 	return attrs
-}
-
-func assertNoPlaintextEmail(t *testing.T, attrs map[string]attribute.Value) {
-	t.Helper()
-	for key, value := range attrs {
-		if strings.Contains(value.AsString(), "@example.com") {
-			t.Errorf("plaintext leaked onto %s = %q", key, value.AsString())
-		}
-	}
 }
 
 func TestSetMessageMetadataAttributes_NilAndEmpty(t *testing.T) {

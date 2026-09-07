@@ -142,16 +142,15 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		if e.appName != "" {
 			spanAttributes["kagent.app_name"] = e.appName
 		}
-		// Allowlisted caller context joins the request-scoped bag rather than a
-		// single span, so tool, sub-agent, and model spans all carry it.
-		// Fill-if-absent so a caller cannot override kagent.user_id or
-		// gen_ai.* attributes the runtime already stamped.
-		telemetry.MergeCallerContextAttributes(spanAttributes, ctx, reqCtx.Message.Metadata)
+		// Allowlisted metadata is written into baggage so the baggagecopy
+		// processor stamps it on every span, including hops the runtime
+		// does not own. Fill-if-absent so existing baggage wins.
+		ctx = telemetry.ContextWithPromotedMetadata(ctx, reqCtx.Message.Metadata)
 		ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 		ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
 		defer invocationSpan.End()
-		// Allowlisted sources are skipped here so hashed or omitted values
-		// cannot leak as a2a.message.metadata.<from> plaintext.
+		// Allowlisted sources are skipped here so they are not also
+		// stamped as a2a.message.metadata.<from>.
 		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 
 		e.logger.InfoContext(ctx, "execute",

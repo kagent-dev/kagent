@@ -91,9 +91,9 @@ func stringAttributes(attrs map[string]string) []attribute.KeyValue {
 // SetMessageMetadataAttributes sets scalar values from an A2A message's
 // metadata as span attributes on the current span.
 //
-// Keys named in KAGENT_TRACE_CONTEXT_KEYS are skipped, including mappings
-// that hash or omit the value. Stamping those sources here would put the
-// original scalar on a2a.message.metadata.<from> and bypass the allowlist.
+// Keys named in KAGENT_TRACE_CONTEXT_KEYS are skipped. Those values are
+// promoted into baggage and copied onto spans by baggagecopy; stamping
+// them here would also emit a2a.message.metadata.<from>.
 func SetMessageMetadataAttributes(ctx context.Context, metadata map[string]any) {
 	if len(metadata) == 0 {
 		return

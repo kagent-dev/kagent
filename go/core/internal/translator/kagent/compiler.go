@@ -76,10 +76,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	// Which caller-supplied context reaches traces is cluster-wide operator
 	// policy, so a Harness must be able to neither widen nor enable it. Dropping
 	// any inherited entry before applying the operator's value is what makes that
-	// hold when the operator has configured nothing at all. The HMAC key is the
-	// same class of policy: a tenant must not supply it.
+	// hold when the operator has configured nothing at all.
 	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextKeys)
-	environment = applyOperatorOnlyEnv(environment, env.KagentTraceContextHashKey)
 	environment = append(environment, v2translator.OtelEnvFromProcess()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)

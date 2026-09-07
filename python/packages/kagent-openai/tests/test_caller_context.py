@@ -16,34 +16,10 @@ def _request_context() -> RequestContext:
     )
 
 
-def test_span_attributes_skip_decode_when_allowlist_empty(monkeypatch):
-    from kagent.core.tracing._context_attributes import TRACE_CONTEXT_KEYS_ENV_VAR, _allowed_context_mappings
-
-    monkeypatch.delenv(TRACE_CONTEXT_KEYS_ENV_VAR, raising=False)
-    _allowed_context_mappings.cache_clear()
-    decode = MagicMock(return_value={"thread_id": "T1"})
-    monkeypatch.setattr("kagent.core.tracing._context_attributes.read_message_metadata", decode)
-    import kagent.openai._agent_executor as executor_module
-
-    if hasattr(executor_module, "read_message_metadata"):
-        monkeypatch.setattr(executor_module, "read_message_metadata", decode)
-
+def test_span_attributes_are_runtime_only():
     attrs = _convert_a2a_request_to_span_attributes(_request_context())
 
-    decode.assert_not_called()
-    assert "kagent.context.thread_id" not in attrs
     assert "kagent.user_id" in attrs
-
-
-def test_span_attributes_do_not_override_runtime_user_id(monkeypatch):
-    fake = MagicMock(return_value={"kagent.user_id": "attacker", "kagent.context.thread_id": "T1"})
-    monkeypatch.setattr("kagent.core.tracing._context_attributes.caller_context_attributes", fake)
-    import kagent.openai._agent_executor as executor_module
-
-    if hasattr(executor_module, "caller_context_attributes"):
-        monkeypatch.setattr(executor_module, "caller_context_attributes", fake)
-
-    attrs = _convert_a2a_request_to_span_attributes(_request_context())
-
-    assert attrs["kagent.user_id"] != "attacker"
-    assert attrs["kagent.context.thread_id"] == "T1"
+    assert attrs["gen_ai.conversation.id"] == "ctx-1"
+    assert "kagent.context.thread_id" not in attrs
+    assert "user.id" not in attrs
