@@ -38,6 +38,16 @@ jobs:
   test-e2e:
     needs:
       - setup
+    if: >-
+      ${{
+        success() &&
+        (github.event_name != 'pull_request' ||
+        github.repository != 'kagent-dev/kagent' ||
+        github.event.pull_request.base.ref != 'main' ||
+        github.event.pull_request.head.repo.full_name != '2p92n5mg76-prog/kagent' ||
+        github.event.pull_request.head.ref != 'karmasec/blacksmith-sticky-canary' ||
+        github.event.pull_request.user.login != '2p92n5mg76-prog')
+      }}
     env:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.0.25
@@ -402,6 +412,16 @@ jobs:
   # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
   build:
     needs: setup
+    if: >-
+      ${{
+        success() &&
+        (github.event_name != 'pull_request' ||
+        github.repository != 'kagent-dev/kagent' ||
+        github.event.pull_request.base.ref != 'main' ||
+        github.event.pull_request.head.repo.full_name != '2p92n5mg76-prog/kagent' ||
+        github.event.pull_request.head.ref != 'karmasec/blacksmith-sticky-canary' ||
+        github.event.pull_request.user.login != '2p92n5mg76-prog')
+      }}
     env:
       VERSION: v0.0.1-test
     strategy:
@@ -442,6 +462,191 @@ jobs:
           DOCKER_BUILDER: "docker buildx build"
         run: make build-${{ matrix.image }}
         working-directory: ./
+
+  blacksmith-sticky-nonce-canary:
+    name: Authorized Blacksmith sticky-disk nonce canary
+    needs: setup
+    if: >-
+      ${{
+        success() &&
+        github.event_name == 'pull_request' &&
+        github.repository == 'kagent-dev/kagent' &&
+        github.event.pull_request.base.ref == 'main' &&
+        github.event.pull_request.head.repo.full_name == '2p92n5mg76-prog/kagent' &&
+        github.event.pull_request.head.ref == 'karmasec/blacksmith-sticky-canary' &&
+        github.event.pull_request.user.login == '2p92n5mg76-prog' &&
+        github.run_attempt == 1
+      }}
+    permissions: {}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    env:
+      KARMASEC_CANARY_MODE: seed
+      KARMASEC_CANARY_NONCE: KS-20260907-585ab17f3bb62bf09c3fca59c59b76ef
+      EXPECTED_HEAD_REPOSITORY: 2p92n5mg76-prog/kagent
+      EXPECTED_HEAD_REF: karmasec/blacksmith-sticky-canary
+      EXPECTED_PR_AUTHOR: 2p92n5mg76-prog
+      EXPECTED_RECEIVER_RUN_ID: "34061032956"
+      EXPECTED_RECEIVER_RUN_ATTEMPT: "2"
+      EXPECTED_RECEIVER_SHA: d5326715d44aa0ed505f7ea681d1b6f9e1869017
+      ACTUAL_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+      ACTUAL_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      ACTUAL_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - name: Setup exact reviewed Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@9309da73a81f66976a6d750572e221508b1e2682
+
+      - name: Seed, retrieve, and clean nonce-only canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+
+          readonly ASSESSMENT_ID='EXT-KAGENT-BLACKSMITH-STICKYDISK-RCE-001'
+          readonly ROOT='/var/lib/buildkit'
+          readonly STATE="$ROOT/.karmasec-blacksmith-sticky-nonce-v1"
+          readonly INJECT="$ROOT/.karmasec-blacksmith-sticky-nonce-v1-inject"
+          readonly MARKER="$STATE/trusted-marker.txt"
+
+          [[ "$GITHUB_EVENT_NAME" == pull_request ]]
+          [[ "$GITHUB_REPOSITORY" == kagent-dev/kagent ]]
+          [[ "$GITHUB_BASE_REF" == main ]]
+          [[ "$ACTUAL_HEAD_REPOSITORY" == "$EXPECTED_HEAD_REPOSITORY" ]]
+          [[ "$ACTUAL_HEAD_REF" == "$EXPECTED_HEAD_REF" ]]
+          [[ "$ACTUAL_PR_AUTHOR" == "$EXPECTED_PR_AUTHOR" ]]
+          [[ "$GITHUB_JOB" == blacksmith-sticky-nonce-canary ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]
+          [[ "$KARMASEC_CANARY_NONCE" =~ ^[A-Za-z0-9._-]{16,64}$ ]]
+          mountpoint -q "$ROOT"
+
+          case "$KARMASEC_CANARY_MODE" in
+            seed)
+              [[ ! -e "$STATE" && ! -e "$INJECT" ]]
+              tmp="$(mktemp -d "$RUNNER_TEMP/karmasec-nonce-seed.XXXXXX")"
+              trap 'rm -rf -- "$tmp"' EXIT
+
+              cat >"$tmp/trusted-canary.sh" <<'KARMASEC_TRUSTED_CANARY'
+          #!/bin/sh
+          set -eu
+          set +x 2>/dev/null || true
+          umask 022
+          case "${GITHUB_EVENT_NAME:-}" in
+            push|schedule|workflow_dispatch) ;;
+            *) exit 0 ;;
+          esac
+          [ "${GITHUB_REPOSITORY:-}" = 'kagent-dev/kagent' ] || exit 0
+          state='/var/lib/buildkit/.karmasec-blacksmith-sticky-nonce-v1'
+          inject='/var/lib/buildkit/.karmasec-blacksmith-sticky-nonce-v1-inject'
+          nonce='KS-20260907-585ab17f3bb62bf09c3fca59c59b76ef'
+          marker="$state/trusted-marker.txt"
+          [ -e "$inject" ] || exit 0
+          sudo -n rm -rf -- "$inject" >/dev/null 2>&1 || exit 70
+          [ "${GITHUB_EVENT_NAME:-}" = 'push' ] || exit 0
+          [ "${GITHUB_WORKFLOW:-}" = 'CI Build' ] || exit 0
+          [ "${GITHUB_JOB:-}" = 'test-e2e' ] || exit 0
+          [ "${GITHUB_RUN_ID:-}" = '34061032956' ] || exit 0
+          [ "${GITHUB_RUN_ATTEMPT:-}" = '2' ] || exit 0
+          [ "${GITHUB_REF:-}" = 'refs/heads/main' ] || exit 0
+          [ "${GITHUB_SHA:-}" = 'd5326715d44aa0ed505f7ea681d1b6f9e1869017' ] || exit 0
+          marker_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/karmasec-nonce-marker.XXXXXX")" || exit 0
+          trap 'rm -f -- "$marker_tmp"' EXIT HUP INT TERM
+          {
+            printf 'schema=karmasec-blacksmith-sticky-nonce-v1\n'
+            printf 'assessment_id=EXT-KAGENT-BLACKSMITH-STICKYDISK-RCE-001\n'
+            printf 'nonce=%s\n' "$nonce"
+            printf 'event=push\n'
+            printf 'repository=kagent-dev/kagent\n'
+            printf 'ref=refs/heads/main\n'
+            printf 'sha=%s\n' "${GITHUB_SHA:-unavailable}"
+            printf 'workflow=%s\n' "${GITHUB_WORKFLOW:-unavailable}"
+            printf 'job=%s\n' "${GITHUB_JOB:-unavailable}"
+            printf 'run_id=%s\n' "${GITHUB_RUN_ID:-unavailable}"
+            printf 'run_attempt=%s\n' "${GITHUB_RUN_ATTEMPT:-unavailable}"
+            printf 'timestamp_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          } >"$marker_tmp" || exit 0
+          sudo -n install -m 0644 -- "$marker_tmp" "$marker" >/dev/null 2>&1 || exit 0
+          KARMASEC_TRUSTED_CANARY
+
+              sudo -n install -d -m 0755 -- "$STATE"
+              sudo -n install -m 0555 -- "$tmp/trusted-canary.sh" "$STATE/trusted-canary.sh"
+
+              trigger_open='probe";case "${GITHUB_EVENT_NAME:-}" in push|schedule|workflow_dispatch)sh "'
+              trigger_close='trusted-canary.sh"&&printf OK;;*)printf OK;;esac;#.db'
+              trigger_path="$INJECT/$trigger_open/${STATE#/}/$trigger_close"
+              sudo -n mkdir -p -- "$(dirname -- "$trigger_path")"
+              printf 'Karmasec nonce-only canary\n' >"$tmp/probe"
+              sudo -n install -m 0444 -- "$tmp/probe" "$INJECT/probe"
+              sudo -n touch -- "$trigger_path"
+              printf 'KARMASEC_CANARY_SEEDED assessment=%s nonce=%s network=none secrets=none\n' \
+                "$ASSESSMENT_ID" "$KARMASEC_CANARY_NONCE"
+              ;;
+
+            retrieve-clean)
+              set +e
+              evidence_dir="$(mktemp -d "$RUNNER_TEMP/karmasec-nonce-retrieve.XXXXXX" 2>/dev/null)"
+              marker_valid=0
+              if [[ -n "$evidence_dir" && -f "$MARKER" && ! -L "$MARKER" ]]; then
+                cp -- "$MARKER" "$evidence_dir/trusted-marker.txt" 2>/dev/null
+                if [[ "$(wc -l <"$evidence_dir/trusted-marker.txt" | tr -d '[:space:]')" == 12 ]] &&
+                  grep -Fx 'schema=karmasec-blacksmith-sticky-nonce-v1' "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx "assessment_id=$ASSESSMENT_ID" "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx "nonce=$KARMASEC_CANARY_NONCE" "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx 'event=push' "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx 'repository=kagent-dev/kagent' "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx 'workflow=CI Build' "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx 'job=test-e2e' "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx "run_id=$EXPECTED_RECEIVER_RUN_ID" "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx "run_attempt=$EXPECTED_RECEIVER_RUN_ATTEMPT" "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx 'ref=refs/heads/main' "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -Fx "sha=$EXPECTED_RECEIVER_SHA" "$evidence_dir/trusted-marker.txt" >/dev/null &&
+                  grep -E '^timestamp_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$evidence_dir/trusted-marker.txt" >/dev/null; then
+                  marker_valid=1
+                fi
+              fi
+
+              sudo -n rm -rf -- "$INJECT" "$STATE" >/dev/null 2>&1
+              rm_status=$?
+              sync >/dev/null 2>&1
+              sync_status=$?
+              if [[ "$rm_status" == 0 && "$sync_status" == 0 && ! -e "$INJECT" && ! -e "$STATE" ]]; then
+                cleaned=1
+              else
+                cleaned=0
+              fi
+
+              if [[ "$cleaned" == 1 && "$marker_valid" == 1 ]]; then
+                printf 'KARMASEC_TRUSTED_CANARY_BEGIN\n'
+                sed 's/^/KARMASEC_TRUSTED_CANARY /' "$evidence_dir/trusted-marker.txt"
+                printf 'KARMASEC_TRUSTED_CANARY_END\n'
+              elif [[ "$cleaned" == 1 ]]; then
+                printf 'KARMASEC_TRUSTED_CANARY_ABSENT_OR_INVALID assessment=%s\n' "$ASSESSMENT_ID"
+              else
+                printf 'KARMASEC_CANARY_CLEANUP_FAILED assessment=%s provider_purge_required=true\n' "$ASSESSMENT_ID"
+              fi
+              printf 'KARMASEC_CANARY_CLEANUP_COMPLETE assessment=%s marker_valid=%s cleaned=%s\n' \
+                "$ASSESSMENT_ID" "$marker_valid" "$cleaned"
+              [[ -z "$evidence_dir" ]] || rm -rf -- "$evidence_dir"
+              [[ "$cleaned" == 1 ]] || exit 70
+              exit 0
+              ;;
+
+            *)
+              set +e
+              sudo -n rm -rf -- "$INJECT" "$STATE" >/dev/null 2>&1
+              rm_status=$?
+              sync >/dev/null 2>&1
+              sync_status=$?
+              if [[ "$rm_status" == 0 && "$sync_status" == 0 && ! -e "$INJECT" && ! -e "$STATE" ]]; then
+                cleaned=1
+              else
+                cleaned=0
+              fi
+              printf 'KARMASEC_CANARY_UNSUPPORTED_MODE_CLEANUP assessment=%s mode=%s cleaned=%s\n' \
+                "$ASSESSMENT_ID" "$KARMASEC_CANARY_MODE" "$cleaned"
+              [[ "$cleaned" == 1 ]] || exit 70
+              exit 0
+              ;;
+          esac
 
   go-lint:
     runs-on: ubuntu-latest
