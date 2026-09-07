@@ -250,7 +250,9 @@ describe("the fixture backend", () => {
 
   it("lists only the prompt libraries in the namespace asked about", async () => {
     const scoped = await invoke("prompts.list", { namespace: "platform" });
-    expect(scoped.map((row) => row.name)).toEqual(["incident-playbooks"]);
+    expect(scoped.map((row) => ({ namespace: row.namespace, name: row.name }))).toEqual([
+      { namespace: "platform", name: "incident-playbooks" },
+    ]);
 
     const all = await invoke("prompts.list", {});
     expect(all.length).toBeGreaterThan(scoped.length);

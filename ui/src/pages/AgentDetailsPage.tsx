@@ -96,6 +96,7 @@ export function AgentDetailsPage() {
         {
           key: "creator",
           label: "Creator",
+          span: 2,
           children: <ValueOrNotReported value={data.creator} />,
         },
         {

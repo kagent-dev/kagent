@@ -124,6 +124,7 @@ export function AgentTemplatesTab() {
         render: (_, row) => (
           <Link
             to={buildPath(paths.agentTemplateDetail, {
+              namespace: row.namespace,
               name: row.name,
             })}
             data-testid={`template-link-${row.name}`}
@@ -196,6 +197,7 @@ export function AgentTemplatesTab() {
             */}
             <Link
               to={buildPath(paths.agentTemplateDetail, {
+                namespace: row.namespace,
                 name: row.name,
               })}
             >
@@ -333,6 +335,7 @@ export function AgentTemplatesTab() {
               }
               void navigate(
                 buildPath(paths.agentTemplateDetail, {
+                  namespace: row.namespace,
                   name: row.name,
                 }),
               );

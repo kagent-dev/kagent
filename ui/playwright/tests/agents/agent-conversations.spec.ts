@@ -189,7 +189,7 @@ test("agents: an unnamed conversation is titled from its first message where tha
  *
  * Always asking for `all_creators` is the easy half. The hard half is that an
  * instance is scoped to its creator on *read* — `GetAgentInstance` resolves through
- * `WHERE namespace = $1 AND id = $2 AND user_id = $3`, and the A2A gateway reads it
+ * `WHERE id = $1 AND user_id = $2`, and the A2A gateway reads it
  * through that same call — so a conversation somebody else started is listable and
  * genuinely not openable. This is what that has to look like.
  */
@@ -372,7 +372,7 @@ test("agents: a conversation is created by its first message, not by the click",
     await page.getByTestId("chat-send").click();
 
     // Now there is an id, because now there is a conversation.
-    await page.waitForURL(/\/agents\/kagent\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
+    await page.waitForURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
     await expect(page.getByTestId("new-chat-error")).toHaveCount(0);
     // And the message that created it is in the transcript rather than lost in the
     // navigation — it is handed to the chat page and sent there, so the reader sees

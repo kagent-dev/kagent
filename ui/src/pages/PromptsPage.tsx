@@ -89,6 +89,7 @@ export function PromptsPage() {
         render: (_, row) => (
           <Link
             to={buildPath(paths.promptDetail, {
+              namespace: row.namespace,
               name: row.name,
             })}
             // The table's own text colour would otherwise win here, leaving the
@@ -143,6 +144,7 @@ export function PromptsPage() {
           <Space size={0}>
             <Link
               to={buildPath(paths.promptEdit, {
+                namespace: row.namespace,
                 name: row.name,
               })}
             >

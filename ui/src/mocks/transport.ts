@@ -522,7 +522,7 @@ on(PromptTemplateService.method.listPromptTemplates, (input, call) => ({
       : allPromptSummaries()
           .filter((row) => !input.namespace || row.namespace === input.namespace)
           .map((row) => ({
-            ref: { name: row.name },
+            ref: { namespace: row.namespace, name: row.name },
             keyCount: row.keyCount,
             keys: row.keys ?? [],
           })),
