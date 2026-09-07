@@ -16,7 +16,7 @@ import {
   apiClient,
   agentPairsFrom,
   pairIdOfInstance,
-  useAgentInstancesAcrossNamespaces,
+  useAgentInstances,
   useAgentTemplatesAcrossNamespaces,
   useNamespaces,
   UNMAPPED_AGENT_NAME,
@@ -55,7 +55,7 @@ export function UnmappedConversationsPage() {
   );
 
   const templates = useAgentTemplatesAcrossNamespaces(namespaceNames);
-  const conversations = useAgentInstancesAcrossNamespaces(namespaceNames, true);
+  const conversations = useAgentInstances(true);
 
   /*
    * Computed here rather than handed over, so the page is a real address.
@@ -68,7 +68,7 @@ export function UnmappedConversationsPage() {
     const known = new Set(
       agentPairsFrom(templates.data.templates).map((agent) => agent.id),
     );
-    return (conversations.data.instances ?? []).filter((instance) => {
+    return (conversations.data ?? []).filter((instance) => {
       const pairId = pairIdOfInstance(instance);
       return pairId === undefined || !known.has(pairId);
     });
@@ -86,7 +86,7 @@ export function UnmappedConversationsPage() {
    */
   async function removeAll(): Promise<void> {
     await Promise.all(
-      orphans.map((row) => apiClient.agentInstances.remove(row.namespace, row.id)),
+      orphans.map((row) => apiClient.agentInstances.remove(row.id)),
     );
   }
 
@@ -96,7 +96,7 @@ export function UnmappedConversationsPage() {
       key: "name",
       render: (_, row) => (
         <Link
-          to={agentUrl.chat({ namespace: row.namespace, id: row.id })}
+          to={agentUrl.chat({ id: row.id })}
           data-testid={`unmapped-link-${row.id}`}
         >
           {conversationTitle(row)}
@@ -134,7 +134,7 @@ export function UnmappedConversationsPage() {
         <DeleteResourceButton
           kind="conversation"
           name={conversationTitle(row)}
-          onDelete={() => apiClient.agentInstances.remove(row.namespace, row.id)}
+          onDelete={() => apiClient.agentInstances.remove(row.id)}
           onDeleted={conversations.refresh}
           description="This conversation cannot be reached from any agent, and deleting it releases the worker it holds."
         />
@@ -150,7 +150,7 @@ export function UnmappedConversationsPage() {
         <Space size={8}>
           {/*
             The whole point of this page, offered once rather than row by row.
-            
+
             These conversations are reachable from nowhere else and each holds a worker
             nothing will reclaim, so clearing them is the ordinary thing to do here —
             and doing it one row at a time for twenty of them is a chore that leaves

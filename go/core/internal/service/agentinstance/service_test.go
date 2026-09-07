@@ -53,7 +53,7 @@ func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv
 	return instance, true, nil
 }
 
-func (s *serviceTestStore) GetAgentInstance(_ context.Context, _, _, creator string) (*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) GetAgentInstance(_ context.Context, _, creator string) (*apiv1alpha1.AgentInstance, error) {
 	s.getCreator = creator
 	return &apiv1alpha1.AgentInstance{State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}, nil
 }
@@ -63,7 +63,7 @@ func (s *serviceTestStore) ListAgentInstances(_ context.Context, query dbpkg.Age
 	return s.instances, nil
 }
 
-func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, _, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
 	if s.renameErr != nil {
 		return nil, s.renameErr
 	}
@@ -77,12 +77,12 @@ func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share dbp
 	return &s.share, nil
 }
 
-func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, _, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
 	s.shareAfterID, s.shareLimit = afterID, limit
 	return s.shares, nil
 }
 
-func (*serviceTestStore) DeleteAgentInstanceShare(context.Context, string, string, string) error {
+func (*serviceTestStore) DeleteAgentInstanceShare(context.Context, string, string) error {
 	return nil
 }
 
@@ -112,7 +112,7 @@ func TestServiceCreateUsesAuthenticatedOwnerAndGeneratedUUID(t *testing.T) {
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 
-	instance, err := service.Create(serviceTestContext("alice"), "team-a", "kagent", "assistant", "request-1", "")
+	instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestServiceCreateMapsStoreErrors(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service := NewService(&serviceTestStore{createErr: test.err}, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			_, err := service.Create(serviceTestContext("alice"), "team-a", "kagent", "assistant", "request-1", "")
+			_, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
 			if !serviceerrors.IsCode(err, test.code) {
 				t.Fatalf("Create() error = %v, want code %s", err, test.code)
 			}
@@ -162,7 +162,7 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service := NewService(&serviceTestStore{}, test.authorizer, serviceTestWorkflow{})
-			_, err := service.Create(test.ctx, test.namespace, "kagent", "assistant", "request-1", "")
+			_, err := service.Create(test.ctx, &apiv1alpha1.ResourceReference{Namespace: test.namespace, Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: test.namespace, Name: "assistant"}, "request-1", "")
 			if !serviceerrors.IsCode(err, test.code) {
 				t.Fatalf("Create() error = %v, want code %s", err, test.code)
 			}
@@ -174,14 +174,14 @@ func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
 	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: dbpkg.ErrAgentInstanceConflict})
 	for _, test := range []struct {
 		name string
-		call func(*Service, context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
 	}{
 		{name: "suspend", call: (*Service).Suspend},
 		{name: "resume", call: (*Service).Resume},
 		{name: "delete", call: (*Service).Delete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := test.call(service, serviceTestContext("alice"), "team-a", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+			_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
 			if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
 				t.Fatalf("error = %v, want code %s", err, serviceerrors.CodeAborted)
 			}
@@ -198,7 +198,7 @@ func TestServiceListPaginatesByInstanceID(t *testing.T) {
 	store := &serviceTestStore{instances: []*apiv1alpha1.AgentInstance{{Id: ids[0]}, {Id: ids[1]}, {Id: ids[2]}}}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 
-	result, err := service.List(serviceTestContext("alice"), ListRequest{Namespace: "team-a", PageSize: 2})
+	result, err := service.List(serviceTestContext("alice"), ListRequest{PageSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestServiceListPaginatesByInstanceID(t *testing.T) {
 	if err != nil || afterID != ids[1] {
 		t.Fatalf("next page token = %q (%v), want %q", afterID, err, ids[1])
 	}
-	if _, err := service.List(serviceTestContext("alice"), ListRequest{Namespace: "team-a", AllCreators: true}); err != nil {
+	if _, err := service.List(serviceTestContext("alice"), ListRequest{AllCreators: true}); err != nil {
 		t.Fatal(err)
 	}
 	if store.listQuery.UserID != "alice" || !store.listQuery.AllUsers {
@@ -222,7 +222,7 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	instanceID := "11111111-1111-4111-8111-111111111111"
 
-	share, token, err := service.CreateShare(serviceTestContext("alice"), "team-a", instanceID, "READ_ONLY")
+	share, token, err := service.CreateShare(serviceTestContext("alice"), instanceID, "READ_ONLY")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestServiceListSharesPaginatesInStore(t *testing.T) {
 		{ID: uuid.MustParse(ids[1])}, {ID: uuid.MustParse(ids[2])}, {ID: uuid.MustParse(ids[3])},
 	}}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-	result, err := service.ListShares(serviceTestContext("alice"), "team-a", ids[0], 2, encodePageToken(ids[0]))
+	result, err := service.ListShares(serviceTestContext("alice"), ids[0], 2, encodePageToken(ids[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestServiceCreateCarriesTheNameAndLeavesAnOmittedOneEmpty(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &serviceTestStore{}
 			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			instance, err := service.Create(serviceTestContext("alice"), "team-a", "kagent", "assistant", "request-1", test.given)
+			instance, err := service.Create(serviceTestContext("alice"), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", test.given)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -297,7 +297,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 	t.Run("refused without authorization", func(t *testing.T) {
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		_, err := service.Rename(serviceTestContext("alice"), "team-a", instanceID, "New title")
+		_, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 			t.Fatalf("Rename() error = %v, want code %s", err, serviceerrors.CodePermissionDenied)
 		}
@@ -310,7 +310,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 		authorizer := &recordingAuthorizer{}
 		store := &serviceTestStore{}
 		service := NewService(store, authorizer, serviceTestWorkflow{})
-		instance, err := service.Rename(serviceTestContext("alice"), "team-a", instanceID, "New title")
+		instance, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -325,7 +325,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 	t.Run("clearing the name is allowed", func(t *testing.T) {
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-		instance, err := service.Rename(serviceTestContext("alice"), "team-a", instanceID, "")
+		instance, err := service.Rename(serviceTestContext("alice"), instanceID, "")
 		if err != nil || instance.GetName() != "" {
 			t.Fatalf("Rename(\"\") = %+v, error %v", instance, err)
 		}
@@ -334,7 +334,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 	t.Run("a missing instance is not found", func(t *testing.T) {
 		store := &serviceTestStore{renameErr: dbpkg.ErrNotFound}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-		_, err := service.Rename(serviceTestContext("alice"), "team-a", instanceID, "New title")
+		_, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 			t.Fatalf("Rename() error = %v, want code %s", err, serviceerrors.CodeNotFound)
 		}
@@ -369,7 +369,7 @@ func TestServiceSuspendAcceptsAShareOverThatInstance(t *testing.T) {
 		// The authorizer refuses everything: a share that still needed its approval
 		// would pass this test for the wrong reason.
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		if _, err := service.Suspend(shared, "team-a", instanceID); err != nil {
+		if _, err := service.Suspend(shared, instanceID); err != nil {
 			t.Fatalf("Suspend() with a share over this instance = %v, want it accepted", err)
 		}
 		if store.getCreator != "owner" {
@@ -384,7 +384,7 @@ func TestServiceSuspendAcceptsAShareOverThatInstance(t *testing.T) {
 		})
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		if _, err := service.Suspend(elsewhere, "team-a", instanceID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		if _, err := service.Suspend(elsewhere, instanceID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 			t.Fatalf("Suspend() with a share over another instance = %v, want it refused", err)
 		}
 	})
@@ -398,7 +398,7 @@ func TestServiceSuspendAcceptsAShareOverThatInstance(t *testing.T) {
 		})
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{err: errors.New("denied")}, serviceTestWorkflow{})
-		if _, err := service.Suspend(session, "team-a", instanceID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		if _, err := service.Suspend(session, instanceID); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 			t.Fatalf("Suspend() with a session share = %v, want it refused", err)
 		}
 	})
@@ -422,17 +422,17 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 	}{
 		{
 			name:     "both halves of the pair",
-			request:  ListRequest{Namespace: "team-a", AgentTemplate: "assistant", Harness: "kagent"},
+			request:  ListRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
 			wantPair: [2]string{"assistant", "kagent"},
 		},
 		{
 			name:     "template alone",
-			request:  ListRequest{Namespace: "team-a", AgentTemplate: "assistant"},
+			request:  ListRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 			wantPair: [2]string{"assistant", ""},
 		},
 		{
 			name:     "neither, which lists everything",
-			request:  ListRequest{Namespace: "team-a"},
+			request:  ListRequest{},
 			wantPair: [2]string{"", ""},
 		},
 	} {
@@ -443,7 +443,7 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := [2]string{store.listQuery.AgentTemplate, store.listQuery.Harness}
+			got := [2]string{store.listQuery.AgentTemplate.GetName(), store.listQuery.Harness.GetName()}
 			if got != test.wantPair {
 				t.Fatalf("store query pair = %v, want %v", got, test.wantPair)
 			}

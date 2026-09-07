@@ -62,22 +62,22 @@ type Client interface {
 
 	// AgentInstance lifecycle methods
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
-	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
-	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
+	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
 	// UpdateAgentInstanceName sets the instance's display name, scoped to its owner.
-	// Takes namespace, id, owner and the new name.
-	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	// Takes id, owner and the new name.
+	UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, int) ([]AgentInstanceShare, error)
 	// GetAgentInstanceShareByTokenHash resolves a share token to its share and the
 	// owner of the instance it grants access to. Takes the digest, because only the
 	// digest is stored.
 	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*AgentInstanceShare, error)
-	DeleteAgentInstanceShare(context.Context, string, string, string) error
+	DeleteAgentInstanceShare(context.Context, string, string) error
 	// CreateAgentInstanceTask reserves the instance's single active-task slot.
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task) (*a2a.Task, bool, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2a.Task, error)
@@ -89,8 +89,8 @@ type Client interface {
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
 	ReserveAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
 	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
-	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
-	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]AgentInstanceCheckpoint, error)
-	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
-	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
+	GetAgentInstanceCheckpoint(context.Context, string, string) (*AgentInstanceCheckpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]AgentInstanceCheckpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*AgentInstanceCheckpoint, error)
+	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
 }

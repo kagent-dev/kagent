@@ -13,14 +13,12 @@ import (
 
 type A2aContext struct {
 	ID        uuid.UUID
-	Namespace string
 	UserID    string
 	CreatedAt time.Time
 }
 
 type AgentInstance struct {
 	ID                 uuid.UUID
-	Namespace          string
 	UserID             string
 	RequestID          string
 	PreparedRevision   *string
@@ -35,7 +33,6 @@ type AgentInstance struct {
 
 type AgentInstanceCheckpoint struct {
 	ID                   uuid.UUID
-	Namespace            string
 	SourceInstanceID     uuid.UUID
 	UserID               string
 	RequestID            string
@@ -56,7 +53,6 @@ type AgentInstanceCheckpoint struct {
 
 type AgentInstanceShare struct {
 	ID         uuid.UUID
-	Namespace  string
 	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte

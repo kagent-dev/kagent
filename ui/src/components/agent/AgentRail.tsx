@@ -95,7 +95,7 @@ interface AgentRailProps {
    * Which agent the rail is scoped to. From the URL, so the rail stands up before
    * anything has been read — including when the read fails.
    */
-  agentRef: AgentRef | { namespace: string; id?: undefined };
+  agentRef: Partial<AgentRef>;
   /**
    * What the identity card names, when no conversation is selected.
    *
@@ -141,7 +141,7 @@ interface AgentRailProps {
    */
   instance?: AgentInstance;
   /**
-   * Every instance in the namespace, from whichever surface is already reading them.
+   * Every instance visible to the caller, from whichever surface is already reading them.
    *
    * Required rather than read here: the surfaces mounting this rail all list
    * instances anyway, and a second read keyed differently would fetch the same rows
@@ -224,7 +224,7 @@ export function AgentRail({
    * nothing to keep in step.
    */
   const [switcherFor, setSwitcherFor] = useState<string>();
-  const agentKey = `${ref.namespace}/${ref.id ?? ""}`;
+  const agentKey = ref.id ?? agentPair?.agentTemplate ?? "new";
   const isSwitcherOpen = switcherFor === agentKey;
 
   /**
@@ -281,7 +281,7 @@ export function AgentRail({
     agentHrefFromCaller ??
     (instance?.harness && instance.agentTemplate
       ? agentPageUrl({
-          namespace: instance.namespace,
+        namespace: instance.agentTemplate.split("/")[0],
           agentTemplate: bareName(instance.agentTemplate),
           harness: bareName(instance.harness),
         })
@@ -311,19 +311,19 @@ export function AgentRail({
   /*
    * The other conversations with this agent: the instances cut from the same pair.
    *
-   * Narrowed on the pair rather than showing every instance in the namespace,
+   * Narrowed on the pair rather than showing every visible instance,
    * because "conversations with *this* agent" is what the list means — a different
    * template is a different agent, and listing it here would make the rail a second
    * copy of the agents page.
    *
    * With no instance loaded yet the pair is unknown, so nothing is claimed: an
-   * unfiltered list would briefly show every agent in the namespace as though they
+   * unfiltered list would briefly show every visible agent as though they
    * were all conversations with this one.
    */
   const chats = useMemo(() => {
     /*
      * With a conversation open, the list is narrowed to its siblings here — the
-     * surfaces that mount this rail read every instance in the namespace, and only
+     * surfaces that mount this rail read every visible instance, and only
      * this one knows which pair is current.
      *
      * With none open, the caller has already narrowed it, because the page *is* an
@@ -489,7 +489,7 @@ export function AgentRail({
       const targets = chats.filter((chat) => selected.has(chat.id));
       await Promise.all(
         targets.map((target) =>
-          apiClient.agentInstances.remove(target.namespace, target.id),
+          apiClient.agentInstances.remove(target.id),
         ),
       );
       await conversations.refresh();
@@ -507,15 +507,11 @@ export function AgentRail({
     }
   }
 
-
-
-
-
   async function deleteConversation(target: AgentInstance): Promise<void> {
     setDeletingId(target.id);
     setActionError(undefined);
     try {
-      await apiClient.agentInstances.remove(target.namespace, target.id);
+      await apiClient.agentInstances.remove(target.id);
       await conversations.refresh();
       onDeleted?.(target);
     } catch (cause: unknown) {
@@ -540,12 +536,12 @@ export function AgentRail({
     <>
     {/*
       The rail slides rather than vanishing.
-      
+
       Unmounting it made the transcript jump the full width of the panel in one frame,
       which reads as a layout fault rather than as something closing. Animating `width`
       on a wrapper keeps the rail mounted and lets the page take up the space smoothly;
       `overflow: hidden` is what stops its contents spilling while it is narrow.
-      
+
       Mounted-but-hidden costs nothing here: the conversations it lists are read by the
       page anyway and handed in, so a collapsed rail issues no requests of its own.
     */}
@@ -701,7 +697,7 @@ export function AgentRail({
               with the same agent — which is the one thing this badge sits beside a
               list of. */}
           {/* The agent's initials, not the conversation's.
-              
+
               This card is what opens the agent switcher, so it has to name the thing
               being switched. It took them from the instance id, which meant the badge
               changed every time a reader opened a different conversation with the same
@@ -732,7 +728,7 @@ export function AgentRail({
                 card describe a conversation while the menu it opens describes agents. */}
             {instance?.harness
               ? `on ${bareName(instance.harness)}`
-              : (agentTitle?.secondary ?? ref.namespace)}
+                  : (agentTitle?.secondary ?? agentPair?.namespace ?? instance?.agentTemplate?.split("/")[0] ?? "")}
           </Text>
         </span>
         <ChevronsUpDown size={14} color={theme.color.textMuted} aria-hidden />
@@ -778,7 +774,7 @@ export function AgentRail({
             <AgentSwitcher
               current={
                 agentPair ?? {
-                  namespace: ref.namespace,
+                      namespace: instance?.agentTemplate?.split("/")[0] ?? "",
                   agentTemplate: instance?.agentTemplate
                     ? bareName(instance.agentTemplate)
                     : agentTitle?.primary,
@@ -816,7 +812,7 @@ export function AgentRail({
           where there is no agent to link to and a caller has offered to handle it. */}
       {/*
         Styled as a rail entry, not as a button.
-        
+
         It sits directly under Agent and Conversation and does the same kind of thing
         — it goes somewhere — so a bordered button among them read as a different
         class of control and drew the eye away from the navigation it belongs to.
@@ -877,7 +873,7 @@ export function AgentRail({
       >
         {/*
           Styled to sit in the rail rather than on a form.
-          
+
           The default input carries a hard border and the page's own background, which
           in a column of tinted rows read as the one element that had been dropped in
           from a settings page. It takes the same ground and radius the rows use, loses
@@ -911,7 +907,7 @@ export function AgentRail({
         {/*
           Select-all and the bulk action, under the search because they act on what the
           search left behind.
-          
+
           The row is always here; only the actions button comes and goes. It used to be
           the whole bar, which meant ticking the first conversation inserted a line and
           pushed the entire list down under the reader's pointer — a jump at the exact
@@ -1120,7 +1116,7 @@ export function AgentRail({
                     ? pendingOperation ?? instance?.operation
                     : undefined) ?? candidate.operation
                 }
-                href={url.chat({ namespace: candidate.namespace, id: candidate.id })}
+                href={url.chat({ id: candidate.id })}
                 isActive={candidate.id === ref.id}
                 onDelete={deleteConversation}
                 isDeleting={deletingId === candidate.id}
@@ -1137,12 +1133,12 @@ export function AgentRail({
 
     {/*
       Outside the rail, not inside it.
-      
+
       In the rail it sat above the identity card and pushed everything down, so
       collapsing and expanding moved the switcher under the reader's cursor — the
       control they had just used to open it. Beside the rail it changes nothing within,
       and the rail's contents keep their position whether it is there or not.
-      
+
       Sticky on its own, so it stays reachable through a long conversation rather than
       scrolling away with the top of the page.
     */}
@@ -1197,7 +1193,6 @@ function conversationLabel(instance: AgentInstance, autoTitle?: string) {
   const age = instance.createdAt ? ` · ${relativeAge(instance.createdAt)}` : "";
   return `${conversationTitle(instance, autoTitle)}${age}`;
 }
-
 
 /**
  * What state a conversation is in, as one dot at the end of its row.
@@ -1284,7 +1279,6 @@ function ConversationStateDot({
     </Tooltip>
   );
 }
-
 
 const STATE_COLOUR = (theme: Theme): Record<string, string> => ({
   suspended: theme.color.textMuted,
@@ -1405,7 +1399,7 @@ function ChatEntry({
       {/*
         One slot, two things: the folder that marks a conversation, and the checkbox
         that picks it.
-        
+
         They share a place rather than sitting side by side, so nothing moves as the
         pointer crosses a row — a list that reflows under the cursor is one where the
         thing you were aiming at has gone. The folder is decoration and the checkbox is
@@ -1478,12 +1472,12 @@ function ChatEntry({
       </Link>
       {/*
         A menu, revealed on hover, rather than a trash can on every row.
-        
+
         The trash was always visible and sat inches from the conversation being read, in
         a rail where every row looks alike — a slip cost the whole thing with nothing to
         undo it. Behind a menu it takes two deliberate actions, and the row is quieter
         for the reader who is not deleting anything, which is almost always.
-        
+
         It also only existed where a caller passed a handler, so it appeared on the chat
         and nowhere else. The rail owns the delete now, so the row behaves the same on
         every surface that mounts it.
@@ -1554,7 +1548,6 @@ function ChatEntry({
  * instance is scoped to its creator on write, so being refused is an ordinary outcome
  * here rather than an exceptional one — which is exactly why it must be said.
  */
-
 
 function reportActionFailure(
   /** What was attempted, lower case — it is read in the middle of a sentence. */

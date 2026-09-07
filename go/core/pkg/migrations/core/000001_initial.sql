@@ -65,14 +65,12 @@ CREATE INDEX agent_template_harness_pair_name_idx
 
 CREATE TABLE a2a_context (
     id         UUID        PRIMARY KEY,
-    namespace  TEXT        NOT NULL,
     user_id    TEXT        NOT NULL CHECK (user_id <> ''),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE agent_instance_checkpoint (
     id                     UUID        PRIMARY KEY,
-    namespace              TEXT        NOT NULL,
     source_instance_id     UUID        NOT NULL,
     user_id                TEXT        NOT NULL,
     request_id             TEXT        NOT NULL,
@@ -92,17 +90,16 @@ CREATE TABLE agent_instance_checkpoint (
         CHECK (jsonb_typeof(source_labels) = 'object'),
     CHECK (snapshot_content_scope IN ('FULL', 'DATA')),
     CHECK (state IN ('CREATING', 'READY', 'FAILED', 'DELETING')),
-    UNIQUE (user_id, namespace, request_id)
+    UNIQUE (user_id, request_id)
 );
 CREATE INDEX agent_instance_checkpoint_list_idx
-    ON agent_instance_checkpoint (namespace, source_instance_id, id);
+    ON agent_instance_checkpoint (source_instance_id, id);
 CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';
 
 CREATE TABLE agent_instance (
     id                   UUID        PRIMARY KEY,
-    namespace            TEXT        NOT NULL,
     user_id              TEXT        NOT NULL CHECK (user_id <> ''),
     request_id           TEXT        NOT NULL,
     prepared_revision    TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
@@ -116,21 +113,20 @@ CREATE TABLE agent_instance (
     CONSTRAINT agent_instance_operation_check
         CHECK (operation IN ('NONE', 'CREATE', 'SUSPEND', 'RESUME', 'DELETE')),
     CHECK (state IN ('CREATING', 'READY', 'SUSPENDED', 'FAILED')),
-    UNIQUE (user_id, namespace, request_id)
+    UNIQUE (user_id, request_id)
 );
-CREATE INDEX agent_instance_namespace_user_id_id_idx
-    ON agent_instance (namespace, user_id, id);
+CREATE INDEX agent_instance_user_id_id_idx
+    ON agent_instance (user_id, id);
 
 CREATE TABLE agent_instance_share (
     id          UUID        PRIMARY KEY,
-    namespace   TEXT        NOT NULL,
     instance_id UUID        NOT NULL REFERENCES agent_instance(id) ON DELETE CASCADE,
     permission  TEXT        NOT NULL CHECK (permission IN ('READ_ONLY', 'READ_WRITE')),
     token_hash  BYTEA       NOT NULL UNIQUE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX agent_instance_share_instance_idx
-    ON agent_instance_share (namespace, instance_id, id);
+    ON agent_instance_share (instance_id, id);
 
 CREATE TABLE agent_instance_task (
     context_id             UUID        CONSTRAINT agent_instance_task_instance_id_not_null NOT NULL REFERENCES a2a_context(id) ON DELETE CASCADE,

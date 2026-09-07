@@ -13,6 +13,7 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -67,11 +68,11 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, namespace, user_id)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice');
+		INSERT INTO a2a_context (id, user_id)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice');
 
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\x00')
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, state, data)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\x00')
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +163,10 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, namespace, user_id)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice');
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\x00')
+		INSERT INTO a2a_context (id, user_id)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, state, data)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\x00')
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -214,10 +215,10 @@ func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
 	ctx := context.Background()
 	instanceID := "11111111-1111-4111-8111-111111111111"
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, namespace, user_id)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice');
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\\x00')
+		INSERT INTO a2a_context (id, user_id)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, state, data)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\\x00')
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +259,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	ctx := context.Background()
 	instanceID := "11111111-1111-4111-8111-111111111111"
 	instance := &apiv1alpha1.AgentInstance{
-		Id: instanceID, Namespace: "team-a", Creator: "alice",
+		Id: instanceID, Creator: "alice",
 		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 	}
 	instanceData, err := proto.Marshal(instance)
@@ -266,14 +267,14 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, namespace, user_id)
-		VALUES ($1, 'team-a', 'alice')
+		INSERT INTO a2a_context (id, user_id)
+		VALUES ($1, 'alice')
 	`, instanceID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
-		VALUES ($1, 'team-a', 'alice', 'instance-request', $1, 'READY', $2)
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, state, data)
+		VALUES ($1, 'alice', 'instance-request', $1, 'READY', $2)
 	`, instanceID, instanceData); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +290,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	}
 
 	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+		ID: uuid.MustParse("22222222-2222-4222-8222-222222222222"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
 		RequestID: "checkpoint-request",
 	})
 	if err != nil {
@@ -309,7 +310,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("lifecycle transition during checkpoint = %+v, error %v", current, err)
 	}
 	replayed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+		ID: uuid.MustParse("33333333-3333-4333-8333-333333333333"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
 		RequestID: "checkpoint-request",
 	})
 	if err != nil || replayed.ID != checkpoint.ID {
@@ -323,7 +324,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
 	}
 	failed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("44444444-4444-4444-8444-444444444444"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+		ID: uuid.MustParse("44444444-4444-4444-8444-444444444444"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
 		RequestID: "failed-checkpoint-request",
 	})
 	if err != nil {
@@ -337,20 +338,20 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	replayed, err = client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("55555555-5555-4555-8555-555555555555"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
+		ID: uuid.MustParse("55555555-5555-4555-8555-555555555555"), SourceInstanceID: uuid.MustParse(instanceID), UserID: "alice",
 		RequestID: "checkpoint-request",
 	})
 	if err != nil || replayed.ID != checkpoint.ID {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
-	listed, err := client.ListAgentInstanceCheckpoints(ctx, "team-a", instanceID, "alice", "", 10)
+	listed, err := client.ListAgentInstanceCheckpoints(ctx, instanceID, "alice", "", 10)
 	if err != nil || len(listed) != 1 || listed[0].ID != checkpoint.ID {
 		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
 	}
-	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID.String(), "alice"); err != nil {
+	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.DeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID.String(), "alice"); err != nil {
+	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "alice"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -386,7 +387,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 
 	source, _, err := client.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
-		Id: sourceID, Namespace: "team-a", Creator: "alice",
+		Id: sourceID, Creator: "alice",
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}, "source-request")
@@ -410,7 +411,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("99999999-9999-4999-8999-999999999999"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(source.GetId()), UserID: "alice", RequestID: "checkpoint-request-1",
+		ID: uuid.MustParse("99999999-9999-4999-8999-999999999999"), SourceInstanceID: uuid.MustParse(source.GetId()), UserID: "alice", RequestID: "checkpoint-request-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +433,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fork, created, err := client.ForkAgentInstance(ctx, "team-a", checkpoint.ID.String(), "alice", "fork-request-1", forkID)
+	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.ID.String(), "alice", "fork-request-1", forkID)
 	if err != nil || !created {
 		t.Fatalf("ForkAgentInstance() = %+v, created %v, error %v", fork, created, err)
 	}
@@ -443,7 +444,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatalf("fork = %+v", fork)
 	}
 	instances, err := client.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
-		Namespace: "team-a", UserID: "alice", Limit: 10,
+		UserID: "alice", Limit: 10,
 	})
 	if err != nil || len(instances) != 1 || instances[0].GetId() != fork.GetId() {
 		t.Fatalf("listed forks = %+v, error %v", instances, err)
@@ -471,14 +472,14 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if initialMessageID != nil || requestHash != nil || snapshotUID != "snapshot-uid-1" {
 		t.Fatalf("copied persistence metadata = message %v hash %v snapshot %q", initialMessageID, requestHash, snapshotUID)
 	}
-	replayed, created, err := client.ForkAgentInstance(ctx, "team-a", checkpoint.ID.String(), "alice", "fork-request-1", "ignored")
+	replayed, created, err := client.ForkAgentInstance(ctx, checkpoint.ID.String(), "alice", "fork-request-1", "ignored")
 	if err != nil || created || replayed.GetId() != fork.GetId() {
 		t.Fatalf("replayed fork = %+v, created %v, error %v", replayed, created, err)
 	}
-	if _, _, err := client.ForkAgentInstance(ctx, "team-a", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "fork-request-1", "ignored"); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if _, _, err := client.ForkAgentInstance(ctx, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "alice", "fork-request-1", "ignored"); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting fork request error = %v", err)
 	}
-	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID.String(), "alice"); !errors.Is(err, dbpkg.ErrNotFound) {
+	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.ID.String(), "alice"); !errors.Is(err, dbpkg.ErrNotFound) {
 		t.Fatalf("delete referenced checkpoint error = %v", err)
 	}
 
@@ -486,7 +487,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoint2, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), Namespace: "team-a", SourceInstanceID: uuid.MustParse(fork.GetId()), UserID: "alice", RequestID: "checkpoint-request-2",
+		ID: uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"), SourceInstanceID: uuid.MustParse(fork.GetId()), UserID: "alice", RequestID: "checkpoint-request-2",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -497,7 +498,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if err := client.DeleteAgentInstance(ctx, fork.GetId()); err != nil {
 		t.Fatal(err)
 	}
-	fork2, created, err := client.ForkAgentInstance(ctx, "team-a", checkpoint2.ID.String(), "alice", "fork-request-2", fork2ID)
+	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.ID.String(), "alice", "fork-request-2", fork2ID)
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}
@@ -537,7 +538,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	}
 
 	request := &apiv1alpha1.AgentInstance{
-		Id: "11111111-1111-4111-8111-111111111111", Namespace: "team-a", Creator: "alice",
+		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice",
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}
@@ -557,7 +558,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 		t.Fatalf("labels = %v", replayed.GetLabels())
 	}
 	instances, err := client.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
-		Namespace: "team-a", UserID: "alice", Limit: 10,
+		UserID: "alice", Limit: 10,
 	})
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
@@ -603,10 +604,10 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, namespace, user_id)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice');
-		INSERT INTO agent_instance (id, namespace, user_id, request_id, context_id, state, data)
-		VALUES ('11111111-1111-4111-8111-111111111111', 'team-a', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\x00')
+		INSERT INTO a2a_context (id, user_id)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice');
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, state, data)
+		VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', 'READY', '\x00')
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -669,21 +670,21 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 
 // agentInstanceFixture installs a runnable agent — a template/harness pair with a
 // successful revision — so instances can be created against it.
-func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context, revisionID, template, harness string) {
+func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context, namespace, revisionID, template, harness string) {
 	t.Helper()
 	revision := dbpkg.RuntimeRevision{
-		Revision: revisionID, Namespace: "team-a",
+		Revision: revisionID, Namespace: namespace,
 		AgentTemplateName: template, AgentTemplateUID: template + "-uid",
 		HarnessName: harness, HarnessUID: harness + "-uid",
 		SourceSnapshot: []byte("{}"), AgentCard: []byte("{}"), EgressDestinations: []string{},
-		ActorTemplateAtespace: "team-a", ActorTemplateName: revisionID + "-actor-template",
+		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template",
 		ActorTemplateUID: revisionID + "-actor-uid",
 	}
 	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
 	pair := dbpkg.AgentTemplateHarnessPair{
-		Namespace: "team-a", AgentTemplateName: template, AgentTemplateUID: template + "-uid",
+		Namespace: namespace, AgentTemplateName: template, AgentTemplateUID: template + "-uid",
 		HarnessName: harness, HarnessUID: harness + "-uid", DesiredRevision: revisionID,
 	}
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
@@ -696,16 +697,50 @@ func agentInstanceFixture(t *testing.T, client dbpkg.Client, ctx context.Context
 
 func newAgentInstanceRequest(id, template, harness, name string) *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
-		Id: id, Namespace: "team-a", Creator: "alice", Name: name,
+		Id: id, Creator: "alice", Name: name,
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: harness},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
 	}
 }
 
+func TestAgentInstancesUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
+	c := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	for _, namespace := range []string{"team-a", "team-b"} {
+		agentInstanceFixture(t, c, ctx, namespace, namespace+"-revision", "assistant", "kagent")
+	}
+	first := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "")
+	created, _, err := c.CreateAgentInstance(ctx, first, "request")
+	require.NoError(t, err)
+	second := proto.CloneOf(first)
+	second.Id = uuid.NewString()
+	second.Harness.Namespace, second.AgentTemplate.Namespace = "team-b", "team-b"
+	_, _, err = c.CreateAgentInstance(ctx, second, "request")
+	require.ErrorIs(t, err, dbpkg.ErrIdempotencyConflict, "request IDs belong to the caller, across targets")
+	other, _, err := c.CreateAgentInstance(ctx, second, "other-request")
+	require.NoError(t, err)
+	rows, err := c.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{UserID: "alice", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	filtered, err := c.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{UserID: "alice", Limit: 10, AgentTemplate: second.AgentTemplate})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	require.Equal(t, other.Id, filtered[0].Id)
+	loaded, err := c.GetAgentInstance(ctx, created.Id, "alice")
+	require.NoError(t, err)
+	require.Equal(t, "team-a", loaded.AgentTemplate.Namespace)
+	_, err = c.GetAgentInstance(ctx, created.Id, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrNotFound)
+	second.Id = uuid.NewString()
+	second.Harness.Namespace = "team-a"
+	_, _, err = c.CreateAgentInstance(ctx, second, "mixed-targets")
+	require.ErrorIs(t, err, dbpkg.ErrNotFound, "never silently resolve the template in the harness's namespace")
+}
+
 func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := context.Background()
-	agentInstanceFixture(t, client, ctx, "revision-1", "assistant", "kagent")
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
 	namedID := "11111111-1111-4111-8111-111111111111"
 	unnamedID := "22222222-2222-4222-8222-222222222222"
 
@@ -728,34 +763,34 @@ func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 			if created.GetName() != test.wantName {
 				t.Fatalf("created name = %q, want %q", created.GetName(), test.wantName)
 			}
-			read, err := client.GetAgentInstance(ctx, "team-a", test.id, "alice")
+			read, err := client.GetAgentInstance(ctx, test.id, "alice")
 			if err != nil || read.GetName() != test.wantName {
 				t.Fatalf("re-read name = %q (%v), want %q", read.GetName(), err, test.wantName)
 			}
 		})
 	}
 
-	renamed, err := client.UpdateAgentInstanceName(ctx, "team-a", unnamedID, "alice", "Named afterwards")
+	renamed, err := client.UpdateAgentInstanceName(ctx, unnamedID, "alice", "Named afterwards")
 	if err != nil || renamed.GetName() != "Named afterwards" {
 		t.Fatalf("UpdateAgentInstanceName() = %+v, error %v", renamed, err)
 	}
 	// The rename has to survive a re-read, not just be echoed back: the name lives
 	// in a column while the rest of the message lives in a blob the rename does not
 	// rewrite, so an echoed value proves nothing about what was stored.
-	read, err := client.GetAgentInstance(ctx, "team-a", unnamedID, "alice")
+	read, err := client.GetAgentInstance(ctx, unnamedID, "alice")
 	if err != nil || read.GetName() != "Named afterwards" {
 		t.Fatalf("re-read after rename = %+v, error %v", read, err)
 	}
 	// Renaming back to empty must be possible, or a name can never be undone.
-	cleared, err := client.UpdateAgentInstanceName(ctx, "team-a", unnamedID, "alice", "")
+	cleared, err := client.UpdateAgentInstanceName(ctx, unnamedID, "alice", "")
 	if err != nil || cleared.GetName() != "" {
 		t.Fatalf("UpdateAgentInstanceName(\"\") = %+v, error %v", cleared, err)
 	}
 	// A rename is scoped to the owner, so it cannot reach another reader's row.
-	if _, err := client.UpdateAgentInstanceName(ctx, "team-a", namedID, "bob", "Stolen"); !errors.Is(err, dbpkg.ErrNotFound) {
+	if _, err := client.UpdateAgentInstanceName(ctx, namedID, "bob", "Stolen"); !errors.Is(err, dbpkg.ErrNotFound) {
 		t.Fatalf("UpdateAgentInstanceName() as another user error = %v, want %v", err, dbpkg.ErrNotFound)
 	}
-	if _, err := client.UpdateAgentInstanceName(ctx, "team-a", "33333333-3333-4333-8333-333333333333", "alice", "Nothing"); !errors.Is(err, dbpkg.ErrNotFound) {
+	if _, err := client.UpdateAgentInstanceName(ctx, "33333333-3333-4333-8333-333333333333", "alice", "Nothing"); !errors.Is(err, dbpkg.ErrNotFound) {
 		t.Fatalf("UpdateAgentInstanceName() of a missing instance error = %v, want %v", err, dbpkg.ErrNotFound)
 	}
 }
@@ -768,9 +803,9 @@ func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := context.Background()
-	agentInstanceFixture(t, client, ctx, "revision-1", "assistant", "kagent")
-	agentInstanceFixture(t, client, ctx, "revision-2", "assistant", "claude")
-	agentInstanceFixture(t, client, ctx, "revision-3", "researcher", "kagent")
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-2", "assistant", "claude")
+	agentInstanceFixture(t, client, ctx, "team-a", "revision-3", "researcher", "kagent")
 
 	for id, pair := range map[string][2]string{
 		"11111111-1111-4111-8111-111111111111": {"assistant", "kagent"},
@@ -794,35 +829,35 @@ func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
 		},
 		{
 			name:  "one agent, which is one pair",
-			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant", Harness: "kagent"},
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
 			want:  []string{"11111111-1111-4111-8111-111111111111"},
 		},
 		{
 			// The case labels could never serve: one template, two harnesses, two
 			// agents, and identical labels on both instances.
 			name:  "the same template on a different harness is a different agent",
-			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant", Harness: "claude"},
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "claude"}},
 			want:  []string{"22222222-2222-4222-8222-222222222222"},
 		},
 		{
 			name:  "template alone spans its harnesses",
-			query: dbpkg.AgentInstanceQuery{AgentTemplate: "assistant"},
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}},
 			want:  []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"},
 		},
 		{
 			name:  "harness alone spans its templates",
-			query: dbpkg.AgentInstanceQuery{Harness: "kagent"},
+			query: dbpkg.AgentInstanceQuery{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
 			want:  []string{"11111111-1111-4111-8111-111111111111", "33333333-3333-4333-8333-333333333333"},
 		},
 		{
 			name:  "an unknown agent matches nothing rather than everything",
-			query: dbpkg.AgentInstanceQuery{AgentTemplate: "absent", Harness: "kagent"},
+			query: dbpkg.AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "absent"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}},
 			want:  []string{},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			query := test.query
-			query.Namespace, query.UserID, query.Limit = "team-a", "alice", 10
+			query.UserID, query.Limit = "alice", 10
 			instances, err := client.ListAgentInstances(ctx, query)
 			if err != nil {
 				t.Fatal(err)

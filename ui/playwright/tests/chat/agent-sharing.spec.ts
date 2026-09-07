@@ -19,7 +19,7 @@ import { agentChat, instances } from "../../helpers/app";
 
 const CONVERSATION = agentChat(instances.ready);
 /** A link issued before this tab opened — see `SEEDED_INSTANCE_SHARE` in the mock. */
-const SEEDED_LINK = `/shared/agent/kagent/${instances.ready}/mock-instance-token-seed`;
+const SEEDED_LINK = `/shared/agent/${instances.ready}/mock-instance-token-seed`;
 
 test("sharing: a link is created, shown once, listed and revoked", async ({ page }) => {
   await page.goto(CONVERSATION);
@@ -49,7 +49,7 @@ test("sharing: a link is created, shown once, listed and revoked", async ({ page
     // fetched again.
     await expect(fresh).toContainText("cannot be shown again");
     // A whole link, not a bare token: that is the form a person actually sends.
-    await expect(fresh).toContainText("/shared/agent/kagent/");
+    await expect(fresh).toContainText("/shared/agent/");
   });
 
   await test.step("4. the list shows the share, and never the token", async () => {
@@ -110,7 +110,7 @@ test("sharing: a token the backend never issued is refused", async ({ page }) =>
   // token it cannot resolve, exactly as the controller does. Without it, a build
   // that mangled the token would serve the conversation anyway and the miss would
   // read on screen as success.
-  await page.goto(`/shared/agent/kagent/${instances.ready}/not-a-real-token`);
+  await page.goto(`/shared/agent/${instances.ready}/not-a-real-token`);
 
   await expect(page.getByTestId("shared-agent-error")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("shared-agent-transcript")).toHaveCount(0);

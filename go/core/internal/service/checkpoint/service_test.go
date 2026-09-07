@@ -51,18 +51,18 @@ func (s *testStore) FinalizeAgentInstanceCheckpoint(_ context.Context, _ string,
 	return s.prepared, nil
 }
 
-func (s *testStore) GetAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {
+func (s *testStore) GetAgentInstanceCheckpoint(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {
 	if s.prepared == nil {
 		return nil, dbpkg.ErrNotFound
 	}
 	return s.prepared, nil
 }
 
-func (*testStore) ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error) {
+func (*testStore) ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error) {
 	return nil, nil
 }
 
-func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {
+func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {
 	if s.prepared == nil {
 		return nil, dbpkg.ErrNotFound
 	}
@@ -70,15 +70,15 @@ func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, 
 	return s.prepared, nil
 }
 
-func (s *testStore) DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error {
+func (s *testStore) DeleteAgentInstanceCheckpoint(context.Context, string, string) error {
 	s.deleted = true
 	return nil
 }
 
-func (s *testStore) ForkAgentInstance(_ context.Context, namespace, _ string, userID, _ string, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
+func (s *testStore) ForkAgentInstance(_ context.Context, _ string, userID, _ string, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	if s.forked == nil {
 		s.forked = &apiv1alpha1.AgentInstance{
-			Id: instanceID, Namespace: namespace, Creator: userID,
+			Id: instanceID, Creator: userID,
 			State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 		}
 		return s.forked, true, nil
@@ -138,7 +138,7 @@ func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	checkpoint, err := service.Create(ctx, "team-a", "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+	checkpoint, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	if _, err := service.Create(ctx, "team-a", "018f47a2-4efb-7c21-a848-123456789abc", "request-1"); err == nil {
+	if _, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1"); err == nil {
 		t.Fatal("Create() succeeded after snapshot identity changed")
 	}
 	if tags.deleteCalls != 1 || store.failed == "" {
@@ -166,7 +166,7 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 
 func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	checkpoint := &dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), Namespace: "team-a", UserID: "alice",
+		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), UserID: "alice",
 		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", TagUID: "tag-uid", State: "READY",
 	}
 	store := &testStore{prepared: checkpoint}
@@ -177,7 +177,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	if err := service.Delete(ctx, "team-a", checkpoint.ID.String()); err != nil {
+	if err := service.Delete(ctx, checkpoint.ID.String()); err != nil {
 		t.Fatal(err)
 	}
 	if checkpoint.State != "DELETING" || tags.deleteCalls != 1 || !store.deleted {
@@ -186,7 +186,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 }
 func TestForkCreatesAgentInstanceFromCheckpoint(t *testing.T) {
 	checkpoint := &dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), Namespace: "team-a", UserID: "alice",
+		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), UserID: "alice",
 		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid", SnapshotContentScope: "DATA", State: "READY",
 	}
 	store := &testStore{prepared: checkpoint}
@@ -194,7 +194,7 @@ func TestForkCreatesAgentInstanceFromCheckpoint(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, &testTags{}, workflow)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	instance, err := service.Fork(ctx, "team-a", checkpoint.ID.String(), "fork-request")
+	instance, err := service.Fork(ctx, checkpoint.ID.String(), "fork-request")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ const ALL_OPERATIONS: AgentInstanceOperation[] = [
 function instance(overrides: Partial<AgentInstance> = {}): AgentInstance {
   return {
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-    namespace: "kagent",
+
     name: "",
     creator: "alice@example.com",
     state: "ready",

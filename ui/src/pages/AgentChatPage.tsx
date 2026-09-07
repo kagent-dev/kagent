@@ -40,7 +40,7 @@ const LIFECYCLE_POLL_MS = 1_000;
  *
  * An `AgentInstance` *is* the conversation. The A2A gateway files every task under
  * the instance as the task's `contextId`, and `ListTasks` for the instance is the
- * transcript — so `/agents/:namespace/:id/chat` is the whole address, and there is
+ * transcript — so `/agents/:id/chat` is the whole address, and there is
  * nothing to put in a session segment.
  *
  * That is also why "New chat" in the rail *creates* rather than navigates: another
@@ -60,22 +60,22 @@ const CONTEXT_OPEN = "kagent.chat.agentPanel.open";
 export function AgentChatPage() {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { namespace, id } = useParams();
+  const { id } = useParams();
   const location = useLocation();
 
-  const instance = useAgentInstance(namespace, id);
+  const instance = useAgentInstance(id);
   /*
-   * Every instance in this namespace, for the rail's list of sibling conversations.
+   * Every instance visible to the caller, for the rail's list of sibling conversations.
    *
    * Read here rather than in the rail because this page is the one that creates and
    * deletes them, so it is the one that has to refresh the list afterwards — and a
    * rail reading its own copy would show a conversation this page had just removed.
    */
-  const instances = useAgentInstances(namespace);
+  const instances = useAgentInstances();
 
   const conversation = useMemo(
-    () => (namespace && id ? { namespace, id } : undefined),
-    [namespace, id],
+    () => (id ? { id } : undefined),
+    [id],
   );
   /**
    * Resume a suspended conversation before any turn begins.
@@ -114,15 +114,11 @@ export function AgentChatPage() {
      render to undo the first. */
   const pendingState = askedFor === instance.data?.state ? undefined : askedFor;
 
-
-
-
-
   const resumeFirst = useCallback(async () => {
-    if (instance.data?.state !== "suspended" || !namespace || !id) return;
+    if (instance.data?.state !== "suspended" || !id) return;
     setPendingState("ready");
     try {
-      await apiClient.agentInstances.resume(namespace, id);
+      await apiClient.agentInstances.resume(id);
       await instance.refresh();
     } catch (cause: unknown) {
       // Back to the truth: the turn is about to fail too, and a row claiming ready
@@ -131,7 +127,7 @@ export function AgentChatPage() {
       throw cause;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.data?.state, namespace, id]);
+  }, [instance.data?.state, id]);
 
   const chat = useChat(conversation, resumeFirst);
 
@@ -176,7 +172,6 @@ export function AgentChatPage() {
    * this needs the current instance loaded to copy the pair from. The rail's button
    * is disabled until then rather than creating something from a half-read record.
    */
-
 
   /*
    * Whether this agent can be talked to at all.
@@ -318,7 +313,7 @@ export function AgentChatPage() {
     // Keyed on the conversation, not on `chat`: the controller is rebuilt every render
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace, id, chat.isLoadingHistory]);
+  }, [id, chat.isLoadingHistory]);
   const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply);
 
   /*
@@ -405,9 +400,9 @@ export function AgentChatPage() {
            */
           alignItems: "flex-start",
         }}>
-        {namespace && id ? (
+        {id ? (
           <AgentRail
-            agentRef={{ namespace, id }}
+            agentRef={{ id }}
             instance={instance.data}
             instances={instances}
             autoTitle={autoTitle}
@@ -530,8 +525,6 @@ export function AgentChatPage() {
             />
           ) : null}
 
-
-
           {/* The controller's own precondition, said rather than discovered. A
               suspended agent is resumable from the agents list, which is why the
               state is named rather than the page simply refusing. */}
@@ -596,12 +589,12 @@ export function AgentChatPage() {
 
         {/*
           What the agent is, beside what it said.
-          
+
           Collapsible and remembered, like the rail: it is reference rather than
           navigation, so a reader following a long answer should be able to put it away
           — and find it away next time rather than having to close it on every
           conversation.
-          
+
           Rendered only once the instance has loaded: the panel's whole content is
           derived from the template that instance names, so an empty one would be a
           frame around nothing.

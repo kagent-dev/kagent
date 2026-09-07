@@ -127,7 +127,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	t.Run("an AgentInstance share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
 			instanceShare: &dbpkg.AgentInstanceShare{
-				Namespace: "kagent", InstanceID: testInstanceID,
+				InstanceID: testInstanceID,
 				Permission: "READ_ONLY", OwnerUserID: "owner",
 			},
 		}

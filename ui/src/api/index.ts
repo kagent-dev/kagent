@@ -100,13 +100,11 @@ export {
   useAgentConversations,
   useAgentInstance,
   useAgentInstances,
-  useAgentInstancesAcrossNamespaces,
 } from "./hooks/useAgentInstances";
 export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
 export { useInvalidatePrompts } from "./hooks/useInvalidatePrompts";
 export type {
   AgentConversations,
-  AgentInstancesAcrossNamespaces,
 } from "./hooks/useAgentInstances";
 export { useApiResource } from "./hooks/useApiResource";
 export type { ApiResource } from "./hooks/useApiResource";

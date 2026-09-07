@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"iter"
 	"maps"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,14 +31,13 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 // TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
 const TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
 
 type instanceStore interface {
-	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
@@ -148,7 +146,7 @@ func (g *Gateway) instance(ctx context.Context, verb auth.Verb) (*apiv1alpha1.Ag
  * which is exactly what suspending them was meant to stop.
  */
 func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alpha1.AgentInstance, error) {
-	namespace, id, err := route(ctx)
+	id, err := route(ctx)
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, err.Error())
 	}
@@ -174,34 +172,30 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 	share, hasShare := auth.ShareContextFrom(ctx)
 	if hasShare && share.IsForAgentInstance(id) {
 		creator = share.UserID
-	} else if err := g.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "AgentInstance", Name: namespace + "/" + id}); err != nil {
+	} else if err := g.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "AgentInstance", Name: id}); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
 	}
-	instance, err := g.store.GetAgentInstance(ctx, namespace, id, creator)
+	instance, err := g.store.GetAgentInstance(ctx, id, creator)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
 	}
 	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance", "error", err, "namespace", namespace, "instance_id", id)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance", "error", err, "instance_id", id)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load AgentInstance")
 	}
 	return instance, nil
 }
 
-func route(ctx context.Context) (namespace, id string, err error) {
-	namespaces := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceNamespaceHeader)
+func route(ctx context.Context) (string, error) {
 	ids := metadata.ValueFromIncomingContext(ctx, apia2a.AgentInstanceIDHeader)
-	if len(namespaces) != 1 || len(ids) != 1 {
-		return "", "", fmt.Errorf("exactly one %s and %s header is required", apia2a.AgentInstanceNamespaceHeader, apia2a.AgentInstanceIDHeader)
+	if len(ids) != 1 {
+		return "", fmt.Errorf("exactly one %s header is required", apia2a.AgentInstanceIDHeader)
 	}
-	if problems := utilvalidation.IsDNS1123Label(namespaces[0]); len(problems) > 0 {
-		return "", "", fmt.Errorf("invalid %s header: %s", apia2a.AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
-	}
-	parsedID, err := uuid.Parse(ids[0])
+	id, err := uuid.Parse(ids[0])
 	if err != nil {
-		return "", "", fmt.Errorf("invalid %s header: %w", apia2a.AgentInstanceIDHeader, err)
+		return "", fmt.Errorf("invalid %s header: %w", apia2a.AgentInstanceIDHeader, err)
 	}
-	return namespaces[0], parsedID.String(), nil
+	return id.String(), nil
 }
 
 func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {

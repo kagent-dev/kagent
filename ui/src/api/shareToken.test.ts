@@ -13,36 +13,29 @@ const context = (endpoint: ApiCallId, message?: unknown): ApiRequestContext => (
 const header = (endpoint: ApiCallId, message?: unknown) =>
   withInstanceShareToken(
     context(endpoint, message),
-    "kagent",
+
     "instance-1",
     "tok-abc",
   ).headers["X-Share-Token"];
 
 describe("withInstanceShareToken", () => {
   it("attaches the token to reads and allowed lifecycle calls for its instance", () => {
-    const message = { namespace: "kagent", agentInstanceId: "instance-1" };
+    const message = { agentInstanceId: "instance-1" };
     expect(header("agentInstances.get", message)).toBe("tok-abc");
     expect(header("agentInstances.suspend", message)).toBe("tok-abc");
     expect(header("agentInstances.resume", message)).toBe("tok-abc");
   });
 
-  it("does not attach the token to another instance or namespace", () => {
+  it("does not attach the token to another instance", () => {
     expect(
       header("agentInstances.get", {
-        namespace: "kagent",
         agentInstanceId: "instance-2",
-      }),
-    ).toBeUndefined();
-    expect(
-      header("agentInstances.get", {
-        namespace: "other",
-        agentInstanceId: "instance-1",
       }),
     ).toBeUndefined();
   });
 
   it("does not attach the token to destructive or unrelated operations", () => {
-    const message = { namespace: "kagent", agentInstanceId: "instance-1" };
+    const message = { agentInstanceId: "instance-1" };
     expect(header("agentInstances.delete", message)).toBeUndefined();
     expect(header("models.list", {})).toBeUndefined();
   });
@@ -50,10 +43,9 @@ describe("withInstanceShareToken", () => {
   it("preserves existing headers", () => {
     const result = withInstanceShareToken(
       context("agentInstances.get", {
-        namespace: "kagent",
         agentInstanceId: "instance-1",
       }),
-      "kagent",
+
       "instance-1",
       "tok-abc",
     );

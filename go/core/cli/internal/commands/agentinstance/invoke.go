@@ -60,7 +60,7 @@ func runInvoke(
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	a2aClient, err := session.Gateway.A2A.ForAgentInstance(ctx, session.Namespace, instanceID.String())
+	a2aClient, err := session.Gateway.A2A.ForAgentInstance(ctx, instanceID.String())
 	if err != nil {
 		return fmt.Errorf("create AgentInstance A2A client: %w", err)
 	}

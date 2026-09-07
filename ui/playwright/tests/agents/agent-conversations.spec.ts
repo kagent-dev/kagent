@@ -189,7 +189,7 @@ test("agents: an unnamed conversation is titled from its first message where tha
  *
  * Always asking for `all_creators` is the easy half. The hard half is that an
  * instance is scoped to its creator on *read* — `GetAgentInstance` resolves through
- * `WHERE namespace = $1 AND id = $2 AND user_id = $3`, and the A2A gateway reads it
+ * `WHERE id = $1 AND user_id = $2`, and the A2A gateway reads it
  * through that same call — so a conversation somebody else started is listable and
  * genuinely not openable. This is what that has to look like.
  */
@@ -251,7 +251,7 @@ test("agents: somebody else's conversation is listed, and plainly cannot be open
   await test.step("6. and opening one directly says so in the same terms", async () => {
     // The claim above is only worth making if it is what the backend actually does.
     // This is the same conversation, addressed directly.
-    await loadPage(page, `/agents/kagent/${instances.someoneElses}`, { scenario: "ok" });
+    await loadPage(page, `/agents/${instances.someoneElses}`, { scenario: "ok" });
     const missing = page.getByTestId("instance-not-found");
     await expect(missing).toBeVisible();
     await expect(missing).toContainText("not found");
@@ -288,7 +288,7 @@ test("agents: an agent links to its template, and a conversation links up to its
 
   await test.step("2. a conversation opens its chat", async () => {
     await page.getByTestId(`conversation-link-${instances.ready}`).click();
-    await expect(page).toHaveURL(new RegExp(`/agents/kagent/${instances.ready}/chat$`));
+    await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
     // Arrived somewhere a message can be typed, which is what opening a conversation
     // is for. A route that resolved but rendered no composer would pass a URL check.
     await expect(page.getByTestId("chat-input")).toBeEditable();
@@ -302,7 +302,7 @@ test("agents: an agent links to its template, and a conversation links up to its
   });
 
   await test.step("4. the conversation's own record links up too", async () => {
-    await loadPage(page, `/agents/kagent/${instances.ready}`, { scenario: "ok" });
+    await loadPage(page, `/agents/${instances.ready}`, { scenario: "ok" });
     await expectSettled(page);
 
     await expect(page.getByTestId("instance-agent-link")).toHaveAttribute(
@@ -372,7 +372,7 @@ test("agents: a conversation is created by its first message, not by the click",
     await page.getByTestId("chat-send").click();
 
     // Now there is an id, because now there is a conversation.
-    await page.waitForURL(/\/agents\/kagent\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
+    await page.waitForURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
     await expect(page.getByTestId("new-chat-error")).toHaveCount(0);
     // And the message that created it is in the transcript rather than lost in the
     // navigation — it is handed to the chat page and sent there, so the reader sees

@@ -33,7 +33,7 @@ const (
 
 func TestTaskReferenceRoundTrip(t *testing.T) {
 	want := taskReference{
-		Namespace: "team-a", InstanceID: testInstanceID, TaskID: testTaskID,
+		InstanceID: testInstanceID, TaskID: testTaskID,
 	}
 	encoded, err := encodeTaskReference(want)
 	if err != nil {
@@ -95,7 +95,7 @@ func TestDetailedTaskIncludesInvocationOutput(t *testing.T) {
 		ID: testTaskID, ContextID: testInstanceID,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now},
 	}
-	result := detailedTask("task-ref", taskReference{Namespace: "team-a", InstanceID: testInstanceID}, task)
+	result := detailedTask("task-ref", taskReference{InstanceID: testInstanceID}, task)
 	output, ok := result.Result.StructuredContent.(InvokeAgentInstanceOutput)
 	if !ok || output.TaskID != testTaskID || output.ContextID != testInstanceID {
 		t.Fatalf("structured invocation output = %#v", result.Result.StructuredContent)
@@ -110,7 +110,7 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 	}}
 	h := &Handler{gateway: gateway}
 	ref, err := encodeTaskReference(taskReference{
-		Namespace: "team-a", InstanceID: testInstanceID, TaskID: testTaskID,
+		InstanceID: testInstanceID, TaskID: testTaskID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	}}
 	h := &Handler{gateway: gateway}
 	ref, err := encodeTaskReference(taskReference{
-		Namespace: "team-a", InstanceID: testInstanceID, TaskID: testTaskID,
+		InstanceID: testInstanceID, TaskID: testTaskID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	call := rawMCPCall(t, server.URL, "tools/call", map[string]any{
 		"name": invokeToolName,
 		"arguments": map[string]any{
-			"namespace": "team-a", "agent_instance_id": testInstanceID, "message": "hello",
+			"agent_instance_id": testInstanceID, "message": "hello",
 		},
 	}, true)
 	result := call["result"].(map[string]any)
@@ -236,7 +236,7 @@ func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	call := rawMCPCall(t, server.URL, "tools/call", map[string]any{
 		"name": invokeToolName,
 		"arguments": map[string]any{
-			"namespace": "team-a", "agent_instance_id": testInstanceID, "message": "hello",
+			"agent_instance_id": testInstanceID, "message": "hello",
 		},
 	}, false)
 	result := call["result"].(map[string]any)
@@ -256,7 +256,7 @@ func TestCancelTaskUsesA2AGateway(t *testing.T) {
 	}}
 	h := &Handler{gateway: gateway}
 	ref, err := encodeTaskReference(taskReference{
-		Namespace: "team-a", InstanceID: testInstanceID, TaskID: testTaskID,
+		InstanceID: testInstanceID, TaskID: testTaskID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -444,19 +444,19 @@ func (*fakeInstanceStore) CreateAgentInstance(context.Context, *apiv1alpha1.Agen
 	return nil, false, dbpkg.ErrNotFound
 }
 
-func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
+func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error) {
 	return nil, dbpkg.ErrNotFound
 }
 
 func (*fakeInstanceStore) ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	return []*apiv1alpha1.AgentInstance{{
-		Id: testInstanceID, Namespace: "team-a", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		Id: testInstanceID, State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 		AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"},
 		Harness:       &apiv1alpha1.ResourceReference{Name: "kagent"},
 	}}, nil
 }
 
-func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error) {
+func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
 	return nil, dbpkg.ErrNotFound
 }
 
@@ -464,11 +464,11 @@ func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, dbpkg.AgentI
 	return nil, dbpkg.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceShare, error) {
+func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceShare, error) {
 	return nil, nil
 }
 
-func (*fakeInstanceStore) DeleteAgentInstanceShare(context.Context, string, string, string) error {
+func (*fakeInstanceStore) DeleteAgentInstanceShare(context.Context, string, string) error {
 	return nil
 }
 

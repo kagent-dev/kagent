@@ -6,7 +6,7 @@ compiled into the instance's prepared revision.
 
 ## Routing and execution
 
-Authentication establishes namespace and AgentInstance authority. The gateway
+Authentication establishes AgentInstance authority. The gateway
 loads the instance and prepared revision, derives the private Actor route, and
 forwards upstream A2A requests. Actor addresses and runtime credentials remain
 internal.

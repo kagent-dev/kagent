@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/pgvector/pgvector-go"
 )
 
@@ -79,10 +80,8 @@ type ActorTemplateHarness struct {
 }
 
 // AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
-// filter on this", so an empty query lists the caller's own instances in the
-// namespace.
+// filter on this", so an empty query lists the caller's own instances.
 type AgentInstanceQuery struct {
-	Namespace   string
 	UserID      string
 	AllUsers    bool
 	MatchLabels map[string]string
@@ -90,15 +89,15 @@ type AgentInstanceQuery struct {
 	// They are matched against the (AgentTemplate, Harness) pair the instance's
 	// prepared revision was built from, not against its labels, so they select
 	// instances stored before either field existed.
-	AgentTemplate string
-	Harness       string
+	AgentTemplate *apiv1alpha1.ResourceReference
+	Harness       *apiv1alpha1.ResourceReference
 	AfterID       string
 	Limit         int
 }
 
 type AgentInstanceShare struct {
-	ID         uuid.UUID
-	Namespace  string
+	ID uuid.UUID
+
 	InstanceID uuid.UUID
 	Permission string
 	TokenHash  []byte
@@ -122,8 +121,8 @@ type AgentInstanceTaskSnapshot struct {
 }
 
 type AgentInstanceCheckpoint struct {
-	ID                   uuid.UUID
-	Namespace            string
+	ID uuid.UUID
+
 	SourceInstanceID     uuid.UUID
 	SourceContextID      uuid.UUID
 	UserID               string

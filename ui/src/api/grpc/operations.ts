@@ -568,7 +568,6 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
 function toAgentInstance(instance: PbAgentInstance): AgentInstance {
   return {
     id: instance.id,
-    namespace: instance.namespace,
     // Carried through as it arrives, empty included: empty means unnamed, which is
     // a state the controller writes deliberately and every row predating the column
     // is in. Turning it into `undefined` here would make every caller handle two
@@ -638,7 +637,6 @@ const SHARE_PERMISSION_FROM_PB: Partial<
 function toAgentInstanceShare(share: PbAgentInstanceShare): AgentInstanceShare {
   return {
     id: share.id,
-    namespace: share.namespace,
     agentInstanceId: share.agentInstanceId,
     permission: SHARE_PERMISSION_FROM_PB[share.permission] ?? "readOnly",
     createdAt: isoFrom(share.createdAt),
@@ -667,24 +665,10 @@ const agentInstances: Pick<
       const response = await rpc(name, options.signal, () =>
         serviceClient(AgentInstanceService).listAgentInstances(
           {
-            namespace: input.namespace,
             allCreators: input.allCreators ?? false,
-            /*
-             * One agent's conversations, narrowed by the server.
-             *
-             * Both fields are optional and either may be given alone. The controller
-             * resolves them through `prepared_revision` to the pair the instance was
-             * built from, so they also select instances stored before the fields
-             * existed — and, more importantly, so the narrowing happens before the
-             * page is cut. Filtering a page after fetching it is the defect the
-             * substrate tables were fixed for: a match on page nine reads as "no
-             * conversations".
-             *
-             * Empty strings rather than absent, because proto3 has no absent string
-             * and the controller reads an empty one as "do not filter".
-             */
-            agentTemplate: input.agentTemplate ?? "",
-            harness: input.harness ?? "",
+
+            agentTemplate: input.agentTemplate,
+            harness: input.harness,
             // No `limit`: the controller's own default (50) is a better answer than
             // a number invented here, and it rejects anything over 100 outright.
             page: { pageToken },
@@ -715,25 +699,11 @@ const agentInstances: Pick<
     );
   },
 
-  /*
-   * Creating an instance is choosing a pair, not filling in a spec.
-   *
-   * `CreateAgentInstanceRequest` is a namespace and two names, because what the
-   * agent *is* lives on the AgentTemplate and how it *runs* lives on the Harness.
-   * There is nothing else for a form here to collect.
-   *
-   * `request_id` is the controller's idempotency key and is required: `validateCreate`
-   * refuses an empty one, or one with surrounding whitespace, or one over 128
-   * characters. It is passed in rather than invented here, because the point of the
-   * key is that a *retry* reuses it — a value generated per call would make every
-   * retry a new instance, which is the opposite of what it is for.
-   */
   "agentInstances.create": async (input, options) => {
     const name = "AgentInstanceService/CreateAgentInstance";
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).createAgentInstance(
         {
-          namespace: input.namespace,
           harness: input.harness,
           agentTemplate: input.agentTemplate,
           requestId: input.requestId,
@@ -766,7 +736,7 @@ const agentInstances: Pick<
     const name = "AgentInstanceService/UpdateAgentInstanceName";
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).updateAgentInstanceName(
-        { namespace: input.namespace, agentInstanceId: input.id, name: input.name },
+        { agentInstanceId: input.id, name: input.name },
         call("agentInstances.rename", options),
       ),
     );
@@ -781,7 +751,7 @@ const agentInstances: Pick<
   "agentInstances.delete": async (input, options) => {
     await rpc("AgentInstanceService/DeleteAgentInstance", options.signal, () =>
       serviceClient(AgentInstanceService).deleteAgentInstance(
-        { namespace: input.namespace, agentInstanceId: input.id },
+        { agentInstanceId: input.id },
         call("agentInstances.delete", options),
       ),
     );
@@ -791,7 +761,7 @@ const agentInstances: Pick<
     const name = "AgentInstanceService/ListAgentInstanceShares";
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).listAgentInstanceShares(
-        { namespace: input.namespace, agentInstanceId: input.id },
+        { agentInstanceId: input.id },
         call("agentInstances.shares.list", options),
       ),
     );
@@ -803,7 +773,6 @@ const agentInstances: Pick<
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).createAgentInstanceShare(
         {
-          namespace: input.namespace,
           agentInstanceId: input.id,
           permission: SHARE_PERMISSION_TO_PB[input.permission],
         },
@@ -821,7 +790,7 @@ const agentInstances: Pick<
   "agentInstances.shares.revoke": async (input, options) => {
     await rpc("AgentInstanceService/RevokeAgentInstanceShare", options.signal, () =>
       serviceClient(AgentInstanceService).revokeAgentInstanceShare(
-        { namespace: input.namespace, shareId: input.shareId },
+        { shareId: input.shareId },
         call("agentInstances.shares.revoke", options),
       ),
     );
@@ -831,7 +800,7 @@ const agentInstances: Pick<
     const name = "AgentInstanceService/GetAgentInstance";
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).getAgentInstance(
-        { namespace: input.namespace, agentInstanceId: input.id },
+        { agentInstanceId: input.id },
         call("agentInstances.get", options),
       ),
     );
@@ -849,7 +818,7 @@ const agentInstances: Pick<
     const name = "AgentInstanceService/SuspendAgentInstance";
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).suspendAgentInstance(
-        { namespace: input.namespace, agentInstanceId: input.id },
+        { agentInstanceId: input.id },
         call("agentInstances.suspend", options),
       ),
     );
@@ -860,7 +829,7 @@ const agentInstances: Pick<
     const name = "AgentInstanceService/ResumeAgentInstance";
     const response = await rpc(name, options.signal, () =>
       serviceClient(AgentInstanceService).resumeAgentInstance(
-        { namespace: input.namespace, agentInstanceId: input.id },
+        { agentInstanceId: input.id },
         call("agentInstances.resume", options),
       ),
     );

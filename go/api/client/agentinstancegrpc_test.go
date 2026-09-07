@@ -36,7 +36,6 @@ func (s *recordingAgentInstanceService) CreateAgentInstance(ctx context.Context,
 }
 
 type a2aCallObservation struct {
-	namespace     string
 	id            string
 	userID        string
 	authorization string
@@ -78,7 +77,6 @@ func (s *recordingA2AService) observe(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.observations = append(s.observations, a2aCallObservation{
-		namespace:     first(values.Get(kagenta2a.AgentInstanceNamespaceHeader)),
 		id:            first(values.Get(kagenta2a.AgentInstanceIDHeader)),
 		userID:        first(values.Get(userIDHeader)),
 		authorization: first(values.Get("authorization")),
@@ -122,7 +120,7 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
 
-	a2aClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), "kagent", agentInstanceClientTestID)
+	a2aClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), agentInstanceClientTestID)
 	require.NoError(t, err)
 	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
 		"authorization": {"Bearer model-key"},
@@ -139,9 +137,9 @@ func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 
 	a2aService.mu.Lock()
 	require.Equal(t, []a2aCallObservation{
-		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
-		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
-		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: true},
+		{id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
+		{id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(2), dialCount.Load())

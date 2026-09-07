@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -27,11 +26,11 @@ const (
 type store interface {
 	ReserveAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error)
 	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
-	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
-	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
-	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
-	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
-	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
+	GetAgentInstanceCheckpoint(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
+	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
+	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 }
 
 type workflow interface {
@@ -53,7 +52,6 @@ type Service struct {
 }
 
 type ListRequest struct {
-	Namespace  string
 	InstanceID string
 	PageSize   int
 	PageToken  string
@@ -68,11 +66,11 @@ func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflo
 	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow}
 }
 
-func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID string) (*apiv1alpha1.Checkpoint, error) {
-	if err := validateCreate(namespace, instanceID, requestID); err != nil {
+func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*apiv1alpha1.Checkpoint, error) {
+	if err := validateCreate(instanceID, requestID); err != nil {
 		return nil, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", namespace+"/"+instanceID)
+	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +80,7 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 	}
 	instanceUUID := uuid.MustParse(instanceID)
 	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: id, Namespace: namespace, SourceInstanceID: instanceUUID, UserID: userID,
+		ID: id, SourceInstanceID: instanceUUID, UserID: userID,
 		RequestID: requestID,
 	})
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
@@ -155,15 +153,15 @@ func (s *Service) verifySnapshot(ctx context.Context, checkpoint *dbpkg.AgentIns
 	return nil
 }
 
-func (s *Service) Get(ctx context.Context, namespace, checkpointID string) (*apiv1alpha1.Checkpoint, error) {
-	if err := validateIdentity(namespace, checkpointID); err != nil {
+func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Checkpoint, error) {
+	if err := validateIdentity(checkpointID); err != nil {
 		return nil, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", namespace+"/"+checkpointID)
+	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", checkpointID)
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -174,10 +172,10 @@ func (s *Service) Get(ctx context.Context, namespace, checkpointID string) (*api
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	if err := validateIdentity(request.Namespace, request.InstanceID); err != nil {
+	if err := validateIdentity(request.InstanceID); err != nil {
 		return ListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.Namespace)
+	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.InstanceID)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -192,7 +190,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	rows, err := s.store.ListAgentInstanceCheckpoints(ctx, request.Namespace, request.InstanceID, userID, afterID, pageSize+1)
+	rows, err := s.store.ListAgentInstanceCheckpoints(ctx, request.InstanceID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
@@ -206,15 +204,15 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	return result, nil
 }
 
-func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) error {
-	if err := validateIdentity(namespace, checkpointID); err != nil {
+func (s *Service) Delete(ctx context.Context, checkpointID string) error {
+	if err := validateIdentity(checkpointID); err != nil {
 		return err
 	}
-	userID, err := s.authorize(ctx, auth.VerbDelete, "Checkpoint", namespace+"/"+checkpointID)
+	userID, err := s.authorize(ctx, auth.VerbDelete, "Checkpoint", checkpointID)
 	if err != nil {
 		return err
 	}
-	checkpoint, err := s.store.BeginDeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	checkpoint, err := s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -232,21 +230,21 @@ func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) er
 	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID.String())); err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 	}
-	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID); err != nil {
+	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, checkpointID, userID); err != nil {
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
 	}
 	return nil
 }
 
-func (s *Service) Fork(ctx context.Context, namespace, checkpointID, requestID string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateCreate(namespace, checkpointID, requestID); err != nil {
+func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateCreate(checkpointID, requestID); err != nil {
 		return nil, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", namespace)
+	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", "")
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -260,7 +258,7 @@ func (s *Service) Fork(ctx context.Context, namespace, checkpointID, requestID s
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
 	}
-	instance, _, err := s.store.ForkAgentInstance(ctx, namespace, checkpointID, userID, requestID, id.String())
+	instance, _, err := s.store.ForkAgentInstance(ctx, checkpointID, userID, requestID, id.String())
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
@@ -291,7 +289,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, n
 
 func checkpointProto(checkpoint *dbpkg.AgentInstanceCheckpoint) *apiv1alpha1.Checkpoint {
 	result := &apiv1alpha1.Checkpoint{
-		Id: checkpoint.ID.String(), Namespace: checkpoint.Namespace, AgentInstanceId: checkpoint.SourceInstanceID.String(),
+		Id: checkpoint.ID.String(), AgentInstanceId: checkpoint.SourceInstanceID.String(),
 		HeadTaskId: checkpoint.HeadTaskID, HistorySequence: uint64(checkpoint.HistorySequence),
 		State: checkpointState(checkpoint.State), CreatedAt: timestamppb.New(checkpoint.CreatedAt),
 	}
@@ -316,8 +314,8 @@ func checkpointState(state string) apiv1alpha1.CheckpointState {
 	}
 }
 
-func validateCreate(namespace, instanceID, requestID string) error {
-	if err := validateIdentity(namespace, instanceID); err != nil {
+func validateCreate(instanceID, requestID string) error {
+	if err := validateIdentity(instanceID); err != nil {
 		return err
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
@@ -326,10 +324,7 @@ func validateCreate(namespace, instanceID, requestID string) error {
 	return nil
 }
 
-func validateIdentity(namespace, id string) error {
-	if problems := utilvalidation.IsDNS1123Label(namespace); len(problems) > 0 {
-		return serviceerrors.NewInvalidArgument("namespace is invalid: "+strings.Join(problems, "; "), nil)
-	}
+func validateIdentity(id string) error {
 	if _, err := uuid.Parse(id); err != nil {
 		return serviceerrors.NewInvalidArgument("identifier is invalid", err)
 	}

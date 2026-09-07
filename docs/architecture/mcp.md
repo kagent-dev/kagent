@@ -29,7 +29,7 @@ flowchart LR
 ## MCP Tasks
 
 The server implements the MCP Tasks extension. An opaque base64 task reference
-contains the authorized namespace, AgentInstance, and A2A task identity.
+contains the authorized AgentInstance and A2A task identity.
 `tasks/get`, `tasks/update`, and `tasks/cancel` translate to operations on that
 same durable A2A task, including `input-required` continuation. There is no
 separate MCP task or session store.
