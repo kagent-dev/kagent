@@ -142,13 +142,6 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	}
 }
 
-func TestApplyDefaults_Logger(t *testing.T) {
-	cfg := applyDefaults(AppConfig{})
-	if cfg.Logger.GetSink() == nil {
-		t.Error("expected default logger to be created")
-	}
-}
-
 func TestBuildAppName_FromEnv(t *testing.T) {
 	t.Setenv("KAGENT_NAME", "my-agent")
 	t.Setenv("KAGENT_NAMESPACE", "my-ns")

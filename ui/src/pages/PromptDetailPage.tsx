@@ -1,14 +1,24 @@
+import { useMemo } from "react";
 import { Alert, Button, Empty, Skeleton, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
+import { Pencil } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { PromptFragment } from "@/components/prompts/PromptFragment";
-import { paths } from "@/router/routes";
+import { buildPath, paths } from "@/router/routes";
 import { isNotFound, usePrompt } from "@/api";
 import { RefreshButton } from "@/components/table/RefreshButton";
 
 const { Text } = Typography;
 
+/**
+ * One prompt library: what is in it, and how to include each fragment.
+ *
+ * A reading page. Editing is `PromptEditPage`, which renders the same `PromptForm`
+ * the create page does — reached from the Edit action here and from the list's, so
+ * clicking a row to *look* at a library does not land in a page of inputs with Save
+ * waiting.
+ */
 export function PromptDetailPage() {
   const theme = useTheme();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
@@ -19,7 +29,16 @@ export function PromptDetailPage() {
   // way back to the list instead of a "Try again".
   const missing = error !== undefined && isNotFound(error);
 
-  const fragments = Object.entries(data?.data ?? {});
+  // Sorted, because `data` is a map: it arrives in whatever order the API server
+  // serialised it, and the edit form sorts too — so a reader who opens Edit sees the
+  // fragments in the order they were just reading them in.
+  const fragments = useMemo(
+    () =>
+      Object.entries(data?.data ?? {}).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    [data],
+  );
 
   return (
     <PageFrame
@@ -33,6 +52,13 @@ export function PromptDetailPage() {
       }
       actions={
         <Space size={8}>
+          {data && namespace && name ? (
+            <Link to={buildPath(paths.promptEdit, { namespace, name })}>
+              <Button icon={<Pencil size={14} />} data-testid="prompt-edit">
+                Edit
+              </Button>
+            </Link>
+          ) : null}
           <Link to={paths.prompts}>
             <Button>Back to libraries</Button>
           </Link>

@@ -120,6 +120,12 @@ const (
 	ModelTypeFoundry         = "foundry"
 )
 
+// Foundry API format values used by a Foundry model.
+const (
+	FoundryAPIFormatOpenAI    = "openai"
+	FoundryAPIFormatAnthropic = "anthropic"
+)
+
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
 	type Alias OpenAI
 
@@ -344,6 +350,9 @@ type Foundry struct {
 	Endpoint   string `json:"endpoint"`
 	Deployment string `json:"deployment"`
 	APIVersion string `json:"api_version"`
+	// APIFormat selects the API format: "openai" (default) or "anthropic"
+	// (Claude Messages API). Empty is treated as "openai".
+	APIFormat string `json:"api_format,omitempty"`
 }
 
 func (f *Foundry) MarshalJSON() ([]byte, error) {

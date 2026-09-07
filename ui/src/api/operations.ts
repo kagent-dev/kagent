@@ -5,7 +5,7 @@
  * longer serves the application API over REST — it is gRPC, wrapped as gRPC-Web
  * (`grpcserver.WebHandler`, routed in `go/core/internal/httpserver/server.go`) —
  * so there is no longer a path to name. What is left to name is the *operation*:
- * "list the agents", "create a model config". An id per operation is what the
+ * "list model configs", "create a model config". An id per operation is what the
  * rest of the app depends on, and it is what survived.
  *
  * Nothing above this file addresses a service or a method. Going through ids
@@ -18,8 +18,8 @@
  *
  * Kept from the path table, and for the same reason: the id — not the RPC — is
  * what an override is keyed by, so sharing one between a list read and a create
- * would mean an extension re-pointing its agent list silently re-pointed agent
- * creation with it, with no way to override one alone. Two ids resolving to the
+ * would mean an extension re-pointing a list silently re-pointed creation with it,
+ * with no way to override one alone. Two ids resolving to the
  * same RPC is the cost of keeping those two things separately addressable.
  *
  * ## Where the RPCs are
@@ -32,7 +32,6 @@
 
 import { getOperationOverride } from "./extensionPoints";
 import { defaultOperations } from "./grpc/operations";
-import type { Agent, AgentCreateRequest, AgentResponse } from "./domain/agents";
 import type {
   CreateModelConfigRequest,
   ModelConfig,
@@ -72,24 +71,7 @@ import type {
 /** An operation that takes nothing. Written `{}` at the call site. */
 export type NoInput = Record<string, never>;
 
-/**
- * Which agent, and — where it matters — which kind of agent.
- *
- * The kind is part of the identity now, not a detail of it: `SandboxAgent` and
- * `AgentHarness` are two different resources served by two different RPCs, and
- * `AgentService` has no operation that reads "an agent" without knowing which.
- * A caller that genuinely does not know (a detail page holding only a URL) omits
- * it, and `agents.get` tries both — see its implementation.
- */
-export interface AgentRef {
-  namespace: string;
-  name: string;
-  kind?: AgentKindName;
-}
-
-/** The two agent kinds, spelled as the controller's own `Kind` strings. */
-export type AgentKindName = "SandboxAgent" | "AgentHarness";
-
+/** A namespaced Kubernetes resource. */
 export interface ResourceRefInput {
   namespace: string;
   name: string;
@@ -156,12 +138,6 @@ export interface SubstratePageInput<Sort = string> {
  * positional signature cannot be inspected by any of them.
  */
 export interface OperationMap {
-  "agents.list": { input: { namespace?: string }; output: AgentResponse[] };
-  "agents.get": { input: AgentRef; output: AgentResponse };
-  "agents.create": { input: { resource: AgentCreateRequest }; output: Agent };
-  "agents.update": { input: { resource: AgentCreateRequest }; output: Agent };
-  "agents.delete": { input: AgentRef; output: void };
-
   "models.list": { input: NoInput; output: ModelConfig[] };
   "models.get": { input: ResourceRefInput; output: ModelConfig };
   "models.create": { input: { payload: CreateModelConfigRequest }; output: ModelConfig };
@@ -312,8 +288,7 @@ export interface OperationMap {
   /**
    * The harnesses in one namespace, or in every observed namespace when omitted.
    *
-   * `HarnessService`, not `AgentService` — `Harness` and `AgentHarness` are
-   * different CRDs and only the names collide. See `domain/harnesses`.
+   * Served by `HarnessService`; a Harness is the reusable runtime half of an agent.
    */
   "harnesses.list": { input: { namespace?: string }; output: Harness[] };
   /**

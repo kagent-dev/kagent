@@ -19,16 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ModelService_ListModelConfigs_FullMethodName             = "/kagent.api.v1alpha1.ModelService/ListModelConfigs"
-	ModelService_GetModelConfig_FullMethodName               = "/kagent.api.v1alpha1.ModelService/GetModelConfig"
-	ModelService_CreateModelConfig_FullMethodName            = "/kagent.api.v1alpha1.ModelService/CreateModelConfig"
-	ModelService_UpdateModelConfig_FullMethodName            = "/kagent.api.v1alpha1.ModelService/UpdateModelConfig"
-	ModelService_DeleteModelConfig_FullMethodName            = "/kagent.api.v1alpha1.ModelService/DeleteModelConfig"
-	ModelService_ListSupportedModelProviders_FullMethodName  = "/kagent.api.v1alpha1.ModelService/ListSupportedModelProviders"
-	ModelService_ListSupportedMemoryProviders_FullMethodName = "/kagent.api.v1alpha1.ModelService/ListSupportedMemoryProviders"
-	ModelService_ListConfiguredProviders_FullMethodName      = "/kagent.api.v1alpha1.ModelService/ListConfiguredProviders"
-	ModelService_ListProviderModels_FullMethodName           = "/kagent.api.v1alpha1.ModelService/ListProviderModels"
-	ModelService_ListSupportedModels_FullMethodName          = "/kagent.api.v1alpha1.ModelService/ListSupportedModels"
+	ModelService_ListModelConfigs_FullMethodName            = "/kagent.api.v1alpha1.ModelService/ListModelConfigs"
+	ModelService_GetModelConfig_FullMethodName              = "/kagent.api.v1alpha1.ModelService/GetModelConfig"
+	ModelService_CreateModelConfig_FullMethodName           = "/kagent.api.v1alpha1.ModelService/CreateModelConfig"
+	ModelService_UpdateModelConfig_FullMethodName           = "/kagent.api.v1alpha1.ModelService/UpdateModelConfig"
+	ModelService_DeleteModelConfig_FullMethodName           = "/kagent.api.v1alpha1.ModelService/DeleteModelConfig"
+	ModelService_ListSupportedModelProviders_FullMethodName = "/kagent.api.v1alpha1.ModelService/ListSupportedModelProviders"
+	ModelService_ListConfiguredProviders_FullMethodName     = "/kagent.api.v1alpha1.ModelService/ListConfiguredProviders"
+	ModelService_ListProviderModels_FullMethodName          = "/kagent.api.v1alpha1.ModelService/ListProviderModels"
+	ModelService_ListSupportedModels_FullMethodName         = "/kagent.api.v1alpha1.ModelService/ListSupportedModels"
 )
 
 // ModelServiceClient is the client API for ModelService service.
@@ -41,7 +40,6 @@ type ModelServiceClient interface {
 	UpdateModelConfig(ctx context.Context, in *UpdateModelConfigRequest, opts ...grpc.CallOption) (*UpdateModelConfigResponse, error)
 	DeleteModelConfig(ctx context.Context, in *DeleteModelConfigRequest, opts ...grpc.CallOption) (*DeleteModelConfigResponse, error)
 	ListSupportedModelProviders(ctx context.Context, in *ListSupportedModelProvidersRequest, opts ...grpc.CallOption) (*ListSupportedModelProvidersResponse, error)
-	ListSupportedMemoryProviders(ctx context.Context, in *ListSupportedMemoryProvidersRequest, opts ...grpc.CallOption) (*ListSupportedMemoryProvidersResponse, error)
 	ListConfiguredProviders(ctx context.Context, in *ListConfiguredProvidersRequest, opts ...grpc.CallOption) (*ListConfiguredProvidersResponse, error)
 	ListProviderModels(ctx context.Context, in *ListProviderModelsRequest, opts ...grpc.CallOption) (*ListProviderModelsResponse, error)
 	ListSupportedModels(ctx context.Context, in *ListSupportedModelsRequest, opts ...grpc.CallOption) (*ListSupportedModelsResponse, error)
@@ -115,16 +113,6 @@ func (c *modelServiceClient) ListSupportedModelProviders(ctx context.Context, in
 	return out, nil
 }
 
-func (c *modelServiceClient) ListSupportedMemoryProviders(ctx context.Context, in *ListSupportedMemoryProvidersRequest, opts ...grpc.CallOption) (*ListSupportedMemoryProvidersResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListSupportedMemoryProvidersResponse)
-	err := c.cc.Invoke(ctx, ModelService_ListSupportedMemoryProviders_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *modelServiceClient) ListConfiguredProviders(ctx context.Context, in *ListConfiguredProvidersRequest, opts ...grpc.CallOption) (*ListConfiguredProvidersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListConfiguredProvidersResponse)
@@ -165,7 +153,6 @@ type ModelServiceServer interface {
 	UpdateModelConfig(context.Context, *UpdateModelConfigRequest) (*UpdateModelConfigResponse, error)
 	DeleteModelConfig(context.Context, *DeleteModelConfigRequest) (*DeleteModelConfigResponse, error)
 	ListSupportedModelProviders(context.Context, *ListSupportedModelProvidersRequest) (*ListSupportedModelProvidersResponse, error)
-	ListSupportedMemoryProviders(context.Context, *ListSupportedMemoryProvidersRequest) (*ListSupportedMemoryProvidersResponse, error)
 	ListConfiguredProviders(context.Context, *ListConfiguredProvidersRequest) (*ListConfiguredProvidersResponse, error)
 	ListProviderModels(context.Context, *ListProviderModelsRequest) (*ListProviderModelsResponse, error)
 	ListSupportedModels(context.Context, *ListSupportedModelsRequest) (*ListSupportedModelsResponse, error)
@@ -196,9 +183,6 @@ func (UnimplementedModelServiceServer) DeleteModelConfig(context.Context, *Delet
 }
 func (UnimplementedModelServiceServer) ListSupportedModelProviders(context.Context, *ListSupportedModelProvidersRequest) (*ListSupportedModelProvidersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSupportedModelProviders not implemented")
-}
-func (UnimplementedModelServiceServer) ListSupportedMemoryProviders(context.Context, *ListSupportedMemoryProvidersRequest) (*ListSupportedMemoryProvidersResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListSupportedMemoryProviders not implemented")
 }
 func (UnimplementedModelServiceServer) ListConfiguredProviders(context.Context, *ListConfiguredProvidersRequest) (*ListConfiguredProvidersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListConfiguredProviders not implemented")
@@ -338,24 +322,6 @@ func _ModelService_ListSupportedModelProviders_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ModelService_ListSupportedMemoryProviders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListSupportedMemoryProvidersRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ModelServiceServer).ListSupportedMemoryProviders(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ModelService_ListSupportedMemoryProviders_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ModelServiceServer).ListSupportedMemoryProviders(ctx, req.(*ListSupportedMemoryProvidersRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _ModelService_ListConfiguredProviders_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListConfiguredProvidersRequest)
 	if err := dec(in); err != nil {
@@ -440,10 +406,6 @@ var ModelService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListSupportedModelProviders",
 			Handler:    _ModelService_ListSupportedModelProviders_Handler,
-		},
-		{
-			MethodName: "ListSupportedMemoryProviders",
-			Handler:    _ModelService_ListSupportedMemoryProviders_Handler,
 		},
 		{
 			MethodName: "ListConfiguredProviders",

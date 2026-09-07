@@ -28,6 +28,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -78,7 +79,7 @@ func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
 		return err
 	}
 	if !installed {
-		ctrl.Log.Info("MCPServer CRD not found; catalog discovery will not be started")
+		logging.FromLogr(manager.GetLogger()).InfoContext(context.Background(), "catalog discovery disabled because MCPServer CRD was not found")
 		return nil
 	}
 	// Status changes are intentionally observed: KMCP reports deployment

@@ -9,7 +9,7 @@ set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SUBSTRATE_VERSION=0.0.22
+SUBSTRATE_VERSION=0.0.25
 cd "$REPO"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
@@ -84,7 +84,7 @@ step "7/10  The controller and the UI, both built from this checkout"
 ARCH="$(uname -m)"; [ "$ARCH" = "x86_64" ] && ARCH=amd64; [ "$ARCH" = "aarch64" ] && ARCH=arm64
 docker buildx build --push --platform "linux/${ARCH}" \
   --build-arg BASE_IMAGE_REGISTRY=cgr.dev \
-  --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
+  --build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
   -t localhost:5001/kagent-dev/kagent/controller:dev -f go/Dockerfile ./go
 kubectl -n kagent set image deploy/kagent-controller controller=localhost:5001/kagent-dev/kagent/controller:dev
 

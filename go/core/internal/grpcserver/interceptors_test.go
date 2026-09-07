@@ -62,9 +62,9 @@ func (s *testShareStore) GetAgentInstanceShareByTokenHash(context.Context, []byt
 
 func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	policies := MethodPolicies{
-		readMethod:             AccessRead,
-		createMethod:           AccessCreate,
-		"/test.Service/Public": AccessPublic,
+		readMethod:             pkgauth.AccessRead,
+		createMethod:           pkgauth.AccessCreate,
+		"/test.Service/Public": pkgauth.AccessPublic,
 	}
 	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "caller"}}}
 

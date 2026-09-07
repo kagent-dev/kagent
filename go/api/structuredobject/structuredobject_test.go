@@ -22,11 +22,11 @@ func TestRoundTrip(t *testing.T) {
 		CreatedAt: time.Date(2026, time.July, 28, 10, 0, 0, 0, time.UTC),
 	}
 
-	object, err := FromGo(want, "kagent.dev/v1alpha2", "Example", 16<<20)
+	object, err := FromGo(want, "kagent.dev/v1alpha3", "Example", 16<<20)
 	if err != nil {
 		t.Fatalf("FromGo() error = %v", err)
 	}
-	if object.GetApiVersion() != "kagent.dev/v1alpha2" || object.GetKind() != "Example" {
+	if object.GetApiVersion() != "kagent.dev/v1alpha3" || object.GetKind() != "Example" {
 		t.Fatalf("FromGo() identity = %q/%q", object.GetApiVersion(), object.GetKind())
 	}
 

@@ -117,9 +117,6 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  *
  * - `system.proto:85`   — `SubstrateActor.version`     (reached by `substrate.status`)
  * - `system.proto:96`   — `SubstrateWorker.version`    (reached by `substrate.status`)
- * - `feedback.proto:15` — `Feedback.id`                (no operation id yet)
- * - `feedback.proto:20` — `Feedback.message_id`        (no operation id yet)
- * - `feedback.proto:27` — `CreateFeedbackRequest.message_id` (no operation id yet)
  * - `memory.proto:38`   — `MemorySummary.access_count` (no operation id yet)
  * - `checkpoints.proto:32` — `Checkpoint.history_sequence` (no operation id yet)
  *

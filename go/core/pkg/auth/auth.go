@@ -51,6 +51,22 @@ type AuthProvider interface {
 	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
+// AccessMode is what a gRPC method requires of its caller.
+//
+// It lives here rather than beside the server because a library consumer
+// registering its own services has to name these, and the server package is
+// internal. AccessPublic is the only value that skips authentication; every
+// other value is the verb the authorizer is asked to allow.
+type AccessMode string
+
+const (
+	AccessPublic AccessMode = "public"
+	AccessRead   AccessMode = "read"
+	AccessCreate AccessMode = "create"
+	AccessUpdate AccessMode = "update"
+	AccessDelete AccessMode = "delete"
+)
+
 // Authz
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error

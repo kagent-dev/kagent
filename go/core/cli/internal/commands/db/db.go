@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
-	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
+	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/db"
+	dbmigrate "github.com/kagent-dev/kagent/go/core/cli/internal/db/migrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -22,7 +23,7 @@ import (
 // own DATABASE_VECTOR_ENABLED env var (a local operator override), and the
 // controller-configmap key the chart renders — the value the controller pod
 // itself consumes via envFrom. Same name, two different places.
-const vectorEnabledKey = "DATABASE_VECTOR_ENABLED"
+var vectorEnabledKey = kagentenv.DatabaseVectorEnabled.Name()
 
 // NewDBCmd constructs the kagent db command. The source callback the shared db
 // package takes carries no command, so the namespace is captured just before a

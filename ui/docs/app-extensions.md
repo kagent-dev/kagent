@@ -24,7 +24,7 @@ or on the command line as `VITE_EXAMPLE_EXTENSION=true yarn dev`.
 
 This UI is built to be extended without editing the application itself. A
 distribution contributes navigation entries, whole pages, components at named
-points inside existing pages, extra form fields, API endpoint overrides and
+points inside existing pages, extra form fields, API operation overrides and
 payload transforms, and app-level React providers — all declared in **one
 configuration object** per extension.
 
@@ -103,7 +103,7 @@ interface AppExtensionConfig {
   routes?: readonly ExtensionRouteContribution[];         // whole pages
   slots?: ExtensionSlotComponents;                        // components at named points
   formFields?: readonly ExtensionFormFieldContribution[]; // extra fields in core forms
-  api?: ExtensionApi<EndpointId>;                // endpoint overrides + transforms
+  api?: ExtensionApi;                                // operation overrides + transforms
   providers?: readonly ExtensionProviderComponent[];      // app-level context providers
 }
 ```
@@ -257,12 +257,12 @@ This is how a product whose domain is wider than this application's shows that
 extra dimension on a page the application still owns. Nothing replaces the page.
 
 ```ts
-export const clusterColumn = defineExtensionTableColumn<AgentResponse>({
+export const clusterColumn = defineExtensionTableColumn<AgentInstance>({
   id: "cluster",
   tableId: "app_agents_agentsList_table",
   title: "Cluster",
   after: "namespace",          // positioned after that core column's key
-  render: (row) => row.agent.metadata.labels?.["cluster"] ?? "—",
+  render: (row) => row.labels?.["cluster"] ?? "—",
 });
 ```
 
@@ -275,15 +275,14 @@ change to the page.
 
 ## API overrides and transforms
 
-Keyed by the data layer's own endpoint IDs, so naming a call that does not exist
+Keyed by the data layer's own operation IDs, so naming a call that does not exist
 fails to compile.
 
 ```ts
 api: {
   baseUrl: "https://api.example.com",                 // optional: replace the API root
-  endpoints: { "agents.list": "/managed-agents" },      // optional: per-endpoint path
   transforms: {
-    "agents.list": {
+    "models.list": {
       request: (context) => ({
         ...context,
         headers: { ...context.headers, "x-example-tenant": currentTenant() },

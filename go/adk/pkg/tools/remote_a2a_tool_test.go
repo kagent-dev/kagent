@@ -8,6 +8,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	adkagent "google.golang.org/adk/v2/agent"
 )
 
 // newReq returns an empty outbound client Request with initialized service params.
@@ -246,7 +247,8 @@ func TestHandleInputRequiredWithoutHITLExtensionFails(t *testing.T) {
 		},
 	}
 
-	response := s.handleInputRequired(nil, task, "child-context")
+	ctx := adkagent.NewStrictContextMock(t.Context())
+	response := s.handleInputRequired(&ctx, task, "child-context")
 	if response.Status != "failed" || response.Error != "Remote agent 'worker' requested input without a valid HITL extension." {
 		t.Fatalf("response = %#v", response)
 	}

@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
-  A2A_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
+  KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   {{- if .Values.ui.externalUrl }}
@@ -65,10 +65,9 @@ data:
   DB_MAX_CONN_LIFETIME: {{ .maxConnLifetime | quote }}
   {{- end }}
   {{- end }}
-  SESSION_RETENTION_DAYS: {{ .Values.database.postgres.sessionRetentionDays | default 0 | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   {{- if .Values.controller.a2aClientTimeout }}
   KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
   {{- end }}
-  ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
+  LOG_LEVEL: {{ .Values.controller.loglevel | quote }}

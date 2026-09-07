@@ -32,14 +32,9 @@ const (
 // and infrastructure policy half of the (Harness, AgentTemplate) pair that
 // CreateAgentInstance names.
 //
-// Harness is NOT AgentHarness. AgentService carries GetAgentHarness /
-// CreateAgentHarness / DeleteAgentHarness, and those operate on the separate
-// AgentHarness CRD — a single agent bound to an external ACP backend. The
-// Harness here is a reusable runtime (one of the kagent, codex or claude
-// adapters, plus a Substrate worker pool and snapshot policy) that admits many
-// AgentTemplates through a label selector; the v2 reconciler pairs the two in
-// go/core/v2/controller/collections.go. The names collide but the kinds do not,
-// so this is a separate service rather than more RPCs on AgentService.
+// A Harness is a reusable runtime adapter paired with an AgentTemplate when an
+// AgentInstance is created. Creating either Kubernetes resource does not run an
+// agent.
 type HarnessServiceClient interface {
 	ListHarnesses(ctx context.Context, in *ListHarnessesRequest, opts ...grpc.CallOption) (*ListHarnessesResponse, error)
 	CreateHarness(ctx context.Context, in *CreateHarnessRequest, opts ...grpc.CallOption) (*CreateHarnessResponse, error)
@@ -92,14 +87,9 @@ func (c *harnessServiceClient) DeleteHarness(ctx context.Context, in *DeleteHarn
 // and infrastructure policy half of the (Harness, AgentTemplate) pair that
 // CreateAgentInstance names.
 //
-// Harness is NOT AgentHarness. AgentService carries GetAgentHarness /
-// CreateAgentHarness / DeleteAgentHarness, and those operate on the separate
-// AgentHarness CRD — a single agent bound to an external ACP backend. The
-// Harness here is a reusable runtime (one of the kagent, codex or claude
-// adapters, plus a Substrate worker pool and snapshot policy) that admits many
-// AgentTemplates through a label selector; the v2 reconciler pairs the two in
-// go/core/v2/controller/collections.go. The names collide but the kinds do not,
-// so this is a separate service rather than more RPCs on AgentService.
+// A Harness is a reusable runtime adapter paired with an AgentTemplate when an
+// AgentInstance is created. Creating either Kubernetes resource does not run an
+// agent.
 type HarnessServiceServer interface {
 	ListHarnesses(context.Context, *ListHarnessesRequest) (*ListHarnessesResponse, error)
 	CreateHarness(context.Context, *CreateHarnessRequest) (*CreateHarnessResponse, error)

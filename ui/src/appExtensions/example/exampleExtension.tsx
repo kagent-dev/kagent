@@ -75,18 +75,17 @@ export const exampleAppExtension: AppExtensionConfig = {
     `,
   },
 
-  // Endpoint overrides and payload reshaping, folded into the data layer's
+  // Operation overrides and payload reshaping, folded into the data layer's
   // registry by `installExtensionApi`.
   //
-  // Only a transform here, deliberately. `baseUrl` and `endpoints` are part of
-  // the contract — an extension pointing `agents.list` at `/managed-agents` on
-  // their own host is exactly the case it exists for — but setting either here
+  // Only a transform here, deliberately. `baseUrl` is part of the contract, but
+  // setting it here
   // would send every call somewhere the mock backend does not answer, so the
   // example would break the app whenever it is switched on. A header is real,
   // observable in the network panel, and harmless.
   api: {
     transforms: {
-      "agents.list": {
+      "models.list": {
         request: (context) => ({
           ...context,
           headers: { ...context.headers, "x-example-tenant": "example-eu-1" },

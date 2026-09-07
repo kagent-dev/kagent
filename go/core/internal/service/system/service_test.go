@@ -61,7 +61,7 @@ func (client *fakeATEClient) ListActorTemplates(context.Context, string) ([]*ate
 }
 
 func TestCurrentUser(t *testing.T) {
-	service := system.NewService()
+	service := system.NewService(nil, nil, nil, nil, nil)
 	claims := map[string]any{"sub": "user-1", "groups": []any{"admins"}}
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{
 		User:   pkgAuth.User{ID: "user-1"},
@@ -92,7 +92,7 @@ func TestListNamespaces(t *testing.T) {
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "Zoo"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceActive}},
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alpha"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceTerminating}},
 		).Build()
-		service := system.NewService(system.WithInventory(kubeClient, nil, nil, nil))
+		service := system.NewService(kubeClient, nil, nil, nil, nil)
 
 		result, err := service.ListNamespaces(t.Context())
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestListNamespaces(t *testing.T) {
 				return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
 			},
 		}).Build()
-		service := system.NewService(system.WithInventory(kubeClient, []string{"team-b", "team-a"}, nil, nil))
+		service := system.NewService(kubeClient, []string{"team-b", "team-a"}, nil, nil, nil)
 
 		result, err := service.ListNamespaces(t.Context())
 		require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
 	t.Run("disabled does not read Kubernetes", func(t *testing.T) {
-		service := system.NewService(system.WithInventory(nil, nil, &authimpl.NoopAuthorizer{}, nil))
+		service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil)
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
 		assert.False(t, result.Enabled)
@@ -157,19 +157,12 @@ func TestGetSubstrateStatus(t *testing.T) {
 				WorkerNamespace: "team",
 				WorkerPool:      "pool",
 				WorkerPod:       "worker-0",
-				Status: &ateapipb.WorkerStatus{Assignment: &ateapipb.ActorAssignment{
-					ActorTemplateRef: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
-					Actor:            &ateapipb.ObjectRef{Name: "actor-1"},
-				}},
 			}},
 		}
 		revisions := &fakeRuntimeRevisionStore{harnesses: []dbpkg.ActorTemplateHarness{{
 			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
 		}}}
-		service := system.NewService(
-			system.WithInventory(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient),
-			system.WithRuntimeRevisions(revisions),
-		)
+		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions)
 
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
@@ -186,17 +179,16 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.Actors, 1)
 		assert.Equal(t, "Running", result.Actors[0].Status)
 		require.Len(t, result.Workers, 1)
-		assert.Equal(t, "template", result.Workers[0].ActorTemplate)
-		assert.Equal(t, "actor-1", result.Workers[0].ActorID)
+		assert.Equal(t, "worker-0", result.Workers[0].WorkerPod)
 		assert.Equal(t, int64(3), result.Workers[0].Version)
 	})
 
 	t.Run("validates and authorizes", func(t *testing.T) {
-		service := system.NewService(system.WithInventory(nil, nil, &authimpl.NoopAuthorizer{}, nil))
+		service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil)
 		_, err := service.GetSubstrateStatus(ctx, "INVALID_NAMESPACE")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), err)
 
-		service = system.NewService(system.WithInventory(nil, nil, systemDenyAuthorizer{}, nil))
+		service = system.NewService(nil, nil, systemDenyAuthorizer{}, nil, nil)
 		_, err = service.GetSubstrateStatus(ctx, "")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 	})

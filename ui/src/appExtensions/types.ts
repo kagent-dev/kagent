@@ -186,7 +186,7 @@ export interface AppExtensionConfig {
    */
   tableColumns?: readonly ExtensionTableColumn<never>[];
   /**
-   * Operation overrides, endpoint overrides and payload transforms, keyed by the
+   * Operation overrides and payload transforms, keyed by the
    * data layer's own call ids so an override naming a call that does not exist
    * fails to compile.
    */

@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
@@ -18,16 +16,6 @@ type A2aContext struct {
 	Namespace string
 	UserID    string
 	CreatedAt time.Time
-}
-
-type Agent struct {
-	ID           string
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	DeletedAt    *time.Time
-	Type         string
-	Config       *adk.AgentConfig
-	WorkloadType string
 }
 
 type AgentInstance struct {
@@ -113,67 +101,6 @@ type AgentTemplateHarnessPair struct {
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 	AgentTemplateLabels      []byte
-}
-
-type CrewaiAgentMemory struct {
-	UserID     string
-	ThreadID   string
-	CreatedAt  *time.Time
-	UpdatedAt  *time.Time
-	DeletedAt  *time.Time
-	MemoryData string
-}
-
-type CrewaiFlowState struct {
-	UserID     string
-	ThreadID   string
-	MethodName string
-	CreatedAt  *time.Time
-	UpdatedAt  *time.Time
-	DeletedAt  *time.Time
-	StateData  string
-}
-
-type Feedback struct {
-	ID           int64
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	DeletedAt    *time.Time
-	UserID       string
-	MessageID    *int64
-	IsPositive   bool
-	FeedbackText string
-	IssueType    *database.FeedbackIssueType
-}
-
-type LgCheckpoint struct {
-	UserID             string
-	ThreadID           string
-	CheckpointNs       string
-	CheckpointID       string
-	ParentCheckpointID *string
-	CreatedAt          *time.Time
-	UpdatedAt          *time.Time
-	DeletedAt          *time.Time
-	Metadata           string
-	Checkpoint         string
-	CheckpointType     string
-	Version            int64
-}
-
-type LgCheckpointWrite struct {
-	UserID       string
-	ThreadID     string
-	CheckpointNs string
-	CheckpointID string
-	WriteIdx     int64
-	Value        string
-	ValueType    string
-	Channel      string
-	TaskID       string
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	DeletedAt    *time.Time
 }
 
 type Memory struct {

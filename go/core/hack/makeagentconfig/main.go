@@ -2,16 +2,22 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"net"
 	"os"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 func main() {
+	logger, err := logging.NewFromEnv(os.Stderr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	cfg := &adk.AgentConfig{
 		Model: &adk.OpenAI{
 			BaseModel: adk.BaseModel{
@@ -60,13 +66,19 @@ func main() {
 
 	bCfg, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to marshal agent config", "error", err)
+		return
 	}
 	bCard, err := json.MarshalIndent(card, "", "  ")
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to marshal agent card", "error", err)
+		return
 	}
 
-	os.WriteFile("config.json", bCfg, 0644)
-	os.WriteFile("agent-card.json", bCard, 0644)
+	if err := os.WriteFile("config.json", bCfg, 0644); err != nil {
+		logger.Error("failed to write agent config", "error", err)
+	}
+	if err := os.WriteFile("agent-card.json", bCard, 0644); err != nil {
+		logger.Error("failed to write agent card", "error", err)
+	}
 }

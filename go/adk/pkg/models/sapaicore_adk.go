@@ -30,9 +30,9 @@ func (m *SAPAICoreModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 				m.invalidateDeploymentURL()
 				var he *orchHTTPError
 				if errors.As(err, &he) {
-					m.Logger.Info("SAP AI Core request failed, retrying", "status", he.StatusCode, "url", he.URL)
+					m.Logger.InfoContext(ctx, "request to SAP AI Core failed; retrying", "status", he.StatusCode, "url", he.URL)
 				} else {
-					m.Logger.Info("SAP AI Core request failed, retrying", "error", err)
+					m.Logger.InfoContext(ctx, "request to SAP AI Core failed; retrying", "error", err)
 				}
 				resp, err = m.doRequest(ctx, req, stream)
 				if err != nil {

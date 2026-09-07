@@ -10,14 +10,9 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1
 // and infrastructure policy half of the (Harness, AgentTemplate) pair that
 // CreateAgentInstance names.
 //
-// Harness is NOT AgentHarness. AgentService carries GetAgentHarness /
-// CreateAgentHarness / DeleteAgentHarness, and those operate on the separate
-// AgentHarness CRD — a single agent bound to an external ACP backend. The
-// Harness here is a reusable runtime (one of the kagent, codex or claude
-// adapters, plus a Substrate worker pool and snapshot policy) that admits many
-// AgentTemplates through a label selector; the v2 reconciler pairs the two in
-// go/core/v2/controller/collections.go. The names collide but the kinds do not,
-// so this is a separate service rather than more RPCs on AgentService.
+// A Harness is a reusable runtime adapter paired with an AgentTemplate when an
+// AgentInstance is created. Creating either Kubernetes resource does not run an
+// agent.
 service HarnessService {
   rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);
   rpc CreateHarness(CreateHarnessRequest) returns (CreateHarnessResponse);

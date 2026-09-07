@@ -279,7 +279,7 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 build-controller: ## Build and push the API v2 controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
+		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
@@ -439,17 +439,10 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
-# Upgrade test targets install the previous released kagent chart from the public
-# OCI registry, build the current images, then run the assertions in
-# go/core/test/upgrade. These tests are deliberately kept out of test/e2e: they
-# mutate the cluster (upgrade then reverse-migrate it) and so cannot share the
-# e2e suite's cluster. The Go test performs the actual upgrade to the current
-# build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
-# the latest version reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
-# this against two targets via a matrix — that adjacent version and the previous
-# release line's latest published version (scripts/prev-stable-version.sh) — and
-# you can pin either locally, e.g.
-# `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# Upgrade tests install a previous Kagent chart and upgrade it to the current build.
+# The tests use a separate cluster because they change the database and deployment.
+# The tests skip releases that do not use Goose.
+# UPGRADE_FROM_VERSION selects the previous release.
 # The previous install pins the bundled Postgres image to whatever the
 # upgrade-from release's own install target shipped (resolved inside
 # install-previous-release), so the baseline matches how that release actually
@@ -458,8 +451,7 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # build.
 #
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
-# cluster (make create-kind-cluster). agent-sandbox is not required — the
-# controller tolerates the missing CRD and these tests create no SandboxAgents.
+# cluster (make create-kind-cluster).
 #
 # Lazily evaluated and referenced only by the upgrade targets below, so unrelated
 # make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
@@ -504,37 +496,27 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
 		$$db_flags $(UPGRADE_PREV_EXTRA_ARGS)
 
-# run-upgrade-tests installs the previous release, builds the current images, and
-# runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
-# rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
-# install) -> reverse schema to target (down files) + data survival. At each
-# state it also runs a version-matched invoke e2e slice (TestE2EInvokeInlineAgent)
-# so the serving controller's real query paths are exercised, not just psql: the
-# HEAD tree post-upgrade, and the previous release's own tree (a git worktree at
-# its tag, in .upgrade-prev) for the old-code-against-new-schema and post-rollback
-# states. KAGENT_LOCAL_HOST (kind gateway IP) lets the agent reach the in-process
-# mock LLM; without it the invoke slices self-skip and only the DB round-trip runs.
+# run-upgrade-tests installs the previous release and upgrades it to the current build.
+# The test skips releases that do not use Goose.
+# Later Goose releases test previous-release behavior after the target migrations,
+# data survival, schema equality, previous/current controller startup, and a
+# complete application and schema rollback to the previous release.
+# KAGENT_LOCAL_HOST lets the agent reach the local mock LLM.
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
-# cluster (make create-kind-cluster). The controller tolerates the missing
-# agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
-# no SandboxAgents, so agent-sandbox is not required.
+# cluster (make create-kind-cluster).
 .PHONY: announce-upgrade-from
 announce-upgrade-from: ## Print the upgrade-from -> to versions (runs before the build so it is clear up front)
-	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION) — building current images next ==="
+	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION). Building current images next. ==="
 
 .PHONY: run-upgrade-tests
-run-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
+run-upgrade-tests: announce-upgrade-from build install-previous-release ## Test an upgrade between Goose releases
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	@set -e; \
-	git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true; \
-	git worktree add --detach "$(CURDIR)/.upgrade-prev" "v$(UPGRADE_FROM_VERSION)"; \
-	trap 'git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true' EXIT; \
 	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
 	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
 	cd go && \
 	RUN_UPGRADE_TESTS=true \
 	REPO_ROOT=$(CURDIR) \
-	PREV_E2E_DIR=$(CURDIR)/.upgrade-prev \
 	KAGENT_LOCAL_HOST="$$kind_gw" \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \

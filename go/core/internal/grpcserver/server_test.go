@@ -3,10 +3,12 @@ package grpcserver
 import (
 	"context"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
@@ -15,7 +17,11 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-func TestServerGetVersionAndHealth(t *testing.T) {
+func testSystemService() *systemservice.Service {
+	return systemservice.NewService(nil, nil, nil, nil, nil)
+}
+
+func TestServerServesGRPCAndHTTP(t *testing.T) {
 	oldVersion, oldCommit, oldDate := version.Version, version.GitCommit, version.BuildDate
 	version.Version, version.GitCommit, version.BuildDate = "v1.2.3", "abc123", "2026-07-28"
 	t.Cleanup(func() {
@@ -24,7 +30,11 @@ func TestServerGetVersionAndHealth(t *testing.T) {
 
 	listener := bufconn.Listen(1024 * 1024)
 	server, err := New(Config{
-		Listener:   listener,
+		Listener:      listener,
+		SystemService: testSystemService(),
+		HTTPHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
 		Registerer: prometheus.NewRegistry(),
 	})
 	if err != nil {
@@ -64,6 +74,20 @@ func TestServerGetVersionAndHealth(t *testing.T) {
 		t.Fatalf("Health.Check() status = %v", healthResponse.GetStatus())
 	}
 
+	httpClient := &http.Client{Transport: &http.Transport{
+		DialContext: func(context.Context, string, string) (net.Conn, error) { return listener.Dial() },
+	}}
+	httpResponse, err := httpClient.Get("http://bufnet/healthz")
+	if err != nil {
+		cancel()
+		t.Fatalf("HTTP GET error = %v", err)
+	}
+	_ = httpResponse.Body.Close()
+	if httpResponse.StatusCode != http.StatusNoContent {
+		cancel()
+		t.Fatalf("HTTP GET status = %v", httpResponse.Status)
+	}
+
 	cancel()
 	select {
 	case err := <-done:
@@ -76,8 +100,15 @@ func TestServerGetVersionAndHealth(t *testing.T) {
 }
 
 func TestNewRejectsPartialTLSConfiguration(t *testing.T) {
-	_, err := New(Config{TLSCertFile: "cert.pem"})
+	_, err := New(Config{TLSCertFile: "cert.pem", SystemService: testSystemService()})
 	if err == nil {
 		t.Fatal("New() error = nil, want partial TLS configuration error")
+	}
+}
+
+func TestNewRejectsMissingSystemService(t *testing.T) {
+	_, err := New(Config{})
+	if err == nil {
+		t.Fatal("New() error = nil, want missing system service error")
 	}
 }

@@ -62,6 +62,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
+		SystemService: testSystemService(),
 		ModelService:  service,
 	})
 	if err != nil {
@@ -169,14 +170,6 @@ func TestModelServiceCRUD(t *testing.T) {
 		modelProviders.GetProviders()[0].GetName() != "OpenAI" ||
 		modelProviders.GetProviders()[3].GetName() != "Foundry" {
 		t.Fatalf("ListSupportedModelProviders() = %+v", modelProviders.GetProviders())
-	}
-
-	memoryProviders, err := client.ListSupportedMemoryProviders(ctx, &apiv1alpha1.ListSupportedMemoryProvidersRequest{})
-	if err != nil {
-		t.Fatalf("ListSupportedMemoryProviders() error = %v", err)
-	}
-	if len(memoryProviders.GetProviders()) != 1 || memoryProviders.GetProviders()[0].GetName() != "Pinecone" {
-		t.Fatalf("ListSupportedMemoryProviders() = %+v", memoryProviders.GetProviders())
 	}
 
 	configuredProviders, err := client.ListConfiguredProviders(ctx, &apiv1alpha1.ListConfiguredProvidersRequest{})

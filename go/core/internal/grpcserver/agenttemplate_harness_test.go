@@ -39,6 +39,7 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		Listener:             listener,
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
+		SystemService:        testSystemService(),
 		AgentTemplateService: kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:       kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 	})
@@ -253,11 +254,10 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	// An AgentHarness payload must not be accepted here: the two kinds are
-	// distinct and the kind check is what keeps them from being confused.
+	// A payload for another kind must not be accepted here.
 	_, err = client.CreateHarness(ctx, &apiv1alpha1.CreateHarnessRequest{
 		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "wrong-kind"},
-		Resource: structured(t, &v1alpha3.AgentHarness{}, "AgentHarness"),
+		Resource: structured(t, map[string]any{}, "OtherHarness"),
 	})
 	assertCode(t, err, codes.InvalidArgument)
 

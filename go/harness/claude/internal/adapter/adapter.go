@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
-	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
+	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 )
 
 // Input contains compiler output and Actor-owned locations used to construct

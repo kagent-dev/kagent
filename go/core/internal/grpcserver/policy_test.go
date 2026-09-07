@@ -21,18 +21,18 @@ func TestAgentInstanceServicePoliciesMatchTheirEffect(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		method string
-		want   AccessMode
+		want   pkgauth.AccessMode
 	}{
-		{name: "create", method: apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName, want: AccessCreate},
-		{name: "get", method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, want: AccessRead},
-		{name: "list", method: apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName, want: AccessRead},
-		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, want: AccessUpdate},
-		{name: "suspend", method: apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName, want: AccessUpdate},
-		{name: "resume", method: apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName, want: AccessUpdate},
-		{name: "delete", method: apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName, want: AccessDelete},
-		{name: "create share", method: apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName, want: AccessCreate},
-		{name: "list shares", method: apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName, want: AccessRead},
-		{name: "revoke share", method: apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName, want: AccessDelete},
+		{name: "create", method: apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "get", method: apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName, want: pkgauth.AccessRead},
+		{name: "list", method: apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName, want: pkgauth.AccessRead},
+		{name: "rename is a write", method: apiv1alpha1.AgentInstanceService_UpdateAgentInstanceName_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "suspend", method: apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "resume", method: apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "delete", method: apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName, want: pkgauth.AccessDelete},
+		{name: "create share", method: apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "list shares", method: apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName, want: pkgauth.AccessRead},
+		{name: "revoke share", method: apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName, want: pkgauth.AccessDelete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := policies[test.method]

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -21,14 +20,14 @@ import (
 
 func newTestSAPModel(t *testing.T, baseURL, authURL string) *SAPAICoreModel {
 	t.Helper()
-	m, err := NewSAPAICoreModelWithLogger(SAPAICoreConfig{
+	m, err := NewSAPAICoreModel(t.Context(), SAPAICoreConfig{
 		Model:         "test-model",
 		BaseUrl:       baseURL,
 		ResourceGroup: "default",
 		AuthUrl:       authURL,
-	}, logr.Discard())
+	})
 	if err != nil {
-		t.Fatalf("NewSAPAICoreModelWithLogger: %v", err)
+		t.Fatalf("NewSAPAICoreModel: %v", err)
 	}
 	return m
 }

@@ -13,6 +13,7 @@ COPY api/ api/
 COPY adk/ adk/
 COPY core/ core/
 COPY harness/ harness/
+COPY pkg/ pkg/
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     --mount=type=cache,target=/root/.cache/go-build,rw \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \

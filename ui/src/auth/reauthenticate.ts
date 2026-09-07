@@ -40,17 +40,26 @@ function returnTo(location: Pick<Location, "pathname" | "search" | "hash">): str
 }
 
 /**
- * The URL that restarts the flow and comes back here.
+ * The URL that restarts the flow and comes back to `target`.
  *
  * `rd` is oauth2-proxy's own parameter for it. Without it the proxy returns the reader
  * to whatever it defaults to, which is how signing in again used to cost somebody the
  * page they were reading.
+ *
+ * Takes the destination rather than reading `window.location`, because the sign-in page
+ * is the one place where those differ: a reader who was sent there by the proxy is
+ * *at* `/login`, and the page they wanted is in the query string. See `LoginPage`.
  */
+export function ssoStartUrl(target: string): string {
+  const start = runtimeConfig().ssoRedirectPath;
+  return `${start}?rd=${encodeURIComponent(target)}`;
+}
+
+/** The URL that restarts the flow and comes back to the page being read. */
 export function reauthenticationUrl(
   location: Pick<Location, "pathname" | "search" | "hash">,
 ): string {
-  const start = runtimeConfig().ssoRedirectPath;
-  return `${start}?rd=${encodeURIComponent(returnTo(location))}`;
+  return ssoStartUrl(returnTo(location));
 }
 
 /**

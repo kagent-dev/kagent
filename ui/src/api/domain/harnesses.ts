@@ -7,13 +7,8 @@
  * policy, and a digest-pinned workload image. The template is the other half and
  * says what the agent *is*: its model, its prompt, its tools.
  *
- * ## `Harness` is not `AgentHarness`
- *
- * Two different CRDs, and the names are the only thing they share. `AgentHarness`
- * is a single agent bound to an external ACP backend, served by `AgentService`.
- * This one is a reusable runtime that admits many templates through a label
- * selector, served by `HarnessService`. Wiring a form for one to the other's RPCs
- * looks right and does nothing — which has already happened once here.
+ * A Harness is reusable and admits many templates through a label selector.
+ * `HarnessService` owns its API.
  */
 
 import type { ResourceMetadata } from "./common";

@@ -1,4 +1,4 @@
-/** ModelConfig domain models, mirroring the `kagent.dev/v1alpha2` ModelConfig CRD. */
+/** ModelConfig domain models, mirroring the `kagent.dev/v1alpha3` ModelConfig CRD. */
 
 import type { TLSConfig } from "./common";
 
@@ -79,6 +79,14 @@ export interface SAPAICoreConfig {
   authUrl?: string;
 }
 
+export interface FoundryConfig {
+  endpoint?: string;
+  deployment: string;
+  apiVersion?: string;
+  /** OpenAI-compatible chat completions (default) or the Anthropic Messages API for Claude models. */
+  apiFormat?: "OpenAI" | "Anthropic";
+}
+
 export interface ModelConfigSpec {
   model: string;
   provider: string;
@@ -96,6 +104,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfig;
+  foundry?: FoundryConfig;
 }
 
 /** One row of `ModelService.ListModelConfigs`: `ref` is `namespace/name`. */

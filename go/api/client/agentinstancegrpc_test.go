@@ -86,7 +86,7 @@ func (s *recordingA2AService) observe(ctx context.Context) {
 	})
 }
 
-func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
+func TestAgentInstanceAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	agentInstanceService := &recordingAgentInstanceService{}
 	a2aService := &recordingA2AService{}
@@ -100,23 +100,29 @@ func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
 	})
 
 	var dialCount atomic.Int32
-	clientSet := New(
-		"http://rest-must-not-be-used.invalid",
+	options := []ClientOption{
 		WithUserID("caller"),
-		WithGRPCTarget("passthrough:///bufnet"),
-		WithGRPCTimeout(5*time.Second),
+		WithGRPCTimeout(5 * time.Second),
 		WithGRPCDialOptions(grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			dialCount.Add(1)
 			return listener.Dial()
 		})),
+	}
+	apiClient, err := NewAPI(
+		"http://api.invalid:80",
+		options...,
 	)
-	t.Cleanup(func() { require.NoError(t, clientSet.Close()) })
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, apiClient.Close()) })
+	gatewayClient, err := NewGateway("http://gateway.invalid:80", options...)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, gatewayClient.Close()) })
 
-	_, err := clientSet.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
+	_, err = apiClient.AgentInstance.CreateAgentInstance(context.Background(), &apiv1alpha1.CreateAgentInstanceRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, agentInstanceService.observation)
 
-	a2aClient, err := clientSet.A2A.ForAgentInstance(context.Background(), "kagent", agentInstanceClientTestID)
+	a2aClient, err := gatewayClient.A2A.ForAgentInstance(context.Background(), "kagent", agentInstanceClientTestID)
 	require.NoError(t, err)
 	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
 		"authorization": {"Bearer model-key"},
@@ -138,7 +144,7 @@ func TestAgentInstanceAndA2AClientsShareGRPCConnection(t *testing.T) {
 		{namespace: "kagent", id: agentInstanceClientTestID, userID: "caller", authorization: "Bearer model-key", hasDeadline: false},
 	}, a2aService.observations)
 	a2aService.mu.Unlock()
-	assert.Equal(t, int32(1), dialCount.Load())
+	assert.Equal(t, int32(2), dialCount.Load())
 }
 
 func TestStreamingA2AMethodsMatchUpstreamService(t *testing.T) {

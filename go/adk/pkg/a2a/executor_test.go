@@ -5,9 +5,10 @@ import (
 	"iter"
 	"testing"
 
+	"log/slog"
+
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -84,7 +85,7 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 		StoredTask: storedTask,
 	}
 	builtin := &recordingExecutor{}
-	executor := &KAgentExecutor{builtin: builtin, appName: appName, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, appName: appName, logger: slog.New(slog.DiscardHandler)}
 
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
@@ -146,7 +147,7 @@ func TestKAgentExecutor_TranslatesADKPauseAtA2ABoundary(t *testing.T) {
 	builtin := &recordingExecutor{events: []a2atype.Event{
 		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, internalMessage),
 	}}
-	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
 
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
@@ -180,7 +181,7 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	final := a2atype.NewArtifactEvent(reqCtx, a2atype.NewTextPart("hello"))
 	final.LastChunk = true
 	builtin := &recordingExecutor{events: []a2atype.Event{final}}
-	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
 
 	var got []a2atype.Event
 	for event, err := range executor.Execute(context.Background(), reqCtx) {
@@ -242,7 +243,7 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	executor := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName:        appName,
 		SessionService: sessionService,
-		Logger:         logr.Discard(),
+		Logger:         slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{
 			AppName: appName,
 			Agent:   agent,
@@ -325,7 +326,7 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	}
 	sessionService := adksession.InMemoryService()
 	executor := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName: appName, SessionService: sessionService, Logger: logr.Discard(),
+		AppName: appName, SessionService: sessionService, Logger: slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
 	})
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{

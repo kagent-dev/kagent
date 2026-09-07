@@ -12,11 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"log/slog"
+
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -43,13 +44,13 @@ type A2AServer struct {
 	readyServer  *http.Server
 	grpcServer   *grpc.Server
 	healthServer *health.Server
-	logger       logr.Logger
+	logger       *slog.Logger
 	config       ServerConfig
 	listenErr    chan error
 }
 
 // NewA2AServer creates a new A2A server using a2asrv.
-func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger logr.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
+func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
@@ -144,7 +145,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	}, nil
 }
 
-func getMaxContentLength(logger logr.Logger) *int64 {
+func getMaxContentLength(logger *slog.Logger) *int64 {
 	value, ok := os.LookupEnv(a2aMaxContentLengthEnvVar)
 	if !ok {
 		maxContentLength := defaultMaxContentLength
@@ -160,8 +161,8 @@ func getMaxContentLength(logger logr.Logger) *int64 {
 	maxContentLength, err := strconv.ParseInt(trimmedValue, 10, 64)
 	if err != nil || maxContentLength < 0 {
 		logger.Info(
-			"Invalid A2A request size limit, using default",
-			"environmentVariable", a2aMaxContentLengthEnvVar,
+			"invalid A2A request size limit, using default",
+			"environment_variable", a2aMaxContentLengthEnvVar,
 			"value", value,
 			"default", defaultMaxContentLength,
 		)
@@ -183,7 +184,7 @@ func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handle
 
 // Start initializes and starts the HTTP server.
 func (s *A2AServer) Start() error {
-	s.logger.Info("Starting Go ADK server!", "addr", s.httpServer.Addr)
+	s.logger.Info("starting Go ADK server!", "addr", s.httpServer.Addr)
 
 	s.listenErr = make(chan error, 1)
 	go func() {
@@ -208,7 +209,7 @@ func (s *A2AServer) WaitForShutdown() error {
 
 	select {
 	case <-stop:
-		s.logger.Info("Shutting down server...")
+		s.logger.Info("shutting down server...")
 	case err := <-s.listenErr:
 		return fmt.Errorf("server listen failed: %w", err)
 	}

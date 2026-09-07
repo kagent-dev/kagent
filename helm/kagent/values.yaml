@@ -95,10 +95,6 @@ database:
       minConns: null
       maxConnIdleTime: ""
       maxConnLifetime: ""
-    # -- Hard-delete idle sessions (and cascaded events/tasks/checkpoints/shares) after N days
-    # of no activity. Uses session.updated_at as a sliding idle clock (writes refresh it).
-    # 0 disables cleanup (default, existing installs unchanged).
-    sessionRetentionDays: 0
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
@@ -287,7 +283,6 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-      grpc: 8084
     annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
@@ -309,10 +304,9 @@ controller:
     service:
       type: ClusterIP
       port: 8443
-  # -- Native gRPC application API settings. This port is internal unless a
-  # separate TLS-capable GRPCRoute or ingress is configured.
+  # -- gRPC application API settings. Native gRPC, gRPC-Web, MCP, and health
+  # share the controller service port.
   grpc:
-    bindAddress: ":8084"
     maxMessageBytes: 16777216
     reflection: false
     tlsCertFile: ""
@@ -364,7 +358,7 @@ controller:
   readinessProbe: {}
 
 # -- Optional Agent Substrate WorkerPool installed by this chart. This is platform
-# capacity and is not owned by individual AgentHarness resources.
+# capacity and is not owned by individual agents.
 substrateWorkerPool:
   create: false
   name: kagent-default
@@ -700,7 +694,7 @@ kagent-tools:
   tools:
     loglevel: "debug"
     metrics:
-      port: 8085 # Use a different port than the main service port (8084) to avoid duplicate port definitions
+      port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
 
 # ==============================================================================
 # PROXY CONFIGURATION
@@ -792,6 +786,9 @@ oauth2-proxy:
   # Cluster-specific OIDC settings - override these per deployment
   # These are set as env vars and referenced in args for easy patching
   extraEnv:
+    # Forces a rollout whenever the sign_in.html ConfigMap's content changes.
+    - name: KAGENT_OAUTH2_PROXY_SIGNIN_TEMPLATE_CHECKSUM
+      value: '{{ include "kagent.oauth2ProxySignInHTML" . | sha256sum }}'
     - name: OIDC_ISSUER_URL
       value: ""
     - name: OIDC_REDIRECT_URL
@@ -826,7 +823,7 @@ oauth2-proxy:
     # /assets/ with env-config.js ahead of it, so all three have to be reachable
     # unauthenticated or the branded login page renders blank. The Next.js paths
     # this replaces (_next/static, _next/image, login-bg) no longer exist.
-    skip-auth-regex: "^/(login|assets/|env-config\\.js|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
+    skip-auth-regex: "^/(login|assets/|env-config\\.js|logo-.*\\.png|favicon\\.ico).*$"
     # Use custom templates that redirect to kagent's branded /login page
     custom-templates-dir: "/templates"
 

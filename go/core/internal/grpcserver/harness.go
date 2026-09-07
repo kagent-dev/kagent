@@ -12,8 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// harnessKind is the Harness CRD, not the AgentHarness one that agent.go
-// serves. See the comment on HarnessService in harnesses.proto.
+// harnessKind is the Harness CRD accepted by this service.
 const harnessKind = "Harness"
 
 // Harness runtime adapter names, as reported in the denormalised runtime field.

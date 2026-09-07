@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	corev1 "k8s.io/api/core/v1"
@@ -19,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type ServerType string
@@ -185,7 +185,7 @@ func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServer
 	}
 	if err := secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, owner, gvk, request.Secrets); err != nil {
 		if rollbackErr := secretmaterial.RollbackOwnerOnCreateFailure(ctx, s.kubeClient, owner); rollbackErr != nil {
-			ctrllog.FromContext(ctx).Error(rollbackErr, "failed to roll back ToolServer after companion-secret failure")
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to roll back tool server after companion secret failure", "error", rollbackErr)
 		}
 		return nil, err
 	}

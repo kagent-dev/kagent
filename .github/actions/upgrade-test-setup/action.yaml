@@ -2,8 +2,8 @@ name: Upgrade Test Setup
 
 description: >-
   Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: resolve
-  the upgrade-from version (with the prev-stable == adjacent skip) and bring up
-  the build/cluster toolchain. Exposes the resolved version and skip flag so the
+  the upgrade-from version, skip redundant and pre-Goose legs, and bring up the
+  build/cluster toolchain. Exposes the resolved version and skip flag so the
   caller can gate its test step. The caller MUST run actions/checkout (with
   fetch-depth: 0 + fetch-tags) before this action — a local action is loaded
   from the checked-out workspace and the version resolvers need full history.
@@ -15,7 +15,7 @@ inputs:
 
 outputs:
   skip:
-    description: '"true" when this leg is redundant (prev-stable == adjacent) and the caller should skip its test step.'
+    description: '"true" when this leg is redundant or predates Goose and the caller should skip its test step.'
     value: ${{ steps.resolve.outputs.skip }}
   version:
     description: The resolved upgrade-from version (empty when skip is true).
@@ -65,6 +65,11 @@ runs:
             exit 0
           fi
           V="$(./scripts/upgrade-from-version.sh)"
+        fi
+        if [[ "$V" == 0.10.* ]]; then
+          echo "previous release v$V predates Goose; skipping upgrade tests."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          exit 0
         fi
         echo "version=$V" >> "$GITHUB_OUTPUT"
         echo "=== Upgrade test (${{ inputs.upgrade-from }} leg): will upgrade FROM v$V TO the current build — building images next ==="

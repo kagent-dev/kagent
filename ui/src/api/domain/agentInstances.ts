@@ -101,7 +101,7 @@ export interface AgentInstance {
   name: string;
   /** Who created it. Empty on a cluster with no authentication in front. */
   creator: string;
-  /** `namespace/name` of the AgentHarness it runs, when the record carries one. */
+  /** `namespace/name` of the Harness it runs, when the record carries one. */
   harness?: string;
   /**
    * `namespace/name` of the AgentTemplate it was cut from.

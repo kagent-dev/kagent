@@ -42,17 +42,17 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentURL = RegisterStringVar(
-		"KAGENT_URL",
+	KagentAPIURL = RegisterStringVar(
+		"KAGENT_API_URL",
 		"",
-		"Base URL for A2A communication with the kagent controller.",
+		"Base URL for kagent control-plane API calls.",
 		ComponentAgentRuntime,
 	)
 
-	KagentGRPCURL = RegisterStringVar(
-		"KAGENT_GRPC_URL",
+	KagentGatewayURL = RegisterStringVar(
+		"KAGENT_GATEWAY_URL",
 		"",
-		"Native gRPC target for kagent controller API calls.",
+		"Base URL for A2A and MCP traffic.",
 		ComponentAgentRuntime,
 	)
 
@@ -97,5 +97,19 @@ var (
 		"",
 		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
 		ComponentAgentRuntime,
+	)
+
+	DatabaseVectorEnabled = RegisterBoolVar(
+		"DATABASE_VECTOR_ENABLED",
+		false,
+		"Enable vector database migrations and vector-backed database functionality.",
+		ComponentDatabase,
+	)
+
+	SkipMigrations = RegisterBoolVar(
+		"SKIP_MIGRATIONS",
+		false,
+		"Verify required database migrations at startup without applying them.",
+		ComponentDatabase,
 	)
 )

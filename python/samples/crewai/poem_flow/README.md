@@ -26,11 +26,8 @@ If you wish to use the memory persistence integration with KAgent, edit `poem_fl
      --dry-run=client -o yaml | kubectl apply -f -
    ```
 
-3. **Deploy the agent**:
-
-   ```bash
-   kubectl apply -f agent.yaml
-   ```
+3. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
+   API v2 examples and E2E fixtures for the current resource shape.
 
 When interacting with the agent, you do not need to provide any input because the design of the flow does not take in user input for its tasks.
 
@@ -48,8 +45,8 @@ When interacting with the agent, you do not need to provide any input because th
 2. **Set environment variables**:
 
    ```bash
-   export KAGENT_URL=http://localhost:8083
-   export KAGENT_GRPC_URL=localhost:8084
+   export KAGENT_API_URL=http://localhost:8083
+   export KAGENT_GATEWAY_URL=http://localhost:8083
    export OPENAI_API_KEY="..."
    ```
 
@@ -73,7 +70,7 @@ When interacting with the agent, you do not need to provide any input because th
 The agent can be configured via environment variables:
 
 - `GEMINI_API_KEY`: Required for LLM access
-- `KAGENT_URL`: Required. KAgent server URL (for local development, you can set it to `http://localhost:8083`)
-- `KAGENT_GRPC_URL`: Required. KAgent controller gRPC target (for local development, `localhost:8084`)
+- `KAGENT_API_URL`: Required. KAgent control-plane API URL (for local development, `http://localhost:8083`)
+- `KAGENT_GATEWAY_URL`: Required. KAgent A2A and MCP gateway URL (for local development, `http://localhost:8083`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)

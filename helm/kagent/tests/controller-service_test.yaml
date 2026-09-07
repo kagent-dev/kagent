@@ -29,15 +29,6 @@ tests:
       - equal:
           path: spec.ports[0].protocol
           value: TCP
-      - equal:
-          path: spec.ports[1].name
-          value: grpc
-      - equal:
-          path: spec.ports[1].port
-          value: 8084
-      - equal:
-          path: spec.ports[1].targetPort
-          value: grpc
 
   - it: should have correct selector labels
     asserts:

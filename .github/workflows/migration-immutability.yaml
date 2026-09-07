@@ -16,20 +16,40 @@ jobs:
 
       - name: Fail if any existing migration file was modified
         run: |
-          # List files under go/core/pkg/migrations/ that were changed relative
-          # to the merge base of this PR.  We only care about modifications (M)
-          # and renames (R); additions (A) are fine.
           BASE=$(git merge-base HEAD origin/${{ github.base_ref }})
-          MODIFIED=$(git diff --name-only --diff-filter=MR "$BASE" HEAD \
-            -- 'go/core/pkg/migrations/**/*.sql')
+          CHANGED=$(git diff --no-renames --name-status --diff-filter=MDR "$BASE" HEAD \
+            -- 'go/core/pkg/migrations/**/*.sql' \
+            | awk '$1 != "D" || $2 !~ /\.(up|down)\.sql$/ { print $2 }')
 
-          if [ -n "$MODIFIED" ]; then
-            echo "ERROR: The following migration files were modified."
+          if [ -n "$CHANGED" ]; then
+            echo "ERROR: These migration files changed or were removed."
             echo "Migration files are immutable once merged."
             echo "Fix bugs with a new migration instead."
             echo ""
-            echo "$MODIFIED"
+            echo "$CHANGED"
             exit 1
           fi
 
           echo "OK: no existing migration files were modified."
+
+      - name: Reject non-transactional migrations
+        run: |
+          SPLIT=$(find go/core/pkg/migrations -type f \
+            \( -name '*.up.sql' -o -name '*.down.sql' \))
+
+          if [ -n "$SPLIT" ]; then
+            echo "ERROR: Legacy split migration files are not supported."
+            echo "$SPLIT"
+            exit 1
+          fi
+
+          FORBIDDEN=$(find go/core/pkg/migrations -type f -name '*.sql' \
+            -exec grep -Eil -- '^--[[:space:]]*\+goose[[:space:]]*NO[[:space:]]+TRANSACTION[[:space:]]*$' {} + || true)
+
+          if [ -n "$FORBIDDEN" ]; then
+            echo "ERROR: These migrations disable transactions."
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+
+          echo "OK: all active migrations use transactions."
