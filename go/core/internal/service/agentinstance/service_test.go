@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -31,7 +31,7 @@ type serviceTestStore struct {
 	requestID    string
 	createErr    error
 	instances    []*apiv1alpha1.AgentInstance
-	listQuery    dbpkg.AgentInstanceQuery
+	listQuery    database.AgentInstanceQuery
 	share        *apiv1alpha1.AgentInstanceShare
 	tokenHash    []byte
 	shares       []*apiv1alpha1.AgentInstanceShare
@@ -59,7 +59,7 @@ func (s *serviceTestStore) GetAgentInstance(_ context.Context, _, creator string
 	return &apiv1alpha1.AgentInstance{State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}, nil
 }
 
-func (s *serviceTestStore) ListAgentInstances(_ context.Context, query dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) ListAgentInstances(_ context.Context, query database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	s.listQuery = query
 	return s.instances, nil
 }
@@ -135,8 +135,8 @@ func TestServiceCreateMapsStoreErrors(t *testing.T) {
 		err  error
 		code serviceerrors.Code
 	}{
-		{name: "idempotency conflict", err: dbpkg.ErrIdempotencyConflict, code: serviceerrors.CodeAlreadyExists},
-		{name: "missing revision", err: dbpkg.ErrNotFound, code: serviceerrors.CodeFailedPrecondition},
+		{name: "idempotency conflict", err: database.ErrIdempotencyConflict, code: serviceerrors.CodeAlreadyExists},
+		{name: "missing revision", err: database.ErrNotFound, code: serviceerrors.CodeFailedPrecondition},
 		{name: "database failure", err: errors.New("database unavailable"), code: serviceerrors.CodeInternal},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 }
 
 func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
-	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: dbpkg.ErrAgentInstanceConflict})
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: database.ErrAgentInstanceConflict})
 	for _, test := range []struct {
 		name string
 		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
@@ -333,7 +333,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 	})
 
 	t.Run("a missing instance is not found", func(t *testing.T) {
-		store := &serviceTestStore{renameErr: dbpkg.ErrNotFound}
+		store := &serviceTestStore{renameErr: database.ErrNotFound}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 		_, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {

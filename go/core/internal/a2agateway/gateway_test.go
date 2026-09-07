@@ -19,8 +19,8 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -41,7 +41,7 @@ func (gatewayTestSession) Principal() auth.Principal {
 
 type gatewayTestStore struct {
 	instance        *apiv1alpha1.AgentInstance
-	revision        *dbpkg.RuntimeRevision
+	revision        *database.RuntimeRevision
 	err             error
 	task            *a2atype.Task
 	created         *a2atype.Task
@@ -54,7 +54,7 @@ type gatewayTestStore struct {
 	interrupted     bool
 	createdTasks    int
 	stored          []a2atype.Event
-	snapshot        *dbpkg.AgentInstanceTaskSnapshot
+	snapshot        *database.AgentInstanceTaskSnapshot
 	onStore         func()
 	id, userID      string
 }
@@ -64,11 +64,11 @@ func (s *gatewayTestStore) GetAgentInstance(_ context.Context, id, userID string
 	return s.instance, s.err
 }
 
-func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error) {
+func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
 	return s.revision, nil
 }
 
-func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ string, task *a2atype.Task, event a2atype.Event, snapshot *dbpkg.AgentInstanceTaskSnapshot) error {
+func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ string, task *a2atype.Task, event a2atype.Event, snapshot *database.AgentInstanceTaskSnapshot) error {
 	if s.taskErr != nil {
 		return s.taskErr
 	}
@@ -92,7 +92,7 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 		return s.replay, false, nil
 	}
 	if s.active != nil {
-		return nil, false, dbpkg.ErrAgentInstanceTaskConflict
+		return nil, false, database.ErrAgentInstanceTaskConflict
 	}
 	s.task = task
 	s.created = task
@@ -104,7 +104,7 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 
 func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error) {
 	if s.active == nil {
-		return nil, dbpkg.ErrNotFound
+		return nil, database.ErrNotFound
 	}
 	return s.active, nil
 }
@@ -123,7 +123,7 @@ func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, tas
 		return nil, s.taskErr
 	}
 	if s.task == nil || string(s.task.ID) != taskID {
-		return nil, dbpkg.ErrNotFound
+		return nil, database.ErrNotFound
 	}
 	return s.task, nil
 }
@@ -154,12 +154,12 @@ type gatewayTestWorkflow struct {
 	onQuiesce    func()
 }
 
-func (w *gatewayTestWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error) {
+func (w *gatewayTestWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
 	w.quiesceCalls++
 	if w.onQuiesce != nil {
 		w.onQuiesce()
 	}
-	return &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}, w.err
+	return &database.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}, w.err
 }
 
 func (d *gatewayTestDialer) Dial(_ context.Context, instance *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
@@ -691,7 +691,7 @@ func TestGatewayKeepsHistoryARuntimeHasForgotten(t *testing.T) {
 func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	store := &gatewayTestStore{
 		instance: gatewayTestInstance(),
-		revision: &dbpkg.RuntimeRevision{
+		revision: &database.RuntimeRevision{
 			Revision: "revision-1",
 			AgentCard: &a2apb.AgentCard{
 				Name: "assistant", Description: "pinned description", Version: "v1",
@@ -1006,7 +1006,7 @@ func TestGatewayReplaysDuplicateMessageWithoutDialing(t *testing.T) {
 }
 
 func TestGatewayRejectsConflictingMessageIDWithoutDialing(t *testing.T) {
-	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: dbpkg.ErrIdempotencyConflict}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: database.ErrIdempotencyConflict}
 	dialer := &gatewayTestDialer{}
 	gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
 

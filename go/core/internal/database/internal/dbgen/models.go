@@ -11,12 +11,6 @@ import (
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
-type A2aContext struct {
-	ID        uuid.UUID
-	UserID    string
-	CreatedAt time.Time
-}
-
 type AgentInstance struct {
 	ID                 uuid.UUID
 	UserID             string
@@ -81,20 +75,6 @@ type AgentInstanceTaskEvent struct {
 	Data      []byte
 	CreatedAt time.Time
 	MessageID *string
-}
-
-type AgentTemplateHarnessPair struct {
-	Namespace                string
-	AgentTemplateName        string
-	AgentTemplateUid         string
-	HarnessName              string
-	HarnessUid               string
-	DesiredRevision          string
-	LatestSuccessfulRevision *string
-	RetiredAt                *time.Time
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
-	AgentTemplateLabels      []byte
 }
 
 type Memory struct {

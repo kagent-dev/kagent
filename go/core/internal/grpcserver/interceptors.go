@@ -11,8 +11,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -83,7 +83,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	digest := sha256.Sum256([]byte(shareToken))
 	instanceShare, ownerUserID, err := shareStore.GetAgentInstanceShareByTokenHash(authenticatedContext, digest[:])
 	if err != nil {
-		if errors.Is(err, dbpkg.ErrNotFound) {
+		if errors.Is(err, database.ErrNotFound) {
 			return ctx, status.Error(codes.PermissionDenied, "invalid or expired share token")
 		}
 		return ctx, status.Error(codes.Internal, "failed to validate share token")

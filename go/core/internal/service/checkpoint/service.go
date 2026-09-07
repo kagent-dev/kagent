@@ -9,8 +9,8 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc/codes"
@@ -27,14 +27,14 @@ type store interface {
 	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
 	GetAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
-	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*dbpkg.AgentInstanceTaskSnapshot, string, error)
+	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
 	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 }
 
 type workflow interface {
-	Fork(context.Context, *apiv1alpha1.AgentInstance, *dbpkg.AgentInstanceTaskSnapshot, string) (*apiv1alpha1.AgentInstance, error)
+	Fork(context.Context, *apiv1alpha1.AgentInstance, *database.AgentInstanceTaskSnapshot, string) (*apiv1alpha1.AgentInstance, error)
 }
 
 type tagClient interface {
@@ -79,13 +79,13 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
 	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID}, userID, requestID)
-	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different checkpoint", err)
 	}
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) || errors.Is(err, dbpkg.ErrAgentInstanceNotQuiescent) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) || errors.Is(err, database.ErrAgentInstanceNotQuiescent) {
 		return nil, serviceerrors.NewFailedPrecondition("AgentInstance has no quiescent turn boundary", err)
 	}
 	if err != nil {
@@ -114,7 +114,7 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 	return checkpoint, nil
 }
 
-func (s *Service) ensureTag(ctx context.Context, checkpointID string, reference *dbpkg.AgentInstanceTaskSnapshot) (*ateapipb.ActorSnapshotTag, error) {
+func (s *Service) ensureTag(ctx context.Context, checkpointID string, reference *database.AgentInstanceTaskSnapshot) (*ateapipb.ActorSnapshotTag, error) {
 	if err := s.verifySnapshot(ctx, reference); err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *Service) ensureTag(ctx context.Context, checkpointID string, reference 
 	return tag, nil
 }
 
-func (s *Service) verifySnapshot(ctx context.Context, reference *dbpkg.AgentInstanceTaskSnapshot) error {
+func (s *Service) verifySnapshot(ctx context.Context, reference *database.AgentInstanceTaskSnapshot) error {
 	snapshot, err := s.tags.GetActorSnapshot(ctx, reference.Atespace, reference.Name)
 	if err != nil {
 		return fmt.Errorf("get checkpoint snapshot: %w", err)
@@ -162,7 +162,7 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Ch
 		return nil, err
 	}
 	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, checkpointID, userID)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
@@ -210,7 +210,7 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 		return err
 	}
 	_, err = s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
@@ -246,7 +246,7 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 		return nil, err
 	}
 	snapshot, _, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpointID, userID)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
@@ -260,10 +260,10 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
 	}
 	instance, _, err := s.store.ForkAgentInstance(ctx, checkpointID, userID, requestID, id.String())
-	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {

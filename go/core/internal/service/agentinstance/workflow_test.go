@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -19,7 +19,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 	store := &lifecycleTestStore{
 		instance: instance,
-		revision: &dbpkg.RuntimeRevision{
+		revision: &database.RuntimeRevision{
 			Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		},
 	}
@@ -82,12 +82,12 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	}
 	store := &lifecycleTestStore{
 		instance: instance,
-		revision: &dbpkg.RuntimeRevision{
+		revision: &database.RuntimeRevision{
 			Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	snapshot := &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}
+	snapshot := &database.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}
 	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, snapshot, "checkpoint-018f47a2-4efb-7c21-a848-123456789abc")
 	if err != nil {
 		t.Fatal(err)
@@ -108,10 +108,10 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 
 type lifecycleTestStore struct {
 	instance *apiv1alpha1.AgentInstance
-	revision *dbpkg.RuntimeRevision
+	revision *database.RuntimeRevision
 }
 
-func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error) {
+func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
 	return s.revision, nil
 }
 
@@ -124,7 +124,7 @@ func (s *lifecycleTestStore) MarkAgentInstanceReady(_ context.Context, _ string,
 
 func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, expectedState apiv1alpha1.AgentInstanceState, expectedOperation apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
 	if s.instance.GetState() != expectedState || s.instance.GetOperation() != expectedOperation {
-		return s.instance, dbpkg.ErrAgentInstanceConflict
+		return s.instance, database.ErrAgentInstanceConflict
 	}
 	s.instance = proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	return s.instance, nil

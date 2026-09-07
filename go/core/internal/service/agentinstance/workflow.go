@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -17,7 +17,7 @@ import (
 )
 
 type workflowStore interface {
-	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
+	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
@@ -48,7 +48,7 @@ func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 
 // Quiesce durably suspends the runtime without changing the AgentInstance's
 // logical READY state and returns the exact immutable snapshot it produced.
-func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error) {
+func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
@@ -77,7 +77,7 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL && scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
 		return nil, fmt.Errorf("ActorSnapshot %s/%s returned invalid content scope %s", ref.GetAtespace(), ref.GetName(), scope)
 	}
-	return &dbpkg.AgentInstanceTaskSnapshot{
+	return &database.AgentInstanceTaskSnapshot{
 		Atespace: metadata.GetAtespace(), Name: metadata.GetName(), UID: metadata.GetUid(),
 		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
 	}, nil
@@ -123,7 +123,7 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	return instance, nil
 }
 
-func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentInstance, snapshot *dbpkg.AgentInstanceTaskSnapshot, tagName string) (*apiv1alpha1.AgentInstance, error) {
+func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentInstance, snapshot *database.AgentInstanceTaskSnapshot, tagName string) (*apiv1alpha1.AgentInstance, error) {
 	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 		return instance, nil
 	}
@@ -265,19 +265,19 @@ func (w *ActorWorkflow) claim(
 	// returned bool reports whether this call installed the marker; a retry
 	// which finds the same operation joins it but must not later clear it.
 	if instance.GetState() != expectedState {
-		return nil, false, dbpkg.ErrAgentInstanceConflict
+		return nil, false, database.ErrAgentInstanceConflict
 	}
 	if instance.GetOperation() == operation {
 		return instance, false, nil
 	}
 	if instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
-		return nil, false, dbpkg.ErrAgentInstanceConflict
+		return nil, false, database.ErrAgentInstanceConflict
 	}
 	next := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	next.Operation = operation
 	next.UpdatedAt = timestamppb.Now()
 	claimed, err := w.store.TransitionAgentInstance(ctx, next, expectedState, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) && claimed.GetState() == expectedState && claimed.GetOperation() == operation {
+	if errors.Is(err, database.ErrAgentInstanceConflict) && claimed.GetState() == expectedState && claimed.GetOperation() == operation {
 		return claimed, false, nil
 	}
 	return claimed, err == nil, err
@@ -296,7 +296,7 @@ func (w *ActorWorkflow) finish(
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	next.UpdatedAt = timestamppb.Now()
 	current, err := w.store.TransitionAgentInstance(ctx, next, expectedState, instance.GetOperation())
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) && current.GetState() == nextState && current.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+	if errors.Is(err, database.ErrAgentInstanceConflict) && current.GetState() == nextState && current.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		return current, nil
 	}
 	return current, err
@@ -314,7 +314,7 @@ func (w *ActorWorkflow) release(ctx context.Context, instance *apiv1alpha1.Agent
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	next.UpdatedAt = timestamppb.Now()
 	_, err := w.store.TransitionAgentInstance(ctx, next, state, instance.GetOperation())
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return operationErr
 	}
 	return errors.Join(operationErr, err)
@@ -380,7 +380,7 @@ func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.
 
 func actorName(instanceID string) string { return "ai-" + strings.ToLower(instanceID) }
 
-func usesActorTemplate(actor *ateapipb.Actor, revision *dbpkg.RuntimeRevision) bool {
+func usesActorTemplate(actor *ateapipb.Actor, revision *database.RuntimeRevision) bool {
 	ref := actor.GetActorTemplate()
 	return ref.GetAtespace() == revision.ActorTemplateAtespace && ref.GetName() == revision.ActorTemplateName
 }

@@ -9,9 +9,8 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
+	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -221,7 +220,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: taskRow.ContextID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData}))
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot", UID: "snapshot-uid", ContentScope: "DATA"}))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot", UID: "snapshot-uid", ContentScope: "DATA"}))
 	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
 	addUnknown(checkpointRequest)
 	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
@@ -235,7 +234,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.True(t, proto.Equal(checkpoint, storedCheckpoint))
 	require.Equal(t, checkpointRequest.ProtoReflect().GetUnknown(), checkpoint.ProtoReflect().GetUnknown())
 	_, err = client.GetAgentInstanceCheckpoint(ctx, checkpoint.Id, "mallory")
-	require.ErrorIs(t, err, dbpkg.ErrNotFound)
+	require.ErrorIs(t, err, ErrNotFound)
 	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
 	require.True(t, created)
@@ -264,7 +263,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING, deleting.State)
 	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice"))
 	_, err = client.GetAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
-	require.ErrorIs(t, err, dbpkg.ErrNotFound)
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
@@ -274,7 +273,7 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	card, err := pbconv.ToProtoAgentCard(&a2a.AgentCard{Name: "assistant", Description: "assistant", Version: "v1", SupportedInterfaces: []*a2a.AgentInterface{a2a.NewAgentInterface("http://runtime", a2a.TransportProtocolGRPC)}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}, Skills: []a2a.AgentSkill{{ID: "skill", Name: "skill", Description: "skill", Tags: []string{"tag"}}}, Capabilities: a2a.AgentCapabilities{Streaming: true}})
 	require.NoError(t, err)
 	addUnknown(card)
-	revision := dbpkg.RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template", HarnessName: "kagent", HarnessUID: "harness", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
+	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template", HarnessName: "kagent", HarnessUID: "harness", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
 	require.NoError(t, client.UpsertRuntimeRevision(ctx, revision))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
@@ -312,10 +311,10 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 		listed, err = client.ListAgentInstanceShares(ctx, instance.Id, "mallory", "", 10)
 		require.NoError(t, err)
 		require.Empty(t, listed)
-		require.ErrorIs(t, client.DeleteAgentInstanceShare(ctx, share.Id, "mallory"), dbpkg.ErrNotFound)
+		require.ErrorIs(t, client.DeleteAgentInstanceShare(ctx, share.Id, "mallory"), ErrNotFound)
 		require.NoError(t, client.DeleteAgentInstanceShare(ctx, share.Id, "alice"))
 		_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, digest[:])
-		require.ErrorIs(t, err, dbpkg.ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
 	}
 }
 

@@ -9,8 +9,8 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
@@ -116,11 +116,11 @@ func newPairReconciliations(
 // Substrate owns ActorTemplates; the database retains revisions while a pair
 // or, later, an AgentInstance or checkpoint references them.
 type runtimeRevisionStore interface {
-	UpsertAgentTemplateHarnessPair(context.Context, dbpkg.AgentTemplateHarnessPair) error
-	UpsertRuntimeRevision(context.Context, dbpkg.RuntimeRevision) error
-	MarkRuntimeRevisionSuccessful(context.Context, dbpkg.AgentTemplateHarnessPair) error
+	UpsertAgentTemplateHarnessPair(context.Context, database.AgentTemplateHarnessPair) error
+	UpsertRuntimeRevision(context.Context, database.RuntimeRevision) error
+	MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
-	ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevision, error)
+	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }
 
@@ -259,7 +259,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if state.Revision == nil || state.RevisionID.IsZero() {
 		return r.cleanupUnreferencedRevisions(ctx)
 	}
-	pair := dbpkg.AgentTemplateHarnessPair{
+	pair := database.AgentTemplateHarnessPair{
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
 		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
@@ -292,7 +292,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return nil
 	}
 
-	revision := dbpkg.RuntimeRevision{
+	revision := database.RuntimeRevision{
 		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
 		SourceSnapshot: state.Revision.Provenance, AgentCard: state.Revision.AgentCard,

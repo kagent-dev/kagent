@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -25,7 +25,7 @@ const (
 type store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
-	ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
 	UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error)
@@ -90,10 +90,10 @@ func (s *Service) Create(ctx context.Context, harness, template *apiv1alpha1.Res
 		Harness:       harness,
 		AgentTemplate: template,
 	}, requestID)
-	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewFailedPrecondition("AgentTemplate and Harness do not have a ready prepared revision", err)
 	}
 	if err != nil {
@@ -115,7 +115,7 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.AgentInstanc
 		return nil, err
 	}
 	instance, err := s.store.GetAgentInstance(ctx, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
@@ -133,7 +133,7 @@ func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.Age
 		return nil, err
 	}
 	instance, err := s.store.UpdateAgentInstanceName(ctx, id, creator, name)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
@@ -163,7 +163,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	instances, err := s.store.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
+	instances, err := s.store.ListAgentInstances(ctx, database.AgentInstanceQuery{
 		UserID: userID, AllUsers: request.AllCreators,
 		MatchLabels:   request.MatchLabels,
 		AgentTemplate: request.AgentTemplate, Harness: request.Harness,
@@ -189,14 +189,14 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 		return nil, err
 	}
 	instance, err := s.store.GetAgentInstance(ctx, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Delete(ctx, instance)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
 	}
 	if err != nil {
@@ -214,14 +214,14 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.AgentIns
 		return nil, err
 	}
 	instance, err := s.store.GetAgentInstance(ctx, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Suspend(ctx, instance)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
 	}
 	if err != nil {
@@ -239,14 +239,14 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 		return nil, err
 	}
 	instance, err := s.store.GetAgentInstance(ctx, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Resume(ctx, instance)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
 	}
 	if err != nil {
@@ -268,7 +268,7 @@ func (s *Service) CreateShare(ctx context.Context, instanceID string, permission
 	}
 	_, err = s.store.GetAgentInstance(ctx, instanceID, userID)
 	if err != nil {
-		if errors.Is(err, dbpkg.ErrNotFound) {
+		if errors.Is(err, database.ErrNotFound) {
 			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
 		}
 		return nil, "", serviceerrors.NewInternal("Failed to get AgentInstance", err)
@@ -328,7 +328,7 @@ func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
 		return err
 	}
 	if err := s.store.DeleteAgentInstanceShare(ctx, shareID, userID); err != nil {
-		if errors.Is(err, dbpkg.ErrNotFound) {
+		if errors.Is(err, database.ErrNotFound) {
 			return serviceerrors.NewNotFound("AgentInstance share not found", err)
 		}
 		return serviceerrors.NewInternal("Failed to revoke AgentInstance share", err)

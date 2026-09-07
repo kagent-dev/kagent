@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/pgvector/pgvector-go"
 )

@@ -11,8 +11,8 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -127,23 +127,23 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 }
 
 type fakeRuntimeRevisionStore struct {
-	pair             *dbpkg.AgentTemplateHarnessPair
-	revision         *dbpkg.RuntimeRevision
+	pair             *database.AgentTemplateHarnessPair
+	revision         *database.RuntimeRevision
 	markedSuccessful bool
 	retired          string
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair database.AgentTemplateHarnessPair) error {
 	s.pair = &pair
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision dbpkg.RuntimeRevision) error {
+func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
 	s.revision = &revision
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, dbpkg.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error {
 	s.markedSuccessful = true
 	return nil
 }
@@ -153,7 +153,7 @@ func (s *fakeRuntimeRevisionStore) RetireAgentTemplateHarnessPair(_ context.Cont
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevision, error) {
+func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error) {
 	return nil, nil
 }
 
