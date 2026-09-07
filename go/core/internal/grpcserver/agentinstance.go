@@ -76,11 +76,11 @@ func (s *agentInstanceServer) DeleteAgentInstance(ctx context.Context, request *
 }
 
 func (s *agentInstanceServer) CreateAgentInstanceShare(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceShareRequest) (*apiv1alpha1.CreateAgentInstanceShareResponse, error) {
-	share, token, err := s.service.CreateShare(ctx, request.GetAgentInstanceId(), sharePermissionName(request.GetPermission()))
+	share, token, err := s.service.CreateShare(ctx, request.GetAgentInstanceId(), request.GetPermission())
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.CreateAgentInstanceShareResponse{Share: share.AgentInstanceShare, Token: token}, nil
+	return &apiv1alpha1.CreateAgentInstanceShareResponse{Share: share, Token: token}, nil
 }
 
 func (s *agentInstanceServer) ListAgentInstanceShares(ctx context.Context, request *apiv1alpha1.ListAgentInstanceSharesRequest) (*apiv1alpha1.ListAgentInstanceSharesResponse, error) {
@@ -88,12 +88,8 @@ func (s *agentInstanceServer) ListAgentInstanceShares(ctx context.Context, reque
 	if err != nil {
 		return nil, err
 	}
-	shares := make([]*apiv1alpha1.AgentInstanceShare, 0, len(result.Shares))
-	for index := range result.Shares {
-		shares = append(shares, result.Shares[index].AgentInstanceShare)
-	}
 	return &apiv1alpha1.ListAgentInstanceSharesResponse{
-		Shares: shares, Page: &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		Shares: result.Shares, Page: &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
 	}, nil
 }
 
@@ -102,15 +98,4 @@ func (s *agentInstanceServer) RevokeAgentInstanceShare(ctx context.Context, requ
 		return nil, err
 	}
 	return &apiv1alpha1.RevokeAgentInstanceShareResponse{}, nil
-}
-
-func sharePermissionName(value apiv1alpha1.AgentInstanceSharePermission) string {
-	switch value {
-	case apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY:
-		return "READ_ONLY"
-	case apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE:
-		return "READ_WRITE"
-	default:
-		return ""
-	}
 }

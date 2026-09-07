@@ -123,7 +123,7 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	return instance, nil
 }
 
-func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentInstance, checkpoint *dbpkg.AgentInstanceCheckpoint) (*apiv1alpha1.AgentInstance, error) {
+func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentInstance, snapshot *dbpkg.AgentInstanceTaskSnapshot, tagName string) (*apiv1alpha1.AgentInstance, error) {
 	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 		return instance, nil
 	}
@@ -138,7 +138,7 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
-	tag := &ateapipb.ObjectRef{Atespace: checkpoint.SnapshotAtespace, Name: "checkpoint-" + checkpoint.GetId()}
+	tag := &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActorFromSnapshotTag(ctx, atespace, name,
@@ -157,8 +157,8 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 		return nil, fmt.Errorf("fork actor %s/%s is not suspended", atespace, name)
 	}
 	source := actor.GetStatus().GetSourceSnapshot()
-	if source.GetSnapshot().GetAtespace() != checkpoint.SnapshotAtespace || source.GetSnapshot().GetName() != checkpoint.SnapshotName ||
-		source.GetSnapshotUid() != checkpoint.SnapshotUID {
+	if source.GetSnapshot().GetAtespace() != snapshot.Atespace || source.GetSnapshot().GetName() != snapshot.Name ||
+		source.GetSnapshotUid() != snapshot.UID {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
 	}
 	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))

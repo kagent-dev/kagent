@@ -96,18 +96,6 @@ type AgentInstanceQuery struct {
 	Limit         int
 }
 
-type AgentInstanceShare struct {
-	*apiv1alpha1.AgentInstanceShare
-	TokenHash []byte
-	// OwnerUserID is the user the shared AgentInstance belongs to.
-	//
-	// Populated only by the token lookup, which joins it in — that is what the
-	// share grants. A visitor is authenticated as themselves and the token widens
-	// what their account may reach to what the *owner* can see, so the instance
-	// read has to run as the owner or it finds nothing.
-	OwnerUserID string
-}
-
 // AgentInstanceTaskSnapshot identifies the immutable Substrate snapshot at a
 // completed A2A turn boundary.
 type AgentInstanceTaskSnapshot struct {
@@ -115,15 +103,4 @@ type AgentInstanceTaskSnapshot struct {
 	Name         string
 	UID          string
 	ContentScope string
-}
-
-type AgentInstanceCheckpoint struct {
-	*apiv1alpha1.Checkpoint
-	UserID               string
-	RequestID            string
-	SnapshotAtespace     string
-	SnapshotName         string
-	SnapshotUID          string
-	SnapshotContentScope string
-	TagUID               string
 }

@@ -28,6 +28,8 @@ type Querier interface {
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
+	// Lifecycle work also needs the immutable reference while creating or deleting.
+	GetAgentInstanceCheckpointSnapshot(ctx context.Context, arg GetAgentInstanceCheckpointSnapshotParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
 	// Resolves a share token to the share and the instance's owner.
 	//

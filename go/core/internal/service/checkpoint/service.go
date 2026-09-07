@@ -23,17 +23,18 @@ const (
 )
 
 type store interface {
-	ReserveAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error)
-	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
-	GetAgentInstanceCheckpoint(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
-	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
-	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
+	ReserveAgentInstanceCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, error)
+	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
+	GetAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
+	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*dbpkg.AgentInstanceTaskSnapshot, string, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
 	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 }
 
 type workflow interface {
-	Fork(context.Context, *apiv1alpha1.AgentInstance, *dbpkg.AgentInstanceCheckpoint) (*apiv1alpha1.AgentInstance, error)
+	Fork(context.Context, *apiv1alpha1.AgentInstance, *dbpkg.AgentInstanceTaskSnapshot, string) (*apiv1alpha1.AgentInstance, error)
 }
 
 type tagClient interface {
@@ -77,10 +78,7 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		Checkpoint: &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID}, UserID: userID,
-		RequestID: requestID,
-	})
+	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID}, userID, requestID)
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different checkpoint", err)
 	}
@@ -94,12 +92,16 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 		return nil, serviceerrors.NewInternal("Failed to reserve checkpoint", err)
 	}
 	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING {
-		return checkpoint.Checkpoint, nil
+		return checkpoint, nil
 	}
 
-	tag, err := s.ensureTag(ctx, checkpoint)
+	snapshot, _, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), userID)
 	if err != nil {
-		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.GetId()))
+		return nil, serviceerrors.NewInternal("Failed to get checkpoint snapshot", err)
+	}
+	tag, err := s.ensureTag(ctx, checkpoint.GetId(), snapshot)
+	if err != nil {
+		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, snapshot.Atespace, tagName(checkpoint.GetId()))
 		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
 			_, _ = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "", err.Error())
 		}
@@ -109,44 +111,44 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to publish checkpoint", err)
 	}
-	return checkpoint.Checkpoint, nil
+	return checkpoint, nil
 }
 
-func (s *Service) ensureTag(ctx context.Context, checkpoint *dbpkg.AgentInstanceCheckpoint) (*ateapipb.ActorSnapshotTag, error) {
-	if err := s.verifySnapshot(ctx, checkpoint); err != nil {
+func (s *Service) ensureTag(ctx context.Context, checkpointID string, reference *dbpkg.AgentInstanceTaskSnapshot) (*ateapipb.ActorSnapshotTag, error) {
+	if err := s.verifySnapshot(ctx, reference); err != nil {
 		return nil, err
 	}
-	name := tagName(checkpoint.GetId())
-	tag, err := s.tags.CreateActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name, checkpoint.SnapshotName)
+	name := tagName(checkpointID)
+	tag, err := s.tags.CreateActorSnapshotTag(ctx, reference.Atespace, name, reference.Name)
 	if err != nil {
-		tag, err = s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name)
+		tag, err = s.tags.GetActorSnapshotTag(ctx, reference.Atespace, name)
 		if err != nil {
 			return nil, fmt.Errorf("create snapshot tag: %w", err)
 		}
 	}
 	metadata, snapshot := tag.GetMetadata(), tag.GetSnapshot()
-	if metadata.GetAtespace() != checkpoint.SnapshotAtespace || metadata.GetName() != name || metadata.GetUid() == "" ||
-		snapshot.GetAtespace() != checkpoint.SnapshotAtespace || snapshot.GetName() != checkpoint.SnapshotName ||
+	if metadata.GetAtespace() != reference.Atespace || metadata.GetName() != name || metadata.GetUid() == "" ||
+		snapshot.GetAtespace() != reference.Atespace || snapshot.GetName() != reference.Name ||
 		tag.GetScope() != ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE {
-		return nil, fmt.Errorf("snapshot tag %s/%s returned invalid identity", checkpoint.SnapshotAtespace, name)
+		return nil, fmt.Errorf("snapshot tag %s/%s returned invalid identity", reference.Atespace, name)
 	}
-	if err := s.verifySnapshot(ctx, checkpoint); err != nil {
+	if err := s.verifySnapshot(ctx, reference); err != nil {
 		return nil, err
 	}
 	return tag, nil
 }
 
-func (s *Service) verifySnapshot(ctx context.Context, checkpoint *dbpkg.AgentInstanceCheckpoint) error {
-	snapshot, err := s.tags.GetActorSnapshot(ctx, checkpoint.SnapshotAtespace, checkpoint.SnapshotName)
+func (s *Service) verifySnapshot(ctx context.Context, reference *dbpkg.AgentInstanceTaskSnapshot) error {
+	snapshot, err := s.tags.GetActorSnapshot(ctx, reference.Atespace, reference.Name)
 	if err != nil {
 		return fmt.Errorf("get checkpoint snapshot: %w", err)
 	}
 	metadata := snapshot.GetMetadata()
-	if metadata.GetAtespace() != checkpoint.SnapshotAtespace || metadata.GetName() != checkpoint.SnapshotName || metadata.GetUid() != checkpoint.SnapshotUID {
-		return fmt.Errorf("checkpoint snapshot %s/%s identity changed", checkpoint.SnapshotAtespace, checkpoint.SnapshotName)
+	if metadata.GetAtespace() != reference.Atespace || metadata.GetName() != reference.Name || metadata.GetUid() != reference.UID {
+		return fmt.Errorf("checkpoint snapshot %s/%s identity changed", reference.Atespace, reference.Name)
 	}
-	if scope := strings.TrimPrefix(snapshot.GetStatus().GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_"); scope != checkpoint.SnapshotContentScope {
-		return fmt.Errorf("checkpoint snapshot %s/%s content scope changed", checkpoint.SnapshotAtespace, checkpoint.SnapshotName)
+	if scope := strings.TrimPrefix(snapshot.GetStatus().GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_"); scope != reference.ContentScope {
+		return fmt.Errorf("checkpoint snapshot %s/%s content scope changed", reference.Atespace, reference.Name)
 	}
 	return nil
 }
@@ -166,7 +168,7 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Ch
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
 	}
-	return checkpoint.Checkpoint, nil
+	return checkpoint, nil
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
@@ -192,10 +194,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
-	result := ListResult{Checkpoints: make([]*apiv1alpha1.Checkpoint, min(len(rows), pageSize))}
-	for i := range result.Checkpoints {
-		result.Checkpoints[i] = rows[i].Checkpoint
-	}
+	result := ListResult{Checkpoints: rows[:min(len(rows), pageSize)]}
 	if len(rows) > pageSize {
 		result.NextPageToken = encodePageToken(rows[pageSize-1].GetId())
 	}
@@ -210,22 +209,26 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil {
 		return err
 	}
-	checkpoint, err := s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
+	_, err = s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
-	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.GetId()))
+	snapshot, tagUID, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpointID, userID)
+	if err != nil {
+		return serviceerrors.NewInternal("Failed to get checkpoint snapshot", err)
+	}
+	tag, err := s.tags.GetActorSnapshotTag(ctx, snapshot.Atespace, tagName(checkpointID))
 	if err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
 	}
-	if err == nil && (tag.GetMetadata().GetUid() != checkpoint.TagUID ||
-		tag.GetSnapshot().GetAtespace() != checkpoint.SnapshotAtespace || tag.GetSnapshot().GetName() != checkpoint.SnapshotName) {
+	if err == nil && (tag.GetMetadata().GetUid() != tagUID ||
+		tag.GetSnapshot().GetAtespace() != snapshot.Atespace || tag.GetSnapshot().GetName() != snapshot.Name) {
 		return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
 	}
-	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.GetId())); err != nil && status.Code(err) != codes.NotFound {
+	if err := s.tags.DeleteActorSnapshotTag(ctx, snapshot.Atespace, tagName(checkpointID)); err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 	}
 	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, checkpointID, userID); err != nil {
@@ -242,14 +245,14 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, checkpointID, userID)
+	snapshot, _, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
 	}
-	if checkpoint.SnapshotContentScope != "DATA" {
+	if snapshot.ContentScope != "DATA" {
 		return nil, serviceerrors.NewFailedPrecondition("Checkpoint includes process state and cannot be forked", nil)
 	}
 	id, err := uuid.NewV7()
@@ -266,7 +269,7 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
 	}
-	instance, err = s.workflow.Fork(ctx, instance, checkpoint)
+	instance, err = s.workflow.Fork(ctx, instance, snapshot, tagName(checkpointID))
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to create fork AgentInstance", err)
 	}

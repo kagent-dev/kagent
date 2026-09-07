@@ -178,6 +178,41 @@ func (q *Queries) GetAgentInstanceCheckpointByRequest(ctx context.Context, arg G
 	return i, err
 }
 
+const getAgentInstanceCheckpointSnapshot = `-- name: GetAgentInstanceCheckpointSnapshot :one
+SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, data, source_context_id, prepared_revision, source_labels FROM agent_instance_checkpoint
+WHERE id = $1 AND user_id = $2
+`
+
+type GetAgentInstanceCheckpointSnapshotParams struct {
+	ID     uuid.UUID
+	UserID string
+}
+
+// Lifecycle work also needs the immutable reference while creating or deleting.
+func (q *Queries) GetAgentInstanceCheckpointSnapshot(ctx context.Context, arg GetAgentInstanceCheckpointSnapshotParams) (AgentInstanceCheckpoint, error) {
+	row := q.db.QueryRow(ctx, getAgentInstanceCheckpointSnapshot, arg.ID, arg.UserID)
+	var i AgentInstanceCheckpoint
+	err := row.Scan(
+		&i.ID,
+		&i.SourceInstanceID,
+		&i.UserID,
+		&i.RequestID,
+		&i.HeadTaskID,
+		&i.HistorySequence,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.SnapshotContentScope,
+		&i.TagUid,
+		&i.State,
+		&i.Data,
+		&i.SourceContextID,
+		&i.PreparedRevision,
+		&i.SourceLabels,
+	)
+	return i, err
+}
+
 const getLatestQuiescentAgentInstanceTask = `-- name: GetLatestQuiescentAgentInstanceTask :one
 SELECT latest.context_id, latest.id, latest.state, latest.status_timestamp, latest.data, latest.created_at, latest.updated_at, latest.initial_message_id, latest.request_hash, latest.snapshot_atespace, latest.snapshot_name, latest.snapshot_uid, latest.snapshot_content_scope, latest.history_sequence
 FROM (

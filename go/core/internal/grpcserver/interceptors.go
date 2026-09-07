@@ -81,7 +81,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 	// Only the digest is stored, which is what stops a database dump being a set of
 	// working share links — so the token is hashed the same way it was on creation.
 	digest := sha256.Sum256([]byte(shareToken))
-	instanceShare, err := shareStore.GetAgentInstanceShareByTokenHash(authenticatedContext, digest[:])
+	instanceShare, ownerUserID, err := shareStore.GetAgentInstanceShareByTokenHash(authenticatedContext, digest[:])
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return ctx, status.Error(codes.PermissionDenied, "invalid or expired share token")
@@ -97,7 +97,7 @@ func authenticate(ctx context.Context, fullMethod string, authenticator auth.Aut
 		Token: shareToken,
 		// The owner, not the visitor: the token widens what this account may reach
 		// to what the owner can see, and the instance read runs as the owner.
-		UserID:          instanceShare.OwnerUserID,
+		UserID:          ownerUserID,
 		ReadOnly:        readOnly,
 		AgentInstanceID: instanceShare.GetAgentInstanceId(),
 	}), nil

@@ -71,12 +71,12 @@ type Client interface {
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
-	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string, int) ([]AgentInstanceShare, error)
+	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error)
 	// GetAgentInstanceShareByTokenHash resolves a share token to its share and the
 	// owner of the instance it grants access to. Takes the digest, because only the
 	// digest is stored.
-	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*AgentInstanceShare, error)
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
 	DeleteAgentInstanceShare(context.Context, string, string) error
 	// CreateAgentInstanceTask reserves the instance's single active-task slot.
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task) (*a2a.Task, bool, error)
@@ -87,10 +87,12 @@ type Client interface {
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event, *AgentInstanceTaskSnapshot) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
-	ReserveAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
-	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
-	GetAgentInstanceCheckpoint(context.Context, string, string) (*AgentInstanceCheckpoint, error)
-	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]AgentInstanceCheckpoint, error)
-	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*AgentInstanceCheckpoint, error)
+	ReserveAgentInstanceCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, error)
+	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
+	GetAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
+	// GetAgentInstanceCheckpointSnapshot returns the private snapshot reference and tag UID for lifecycle operations.
+	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*AgentInstanceTaskSnapshot, string, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
 }

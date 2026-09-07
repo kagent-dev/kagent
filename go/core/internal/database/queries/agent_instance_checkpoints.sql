@@ -61,6 +61,11 @@ RETURNING *;
 SELECT * FROM agent_instance_checkpoint
 WHERE id = $1 AND user_id = $2 AND state = 'READY';
 
+-- name: GetAgentInstanceCheckpointSnapshot :one
+-- Lifecycle work also needs the immutable reference while creating or deleting.
+SELECT * FROM agent_instance_checkpoint
+WHERE id = $1 AND user_id = $2;
+
 -- name: ListAgentInstanceCheckpoints :many
 SELECT * FROM agent_instance_checkpoint
 WHERE source_instance_id = sqlc.arg(source_instance_id)

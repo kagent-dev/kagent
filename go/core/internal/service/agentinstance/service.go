@@ -27,8 +27,8 @@ type store interface {
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
 	UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceShare, error)
+	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string) error
 }
 
@@ -56,7 +56,7 @@ type ListResult struct {
 }
 
 type ShareListResult struct {
-	Shares        []dbpkg.AgentInstanceShare
+	Shares        []*apiv1alpha1.AgentInstanceShare
 	NextPageToken string
 }
 
@@ -255,11 +255,11 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 	return instance, nil
 }
 
-func (s *Service) CreateShare(ctx context.Context, instanceID, permission string) (*dbpkg.AgentInstanceShare, string, error) {
+func (s *Service) CreateShare(ctx context.Context, instanceID string, permission apiv1alpha1.AgentInstanceSharePermission) (*apiv1alpha1.AgentInstanceShare, string, error) {
 	if err := validateIdentity(instanceID); err != nil {
 		return nil, "", err
 	}
-	if permission != "READ_ONLY" && permission != "READ_WRITE" {
+	if permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE {
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
 	userID, err := s.authorize(ctx, auth.VerbCreate, instanceID+"/shares")
@@ -281,10 +281,8 @@ func (s *Service) CreateShare(ctx context.Context, instanceID, permission string
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
-	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
-		AgentInstanceShare: &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: instanceID,
-			Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+permission])}, TokenHash: tokenHash,
-	})
+	share, err := s.store.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: instanceID,
+		Permission: permission}, tokenHash)
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
 	}

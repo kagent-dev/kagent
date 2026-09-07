@@ -87,10 +87,8 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	checkpoint := &dbpkg.AgentInstanceCheckpoint{Checkpoint: &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc"},
-		SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid",
-	}
-	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint)
+	snapshot := &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}
+	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, snapshot, "checkpoint-018f47a2-4efb-7c21-a848-123456789abc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +101,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
 	store.instance = instance
 	actor.SourceSnapshotTag.Name = "wrong-tag"
-	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint); err == nil {
+	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, snapshot, "checkpoint-018f47a2-4efb-7c21-a848-123456789abc"); err == nil {
 		t.Fatal("Fork() accepted an existing Actor with the wrong snapshot tag")
 	}
 }

@@ -460,11 +460,11 @@ func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, strin
 	return nil, dbpkg.ErrNotFound
 }
 
-func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
+func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error) {
 	return nil, dbpkg.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceShare, error) {
+func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	return nil, nil
 }
 
