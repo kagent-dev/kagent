@@ -33,14 +33,14 @@ type testStore struct {
 	deleted     bool
 }
 
-func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint *apiv1alpha1.Checkpoint, _, _ string) (*apiv1alpha1.Checkpoint, error) {
+func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint *apiv1alpha1.Checkpoint, _, _ string) (*apiv1alpha1.Checkpoint, *database.AgentInstanceTaskSnapshot, error) {
 	checkpoint.HeadTaskId = "task-1"
 	checkpoint.HistorySequence = 7
 	s.snapshot = &database.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid", ContentScope: "DATA"}
 	checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
 	checkpoint.CreatedAt = timestamppb.Now()
 	s.prepared = checkpoint
-	return checkpoint, nil
+	return checkpoint, s.snapshot, nil
 }
 
 func (s *testStore) FinalizeAgentInstanceCheckpoint(_ context.Context, _ string, tagUID, failure string) (*apiv1alpha1.Checkpoint, error) {
@@ -73,12 +73,12 @@ func (*testStore) ListAgentInstanceCheckpoints(context.Context, string, string, 
 	return nil, nil
 }
 
-func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error) {
+func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error) {
 	if s.prepared == nil {
-		return nil, database.ErrNotFound
+		return nil, "", database.ErrNotFound
 	}
 	s.prepared.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
-	return s.prepared, nil
+	return s.snapshot, s.tagUID, nil
 }
 
 func (s *testStore) DeleteAgentInstanceCheckpoint(context.Context, string, string) error {
@@ -113,6 +113,7 @@ type testTags struct {
 	snapshotUIDAfterCreate string
 	created                *ateapipb.ActorSnapshotTag
 	deleteCalls            int
+	getErr                 error
 }
 
 func (t *testTags) GetActorSnapshot(context.Context, string, string) (*ateapipb.ActorSnapshot, error) {
@@ -127,7 +128,7 @@ func (t *testTags) GetActorSnapshot(context.Context, string, string) (*ateapipb.
 }
 
 func (t *testTags) GetActorSnapshotTag(context.Context, string, string) (*ateapipb.ActorSnapshotTag, error) {
-	return t.created, nil
+	return t.created, t.getErr
 }
 
 func (t *testTags) CreateActorSnapshotTag(_ context.Context, atespace, name, snapshotName string) (*ateapipb.ActorSnapshotTag, error) {
@@ -145,7 +146,7 @@ func (t *testTags) DeleteActorSnapshotTag(context.Context, string, string) error
 }
 
 func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {
-	store := &testStore{}
+	store := &testStore{snapshotErr: fmt.Errorf("creation must use the reserved snapshot")}
 	tags := &testTags{snapshotUID: "snapshot-uid"}
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
@@ -186,14 +187,15 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	service := NewService(store, testAuthorizer{}, tags, nil)
 	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
 
-	store.snapshotErr = fmt.Errorf("snapshot lookup unavailable")
+	store.snapshotErr = fmt.Errorf("deletion must use the snapshot returned by BeginDelete")
+	tags.getErr = fmt.Errorf("tag lookup unavailable")
 	if err := service.Delete(ctx, checkpoint.GetId()); err == nil {
-		t.Fatal("Delete() succeeded without the snapshot reference")
+		t.Fatal("Delete() succeeded without verifying the snapshot tag")
 	}
 	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 0 || store.deleted {
-		t.Fatal("snapshot lookup failure must leave deletion pending without deleting the tag")
+		t.Fatal("tag lookup failure must leave deletion pending without deleting the tag")
 	}
-	store.snapshotErr = nil
+	tags.getErr = nil
 	if err := service.Delete(ctx, checkpoint.GetId()); err != nil {
 		t.Fatal(err)
 	}

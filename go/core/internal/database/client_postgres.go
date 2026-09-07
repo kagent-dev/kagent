@@ -1067,11 +1067,14 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 	return tasks, int(total), nil
 }
 
-func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, userID, requestID string) (*apiv1alpha1.Checkpoint, error) {
+// ReserveAgentInstanceCheckpoint returns the checkpoint and its immutable snapshot
+// reference from the same transaction, including on idempotent retries.
+func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, userID, requestID string) (*apiv1alpha1.Checkpoint, *AgentInstanceTaskSnapshot, error) {
 	if checkpoint == nil {
-		return nil, fmt.Errorf("missing checkpoint")
+		return nil, nil, fmt.Errorf("missing checkpoint")
 	}
 	var result *apiv1alpha1.Checkpoint
+	var snapshot *AgentInstanceTaskSnapshot
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		existing, err := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
 			UserID: userID, RequestID: requestID,
@@ -1080,6 +1083,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			if existing.SourceInstanceID != uuid.MustParse(checkpoint.GetAgentInstanceId()) {
 				return ErrIdempotencyConflict
 			}
+			snapshot = checkpointSnapshot(existing)
 			result, err = toAgentInstanceCheckpoint(existing)
 			return err
 		}
@@ -1136,6 +1140,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 				if existing.SourceInstanceID != uuid.MustParse(checkpoint.GetAgentInstanceId()) {
 					return ErrIdempotencyConflict
 				}
+				snapshot = checkpointSnapshot(existing)
 				result, existingErr = toAgentInstanceCheckpoint(existing)
 				return existingErr
 			}
@@ -1147,13 +1152,14 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		if err != nil {
 			return fmt.Errorf("insert AgentInstance checkpoint: %w", err)
 		}
+		snapshot = checkpointSnapshot(row)
 		result, err = toAgentInstanceCheckpoint(row)
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("reserve AgentInstance checkpoint: %w", err)
+		return nil, nil, fmt.Errorf("reserve AgentInstance checkpoint: %w", err)
 	}
-	return result, nil
+	return result, snapshot, nil
 }
 
 func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID, failure string) (*apiv1alpha1.Checkpoint, error) {
@@ -1217,9 +1223,13 @@ func (c *Client) GetAgentInstanceCheckpointSnapshot(ctx context.Context, id, use
 	if _, err := toAgentInstanceCheckpoint(row); err != nil {
 		return nil, "", err
 	}
+	return checkpointSnapshot(row), row.TagUid, nil
+}
+
+func checkpointSnapshot(row dbgen.AgentInstanceCheckpoint) *AgentInstanceTaskSnapshot {
 	return &AgentInstanceTaskSnapshot{
 		Atespace: row.SnapshotAtespace, Name: row.SnapshotName, UID: row.SnapshotUid, ContentScope: row.SnapshotContentScope,
-	}, row.TagUid, nil
+	}
 }
 
 func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
@@ -1240,8 +1250,11 @@ func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, u
 	return result, nil
 }
 
-func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*apiv1alpha1.Checkpoint, error) {
-	var result *apiv1alpha1.Checkpoint
+// BeginDeleteAgentInstanceCheckpoint hides the checkpoint and returns the snapshot
+// and tag identity needed for cleanup after the transaction commits.
+func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
+	var snapshot *AgentInstanceTaskSnapshot
+	var tagUID string
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
 		if err != nil {
@@ -1250,12 +1263,12 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 		if row.UserID != userID {
 			return ErrNotFound
 		}
-		result, err = toAgentInstanceCheckpoint(row)
+		checkpoint, err := toAgentInstanceCheckpoint(row)
 		if err != nil {
 			return err
 		}
-		result.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
-		data, err := proto.Marshal(result)
+		checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
+		data, err := proto.Marshal(checkpoint)
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
@@ -1263,13 +1276,14 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 		if err != nil {
 			return notFoundOr(err)
 		}
-		result, err = toAgentInstanceCheckpoint(row)
+		snapshot, tagUID = checkpointSnapshot(row), row.TagUid
+		_, err = toAgentInstanceCheckpoint(row)
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("begin delete AgentInstance checkpoint: %w", err)
+		return nil, "", fmt.Errorf("begin delete AgentInstance checkpoint: %w", err)
 	}
-	return result, nil
+	return snapshot, tagUID, nil
 }
 
 func (c *Client) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) error {

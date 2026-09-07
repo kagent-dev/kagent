@@ -23,12 +23,12 @@ const (
 )
 
 type store interface {
-	ReserveAgentInstanceCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, error)
+	ReserveAgentInstanceCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, *database.AgentInstanceTaskSnapshot, error)
 	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
 	GetAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
 	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
-	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
 	ForkAgentInstance(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 }
@@ -78,7 +78,7 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID}, userID, requestID)
+	checkpoint, snapshot, err := s.store.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: instanceID}, userID, requestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different checkpoint", err)
 	}
@@ -95,10 +95,6 @@ func (s *Service) Create(ctx context.Context, instanceID, requestID string) (*ap
 		return checkpoint, nil
 	}
 
-	snapshot, _, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), userID)
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to get checkpoint snapshot", err)
-	}
 	tag, err := s.ensureTag(ctx, checkpoint.GetId(), snapshot)
 	if err != nil {
 		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, snapshot.Atespace, tagName(checkpoint.GetId()))
@@ -209,16 +205,12 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
+	snapshot, tagUID, err := s.store.BeginDeleteAgentInstanceCheckpoint(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
-	}
-	snapshot, tagUID, err := s.store.GetAgentInstanceCheckpointSnapshot(ctx, checkpointID, userID)
-	if err != nil {
-		return serviceerrors.NewInternal("Failed to get checkpoint snapshot", err)
 	}
 	tag, err := s.tags.GetActorSnapshotTag(ctx, snapshot.Atespace, tagName(checkpointID))
 	if err != nil && status.Code(err) != codes.NotFound {

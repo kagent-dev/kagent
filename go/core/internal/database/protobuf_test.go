@@ -223,7 +223,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot", UID: "snapshot-uid", ContentScope: "DATA"}))
 	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
 	addUnknown(checkpointRequest)
-	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
+	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
 	require.NoError(t, err)
 	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "")
 	require.NoError(t, err)
@@ -257,8 +257,12 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Equal(t, futureTask.Status.ProtoReflect().GetUnknown(), forkTask.Status.ProtoReflect().GetUnknown())
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, forkTask.Status.State)
 	require.NoError(t, client.DeleteAgentInstance(ctx, fork.Id))
-	deleting, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
+	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
+	checkpointRow, err = q.GetAgentInstanceCheckpointSnapshot(ctx, dbgen.GetAgentInstanceCheckpointSnapshotParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice"})
+	require.NoError(t, err)
+	deleting := &apiv1alpha1.Checkpoint{}
+	require.NoError(t, proto.Unmarshal(checkpointRow.Data, deleting))
 	require.Equal(t, checkpointRequest.ProtoReflect().GetUnknown(), deleting.ProtoReflect().GetUnknown())
 	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING, deleting.State)
 	require.NoError(t, client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice"))
