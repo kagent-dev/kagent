@@ -1143,7 +1143,7 @@ func TestRuntimeAgentCardAfterBinaryRoundTrip(t *testing.T) {
 			if err := proto.Unmarshal(data, stored); err != nil {
 				t.Fatal(err)
 			}
-			card, err := runtimeAgentCard(stored)
+			card, err := apia2a.FromProtoAgentCard(stored)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -2,14 +2,10 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
@@ -296,19 +292,10 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return nil
 	}
 
-	// The compiler also renders this card for the private runtime's JSON config.
-	var runtimeCard a2atype.AgentCard
-	if err := json.Unmarshal(state.Revision.AgentCardJSON, &runtimeCard); err != nil {
-		return fmt.Errorf("decode compiled Agent Card: %w", err)
-	}
-	card, err := pbconv.ToProtoAgentCard(&runtimeCard)
-	if err != nil {
-		return fmt.Errorf("convert compiled Agent Card: %w", err)
-	}
 	revision := dbpkg.RuntimeRevision{
 		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
-		SourceSnapshot: state.Revision.Provenance, AgentCard: card,
+		SourceSnapshot: state.Revision.Provenance, AgentCard: state.Revision.AgentCard,
 		EgressDestinations:    state.Revision.EgressDestinations,
 		ActorTemplateAtespace: observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}

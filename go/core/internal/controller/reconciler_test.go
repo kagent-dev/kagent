@@ -5,6 +5,10 @@ import (
 	"testing"
 	"time"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
@@ -26,7 +30,8 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
-	revision := &v2translator.Revision{AgentCardJSON: []byte(`{"name":"assistant"}`)}
+	revision := &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
+	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +74,8 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	if store.revision == nil || store.markedSuccessful {
 		t.Fatal("pending revision was not stored correctly")
 	}
+
+	require.True(t, proto.Equal(revision.AgentCard, store.revision.AgentCard))
 
 	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
