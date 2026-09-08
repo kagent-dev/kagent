@@ -23,6 +23,7 @@ from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
+from kagent.adk.models._openai import OpenAIAPIFormat
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
@@ -273,6 +274,7 @@ class TokenExchangeConfig(BaseModel):
 
 class OpenAI(BaseLLM):
     base_url: str | None = None
+    api_format: OpenAIAPIFormat | None = None
     frequency_penalty: float | None = None
     max_tokens: int | None = None
     max_completion_tokens: int | None = Field(default=None, ge=1)
@@ -682,6 +684,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             temperature=model_config.temperature,
             timeout=model_config.timeout,
             top_p=model_config.top_p,
+            api_format=model_config.api_format,
             token_exchange=token_exchange,
             **_transport_kwargs(model_config),
         )

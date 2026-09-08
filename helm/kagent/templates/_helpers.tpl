@@ -269,3 +269,27 @@ imagePullSecrets:
 {{- end -}}
 {{- end -}}
 
+{{/*
+Body of oauth2-proxy's custom sign_in.html template (see
+templates/oauth2-proxy-templates.yaml). Kept as its own named template, rather
+than inline in that ConfigMap, so oauth2-proxy.extraEnv in values.yaml can hash
+the content.
+
+oauth2-proxy renders this as its own Go html/template (not a Helm template) when
+it shows the sign-in page to an unauthenticated visitor -- e.g. a request to
+/agents/foo is served this page at /oauth2/sign_in?rd=%2Fagents%2Ffoo.
+`Redirect` is oauth2-proxy's template variable carrying that original
+destination (escaped with a Helm string-literal action so Helm emits it for
+oauth2-proxy to evaluate, instead of trying to evaluate it itself). It is
+forwarded to kagent's branded /login page.
+*/}}
+{{- define "kagent.oauth2ProxySignInHTML" -}}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="0;url=/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}">
+  <script>window.location.href = "/login?rd={{ "{{" }} or .Redirect "/" | urlquery {{ "}}" }}";</script>
+</head>
+<body>Redirecting to login...</body>
+</html>
+{{- end -}}
