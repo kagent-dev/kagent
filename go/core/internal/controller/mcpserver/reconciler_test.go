@@ -25,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 type fakeDiscoverer struct {
@@ -141,6 +143,66 @@ func TestReconcileClearsCatalogAfterDiscoveryFailure(t *testing.T) {
 	}
 	if catalog.server == nil || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
 		t.Fatalf("failed discovery catalog = server %#v, tools %#v", catalog.server, catalog.tools)
+	}
+}
+
+func TestReconcileKeepsDisconnectedCatalogWhenDiscoveryDisabled(t *testing.T) {
+	server := readyServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
+	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
+	catalog := &fakeCatalog{}
+
+	result, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 0 || discoverer.calls != 0 {
+		t.Fatalf("Reconcile() = %#v, discovery calls = %d; want no requeue and no discovery", result, discoverer.calls)
+	}
+	if catalog.server == nil || catalog.server.Name != "test/tools" || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
+		t.Fatalf("opted-out catalog = server %#v, tools %#v; want the server disconnected with no tools", catalog.server, catalog.tools)
+	}
+}
+
+func TestReadinessChangedPredicate(t *testing.T) {
+	ready, unready := readyServer(), testServer()
+	unready.Status.Conditions = []metav1.Condition{{Type: string(kmcp.MCPServerConditionReady), Status: metav1.ConditionFalse}}
+	observed := readyServer()
+	observed.Status.ObservedGeneration++
+	cases := map[string]struct {
+		old, new *kmcp.MCPServer
+		want     bool
+	}{
+		"becomes ready":   {unready, ready, true},
+		"becomes unready": {ready, unready, true},
+		"status noise":    {ready, observed, false},
+		"unchanged":       {ready, ready, false},
+		"still pending":   {testServer(), unready, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := (readinessChangedPredicate{}).Update(event.UpdateEvent{ObjectOld: tc.old, ObjectNew: tc.new}); got != tc.want {
+				t.Fatalf("Update() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconcileDiscoversWhenDiscoveryLabelIsNotDisabled(t *testing.T) {
+	server := readyServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: "enabled"}
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "alpha", Description: "first"}}}
+	catalog := &fakeCatalog{}
+
+	if _, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if discoverer.calls != 1 || catalog.server == nil || catalog.server.LastConnected == nil || len(catalog.tools) != 1 {
+		t.Fatalf("discovery calls = %d, catalog = server %#v, tools %#v", discoverer.calls, catalog.server, catalog.tools)
 	}
 }
 
