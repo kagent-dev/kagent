@@ -310,20 +310,21 @@ func (q *Queries) InsertA2AContext(ctx context.Context, arg InsertA2AContextPara
 }
 
 const insertAgentInstance = `-- name: InsertAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
+INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $9::uuid, 'CREATING', 'CREATE', $7, $8)
 ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id
 `
 
 type InsertAgentInstanceParams struct {
-	ID               uuid.UUID
-	UserID           string
-	RequestID        string
-	ContextID        uuid.UUID
-	HistoryID        uuid.UUID
-	PreparedRevision *string
-	Labels           []byte
-	Data             []byte
+	ID                 uuid.UUID
+	UserID             string
+	RequestID          string
+	ContextID          uuid.UUID
+	HistoryID          uuid.UUID
+	PreparedRevision   *string
+	Labels             []byte
+	Data               []byte
+	SourceCheckpointID *uuid.UUID
 }
 
 func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error) {
@@ -336,53 +337,7 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 		arg.PreparedRevision,
 		arg.Labels,
 		arg.Data,
-	)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-		&i.Operation,
-		&i.ContextID,
-		&i.SourceCheckpointID,
-		&i.HistoryID,
-	)
-	return i, err
-}
-
-const insertForkedAgentInstance = `-- name: InsertForkedAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
-ON CONFLICT (user_id, request_id) DO NOTHING
-RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id
-`
-
-type InsertForkedAgentInstanceParams struct {
-	ID                 uuid.UUID
-	UserID             string
-	RequestID          string
-	ContextID          uuid.UUID
-	HistoryID          uuid.UUID
-	PreparedRevision   *string
-	SourceCheckpointID *uuid.UUID
-	Labels             []byte
-	Data               []byte
-}
-
-func (q *Queries) InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, insertForkedAgentInstance,
-		arg.ID,
-		arg.UserID,
-		arg.RequestID,
-		arg.ContextID,
-		arg.HistoryID,
-		arg.PreparedRevision,
 		arg.SourceCheckpointID,
-		arg.Labels,
-		arg.Data,
 	)
 	var i AgentInstance
 	err := row.Scan(

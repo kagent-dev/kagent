@@ -148,10 +148,6 @@ func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTe
 	})
 }
 
-func (c *Client) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
-	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
-}
-
 func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
 	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
 }
@@ -327,8 +323,8 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 	instanceUUID := uuid.MustParse(instanceID)
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		checkpoint, err := q.GetReadyAgentInstanceCheckpointForUpdate(ctx, dbgen.GetReadyAgentInstanceCheckpointForUpdateParams{
-			ID: checkpointUUID, UserID: userID,
+		checkpoint, err := q.GetAgentInstanceCheckpointForUpdate(ctx, dbgen.GetAgentInstanceCheckpointForUpdateParams{
+			ID: checkpointUUID, UserID: userID, State: new("READY"),
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
@@ -378,7 +374,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: historyID, UserID: userID, ContextID: sourceContext.ContextID}); err != nil {
 			return fmt.Errorf("insert fork A2A context: %w", err)
 		}
-		row, err = q.InsertForkedAgentInstance(ctx, dbgen.InsertForkedAgentInstanceParams{
+		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
 			ID: instanceUUID, UserID: userID, RequestID: requestID,
 			ContextID: sourceContext.ContextID, HistoryID: historyID, PreparedRevision: checkpoint.PreparedRevision,
 			SourceCheckpointID: &checkpoint.ID, Labels: encodedLabels, Data: data,
@@ -1181,7 +1177,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 	}
 	var result *apiv1alpha1.Checkpoint
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, dbgen.GetAgentInstanceCheckpointForUpdateParams{ID: uuid.MustParse(id), AllUsers: true})
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -1219,7 +1215,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 }
 
 func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*apiv1alpha1.Checkpoint, error) {
-	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID, State: new("READY")})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance checkpoint: %w", notFoundOr(err))
 	}
@@ -1230,7 +1226,7 @@ func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID stri
 // tag UID for lifecycle workflows. Finalization replaces the source URI with the
 // retained Tag copy; ready references are immutable.
 func (c *Client) GetAgentInstanceCheckpointSnapshot(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
-	row, err := c.q.GetAgentInstanceCheckpointSnapshot(ctx, dbgen.GetAgentInstanceCheckpointSnapshotParams{ID: uuid.MustParse(id), UserID: userID})
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return nil, "", fmt.Errorf("get checkpoint snapshot: %w", notFoundOr(err))
 	}
@@ -1270,12 +1266,9 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 	var snapshot *AgentInstanceTaskSnapshot
 	var tagUID string
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, dbgen.GetAgentInstanceCheckpointForUpdateParams{ID: uuid.MustParse(id), UserID: userID})
 		if err != nil {
 			return notFoundOr(err)
-		}
-		if row.UserID != userID {
-			return ErrNotFound
 		}
 		checkpoint, err := toAgentInstanceCheckpoint(row)
 		if err != nil {
@@ -1439,21 +1432,17 @@ func (c *Client) GetTool(ctx context.Context, name string) (*Tool, error) {
 }
 
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
-	rows, err := c.q.ListTools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-	tools := make([]Tool, len(rows))
-	for i, r := range rows {
-		tools[i] = *toTool(r)
-	}
-	return tools, nil
+	return c.listTools(ctx, dbgen.ListToolsParams{})
 }
 
 func (c *Client) ListToolsForServer(ctx context.Context, serverName, groupKind string) ([]Tool, error) {
-	rows, err := c.q.ListToolsForServer(ctx, dbgen.ListToolsForServerParams{ServerName: serverName, GroupKind: groupKind})
+	return c.listTools(ctx, dbgen.ListToolsParams{ServerName: &serverName, GroupKind: &groupKind})
+}
+
+func (c *Client) listTools(ctx context.Context, params dbgen.ListToolsParams) ([]Tool, error) {
+	rows, err := c.q.ListTools(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools for server: %w", err)
+		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 	tools := make([]Tool, len(rows))
 	for i, r := range rows {

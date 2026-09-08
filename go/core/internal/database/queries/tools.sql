@@ -6,11 +6,8 @@ LIMIT 1;
 -- name: ListTools :many
 SELECT * FROM tool
 WHERE deleted_at IS NULL
-ORDER BY created_at ASC;
-
--- name: ListToolsForServer :many
-SELECT * FROM tool
-WHERE server_name = $1 AND group_kind = $2 AND deleted_at IS NULL
+  AND (sqlc.narg(server_name)::text IS NULL OR server_name = sqlc.narg(server_name))
+  AND (sqlc.narg(group_kind)::text IS NULL OR group_kind = sqlc.narg(group_kind))
 ORDER BY created_at ASC;
 
 -- name: UpsertTool :exec

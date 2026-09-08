@@ -284,6 +284,15 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveAgentInstanceCheckpoint() = %+v, error %v", checkpoint, err)
 	}
+	if _, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("creating checkpoint is publicly visible: %v", err)
+	}
+	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice"); err != nil {
+		t.Fatalf("creating checkpoint is unavailable to lifecycle work: %v", err)
+	}
+	if _, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "premature-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fork from creating checkpoint = %v, want not found", err)
+	}
 	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("snapshot lookup by another user = %v, want not found", err)
 	}
@@ -307,6 +316,9 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
 	if err != nil || ready.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
+	}
+	if _, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("fork by another user = %v, want not found", err)
 	}
 	retained, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
 	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {

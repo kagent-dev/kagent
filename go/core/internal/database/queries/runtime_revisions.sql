@@ -34,11 +34,6 @@ WHERE namespace = sqlc.arg(namespace)
   AND desired_revision = sqlc.arg(revision)
   AND retired_at IS NULL;
 
--- name: RetireAgentTemplateHarnessPairs :exec
-UPDATE agent_template_harness_pair
-SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-WHERE namespace = $1 AND agent_template_name = $2;
-
 -- name: RetireAgentTemplateHarnessPair :exec
 UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
