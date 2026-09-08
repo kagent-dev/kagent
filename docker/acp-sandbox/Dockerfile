@@ -70,12 +70,13 @@ ENTRYPOINT ["/usr/local/bin/acp-shim"]
 # Agent layers append the child command, e.g.:
 #   CMD ["--", "hermes", "acp"]
 
-### Shared: base + Node.js for npm-distributed agents. The apk package name
-### encodes the major, so the runtime cannot roll past 22.
+### Shared: base + Node.js for npm-distributed agents. Both package names
+### encode the major, so neither can roll past it.
 FROM base AS node-base
 ARG TOOLS_NODE_VERSION=22
+ARG TOOLS_NPM_VERSION=10
 USER root
-RUN apk add --no-cache nodejs-${TOOLS_NODE_VERSION} npm \
+RUN apk add --no-cache nodejs-${TOOLS_NODE_VERSION} "npm~${TOOLS_NPM_VERSION}" \
     && node --version && npm --version
 USER agent
 
@@ -121,12 +122,7 @@ CMD ["--", "hermes", "acp"]
 FROM node-base AS openclaw
 ARG OPENCLAW_VERSION=2026.5.27
 USER root
-# npm 12 blocks install scripts by default. openclaw's postinstall patches its
-# packaged dist and migrates the plugin registry, and tree-sitter-bash builds a
-# native module, so they are allowed explicitly rather than silently skipped.
-RUN npm install -g \
-        --allow-scripts=openclaw,@google/genai,tree-sitter-bash,protobufjs \
-        "openclaw@${OPENCLAW_VERSION}"
+RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 COPY --chmod=755 \
     core/cmd/acp-shim/sandbox/openclaw-gateway-ensure.sh \
     core/cmd/acp-shim/sandbox/openclaw-acp-child.sh \

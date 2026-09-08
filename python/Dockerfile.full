@@ -15,6 +15,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
 ARG TOOLS_NODE_VERSION=26
+ARG TOOLS_NPM_VERSION=11
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
@@ -40,7 +41,7 @@ ENV UV_PYTHON_PREFERENCE=only-managed
 RUN apk add --no-cache \
         curl openssl bash git ca-certificates tzdata \
         bubblewrap socat ripgrep \
-        nodejs-${TOOLS_NODE_VERSION} npm
+        nodejs-${TOOLS_NODE_VERSION} "npm~${TOOLS_NPM_VERSION}"
 
 RUN mkdir -p /usr/local/bin
 COPY --from=uv-bin /uv /uvx /usr/local/bin/
