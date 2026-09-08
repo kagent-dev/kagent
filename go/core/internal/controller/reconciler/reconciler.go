@@ -668,25 +668,6 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		GroupKind:   server.GroupVersionKind().GroupKind().String(),
 	}
 
-	if remoteMCPServerDiscoveryDisabled(server) {
-		// The operator opted this server out of discovery (a server that
-		// authenticates every caller has no credential to offer the controller).
-		// Accept it without connecting: the status carries no tools, the DB keeps
-		// the server with an empty inventory, and agents resolve the tool list at
-		// run time with the credentials they carry.
-		l.Info("skipping tool discovery for remote MCP server", "url", server.Spec.URL, "label", consts.DiscoveryLabel)
-		if _, err := a.dbClient.StoreToolServer(ctx, dbServer); err != nil {
-			return fmt.Errorf("failed to store toolServer %s: %w", dbServer.Name, err)
-		}
-		if err := a.dbClient.RefreshToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
-			return fmt.Errorf("failed to clear tools for toolServer %s: %w", dbServer.Name, err)
-		}
-		if err := a.setRemoteMCPServerStatus(ctx, server, nil, "", metav1.ConditionTrue, "DiscoveryDisabled", remoteMCPServerDiscoveryDisabledMessage); err != nil {
-			return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
-		}
-		return nil
-	}
-
 	// Compute the TLS-Secret hash before tool discovery so the status
 	// reflects the operator's current spec.tls.caCertSecretRef contents.
 	// Agents that mount this Secret read the hash from Status.SecretHash
@@ -695,6 +676,33 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	// change. Missing-Secret errors are folded into the registration
 	// error path so a misconfigured RMS still surfaces a Failed condition.
 	secretHash, secretErr := a.computeRemoteMCPServerSecretHash(ctx, server)
+
+	if remoteMCPServerDiscoveryDisabled(server) {
+		// The operator opted this server out of discovery (a server that
+		// authenticates every caller has no credential to offer the controller).
+		// Accept it without connecting: the status carries no tools, the DB keeps
+		// the server with an empty inventory, and agents resolve the tool list at
+		// run time with the credentials they carry. The TLS Secret hash is still
+		// published (agents fold it into their rollout hash), and a broken
+		// spec.tls Secret reference still fails the server.
+		l.Info("skipping tool discovery for remote MCP server", "url", server.Spec.URL, "label", consts.DiscoveryLabel)
+		if _, err := a.dbClient.StoreToolServer(ctx, dbServer); err != nil {
+			return fmt.Errorf("failed to store toolServer %s: %w", dbServer.Name, err)
+		}
+		if err := a.dbClient.RefreshToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
+			return fmt.Errorf("failed to clear tools for toolServer %s: %w", dbServer.Name, err)
+		}
+		if secretErr != nil {
+			if err := a.reconcileRemoteMCPServerStatus(ctx, server, nil, secretHash, secretErr); err != nil {
+				return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
+			}
+			return nil
+		}
+		if err := a.setRemoteMCPServerStatus(ctx, server, nil, secretHash, metav1.ConditionTrue, "DiscoveryDisabled", remoteMCPServerDiscoveryDisabledMessage); err != nil {
+			return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
+		}
+		return nil
+	}
 
 	l.Info("registering remote MCP server", "url", server.Spec.URL, "protocol", server.Spec.Protocol)
 	start := time.Now()
