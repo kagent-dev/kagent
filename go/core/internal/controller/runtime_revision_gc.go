@@ -37,7 +37,6 @@ type RuntimeRevisionGC struct {
 var (
 	_ manager.Runnable               = (*RuntimeRevisionGC)(nil)
 	_ manager.LeaderElectionRunnable = (*RuntimeRevisionGC)(nil)
-	_ runtimeRevisionGCStore         = (*database.Client)(nil)
 )
 
 func NewRuntimeRevisionGC(observed krt.StaticCollection[ObservedActorTemplate], store runtimeRevisionGCStore, templates runtimeRevisionGCClient) *RuntimeRevisionGC {
