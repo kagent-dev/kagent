@@ -47,9 +47,17 @@ func (c *Client) withTx(ctx context.Context, fn func(*dbgen.Queries) error) erro
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	if err := fn(c.q.WithTx(tx)); err != nil {
-		return err
+		return runtimeRevisionError(err)
 	}
 	return tx.Commit(ctx)
+}
+
+func runtimeRevisionError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.ConstraintName == "runtime_revision_not_deleting" {
+		return ErrRuntimeRevisionDeleting
+	}
+	return err
 }
 
 // notFoundOr maps the driver's no-rows error to ErrNotFound so callers
@@ -71,12 +79,12 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 	if err != nil {
 		return fmt.Errorf("marshal AgentTemplate labels: %w", err)
 	}
-	// Retire previous identities at this name and reactivate the current UID
-	// atomically. Instance creation must never observe the current pair retired
-	// during an otherwise unchanged reconciliation.
+	// Replace historical identities atomically without retiring the current UID
+	// or rewriting already-retired rows on every pending-template poll.
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		if err := q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{
+		if err := q.RetireReplacedAgentTemplateHarnessPairs(ctx, dbgen.RetireReplacedAgentTemplateHarnessPairsParams{
 			Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName, HarnessName: pair.HarnessName,
+			AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
 		}); err != nil {
 			return fmt.Errorf("retire replaced AgentTemplate/Harness pair: %w", err)
 		}
@@ -97,7 +105,7 @@ func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevi
 	if err != nil {
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
-	if err := c.q.UpsertRuntimeRevision(ctx, dbgen.UpsertRuntimeRevisionParams{
+	rows, err := c.q.UpsertRuntimeRevision(ctx, dbgen.UpsertRuntimeRevisionParams{
 		Revision: revision.Revision, Namespace: revision.Namespace,
 		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
 		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
@@ -105,8 +113,12 @@ func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		EgressDestinations:    revision.EgressDestinations,
 		ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName,
 		ActorTemplateUid: revision.ActorTemplateUID,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("upsert runtime revision %s: %w", revision.Revision, err)
+	}
+	if rows == 0 {
+		return ErrRuntimeRevisionDeleting
 	}
 	return nil
 }
@@ -152,8 +164,17 @@ func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplat
 
 func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
-	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
+	return runtimeRevisionError(c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
 		Revision: &revision, Namespace: pair.Namespace,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+	}))
+}
+
+// RetireReplacedAgentTemplateHarnessPairs preserves last-good inputs for the
+// current identity even when its new configuration cannot compile.
+func (c *Client) RetireReplacedAgentTemplateHarnessPairs(ctx context.Context, pair AgentTemplateHarnessPair) error {
+	return c.q.RetireReplacedAgentTemplateHarnessPairs(ctx, dbgen.RetireReplacedAgentTemplateHarnessPairsParams{
+		Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName, HarnessName: pair.HarnessName,
 		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
 	})
 }
@@ -184,8 +205,42 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 	return result, nil
 }
 
-func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
+// ClaimRuntimeRevisionDeletion fences reference acquisition before any network
+// deletion. A committed claim remains discoverable after a failure or restart.
+func (c *Client) ClaimRuntimeRevisionDeletion(ctx context.Context, revision string) (*RuntimeRevision, error) {
+	var result *RuntimeRevision
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockRuntimeRevision(ctx, revision)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		rows, err := q.ClaimRuntimeRevisionDeletion(ctx, revision)
+		if err != nil || rows == 0 {
+			return err
+		}
+		result, err = toRuntimeRevision(row)
+		return err
+	})
+	return result, err
+}
+
+func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision, actorTemplateUID string) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockRuntimeRevision(ctx, revision)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		// A delayed collector must not finalize a newly recreated runtime at
+		// the same digest after another collector finished the previous one.
+		if row.DeletionStartedAt == nil || row.ActorTemplateUid != actorTemplateUID {
+			return nil
+		}
 		if err := q.ReleaseRetiredRuntimeRevisionReferences(ctx, &revision); err != nil {
 			return fmt.Errorf("release retired runtime revision references: %w", err)
 		}

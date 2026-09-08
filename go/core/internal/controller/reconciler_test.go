@@ -11,8 +11,9 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/google/uuid"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -129,61 +130,94 @@ func TestReconcilerCollectsRetiredRevisions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
 	}
-	ctx := t.Context()
-	dsn := dbtest.StartT(ctx, t)
-	dbtest.MigrateT(t, dsn, false)
-	pool, err := pgxpool.New(ctx, dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	store := database.NewClient(pool)
-	opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
-	states := krt.NewStaticCollection[PairReconciliation](nil, nil, opts.WithName("Reconciliations")...)
-	templates := &fakeActorTemplates{}
-	reconciler := &Reconciler{
-		collections: Collections{
-			ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
-			Reconciliations: states,
-		},
-		templates: templates, store: store,
-	}
-	for _, name := range []string{"first", "replacement"} {
-		revision := &v2translator.Revision{
-			AgentCard: &a2apb.AgentCard{Name: name}, Provenance: []byte("{}"), EgressDestinations: []string{},
+	for _, deletedBeforeError := range []bool{false, true} {
+		name := "delete failed"
+		if deletedBeforeError {
+			name = "delete succeeded but response lost"
 		}
-		id, err := revision.Digest()
-		require.NoError(t, err)
-		desired := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{
-			Atespace: "team-a", Name: "assistant-" + name, Uid: name,
-		}}
-		templates.template = proto.CloneOf(desired)
-		templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-			GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name},
-		}}
-		state := PairReconciliation{
-			Pair: AgentTemplateHarnessPair{
-				AgentTemplate: &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}},
-				Harness:       &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}},
-			},
-			Revision: revision, RevisionID: id, DesiredActorTemplate: desired,
-		}
-		states.UpdateObject(state)
-		require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
-		_, err = store.GetRuntimeRevision(ctx, id.String())
-		require.NoError(t, err)
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			dsn := dbtest.StartT(ctx, t)
+			dbtest.MigrateT(t, dsn, false)
+			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+			require.NoError(t, err)
+			t.Cleanup(pool.Close)
+			store := database.NewClient(pool)
+			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
+			states := krt.NewStaticCollection[PairReconciliation](nil, nil, opts.WithName("Reconciliations")...)
+			templates := &fakeActorTemplates{}
+			reconciler := &Reconciler{
+				collections: Collections{
+					ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+					Reconciliations: states,
+				},
+				templates: templates, store: store,
+			}
+			revision := &v2translator.Revision{
+				AgentCard: &a2apb.AgentCard{Name: "assistant"}, Provenance: []byte("{}"), EgressDestinations: []string{},
+			}
+			id, err := revision.Digest()
+			require.NoError(t, err)
+			desired := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{
+				Atespace: "team-a", Name: "assistant-revision", Uid: "actor-uid",
+			}}
+			templates.template = proto.CloneOf(desired)
+			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
+				GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
+			}}
+			state := PairReconciliation{
+				Pair: AgentTemplateHarnessPair{
+					AgentTemplate: &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}},
+					Harness:       &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}},
+				},
+				Revision: revision, RevisionID: id, DesiredActorTemplate: desired,
+			}
+			states.UpdateObject(state)
+			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
 
-		states.DeleteObject(state.ResourceName())
-		require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()), "retiring a successful pair must finish GC")
-		require.Nil(t, templates.template)
-		require.Empty(t, reconciler.collections.ActorTemplates.List())
-		_, err = store.GetRuntimeRevision(ctx, id.String())
-		require.ErrorIs(t, err, database.ErrNotFound)
-		// Retrying deletion must converge even after both resources are gone.
-		require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
+			// Compile failures preserve the current UID's last successful runtime.
+			state.Revision = nil
+			states.UpdateObject(state)
+			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
+			request := &apiv1alpha1.AgentInstance{
+				Id: uuid.NewString(), Creator: "alice",
+				AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
+			}
+			instance, _, err := store.CreateAgentInstance(ctx, request, "instance")
+			require.NoError(t, err)
+			require.Equal(t, id.String(), instance.GetPreparedRevision())
+			require.NoError(t, store.DeleteAgentInstance(ctx, instance.GetId()))
+			require.NotNil(t, templates.template)
+
+			// An invalid replacement UID still revokes the old identity. Failed or
+			// ambiguous network deletion must leave the claim available to retry.
+			state.Pair.AgentTemplate = state.Pair.AgentTemplate.DeepCopy()
+			state.Pair.AgentTemplate.UID = "replacement-uid"
+			states.UpdateObject(state)
+			deleteErr := errors.New("Substrate unavailable")
+			templates.deleteErr, templates.deletedBeforeError = deleteErr, deletedBeforeError
+			require.ErrorIs(t, reconciler.reconcilePair(ctx, state.ResourceName()), deleteErr)
+			_, err = store.GetRuntimeRevision(ctx, id.String())
+			require.NoError(t, err)
+			_, _, err = store.CreateAgentInstance(ctx, request, "replacement-instance")
+			require.ErrorIs(t, err, database.ErrNotFound)
+			templates.deleteErr = nil
+			restarted := &Reconciler{collections: reconciler.collections, templates: templates, store: database.NewClient(pool)}
+			require.NoError(t, restarted.reconcilePair(ctx, state.ResourceName()))
+			require.Nil(t, templates.template)
+			require.Empty(t, restarted.collections.ActorTemplates.List())
+			_, err = store.GetRuntimeRevision(ctx, id.String())
+			require.ErrorIs(t, err, database.ErrNotFound)
+			require.NoError(t, restarted.reconcilePair(ctx, state.ResourceName()))
+		})
 	}
 }
 
 type fakeActorTemplates struct {
-	template *ateapipb.ActorTemplate
+	template           *ateapipb.ActorTemplate
+	deleteErr          error
+	deletedBeforeError bool
 }
 
 func (f *fakeActorTemplates) EnsureAtespace(context.Context, string) error { return nil }
@@ -202,6 +236,12 @@ func (f *fakeActorTemplates) CreateActorTemplate(_ context.Context, template *at
 }
 
 func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string, string) error {
+	if f.deleteErr != nil {
+		if f.deletedBeforeError {
+			f.template = nil
+		}
+		return f.deleteErr
+	}
 	f.template = nil
 	return nil
 }
@@ -241,11 +281,19 @@ func (s *fakeRuntimeRevisionStore) RetireAgentTemplateHarnessPair(_ context.Cont
 	return nil
 }
 
+func (s *fakeRuntimeRevisionStore) RetireReplacedAgentTemplateHarnessPairs(context.Context, database.AgentTemplateHarnessPair) error {
+	return nil
+}
+
+func (s *fakeRuntimeRevisionStore) ClaimRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error) {
+	return nil, nil
+}
+
 func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error) {
 	return nil, nil
 }
 
-func (s *fakeRuntimeRevisionStore) DeleteUnreferencedRuntimeRevision(context.Context, string) error {
+func (s *fakeRuntimeRevisionStore) DeleteUnreferencedRuntimeRevision(context.Context, string, string) error {
 	return nil
 }
 

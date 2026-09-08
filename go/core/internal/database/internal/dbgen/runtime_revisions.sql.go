@@ -9,20 +9,25 @@ import (
 	"context"
 )
 
+const claimRuntimeRevisionDeletion = `-- name: ClaimRuntimeRevisionDeletion :execrows
+UPDATE runtime_revision
+SET deletion_started_at = COALESCE(deletion_started_at, NOW())
+WHERE runtime_revision.revision = $1
+  AND runtime_revision.revision IN (SELECT revision FROM unreferenced_runtime_revision)
+`
+
+func (q *Queries) ClaimRuntimeRevisionDeletion(ctx context.Context, revision string) (int64, error) {
+	result, err := q.db.Exec(ctx, claimRuntimeRevisionDeletion, revision)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteUnreferencedRuntimeRevision = `-- name: DeleteUnreferencedRuntimeRevision :exec
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
-  AND NOT EXISTS (
-      SELECT 1 FROM agent_template_harness_pair p
-      WHERE p.retired_at IS NULL
-        AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
-  )
-  AND NOT EXISTS (
-      SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
-  )
-  AND NOT EXISTS (
-      SELECT 1 FROM agent_instance_checkpoint c WHERE c.prepared_revision = r.revision
-  )
+  AND r.deletion_started_at IS NOT NULL
 `
 
 func (q *Queries) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
@@ -31,7 +36,7 @@ func (q *Queries) DeleteUnreferencedRuntimeRevision(ctx context.Context, revisio
 }
 
 const getRuntimeRevision = `-- name: GetRuntimeRevision :one
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card FROM runtime_revision WHERE revision = $1
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision WHERE revision = $1
 `
 
 func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error) {
@@ -52,6 +57,7 @@ func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (Runt
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AgentCard,
+		&i.DeletionStartedAt,
 	)
 	return i, err
 }
@@ -94,18 +100,8 @@ func (q *Queries) ListActorTemplateHarnesses(ctx context.Context) ([]ListActorTe
 }
 
 const listUnreferencedRuntimeRevisions = `-- name: ListUnreferencedRuntimeRevisions :many
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card FROM runtime_revision r
-WHERE NOT EXISTS (
-    SELECT 1 FROM agent_template_harness_pair p
-    WHERE p.retired_at IS NULL
-      AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
-)
-AND NOT EXISTS (
-    SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
-)
-AND NOT EXISTS (
-    SELECT 1 FROM agent_instance_checkpoint c WHERE c.prepared_revision = r.revision
-)
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision r
+WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision)
 `
 
 func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error) {
@@ -132,6 +128,7 @@ func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runti
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AgentCard,
+			&i.DeletionStartedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -141,6 +138,35 @@ func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runti
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockRuntimeRevision = `-- name: LockRuntimeRevision :one
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
+`
+
+// The store locks first, then checks eligibility in a separate statement so
+// references committed while waiting for the lock are visible to the claim.
+func (q *Queries) LockRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error) {
+	row := q.db.QueryRow(ctx, lockRuntimeRevision, revision)
+	var i RuntimeRevision
+	err := row.Scan(
+		&i.Revision,
+		&i.Namespace,
+		&i.AgentTemplateName,
+		&i.AgentTemplateUid,
+		&i.HarnessName,
+		&i.HarnessUid,
+		&i.SourceSnapshot,
+		&i.EgressDestinations,
+		&i.ActorTemplateAtespace,
+		&i.ActorTemplateName,
+		&i.ActorTemplateUid,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AgentCard,
+		&i.DeletionStartedAt,
+	)
+	return i, err
 }
 
 const markRuntimeRevisionSuccessful = `-- name: MarkRuntimeRevisionSuccessful :exec
@@ -201,6 +227,22 @@ func (q *Queries) RetireAgentTemplateHarnessPair(ctx context.Context, arg Retire
 	return err
 }
 
+const retireAgentTemplateHarnessPairs = `-- name: RetireAgentTemplateHarnessPairs :exec
+UPDATE agent_template_harness_pair
+SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
+WHERE namespace = $1 AND agent_template_name = $2
+`
+
+type RetireAgentTemplateHarnessPairsParams struct {
+	Namespace         string
+	AgentTemplateName string
+}
+
+func (q *Queries) RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error {
+	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateName)
+	return err
+}
+
 const retireOtherAgentTemplateHarnessPairs = `-- name: RetireOtherAgentTemplateHarnessPairs :exec
 UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
@@ -217,6 +259,33 @@ type RetireOtherAgentTemplateHarnessPairsParams struct {
 
 func (q *Queries) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error {
 	_, err := q.db.Exec(ctx, retireOtherAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateUid, arg.HarnessNames)
+	return err
+}
+
+const retireReplacedAgentTemplateHarnessPairs = `-- name: RetireReplacedAgentTemplateHarnessPairs :exec
+UPDATE agent_template_harness_pair
+SET retired_at = NOW(), updated_at = NOW()
+WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
+  AND retired_at IS NULL
+  AND (agent_template_uid, harness_uid) IS DISTINCT FROM ($4::text, $5::text)
+`
+
+type RetireReplacedAgentTemplateHarnessPairsParams struct {
+	Namespace         string
+	AgentTemplateName string
+	HarnessName       string
+	AgentTemplateUid  string
+	HarnessUid        string
+}
+
+func (q *Queries) RetireReplacedAgentTemplateHarnessPairs(ctx context.Context, arg RetireReplacedAgentTemplateHarnessPairsParams) error {
+	_, err := q.db.Exec(ctx, retireReplacedAgentTemplateHarnessPairs,
+		arg.Namespace,
+		arg.AgentTemplateName,
+		arg.HarnessName,
+		arg.AgentTemplateUid,
+		arg.HarnessUid,
+	)
 	return err
 }
 
@@ -257,7 +326,7 @@ func (q *Queries) UpsertAgentTemplateHarnessPair(ctx context.Context, arg Upsert
 	return err
 }
 
-const upsertRuntimeRevision = `-- name: UpsertRuntimeRevision :exec
+const upsertRuntimeRevision = `-- name: UpsertRuntimeRevision :execrows
 INSERT INTO runtime_revision (
     revision, namespace, agent_template_name, agent_template_uid,
     harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
@@ -269,6 +338,7 @@ INSERT INTO runtime_revision (
 ON CONFLICT (revision) DO UPDATE SET
     actor_template_uid = EXCLUDED.actor_template_uid,
     updated_at = NOW()
+WHERE runtime_revision.deletion_started_at IS NULL
 `
 
 type UpsertRuntimeRevisionParams struct {
@@ -287,8 +357,8 @@ type UpsertRuntimeRevisionParams struct {
 }
 
 // The revision digest pins the card. Reconciliation only refreshes runtime identity.
-func (q *Queries) UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error {
-	_, err := q.db.Exec(ctx, upsertRuntimeRevision,
+func (q *Queries) UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, upsertRuntimeRevision,
 		arg.Revision,
 		arg.Namespace,
 		arg.AgentTemplateName,
@@ -302,5 +372,8 @@ func (q *Queries) UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRe
 		arg.ActorTemplateName,
 		arg.ActorTemplateUid,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

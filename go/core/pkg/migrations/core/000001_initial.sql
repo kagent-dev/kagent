@@ -42,6 +42,7 @@ CREATE TABLE runtime_revision (
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     agent_card               BYTEA       NOT NULL,
+    deletion_started_at      TIMESTAMPTZ,
     CONSTRAINT runtime_revision_actor_template_namespace_actor_template_na_key
         UNIQUE (actor_template_atespace, actor_template_name)
 );
@@ -241,10 +242,72 @@ CREATE INDEX scheduled_run_execution_history_idx ON scheduled_run_execution (sch
 CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (next_attempt_at, id)
     WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING');
 
+CREATE VIEW unreferenced_runtime_revision AS
+SELECT r.revision FROM runtime_revision r
+WHERE NOT EXISTS (
+    SELECT 1 FROM agent_template_harness_pair p
+    WHERE p.retired_at IS NULL
+      AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
+)
+AND NOT EXISTS (
+    SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
+)
+AND NOT EXISTS (
+    SELECT 1 FROM agent_instance_checkpoint c WHERE c.prepared_revision = r.revision
+);
+
+-- Reference acquisition and the GC claim serialize on the revision row.
+-- FOR SHARE conflicts with the collector's FOR UPDATE, including when an
+-- instance selected its revision before retirement but inserts afterward.
+-- Missing desired revisions are allowed: pairs are persisted before compilation
+-- creates the runtime row. The other references retain their existing FKs.
+-- +goose StatementBegin
+CREATE FUNCTION protect_runtime_revision_reference() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    field_name TEXT;
+    deleting_at TIMESTAMPTZ;
+BEGIN
+    FOREACH field_name IN ARRAY TG_ARGV LOOP
+        SELECT deletion_started_at INTO deleting_at
+        FROM runtime_revision
+        WHERE revision = to_jsonb(NEW) ->> field_name
+        FOR SHARE;
+        IF FOUND AND deleting_at IS NOT NULL THEN
+            RAISE EXCEPTION 'runtime revision is being deleted'
+                USING ERRCODE = '55000', CONSTRAINT = 'runtime_revision_not_deleting';
+        END IF;
+    END LOOP;
+    RETURN NEW;
+END;
+$$;
+-- +goose StatementEnd
+
+CREATE TRIGGER protect_pair_runtime_revision
+BEFORE INSERT OR UPDATE OF desired_revision, latest_successful_revision, retired_at
+ON agent_template_harness_pair
+FOR EACH ROW WHEN (NEW.retired_at IS NULL)
+EXECUTE FUNCTION protect_runtime_revision_reference('desired_revision', 'latest_successful_revision');
+
+CREATE TRIGGER protect_instance_runtime_revision
+BEFORE INSERT OR UPDATE OF prepared_revision ON agent_instance
+FOR EACH ROW EXECUTE FUNCTION protect_runtime_revision_reference('prepared_revision');
+
+CREATE TRIGGER protect_checkpoint_runtime_revision
+BEFORE INSERT OR UPDATE OF prepared_revision ON agent_instance_checkpoint
+FOR EACH ROW EXECUTE FUNCTION protect_runtime_revision_reference('prepared_revision');
+
 -- +goose Down
 
 DROP TABLE scheduled_run_execution;
 DROP TABLE scheduled_run;
+
+DROP TRIGGER protect_checkpoint_runtime_revision ON agent_instance_checkpoint;
+DROP TRIGGER protect_instance_runtime_revision ON agent_instance;
+DROP TRIGGER protect_pair_runtime_revision ON agent_template_harness_pair;
+DROP FUNCTION protect_runtime_revision_reference();
+DROP VIEW unreferenced_runtime_revision;
+
 DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;

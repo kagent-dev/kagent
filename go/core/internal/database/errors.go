@@ -1,6 +1,9 @@
 package database
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Store errors describe resource-independent categories. Wrap them with resource
 // and operation context using %w; callers match them with errors.Is.
@@ -14,3 +17,6 @@ var (
 	// ErrIdempotencyConflict is distinct because clients must use a new request ID.
 	ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
 )
+
+// A claimed revision is unavailable to new instances until cleanup finishes.
+var ErrRuntimeRevisionDeleting = fmt.Errorf("runtime revision is being deleted: %w", ErrNotFound)

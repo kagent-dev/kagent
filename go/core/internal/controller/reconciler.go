@@ -120,8 +120,10 @@ type runtimeRevisionStore interface {
 	UpsertRuntimeRevision(context.Context, database.RuntimeRevision) error
 	MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
+	RetireReplacedAgentTemplateHarnessPairs(context.Context, database.AgentTemplateHarnessPair) error
 	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
-	DeleteUnreferencedRuntimeRevision(context.Context, string) error
+	ClaimRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
+	DeleteUnreferencedRuntimeRevision(context.Context, string, string) error
 }
 
 type actorTemplateClient interface {
@@ -251,20 +253,27 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		}
 		return r.cleanupUnreferencedRevisions(ctx)
 	}
-	if state.Revision == nil || state.RevisionID.IsZero() {
-		if err := r.store.RetireAgentTemplateHarnessPair(ctx, state.Pair.AgentTemplate.Namespace, state.Pair.AgentTemplate.Name, state.Pair.Harness.Name); err != nil {
-			return fmt.Errorf("retire invalid AgentTemplate/Harness pair %s: %w", key, err)
-		}
-		return r.cleanupUnreferencedRevisions(ctx)
-	}
 	pair := database.AgentTemplateHarnessPair{
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
 		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
 	}
+	if state.Revision == nil || state.RevisionID.IsZero() {
+		// Bad inputs must not destroy the current identity's last-good runtime.
+		// A recreated object at this name must still retire the previous UID.
+		if err := r.store.RetireReplacedAgentTemplateHarnessPairs(ctx, pair); err != nil {
+			return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
+		}
+		return r.cleanupUnreferencedRevisions(ctx)
+	}
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state.
 	if err := r.store.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+		if errors.Is(err, database.ErrRuntimeRevisionDeleting) {
+			// A desired digest may be awaiting cleanup from an earlier identity.
+			// Finish its durable claim before retrying preparation of that digest.
+			return errors.Join(err, r.cleanupUnreferencedRevisions(ctx))
+		}
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
 	}
 	if state.Failure != nil {
@@ -355,7 +364,14 @@ func (r *Reconciler) cleanupUnreferencedRevisions(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list unreferenced runtime revisions: %w", err)
 	}
-	for _, revision := range revisions {
+	for _, candidate := range revisions {
+		revision, err := r.store.ClaimRuntimeRevisionDeletion(ctx, candidate.Revision)
+		if err != nil {
+			return fmt.Errorf("claim runtime revision %s for deletion: %w", candidate.Revision, err)
+		}
+		if revision == nil {
+			continue
+		}
 		template, err := r.templates.GetActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName)
 		if err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("get unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
@@ -369,7 +385,7 @@ func (r *Reconciler) cleanupUnreferencedRevisions(ctx context.Context) error {
 			return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 		}
 		r.collections.ActorTemplates.DeleteObject(revision.ActorTemplateAtespace + "/" + revision.ActorTemplateName)
-		if err := r.store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision); err != nil {
+		if err := r.store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision, revision.ActorTemplateUID); err != nil {
 			return fmt.Errorf("delete unreferenced runtime revision %s: %w", revision.Revision, err)
 		}
 	}

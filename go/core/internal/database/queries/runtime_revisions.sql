@@ -12,7 +12,7 @@ ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
     updated_at = NOW();
 
 -- The revision digest pins the card. Reconciliation only refreshes runtime identity.
--- name: UpsertRuntimeRevision :exec
+-- name: UpsertRuntimeRevision :execrows
 INSERT INTO runtime_revision (
     revision, namespace, agent_template_name, agent_template_uid,
     harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
@@ -23,7 +23,8 @@ INSERT INTO runtime_revision (
 )
 ON CONFLICT (revision) DO UPDATE SET
     actor_template_uid = EXCLUDED.actor_template_uid,
-    updated_at = NOW();
+    updated_at = NOW()
+WHERE runtime_revision.deletion_started_at IS NULL;
 
 -- name: MarkRuntimeRevisionSuccessful :exec
 UPDATE agent_template_harness_pair
@@ -33,6 +34,18 @@ WHERE namespace = sqlc.arg(namespace)
   AND harness_uid = sqlc.arg(harness_uid)
   AND desired_revision = sqlc.arg(revision)
   AND retired_at IS NULL;
+
+-- name: RetireAgentTemplateHarnessPairs :exec
+UPDATE agent_template_harness_pair
+SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
+WHERE namespace = $1 AND agent_template_name = $2;
+
+-- name: RetireReplacedAgentTemplateHarnessPairs :exec
+UPDATE agent_template_harness_pair
+SET retired_at = NOW(), updated_at = NOW()
+WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
+  AND retired_at IS NULL
+  AND (agent_template_uid, harness_uid) IS DISTINCT FROM (sqlc.arg(agent_template_uid)::text, sqlc.arg(harness_uid)::text);
 
 -- name: RetireAgentTemplateHarnessPair :exec
 UPDATE agent_template_harness_pair
@@ -55,17 +68,18 @@ FROM runtime_revision;
 
 -- name: ListUnreferencedRuntimeRevisions :many
 SELECT * FROM runtime_revision r
-WHERE NOT EXISTS (
-    SELECT 1 FROM agent_template_harness_pair p
-    WHERE p.retired_at IS NULL
-      AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
-)
-AND NOT EXISTS (
-    SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
-)
-AND NOT EXISTS (
-    SELECT 1 FROM agent_instance_checkpoint c WHERE c.prepared_revision = r.revision
-);
+WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision);
+
+-- The store locks first, then checks eligibility in a separate statement so
+-- references committed while waiting for the lock are visible to the claim.
+-- name: LockRuntimeRevision :one
+SELECT * FROM runtime_revision WHERE revision = $1 FOR UPDATE;
+
+-- name: ClaimRuntimeRevisionDeletion :execrows
+UPDATE runtime_revision
+SET deletion_started_at = COALESCE(deletion_started_at, NOW())
+WHERE runtime_revision.revision = $1
+  AND runtime_revision.revision IN (SELECT revision FROM unreferenced_runtime_revision);
 
 -- Retired pairs no longer retain runtime inputs. Release their historical
 -- success pointers in the same transaction as deletion, preserving RESTRICT
@@ -78,14 +92,4 @@ WHERE retired_at IS NOT NULL AND latest_successful_revision = $1;
 -- name: DeleteUnreferencedRuntimeRevision :exec
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
-  AND NOT EXISTS (
-      SELECT 1 FROM agent_template_harness_pair p
-      WHERE p.retired_at IS NULL
-        AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
-  )
-  AND NOT EXISTS (
-      SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
-  )
-  AND NOT EXISTS (
-      SELECT 1 FROM agent_instance_checkpoint c WHERE c.prepared_revision = r.revision
-  );
+  AND r.deletion_started_at IS NOT NULL;
