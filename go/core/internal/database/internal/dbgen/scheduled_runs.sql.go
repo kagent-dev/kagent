@@ -419,8 +419,8 @@ func (q *Queries) LeaseScheduledRunExecutions(ctx context.Context, arg LeaseSche
 const listScheduledRunExecutions = `-- name: ListScheduledRunExecutions :many
 SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 WHERE s.creator = $1 AND e.scheduled_run_id = $2
-  AND ($4::uuid IS NULL OR e.id > $4::uuid)
-ORDER BY e.id LIMIT $3
+  AND ($4::uuid IS NULL OR e.id < $4::uuid)
+ORDER BY e.id DESC LIMIT $3
 `
 
 type ListScheduledRunExecutionsParams struct {

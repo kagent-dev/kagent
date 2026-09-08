@@ -50,8 +50,8 @@ WHERE s.creator = $1 AND e.id = $2 FOR UPDATE OF e;
 -- name: ListScheduledRunExecutions :many
 SELECT e.* FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 WHERE s.creator = $1 AND e.scheduled_run_id = $2
-  AND (sqlc.narg(after_id)::uuid IS NULL OR e.id > sqlc.narg(after_id)::uuid)
-ORDER BY e.id LIMIT $3;
+  AND (sqlc.narg(after_id)::uuid IS NULL OR e.id < sqlc.narg(after_id)::uuid)
+ORDER BY e.id DESC LIMIT $3;
 
 -- name: SetScheduledRunExecutionInstance :one
 UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNING *;
