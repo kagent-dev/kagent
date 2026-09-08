@@ -30,9 +30,9 @@
  * nothing in the app calls them yet. Adding one is a new id here, not a new path
  * anywhere else.
  *
- * `CheckpointService` is not exposed in the UI yet. Adding it requires product
- * behavior for naming, listing, and restoring checkpoints, not another transport
- * mapping hidden in this file.
+ * `CheckpointService` is reached only through **`agentInstances.fork`**, which
+ * creates a checkpoint and forks it in one operation. Listing, naming and restoring
+ * checkpoints need product behaviour first, not a transport mapping here.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
@@ -51,6 +51,10 @@ import {
 } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
+import {
+  CheckpointService,
+  CheckpointState as PbCheckpointState,
+} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
   GetSubstrateStatusResponse,
@@ -652,6 +656,7 @@ const agentInstances: Pick<
   | "agentInstances.get"
   | "agentInstances.create"
   | "agentInstances.rename"
+  | "agentInstances.fork"
   | "agentInstances.delete"
   | "agentInstances.suspend"
   | "agentInstances.resume"
@@ -741,6 +746,38 @@ const agentInstances: Pick<
       ),
     );
     return toAgentInstance(required(response.agentInstance, name, "renamed agent instance"));
+  },
+
+  /*
+   * A checkpoint, then a fork of it. The checkpoint is synchronous: the controller
+   * answers `ready` or `failed`, never `creating`. The same request id serves both
+   * calls, so a retry cannot leave a second checkpoint or a second fork behind.
+   */
+  "agentInstances.fork": async (input, options) => {
+    const checkpoints = serviceClient(CheckpointService);
+    const created = await rpc("CheckpointService/CreateCheckpoint", options.signal, () =>
+      checkpoints.createCheckpoint(
+        { agentInstanceId: input.id, requestId: input.requestId },
+        call("agentInstances.fork", options),
+      ),
+    );
+    const checkpoint = required(created.checkpoint, "CheckpointService/CreateCheckpoint", "checkpoint");
+    if (checkpoint.state !== PbCheckpointState.READY) {
+      throw new ApiError(
+        checkpoint.failure?.message || "The checkpoint did not become ready.",
+        { kind: "http", url: "CheckpointService/CreateCheckpoint", status: 500 },
+      );
+    }
+    const name = "CheckpointService/ForkAgentInstance";
+    const forked = await rpc(name, options.signal, () =>
+      checkpoints.forkAgentInstance(
+        { checkpointId: checkpoint.id, requestId: input.requestId },
+        call("agentInstances.fork", options),
+      ),
+    );
+    const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
+    if (!input.name) return instance;
+    return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
   },
 
   /*

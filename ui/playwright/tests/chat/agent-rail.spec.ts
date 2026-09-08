@@ -558,6 +558,35 @@ test("agent rail: the newest conversation is at the top", async ({ page }) => {
   );
 });
 
+test("agent rail: a conversation is forked from its row menu, and the fork opens", async ({
+  page,
+}) => {
+  /*
+   * A fork is a new conversation that starts from where this one is, so the proof is
+   * the address bar: it now names an instance that is not the one forked, and the rail
+   * lists that instance beside the source.
+   */
+  await page.goto(agentChat(instances.ready));
+  const rail = page.getByTestId("chat-sessions");
+  const rows = rail.locator('a[data-testid^="chat-session-"]');
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  const before = await rows.count();
+
+  await page.locator(`[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`).click({
+    force: true,
+  });
+  await page.waitForTimeout(400);
+  await page.getByRole("menuitem", { name: "Fork chat" }).click();
+
+  await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {
+    timeout: 30_000,
+  });
+  await expect(page).not.toHaveURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
+  await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/);
+  await expect(rows).toHaveCount(before + 1);
+  await expect(rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`)).toBeVisible();
+});
+
 test("agent rail: a conversation can be renamed from inside it, two ways", async ({
   page,
 }) => {

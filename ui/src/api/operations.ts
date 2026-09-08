@@ -207,6 +207,19 @@ export interface OperationMap {
   };
 
   /**
+   * Forks a conversation: a new instance that starts from where this one is now.
+   *
+   * Two controller calls, not one: a checkpoint of the source at its current turn
+   * boundary, then a fork of that checkpoint. The source has to be quiescent, so a
+   * conversation mid-turn is refused with `FailedPrecondition`. The fork comes back
+   * unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.fork": {
+    input: AgentInstanceRef & { requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
+  /**
    * Deletes an instance.
    *
    * Irreversible, and it takes the conversation with it: the instance *is* the

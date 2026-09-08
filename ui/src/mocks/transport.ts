@@ -82,6 +82,10 @@ import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
 import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
+  CheckpointService,
+  CheckpointState as PbCheckpointState,
+} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
   AgentInstanceSharePermission as PbSharePermission,
@@ -937,6 +941,44 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
       }),
     ),
   };
+});
+
+/*
+ * A checkpoint is only ever a step on the way to a fork here, so it is remembered no
+ * further than the instance it was taken of. The fork copies the source's record under
+ * a new id, unnamed, exactly as the controller's `InsertForkedAgentInstance` does.
+ */
+const checkpointSources = new Map<string, string>();
+
+on(CheckpointService.method.createCheckpoint, (input, call) => {
+  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const id = crypto.randomUUID();
+  checkpointSources.set(id, instance.id);
+  return {
+    checkpoint: {
+      id,
+      agentInstanceId: instance.id,
+      state: PbCheckpointState.READY,
+      createdAt: timestampFromDate(new Date()),
+    },
+  };
+});
+
+on(CheckpointService.method.forkAgentInstance, (input, call) => {
+  const sourceId = checkpointSources.get(input.checkpointId);
+  if (!sourceId) throw notFound(`Checkpoint ${input.checkpointId}`);
+  const source = instanceFor(sourceId, call);
+  const now = new Date().toISOString();
+  const forked = saveAgentInstance({
+    ...source,
+    id: crypto.randomUUID(),
+    name: "",
+    state: "ready",
+    operation: "unspecified",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { agentInstance: agentInstanceMessage(forked) };
 });
 
 on(AgentInstanceService.method.deleteAgentInstance, (input, call) => {

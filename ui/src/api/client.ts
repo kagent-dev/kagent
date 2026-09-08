@@ -232,6 +232,14 @@ export interface AgentInstancesApi {
   rename(id: string, name: string): Promise<AgentInstance>;
 
   /**
+   * Forks a conversation into a new one that starts from its current state.
+   *
+   * The source must be idle between turns. Pass `name` to title the fork; the
+   * controller otherwise leaves it unnamed.
+   */
+  fork(id: string, name?: string): Promise<AgentInstance>;
+
+  /**
    * Deletes an instance, and with it the conversation held against it.
    *
    * The instance *is* the conversation, so this is not a tidy-up — it removes what
@@ -346,6 +354,8 @@ export function createApiClient(): KagentApiClient {
       resume: (id) => invoke("agentInstances.resume", { id }),
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
+      fork: (id, name) =>
+        invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
       shares: {
         list: (id, options) =>
           invoke("agentInstances.shares.list", { id }, options),
