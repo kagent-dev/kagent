@@ -1408,6 +1408,21 @@ const scheduledRuns = [1, 2, 3].map((n) => create(ScheduledRunSchema, {
   config: { name: n === 1 ? "Daily cluster report" : `Schedule ${n}`, schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
   createdAt: stamp("2026-09-01T09:00:00Z"),
 }));
+/*
+ * One already deleted, because a delete now leaves the detail page and a reload resets
+ * these fixtures — so the state a held link lands on had no way to be read otherwise.
+ * Absent from the list, since `listScheduledRuns` drops what is deleted.
+ */
+scheduledRuns.push(create(ScheduledRunSchema, {
+  id: "c686bd1d-9124-4e96-8df7-000000000004",
+  etag: "d686bd1d-9124-4e96-8df7-000000000004",
+  creator: MOCK_INSTANCE_CREATOR,
+  harness: { namespace: "kagent", name: "k8s-agent" },
+  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  config: { name: "Retired sweep", schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
+  createdAt: stamp("2026-09-01T09:00:00Z"),
+  deletedAt: stamp("2026-09-02T09:00:00Z"),
+}));
 const scheduleExecutions = Array.from({ length: 26 }, (_, i) => create(ScheduledRunExecutionSchema, {
   id: `a686bd1d-9124-4e96-8df7-${String(i).padStart(12, "0")}`,
   scheduledRunId: scheduledRuns[0].id,

@@ -46,9 +46,25 @@ test("schedules: edit, pause, run manually, inspect history and delete", async (
   await expect(page.getByRole("button", { name: "Run", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Delete schedule Morning report", exact: true }).click();
   await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+  // Deleting leaves for the list, which is where the reader can act next: this page is
+  // now about a schedule that is gone, and the list does not carry it.
+  await expect(page).toHaveURL(/\/schedules(\?.*)?$/);
+  await expect(page.getByRole("link", { name: "Morning report", exact: true })).toHaveCount(0);
+
+});
+
+/* A link held from before the delete still opens, and says what it is looking at. */
+test("schedules: a deleted schedule opens by address and says so", async ({ page }) => {
+  await page.goto("/schedules/c686bd1d-9124-4e96-8df7-000000000004?mock=ok");
+  await expect(page.getByRole("heading", { name: "Retired sweep" })).toBeVisible();
   await expect(page.getByText("This schedule was deleted. Its execution history is retained.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeDisabled();
-  await expect(page.getByRole("row").filter({ hasText: "Manual" })).toContainText("Pending");
+  for (const name of ["Run", "Pause", "Edit"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
+  }
+  await expect(page.getByTestId("schedule-meta")).toContainText("Deleted");
+  // And it is not offered in the list it was removed from.
+  await page.goto("/schedules?mock=ok");
+  await expect(page.getByRole("link", { name: "Retired sweep", exact: true })).toHaveCount(0);
 });
 
 test("schedules: create using an existing agent", async ({ page }) => {

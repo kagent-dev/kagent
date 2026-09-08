@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { invoke } from "@/api/operations";
 import { useApiResource } from "@/api/hooks/useApiResource";
+import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { SearchInput } from "@/components/table/SearchInput";
@@ -24,6 +25,7 @@ function time(value: Timestamp | undefined) {
 
 export function ScheduledRunsPage() {
   const theme = useTheme();
+  const invalidate = useInvalidateScheduledRuns();
   const navigate = useNavigate();
   const page = usePageStack("schedules", "pages");
   const runs = useApiResource(["scheduledRuns.list", page.current],
@@ -56,7 +58,7 @@ export function ScheduledRunsPage() {
               <DeleteResourceButton kind="schedule" name={name}
                 description="Stops future executions. Accepted executions continue; history and conversations are retained."
                 onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: row.id }); }}
-                onDeleted={runs.refresh} />
+                onDeleted={invalidate} />
             </Space>;
           } },
         ]}
@@ -77,6 +79,7 @@ export function ScheduledRunPage() {
 
 function ScheduledRunDetails({ id }: { id: string }) {
   const theme = useTheme();
+  const invalidate = useInvalidateScheduledRuns();
   const navigate = useNavigate();
   // Which action is in flight, so only that button spins.
   const [busy, setBusy] = useState<"pause" | "trigger">();
@@ -234,7 +237,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
         </Typography.Text>
         <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
           description="Stops future executions. Accepted executions continue; history and conversations are retained."
-          onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }} onDeleted={refresh} />
+          onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }}
+          onDeleted={async () => { await invalidate(); await navigate(paths.scheduledRuns); }} />
       </div>
     </Space>
   </PageFrame>;
