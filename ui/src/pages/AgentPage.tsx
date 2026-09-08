@@ -5,6 +5,7 @@ import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { AgentRail } from "@/components/agent/AgentRail";
+import { AgentSchedules } from "@/components/agent/AgentSchedules";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
@@ -679,6 +680,12 @@ export function AgentPage() {
             },
           })}
         />
+
+        {/* Below the conversations, because a conversation is what a reader came here
+            for and a schedule is how some of them got started. */}
+        {namespace && agentTemplate && harness ? (
+          <AgentSchedules pair={{ namespace, agentTemplate, harness }} />
+        ) : null}
       </Space>
 
       {/*
