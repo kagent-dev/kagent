@@ -47,17 +47,18 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     go build -trimpath -ldflags "$LDFLAGS" -o /acp-shim ./core/cmd/acp-shim
 
 ### Stage 1: kagent-owned sandbox base — shim only, no agent.
-FROM debian:trixie-slim AS base
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-    && rm -rf /var/lib/apt/lists/*
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS base
+# bash is explicit: wolfi-base ships only busybox sh, and the agent user's
+# login shell is bash.
+RUN apk add --no-cache ca-certificates bash curl git
 
 # Single unprivileged user. Substrate provides the isolation boundary
 # (microVM); we don't need a separate gateway/sandbox user split here.
-RUN groupadd -r agent && useradd -r -m -g agent -d /home/agent -s /bin/bash agent
+# UID pinned so it does not shift with the base's useradd defaults.
+# adduser -H skips home creation, so create and chown it explicitly.
+RUN addgroup -g 1001 agent \
+    && adduser -u 1001 -G agent -D -H -h /home/agent -s /bin/bash agent \
+    && mkdir -p /home/agent && chown -R agent:agent /home/agent
 
 COPY --from=builder /acp-shim /usr/local/bin/acp-shim
 
@@ -69,27 +70,23 @@ ENTRYPOINT ["/usr/local/bin/acp-shim"]
 # Agent layers append the child command, e.g.:
 #   CMD ["--", "hermes", "acp"]
 
-### Shared: base + Node.js 22 for npm-distributed agents. Debian trixie's
-### apt nodejs is v20, below OpenClaw's >=22.19 requirement (NemoClaw's
-### sandbox-base uses node:22-trixie-slim for the same reason), so take
-### the runtime from the official image.
-FROM node:22-trixie-slim AS node
+### Shared: base + Node.js for npm-distributed agents. The apk package name
+### encodes the major, so the runtime cannot roll past 22.
 FROM base AS node-base
+ARG TOOLS_NODE_VERSION=22
 USER root
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
-COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
-RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+RUN apk add --no-cache nodejs-${TOOLS_NODE_VERSION} npm \
     && node --version && npm --version
 USER agent
 
 ### Agent target: Hermes (pip)
 FROM base AS hermes
 USER root
-# xz-utils: hermes extracts .tar.xz payloads (tools/skills) on first run; without
-# it the child logs "tar (child): xz: Cannot exec". python3*: hermes runtime + pip.
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+# xz: hermes extracts .tar.xz payloads (tools/skills) on first run; without
+# it the child logs "tar (child): xz: Cannot exec". python: hermes runtime + pip.
+# venv ships inside the python package on wolfi; there is no separate -venv.
+ARG TOOLS_PYTHON_VERSION=3.13
+RUN apk add --no-cache python-${TOOLS_PYTHON_VERSION} py${TOOLS_PYTHON_VERSION}-pip xz
 # Persistent Hermes messaging gateway launcher (Slack/Telegram/...). See the
 # script header for the Substrate checkpoint/restore rationale.
 COPY --chmod=755 core/cmd/acp-shim/sandbox/hermes-gateway-ensure.sh /usr/local/bin/hermes-gateway-ensure.sh
@@ -124,7 +121,12 @@ CMD ["--", "hermes", "acp"]
 FROM node-base AS openclaw
 ARG OPENCLAW_VERSION=2026.5.27
 USER root
-RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
+# npm 12 blocks install scripts by default. openclaw's postinstall patches its
+# packaged dist and migrates the plugin registry, and tree-sitter-bash builds a
+# native module, so they are allowed explicitly rather than silently skipped.
+RUN npm install -g \
+        --allow-scripts=openclaw,@google/genai,tree-sitter-bash,protobufjs \
+        "openclaw@${OPENCLAW_VERSION}"
 COPY --chmod=755 \
     core/cmd/acp-shim/sandbox/openclaw-gateway-ensure.sh \
     core/cmd/acp-shim/sandbox/openclaw-acp-child.sh \
@@ -137,9 +139,9 @@ CMD []
 ### Agent target: Claude — Anthropic's Claude Agent SDK exposed over ACP via
 ### the community adapter (@agentclientprotocol/claude-agent-acp, which wraps
 ### @anthropic-ai/claude-agent-sdk). Built on node-base because the adapter
-### requires Node >=22 (trixie apt ships v20). Unlike openclaw it needs NO
-### sandbox-local gateway: `claude-agent-acp` is a stdio ACP server, so the
-### shim runs it directly as its child.
+### requires Node >=22. Unlike openclaw it needs NO sandbox-local gateway:
+### `claude-agent-acp` is a stdio ACP server, so the shim runs it directly as
+### its child.
 FROM node-base AS claude
 ARG CLAUDE_AGENT_ACP_VERSION=0.58.1
 USER root
