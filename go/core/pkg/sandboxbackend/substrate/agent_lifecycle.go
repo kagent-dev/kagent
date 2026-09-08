@@ -106,6 +106,11 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			OnCommit: atev1alpha1.SnapshotScopeFull,
 		},
 	}
+	extraContainers, err := actorTemplateExtraContainers(podTemplate.Spec.Containers, kagentContainer)
+	if err != nil {
+		return nil, err
+	}
+	spec.Containers = append(spec.Containers, extraContainers...)
 	applyDurableDirSessionStore(&spec)
 
 	actorTemplateHash, err := actorTemplateShapeHash(spec)
@@ -186,6 +191,56 @@ func findKagentContainer(containers []corev1.Container) *corev1.Container {
 		return &containers[0]
 	}
 	return nil
+}
+
+// actorTemplateExtraContainers converts the pod template's extra containers —
+// every container except the agent's own, which buildSandboxAgentActorTemplate
+// renders explicitly — into ActorTemplate containers, preserving order. The
+// agent pointer must come from findKagentContainer on the same slice, so it
+// can be identified by identity.
+//
+// An ActorTemplate container is a restricted pod container: the image must be
+// digest-pinned (snapshots key on it), the command is copied verbatim into the
+// OCI Process.Args with no shell and no image-entrypoint fallback, env supports
+// literal values and secretKeyRef only, and there are no ports, resources,
+// envFrom, probes, or volume sources. Constructs the ActorTemplate cannot
+// express fail the build loudly instead of being silently dropped — a sidecar
+// whose credential source or mount vanished mid-flight is worse than a
+// rejected apply.
+func actorTemplateExtraContainers(containers []corev1.Container, agent *corev1.Container) ([]atev1alpha1.Container, error) {
+	var out []atev1alpha1.Container
+	for i := range containers {
+		c := &containers[i]
+		if c == agent {
+			continue
+		}
+		image, err := pinImageRef(c.Image)
+		if err != nil {
+			return nil, fmt.Errorf("extra container %q: %w", c.Name, err)
+		}
+		command := append(append([]string{}, c.Command...), c.Args...)
+		if len(command) == 0 {
+			return nil, fmt.Errorf("extra container %q must set command and/or args: substrate runs the command verbatim with no image entrypoint fallback", c.Name)
+		}
+		if len(c.EnvFrom) > 0 {
+			return nil, fmt.Errorf("extra container %q uses envFrom, which ActorTemplates do not support", c.Name)
+		}
+		for _, e := range c.Env {
+			if e.Value == "" && e.ValueFrom != nil && e.ValueFrom.SecretKeyRef == nil {
+				return nil, fmt.Errorf("extra container %q env %q: ActorTemplates support literal values and secretKeyRef only", c.Name, e.Name)
+			}
+		}
+		if len(c.VolumeMounts) > 0 {
+			return nil, fmt.Errorf("extra container %q mounts volumes, which ActorTemplates do not support (the only mount is the agent's durableDir session store)", c.Name)
+		}
+		out = append(out, atev1alpha1.Container{
+			Name:    c.Name,
+			Image:   image,
+			Command: command,
+			Env:     actorTemplateEnvFromPodEnv(c.Env),
+		})
+	}
+	return out, nil
 }
 
 // buildSubstrateKagentContainerCommand returns the ActorTemplate command and the prepended

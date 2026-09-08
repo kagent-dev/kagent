@@ -326,3 +326,118 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildSandboxAgentActorTemplateExtraContainers covers the BYO extraContainers
+// translation: the pod template's non-agent containers ride along as ActorTemplate
+// containers (credential-brokering sidecars etc.), with the ActorTemplate's
+// restricted container surface enforced loudly instead of silently dropped.
+func TestBuildSandboxAgentActorTemplateExtraContainers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pinnedImage  = "registry.example/kagent-dev/kagent/app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		sidecarImage = "registry.example/example/credential-proxy@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	)
+	cmd := "/serve"
+	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
+	sa := &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "byo-agent", Namespace: "kagent"},
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}},
+		},
+	}
+	sidecar := corev1.Container{
+		Name:    "credential-proxy",
+		Image:   sidecarImage,
+		Command: []string{"/sidecar"},
+		Args:    []string{"--listen", "127.0.0.1:14322"},
+		Env: []corev1.EnvVar{
+			{Name: "PROXY_LISTEN_ADDR", Value: "127.0.0.1:14322"},
+			{
+				Name: "PROXY_SECRET_TOKEN",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "creds"},
+						Key:                  "token",
+					},
+				},
+			},
+		},
+	}
+	agent := corev1.Container{Name: defaultKagentContainer, Image: pinnedImage, Command: []string{"/serve"}}
+	podTemplate := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{agent, sidecar}}}
+
+	t.Run("converted", func(t *testing.T) {
+		p := newTestLifecycle(t)
+		tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podTemplate)
+		require.NoError(t, err)
+		require.Len(t, tmpl.Spec.Containers, 2)
+
+		// The agent container stays first: applyDurableDirSessionStore targets it.
+		require.Equal(t, defaultKagentContainer, tmpl.Spec.Containers[0].Name)
+		require.Equal(t, durableDataVolume, tmpl.Spec.Containers[0].VolumeMounts[0].Name)
+
+		extra := tmpl.Spec.Containers[1]
+		require.Equal(t, "credential-proxy", extra.Name)
+		require.Equal(t, sidecarImage, extra.Image)
+		require.Equal(t, []string{"/sidecar", "--listen", "127.0.0.1:14322"}, extra.Command)
+		require.Len(t, extra.Env, 2)
+		require.Equal(t, "PROXY_LISTEN_ADDR", extra.Env[0].Name)
+		require.NotNil(t, extra.Env[0].Value)
+		require.Equal(t, "PROXY_SECRET_TOKEN", extra.Env[1].Name)
+		require.NotNil(t, extra.Env[1].ValueFrom.SecretKeyRef)
+		require.Equal(t, "creds", extra.Env[1].ValueFrom.SecretKeyRef.Name)
+		require.Empty(t, extra.VolumeMounts, "the durableDir session store is the agent container's alone")
+	})
+
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*corev1.Container)
+		errText string
+	}{
+		{
+			name:    "unpinned image",
+			mutate:  func(c *corev1.Container) { c.Image = "registry.example/example/credential-proxy:latest" },
+			errText: "must be pinned",
+		},
+		{
+			name:    "no command and no args",
+			mutate:  func(c *corev1.Container) { c.Command, c.Args = nil, nil },
+			errText: "no image entrypoint fallback",
+		},
+		{
+			name: "envFrom",
+			mutate: func(c *corev1.Container) {
+				c.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "creds"}}}}
+			},
+			errText: "envFrom",
+		},
+		{
+			name: "fieldRef env",
+			mutate: func(c *corev1.Container) {
+				c.Env = append(c.Env, corev1.EnvVar{
+					Name:      "POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}},
+				})
+			},
+			errText: "secretKeyRef only",
+		},
+		{
+			name: "volumeMounts",
+			mutate: func(c *corev1.Container) {
+				c.VolumeMounts = []corev1.VolumeMount{{Name: "config", MountPath: "/config"}}
+			},
+			errText: "mounts volumes",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := sidecar
+			tc.mutate(&bad)
+			pod := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{agent, bad}}}
+			p := newTestLifecycle(t)
+			_, err := p.buildSandboxAgentActorTemplate(sa, wpKey, pod)
+			require.Error(t, err)
+			require.ErrorContains(t, err, tc.errText)
+		})
+	}
+}
