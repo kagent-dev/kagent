@@ -21,7 +21,7 @@ import { paint, settledPaint } from "../../helpers/style";
  *
  * The fixture is built for exactly this: `enabled: true` with an `ateApiError` set, two
  * worker pools across two namespaces, two templates — one Ready in `kagent`, one Pending in
- * `platform` — three actors and two workers, one of the workers holding nothing. The third
+ * `platform` — eight actors and two workers, one of the workers holding nothing. The crashed
  * actor sits last in the fixture and first once sorted, which is what makes the ordering
  * testable at all.
  */
@@ -43,12 +43,71 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // depending on how many there are. Both numbers, or the tile is not worth its space.
     await expect(page.getByTestId("substrate-stat-pools-value")).toHaveText("2");
     await expect(page.getByTestId("substrate-stat-templates-value")).toHaveText("1/2");
-    // Two running of four: one of the fixture's actors is `Failed` and another
-    // `Snapshotting`, which is exactly the case a bare count would hide.
-    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/4");
+    // Two running of eight: the rest are crashed, deleting, paused, resuming, suspended
+    // and snapshotting, which is exactly the case a bare count would hide.
+    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
-    await expect(page.getByTestId("substrate-stat-ateapi-value")).toHaveText("connected");
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
+  });
+
+  await test.step("2b. the bar is the shape of the cluster, not just its running tally", async () => {
+    const bar = page.getByTestId("substrate-actor-status-counts");
+    await expect(bar).toBeVisible();
+
+    // One segment per actor, so the bar is counted rather than estimated, and ordered by
+    // the status with everything parked pushed to the end — the grey tail is the last
+    // thing on the bar, not something cutting the active part in half.
+    await expect(bar.locator("[data-tone]")).toHaveCount(8);
+    await expect(
+      bar.locator("[data-tone]").evaluateAll((els) => els.map((el) => el.getAttribute("data-tone"))),
+    ).resolves.toEqual([
+      "danger",
+      "warning",
+      "progress",
+      "healthy",
+      "healthy",
+      "progress",
+      "idle",
+      "idle",
+    ]);
+
+    // The whole breakdown from anywhere on the bar, rather than one label per segment: a
+    // reader wanting the shape of the cluster should not have to hover it a piece at a time.
+    await bar.hover();
+    const tip = page.locator(".ant-tooltip");
+    for (const line of [
+      "Crashed Actors: 1",
+      "Deleting Actors: 1",
+      "Resuming Actors: 1",
+      "Running Actors: 2",
+      "Snapshotting Actors: 1",
+      "Paused Actors: 1",
+      "Suspended Actors: 1",
+    ]) {
+      await expect(tip).toContainText(line);
+    }
+
+    // The legend says the same numbers without a pointer at all, which is what a reader
+    // looking at a screenshot or a printed page has.
+    const legend = page.getByTestId("substrate-actor-status-counts-legend");
+    await expect(legend).toContainText("Crashed: 1");
+    await expect(legend).toContainText("Running: 2");
+    await expect(legend).toContainText("Suspended: 1");
+
+    // Every state the controller can report, so a reader learns the vocabulary from the
+    // page rather than from waiting for something to go wrong.
+    await expect(legend).toContainText("Pausing: 0");
+    await expect(legend).toContainText("Unknown: 0");
+    // `ACTOR_STATE_CRASHED` and a vocabulary entry of `Crashed` are the same status, and
+    // keying the legend on the wire value listed it twice — once at zero.
+    await expect(legend.getByText(/^Crashed: /)).toHaveCount(1);
+
+    // The same summary as text, because hovering needs a pointer and neither a screen
+    // reader nor a keyboard has one. Colour is never carrying this alone.
+    await expect(bar).toHaveAttribute(
+      "aria-label",
+      "Actor status. Crashed Actors: 1, Deleting Actors: 1, Resuming Actors: 1, Running Actors: 2, Snapshotting Actors: 1, Paused Actors: 1, Suspended Actors: 1",
+    );
   });
 
   await test.step("3. the worker pools the sandboxes run on", async () => {
@@ -92,6 +151,14 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // The pod, with its IP appended — the two facts an operator needs to go and look.
     await expect(actors).toContainText("kagent/ateom-default-pool-0");
     await expect(actors).toContainText("10.42.1.19");
+
+    // Both wire constants are read to the operator as words — a humaniser that only knew
+    // `CRASHED` would leave the other one showing the controller's vocabulary.
+    await expect(actors).not.toContainText("ACTOR_STATE_");
+    await expect(actors).toContainText("Deleting");
+    await expect(
+      actors.locator("[data-tone]").filter({ hasText: "Crashed" }),
+    ).toHaveAttribute("data-tone", "danger");
   });
 
   await test.step("6. the workers, including the one holding nothing", async () => {
@@ -192,9 +259,20 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
   await loadPage(page, routes.substrate, { scenario: "empty", title: "Substrate" });
   await expectSettled(page);
 
-  await expect(page.getByTestId("substrate-stat-ateapi-value")).toHaveText("off");
+  // Said by the two tables it applies to, not by a tile: a tile is for a number that
+  // moves, and this one read `connected` above ate-api's own timeout banner.
+  await expect(page.getByTestId("substrate-stat-ateapi")).toHaveCount(0);
   await expect(page.getByTestId("substrate-inventory-error")).toHaveCount(0);
   await expect(page.getByTestId("substrate-partial")).toHaveCount(0);
+
+  // The bar keeps its track and says why it is empty. Removing it instead would move the
+  // table under a reader at the moment a cluster drained, which is the moment they are
+  // watching it.
+  await expect(page.getByTestId("substrate-actor-status-counts")).toBeVisible();
+  await expect(page.getByTestId("substrate-actor-status-counts").locator("[data-tone]")).toHaveCount(0);
+  await expect(page.getByTestId("substrate-actor-status-counts-empty")).toHaveText(
+    "ate-api is not configured, so there are no actors to show.",
+  );
 
   // The two runtime sections name the setting to change. The two Kubernetes ones do not —
   // they are empty for an unrelated reason, and saying "ate-api" over them would send an
@@ -234,12 +312,20 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
 
   const actors = page.getByTestId("substrate-actors-table");
 
-  // Sorted by status, then by id. `Failed` precedes `Running` precedes `Snapshotting`,
-  // and the fixture lists them in none of that order.
+  // Sorted by status, then by id, and the fixture lists them in none of that order.
   const ids = await actors.locator(".ant-table-row").evaluateAll((rows) =>
     rows.map((row) => row.querySelector(".ant-table-cell")?.textContent?.trim() ?? ""),
   );
-  expect(ids).toEqual(["actor-0aa1", "actor-3b55", "actor-7f21", "actor-9c03"]);
+  expect(ids).toEqual([
+    "actor-0aa1",
+    "actor-2e40",
+    "actor-5d17",
+    "actor-8b91",
+    "actor-3b55",
+    "actor-7f21",
+    "actor-9c03",
+    "actor-c3f5",
+  ]);
 
   // Windowed: antd renders rows into a virtual holder rather than a plain tbody, which
   // is what keeps a list of thousands off the page.
@@ -297,7 +383,7 @@ test("substrate: each list narrows on its own, and a match is found wherever it 
     // The count beside the heading is now the *matching* total, so the tile is what
     // keeps the cluster's own size on screen. A reader who searched and found one
     // actor must not conclude their cluster is running one.
-    await expect(page.getByTestId("substrate-stat-actors")).toContainText("/4");
+    await expect(page.getByTestId("substrate-stat-actors")).toContainText("/8");
   });
 
   await test.step("3. and only that card: the other lists are left alone", async () => {
@@ -365,30 +451,43 @@ test("substrate: every table sorts through the same header, and the paged two or
   });
 
   await test.step("2. the actors' order covers every row, and cycles back to the default", async () => {
-    const order = page.getByTestId("substrate-actors-order");
-    await expect(order).toContainText("status, then actor");
-
+    const actors = page.getByTestId("substrate-actors-table");
     // The header, not the words in it: clicking the cell is what a reader does on the
     // two tables above, and this is the assertion that the same click works here.
-    const header = page.getByTestId("substrate-actors-table").locator("th").first();
-    await header.click();
-    await expect(order).toContainText("Sorted across the whole inventory: actor, ascending");
+    const header = actors.locator("th").first();
+    const ids = () =>
+      actors
+        .locator(".ant-table-row")
+        .evaluateAll((rows) =>
+          rows.map((row) => row.querySelector(".ant-table-cell")?.textContent?.trim() ?? ""),
+        );
+
+    // `aria-sort` rather than a caption: it is the state a screen reader is given, so
+    // asserting it covers the reader who cannot see the arrow.
+    await expect(header).not.toHaveAttribute("aria-sort", /.*/);
+    const byStatus = await ids();
 
     await header.click();
-    await expect(order).toContainText("Sorted across the whole inventory: actor, descending");
+    await expect(header).toHaveAttribute("aria-sort", "ascending");
+    // The rows themselves, because a header that says ascending over rows that never
+    // moved is the failure worth catching.
+    await expect.poll(ids).toEqual([...byStatus].sort());
+
+    await header.click();
+    await expect(header).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(ids).toEqual([...byStatus].sort().reverse());
 
     // antd's third click clears the sort, which for a read that always arrives ordered
     // means the order it falls back to rather than no order at all.
     await header.click();
-    await expect(order).toContainText("status, then actor");
+    await expect(header).not.toHaveAttribute("aria-sort", /.*/);
+    await expect.poll(ids).toEqual(byStatus);
   });
 
   await test.step("3. and the workers' the same", async () => {
-    const order = page.getByTestId("substrate-workers-order");
-    await expect(order).toContainText("pool, then pod");
-
-    await page.getByTestId("substrate-workers-table").locator("th").nth(1).click();
-    await expect(order).toContainText("Sorted across the whole inventory: pool, ascending");
+    const header = page.getByTestId("substrate-workers-table").locator("th").nth(1);
+    await header.click();
+    await expect(header).toHaveAttribute("aria-sort", "ascending");
   });
 
   await test.step("4. the actors are grouped by status, in an order nobody asked for", async () => {
@@ -399,7 +498,12 @@ test("substrate: every table sorts through the same header, and the paged two or
       .getByTestId("substrate-actors-table")
       .locator(".ant-table-row")
       .evaluateAll((rows) =>
-        rows.map((row) => row.textContent?.match(/Failed|Running|Snapshotting/)?.[0] ?? ""),
+        rows.map(
+          (row) =>
+            row.textContent?.match(
+              /Crashed|Deleting|Paused|Resuming|Running|Snapshotting|Suspended/,
+            )?.[0] ?? "",
+        ),
       );
     expect(statuses).toEqual([...statuses].sort());
   });

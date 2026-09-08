@@ -113,7 +113,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 
 	observed := proto.CloneOf(state.DesiredActorTemplate)
 	observed.Metadata.Uid = "actor-template-uid"
-	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
+	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	collections.ActorTemplates.UpdateObject(ObservedActorTemplate{Template: observed})
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()

@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kagent</title>
     <!--
+      Declared here rather than left to the browser's guess at /favicon.ico, so the
+      element exists before any script runs: `applyExtensionBranding` retargets this
+      link, and a distribution shipping under its own mark has nothing to hook onto
+      if the tag is implicit.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" data-app-favicon />
+    <!--
       The first paint, before any stylesheet or script has loaded.
 
       Styling arrives with the bundle, so without this the browser paints its own

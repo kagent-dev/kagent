@@ -193,7 +193,7 @@ func TestWorkspaceSelectInstance(t *testing.T) {
 
 			if tt.wantChat {
 				require.NotNil(t, m.chat)
-				assert.Equal(t, agentInstance.GetId(), m.chat.contextID, "the AgentInstance ID is the A2A context")
+				assert.Equal(t, agentInstance.GetContextId(), m.chat.contextID)
 				assert.NotNil(t, cmd, "history loads for a READY instance")
 				return
 			}

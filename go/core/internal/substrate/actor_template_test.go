@@ -43,7 +43,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetReadyz().GetHttpGet().GetPath() != "/readyz" || container.GetReadyz().GetHttpGet().GetPort() != 8081 || container.GetReadyz().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_COLD_BOOT {
+	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
 		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotsConfig().GetOnResume())
 	}
 	environment := map[string]*ateapipb.EnvVar{}
@@ -70,7 +70,7 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right := proto.CloneOf(left)
 	right.Metadata.Uid = "uid"
 	right.Metadata.Version = 2
-	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Name: "golden"}}}
+	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}

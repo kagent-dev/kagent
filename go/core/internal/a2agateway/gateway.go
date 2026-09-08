@@ -242,7 +242,7 @@ func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) 
 	if pageSize < 1 || pageSize > 100 {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "page size must be between 1 and 100")
 	}
-	if req.ContextID != "" && req.ContextID != instance.GetId() {
+	if req.ContextID != "" && req.ContextID != instance.GetContextId() {
 		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{}, PageSize: pageSize}, nil
 	}
 	afterID, err := decodePageToken(req.PageToken)
@@ -517,14 +517,14 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req.Message.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
 	}
-	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetId() {
+	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetContextId() {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
 	delete(req.Message.Metadata, apia2a.TimelinePositionMetadataKey)
 	if req.Message.TaskID != "" {
 		return g.prepareReply(ctx, instance, req)
 	}
-	req.Message.ContextID = instance.GetId()
+	req.Message.ContextID = instance.GetContextId()
 	requestHash, err := hashSendRequest(req)
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
@@ -563,7 +563,7 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
-	if stored.ContextID != instance.GetId() {
+	if stored.ContextID != instance.GetContextId() {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task context does not match AgentInstance")
 	}
 	if stored.Status.State != a2atype.TaskStateInputRequired && stored.Status.State != a2atype.TaskStateAuthRequired {

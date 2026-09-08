@@ -96,11 +96,10 @@ type AgentInstanceQuery struct {
 	Limit         int
 }
 
-// AgentInstanceTaskSnapshot identifies the immutable Substrate snapshot at a
-// completed A2A turn boundary.
+// AgentInstanceTaskSnapshot records the external snapshot at an A2A turn boundary.
+// Only an explicit checkpoint retains a copy after the Actor advances or is deleted.
 type AgentInstanceTaskSnapshot struct {
 	Atespace     string
-	Name         string
-	UID          string
+	URI          string
 	ContentScope string
 }
