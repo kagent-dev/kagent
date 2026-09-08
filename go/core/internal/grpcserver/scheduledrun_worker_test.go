@@ -1,0 +1,245 @@
+package grpcserver
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
+)
+
+type scheduledWorkerWorkflow struct {
+	store       *database.Client
+	quiesces    atomic.Int32
+	failCleanup bool
+}
+
+// Simulate restart after A2A acceptance but before saving the task link. Release
+// the lease normally so the test need not wait thirty seconds for its expiry.
+type lostTaskLinkStore struct {
+	*database.Client
+	loseTaskLink bool
+}
+
+func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, lease database.ScheduledRunExecutionLease, progress database.ScheduledRunExecutionProgress) error {
+	if s.loseTaskLink {
+		progress.TaskID = ""
+	}
+	return s.Client.UpdateScheduledRunExecution(ctx, lease, progress)
+}
+
+func (w *scheduledWorkerWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	return w.store.MarkAgentInstanceReady(ctx, instance.Id, "scheduled-runtime.test")
+}
+
+func (w *scheduledWorkerWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	_, err := w.Quiesce(ctx, instance)
+	return instance, err
+}
+
+func (w *scheduledWorkerWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	return instance, w.store.DeleteAgentInstance(ctx, instance.Id)
+}
+
+func (w *scheduledWorkerWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
+	if w.quiesces.Add(1) == 1 && w.failCleanup {
+		return nil, errors.New("temporary Substrate outage")
+	}
+	return &database.AgentInstanceTaskSnapshot{Atespace: "team", Name: "snapshot", UID: "snapshot-uid", ContentScope: "FULL"}, nil
+}
+
+type scheduledWorkerAuth struct {
+	authimpl.UnsecureAuthenticator
+	calls atomic.Int32
+}
+
+func (a *scheduledWorkerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {
+	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().User.ID != "" || target.Agent.ID == "" {
+		return errors.New("expected control-plane session and target agent")
+	}
+	a.calls.Add(1)
+	req.Header.Set("Authorization", "Bearer controller-test-credential")
+	return nil
+}
+
+type scheduledWorkerAuthorizer struct{ deny string }
+
+func (a scheduledWorkerAuthorizer) Check(ctx context.Context, principal auth.Principal, _ auth.Verb, resource auth.Resource) error {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return errors.New("missing controller session")
+	}
+	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.User.ID != "" {
+		return errors.New("worker impersonated owner")
+	}
+	if resource.Type == a.deny {
+		return errors.New("controller forbidden")
+	}
+	return nil
+}
+
+type scheduledWorkerRuntime struct {
+	a2apb.UnimplementedA2AServiceServer
+	mu     sync.Mutex
+	tasks  map[string]*a2apb.Task
+	sends  int
+	prompt string
+	state  a2atype.TaskState
+}
+
+func (r *scheduledWorkerRuntime) SendMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
+		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
+	}
+	if len(metadata.ValueFromIncomingContext(ctx, "x-user-id")) != 0 {
+		return nil, status.Error(codes.Unauthenticated, "unexpected human credentials")
+	}
+	send, err := pbconv.FromProtoSendMessageRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	r.sends++
+	r.prompt = send.Message.Parts[0].Text()
+	now := time.Now()
+	task, err := pbconv.ToProtoTask(&a2atype.Task{ID: send.Message.TaskID, ContextID: send.Message.ContextID,
+		Status: a2atype.TaskStatus{State: r.state, Timestamp: &now}, History: []*a2atype.Message{send.Message}})
+	if err != nil {
+		return nil, err
+	}
+	r.tasks[string(send.Message.TaskID)] = task
+	// The runtime accepted the message, but the controller lost the response.
+	return nil, status.Error(codes.Unavailable, "response lost")
+}
+
+func (r *scheduledWorkerRuntime) GetTask(_ context.Context, req *a2apb.GetTaskRequest) (*a2apb.Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	task := r.tasks[req.GetId()]
+	if task == nil {
+		return nil, status.Error(codes.NotFound, "task not found")
+	}
+	return proto.CloneOf(task), nil
+}
+
+func TestScheduledRunWorkerThroughGRPC(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		state   a2atype.TaskState
+		deny    string
+		timeout time.Duration
+		want    apiv1alpha1.ScheduledRunExecutionState
+	}{
+		{"lost dispatch response", a2atype.TaskStateCompleted, "", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED},
+		{"timeout retries cleanup", a2atype.TaskStateWorking, "", 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"auth required retains task", a2atype.TaskStateAuthRequired, "", 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"controller denied", a2atype.TaskStateCompleted, "ScheduledRunExecution", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
+		{"target denied", a2atype.TaskStateCompleted, "AgentTemplate", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, client, _, owner := scheduledRunTestServer(t)
+			runtime := &scheduledWorkerRuntime{tasks: map[string]*a2apb.Task{}, state: tc.state}
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := grpc.NewServer()
+			a2apb.RegisterA2AServiceServer(server, runtime)
+			go func() { _ = server.Serve(listener) }()
+			t.Cleanup(server.Stop)
+			authenticator := &scheduledWorkerAuth{}
+			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
+			require.NoError(t, err)
+			workflow := &scheduledWorkerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
+			created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
+				Harness: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
+				Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},
+			})
+			require.NoError(t, err)
+			trigger := &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id, RequestId: "firing"}
+			accepted, err := client.TriggerScheduledRun(owner, trigger)
+			require.NoError(t, err)
+			// Accepted work survives both editing and deleting its parent schedule.
+			_, err = client.DeleteScheduledRun(owner, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id})
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			workerStore := lostTaskLinkStore{Client: store}
+			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
+				workerStore.loseTaskLink = true
+			}
+			worker := scheduledrun.NewWorker(workerStore, workflow, a2agateway.New(store, scheduledWorkerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledWorkerAuthorizer{deny: tc.deny})
+			go func() { done <- worker.Start(ctx) }()
+			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
+				require.Eventually(t, func() bool {
+					response, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
+					return err == nil && response.Execution.State == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING && response.Execution.TaskId == ""
+				}, 5*time.Second, 20*time.Millisecond)
+				cancel()
+				require.NoError(t, <-done)
+				ctx, cancel = context.WithCancel(t.Context())
+				defer cancel()
+				done = make(chan error, 1)
+				worker = scheduledrun.NewWorker(store, workflow, a2agateway.New(store, scheduledWorkerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledWorkerAuthorizer{})
+				go func() { done <- worker.Start(ctx) }()
+			}
+			var execution *apiv1alpha1.ScheduledRunExecution
+			require.Eventually(t, func() bool {
+				response, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
+				if err != nil {
+					return false
+				}
+				execution = response.Execution
+				return execution.State == tc.want
+			}, 15*time.Second, 50*time.Millisecond)
+			require.NotNil(t, execution.CompletedAt)
+			replayed, err := client.TriggerScheduledRun(owner, trigger)
+			require.NoError(t, err)
+			require.Equal(t, execution.Id, replayed.Execution.Id)
+			if tc.deny != "" {
+				require.Empty(t, execution.AgentInstanceId)
+				require.Contains(t, execution.FailureReason, "not authorized")
+				require.Zero(t, authenticator.calls.Load())
+				return
+			}
+			require.NotEmpty(t, execution.TaskId)
+			require.NotEqual(t, execution.Id, execution.TaskId)
+			require.NotEmpty(t, execution.AgentInstanceId)
+			instance, err := store.GetAgentInstance(t.Context(), execution.AgentInstanceId, "alice")
+			require.NoError(t, err)
+			require.Equal(t, "alice", instance.Creator)
+			task, err := store.GetAgentInstanceTask(t.Context(), instance.Id, execution.TaskId)
+			require.NoError(t, err)
+			wantTaskState := tc.state
+			if tc.state == a2atype.TaskStateWorking {
+				wantTaskState = a2atype.TaskStateCanceled
+				require.GreaterOrEqual(t, workflow.quiesces.Load(), int32(2))
+			}
+			require.Equal(t, wantTaskState, task.Status.State)
+			runtime.mu.Lock()
+			defer runtime.mu.Unlock()
+			require.Equal(t, 1, runtime.sends)
+			require.Equal(t, "immutable scheduled prompt", runtime.prompt)
+		})
+	}
+}

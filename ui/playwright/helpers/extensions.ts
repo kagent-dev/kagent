@@ -55,6 +55,7 @@ export async function navOrder(page: Page): Promise<string[]> {
 export const CORE_NAV_ORDER = [
   "nav-dashboard",
   "nav-agents",
+  "nav-scheduledRuns",
   "nav-models",
   "nav-mcpServers",
   "nav-prompts",

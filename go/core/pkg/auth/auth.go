@@ -39,6 +39,16 @@ type Session interface {
 	Principal() Principal
 }
 
+// ControlPlaneSession identifies an internal controller call without human
+// credentials. It does not assert a Substrate Actor identity. AuthProvider and
+// Authorizer implementations may explicitly allow, deny, or authenticate these
+// calls; actor credentials for runtime tool calls remain a separate concern.
+type ControlPlaneSession struct{}
+
+var _ Session = ControlPlaneSession{}
+
+func (ControlPlaneSession) Principal() Principal { return Principal{} }
+
 // Responsibilities:
 // - Authenticate:
 //   - a2a requests from ui/cli (human users)

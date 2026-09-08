@@ -1,3 +1,4 @@
+import { ScheduledRunsPage, ScheduledRunPage } from "@/pages/ScheduledRunsPage";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
@@ -82,6 +83,8 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "promptNew", path: paths.promptNew, element: <PromptNewPage /> },
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },
   { key: "promptEdit", path: paths.promptEdit, element: <PromptEditPage /> },
+  { key: "scheduledRuns", path: paths.scheduledRuns, element: <ScheduledRunsPage /> },
+  { key: "scheduledRun", path: paths.scheduledRun, element: <ScheduledRunPage /> },
   { key: "substrate", path: paths.substrate, element: <SubstratePage /> },
   { key: "appDetail", path: paths.appDetail, element: <AppDetailPage /> },
   { key: "sharedAgent", path: paths.sharedAgent, element: <SharedAgentPage /> },

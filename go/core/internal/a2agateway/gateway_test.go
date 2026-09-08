@@ -57,6 +57,13 @@ type gatewayTestStore struct {
 	snapshot        *database.AgentInstanceTaskSnapshot
 	onStore         func()
 	id, userID      string
+	unscoped        bool
+}
+
+func (s *gatewayTestStore) GetAgentInstanceByID(_ context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	s.id, s.userID = id, ""
+	s.unscoped = true
+	return s.instance, s.err
 }
 
 func (s *gatewayTestStore) GetAgentInstance(_ context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
@@ -133,13 +140,15 @@ func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, strin
 }
 
 type gatewayTestAuthorizer struct {
-	verb     auth.Verb
-	resource auth.Resource
+	principal auth.Principal
+	err       error
+	verb      auth.Verb
+	resource  auth.Resource
 }
 
-func (a *gatewayTestAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	a.verb, a.resource = verb, resource
-	return nil
+func (a *gatewayTestAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.principal, a.verb, a.resource = principal, verb, resource
+	return a.err
 }
 
 type gatewayTestDialer struct {
@@ -582,9 +591,10 @@ func TestRuntimeDialerRequiresAuthority(t *testing.T) {
 	}
 }
 
-func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
+func TestGatewayReadsCompletedTasksWithoutDialingRuntime(t *testing.T) {
 	task := &a2atype.Task{
 		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 		History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
 		Artifacts: []*a2atype.Artifact{{Name: "result"}},
 	}

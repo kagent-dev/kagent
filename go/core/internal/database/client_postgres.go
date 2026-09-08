@@ -246,42 +246,13 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 		return nil, false, fmt.Errorf("get AgentInstance request: %w", err)
 	}
 
-	revision, err := c.q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
-		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
-	}
-	labels := map[string]string{}
-	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
-		return nil, false, fmt.Errorf("decode AgentTemplate labels: %w", err)
-	}
-
-	now := timestamppb.Now()
-	instance := proto.Clone(request).(*apiv1alpha1.AgentInstance)
-	instance.PreparedRevision = revision.Revision
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
-	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
-	instance.Labels = labels
-	instance.CreatedAt = now
-	instance.UpdatedAt = now
-	data, err := marshalAgentInstance(instance)
-	if err != nil {
-		return nil, false, err
-	}
-	instanceID := uuid.MustParse(request.GetId())
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
-			ID: instanceID, UserID: request.GetCreator(),
-		}); err != nil {
-			return fmt.Errorf("insert A2A context: %w", err)
+		now, err := q.DatabaseNow(ctx)
+		if err != nil {
+			return err
 		}
-		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
-			ID: instanceID, UserID: request.GetCreator(), RequestID: requestID,
-			ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
-			Data: data,
-		})
+		row, err = insertAgentInstance(ctx, q, request, requestID, now)
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -289,7 +260,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 		if err != nil {
 			return nil, false, fmt.Errorf("get concurrent AgentInstance request: %w", err)
 		}
-		instance, err = toAgentInstance(existing)
+		instance, err := toAgentInstance(existing)
 		if err == nil && !sameAgentInstanceRequest(instance, request) {
 			return nil, false, ErrIdempotencyConflict
 		}
@@ -298,8 +269,46 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 	if err != nil {
 		return nil, false, fmt.Errorf("insert AgentInstance: %w", err)
 	}
-	instance, err = toAgentInstance(row)
+	instance, err := toAgentInstance(row)
 	return instance, err == nil, err
+}
+
+// insertAgentInstance reserves the conversation and pins its prepared revision.
+// Callers own the transaction so execution linkage can commit with creation.
+func insertAgentInstance(ctx context.Context, q *dbgen.Queries, request *apiv1alpha1.AgentInstance, requestID string, now time.Time) (dbgen.AgentInstance, error) {
+	revision, err := q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
+		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
+	})
+	if err != nil {
+		return dbgen.AgentInstance{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+	}
+	labels := map[string]string{}
+	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
+		return dbgen.AgentInstance{}, fmt.Errorf("decode AgentTemplate labels: %w", err)
+	}
+	instance := proto.CloneOf(request)
+	instance.PreparedRevision = revision.Revision
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
+	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
+	instance.Labels = labels
+	instance.CreatedAt = timestamppb.New(now)
+	instance.UpdatedAt = timestamppb.New(now)
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return dbgen.AgentInstance{}, err
+	}
+	instanceID := uuid.MustParse(request.GetId())
+	params := dbgen.InsertAgentInstanceParams{
+		ID: instanceID, UserID: instance.Creator, RequestID: requestID,
+		ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
+		Data: data,
+	}
+	if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
+		ID: instanceID, UserID: instance.Creator,
+	}); err != nil {
+		return dbgen.AgentInstance{}, fmt.Errorf("insert A2A context: %w", err)
+	}
+	return q.InsertAgentInstance(ctx, params)
 }
 
 func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -550,6 +559,18 @@ func reidentifyForkEvent(event *a2apb.StreamResponse, sourceTaskID, contextID st
 		payload.ArtifactUpdate.ContextId = contextID
 	}
 	return taskID
+}
+
+func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid AgentInstance ID: %w", err)
+	}
+	row, err := c.q.GetAgentInstanceByID(ctx, uid)
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
+	}
+	return toAgentInstance(row)
 }
 
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {

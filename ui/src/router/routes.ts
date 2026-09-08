@@ -91,6 +91,9 @@ export const paths = {
   promptDetail: "/prompts/:namespace/:name",
   promptEdit: "/prompts/:namespace/:name/edit",
 
+  scheduledRuns: "/schedules",
+  scheduledRun: "/schedules/:id",
+
   substrate: "/substrate",
 
   appDetail: "/apps/:appName",
