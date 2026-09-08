@@ -1,8 +1,12 @@
 package substrate
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
+
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -17,7 +21,8 @@ func TestActorTemplateForRevision(t *testing.T) {
 		Command:        []string{"/agent"},
 		Args:           []string{"serve"},
 		WorkerPoolName: "default", SnapshotLocation: "snapshots",
-		ConfigJSON: []byte(`{"instruction":"help"}`), AgentCardJSON: []byte(`{"name":"helper"}`),
+		ConfigJSON: []byte(`{"instruction":"help"}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
 		Environment: []corev1.EnvVar{{Name: "API_KEY", Value: "secret"}},
 	}
 	revisionID, err := spec.Digest()
@@ -45,6 +50,13 @@ func TestActorTemplateForRevision(t *testing.T) {
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
 	}
+	var rendered a2atype.AgentCard
+	if err := json.Unmarshal([]byte(environment["KAGENT_AGENT_CARD_JSON"].Value), &rendered); err != nil {
+		t.Fatal(err)
+	}
+	if rendered.Name != spec.AgentCard.Name || rendered.Description != "" || !rendered.Capabilities.Streaming || len(rendered.Skills) != 0 {
+		t.Fatalf("runtime card = %#v", rendered)
+	}
 	if environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
 		t.Fatal("config was not embedded as a non-secret literal")
 	}
@@ -58,7 +70,7 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right := proto.CloneOf(left)
 	right.Metadata.Uid = "uid"
 	right.Metadata.Version = 2
-	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Name: "golden"}}}
+	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}

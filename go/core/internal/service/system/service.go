@@ -9,7 +9,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -35,7 +35,7 @@ type ATEClient interface {
 }
 
 type runtimeRevisionStore interface {
-	ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error)
+	ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error)
 }
 
 type Service struct {
@@ -365,7 +365,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 			Name:            metadata.GetName(),
 			Phase:           phase,
 			GoldenActorID:   metadata.GetUid(),
-			GoldenSnapshot:  golden.GetGoldenSnapshot().GetName(),
+			GoldenSnapshot:  golden.GetGoldenSnapshot().GetSnapshotUri(),
 			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
 			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
 			HarnessName:     harnesses[templateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
@@ -419,7 +419,7 @@ func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
 		AteomPodNamespace:      assignment.GetWorkerNamespace(),
 		AteomPodName:           assignment.GetWorkerPod(),
 		AteomPodIP:             assignment.GetWorkerPodIp(),
-		LatestSnapshot:         actor.GetStatus().GetLatestSnapshot().GetName(),
+		LatestSnapshot:         actor.GetStatus().GetExternalSnapshot().GetSnapshotUri(),
 		WorkerPoolName:         assignment.GetWorkerPool(),
 		InProgressSnapshot:     actor.GetStatus().GetInProgressSnapshotName(),
 		Version:                actor.GetMetadata().GetVersion(),

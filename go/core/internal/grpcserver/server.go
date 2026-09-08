@@ -6,13 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"time"
 
 	"buf.build/go/protovalidate"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
@@ -28,14 +28,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 )
 
 const (
-	DefaultBindAddress     = ":8084"
+	DefaultBindAddress     = ":8083"
 	DefaultMaxMessageSize  = 16 << 20
 	defaultShutdownTimeout = 5 * time.Second
 )
@@ -64,12 +63,14 @@ type Config struct {
 	RegisterServices func(grpc.ServiceRegistrar)
 	MethodPolicies   MethodPolicies
 	Listener         net.Listener
+	HTTPHandler      http.Handler
 }
 
 type Server struct {
 	config       Config
 	server       *grpc.Server
 	healthServer *health.Server
+	tlsConfig    *tls.Config
 }
 
 func New(config Config) (*Server, error) {
@@ -116,12 +117,9 @@ func New(config Config) (*Server, error) {
 		),
 	}
 
-	transportCredentials, err := loadTransportCredentials(config.TLSCertFile, config.TLSKeyFile)
+	tlsConfig, err := loadTLSConfig(config.TLSCertFile, config.TLSKeyFile)
 	if err != nil {
 		return nil, err
-	}
-	if transportCredentials != nil {
-		serverOptions = append(serverOptions, grpc.Creds(transportCredentials))
 	}
 
 	grpcServer := grpc.NewServer(serverOptions...)
@@ -168,11 +166,12 @@ func New(config Config) (*Server, error) {
 		config:       config,
 		server:       grpcServer,
 		healthServer: healthServer,
+		tlsConfig:    tlsConfig,
 	}, nil
 }
 
 type ShareStore interface {
-	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error)
+	GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error)
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -185,27 +184,47 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 
-	logger := logging.FromContext(ctx).With("component", "grpc_server")
-	logger.InfoContext(ctx, "starting gRPC server", "address", listener.Addr().String())
+	logger := logging.FromContext(ctx).With("component", "api_server")
+	logger.InfoContext(ctx, "starting API server", "address", listener.Addr().String())
 	s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	if s.tlsConfig == nil {
+		protocols.SetUnencryptedHTTP2(true)
+	} else {
+		protocols.SetHTTP2(true)
+	}
+	httpServer := &http.Server{
+		Handler:   s.HandlerOr(s.config.HTTPHandler),
+		TLSConfig: s.tlsConfig,
+		Protocols: protocols,
+	}
+	if s.tlsConfig != nil {
+		listener = tls.NewListener(listener, s.tlsConfig)
+	}
 
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- s.server.Serve(listener)
+		serveErr <- httpServer.Serve(listener)
 	}()
 
 	select {
 	case err := <-serveErr:
-		if errors.Is(err, grpc.ErrServerStopped) {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
-		return fmt.Errorf("serve gRPC: %w", err)
+		return fmt.Errorf("serve API: %w", err)
 	case <-ctx.Done():
 		s.healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-		logger.InfoContext(ctx, "shutting down gRPC server")
-		s.gracefulStop(defaultShutdownTimeout)
-		if err := <-serveErr; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			return fmt.Errorf("serve gRPC during shutdown: %w", err)
+		logger.InfoContext(ctx, "shutting down API server")
+		shutdownContext, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownContext); err != nil {
+			_ = httpServer.Close()
+		}
+		s.server.Stop()
+		if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve API during shutdown: %w", err)
 		}
 		return nil
 	}
@@ -215,24 +234,7 @@ func (s *Server) NeedLeaderElection() bool {
 	return false
 }
 
-func (s *Server) gracefulStop(timeout time.Duration) {
-	stopped := make(chan struct{})
-	go func() {
-		s.server.GracefulStop()
-		close(stopped)
-	}()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-stopped:
-	case <-timer.C:
-		s.server.Stop()
-		<-stopped
-	}
-}
-
-func loadTransportCredentials(certFile, keyFile string) (credentials.TransportCredentials, error) {
+func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
 		return nil, nil
 	}
@@ -243,8 +245,8 @@ func loadTransportCredentials(certFile, keyFile string) (credentials.TransportCr
 	if err != nil {
 		return nil, fmt.Errorf("load gRPC TLS key pair: %w", err)
 	}
-	return credentials.NewTLS(&tls.Config{
+	return &tls.Config{
 		Certificates: []tls.Certificate{certificate},
 		MinVersion:   tls.VersionTLS12,
-	}), nil
+	}, nil
 }

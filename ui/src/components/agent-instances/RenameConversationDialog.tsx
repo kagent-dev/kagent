@@ -84,7 +84,7 @@ export function RenameConversationDialog({
     if (problem) return;
     setSaving(true);
     try {
-      await apiClient.agentInstances.rename(instance.namespace, instance.id, draft);
+      await apiClient.agentInstances.rename(instance.id, draft);
       // Awaited before the toast, so every surface showing this conversation already
       // has the new name by the time the reader is told it changed.
       await invalidateConversations();

@@ -51,10 +51,10 @@ type instanceLister interface {
 }
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
-func RunWorkspace(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) error {
+func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, verbose bool) error {
 	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
 	kubeCatalog, catalogErr := newKubeCatalog()
-	m := newWorkspaceModel(ctx, cfg, clientSet, kubeCatalog, catalogErr, verbose)
+	m := newWorkspaceModel(ctx, cfg, api, gateway, kubeCatalog, catalogErr, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
@@ -93,7 +93,7 @@ type workspaceModel struct {
 	// ctx cancels in-flight I/O; Bubble Tea commands take no context of their own.
 	ctx        context.Context
 	cfg        Options
-	client     *client.ClientSet
+	client     *client.GatewayClientSet
 	lister     instanceLister
 	catalog    catalog
 	catalogErr error
@@ -127,16 +127,16 @@ type workspaceModel struct {
 }
 
 // newWorkspaceModel builds the model from resolved dependencies; it reads no configuration of its own.
-func newWorkspaceModel(ctx context.Context, cfg Options, clientSet *client.ClientSet, kubeCatalog catalog, catalogErr error, verbose bool) *workspaceModel {
+func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, kubeCatalog catalog, catalogErr error, verbose bool) *workspaceModel {
 	var lister instanceLister
-	if clientSet != nil {
-		lister = clientSet.AgentInstance
+	if api != nil {
+		lister = api.AgentInstance
 	}
 
 	return &workspaceModel{
 		ctx:        ctx,
 		cfg:        cfg,
-		client:     clientSet,
+		client:     gateway,
 		lister:     lister,
 		catalog:    kubeCatalog,
 		catalogErr: catalogErr,
@@ -198,8 +198,8 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 		)
 		for range maxInstancePages {
 			response, err := m.lister.ListAgentInstances(m.ctx, &apiv1alpha1.ListAgentInstancesRequest{
-				Namespace: m.namespace,
-				Page:      &apiv1alpha1.PageRequest{Limit: instancePageSize, PageToken: pageToken},
+
+				Page: &apiv1alpha1.PageRequest{Limit: instancePageSize, PageToken: pageToken},
 			})
 			if err != nil {
 				return instancesLoadedMsg{err: err}
@@ -218,7 +218,7 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
 	id := agentInstance.GetId()
 	return func() tea.Msg {
-		a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, m.namespace, id)
+		a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, id)
 		if err != nil {
 			return instanceHistoryLoadedMsg{instanceID: id, err: err}
 		}
@@ -404,7 +404,11 @@ func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
 		m.status = fmt.Sprintf("Showing the first %d AgentInstances; more pages are available.", len(msg.instances))
 	}
 
-	m.all = msg.instances
+	// The API lists all instances; this panel browses Kubernetes targets.
+	m.all = slices.DeleteFunc(msg.instances, func(instance *apiv1alpha1.AgentInstance) bool {
+		targetNamespace := instance.GetAgentTemplate().GetNamespace()
+		return targetNamespace != "" && targetNamespace != m.namespace
+	})
 	slices.SortStableFunc(m.all, func(a, b *apiv1alpha1.AgentInstance) int {
 		return b.GetCreatedAt().AsTime().Compare(a.GetCreatedAt().AsTime()) // newest first
 	})
@@ -480,7 +484,7 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 	}
 }
 
-// syncCascade applies the cascade cursors; a namespace change refetches, since requests are scoped by it.
+// syncCascade applies the cascade cursors; a target namespace change reloads its catalog and filters the instance list.
 func (m *workspaceModel) syncCascade() tea.Cmd {
 	if namespace := selectedNamespace(m.namespaces); namespace != "" && namespace != m.namespace {
 		m.namespace = namespace
@@ -589,7 +593,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	}
 
 	m.status = ""
-	a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, m.namespace, agentInstance.GetId())
+	a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, agentInstance.GetId())
 	if err != nil {
 		m.chat = nil
 		m.status = fmt.Sprintf("Failed to connect to AgentInstance: %v", err)
@@ -740,7 +744,7 @@ func (m *workspaceModel) renderDetails() {
 	fmt.Fprintf(&b, "AgentTemplate\n%s\n\n", m.current.GetAgentTemplate().GetName())
 	fmt.Fprintf(&b, "Harness\n%s\n\n", m.current.GetHarness().GetName())
 	fmt.Fprintf(&b, "State\n%s\n\n", instance.StateLabel(m.current.GetState()))
-	fmt.Fprintf(&b, "Namespace\n%s\n", m.current.GetNamespace())
+
 	if failure := m.current.GetFailure(); failure != nil {
 		fmt.Fprintf(&b, "\nFailure\n%s\n", failure.GetMessage())
 	}

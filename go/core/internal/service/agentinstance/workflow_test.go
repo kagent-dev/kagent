@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -15,12 +15,12 @@ import (
 
 func TestActorWorkflowLifecycle(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
-		Id: "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", Namespace: "team-a",
+		Id:               "8bd650a8-9775-488f-8bc1-0d52bf7bdcab",
 		PreparedRevision: "revision-1", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 	}
 	store := &lifecycleTestStore{
 		instance: instance,
-		revision: &dbpkg.RuntimeRevision{
+		revision: &database.RuntimeRevision{
 			Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		},
 	}
@@ -37,14 +37,14 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if len(actors.actors) != 1 {
 		t.Fatalf("actors = %v", actors.actors)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || boundary.Name != "snapshot-1" || boundary.UID != "snapshot-uid" {
+	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || boundary.URI != "s3://snapshots/snapshot-1" {
 		t.Fatalf("quiesced instance = %+v, boundary = %+v", created, boundary)
 	}
 
@@ -55,7 +55,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if suspended.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		t.Fatalf("suspended instance = %+v", suspended)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("suspended Actor status = %s", actor.GetStatus().GetState())
 	}
 
@@ -78,43 +78,46 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 
 func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
-		Id: "fork-1", Namespace: "team-a", PreparedRevision: "revision-1",
+		Id: "fork-1", PreparedRevision: "revision-1",
 		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 	}
 	store := &lifecycleTestStore{
 		instance: instance,
-		revision: &dbpkg.RuntimeRevision{
+		revision: &database.RuntimeRevision{
 			Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	checkpoint := &dbpkg.AgentInstanceCheckpoint{
-		ID: uuid.MustParse("018f47a2-4efb-7c21-a848-123456789abc"), SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid",
-	}
-	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint)
+	snapshot := &database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}
+	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, snapshot, "checkpoint-018f47a2-4efb-7c21-a848-123456789abc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]
+	actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]
 	if fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
 		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
-		actor.GetSourceSnapshotTag().GetName() != "checkpoint-018f47a2-4efb-7c21-a848-123456789abc" {
+		actor.GetSourceTag().GetName() != "checkpoint-018f47a2-4efb-7c21-a848-123456789abc" {
 		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
 	}
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
 	store.instance = instance
-	actor.SourceSnapshotTag.Name = "wrong-tag"
-	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint); err == nil {
+	actor.Status.ExternalSnapshot.SnapshotUri = "s3://snapshots/later-turn"
+	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, snapshot, "checkpoint-018f47a2-4efb-7c21-a848-123456789abc"); err == nil {
+		t.Fatal("Fork() accepted a different external snapshot")
+	}
+	actor.Status.ExternalSnapshot.SnapshotUri = snapshot.URI
+	actor.SourceTag.Name = "wrong-tag"
+	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, snapshot, "checkpoint-018f47a2-4efb-7c21-a848-123456789abc"); err == nil {
 		t.Fatal("Fork() accepted an existing Actor with the wrong snapshot tag")
 	}
 }
 
 type lifecycleTestStore struct {
 	instance *apiv1alpha1.AgentInstance
-	revision *dbpkg.RuntimeRevision
+	revision *database.RuntimeRevision
 }
 
-func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error) {
+func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
 	return s.revision, nil
 }
 
@@ -127,7 +130,7 @@ func (s *lifecycleTestStore) MarkAgentInstanceReady(_ context.Context, _ string,
 
 func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, expectedState apiv1alpha1.AgentInstanceState, expectedOperation apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
 	if s.instance.GetState() != expectedState || s.instance.GetOperation() != expectedOperation {
-		return s.instance, dbpkg.ErrAgentInstanceConflict
+		return s.instance, database.ErrAgentInstanceConflict
 	}
 	s.instance = proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	return s.instance, nil
@@ -164,16 +167,14 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 	return actor, nil
 }
 
-func (a *lifecycleTestActors) CreateActorFromSnapshotTag(_ context.Context, atespace, name, templateNamespace, templateName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
+func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, name, templateNamespace, templateName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
 	actor := &ateapipb.Actor{
-		Metadata:          &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
-		ActorTemplate:     &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
-		SourceSnapshotTag: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
+		ActorTemplate: &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
+		SourceTag:     &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
 		Status: &ateapipb.ActorStatus{
-			State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			SourceSnapshot: &ateapipb.ActorSourceSnapshotStatus{
-				Snapshot: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: "snapshot-1"}, SnapshotUid: "snapshot-uid",
-			},
+			State:            ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+			ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/snapshot-1", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA},
 		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
@@ -189,18 +190,25 @@ func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name stri
 func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	actor.Status.LatestSnapshot = &ateapipb.ObjectRef{Atespace: atespace, Name: "snapshot-1"}
+	actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/snapshot-1", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
 	return actor, nil
-}
-
-func (a *lifecycleTestActors) GetActorSnapshot(_ context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
-	return &ateapipb.ActorSnapshot{
-		Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "snapshot-uid"},
-		Status:   &ateapipb.ActorSnapshotStatus{ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA},
-	}, nil
 }
 
 func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {
 	delete(a.actors, actorKey(atespace, name))
 	return nil
+}
+
+func TestQuiesceRejectsWrongActorIdentity(t *testing.T) {
+	instance := &apiv1alpha1.AgentInstance{Id: "instance-1", PreparedRevision: "revision-1"}
+	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{
+		actorKey("team-a", substrate.ActorName(instance.Id)): {
+			Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "different-actor", Uid: "actor-uid"},
+			Status:   &ateapipb.ActorStatus{},
+		},
+	}}
+	if _, err := NewActorWorkflow(store, actors).Quiesce(t.Context(), instance); err == nil {
+		t.Fatal("Quiesce() accepted the wrong Actor")
+	}
 }

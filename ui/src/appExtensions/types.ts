@@ -104,15 +104,8 @@ export interface ExtensionRouteContribution {
   handle?: ExtensionRouteHandle;
 }
 
-/**
- * How an agent is addressed: a namespace and an `AgentInstance` id.
- *
- * An agent *is* an instance, and an instance has no name — its id is a UUID, which
- * is what every one of its RPCs takes. So this carries an id where it used to carry
- * a name.
- */
+/** A conversation identified by UUID. */
 export interface ExtensionAgentRef {
-  namespace: string;
   id: string;
 }
 

@@ -44,7 +44,7 @@ describe("useChat stream timeout", () => {
     let aborted = false;
     setChatClientFactory(() => stallingClient(() => (aborted = true)));
 
-    const { result } = renderHook(() => useChat({ namespace: "kagent", id: "instance-1" }));
+    const { result } = renderHook(() => useChat({ id: "instance-1" }));
 
     await act(async () => {
       void result.current.send("why is checkout crashlooping?");

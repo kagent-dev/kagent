@@ -164,7 +164,7 @@ export class MockChatClient implements ChatClient {
      */
     const instance = allAgentInstances().find(
       (row) =>
-        row.namespace === conversation.namespace && row.id === conversation.id,
+        row.id === conversation.id,
     );
     if (instance && instance.state !== "ready") {
       yield {
@@ -506,11 +506,11 @@ function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
  * Built fresh per call so one test's turns cannot leak into the next.
  */
 const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
-  // Keyed by `namespace/instance-id`, which is what a conversation is addressed
+  // Keyed by `instance-id`, which is what a conversation is addressed
   // by now — the same key `conversationKey` builds. This is the first instance in
   // `mockAgentInstances`, so the fixture agent a reader opens first has a
   // conversation already in it.
-  "kagent/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44": () => [
+  "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44": () => [
     message("seed-1-user", "user", "Why is checkout crashlooping?", "seed-task-1"),
     dataMessage("seed-1-call", "seed-task-1", "tool_call", {
       id: "call-seed-1",
@@ -559,7 +559,7 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
    * every seeded transcript belonging to a named conversation, the fallback would
    * be unreachable and untestable while looking implemented.
    */
-  "kagent/2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0": () => [
+  "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0": () => [
     message(
       "seed-2-user",
       "user",
@@ -655,7 +655,7 @@ async function stopped(signal: AbortSignal | undefined, ms: number): Promise<boo
  * recorded in `playwright/DEFERRED.md` rather than papered over here.
  */
 function refuseAnInvalidShare(conversation: ChatConversationRef): void {
-  const token = agentInstanceShareToken(conversation.namespace, conversation.id);
+  const token = agentInstanceShareToken(conversation.id);
   if (!token) return;
 
   const share = instanceShareForToken(token);

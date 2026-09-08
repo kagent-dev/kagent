@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -31,7 +30,7 @@ func TestMCPAgentInstanceInteraction(t *testing.T) {
 	endpoint := mcpEndpoint(t)
 
 	listed := mcpCall(t, endpoint, "tools/call", map[string]any{
-		"name": "list_agent_instances", "arguments": map[string]any{"namespace": "kagent"},
+		"name": "list_agent_instances", "arguments": map[string]any{},
 	}, false)
 	instances := listed["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instances"].([]any)
 	found := false
@@ -121,13 +120,13 @@ func TestMCPCheckpointFork(t *testing.T) {
 
 	created := mcpCall(t, endpoint, "tools/call", map[string]any{
 		"name":      "create_agent_instance_checkpoint",
-		"arguments": map[string]any{"namespace": "kagent", "agent_instance_id": fixture.instanceID},
+		"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
 	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
 	checkpointID := created["id"].(string)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
-		_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{Namespace: "kagent", CheckpointId: checkpointID})
+		_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 		if err != nil && status.Code(err) != codes.NotFound {
 			t.Errorf("delete checkpoint: %v", err)
 		}
@@ -135,7 +134,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 
 	listed := mcpCall(t, endpoint, "tools/call", map[string]any{
 		"name":      "list_agent_instance_checkpoints",
-		"arguments": map[string]any{"namespace": "kagent", "agent_instance_id": fixture.instanceID},
+		"arguments": map[string]any{"agent_instance_id": fixture.instanceID},
 	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoints"].([]any)
 	if len(listed) != 1 || listed[0].(map[string]any)["id"] != checkpointID {
 		t.Fatalf("listed checkpoints = %#v", listed)
@@ -143,13 +142,13 @@ func TestMCPCheckpointFork(t *testing.T) {
 
 	forked := mcpCall(t, endpoint, "tools/call", map[string]any{
 		"name":      "fork_agent_instance",
-		"arguments": map[string]any{"namespace": "kagent", "checkpoint_id": checkpointID},
+		"arguments": map[string]any{"checkpoint_id": checkpointID},
 	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instance"].(map[string]any)
 	forkID := forked["id"].(string)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
-		_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{Namespace: "kagent", AgentInstanceId: forkID})
+		_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: forkID})
 		if err != nil && status.Code(err) != codes.NotFound {
 			t.Errorf("delete fork AgentInstance: %v", err)
 		}
@@ -162,11 +161,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 
 func mcpEndpoint(t *testing.T) string {
 	t.Helper()
-	host, _, err := net.SplitHostPort(interactionTarget(t))
-	if err != nil {
-		t.Fatalf("parse controller target: %v", err)
-	}
-	return "http://" + net.JoinHostPort(host, "8083") + "/mcp"
+	return "http://" + interactionTarget(t) + "/mcp"
 }
 
 func mcpInvoke(t *testing.T, endpoint, instanceID, message string, tasks bool) map[string]any {
@@ -174,7 +169,7 @@ func mcpInvoke(t *testing.T, endpoint, instanceID, message string, tasks bool) m
 	response := mcpCall(t, endpoint, "tools/call", map[string]any{
 		"name": "invoke_agent_instance",
 		"arguments": map[string]any{
-			"namespace": "kagent", "agent_instance_id": instanceID, "message": message,
+			"agent_instance_id": instanceID, "message": message,
 		},
 	}, tasks)
 	return response["result"].(map[string]any)

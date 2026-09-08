@@ -19,16 +19,7 @@ export const paths = {
    * on the agent's page is for.
    */
   agents: "/agents",
-  /*
-   * One agent, listing its conversations.
-   *
-   * Four segments with a static `on` in the middle, which is both what it reads as
-   * — "k8s-agent-7f3a91c on k8s-agent", the same wording as the templates page's
-   * "Runs on" column — and what keeps it out of `agentChat`'s way. Three dynamic
-   * segments would have collided with `/agents/:namespace/:id/chat`, where only the
-   * literal `chat` distinguishes them, and a harness that happened to be called
-   * `chat` would then have had no page at all.
-   */
+  /** One Kubernetes template/harness pair, listing its conversations. */
   agent: "/agents/:namespace/:agentTemplate/on/:harness",
   /*
    * A conversation with this agent that does not exist yet.
@@ -50,23 +41,12 @@ export const paths = {
    *
    * A single flat address rather than one beneath an agent, because there is no agent
    * to put it under — that is the whole condition. Two segments, so it cannot collide
-   * with `/agents/:namespace/:id`: `unmapped` is a literal and an instance id is a
+   * with `/agents/:id`: `unmapped` is a literal and an instance id is a
    * UUID, and the router is given this one first.
    */
   agentsUnmapped: "/agents/unmapped",
-  /*
-   * One conversation's record.
-   *
-   * Two segments, so it cannot be confused with `/agents/new` — which is one, and
-   * which the router must still be given first for the reader who types it.
-   *
-   * Addressed directly under `/agents` rather than beneath its agent, and kept that
-   * way deliberately: an instance is addressed as `(namespace, id)` on every RPC,
-   * every share link issued so far points here, and nesting it would have made the
-   * pair part of an address the API does not need. The page links *up* to its agent
-   * instead.
-   */
-  agentDetail: "/agents/:namespace/:id",
+  /** One conversation's record, addressed by UUID. */
+  agentDetail: "/agents/:id",
   /*
    * The conversation with one agent.
    *
@@ -75,7 +55,7 @@ export const paths = {
    * `contextId`, so a second conversation with the same template and harness is a
    * second instance rather than a second session under this one.
    */
-  agentChat: "/agents/:namespace/:id/chat",
+  agentChat: "/agents/:id/chat",
 
   /*
    * Agent templates: the behaviour half an agent is cut from.
@@ -122,7 +102,7 @@ export const paths = {
    * token is in the path because it is the whole credential, and one a reader
    * forwards by copying the address bar.
    */
-  sharedAgent: "/shared/agent/:namespace/:id/:token",
+  sharedAgent: "/shared/agent/:id/:token",
 } as const;
 
 /**

@@ -1,33 +1,28 @@
 -- name: GetAgentInstanceByRequest :one
 SELECT * FROM agent_instance
-WHERE user_id = $1 AND namespace = $2 AND request_id = $3;
+WHERE user_id = $1 AND request_id = $2;
 
 -- name: GetLatestRuntimeRevisionForInstance :one
 SELECT r.*, p.agent_template_labels
 FROM agent_template_harness_pair p
 JOIN runtime_revision r ON r.revision = p.latest_successful_revision
-WHERE p.namespace = $1
-  AND p.agent_template_name = $2
-  AND p.harness_name = $3
+WHERE p.namespace = sqlc.arg(harness_namespace)
+  AND p.namespace = sqlc.arg(agent_template_namespace)
+  AND p.agent_template_name = sqlc.arg(agent_template_name)
+  AND p.harness_name = sqlc.arg(harness_name)
   AND p.retired_at IS NULL;
 
 -- name: InsertAgentInstance :one
-INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, context_id, prepared_revision, state, operation, labels, name, data
-) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8, $9)
-ON CONFLICT (user_id, namespace, request_id) DO NOTHING
+INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7)
+ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING *;
 
 -- name: InsertA2AContext :exec
-INSERT INTO a2a_context (id, namespace, user_id)
-VALUES ($1, $2, $3);
+INSERT INTO a2a_context (id, user_id) VALUES ($1, $2);
 
 -- name: InsertForkedAgentInstance :one
-INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, context_id, prepared_revision, source_checkpoint_id,
-    state, operation, labels, data
-) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
-ON CONFLICT (user_id, namespace, request_id) DO NOTHING
+INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
+ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING *;
 
 -- name: GetAgentInstanceByID :one
@@ -37,7 +32,7 @@ SELECT * FROM agent_instance WHERE id = $1;
 SELECT * FROM agent_instance WHERE id = $1 FOR UPDATE;
 
 -- name: GetAgentInstanceForUser :one
-SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
+SELECT * FROM agent_instance WHERE id = $1 AND user_id = $2;
 
 -- Lists the conversations an instance is, optionally narrowed to one agent.
 --
@@ -50,12 +45,11 @@ SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
 -- name: ListAgentInstances :many
 SELECT i.* FROM agent_instance i
 LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
-WHERE i.namespace = sqlc.arg(namespace)
-  AND (sqlc.arg(all_users)::boolean OR i.user_id = sqlc.arg(user_id))
+WHERE (sqlc.arg(all_users)::boolean OR i.user_id = sqlc.arg(user_id))
   AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR i.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
   AND i.labels @> sqlc.arg(match_labels)::jsonb
-  AND (sqlc.arg(agent_template)::text = '' OR r.agent_template_name = sqlc.arg(agent_template))
-  AND (sqlc.arg(harness)::text = '' OR r.harness_name = sqlc.arg(harness))
+  AND (sqlc.arg(agent_template)::text = '' OR (r.agent_template_name = sqlc.arg(agent_template) AND r.namespace = sqlc.arg(agent_template_namespace)))
+  AND (sqlc.arg(harness)::text = '' OR (r.harness_name = sqlc.arg(harness) AND r.namespace = sqlc.arg(harness_namespace)))
 ORDER BY i.id
 LIMIT sqlc.arg(page_size);
 
@@ -80,23 +74,18 @@ WHERE agent_instance.id = sqlc.arg(id)
   )
 RETURNING *;
 
--- Renames an instance in place. The row's `data` blob also carries the message,
--- but `toAgentInstance` reads the name from this column, exactly as it does for
--- `state` and `operation`, so the column is the single authority and the two
--- cannot drift.
+-- The store locks the row and changes only the display name in the payload.
 -- name: UpdateAgentInstanceName :one
 UPDATE agent_instance
-SET name = sqlc.arg(name)
-WHERE namespace = sqlc.arg(namespace) AND id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
+SET data = sqlc.arg(data)
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 RETURNING *;
 
 -- name: DeleteAgentInstance :exec
 DELETE FROM agent_instance WHERE id = $1;
 
 -- name: CreateAgentInstanceShare :one
-INSERT INTO agent_instance_share (
-    id, namespace, instance_id, permission, token_hash
-) VALUES ($1, $2, $3, $4, $5)
+INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- Resolves a share token to the share and the instance's owner.
@@ -114,7 +103,7 @@ WHERE s.token_hash = $1;
 -- name: ListAgentInstanceShares :many
 SELECT s.* FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
-WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
+WHERE s.instance_id = $1 AND i.user_id = $2
   AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR s.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
 ORDER BY s.id
 LIMIT sqlc.arg(page_size);
@@ -122,5 +111,5 @@ LIMIT sqlc.arg(page_size);
 -- name: DeleteAgentInstanceShare :execrows
 DELETE FROM agent_instance_share s
 USING agent_instance i
-WHERE s.namespace = $1 AND s.id = $2
-  AND i.id = s.instance_id AND i.user_id = $3;
+WHERE s.id = $1
+  AND i.id = s.instance_id AND i.user_id = $2;

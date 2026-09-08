@@ -109,7 +109,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
 	_, _, task := fixture.send(t, "What is 2+2?")
 	created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
-		Namespace: "kagent", AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+		AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		t.Fatalf("create checkpoint: %v", err)
@@ -119,7 +119,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), 2*time.Minute)
 		defer cleanupCancel()
 		_, cleanupErr := fixture.checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1alpha1.DeleteCheckpointRequest{
-			Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+			CheckpointId: checkpoint.GetId(),
 		})
 		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
 			t.Errorf("delete checkpoint: %v", cleanupErr)
@@ -131,19 +131,27 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	}
 
 	got, err := fixture.checkpoints.GetCheckpoint(fixture.ctx, &apiv1alpha1.GetCheckpointRequest{
-		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+		CheckpointId: checkpoint.GetId(),
 	})
 	if err != nil || got.GetCheckpoint().GetId() != checkpoint.GetId() {
 		t.Fatalf("get checkpoint = %+v, error %v", got.GetCheckpoint(), err)
 	}
 	listed, err := fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
-		Namespace: "kagent", AgentInstanceId: fixture.instanceID,
+		AgentInstanceId: fixture.instanceID,
 	})
 	if err != nil || len(listed.GetCheckpoints()) != 1 || listed.GetCheckpoints()[0].GetId() != checkpoint.GetId() {
 		t.Fatalf("list checkpoints = %+v, error %v", listed.GetCheckpoints(), err)
 	}
+	// Tags own a copy: later suspends and source deletion must not change
+	// either the retained runtime state or the history copied into a fork.
+	fixture.send(t, "What is 2+2?")
+	if _, err := fixture.instances.DeleteAgentInstance(fixture.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
+		AgentInstanceId: fixture.instanceID,
+	}); err != nil {
+		t.Fatalf("delete checkpoint source: %v", err)
+	}
 	forked, err := fixture.checkpoints.ForkAgentInstance(fixture.ctx, &apiv1alpha1.ForkAgentInstanceRequest{
-		Namespace: "kagent", CheckpointId: checkpoint.GetId(), RequestId: uuid.NewString(),
+		CheckpointId: checkpoint.GetId(), RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		t.Fatalf("fork AgentInstance: %v", err)
@@ -156,7 +164,7 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cleanupCancel()
 		_, cleanupErr := fixture.instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			Namespace: "kagent", AgentInstanceId: fork.GetId(),
+			AgentInstanceId: fork.GetId(),
 		})
 		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
 			t.Errorf("delete fork AgentInstance: %v", cleanupErr)
@@ -164,7 +172,6 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	})
 	forkCtx, forkCancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(),
 		"x-user-id", "e2e",
-		"x-kagent-agent-instance-namespace", "kagent",
 		"x-kagent-agent-instance-id", fork.GetId(),
 	), 4*time.Minute)
 	t.Cleanup(forkCancel)
@@ -180,18 +187,31 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	if err != nil || len(copied.Tasks) != 1 || copied.Tasks[0].ID == task.ID || copied.Tasks[0].ContextID != fork.GetId() {
 		t.Fatalf("copied fork tasks = %+v, error %v", copied, err)
 	}
+	// Before its first turn a fork borrows the retained Tag snapshot. Its
+	// copied head boundary must refer to that copy, not the deleted source.
+	forkCheckpoint, err := fixture.checkpoints.CreateCheckpoint(forkCtx, &apiv1alpha1.CreateCheckpointRequest{
+		AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("checkpoint fresh fork: %v", err)
+	}
+	if _, err := fixture.checkpoints.DeleteCheckpoint(forkCtx, &apiv1alpha1.DeleteCheckpointRequest{
+		CheckpointId: forkCheckpoint.GetCheckpoint().GetId(),
+	}); err != nil {
+		t.Fatalf("delete fresh fork checkpoint: %v", err)
+	}
 	forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client}
 	_, _, forkTask := forkFixture.send(t, "What is 2+2?")
 	if forkTask.Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("fork A2A task state = %s, want COMPLETED", forkTask.Status.State)
 	}
 	if _, err := fixture.instances.DeleteAgentInstance(forkCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
-		Namespace: "kagent", AgentInstanceId: fork.GetId(),
+		AgentInstanceId: fork.GetId(),
 	}); err != nil {
 		t.Fatalf("delete fork AgentInstance: %v", err)
 	}
 	if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
-		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+		CheckpointId: checkpoint.GetId(),
 	}); err != nil {
 		t.Fatalf("delete checkpoint: %v", err)
 	}
@@ -239,7 +259,7 @@ func TestSharedAgentInteraction(t *testing.T) {
 	if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "Answer from the shared specialist.") {
 		t.Fatalf("A2A task state = %s, text = %q, want completed task with shared child response", task.Status.State, taskText(task))
 	}
-	instances, err := fixture.instances.ListAgentInstances(fixture.ctx, &apiv1alpha1.ListAgentInstancesRequest{Namespace: "kagent"})
+	instances, err := fixture.instances.ListAgentInstances(fixture.ctx, &apiv1alpha1.ListAgentInstancesRequest{})
 	if err != nil {
 		t.Fatalf("list AgentInstances: %v", err)
 	}
@@ -437,13 +457,18 @@ type sharedInteractionFixture struct {
 
 func interactionTarget(t *testing.T) string {
 	t.Helper()
-	target := os.Getenv("KAGENT_E2E_GRPC_TARGET")
-	if target == "" {
-		target = os.Getenv("KAGENT_GRPC_URL")
+	rawURL := os.Getenv("KAGENT_E2E_API_URL")
+	if rawURL == "" {
+		rawURL = os.Getenv("KAGENT_API_URL")
 	}
-	if target == "" {
-		t.Skip("KAGENT_E2E_GRPC_TARGET is not set")
+	if rawURL == "" {
+		t.Skip("KAGENT_E2E_API_URL is not set")
 	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		t.Fatalf("invalid KAGENT_E2E_API_URL %q: %v", rawURL, err)
+	}
+	target := parsed.Host
 	return target
 }
 
@@ -468,7 +493,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	t.Cleanup(cancel)
 	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 	request := &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace: "kagent", AgentTemplate: templateName, Harness: harnessName, RequestId: uuid.NewString(),
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: templateName}, Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: harnessName}, RequestId: uuid.NewString(),
 	}
 	var created *apiv1alpha1.CreateAgentInstanceResponse
 	err = wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
@@ -488,7 +513,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 		// DeleteAgentInstance returns only after its Substrate Actor has been
 		// suspended and deleted, so this cleanup covers both resources.
 		_, cleanupErr := instances.DeleteAgentInstance(cleanupCtx, &apiv1alpha1.DeleteAgentInstanceRequest{
-			Namespace: "kagent", AgentInstanceId: instance.GetId(),
+			AgentInstanceId: instance.GetId(),
 		})
 		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
 			t.Errorf("delete AgentInstance: %v", cleanupErr)
@@ -499,7 +524,6 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 	}
 	return &interactionFixture{
 		ctx: metadata.AppendToOutgoingContext(ctx,
-			"x-kagent-agent-instance-namespace", "kagent",
 			"x-kagent-agent-instance-id", instance.GetId(),
 		),
 		client:      a2apb.NewA2AServiceClient(conn),

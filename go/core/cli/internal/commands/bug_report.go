@@ -130,7 +130,7 @@ func NewBugReportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			session, err := connection.Open(cmd.Context(), options)
+			session, err := connection.OpenAPI(cmd.Context(), options)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
 				return nil

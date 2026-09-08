@@ -54,33 +54,36 @@ message Failure {
 
 message AgentInstance {
   string id = 1;
-  string namespace = 2;
-  string creator = 3;
-  ResourceReference harness = 4;
-  ResourceReference agent_template = 5;
-  string prepared_revision = 6;
-  string a2a_authority = 7;
-  AgentInstanceState state = 8;
-  AgentInstanceOperation operation = 9;
-  Failure failure = 10;
-  google.protobuf.Timestamp created_at = 11;
-  google.protobuf.Timestamp updated_at = 12;
-  map<string, string> labels = 13;
+  string creator = 2;
+  ResourceReference harness = 3;
+  ResourceReference agent_template = 4;
+  string prepared_revision = 5;
+  string a2a_authority = 6;
+  AgentInstanceState state = 7;
+  AgentInstanceOperation operation = 8;
+  Failure failure = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  map<string, string> labels = 12;
   // Reader-supplied display name for the conversation. Empty means unnamed,
   // which is the state every instance created before this field existed is in.
-  string name = 14;
+  string name = 13;
 }
 
 message CreateAgentInstanceRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string harness = 2 [(buf.validate.field).string.min_len = 1];
-  string agent_template = 3 [(buf.validate.field).string.min_len = 1];
-  string request_id = 4 [(buf.validate.field).string = {
+  ResourceReference harness = 1 [(buf.validate.field).required = true];
+  ResourceReference agent_template = 2 [(buf.validate.field).required = true];
+  option (buf.validate.message).cel = {
+    id: "same_target_namespace"
+    message: "Harness and AgentTemplate must be in the same namespace"
+    expression: "this.harness.namespace == this.agent_template.namespace"
+  };
+  string request_id = 3 [(buf.validate.field).string = {
     min_len: 1
     max_len: 128
   }];
   // Optional display name. Empty means unnamed.
-  string name = 5 [(buf.validate.field).string = {
+  string name = 4 [(buf.validate.field).string = {
     max_len: 200
     pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
   }];
@@ -91,8 +94,7 @@ message CreateAgentInstanceResponse {
 }
 
 message GetAgentInstanceRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message GetAgentInstanceResponse {
@@ -100,23 +102,16 @@ message GetAgentInstanceResponse {
 }
 
 message ListAgentInstancesRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  map<string, string> match_labels = 2;
+  map<string, string> match_labels = 1;
   // Includes instances created by other users when authorized.
-  bool all_creators = 3;
-  PageRequest page = 4;
+  bool all_creators = 2;
+  PageRequest page = 3;
   // Narrows the list to the conversations of one agent, an agent being an
   // (AgentTemplate, Harness) pair. Either may be given alone. Both are matched
   // against the pair the instance's prepared revision was built from, so they
   // also select instances created before these fields existed.
-  string agent_template = 5 [(buf.validate.field).string = {
-    max_len: 253
-    pattern: "^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$"
-  }];
-  string harness = 6 [(buf.validate.field).string = {
-    max_len: 253
-    pattern: "^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$"
-  }];
+  ResourceReference agent_template = 4;
+  ResourceReference harness = 5;
 }
 
 message ListAgentInstancesResponse {
@@ -125,15 +120,10 @@ message ListAgentInstancesResponse {
 }
 
 message UpdateAgentInstanceNameRequest {
-  string namespace = 1 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 63
-    pattern: "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
-  }];
-  string agent_instance_id = 2 [(buf.validate.field).string.uuid = true];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   // The new display name. Empty clears the name, returning the conversation to
   // being identified by its id.
-  string name = 3 [(buf.validate.field).string = {
+  string name = 2 [(buf.validate.field).string = {
     max_len: 200
     pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
   }];
@@ -144,8 +134,7 @@ message UpdateAgentInstanceNameResponse {
 }
 
 message SuspendAgentInstanceRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message SuspendAgentInstanceResponse {
@@ -153,8 +142,7 @@ message SuspendAgentInstanceResponse {
 }
 
 message ResumeAgentInstanceRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message ResumeAgentInstanceResponse {
@@ -162,8 +150,7 @@ message ResumeAgentInstanceResponse {
 }
 
 message DeleteAgentInstanceRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message DeleteAgentInstanceResponse {
@@ -172,16 +159,14 @@ message DeleteAgentInstanceResponse {
 
 message AgentInstanceShare {
   string id = 1;
-  string namespace = 2;
-  string agent_instance_id = 3;
-  AgentInstanceSharePermission permission = 4;
-  google.protobuf.Timestamp created_at = 5;
+  string agent_instance_id = 2;
+  AgentInstanceSharePermission permission = 3;
+  google.protobuf.Timestamp created_at = 4;
 }
 
 message CreateAgentInstanceShareRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
-  AgentInstanceSharePermission permission = 3 [(buf.validate.field).enum = {
+  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  AgentInstanceSharePermission permission = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: 0
   }];
@@ -194,9 +179,8 @@ message CreateAgentInstanceShareResponse {
 }
 
 message ListAgentInstanceSharesRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
-  PageRequest page = 3;
+  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  PageRequest page = 2;
 }
 
 message ListAgentInstanceSharesResponse {
@@ -205,8 +189,7 @@ message ListAgentInstanceSharesResponse {
 }
 
 message RevokeAgentInstanceShareRequest {
-  string namespace = 1 [(buf.validate.field).string.min_len = 1];
-  string share_id = 2 [(buf.validate.field).string.min_len = 1];
+  string share_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message RevokeAgentInstanceShareResponse {}

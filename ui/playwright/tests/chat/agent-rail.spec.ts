@@ -47,7 +47,7 @@ test("chat: a conversation's record is read without leaving the conversation", a
   await expect(fields).toContainText(instances.ready);
 
   // Still on the conversation behind it — the point of not making this a page.
-  await expect(page).toHaveURL(new RegExp(`/agents/kagent/${instances.ready}/chat$`));
+  await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
   await expect(page.getByTestId("chat-input")).toBeVisible();
 
   // There is no Edit anywhere on it: an instance has no spec to change. What the agent

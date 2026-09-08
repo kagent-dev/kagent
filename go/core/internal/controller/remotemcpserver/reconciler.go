@@ -25,9 +25,9 @@ import (
 	"reflect"
 	"time"
 
-	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -57,7 +57,7 @@ type ToolDiscoverer interface {
 // RemoteMCPServer status remains the source used by harness compilers, while the
 // database projection serves list RPCs without making those RPCs perform discovery.
 type CatalogStore interface {
-	StoreToolServer(context.Context, *dbmodel.ToolServer) (*dbmodel.ToolServer, error)
+	StoreToolServer(context.Context, *database.ToolServer) (*database.ToolServer, error)
 	RefreshToolsForServer(context.Context, string, string, ...*v1alpha3.MCPTool) error
 	DeleteToolsForServer(context.Context, string, string) error
 	DeleteToolServer(context.Context, string, string) error
@@ -131,7 +131,7 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *v1alpha3.RemoteM
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	if _, err := r.catalog.StoreToolServer(ctx, &dbmodel.ToolServer{
+	if _, err := r.catalog.StoreToolServer(ctx, &database.ToolServer{
 		Name: name, GroupKind: remoteGroupKind, Description: server.Spec.Description, LastConnected: lastConnected,
 	}); err != nil {
 		return fmt.Errorf("store server: %w", err)

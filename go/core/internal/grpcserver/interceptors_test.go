@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,15 +50,16 @@ func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, pkgauth.P
 }
 
 type testShareStore struct {
-	instanceShare    *dbpkg.AgentInstanceShare
+	instanceShare    *apiv1alpha1.AgentInstanceShare
 	instanceShareErr error
+	ownerUserID      string
 }
 
-func (s *testShareStore) GetAgentInstanceShareByTokenHash(context.Context, []byte) (*dbpkg.AgentInstanceShare, error) {
+func (s *testShareStore) GetAgentInstanceShareByTokenHash(context.Context, []byte) (*apiv1alpha1.AgentInstanceShare, string, error) {
 	if s.instanceShare == nil && s.instanceShareErr == nil {
-		return nil, dbpkg.ErrNotFound
+		return nil, "", database.ErrNotFound
 	}
-	return s.instanceShare, s.instanceShareErr
+	return s.instanceShare, s.ownerUserID, s.instanceShareErr
 }
 
 func TestAuthenticationUnaryInterceptor(t *testing.T) {
@@ -126,10 +128,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("an AgentInstance share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
-			instanceShare: &dbpkg.AgentInstanceShare{
-				Namespace: "kagent", InstanceID: testInstanceID,
-				Permission: "READ_ONLY", OwnerUserID: "owner",
-			},
+			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
@@ -160,9 +159,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("a read-only AgentInstance share cannot send", func(t *testing.T) {
 		store := &testShareStore{
-			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: testInstanceID, Permission: "READ_ONLY", OwnerUserID: "owner",
-			},
+			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
@@ -179,9 +176,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("a READ_WRITE AgentInstance share may send", func(t *testing.T) {
 		store := &testShareStore{
-			instanceShare: &dbpkg.AgentInstanceShare{
-				InstanceID: testInstanceID, Permission: "READ_WRITE", OwnerUserID: "owner",
-			},
+			instanceShare: &apiv1alpha1.AgentInstanceShare{AgentInstanceId: testInstanceID.String(), Permission: apiv1alpha1.AgentInstanceSharePermission(apiv1alpha1.AgentInstanceSharePermission_value["AGENT_INSTANCE_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		ran := false
@@ -205,7 +200,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	})
 
 	t.Run("invalid share token is denied", func(t *testing.T) {
-		store := &testShareStore{instanceShareErr: dbpkg.ErrNotFound}
+		store := &testShareStore{instanceShareErr: database.ErrNotFound}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "missing"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, store, policies)(
 			ctx, nil, &grpc.UnaryServerInfo{FullMethod: readMethod},

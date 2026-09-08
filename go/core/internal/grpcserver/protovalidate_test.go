@@ -50,12 +50,15 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 		request proto.Message
 		valid   bool
 	}{
-		{"ordinary name", &apiv1alpha1.CreateAgentInstanceRequest{Namespace: "team-a", Harness: "kagent", AgentTemplate: "assistant", RequestId: "request-1", Name: "Deploy 🚀"}, true},
-		{"leading whitespace", &apiv1alpha1.CreateAgentInstanceRequest{Namespace: "team-a", Harness: "kagent", AgentTemplate: "assistant", RequestId: "request-1", Name: " title"}, false},
-		{"control character", &apiv1alpha1.CreateAgentInstanceRequest{Namespace: "team-a", Harness: "kagent", AgentTemplate: "assistant", RequestId: "request-1", Name: "first\nsecond"}, false},
-		{"invalid template filter", &apiv1alpha1.ListAgentInstancesRequest{Namespace: "team-a", AgentTemplate: "NOT A NAME"}, false},
-		{"valid rename", &apiv1alpha1.UpdateAgentInstanceNameRequest{Namespace: "team-a", AgentInstanceId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
-		{"invalid rename id", &apiv1alpha1.UpdateAgentInstanceNameRequest{Namespace: "team-a", AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
+		{"ordinary name", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "Deploy 🚀"}, true},
+		{"different target namespaces", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-b", Name: "assistant"}, RequestId: "request-1"}, false},
+		{"list without namespace", &apiv1alpha1.ListAgentInstancesRequest{}, true},
+		{"missing target namespace", &apiv1alpha1.ListAgentInstancesRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"}}, false},
+		{"leading whitespace", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
+		{"control character", &apiv1alpha1.CreateAgentInstanceRequest{Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
+		{"invalid template filter", &apiv1alpha1.ListAgentInstancesRequest{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
+		{"valid rename", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
+		{"invalid rename id", &apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "not-a-uuid", Name: "New title"}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)

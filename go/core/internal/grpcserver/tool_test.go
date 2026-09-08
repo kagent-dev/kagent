@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -36,20 +36,20 @@ import (
 )
 
 type toolGRPCDiscoveryStore struct {
-	tools       []dbpkg.Tool
-	servers     []dbpkg.ToolServer
-	serverTools map[string][]dbpkg.Tool
+	tools       []database.Tool
+	servers     []database.ToolServer
+	serverTools map[string][]database.Tool
 }
 
-func (s *toolGRPCDiscoveryStore) ListTools(context.Context) ([]dbpkg.Tool, error) {
+func (s *toolGRPCDiscoveryStore) ListTools(context.Context) ([]database.Tool, error) {
 	return s.tools, nil
 }
 
-func (s *toolGRPCDiscoveryStore) ListToolServers(context.Context) ([]dbpkg.ToolServer, error) {
+func (s *toolGRPCDiscoveryStore) ListToolServers(context.Context) ([]database.ToolServer, error) {
 	return s.servers, nil
 }
 
-func (s *toolGRPCDiscoveryStore) ListToolsForServer(_ context.Context, name, groupKind string) ([]dbpkg.Tool, error) {
+func (s *toolGRPCDiscoveryStore) ListToolsForServer(_ context.Context, name, groupKind string) ([]database.Tool, error) {
 	return s.serverTools[name+"|"+groupKind], nil
 }
 
@@ -116,9 +116,9 @@ func (a *toolGRPCAuthorizer) setDenied(denied bool) {
 func TestToolServiceGeneratedClient(t *testing.T) {
 	kubeClient := toolGRPCKubeClient(t)
 	store := &toolGRPCDiscoveryStore{
-		tools:   []dbpkg.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev", Description: "Move a task"}},
-		servers: []dbpkg.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev"}},
-		serverTools: map[string][]dbpkg.Tool{
+		tools:   []database.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev", Description: "Move a task"}},
+		servers: []database.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev"}},
+		serverTools: map[string][]database.Tool{
 			"default/shared|RemoteMCPServer.kagent.dev": {{ID: "move_task", Description: "Move a task"}},
 		},
 	}
@@ -136,7 +136,7 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if len(listedTools.GetTools()) != 1 {
 		t.Fatalf("ListTools() count = %d, want 1", len(listedTools.GetTools()))
 	}
-	decodedTool := &dbpkg.Tool{}
+	decodedTool := &database.Tool{}
 	if err := structuredobject.ToGo(listedTools.GetTools()[0].GetResource(), toolKind, decodedTool, DefaultMaxMessageSize); err != nil {
 		t.Fatalf("decode listed Tool: %v", err)
 	}

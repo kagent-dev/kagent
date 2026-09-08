@@ -40,5 +40,5 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
 	require.Nil(t, config.Model)
 	require.Equal(t, "be helpful", config.Instruction)
-	require.Contains(t, string(revision.AgentCardJSON), `"streaming":true`)
+	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,29 +17,31 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
+	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/pgvector/pgvector-go"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type postgresClient struct {
+// Client persists control-plane state in PostgreSQL. Callers define the narrow
+// interfaces they need; SQL rows and protobuf encoding stay inside the store.
+type Client struct {
 	q  *dbgen.Queries
 	db *pgxpool.Pool
 }
 
-func NewClient(db *pgxpool.Pool) dbpkg.Client {
-	return &postgresClient{
+func NewClient(db *pgxpool.Pool) *Client {
+	return &Client{
 		q:  dbgen.New(db),
 		db: db,
 	}
 }
 
-func (c *postgresClient) withTx(ctx context.Context, fn func(*dbgen.Queries) error) error {
+func (c *Client) withTx(ctx context.Context, fn func(*dbgen.Queries) error) error {
 	tx, err := c.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -50,18 +53,18 @@ func (c *postgresClient) withTx(ctx context.Context, fn func(*dbgen.Queries) err
 	return tx.Commit(ctx)
 }
 
-// notFoundOr maps the driver's no-rows error to dbpkg.ErrNotFound so callers
+// notFoundOr maps the driver's no-rows error to ErrNotFound so callers
 // outside this package match on the exported sentinel, never on pgx.
 func notFoundOr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
-		return dbpkg.ErrNotFound
+		return ErrNotFound
 	}
 	return err
 }
 
 // ── AgentTemplate runtime revisions ──────────────────────────────────────────
 
-func (c *postgresClient) UpsertAgentTemplateHarnessPair(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	if pair.AgentTemplateLabels == nil {
 		pair.AgentTemplateLabels = map[string]string{}
 	}
@@ -77,12 +80,19 @@ func (c *postgresClient) UpsertAgentTemplateHarnessPair(ctx context.Context, pai
 	})
 }
 
-func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbpkg.RuntimeRevision) error {
+func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
+	if revision.AgentCard == nil {
+		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
+	}
+	card, err := proto.Marshal(revision.AgentCard)
+	if err != nil {
+		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
+	}
 	if err := c.q.UpsertRuntimeRevision(ctx, dbgen.UpsertRuntimeRevisionParams{
 		Revision: revision.Revision, Namespace: revision.Namespace,
 		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
 		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
-		SourceSnapshot: revision.SourceSnapshot, AgentCard: revision.AgentCard,
+		SourceSnapshot: revision.SourceSnapshot, AgentCard: card,
 		EgressDestinations:    revision.EgressDestinations,
 		ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName,
 		ActorTemplateUid: revision.ActorTemplateUID,
@@ -92,30 +102,38 @@ func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbp
 	return nil
 }
 
-func (c *postgresClient) GetRuntimeRevision(ctx context.Context, revision string) (*dbpkg.RuntimeRevision, error) {
+func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	row, err := c.q.GetRuntimeRevision(ctx, revision)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
 	}
-	return &dbpkg.RuntimeRevision{
+	return toRuntimeRevision(row)
+}
+
+func toRuntimeRevision(row dbgen.RuntimeRevision) (*RuntimeRevision, error) {
+	card := &a2apb.AgentCard{}
+	if err := proto.Unmarshal(row.AgentCard, card); err != nil {
+		return nil, fmt.Errorf("decode runtime revision %s Agent Card: %w", row.Revision, err)
+	}
+	return &RuntimeRevision{
 		Revision: row.Revision, Namespace: row.Namespace,
 		AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
 		HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
-		SourceSnapshot: row.SourceSnapshot, AgentCard: row.AgentCard,
+		SourceSnapshot: row.SourceSnapshot, AgentCard: card,
 		EgressDestinations:    row.EgressDestinations,
 		ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
 		ActorTemplateUID: row.ActorTemplateUid,
 	}, nil
 }
 
-func (c *postgresClient) ListActorTemplateHarnesses(ctx context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplateHarness, error) {
 	rows, err := c.q.ListActorTemplateHarnesses(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
 	}
-	result := make([]dbpkg.ActorTemplateHarness, 0, len(rows))
+	result := make([]ActorTemplateHarness, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, dbpkg.ActorTemplateHarness{
+		result = append(result, ActorTemplateHarness{
 			Atespace: row.ActorTemplateAtespace, Name: row.ActorTemplateName,
 			UID: row.ActorTemplateUid, HarnessName: row.HarnessName,
 		})
@@ -123,7 +141,7 @@ func (c *postgresClient) ListActorTemplateHarnesses(ctx context.Context) ([]dbpk
 	return result, nil
 }
 
-func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
 	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
 		Revision: &revision, Namespace: pair.Namespace,
@@ -131,41 +149,37 @@ func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair
 	})
 }
 
-func (c *postgresClient) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
+func (c *Client) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
 	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
 }
 
-func (c *postgresClient) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
+func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
 	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
 }
 
-func (c *postgresClient) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
+func (c *Client) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
 	return c.q.RetireOtherAgentTemplateHarnessPairs(ctx, dbgen.RetireOtherAgentTemplateHarnessPairsParams{
 		Namespace: namespace, AgentTemplateUid: templateUID, HarnessNames: harnesses,
 	})
 }
 
-func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]dbpkg.RuntimeRevision, error) {
+func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error) {
 	rows, err := c.q.ListUnreferencedRuntimeRevisions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list unreferenced runtime revisions: %w", err)
 	}
-	result := make([]dbpkg.RuntimeRevision, 0, len(rows))
+	result := make([]RuntimeRevision, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, dbpkg.RuntimeRevision{
-			Revision: row.Revision, Namespace: row.Namespace,
-			AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
-			HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
-			SourceSnapshot: row.SourceSnapshot, AgentCard: row.AgentCard,
-			EgressDestinations:    row.EgressDestinations,
-			ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
-			ActorTemplateUID: row.ActorTemplateUid,
-		})
+		revision, err := toRuntimeRevision(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, *revision)
 	}
 	return result, nil
 }
 
-func (c *postgresClient) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
+func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
 	return c.q.DeleteUnreferencedRuntimeRevision(ctx, revision)
 }
 
@@ -188,15 +202,19 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	if !ok {
 		return nil, fmt.Errorf("decode AgentInstance %s operation %q", row.ID, row.Operation)
 	}
-	// These indexed columns are the lifecycle source of truth. In particular,
-	// migrations can backfill them without rewriting the protobuf blob.
+	// Columns own identity, authorization, revision retention, query labels and lifecycle.
+	// Store updates write the same values to the payload in the same transaction.
 	instance.State = apiv1alpha1.AgentInstanceState(state)
 	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
 	instance.Id = row.ID.String()
-	// The name is a column for the same reason, and because a rename writes only
-	// the column: reading it from the blob would serve the name the row was
-	// created with for the rest of the instance's life.
-	instance.Name = row.Name
+	instance.Creator = row.UserID
+	instance.PreparedRevision = derefStr(row.PreparedRevision)
+	instance.Labels = nil
+	if len(row.Labels) > 0 {
+		if err := json.Unmarshal(row.Labels, &instance.Labels); err != nil {
+			return nil, fmt.Errorf("decode AgentInstance labels: %w", err)
+		}
+	}
 	return instance, nil
 }
 
@@ -209,18 +227,18 @@ func marshalAgentInstance(instance *apiv1alpha1.AgentInstance) ([]byte, error) {
 }
 
 func sameAgentInstanceRequest(instance, request *apiv1alpha1.AgentInstance) bool {
-	return instance.GetHarness().GetName() == request.GetHarness().GetName() && instance.GetAgentTemplate().GetName() == request.GetAgentTemplate().GetName()
+	return proto.Equal(instance.GetHarness(), request.GetHarness()) && proto.Equal(instance.GetAgentTemplate(), request.GetAgentTemplate())
 }
 
-func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
+func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	requestKey := dbgen.GetAgentInstanceByRequestParams{
-		UserID: request.GetCreator(), Namespace: request.GetNamespace(), RequestID: requestID,
+		UserID: request.GetCreator(), RequestID: requestID,
 	}
 	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
 	if err == nil {
 		instance, err := toAgentInstance(existing)
 		if err == nil && !sameAgentInstanceRequest(instance, request) {
-			return nil, false, dbpkg.ErrIdempotencyConflict
+			return nil, false, ErrIdempotencyConflict
 		}
 		return instance, false, err
 	}
@@ -229,7 +247,7 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	}
 
 	revision, err := c.q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
-		Namespace: request.GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
+		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
@@ -255,14 +273,14 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
-			ID: instanceID, Namespace: request.GetNamespace(), UserID: request.GetCreator(),
+			ID: instanceID, UserID: request.GetCreator(),
 		}); err != nil {
 			return fmt.Errorf("insert A2A context: %w", err)
 		}
 		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
-			ID: instanceID, Namespace: request.GetNamespace(), UserID: request.GetCreator(), RequestID: requestID,
+			ID: instanceID, UserID: request.GetCreator(), RequestID: requestID,
 			ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
-			Name: request.GetName(), Data: data,
+			Data: data,
 		})
 		return err
 	})
@@ -273,7 +291,7 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 		}
 		instance, err = toAgentInstance(existing)
 		if err == nil && !sameAgentInstanceRequest(instance, request) {
-			return nil, false, dbpkg.ErrIdempotencyConflict
+			return nil, false, ErrIdempotencyConflict
 		}
 		return instance, false, err
 	}
@@ -284,13 +302,13 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	return instance, err == nil, err
 }
 
-func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
+func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	checkpointUUID := uuid.MustParse(checkpointID)
-	requestKey := dbgen.GetAgentInstanceByRequestParams{UserID: userID, Namespace: namespace, RequestID: requestID}
+	requestKey := dbgen.GetAgentInstanceByRequestParams{UserID: userID, RequestID: requestID}
 	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
 	if err == nil {
 		if existing.SourceCheckpointID == nil || *existing.SourceCheckpointID != checkpointUUID {
-			return nil, false, dbpkg.ErrIdempotencyConflict
+			return nil, false, ErrIdempotencyConflict
 		}
 		instance, err := toAgentInstance(existing)
 		return instance, false, err
@@ -303,13 +321,16 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		checkpoint, err := q.LockReadyAgentInstanceCheckpoint(ctx, dbgen.LockReadyAgentInstanceCheckpointParams{
-			Namespace: namespace, ID: checkpointUUID, UserID: userID,
+			ID: checkpointUUID, UserID: userID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return dbpkg.ErrNotFound
+			return ErrNotFound
 		}
 		if err != nil {
 			return fmt.Errorf("lock checkpoint: %w", err)
+		}
+		if _, err := toAgentInstanceCheckpoint(checkpoint); err != nil {
+			return err
 		}
 		if checkpoint.PreparedRevision == nil {
 			return fmt.Errorf("checkpoint %s has no fork source", checkpointID)
@@ -325,7 +346,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		}
 		now := timestamppb.Now()
 		instance := &apiv1alpha1.AgentInstance{
-			Id: instanceID, Namespace: namespace, Creator: userID,
+			Id: instanceID, Creator: userID,
 			Harness:          &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.HarnessName},
 			AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentTemplateName},
 			PreparedRevision: *checkpoint.PreparedRevision,
@@ -341,11 +362,11 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		if err != nil {
 			return fmt.Errorf("encode fork labels: %w", err)
 		}
-		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: instanceUUID, Namespace: namespace, UserID: userID}); err != nil {
+		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: instanceUUID, UserID: userID}); err != nil {
 			return fmt.Errorf("insert fork A2A context: %w", err)
 		}
 		row, err = q.InsertForkedAgentInstance(ctx, dbgen.InsertForkedAgentInstanceParams{
-			ID: instanceUUID, Namespace: namespace, UserID: userID, RequestID: requestID,
+			ID: instanceUUID, UserID: userID, RequestID: requestID,
 			ContextID: instanceUUID, PreparedRevision: checkpoint.PreparedRevision,
 			SourceCheckpointID: &checkpoint.ID, Labels: encodedLabels, Data: data,
 		})
@@ -360,24 +381,30 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		ids := newForkIDs(instanceID)
 		var copiedHistorySequence int64
 		for _, source := range tasks {
-			task, err := unmarshalAgentInstanceTask(source.Data)
+			task := &a2apb.Task{}
+			err := proto.Unmarshal(source.Data, task)
+			if err != nil {
+				return fmt.Errorf("decode checkpoint task %s: %w", source.ID, err)
+			}
+			decoded, err := pbconv.FromProtoTask(task)
 			if err != nil {
 				return fmt.Errorf("decode checkpoint task %s: %w", source.ID, err)
 			}
 			reidentifyForkTask(task, instanceID, ids)
 			if len(task.History) > 0 {
-				copiedHistorySequence, err = storeAgentInstanceTaskMessages(ctx, q, instanceUUID, string(task.ID), task.History)
+				copiedHistorySequence, err = storeProtoTaskMessages(ctx, q, instanceUUID, task.Id, task.History)
 				if err != nil {
 					return fmt.Errorf("copy checkpoint task %s history: %w", source.ID, err)
 				}
 			}
-			data, err := marshalAgentInstanceTask(task)
+			task.History = nil
+			data, err := proto.Marshal(task)
 			if err != nil {
-				return fmt.Errorf("encode fork task %s: %w", task.ID, err)
+				return fmt.Errorf("encode fork task %s: %w", task.Id, err)
 			}
 			copy := dbgen.InsertCopiedAgentInstanceTaskParams{
-				ContextID: instanceUUID, ID: string(task.ID), State: string(task.Status.State),
-				StatusTimestamp: task.Status.Timestamp, Data: data,
+				ContextID: instanceUUID, ID: task.Id, State: string(decoded.Status.State),
+				StatusTimestamp: decoded.Status.Timestamp, Data: data,
 				CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt,
 			}
 			if err := q.InsertCopiedAgentInstanceTask(ctx, copy); err != nil {
@@ -389,12 +416,21 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 			return fmt.Errorf("list checkpoint events: %w", err)
 		}
 		for _, source := range events {
-			event, err := unmarshalAgentInstanceTaskEvent(source.Data)
+			event := &a2apb.StreamResponse{}
+			err := proto.Unmarshal(source.Data, event)
 			if err != nil {
 				return fmt.Errorf("decode checkpoint event %d: %w", source.Sequence, err)
 			}
-			reidentifyForkEvent(event, derefStr(source.TaskID), instanceID, ids)
-			data, err := marshalAgentInstanceTaskEvent(event)
+			decoded, err := pbconv.FromProtoStreamResponse(event)
+			if err != nil {
+				return fmt.Errorf("decode checkpoint event %d: %w", source.Sequence, err)
+			}
+			sourceTaskID := string(decoded.TaskInfo().TaskID)
+			if sourceTaskID == "" {
+				sourceTaskID = derefStr(source.TaskID)
+			}
+			taskID := reidentifyForkEvent(event, sourceTaskID, instanceID, ids)
+			data, err := proto.Marshal(event)
 			if err != nil {
 				return fmt.Errorf("encode checkpoint event %d: %w", source.Sequence, err)
 			}
@@ -404,7 +440,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 				messageID = &mapped
 			}
 			copiedHistorySequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-				ContextID: instanceUUID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)),
+				ContextID: instanceUUID, TaskID: strPtrIfNotEmpty(taskID),
 				MessageID: messageID, Data: data,
 			})
 			if err != nil {
@@ -417,7 +453,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		headID := string(ids.task(a2a.TaskID(checkpoint.HeadTaskID)))
 		if err := q.SetAgentInstanceTaskSnapshot(ctx, dbgen.SetAgentInstanceTaskSnapshotParams{
 			ContextID: instanceUUID, ID: headID, SnapshotAtespace: &checkpoint.SnapshotAtespace,
-			SnapshotName: &checkpoint.SnapshotName, SnapshotUid: &checkpoint.SnapshotUid,
+			SnapshotUri:          &checkpoint.SnapshotUri,
 			SnapshotContentScope: &checkpoint.SnapshotContentScope, HistorySequence: &copiedHistorySequence,
 		}); err != nil {
 			return fmt.Errorf("store fork history boundary: %w", err)
@@ -430,7 +466,7 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 			return nil, false, fmt.Errorf("get concurrent fork request: %w", err)
 		}
 		if existing.SourceCheckpointID == nil || *existing.SourceCheckpointID != checkpointUUID {
-			return nil, false, dbpkg.ErrIdempotencyConflict
+			return nil, false, ErrIdempotencyConflict
 		}
 		instance, err := toAgentInstance(existing)
 		return instance, false, err
@@ -474,61 +510,57 @@ func (i *forkIDs) message(id string) string {
 	return mapped
 }
 
-func reidentifyForkTask(task *a2a.Task, contextID string, ids *forkIDs) {
-	task.ID = ids.task(task.ID)
-	task.ContextID = contextID
+// Fork identities change in the canonical protobuf, leaving all other fields intact.
+func reidentifyForkTask(task *a2apb.Task, contextID string, ids *forkIDs) {
+	task.Id = string(ids.task(a2a.TaskID(task.Id)))
+	task.ContextId = contextID
 	for _, message := range task.History {
-		reidentifyForkMessage(message, task.ID, contextID, ids)
+		reidentifyForkMessage(message, task.Id, contextID, ids)
 	}
-	if task.Status.Message != nil {
-		reidentifyForkMessage(task.Status.Message, task.ID, contextID, ids)
-	}
+	reidentifyForkMessage(task.GetStatus().GetMessage(), task.Id, contextID, ids)
 }
 
-func reidentifyForkMessage(message *a2a.Message, taskID a2a.TaskID, contextID string, ids *forkIDs) {
+func reidentifyForkMessage(message *a2apb.Message, taskID, contextID string, ids *forkIDs) {
 	if message == nil {
 		return
 	}
-	message.ID = ids.message(message.ID)
-	message.ContextID = contextID
-	message.TaskID = taskID
-	for index, reference := range message.ReferenceTasks {
-		message.ReferenceTasks[index] = ids.task(reference)
+	message.MessageId = ids.message(message.MessageId)
+	message.ContextId = contextID
+	message.TaskId = taskID
+	for index, reference := range message.ReferenceTaskIds {
+		message.ReferenceTaskIds[index] = string(ids.task(a2a.TaskID(reference)))
 	}
 }
 
-func reidentifyForkEvent(event a2a.Event, sourceTaskID, contextID string, ids *forkIDs) {
-	taskID := event.TaskInfo().TaskID
-	if taskID == "" {
-		taskID = a2a.TaskID(sourceTaskID)
+func reidentifyForkEvent(event *a2apb.StreamResponse, sourceTaskID, contextID string, ids *forkIDs) string {
+	// The row records the task even for messages whose payload omits it.
+	taskID := string(ids.task(a2a.TaskID(sourceTaskID)))
+	switch payload := event.Payload.(type) {
+	case *a2apb.StreamResponse_Message:
+		reidentifyForkMessage(payload.Message, taskID, contextID, ids)
+	case *a2apb.StreamResponse_Task:
+		reidentifyForkTask(payload.Task, contextID, ids)
+		taskID = payload.Task.Id
+	case *a2apb.StreamResponse_StatusUpdate:
+		payload.StatusUpdate.TaskId = taskID
+		payload.StatusUpdate.ContextId = contextID
+		reidentifyForkMessage(payload.StatusUpdate.GetStatus().GetMessage(), taskID, contextID, ids)
+	case *a2apb.StreamResponse_ArtifactUpdate:
+		payload.ArtifactUpdate.TaskId = taskID
+		payload.ArtifactUpdate.ContextId = contextID
 	}
-	switch event := event.(type) {
-	case *a2a.Message:
-		reidentifyForkMessage(event, ids.task(taskID), contextID, ids)
-	case *a2a.Task:
-		event.ID = taskID
-		reidentifyForkTask(event, contextID, ids)
-	case *a2a.TaskStatusUpdateEvent:
-		event.TaskID = ids.task(taskID)
-		event.ContextID = contextID
-		if event.Status.Message != nil {
-			reidentifyForkMessage(event.Status.Message, event.TaskID, contextID, ids)
-		}
-	case *a2a.TaskArtifactUpdateEvent:
-		event.TaskID = ids.task(taskID)
-		event.ContextID = contextID
-	}
+	return taskID
 }
 
-func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
-	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
 	}
 	return toAgentInstance(row)
 }
 
-func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	matchLabels := query.MatchLabels
 	if matchLabels == nil {
 		matchLabels = map[string]string{}
@@ -538,9 +570,9 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.Age
 		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
 	}
 	rows, err := c.q.ListAgentInstances(ctx, dbgen.ListAgentInstancesParams{
-		Namespace: query.Namespace, UserID: query.UserID, AllUsers: query.AllUsers,
+		UserID: query.UserID, AllUsers: query.AllUsers,
 		AfterID: query.AfterID, MatchLabels: labels,
-		AgentTemplate: query.AgentTemplate, Harness: query.Harness,
+		AgentTemplate: query.AgentTemplate.GetName(), AgentTemplateNamespace: query.AgentTemplate.GetNamespace(), Harness: query.Harness.GetName(), HarnessNamespace: query.Harness.GetNamespace(),
 		PageSize: int32(query.Limit),
 	})
 	if err != nil {
@@ -557,80 +589,117 @@ func (c *postgresClient) ListAgentInstances(ctx context.Context, query dbpkg.Age
 	return result, nil
 }
 
-// UpdateAgentInstanceName writes only the name column, scoped to the instance's
-// owner so a rename cannot reach another reader's conversation.
-func (c *postgresClient) UpdateAgentInstanceName(ctx context.Context, namespace, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
-	row, err := c.q.UpdateAgentInstanceName(ctx, dbgen.UpdateAgentInstanceNameParams{
-		Namespace: namespace, ID: uuid.MustParse(id), UserID: userID, Name: name,
+// UpdateAgentInstanceName serializes with lifecycle updates so neither loses the other's fields.
+func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
+	var result *apiv1alpha1.AgentInstance
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if row.UserID != userID {
+			return ErrNotFound
+		}
+		instance, err := toAgentInstance(row)
+		if err != nil {
+			return err
+		}
+		instance.Name = name
+		instance.UpdatedAt = timestamppb.Now()
+		data, err := marshalAgentInstance(instance)
+		if err != nil {
+			return err
+		}
+		row, err = q.UpdateAgentInstanceName(ctx, dbgen.UpdateAgentInstanceNameParams{ID: row.ID, UserID: userID, Data: data})
+		if err != nil {
+			return err
+		}
+		result, err = toAgentInstance(row)
+		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("rename AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+		return nil, fmt.Errorf("rename AgentInstance %s: %w", id, err)
 	}
-	return toAgentInstance(row)
+	return result, nil
 }
 
-func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
-	instanceID := uuid.MustParse(id)
-	row, err := c.q.GetAgentInstanceByID(ctx, instanceID)
+func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
+	var result *apiv1alpha1.AgentInstance
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		result, err = toAgentInstance(row)
+		if err != nil || row.State != "CREATING" || row.Operation != "CREATE" {
+			return err
+		}
+		result.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+		result.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+		result.A2AAuthority = authority
+		result.Failure = nil
+		result.UpdatedAt = timestamppb.Now()
+		data, err := marshalAgentInstance(result)
+		if err != nil {
+			return err
+		}
+		_, err = q.MarkAgentInstanceReady(ctx, dbgen.MarkAgentInstanceReadyParams{ID: row.ID, Data: data})
+		return err
+	})
 	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance %s before ready: %w", id, notFoundOr(err))
+		return nil, fmt.Errorf("mark AgentInstance %s ready: %w", id, err)
 	}
-	instance, err := toAgentInstance(row)
-	if err != nil || instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
-		return instance, err
-	}
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
-	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
-	instance.A2AAuthority = authority
-	instance.Failure = nil
-	instance.UpdatedAt = timestamppb.Now()
-	data, err := marshalAgentInstance(instance)
-	if err != nil {
-		return nil, err
-	}
-	row, err = c.q.MarkAgentInstanceReady(ctx, dbgen.MarkAgentInstanceReadyParams{ID: instanceID, Data: data})
-	if errors.Is(err, pgx.ErrNoRows) {
-		row, err = c.q.GetAgentInstanceByID(ctx, instanceID)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("mark AgentInstance %s ready: %w", id, notFoundOr(err))
-	}
-	return toAgentInstance(row)
+	return result, nil
 }
 
-func (c *postgresClient) TransitionAgentInstance(
+func (c *Client) TransitionAgentInstance(
 	ctx context.Context,
 	instance *apiv1alpha1.AgentInstance,
 	expectedState apiv1alpha1.AgentInstanceState,
 	expectedOperation apiv1alpha1.AgentInstanceOperation,
 ) (*apiv1alpha1.AgentInstance, error) {
-	data, err := marshalAgentInstance(instance)
-	if err != nil {
-		return nil, err
-	}
-	row, err := c.q.TransitionAgentInstance(ctx, dbgen.TransitionAgentInstanceParams{
-		ID: uuid.MustParse(instance.GetId()), Data: data,
-		ExpectedState: agentInstanceStateName(expectedState), ExpectedOperation: agentInstanceOperationName(expectedOperation),
-		NextState: agentInstanceStateName(instance.GetState()), NextOperation: agentInstanceOperationName(instance.GetOperation()),
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		row, err = c.q.GetAgentInstanceByID(ctx, uuid.MustParse(instance.GetId()))
+	var result *apiv1alpha1.AgentInstance
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockAgentInstance(ctx, uuid.MustParse(instance.GetId()))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		result, err = toAgentInstance(row)
+		if err != nil {
+			return err
+		}
+		if result.State != expectedState || result.Operation != expectedOperation {
+			return ErrAgentInstanceConflict
+		}
+		// Only lifecycle fields belong to this operation. Keep concurrent renames,
+		// immutable indexed fields and unknown protobuf fields from the locked row.
+		next := proto.Clone(result).(*apiv1alpha1.AgentInstance)
+		next.State, next.Operation = instance.State, instance.Operation
+		next.A2AAuthority = instance.A2AAuthority
+		next.Failure = instance.Failure
+		next.UpdatedAt = timestamppb.Now()
+		data, err := marshalAgentInstance(next)
+		if err != nil {
+			return err
+		}
+		row, err = q.TransitionAgentInstance(ctx, dbgen.TransitionAgentInstanceParams{
+			ID: row.ID, Data: data,
+			ExpectedState: agentInstanceStateName(expectedState), ExpectedOperation: agentInstanceOperationName(expectedOperation),
+			NextState: agentInstanceStateName(next.State), NextOperation: agentInstanceOperationName(next.Operation),
+		})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), dbpkg.ErrNotFound)
+			return ErrAgentInstanceConflict
 		}
 		if err != nil {
-			return nil, fmt.Errorf("get conflicting AgentInstance %s: %w", instance.GetId(), err)
+			return err
 		}
-		current, decodeErr := toAgentInstance(row)
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		return current, dbpkg.ErrAgentInstanceConflict
-	}
+		result, err = toAgentInstance(row)
+		return err
+	})
 	if err != nil {
-		return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)
+		return result, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)
 	}
-	return toAgentInstance(row)
+	return result, nil
 }
 
 func agentInstanceStateName(state apiv1alpha1.AgentInstanceState) string {
@@ -644,75 +713,90 @@ func agentInstanceOperationName(operation apiv1alpha1.AgentInstanceOperation) st
 	return strings.TrimPrefix(operation.String(), "AGENT_INSTANCE_OPERATION_")
 }
 
-func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) error {
+func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
 	if err := c.q.DeleteAgentInstance(ctx, uuid.MustParse(id)); err != nil {
 		return fmt.Errorf("delete AgentInstance %s: %w", id, err)
 	}
 	return nil
 }
 
-func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
-	return dbpkg.AgentInstanceShare{
-		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
-		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+func toAgentInstanceShare(row dbgen.AgentInstanceShare) (*apiv1alpha1.AgentInstanceShare, error) {
+	share := &apiv1alpha1.AgentInstanceShare{}
+	if err := proto.Unmarshal(row.Data, share); err != nil {
+		return nil, fmt.Errorf("decode AgentInstance share %s: %w", row.ID, err)
 	}
+	if share.GetId() != row.ID.String() || share.GetAgentInstanceId() != row.InstanceID.String() ||
+		strings.TrimPrefix(share.GetPermission().String(), "AGENT_INSTANCE_SHARE_PERMISSION_") != row.Permission {
+		return nil, fmt.Errorf("AgentInstance share %s payload disagrees with indexed columns", row.ID)
+	}
+	return share, nil
 }
 
-func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
+func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+	if share == nil {
+		return nil, fmt.Errorf("missing AgentInstance share")
+	}
+	value := proto.Clone(share).(*apiv1alpha1.AgentInstanceShare)
+	value.CreatedAt = timestamppb.Now()
+	data, err := proto.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode AgentInstance share: %w", err)
+	}
 	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
-		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
-		Permission: share.Permission, TokenHash: share.TokenHash,
+		ID: uuid.MustParse(value.Id), InstanceID: uuid.MustParse(value.AgentInstanceId),
+		Permission: strings.TrimPrefix(value.Permission.String(), "AGENT_INSTANCE_SHARE_PERMISSION_"), TokenHash: tokenHash, Data: data,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create AgentInstance share: %w", err)
 	}
-	result := toAgentInstanceShare(row)
-	return &result, nil
+	return toAgentInstanceShare(row)
 }
 
-// GetAgentInstanceShareByTokenHash resolves a share token to its share.
-//
-// Takes the hash rather than the token: only the digest is stored, which is what
-// keeps a database dump from being a set of working share links.
-func (c *postgresClient) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*dbpkg.AgentInstanceShare, error) {
+// GetAgentInstanceShareByTokenHash returns the share and its instance's owner ID.
+// Only the digest is stored; the plaintext token is returned once by the service.
+func (c *Client) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, string, error) {
 	row, err := c.q.GetAgentInstanceShareByTokenHash(ctx, tokenHash)
 	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
+		return nil, "", fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
 	}
-	return &dbpkg.AgentInstanceShare{
-		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
-		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
-		OwnerUserID: row.OwnerUserID,
-	}, nil
+	share, err := toAgentInstanceShare(dbgen.AgentInstanceShare{ID: row.ID, InstanceID: row.InstanceID, Permission: row.Permission, Data: row.Data})
+	if err != nil {
+		return nil, "", err
+	}
+	return share, row.OwnerUserID, nil
 }
 
-func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
-		Namespace: namespace, InstanceID: uuid.MustParse(instanceID), UserID: userID,
-		AfterID: afterID, PageSize: int32(limit),
+		InstanceID: uuid.MustParse(instanceID), UserID: userID, AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance shares: %w", err)
 	}
-	result := make([]dbpkg.AgentInstanceShare, 0, len(rows))
+	result := make([]*apiv1alpha1.AgentInstanceShare, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, toAgentInstanceShare(row))
+		share, err := toAgentInstanceShare(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, share)
 	}
 	return result, nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, userID string) error {
-	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *Client) DeleteAgentInstanceShare(ctx context.Context, id, userID string) error {
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
-		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
+		return fmt.Errorf("delete AgentInstance share %s: %w", id, err)
 	}
 	if count == 0 {
-		return dbpkg.ErrNotFound
+		return ErrNotFound
 	}
 	return nil
 }
 
-func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
+// CreateAgentInstanceTask reserves the instance's single active-task slot.
+func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
 	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
@@ -731,7 +815,7 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
 		if instance.State != "READY" || instance.Operation != "NONE" {
-			return dbpkg.ErrAgentInstanceTaskConflict
+			return ErrAgentInstanceTaskConflict
 		}
 		rows, err := q.CreateAgentInstanceTask(ctx, dbgen.CreateAgentInstanceTaskParams{
 			ContextID: contextID, ID: string(task.ID), State: string(task.Status.State),
@@ -740,7 +824,7 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 		})
 		if err != nil {
 			if isActiveTaskConflict(err) {
-				return dbpkg.ErrAgentInstanceTaskConflict
+				return ErrAgentInstanceTaskConflict
 			}
 			return fmt.Errorf("create AgentInstance task %s: %w", task.ID, err)
 		}
@@ -749,13 +833,13 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 				ContextID: contextID, InitialMessageID: &message.ID,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
-				return dbpkg.ErrAgentInstanceTaskConflict
+				return ErrAgentInstanceTaskConflict
 			}
 			if err != nil {
 				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
 			}
 			if !bytes.Equal(row.RequestHash, requestHash) {
-				return dbpkg.ErrIdempotencyConflict
+				return ErrIdempotencyConflict
 			}
 			result, err = unmarshalAgentInstanceTask(row.Data)
 			if err != nil {
@@ -777,7 +861,7 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 // longer has an active execution for it.
 const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
 
-func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
+func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
 	contextID := uuid.MustParse(instanceID)
 	row, err := c.q.GetActiveAgentInstanceTask(ctx, contextID)
 	if err != nil {
@@ -792,7 +876,7 @@ func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanc
 
 // InterruptActiveAgentInstanceTask atomically fails taskID only if it is still the
 // instance's active task.
-func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
+func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
 	interruptedTask := false
 	contextID := uuid.MustParse(instanceID)
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
@@ -806,28 +890,34 @@ func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, i
 		if row.ID != taskID {
 			return nil
 		}
-		task, err := unmarshalAgentInstanceTask(row.Data)
-		if err != nil {
+		task := &a2apb.Task{}
+		if err := proto.Unmarshal(row.Data, task); err != nil {
+			return fmt.Errorf("decode interrupted task: %w", err)
+		}
+		if _, err := pbconv.FromProtoTask(task); err != nil {
 			return err
 		}
-		if err := loadAgentInstanceTaskHistories(ctx, q, contextID, []*a2a.Task{task}); err != nil {
-			return err
+		interrupted := &a2apb.Message{
+			MessageId: uuid.NewString(), TaskId: task.Id, ContextId: task.ContextId, Role: a2apb.Role_ROLE_AGENT,
+			Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: taskInterruptedMessage}}},
 		}
-		interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(taskInterruptedMessage))
 		now := time.Now()
-		task.History = append(task.History, interrupted)
-		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Message: interrupted, Timestamp: &now}
-		data, err := marshalAgentInstanceTask(task)
+		task.Status.State = a2apb.TaskState_TASK_STATE_FAILED
+		task.Status.Message = interrupted
+		task.Status.Timestamp = timestamppb.New(now)
+		messages := append(task.History, interrupted)
+		task.History = nil
+		data, err := proto.Marshal(task)
 		if err != nil {
 			return err
 		}
 		if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-			ContextID: contextID, ID: string(task.ID), State: string(task.Status.State),
-			StatusTimestamp: task.Status.Timestamp, Data: data,
+			ContextID: contextID, ID: task.Id, State: string(a2a.TaskStateFailed),
+			StatusTimestamp: &now, Data: data,
 		}); err != nil {
-			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.ID, err)
+			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.Id, err)
 		}
-		if _, err := storeAgentInstanceTaskMessages(ctx, q, contextID, string(task.ID), task.History); err != nil {
+		if _, err := storeProtoTaskMessages(ctx, q, contextID, task.Id, messages); err != nil {
 			return fmt.Errorf("record AgentInstance task interruption: %w", err)
 		}
 		interruptedTask = true
@@ -839,33 +929,45 @@ func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, i
 	return interruptedTask, nil
 }
 
-func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *dbpkg.AgentInstanceTaskSnapshot) error {
+func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
 	contextID := uuid.MustParse(instanceID)
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		var sequence int64
-		var replacedStatusMessage *a2a.Message
+		var stored *a2apb.Task
 		if task != nil {
-			if row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: string(task.ID)}); err == nil {
-				previous, err := unmarshalAgentInstanceTask(row.Data)
-				if err != nil {
+			if row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{ContextID: contextID, ID: string(task.ID)}); err == nil {
+				stored = &a2apb.Task{}
+				if err := proto.Unmarshal(row.Data, stored); err != nil {
+					return fmt.Errorf("decode stored task: %w", err)
+				}
+				if _, err := pbconv.FromProtoTask(stored); err != nil {
 					return err
 				}
-				// A reply replaces the current status message, so archive both atomically.
-				if _, ok := event.(*a2a.Message); ok && previous.Status.Message != nil {
-					message := *previous.Status.Message
-					message.TaskID, message.ContextID = task.ID, task.ContextID
-					replacedStatusMessage = &message
+				messages := stored.History
+				// Replies and status updates archive the old status message before replacing it.
+				// Use the stored protobuf so its nested fields survive in history too.
+				switch event.(type) {
+				case *a2a.Message, *a2a.TaskStatusUpdateEvent:
+					if message := stored.Status.Message; message != nil {
+						message.TaskId, message.ContextId = string(task.ID), task.ContextID
+						messages = append(messages, message)
+					}
 				}
-				if len(previous.History) > 0 {
-					sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(task.ID), previous.History)
+				if len(messages) > 0 {
+					sequence, err = storeProtoTaskMessages(ctx, q, contextID, string(task.ID), messages)
 					if err != nil {
-						return fmt.Errorf("normalize legacy AgentInstance task history: %w", err)
+						return fmt.Errorf("archive AgentInstance task history: %w", err)
 					}
 				}
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
 			}
-			data, err := marshalAgentInstanceTask(task)
+			var err error
+			stored, err = applyAgentInstanceTaskEvent(stored, task, event)
+			if err != nil {
+				return err
+			}
+			data, err := proto.Marshal(stored)
 			if err != nil {
 				return err
 			}
@@ -874,15 +976,12 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 				StatusTimestamp: task.Status.Timestamp, Data: data,
 			}); err != nil {
 				if isActiveTaskConflict(err) {
-					return dbpkg.ErrAgentInstanceTaskConflict
+					return ErrAgentInstanceTaskConflict
 				}
 				return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 			}
 		}
 		messages := agentInstanceTaskEventMessages(task, event)
-		if replacedStatusMessage != nil {
-			messages = append([]*a2a.Message{replacedStatusMessage}, messages...)
-		}
 		if len(messages) > 0 {
 			var err error
 			sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(event.TaskInfo().TaskID), messages)
@@ -892,6 +991,9 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 		}
 		if _, ok := event.(*a2a.Message); !ok {
 			eventData, err := marshalAgentInstanceTaskEvent(event)
+			if _, ok := event.(*a2a.Task); ok && stored != nil {
+				eventData, err = proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: stored}})
+			}
 			if err != nil {
 				return err
 			}
@@ -908,7 +1010,7 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 			}
 			if err := q.SetAgentInstanceTaskSnapshot(ctx, dbgen.SetAgentInstanceTaskSnapshotParams{
 				ContextID: contextID, ID: string(task.ID), SnapshotAtespace: &snapshot.Atespace,
-				SnapshotName: &snapshot.Name, SnapshotUid: &snapshot.UID,
+				SnapshotUri:          &snapshot.URI,
 				SnapshotContentScope: &snapshot.ContentScope, HistorySequence: &sequence,
 			}); err != nil {
 				return fmt.Errorf("store AgentInstance task snapshot: %w", err)
@@ -922,7 +1024,7 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 	return nil
 }
 
-func (c *postgresClient) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
+func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
 	contextID := uuid.MustParse(instanceID)
 	row, err := c.q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: taskID})
 	if err != nil {
@@ -935,7 +1037,7 @@ func (c *postgresClient) GetAgentInstanceTask(ctx context.Context, instanceID, t
 	return task, err
 }
 
-func (c *postgresClient) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
+func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
 	contextID := uuid.MustParse(instanceID)
 	params := dbgen.CountAgentInstanceTasksParams{
 		ContextID: contextID, State: string(state), StatusTimestampAfter: statusTimestampAfter,
@@ -965,133 +1067,342 @@ func (c *postgresClient) ListAgentInstanceTasks(ctx context.Context, instanceID,
 	return tasks, int(total), nil
 }
 
-func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
-	var result *dbpkg.AgentInstanceCheckpoint
+// ReserveAgentInstanceCheckpoint returns the checkpoint and its immutable snapshot
+// reference from the same transaction, including on idempotent retries.
+func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, userID, requestID string) (*apiv1alpha1.Checkpoint, *AgentInstanceTaskSnapshot, error) {
+	if checkpoint == nil {
+		return nil, nil, fmt.Errorf("missing checkpoint")
+	}
+	var result *apiv1alpha1.Checkpoint
+	var snapshot *AgentInstanceTaskSnapshot
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		existing, err := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
-			UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+			UserID: userID, RequestID: requestID,
 		})
 		if err == nil {
-			if existing.SourceInstanceID != checkpoint.SourceInstanceID {
-				return dbpkg.ErrIdempotencyConflict
+			if existing.SourceInstanceID != uuid.MustParse(checkpoint.GetAgentInstanceId()) {
+				return ErrIdempotencyConflict
 			}
-			result = toAgentInstanceCheckpoint(existing)
-			return nil
+			snapshot = checkpointSnapshot(existing)
+			result, err = toAgentInstanceCheckpoint(existing)
+			return err
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("get AgentInstance checkpoint by request: %w", err)
 		}
 
-		instance, err := q.LockAgentInstance(ctx, checkpoint.SourceInstanceID)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.Namespace != checkpoint.Namespace || instance.UserID != checkpoint.UserID)) {
-			return dbpkg.ErrNotFound
+		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(checkpoint.GetAgentInstanceId()))
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.UserID != userID)) {
+			return ErrNotFound
 		}
 		if err != nil {
-			return fmt.Errorf("lock AgentInstance %s: %w", checkpoint.SourceInstanceID, err)
+			return fmt.Errorf("lock AgentInstance %s: %w", uuid.MustParse(checkpoint.GetAgentInstanceId()), err)
 		}
 		if instance.State != "READY" || instance.Operation != "NONE" {
-			return dbpkg.ErrAgentInstanceConflict
+			return ErrAgentInstanceConflict
 		}
 		boundary, err := q.GetLatestQuiescentAgentInstanceTask(ctx, instance.ContextID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return dbpkg.ErrAgentInstanceNotQuiescent
+			return ErrAgentInstanceNotQuiescent
 		}
 		if err != nil {
 			return fmt.Errorf("get latest AgentInstance task boundary: %w", err)
 		}
-		if boundary.SnapshotAtespace == nil || boundary.SnapshotName == nil || boundary.SnapshotUid == nil ||
+		if boundary.SnapshotAtespace == nil || boundary.SnapshotUri == nil ||
 			boundary.SnapshotContentScope == nil || boundary.HistorySequence == nil {
-			return dbpkg.ErrAgentInstanceNotQuiescent
+			return ErrAgentInstanceNotQuiescent
 		}
 
+		value := proto.Clone(checkpoint).(*apiv1alpha1.Checkpoint)
+		value.HeadTaskId = boundary.ID
+		value.HistorySequence = uint64(*boundary.HistorySequence)
+		value.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
+		value.CreatedAt = timestamppb.Now()
+		value.Failure = nil
+		data, err := proto.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("encode checkpoint: %w", err)
+		}
 		row, err := q.InsertAgentInstanceCheckpoint(ctx, dbgen.InsertAgentInstanceCheckpointParams{
-			ID: checkpoint.ID, Namespace: checkpoint.Namespace, SourceInstanceID: checkpoint.SourceInstanceID,
-			UserID: checkpoint.UserID, RequestID: checkpoint.RequestID, HeadTaskID: boundary.ID,
+			ID: uuid.MustParse(checkpoint.GetId()), SourceInstanceID: uuid.MustParse(checkpoint.GetAgentInstanceId()),
+			UserID: userID, RequestID: requestID, HeadTaskID: boundary.ID,
 			HistorySequence: *boundary.HistorySequence, SnapshotAtespace: *boundary.SnapshotAtespace,
-			SnapshotName: *boundary.SnapshotName, SnapshotUid: *boundary.SnapshotUid,
+			SnapshotUri:          *boundary.SnapshotUri,
 			SnapshotContentScope: *boundary.SnapshotContentScope,
 			SourceContextID:      instance.ContextID, PreparedRevision: instance.PreparedRevision,
-			SourceLabels: instance.Labels,
+			SourceLabels: instance.Labels, Data: data,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, existingErr := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
-				UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+				UserID: userID, RequestID: requestID,
 			})
 			if existingErr == nil {
-				if existing.SourceInstanceID != checkpoint.SourceInstanceID {
-					return dbpkg.ErrIdempotencyConflict
+				if existing.SourceInstanceID != uuid.MustParse(checkpoint.GetAgentInstanceId()) {
+					return ErrIdempotencyConflict
 				}
-				result = toAgentInstanceCheckpoint(existing)
-				return nil
+				snapshot = checkpointSnapshot(existing)
+				result, existingErr = toAgentInstanceCheckpoint(existing)
+				return existingErr
 			}
 			if errors.Is(existingErr, pgx.ErrNoRows) {
-				return dbpkg.ErrAgentInstanceConflict
+				return ErrAgentInstanceConflict
 			}
 			return fmt.Errorf("get conflicting AgentInstance checkpoint request: %w", existingErr)
 		}
 		if err != nil {
 			return fmt.Errorf("insert AgentInstance checkpoint: %w", err)
 		}
-		result = toAgentInstanceCheckpoint(row)
-		return nil
+		snapshot = checkpointSnapshot(row)
+		result, err = toAgentInstanceCheckpoint(row)
+		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("reserve AgentInstance checkpoint: %w", err)
+		return nil, nil, fmt.Errorf("reserve AgentInstance checkpoint: %w", err)
+	}
+	return result, snapshot, nil
+}
+
+func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID, snapshotURI, failure string) (*apiv1alpha1.Checkpoint, error) {
+	if (tagUID == "") == (failure == "") || (tagUID == "") != (snapshotURI == "") {
+		return nil, fmt.Errorf("finalize AgentInstance checkpoint requires tag UID and snapshot URI, or failure")
+	}
+	var result *apiv1alpha1.Checkpoint
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		result, err = toAgentInstanceCheckpoint(row)
+		if err != nil {
+			return err
+		}
+		if row.State != "CREATING" {
+			if (row.State == "READY" && row.TagUid == tagUID && row.SnapshotUri == snapshotURI && failure == "") ||
+				(row.State == "FAILED" && tagUID == "" && result.GetFailure().GetMessage() == failure) {
+				return nil
+			}
+			return ErrNotFound
+		}
+		result.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY
+		if failure != "" {
+			result.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED
+			result.Failure = &apiv1alpha1.Failure{Reason: "SnapshotTagFailed", Message: failure}
+		}
+		data, err := proto.Marshal(result)
+		if err != nil {
+			return fmt.Errorf("encode checkpoint: %w", err)
+		}
+		row, err = q.FinalizeAgentInstanceCheckpoint(ctx, dbgen.FinalizeAgentInstanceCheckpointParams{ID: row.ID, TagUid: tagUID, SnapshotUri: snapshotURI, Data: data})
+		if err != nil {
+			return notFoundOr(err)
+		}
+		result, err = toAgentInstanceCheckpoint(row)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("finalize AgentInstance checkpoint: %w", err)
 	}
 	return result, nil
 }
 
-func (c *postgresClient) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID, failure string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	if (tagUID == "") == (failure == "") {
-		return nil, fmt.Errorf("finalize AgentInstance checkpoint requires exactly one of tag UID or failure")
-	}
-	row, err := c.q.FinalizeAgentInstanceCheckpoint(ctx, dbgen.FinalizeAgentInstanceCheckpointParams{
-		ID: uuid.MustParse(id), TagUid: tagUID, Failure: failure,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("finalize AgentInstance checkpoint: %w", notFoundOr(err))
-	}
-	return toAgentInstanceCheckpoint(row), nil
-}
-
-func (c *postgresClient) GetAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*apiv1alpha1.Checkpoint, error) {
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance checkpoint: %w", notFoundOr(err))
 	}
-	return toAgentInstanceCheckpoint(row), nil
+	return toAgentInstanceCheckpoint(row)
 }
 
-func (c *postgresClient) ListAgentInstanceCheckpoints(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceCheckpoint, error) {
+// GetAgentInstanceCheckpointSnapshot returns the private snapshot reference and
+// tag UID for lifecycle workflows. Finalization replaces the source URI with the
+// retained Tag copy; ready references are immutable.
+func (c *Client) GetAgentInstanceCheckpointSnapshot(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
+	row, err := c.q.GetAgentInstanceCheckpointSnapshot(ctx, dbgen.GetAgentInstanceCheckpointSnapshotParams{ID: uuid.MustParse(id), UserID: userID})
+	if err != nil {
+		return nil, "", fmt.Errorf("get checkpoint snapshot: %w", notFoundOr(err))
+	}
+	if _, err := toAgentInstanceCheckpoint(row); err != nil {
+		return nil, "", err
+	}
+	return checkpointSnapshot(row), row.TagUid, nil
+}
+
+func checkpointSnapshot(row dbgen.AgentInstanceCheckpoint) *AgentInstanceTaskSnapshot {
+	return &AgentInstanceTaskSnapshot{
+		Atespace: row.SnapshotAtespace, URI: row.SnapshotUri, ContentScope: row.SnapshotContentScope,
+	}
+}
+
+func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
 	rows, err := c.q.ListAgentInstanceCheckpoints(ctx, dbgen.ListAgentInstanceCheckpointsParams{
-		Namespace: namespace, SourceInstanceID: uuid.MustParse(instanceID), UserID: userID, AfterID: afterID, PageSize: int32(limit),
+		SourceInstanceID: uuid.MustParse(instanceID), UserID: userID, AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance checkpoints: %w", err)
 	}
-	result := make([]dbpkg.AgentInstanceCheckpoint, len(rows))
+	result := make([]*apiv1alpha1.Checkpoint, len(rows))
 	for i := range rows {
-		result[i] = *toAgentInstanceCheckpoint(rows[i])
+		checkpoint, err := toAgentInstanceCheckpoint(rows[i])
+		if err != nil {
+			return nil, err
+		}
+		result[i] = checkpoint
 	}
 	return result, nil
 }
 
-func (c *postgresClient) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	row, err := c.q.BeginDeleteAgentInstanceCheckpoint(ctx, dbgen.BeginDeleteAgentInstanceCheckpointParams{
-		Namespace: namespace, ID: uuid.MustParse(id), UserID: userID,
+// BeginDeleteAgentInstanceCheckpoint hides the checkpoint and returns the snapshot
+// and tag identity needed for cleanup after the transaction commits.
+func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
+	var snapshot *AgentInstanceTaskSnapshot
+	var tagUID string
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if row.UserID != userID {
+			return ErrNotFound
+		}
+		checkpoint, err := toAgentInstanceCheckpoint(row)
+		if err != nil {
+			return err
+		}
+		checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
+		data, err := proto.Marshal(checkpoint)
+		if err != nil {
+			return fmt.Errorf("encode checkpoint: %w", err)
+		}
+		row, err = q.BeginDeleteAgentInstanceCheckpoint(ctx, dbgen.BeginDeleteAgentInstanceCheckpointParams{ID: row.ID, UserID: userID, Data: data})
+		if err != nil {
+			return notFoundOr(err)
+		}
+		snapshot, tagUID = checkpointSnapshot(row), row.TagUid
+		_, err = toAgentInstanceCheckpoint(row)
+		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("begin delete AgentInstance checkpoint: %w", notFoundOr(err))
+		return nil, "", fmt.Errorf("begin delete AgentInstance checkpoint: %w", err)
 	}
-	return toAgentInstanceCheckpoint(row), nil
+	return snapshot, tagUID, nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) error {
-	_, err := c.q.DeleteAgentInstanceCheckpoint(ctx, dbgen.DeleteAgentInstanceCheckpointParams{Namespace: namespace, ID: uuid.MustParse(id), UserID: userID})
+func (c *Client) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) error {
+	_, err := c.q.DeleteAgentInstanceCheckpoint(ctx, dbgen.DeleteAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance checkpoint: %w", err)
 	}
 	return nil
+}
+
+// applyAgentInstanceTaskEvent updates the durable protobuf according to the event's
+// scope. A status change leaves artifacts intact; an append keeps existing parts;
+// replacement artifacts replace their content; snapshots retain unchanged artifacts by ID.
+// Never infer the identity of an anonymous part from its position in a list.
+func applyAgentInstanceTaskEvent(stored *a2apb.Task, task *a2a.Task, event a2a.Event) (*a2apb.Task, error) {
+	projection := *task
+	projection.History = nil
+	next, err := pbconv.ToProtoTask(&projection)
+	if err != nil {
+		return nil, fmt.Errorf("convert task projection: %w", err)
+	}
+	if stored == nil {
+		return next, nil
+	}
+	if stored.Id != next.Id || stored.ContextId != next.ContextId {
+		return nil, fmt.Errorf("task update changes stored identity")
+	}
+	previous, err := pbconv.FromProtoTask(stored)
+	if err != nil {
+		return nil, err
+	}
+	knownPrevious, err := pbconv.ToProtoTask(previous)
+	if err != nil {
+		return nil, err
+	}
+	if info := event.TaskInfo(); info.TaskID != task.ID || info.ContextID != task.ContextID {
+		return nil, fmt.Errorf("task event changes stored identity")
+	}
+	update, err := pbconv.ToProtoStreamResponse(event)
+	if err != nil {
+		return nil, fmt.Errorf("convert task event: %w", err)
+	}
+	switch payload := update.Payload.(type) {
+	case *a2apb.StreamResponse_Task:
+		// A snapshot may reorder artifacts without changing their content. Keep
+		// those canonical subtrees; changed content is an explicit replacement.
+		artifacts := slices.Clone(next.Artifacts)
+		for index, artifact := range artifacts {
+			oldIndex := slices.IndexFunc(stored.Artifacts, func(a *a2apb.Artifact) bool { return a.ArtifactId == artifact.ArtifactId })
+			if oldIndex >= 0 && proto.Equal(knownPrevious.Artifacts[oldIndex], artifact) {
+				artifacts[index] = stored.Artifacts[oldIndex]
+			}
+		}
+		stored.Artifacts = artifacts
+		if !proto.Equal(knownPrevious.Metadata, next.Metadata) {
+			stored.Metadata = next.Metadata
+		}
+	case *a2apb.StreamResponse_StatusUpdate:
+		if !proto.Equal(payload.StatusUpdate.Status, next.Status) {
+			return nil, fmt.Errorf("task status does not match event")
+		}
+		if metadata := payload.StatusUpdate.Metadata; metadata != nil {
+			if stored.Metadata == nil {
+				stored.Metadata = &structpb.Struct{}
+			}
+			proto.Merge(stored.Metadata, metadata)
+		}
+	case *a2apb.StreamResponse_ArtifactUpdate:
+		artifact := payload.ArtifactUpdate.Artifact
+		index := slices.IndexFunc(stored.Artifacts, func(a *a2apb.Artifact) bool { return a.ArtifactId == artifact.ArtifactId })
+		switch {
+		case payload.ArtifactUpdate.Append:
+			if index < 0 {
+				return nil, fmt.Errorf("no artifact found for append")
+			}
+			existing := stored.Artifacts[index]
+			existing.Parts = append(existing.Parts, artifact.Parts...)
+			if artifact.Metadata != nil {
+				if existing.Metadata == nil {
+					existing.Metadata = &structpb.Struct{}
+				}
+				proto.Merge(existing.Metadata, artifact.Metadata)
+			}
+		case index < 0:
+			stored.Artifacts = append(stored.Artifacts, artifact)
+		default:
+			stored.Artifacts[index] = artifact
+		}
+	case *a2apb.StreamResponse_Message:
+		// The caller supplies the submitted/completed status for a reply/result.
+	default:
+		return nil, fmt.Errorf("unsupported task event %T", event)
+	}
+	if _, artifactUpdate := event.(*a2a.TaskArtifactUpdateEvent); !artifactUpdate {
+		stored.Status.State = next.Status.State
+		if !proto.Equal(knownPrevious.Status.Message, next.Status.Message) {
+			stored.Status.Message = next.Status.Message
+		}
+		if !proto.Equal(knownPrevious.Status.Timestamp, next.Status.Timestamp) {
+			stored.Status.Timestamp = next.Status.Timestamp
+		}
+	}
+	stored.History = nil
+
+	// The gateway owns A2A transition semantics. Reject a different projection
+	// rather than committing state/index columns that disagree with the payload.
+	known, err := pbconv.FromProtoTask(stored)
+	if err != nil {
+		return nil, err
+	}
+	knownProto, err := pbconv.ToProtoTask(known)
+	if err != nil {
+		return nil, err
+	}
+	if !proto.Equal(knownProto, next) {
+		return nil, fmt.Errorf("task projection does not match event")
+	}
+	return stored, nil
 }
 
 func marshalAgentInstanceTask(task *a2a.Task) ([]byte, error) {
@@ -1152,17 +1463,32 @@ func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Mess
 }
 
 func storeAgentInstanceTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, taskID string, messages []*a2a.Message) (int64, error) {
-	var sequence int64
+	converted := make([]*a2apb.Message, 0, len(messages))
 	for _, message := range messages {
 		if message == nil || message.ID == "" {
 			return 0, fmt.Errorf("AgentInstance task history contains a message without an ID")
 		}
-		data, err := marshalAgentInstanceTaskEvent(message)
+		event, err := pbconv.ToProtoStreamResponse(message)
+		if err != nil {
+			return 0, err
+		}
+		converted = append(converted, event.GetMessage())
+	}
+	return storeProtoTaskMessages(ctx, q, contextID, taskID, converted)
+}
+
+func storeProtoTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, taskID string, messages []*a2apb.Message) (int64, error) {
+	var sequence int64
+	for _, message := range messages {
+		if message.GetMessageId() == "" {
+			return 0, fmt.Errorf("AgentInstance task history contains a message without an ID")
+		}
+		data, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Message{Message: message}})
 		if err != nil {
 			return 0, err
 		}
 		sequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-			ContextID: contextID, TaskID: &taskID, MessageID: &message.ID, Data: data,
+			ContextID: contextID, TaskID: &taskID, MessageID: &message.MessageId, Data: data,
 		})
 		if err != nil {
 			return 0, err
@@ -1227,7 +1553,7 @@ func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
-func (c *postgresClient) GetTool(ctx context.Context, name string) (*dbpkg.Tool, error) {
+func (c *Client) GetTool(ctx context.Context, name string) (*Tool, error) {
 	row, err := c.q.GetTool(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tool %s: %w", name, notFoundOr(err))
@@ -1235,35 +1561,35 @@ func (c *postgresClient) GetTool(ctx context.Context, name string) (*dbpkg.Tool,
 	return toTool(row), nil
 }
 
-func (c *postgresClient) ListTools(ctx context.Context) ([]dbpkg.Tool, error) {
+func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	rows, err := c.q.ListTools(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
-	tools := make([]dbpkg.Tool, len(rows))
+	tools := make([]Tool, len(rows))
 	for i, r := range rows {
 		tools[i] = *toTool(r)
 	}
 	return tools, nil
 }
 
-func (c *postgresClient) ListToolsForServer(ctx context.Context, serverName, groupKind string) ([]dbpkg.Tool, error) {
+func (c *Client) ListToolsForServer(ctx context.Context, serverName, groupKind string) ([]Tool, error) {
 	rows, err := c.q.ListToolsForServer(ctx, dbgen.ListToolsForServerParams{ServerName: serverName, GroupKind: groupKind})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools for server: %w", err)
 	}
-	tools := make([]dbpkg.Tool, len(rows))
+	tools := make([]Tool, len(rows))
 	for i, r := range rows {
 		tools[i] = *toTool(r)
 	}
 	return tools, nil
 }
 
-func (c *postgresClient) DeleteToolsForServer(ctx context.Context, serverName, groupKind string) error {
+func (c *Client) DeleteToolsForServer(ctx context.Context, serverName, groupKind string) error {
 	return c.q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{ServerName: serverName, GroupKind: groupKind})
 }
 
-func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha3.MCPTool) error {
+func (c *Client) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha3.MCPTool) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{
 			ServerName: serverName, GroupKind: groupKind,
@@ -1284,7 +1610,7 @@ func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, 
 	})
 }
 
-func (c *postgresClient) GetToolServer(ctx context.Context, name string) (*dbpkg.ToolServer, error) {
+func (c *Client) GetToolServer(ctx context.Context, name string) (*ToolServer, error) {
 	row, err := c.q.GetToolServer(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tool server %s: %w", name, notFoundOr(err))
@@ -1292,19 +1618,19 @@ func (c *postgresClient) GetToolServer(ctx context.Context, name string) (*dbpkg
 	return toToolServer(row), nil
 }
 
-func (c *postgresClient) ListToolServers(ctx context.Context) ([]dbpkg.ToolServer, error) {
+func (c *Client) ListToolServers(ctx context.Context) ([]ToolServer, error) {
 	rows, err := c.q.ListToolServers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tool servers: %w", err)
 	}
-	servers := make([]dbpkg.ToolServer, len(rows))
+	servers := make([]ToolServer, len(rows))
 	for i, r := range rows {
 		servers[i] = *toToolServer(r)
 	}
 	return servers, nil
 }
 
-func (c *postgresClient) StoreToolServer(ctx context.Context, ts *dbpkg.ToolServer) (*dbpkg.ToolServer, error) {
+func (c *Client) StoreToolServer(ctx context.Context, ts *ToolServer) (*ToolServer, error) {
 	row, err := c.q.UpsertToolServer(ctx, dbgen.UpsertToolServerParams{
 		Name:          ts.Name,
 		GroupKind:     ts.GroupKind,
@@ -1317,13 +1643,13 @@ func (c *postgresClient) StoreToolServer(ctx context.Context, ts *dbpkg.ToolServ
 	return toToolServer(row), nil
 }
 
-func (c *postgresClient) DeleteToolServer(ctx context.Context, serverName, groupKind string) error {
+func (c *Client) DeleteToolServer(ctx context.Context, serverName, groupKind string) error {
 	return c.q.SoftDeleteToolServer(ctx, dbgen.SoftDeleteToolServerParams{Name: serverName, GroupKind: groupKind})
 }
 
 // ── Agent Memory (vector search) ──────────────────────────────────────────────
 
-func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Memory) error {
+func (c *Client) StoreAgentMemory(ctx context.Context, memory *Memory) error {
 	id, err := c.q.InsertMemory(ctx, dbgen.InsertMemoryParams{
 		AgentName:   &memory.AgentName,
 		UserID:      &memory.UserID,
@@ -1340,7 +1666,7 @@ func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Mem
 	return nil
 }
 
-func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbpkg.Memory) error {
+func (c *Client) StoreAgentMemories(ctx context.Context, memories []*Memory) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
 		for _, m := range memories {
 			id, err := q.InsertMemory(ctx, dbgen.InsertMemoryParams{
@@ -1361,7 +1687,7 @@ func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbp
 	})
 }
 
-func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := c.q.SearchAgentMemory(ctx, dbgen.SearchAgentMemoryParams{
 		Embedding:   embedding,
@@ -1374,11 +1700,11 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
 
-	results := make([]dbpkg.AgentMemorySearchResult, len(rows))
+	results := make([]AgentMemorySearchResult, len(rows))
 	for i, r := range rows {
 		score, _ := r.Score.(float64)
-		results[i] = dbpkg.AgentMemorySearchResult{
-			Memory: dbpkg.Memory{
+		results[i] = AgentMemorySearchResult{
+			Memory: Memory{
 				ID:          r.ID,
 				AgentName:   derefStr(r.AgentName),
 				UserID:      derefStr(r.UserID),
@@ -1407,7 +1733,7 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 	return results, nil
 }
 
-func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userID string) ([]dbpkg.Memory, error) {
+func (c *Client) ListAgentMemories(ctx context.Context, agentName, userID string) ([]Memory, error) {
 	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := c.q.ListAgentMemories(ctx, dbgen.ListAgentMemoriesParams{
 		AgentName:   &agentName,
@@ -1417,14 +1743,14 @@ func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userI
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent memories: %w", err)
 	}
-	memories := make([]dbpkg.Memory, len(rows))
+	memories := make([]Memory, len(rows))
 	for i, r := range rows {
 		memories[i] = *toMemory(r)
 	}
 	return memories, nil
 }
 
-func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
+func (c *Client) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
 	if err := c.q.DeleteAgentMemory(ctx, dbgen.DeleteAgentMemoryParams{
 		AgentName: &agentName,
 		UserID:    &userID,
@@ -1443,7 +1769,7 @@ func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userI
 	return nil
 }
 
-func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
+func (c *Client) PruneExpiredMemories(ctx context.Context) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.ExtendMemoryTTL(ctx); err != nil {
 			return fmt.Errorf("failed to extend TTL for popular memories: %w", err)
@@ -1457,8 +1783,8 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
-func toTool(r dbgen.Tool) *dbpkg.Tool {
-	return &dbpkg.Tool{
+func toTool(r dbgen.Tool) *Tool {
+	return &Tool{
 		ID:          r.ID,
 		ServerName:  r.ServerName,
 		GroupKind:   r.GroupKind,
@@ -1469,8 +1795,8 @@ func toTool(r dbgen.Tool) *dbpkg.Tool {
 	}
 }
 
-func toToolServer(r dbgen.Toolserver) *dbpkg.ToolServer {
-	return &dbpkg.ToolServer{
+func toToolServer(r dbgen.Toolserver) *ToolServer {
+	return &ToolServer{
 		Name:          r.Name,
 		GroupKind:     r.GroupKind,
 		CreatedAt:     derefTime(r.CreatedAt),
@@ -1481,19 +1807,21 @@ func toToolServer(r dbgen.Toolserver) *dbpkg.ToolServer {
 	}
 }
 
-func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentInstanceCheckpoint {
-	return &dbpkg.AgentInstanceCheckpoint{
-		ID: row.ID, Namespace: row.Namespace, SourceInstanceID: row.SourceInstanceID,
-		SourceContextID: row.SourceContextID, UserID: row.UserID,
-		RequestID: row.RequestID, HeadTaskID: row.HeadTaskID, HistorySequence: row.HistorySequence,
-		SnapshotAtespace: row.SnapshotAtespace, SnapshotName: row.SnapshotName, SnapshotUID: row.SnapshotUid,
-		SnapshotContentScope: row.SnapshotContentScope, PreparedRevision: derefStr(row.PreparedRevision),
-		TagUID: row.TagUid, State: row.State, Failure: row.Failure, CreatedAt: row.CreatedAt,
+func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) (*apiv1alpha1.Checkpoint, error) {
+	checkpoint := &apiv1alpha1.Checkpoint{}
+	if err := proto.Unmarshal(row.Data, checkpoint); err != nil {
+		return nil, fmt.Errorf("decode checkpoint %s: %w", row.ID, err)
 	}
+	if checkpoint.GetId() != row.ID.String() || checkpoint.GetAgentInstanceId() != row.SourceInstanceID.String() ||
+		checkpoint.GetHeadTaskId() != row.HeadTaskID || checkpoint.GetHistorySequence() != uint64(row.HistorySequence) ||
+		strings.TrimPrefix(checkpoint.GetState().String(), "CHECKPOINT_STATE_") != row.State {
+		return nil, fmt.Errorf("checkpoint %s payload disagrees with indexed columns", row.ID)
+	}
+	return checkpoint, nil
 }
 
-func toMemory(r dbgen.Memory) *dbpkg.Memory {
-	return &dbpkg.Memory{
+func toMemory(r dbgen.Memory) *Memory {
+	return &Memory{
 		ID:          r.ID,
 		AgentName:   derefStr(r.AgentName),
 		UserID:      derefStr(r.UserID),

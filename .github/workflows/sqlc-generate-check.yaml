@@ -7,6 +7,7 @@ on:
       - "go/core/internal/database/queries/**"
       - "go/core/internal/database/sqlc.yaml"
       - "go/core/pkg/migrations/**"
+  merge_group:
 
 jobs:
   check:
@@ -26,10 +27,10 @@ jobs:
 
       - name: Fail if generated files differ
         run: |
-          if ! git diff --quiet go/core/internal/database/gen/; then
+          if ! git diff --quiet go/core/internal/database/internal/dbgen/; then
             echo "ERROR: sqlc generate produced changes. Run sqlc generate locally and commit the result."
             echo ""
-            git diff go/core/internal/database/gen/
+            git diff go/core/internal/database/internal/dbgen/
             exit 1
           fi
           echo "OK: generated files are up to date."

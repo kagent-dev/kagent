@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyMcpServerForm,
+  suggestName,
   toCreateRequest,
   validateMcpServerForm,
   type McpServerFormValues,
@@ -70,5 +71,27 @@ describe("validateMcpServerForm — scheme-less URL", () => {
   it("still requires a host", () => {
     const issues = validateMcpServerForm(urlForm({ url: "" }));
     expect(issues.find((i) => i.field === "url")).toBeDefined();
+  });
+});
+
+describe("suggestName", () => {
+  it("derives a name from the host or the package", () => {
+    expect(suggestName(urlForm({ name: "", url: "mcp.example.com/sse" }))).toBe(
+      "mcp-example-com",
+    );
+    expect(
+      suggestName({
+        ...emptyMcpServerForm(),
+        kind: "command",
+        packageName: "@modelcontextprotocol/server-filesystem@1.2.3",
+      }),
+    ).toBe("server-filesystem");
+  });
+
+  it("suggests nothing when there is nothing to derive from", () => {
+    // Otherwise an unrelated edit — switching kind, typing a namespace — writes
+    // an invented name into a field the reader has not filled in yet.
+    expect(suggestName(emptyMcpServerForm())).toBe("");
+    expect(suggestName({ ...emptyMcpServerForm(), kind: "command" })).toBe("");
   });
 });

@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -21,15 +22,19 @@ import (
 // creates through the public API.
 func TestAgentInstanceLifecycle(t *testing.T) {
 	t.Parallel()
-	target := os.Getenv("KAGENT_E2E_GRPC_TARGET")
-	if target == "" {
-		target = os.Getenv("KAGENT_GRPC_URL")
+	rawURL := os.Getenv("KAGENT_E2E_API_URL")
+	if rawURL == "" {
+		rawURL = os.Getenv("KAGENT_API_URL")
 	}
-	if target == "" {
-		t.Skip("KAGENT_E2E_GRPC_TARGET is not set")
+	if rawURL == "" {
+		t.Skip("KAGENT_E2E_API_URL is not set")
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		t.Fatalf("invalid KAGENT_E2E_API_URL %q: %v", rawURL, err)
 	}
 
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(parsed.Host, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("connect to kagent gRPC API: %v", err)
 	}
@@ -40,7 +45,7 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	client := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 
 	created, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace: "kagent", AgentTemplate: "smoke", Harness: "kagent", RequestId: uuid.NewString(),
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"}, RequestId: uuid.NewString(),
 	})
 	if err != nil {
 		t.Fatalf("create AgentInstance: %v", err)
@@ -51,7 +56,7 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	}
 
 	deleted, err := client.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-		Namespace: "kagent", AgentInstanceId: instance.GetId(),
+		AgentInstanceId: instance.GetId(),
 	})
 	if err != nil {
 		t.Fatalf("delete AgentInstance: %v", err)
@@ -61,7 +66,7 @@ func TestAgentInstanceLifecycle(t *testing.T) {
 	}
 
 	_, err = client.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{
-		Namespace: "kagent", AgentInstanceId: instance.GetId(),
+		AgentInstanceId: instance.GetId(),
 	})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("get deleted AgentInstance error = %v, want NotFound", err)

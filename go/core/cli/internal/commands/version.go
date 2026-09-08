@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func runVersion(clientSet *client.ClientSet) {
+func runVersion(clientSet *client.APIClientSet) {
 	versionInfo := map[string]string{
 		"kagent_version": version.Version,
 		"git_commit":     version.GitCommit,
@@ -43,15 +43,18 @@ func NewVersionCmd() *cobra.Command {
 			}
 			// The CLI version prints whether or not the server answers; an
 			// unreachable server reports its version as "unknown".
-			session, _ := connection.Open(cmd.Context(), options)
+			session, _ := connection.OpenAPI(cmd.Context(), options)
 			if session == nil {
-				clientSet := options.Client()
+				clientSet, err := options.APIClient()
+				if err != nil {
+					return err
+				}
 				defer clientSet.Close() //nolint:errcheck
 				runVersion(clientSet)
 				return nil
 			}
 			defer session.Close() //nolint:errcheck
-			runVersion(session.Client)
+			runVersion(session.API)
 			return nil
 		},
 	}

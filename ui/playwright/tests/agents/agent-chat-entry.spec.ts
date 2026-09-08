@@ -65,7 +65,7 @@ test("agents: the list is the way in to a conversation, through the agent", asyn
 
     // That conversation's chat, not a generic one: the namespace and the instance id
     // are both in the path, and opening the wrong one is a failure this would catch.
-    await expect(page).toHaveURL(new RegExp(`/agents/kagent/${instances.ready}/chat$`));
+    await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
     await expect(page.getByTestId("chat-panel")).toBeVisible();
   });
 

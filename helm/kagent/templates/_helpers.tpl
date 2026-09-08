@@ -234,12 +234,12 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/* Public gRPC endpoint advertised by AgentInstance Agent Cards. */}}
+{{/* Public A2A endpoint advertised by AgentInstance Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}
 {{- .Values.controller.a2aGatewayUrl -}}
 {{- else -}}
-{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.grpc | int) -}}
+{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 {{- end -}}
 

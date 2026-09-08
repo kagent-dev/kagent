@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
@@ -92,9 +93,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Claude config: %w", err)
 	}
-	cardJSON, err := json.Marshal(agentTemplateCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.Root.Template))
 	if err != nil {
-		return nil, fmt.Errorf("marshal Claude agent card: %w", err)
+		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}
 	provenance, err := c.buildProvenance(ctx, input, environment)
 	if err != nil {
@@ -114,7 +115,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		Revision: v2translator.Revision{
 			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 			Image: harness.Spec.Workload.Image, Environment: environment,
-			ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+			ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Provenance:       provenance, EgressDestinations: egress,

@@ -48,14 +48,14 @@ func runCreate(
 	}
 	ensureRequestID(cfg)
 
-	session, err := connection.Open(ctx, options)
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return create(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
+	return create(ctx, session.API.AgentInstance, session.Namespace, cfg, format, out)
 }
 
 func ensureRequestID(cfg *CreateCfg) {
@@ -75,14 +75,14 @@ func runDelete(
 	if err != nil {
 		return err
 	}
-	session, err := connection.Open(ctx, options)
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return deleteAgentInstance(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
+	return deleteAgentInstance(ctx, session.API.AgentInstance, cfg, format, out)
 }
 
 func create(
@@ -94,8 +94,8 @@ func create(
 	out io.Writer,
 ) error {
 	response, err := client.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
-		Namespace: namespace, Harness: cfg.Harness,
-		AgentTemplate: cfg.AgentTemplate, RequestId: cfg.RequestID,
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Harness},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.AgentTemplate}, RequestId: cfg.RequestID,
 	})
 	if err != nil {
 		return fmt.Errorf("create AgentInstance: %w", err)
@@ -109,13 +109,12 @@ func create(
 func deleteAgentInstance(
 	ctx context.Context,
 	client lifecycleClient,
-	namespace string,
 	cfg *DeleteCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	response, err := client.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
-		Namespace: namespace, AgentInstanceId: cfg.InstanceID,
+		AgentInstanceId: cfg.InstanceID,
 	})
 	if status.Code(err) == codes.Aborted {
 		return fmt.Errorf("delete AgentInstance: another lifecycle operation is in progress; retry after it completes: %w", err)

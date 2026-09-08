@@ -384,7 +384,7 @@ export const MOCK_INSTANCE_CREATOR = "alice@example.com";
 export const mockAgentInstances: AgentInstance[] = [
   {
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-    namespace: "kagent",
+
     // Named by the reader, which is the point of the column: this is the row that
     // proves a list of conversations can read as a list of things somebody chose.
     name: "Tuesday cluster review",
@@ -401,7 +401,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
-    namespace: "kagent",
+
     // Unnamed, and the same agent as the row above — so the two sit side by side
     // and a page that rendered a bare UUID as a name would be obvious.
     name: "",
@@ -426,7 +426,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "0a7d6c58-9e21-4b3c-a05d-4e8f1b6d2277",
-    namespace: "kagent",
+
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/support-triage",
@@ -444,7 +444,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332",
-    namespace: "kagent",
+
     name: "Escalation from the weekend",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/support-triage",
@@ -464,7 +464,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "3c9a1e64-8d47-4f22-b71a-05e2d8c96b18",
-    namespace: "kagent",
+
     name: "",
     creator: "bob@example.com",
     harness: "kagent/k8s-agent",
@@ -479,7 +479,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "8e5f2b09-6c14-4a7d-83b0-9d1c7e40f5a6",
-    namespace: "kagent",
+
     // Somebody else's, and named — so a row that cannot be opened still reads as a
     // conversation rather than as a blank.
     name: "Search relevance spike",
@@ -504,7 +504,7 @@ export const mockAgentInstances: AgentInstance[] = [
      * a test rather than being prose nobody ever sees.
      */
     id: "f07b3d41-2e58-4c96-a8d3-6b9042e17c5f",
-    namespace: "kagent",
+
     name: "",
     creator: "",
     harness: undefined,
@@ -519,7 +519,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
-    namespace: "analytics",
+
     name: "Weekly numbers",
     creator: MOCK_INSTANCE_CREATOR,
     // The harness in `analytics`, not the one in `kagent`: admission never crosses a
@@ -546,7 +546,7 @@ export const mockAgentInstances: AgentInstance[] = [
    */
   {
     id: "1d4f7a92-0c38-4e61-b25a-7f930e6c8b14",
-    namespace: "kagent",
+
     name: "Drafting the runbook",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/k8s-agent",
@@ -571,7 +571,7 @@ export const mockAgentInstances: AgentInstance[] = [
      * agent" note, which is a quieter thing to disturb.
      */
     id: "9c3b7e18-40d6-4a52-8b71-e2f05c96a3d7",
-    namespace: "kagent",
+
     name: "Scratch conversation",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/support-triage",
@@ -586,7 +586,7 @@ export const mockAgentInstances: AgentInstance[] = [
   },
   {
     id: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
-    namespace: "kagent",
+
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/fast-lane",

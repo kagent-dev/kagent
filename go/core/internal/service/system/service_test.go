@@ -7,7 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -38,10 +38,10 @@ type fakeATEClient struct {
 }
 
 type fakeRuntimeRevisionStore struct {
-	harnesses []dbpkg.ActorTemplateHarness
+	harnesses []database.ActorTemplateHarness
 }
 
-func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error) {
 	return store.harnesses, nil
 }
 
@@ -142,7 +142,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
 				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-					GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
+					GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
 				}},
 			}},
 			actors: []*ateapipb.Actor{{
@@ -159,7 +159,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 				WorkerPod:       "worker-0",
 			}},
 		}
-		revisions := &fakeRuntimeRevisionStore{harnesses: []dbpkg.ActorTemplateHarness{{
+		revisions := &fakeRuntimeRevisionStore{harnesses: []database.ActorTemplateHarness{{
 			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
 		}}}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions)
@@ -172,7 +172,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.ActorTemplates, 1)
 		assert.Equal(t, "Ready", result.ActorTemplates[0].Phase)
 		assert.Equal(t, "template-uid", result.ActorTemplates[0].GoldenActorID)
-		assert.Equal(t, "golden", result.ActorTemplates[0].GoldenSnapshot)
+		assert.Equal(t, "s3://snapshots/golden", result.ActorTemplates[0].GoldenSnapshot)
 		assert.Equal(t, "gvisor", result.ActorTemplates[0].SandboxClass)
 		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
 		assert.True(t, result.ActorTemplates[0].ManagedByKagent)

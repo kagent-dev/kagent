@@ -17,7 +17,9 @@ export const routes = {
   models: "/models",
   modelNew: "/models/new",
   mcpServers: "/mcp",
+  mcpServerNew: "/mcp/new",
   prompts: "/prompts",
+  promptNew: "/prompts/new",
   substrate: "/substrate",
   /* The templates list is a tab of the agents page now. The old address still
      resolves — it redirects here — but a test should go where the reader goes. */
@@ -96,12 +98,12 @@ export const agentNewChat = (
 export const SIBLING_OF_READY = instances.suspended;
 
 /** Where one agent's conversation lives. */
-export const agentChat = (id: string, namespace = "kagent") =>
-  `/agents/${namespace}/${id}/chat`;
+export const agentChat = (id: string) =>
+  `/agents/${id}/chat`;
 
 /** Where one agent's record lives. */
-export const agentDetail = (id: string, namespace = "kagent") =>
-  `/agents/${namespace}/${id}`;
+export const agentDetail = (id: string) =>
+  `/agents/${id}`;
 
 /**
  * How the mock backend should behave for a navigation.

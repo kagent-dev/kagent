@@ -80,13 +80,9 @@ export function instanceFields(
     ),
   },
   {
-    key: "namespace",
-    label: "Namespace",
-    children: <ValueOrNotReported value={data.namespace} mono />,
-  },
-  {
     key: "creator",
     label: "Creator",
+    span: 2,
     children: <ValueOrNotReported value={data.creator} />,
   },
   {
@@ -118,7 +114,7 @@ export function instanceFields(
     children: data.agentTemplate ? (
       <Link
         to={buildPath(paths.agentTemplateDetail, {
-          namespace: data.namespace,
+          namespace: data.agentTemplate?.split("/")[0],
           name: bareName(data.agentTemplate),
         })}
         data-testid="instance-template-link"

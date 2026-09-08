@@ -74,8 +74,7 @@ const PAGE_SIZE = 25;
  * for with `all_creators` always — the old "include agents created by others" switch
  * is gone, because a list that hides most of a shared cluster by default is a list
  * that misleads. But an instance is scoped to its creator on *read*:
- * `GetAgentInstance` resolves through `WHERE namespace = $1 AND id = $2 AND user_id
- * = $3`, and the A2A gateway reads the instance through that same call. So a
+ * `GetAgentInstance` resolves through `WHERE id = $1 AND user_id = $2`, and the A2A gateway reads the instance through that same call. So a
  * conversation somebody else started is listable and genuinely not openable — its
  * record page and its chat both answer `NotFound`, and a share link is the only way
  * in.
@@ -160,7 +159,7 @@ export function AgentPage() {
    */
   const { fromAgentsList } = useExtensionAgentLinks();
   const chatPath = (row: AgentInstance) => {
-    const own = agentUrl.chat({ namespace: row.namespace, id: row.id });
+    const own = agentUrl.chat({ id: row.id });
     if (!fromAgentsList) return own;
     try {
       const destination = fromAgentsList(row);
@@ -214,7 +213,7 @@ export function AgentPage() {
      */
     const mine = rows.filter((row) => openableIds?.has(row.id) ?? true);
     await Promise.all(
-      mine.map((row) => apiClient.agentInstances.remove(row.namespace, row.id)),
+      mine.map((row) => apiClient.agentInstances.remove(row.id)),
     );
 
     /*
@@ -252,7 +251,7 @@ export function AgentPage() {
     try {
       const targets = rows.filter((row) => selectedIds.includes(row.id));
       await Promise.all(
-        targets.map((row) => apiClient.agentInstances.remove(row.namespace, row.id)),
+        targets.map((row) => apiClient.agentInstances.remove(row.id)),
       );
       await conversations.refresh();
       setSelectedIds([]);
@@ -311,7 +310,7 @@ export function AgentPage() {
               )}
               <ExtensionSlot
                 id="app_agents_agentsList_agentListItem_badge"
-                context={{ agentName: row.id, namespace: row.namespace }}
+                context={{ agentName: row.id, namespace: row.agentTemplate?.split("/")[0] ?? "" }}
               />
             </Space>
           );
@@ -378,7 +377,7 @@ export function AgentPage() {
                 kind="conversation"
                 name={conversationTitle(row)}
                 disabled={!mine}
-                onDelete={() => apiClient.agentInstances.remove(row.namespace, row.id)}
+                onDelete={() => apiClient.agentInstances.remove(row.id)}
                 onDeleted={conversations.refresh}
               />
             </Space>
@@ -412,17 +411,17 @@ export function AgentPage() {
     <PageFrame>
       {/*
         The same rail as the conversation surfaces.
-        
+
         This page was the one agent surface without it, so arriving here from a chat
         took the navigation away — and arriving from the agents list gave a reader no
         way onward except back. The rail is the navigation *within* an agent, so a
         surface that drops it is a dead end.
-        
+
         Mounted with no conversation selected, which is what this page is: nothing is
         current, so the rail highlights nothing, and the two entries that are about one
         conversation — its record, and the switcher — are withheld rather than pointed
         at an id that does not exist.
-        
+
         Its conversation list and the table below are the same rows twice, and that is
         deliberate rather than overlooked: the rail is chrome that persists across every
         agent surface, and the table is this page's content, carrying state, counts,
@@ -446,7 +445,7 @@ export function AgentPage() {
       >
         {namespace ? (
           <AgentRail
-            agentRef={{ namespace }}
+            agentRef={{}}
             agentTitle={{
               primary: agentTemplate ?? namespace,
               secondary: harness ? `on ${harness}` : namespace,
@@ -502,7 +501,6 @@ export function AgentPage() {
             data-testid="agent-not-admitted"
           />
         ) : null}
-
 
         {blockedReason ? (
           <Alert
@@ -623,7 +621,7 @@ export function AgentPage() {
         <Table<AgentInstance>
           data-testid="conversations-table"
           /* A bigger target than antd's default 16px box.
-             
+
              The row is selected by hitting a square barely larger than the tick drawn
              inside it, which is a miss more often than it should be — and the cell
              around it is already the width of a column, so the space costs nothing.
@@ -685,7 +683,7 @@ export function AgentPage() {
 
       {/*
         What this agent is, beside the conversations it has had.
-        
+
         The same panel the chat carries, given the pair rather than a conversation: the
         model, the instructions and the tools all live on the template, so this page can
         show them without an instance to read them through. Only the prepared revision
@@ -705,13 +703,13 @@ export function AgentPage() {
 
         {/*
           Deleting the agent, which is more than one object.
-          
+
           An agent is a (template, harness) pair, and the pair is *derived* — the
           controller materialises it from admission and retires it when the labels stop
           matching. So there is nothing to delete called "the agent": deleting the
           template retires the pair, which is what stops new conversations, and the
           conversations already open are separate rows that outlive it.
-          
+
           Both halves happen here, conversations first. Deleting the template alone
           would leave every conversation running against a retired pair with no way back
           to the thing that describes them.
@@ -801,13 +799,13 @@ function AgentIdentityCard({ agent }: { agent: AgentPair }) {
     <Card data-testid="agent-identity" size="small">
       {/*
         Three blocks that reflow, not three columns of a table.
-        
+
         This was an antd `Descriptions`, which lays its items out as a table — so the
         three sections could not wrap independently and, at a narrow window, three
         monospace values were squeezed into thirds of the width until they overran.
         Making the item content break `anywhere` stopped the overrun and replaced it
         with a worse problem: names broken mid-word, a few letters per line.
-        
+
         As an auto-fitting grid each field is its own section with a floor on how narrow
         it may get, so they drop to two and then to one as the window narrows rather
         than being compressed past readability. The values then need no character-level

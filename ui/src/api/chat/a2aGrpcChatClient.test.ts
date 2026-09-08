@@ -28,7 +28,6 @@ import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
 import type { ChatEvent, ChatMessage } from "./types";
 
 const CONVERSATION = {
-  namespace: "kagent",
   id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
 };
 
@@ -593,7 +592,7 @@ describe("A2AGrpcChatClient.send", () => {
 
     // Both halves of the address, because the gateway routes on the metadata rather
     // than on a path — a gRPC method has no path to put them in.
-    expect(namespaceHeader).toBe(CONVERSATION.namespace);
+    expect(namespaceHeader).toBeNull();
     expect(idHeader).toBe(CONVERSATION.id);
     // The instance's own id is the conversation's context, and the gateway refuses a
     // value that is neither empty nor its own.

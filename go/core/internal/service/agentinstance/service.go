@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
@@ -24,12 +24,12 @@ const (
 
 type store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
-	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
-	UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceShare, error)
-	DeleteAgentInstanceShare(context.Context, string, string, string) error
+	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
+	UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error)
+	DeleteAgentInstanceShare(context.Context, string, string) error
 }
 
 type instanceWorkflow interface {
@@ -40,13 +40,12 @@ type instanceWorkflow interface {
 }
 
 type ListRequest struct {
-	Namespace   string
 	MatchLabels map[string]string
 	AllCreators bool
 	// AgentTemplate and Harness narrow the page to one agent's conversations.
 	// Either may be given alone.
-	AgentTemplate string
-	Harness       string
+	AgentTemplate *apiv1alpha1.ResourceReference
+	Harness       *apiv1alpha1.ResourceReference
 	PageSize      int
 	PageToken     string
 }
@@ -57,7 +56,7 @@ type ListResult struct {
 }
 
 type ShareListResult struct {
-	Shares        []dbpkg.AgentInstanceShare
+	Shares        []*apiv1alpha1.AgentInstanceShare
 	NextPageToken string
 }
 
@@ -74,11 +73,11 @@ func NewService(store store, authorizer auth.Authorizer, workflow instanceWorkfl
 // Create reserves and converges a new conversation. name is optional; an empty
 // name leaves the conversation identified by its id, which is how every instance
 // created before names existed behaves.
-func (s *Service) Create(ctx context.Context, namespace, harness, template, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateCreate(namespace, harness, template, requestID); err != nil {
+func (s *Service) Create(ctx context.Context, harness, template *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateCreate(harness, template, requestID); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+template)
+	creator, err := s.authorize(ctx, auth.VerbCreate, "")
 	if err != nil {
 		return nil, err
 	}
@@ -87,14 +86,14 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
 	}
 	instance, _, err := s.store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
-		Id: id.String(), Namespace: namespace, Creator: creator, Name: name,
-		Harness:       &apiv1alpha1.ResourceReference{Namespace: namespace, Name: harness},
-		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: template},
+		Id: id.String(), Creator: creator, Name: name,
+		Harness:       harness,
+		AgentTemplate: template,
 	}, requestID)
-	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewFailedPrecondition("AgentTemplate and Harness do not have a ready prepared revision", err)
 	}
 	if err != nil {
@@ -107,16 +106,16 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 	return instance, nil
 }
 
-func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateIdentity(namespace, id); err != nil {
+func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+id)
+	creator, err := s.authorize(ctx, auth.VerbGet, id)
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
@@ -128,13 +127,13 @@ func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.A
 // Rename sets the conversation's display name. Unlike every other read on this
 // service this is a write, and it authorizes as one: a reader who may list and
 // open a conversation must not be able to retitle it.
-func (s *Service) Rename(ctx context.Context, namespace, id, name string) (*apiv1alpha1.AgentInstance, error) {
-	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
+func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.AgentInstance, error) {
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.UpdateAgentInstanceName(ctx, namespace, id, creator, name)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	instance, err := s.store.UpdateAgentInstanceName(ctx, id, creator, name)
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
@@ -144,15 +143,12 @@ func (s *Service) Rename(ctx context.Context, namespace, id, name string) (*apiv
 }
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	if err := validateNamespace(request.Namespace); err != nil {
-		return ListResult{}, err
-	}
-	userID, err := s.authorize(ctx, auth.VerbGet, request.Namespace)
+	userID, err := s.authorize(ctx, auth.VerbGet, "")
 	if err != nil {
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "AgentInstanceAllCreators", request.Namespace); err != nil {
+		if _, err := s.authorizeType(ctx, auth.VerbGet, "AgentInstanceAllCreators", ""); err != nil {
 			return ListResult{}, err
 		}
 	}
@@ -167,8 +163,8 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	instances, err := s.store.ListAgentInstances(ctx, dbpkg.AgentInstanceQuery{
-		Namespace: request.Namespace, UserID: userID, AllUsers: request.AllCreators,
+	instances, err := s.store.ListAgentInstances(ctx, database.AgentInstanceQuery{
+		UserID: userID, AllUsers: request.AllCreators,
 		MatchLabels:   request.MatchLabels,
 		AgentTemplate: request.AgentTemplate, Harness: request.Harness,
 		AfterID: afterID, Limit: pageSize + 1,
@@ -184,23 +180,23 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	return result, nil
 }
 
-func (s *Service) Delete(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateIdentity(namespace, id); err != nil {
+func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbDelete, namespace+"/"+id)
+	creator, err := s.authorize(ctx, auth.VerbDelete, id)
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Delete(ctx, instance)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
 	}
 	if err != nil {
@@ -209,23 +205,23 @@ func (s *Service) Delete(ctx context.Context, namespace, id string) (*apiv1alpha
 	return instance, nil
 }
 
-func (s *Service) Suspend(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateIdentity(namespace, id); err != nil {
+func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Suspend(ctx, instance)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
 	}
 	if err != nil {
@@ -234,23 +230,23 @@ func (s *Service) Suspend(ctx context.Context, namespace, id string) (*apiv1alph
 	return instance, nil
 }
 
-func (s *Service) Resume(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateIdentity(namespace, id); err != nil {
+func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(id); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
-	if errors.Is(err, dbpkg.ErrNotFound) {
+	instance, err := s.store.GetAgentInstance(ctx, id, creator)
+	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Resume(ctx, instance)
-	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
 		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
 	}
 	if err != nil {
@@ -259,20 +255,20 @@ func (s *Service) Resume(ctx context.Context, namespace, id string) (*apiv1alpha
 	return instance, nil
 }
 
-func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permission string) (*dbpkg.AgentInstanceShare, string, error) {
-	if err := validateIdentity(namespace, instanceID); err != nil {
+func (s *Service) CreateShare(ctx context.Context, instanceID string, permission apiv1alpha1.AgentInstanceSharePermission) (*apiv1alpha1.AgentInstanceShare, string, error) {
+	if err := validateIdentity(instanceID); err != nil {
 		return nil, "", err
 	}
-	if permission != "READ_ONLY" && permission != "READ_WRITE" {
+	if permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE {
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbCreate, instanceID+"/shares")
 	if err != nil {
 		return nil, "", err
 	}
-	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, userID)
+	_, err = s.store.GetAgentInstance(ctx, instanceID, userID)
 	if err != nil {
-		if errors.Is(err, dbpkg.ErrNotFound) {
+		if errors.Is(err, database.ErrNotFound) {
 			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
 		}
 		return nil, "", serviceerrors.NewInternal("Failed to get AgentInstance", err)
@@ -285,21 +281,19 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
-	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
-		ID: id, Namespace: namespace, InstanceID: uuid.MustParse(instanceID),
-		Permission: permission, TokenHash: tokenHash,
-	})
+	share, err := s.store.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: instanceID,
+		Permission: permission}, tokenHash)
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
 	}
 	return share, token, nil
 }
 
-func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, pageSize int, pageToken string) (ShareListResult, error) {
-	if err := validateIdentity(namespace, instanceID); err != nil {
+func (s *Service) ListShares(ctx context.Context, instanceID string, pageSize int, pageToken string) (ShareListResult, error) {
+	if err := validateIdentity(instanceID); err != nil {
 		return ShareListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbGet, instanceID+"/shares")
 	if err != nil {
 		return ShareListResult{}, err
 	}
@@ -313,28 +307,28 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, userID, afterID, pageSize+1)
+	shares, err := s.store.ListAgentInstanceShares(ctx, instanceID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInternal("Failed to list AgentInstance shares", err)
 	}
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
-		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID.String())
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].GetId())
 		result.Shares = result.Shares[:pageSize]
 	}
 	return result, nil
 }
 
-func (s *Service) RevokeShare(ctx context.Context, namespace, shareID string) error {
-	if err := validateIdentity(namespace, shareID); err != nil {
+func (s *Service) RevokeShare(ctx context.Context, shareID string) error {
+	if err := validateIdentity(shareID); err != nil {
 		return err
 	}
-	userID, err := s.authorize(ctx, auth.VerbDelete, namespace+"/shares/"+shareID)
+	userID, err := s.authorize(ctx, auth.VerbDelete, "shares/"+shareID)
 	if err != nil {
 		return err
 	}
-	if err := s.store.DeleteAgentInstanceShare(ctx, namespace, shareID, userID); err != nil {
-		if errors.Is(err, dbpkg.ErrNotFound) {
+	if err := s.store.DeleteAgentInstanceShare(ctx, shareID, userID); err != nil {
+		if errors.Is(err, database.ErrNotFound) {
 			return serviceerrors.NewNotFound("AgentInstance share not found", err)
 		}
 		return serviceerrors.NewInternal("Failed to revoke AgentInstance share", err)
@@ -362,7 +356,7 @@ func (s *Service) RevokeShare(ctx context.Context, namespace, shareID string) er
  */
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
 	if share, ok := auth.ShareContextFrom(ctx); ok {
-		if _, id, found := strings.Cut(name, "/"); found && share.IsForAgentInstance(id) {
+		if share.IsForAgentInstance(name) {
 			if _, ok := auth.AuthSessionFrom(ctx); !ok {
 				return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 			}
@@ -384,15 +378,17 @@ func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceTyp
 	return principal.User.ID, nil
 }
 
-func validateCreate(namespace, harness, template, requestID string) error {
-	if err := validateNamespace(namespace); err != nil {
-		return err
+func validateCreate(harness, template *apiv1alpha1.ResourceReference, requestID string) error {
+	for _, ref := range []*apiv1alpha1.ResourceReference{harness, template} {
+		if problems := utilvalidation.IsDNS1123Label(ref.GetNamespace()); len(problems) > 0 {
+			return serviceerrors.NewInvalidArgument("target namespace is invalid: "+strings.Join(problems, "; "), nil)
+		}
+		if problems := utilvalidation.IsDNS1123Subdomain(ref.GetName()); len(problems) > 0 {
+			return serviceerrors.NewInvalidArgument("target name is invalid: "+strings.Join(problems, "; "), nil)
+		}
 	}
-	if problems := utilvalidation.IsDNS1123Subdomain(harness); len(problems) > 0 {
-		return serviceerrors.NewInvalidArgument("harness is invalid: "+strings.Join(problems, "; "), nil)
-	}
-	if problems := utilvalidation.IsDNS1123Subdomain(template); len(problems) > 0 {
-		return serviceerrors.NewInvalidArgument("agent_template is invalid: "+strings.Join(problems, "; "), nil)
+	if harness.GetNamespace() != template.GetNamespace() {
+		return serviceerrors.NewInvalidArgument("Harness and AgentTemplate must be in the same namespace", nil)
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
 		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
@@ -400,19 +396,9 @@ func validateCreate(namespace, harness, template, requestID string) error {
 	return nil
 }
 
-func validateIdentity(namespace, id string) error {
-	if err := validateNamespace(namespace); err != nil {
-		return err
-	}
+func validateIdentity(id string) error {
 	if _, err := uuid.Parse(id); err != nil {
 		return serviceerrors.NewInvalidArgument("AgentInstance identifier is invalid", err)
-	}
-	return nil
-}
-
-func validateNamespace(namespace string) error {
-	if problems := utilvalidation.IsDNS1123Label(namespace); len(problems) > 0 {
-		return serviceerrors.NewInvalidArgument("namespace is invalid: "+strings.Join(problems, "; "), nil)
 	}
 	return nil
 }

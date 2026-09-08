@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"time"
 
-	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -55,7 +55,7 @@ type ToolDiscoverer interface {
 
 // CatalogStore persists the ToolService projection of an MCPServer.
 type CatalogStore interface {
-	StoreToolServer(context.Context, *dbmodel.ToolServer) (*dbmodel.ToolServer, error)
+	StoreToolServer(context.Context, *database.ToolServer) (*database.ToolServer, error)
 	RefreshToolsForServer(context.Context, string, string, ...*v1alpha3.MCPTool) error
 	DeleteToolsForServer(context.Context, string, string) error
 	DeleteToolServer(context.Context, string, string) error
@@ -154,7 +154,7 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *kmcp.MCPServer, 
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	if _, err := r.catalog.StoreToolServer(ctx, &dbmodel.ToolServer{
+	if _, err := r.catalog.StoreToolServer(ctx, &database.ToolServer{
 		Name: name, GroupKind: mcpServerGroupKind, Description: "N/A", LastConnected: lastConnected,
 	}); err != nil {
 		return fmt.Errorf("store server: %w", err)

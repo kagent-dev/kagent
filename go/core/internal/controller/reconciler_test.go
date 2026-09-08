@@ -5,10 +5,14 @@ import (
 	"testing"
 	"time"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -26,7 +30,8 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
-	revision := &v2translator.Revision{}
+	revision := &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
+	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
 	revisionID, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +75,9 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 		t.Fatal("pending revision was not stored correctly")
 	}
 
-	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
+	require.True(t, proto.Equal(revision.AgentCard, store.revision.AgentCard))
+
+	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
@@ -120,23 +127,23 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 }
 
 type fakeRuntimeRevisionStore struct {
-	pair             *dbpkg.AgentTemplateHarnessPair
-	revision         *dbpkg.RuntimeRevision
+	pair             *database.AgentTemplateHarnessPair
+	revision         *database.RuntimeRevision
 	markedSuccessful bool
 	retired          string
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair database.AgentTemplateHarnessPair) error {
 	s.pair = &pair
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision dbpkg.RuntimeRevision) error {
+func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
 	s.revision = &revision
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, dbpkg.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error {
 	s.markedSuccessful = true
 	return nil
 }
@@ -146,7 +153,7 @@ func (s *fakeRuntimeRevisionStore) RetireAgentTemplateHarnessPair(_ context.Cont
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevision, error) {
+func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error) {
 	return nil, nil
 }
 
