@@ -450,30 +450,43 @@ test("substrate: every table sorts through the same header, and the paged two or
   });
 
   await test.step("2. the actors' order covers every row, and cycles back to the default", async () => {
-    const order = page.getByTestId("substrate-actors-order");
-    await expect(order).toContainText("status, then actor");
-
+    const actors = page.getByTestId("substrate-actors-table");
     // The header, not the words in it: clicking the cell is what a reader does on the
     // two tables above, and this is the assertion that the same click works here.
-    const header = page.getByTestId("substrate-actors-table").locator("th").first();
-    await header.click();
-    await expect(order).toContainText("Sorted across the whole inventory: actor, ascending");
+    const header = actors.locator("th").first();
+    const ids = () =>
+      actors
+        .locator(".ant-table-row")
+        .evaluateAll((rows) =>
+          rows.map((row) => row.querySelector(".ant-table-cell")?.textContent?.trim() ?? ""),
+        );
+
+    // `aria-sort` rather than a caption: it is the state a screen reader is given, so
+    // asserting it covers the reader who cannot see the arrow.
+    await expect(header).not.toHaveAttribute("aria-sort", /.*/);
+    const byStatus = await ids();
 
     await header.click();
-    await expect(order).toContainText("Sorted across the whole inventory: actor, descending");
+    await expect(header).toHaveAttribute("aria-sort", "ascending");
+    // The rows themselves, because a header that says ascending over rows that never
+    // moved is the failure worth catching.
+    await expect.poll(ids).toEqual([...byStatus].sort());
+
+    await header.click();
+    await expect(header).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(ids).toEqual([...byStatus].sort().reverse());
 
     // antd's third click clears the sort, which for a read that always arrives ordered
     // means the order it falls back to rather than no order at all.
     await header.click();
-    await expect(order).toContainText("status, then actor");
+    await expect(header).not.toHaveAttribute("aria-sort", /.*/);
+    await expect.poll(ids).toEqual(byStatus);
   });
 
   await test.step("3. and the workers' the same", async () => {
-    const order = page.getByTestId("substrate-workers-order");
-    await expect(order).toContainText("pool, then pod");
-
-    await page.getByTestId("substrate-workers-table").locator("th").nth(1).click();
-    await expect(order).toContainText("Sorted across the whole inventory: pool, ascending");
+    const header = page.getByTestId("substrate-workers-table").locator("th").nth(1);
+    await header.click();
+    await expect(header).toHaveAttribute("aria-sort", "ascending");
   });
 
   await test.step("4. the actors are grouped by status, in an order nobody asked for", async () => {

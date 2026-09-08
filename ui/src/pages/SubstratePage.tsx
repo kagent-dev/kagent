@@ -684,16 +684,6 @@ function SectionSearch({
   );
 }
 
-/** Where a section's rows come from, said once beside the section rather than per row. */
-function SectionHint({ children }: { children: string }) {
-  const theme = useTheme();
-  return (
-    <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: 400 }}>
-      {children}
-    </Text>
-  );
-}
-
 /**
  * The Agent Substrate's own inventory.
  *
@@ -850,40 +840,26 @@ function pagedSortChange<Row, Field extends string>(
  * while claiming to poll would be the polling bug this codebase has already shipped
  * once.
  */
-function AppliedOrder({
-  field,
-  order,
-  computedAt,
-  labels,
-  testId,
-}: {
-  field: string;
-  order: SubstrateSortOrder;
-  computedAt?: string;
-  labels: Record<string, string>;
-  testId: string;
-}) {
+/**
+ * How old the rows are.
+ *
+ * The controller memoises these reads, so a table that has not changed and a read that
+ * is not happening look identical without this.
+ */
+function ReadAge({ computedAt, testId }: { computedAt?: string; testId: string }) {
   const theme = useTheme();
   const age = useDataAge(computedAt);
+  // Nothing rather than an empty line: a controller that did not say when it read leaves
+  // a gap under the table otherwise.
+  if (!age) return null;
 
   return (
-    <Text
-      data-testid={testId}
-      css={{ color: theme.color.textMuted, fontSize: 12 }}
-    >
-      Sorted across the whole inventory: {labels[field] ?? field}
-      {order === "desc" ? ", descending" : ", ascending"}
-      {age ? ` · ${age}` : ""}
+    <Text data-testid={testId} css={{ color: theme.color.textMuted, fontSize: 12 }}>
+      {age}
     </Text>
   );
 }
 
-/**
- * How old an answer is, in words, ticking as it ages.
- *
- * A clock of its own, because nothing else re-renders while the page sits idle: a
- * stale figure with no ticking age beside it is indistinguishable from a live one.
- */
 function useDataAge(computedAt: string | undefined): string {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -1709,7 +1685,6 @@ export function SubstratePage() {
           }
           extra={
             <Space size={8}>
-              <SectionHint>Kubernetes WorkerPool resources</SectionHint>
               <SectionSearch
                 label="Search worker pools"
                 testId="substrate-pools-search"
@@ -1746,7 +1721,6 @@ export function SubstratePage() {
           }
           extra={
             <Space size={8}>
-              <SectionHint>Golden snapshots and harness-owned templates</SectionHint>
               <SectionSearch
                 label="Search actor templates"
                 testId="substrate-templates-search"
@@ -1783,7 +1757,6 @@ export function SubstratePage() {
           }
           extra={
             <Space size={8}>
-              <SectionHint>Live state from ate-api, one page at a time</SectionHint>
               <SectionSearch
                 label="Search actors"
                 testId="substrate-actors-search"
@@ -1859,18 +1832,9 @@ export function SubstratePage() {
             }}
           />
 
-          <AppliedOrder
+          <ReadAge
             testId="substrate-actors-order"
-            field={actors.data?.appliedSortField ?? "default"}
-            order={actors.data?.appliedSortOrder ?? "asc"}
             computedAt={actors.data?.computedAt}
-            labels={{
-              default: "status, then actor",
-              status: "status",
-              actorId: "actor",
-              template: "template",
-              workerPod: "worker pod",
-            }}
           />
 
           <PageControls
@@ -1893,7 +1857,6 @@ export function SubstratePage() {
           }
           extra={
             <Space size={8}>
-              <SectionHint>ateom pod assignments</SectionHint>
               <SectionSearch
                 label="Search workers"
                 testId="substrate-workers-search"
@@ -1945,17 +1908,9 @@ export function SubstratePage() {
             }}
           />
 
-          <AppliedOrder
+          <ReadAge
             testId="substrate-workers-order"
-            field={workers.data?.appliedSortField ?? "default"}
-            order={workers.data?.appliedSortOrder ?? "asc"}
             computedAt={workers.data?.computedAt}
-            labels={{
-              default: "pool, then pod",
-              pool: "pool",
-              pod: "pod",
-              actor: "actor",
-            }}
           />
 
           <PageControls
