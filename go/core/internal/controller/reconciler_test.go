@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -117,6 +118,39 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 		t.Fatal("desired status was not written with a transition time")
 	}
 
+	// A previously ready digest may be deleting. Waiting must not consume the
+	// bounded error retries, and must stop once the reference can be acquired.
+	state.ObservedActorTemplate = templates.template
+	reconciliations.UpdateObject(state)
+	store.pairErr = database.ErrRuntimeRevisionDeleting
+	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
+	_, waiting := reconciler.waitingForDeletion.Load(state.ResourceName())
+	require.True(t, waiting)
+	pollCtx, cancelPoll := context.WithCancel(t.Context())
+	t.Cleanup(cancelPoll)
+	queued := make(chan string, 1)
+	reconciler.pairs = controllers.NewQueue("test-deleting-revision", controllers.WithGenericReconciler(func(item any) error {
+		select {
+		case queued <- item.(string):
+		case <-pollCtx.Done():
+		}
+		return nil
+	}))
+	go reconciler.pairs.Run(pollCtx.Done())
+	go reconciler.pollPendingTemplates(pollCtx.Done())
+	select {
+	case key := <-queued:
+		require.Equal(t, state.ResourceName(), key, "a deleting digest must be polled even with a cached golden snapshot")
+	case <-time.After(5 * time.Second):
+		t.Fatal("preparation was not requeued while awaiting deletion")
+	}
+	cancelPoll()
+	require.NoError(t, reconciler.pairs.WaitForClose(time.Second))
+	store.pairErr = nil
+	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
+	_, waiting = reconciler.waitingForDeletion.Load(state.ResourceName())
+	require.False(t, waiting)
+
 	reconciliations.DeleteObject(state.ResourceName())
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
@@ -126,7 +160,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 }
 
-func TestReconcilerCollectsRetiredRevisions(t *testing.T) {
+func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database test in short mode")
 	}
@@ -197,19 +231,21 @@ func TestReconcilerCollectsRetiredRevisions(t *testing.T) {
 			states.UpdateObject(state)
 			deleteErr := errors.New("Substrate unavailable")
 			templates.deleteErr, templates.deletedBeforeError = deleteErr, deletedBeforeError
-			require.ErrorIs(t, reconciler.reconcilePair(ctx, state.ResourceName()), deleteErr)
+			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
+			collector := NewRuntimeRevisionGC(reconciler.collections.ActorTemplates, store, templates)
+			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.NoError(t, err)
 			_, _, err = store.CreateAgentInstance(ctx, request, "replacement-instance")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			templates.deleteErr = nil
-			restarted := &Reconciler{collections: reconciler.collections, templates: templates, store: database.NewClient(pool)}
-			require.NoError(t, restarted.reconcilePair(ctx, state.ResourceName()))
+			restarted := NewRuntimeRevisionGC(reconciler.collections.ActorTemplates, database.NewClient(pool), templates)
+			restarted.sweep(ctx)
 			require.Nil(t, templates.template)
-			require.Empty(t, restarted.collections.ActorTemplates.List())
+			require.Empty(t, restarted.observed.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.ErrorIs(t, err, database.ErrNotFound)
-			require.NoError(t, restarted.reconcilePair(ctx, state.ResourceName()))
+			restarted.sweep(ctx)
 		})
 	}
 }
@@ -253,11 +289,12 @@ type fakeRuntimeRevisionStore struct {
 	retired          string
 	revisionErr      error
 	markErr          error
+	pairErr          error
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair database.AgentTemplateHarnessPair) error {
 	s.pair = &pair
-	return nil
+	return s.pairErr
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
@@ -282,18 +319,6 @@ func (s *fakeRuntimeRevisionStore) RetireAllPairIdentities(_ context.Context, na
 }
 
 func (s *fakeRuntimeRevisionStore) RetirePairIdentitiesExcept(context.Context, database.AgentTemplateHarnessPair) error {
-	return nil
-}
-
-func (s *fakeRuntimeRevisionStore) BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error) {
-	return nil, nil
-}
-
-func (s *fakeRuntimeRevisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error) {
-	return nil, nil
-}
-
-func (s *fakeRuntimeRevisionStore) DeleteUnreferencedRuntimeRevision(context.Context, string, string) error {
 	return nil
 }
 

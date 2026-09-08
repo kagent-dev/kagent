@@ -133,7 +133,7 @@ Implement the single-boundary compiler using existing SandboxAgent compilation c
 - Record sanitized prepared revisions in PostgreSQL, including source identities and hashes, resolved egress destinations, Kubernetes ActorTemplate namespace/name/UID, phase, and golden-snapshot identity.
 - Keep the last successful revision usable while a newer revision prepares.
 - Retain revisions through direct database foreign keys from attachments and, later, instances and checkpoints. Do not add generic artifacts or reference counters.
-- Retire attachments without blocking Harness or AgentTemplate deletion; delete unreferenced versions immediately and let the last instance/checkpoint release trigger deferred cleanup.
+- Retire attachments without blocking Harness or AgentTemplate deletion; collect unreferenced revisions asynchronously after the last pair, instance, or checkpoint reference is released.
 
 Compile resolved model and MCP destinations into the revision for K5 to materialize as actor-scoped egress policy. K3 does not create EgressPolicy or Credential resources.
 
@@ -172,7 +172,7 @@ Creation:
 - Retrying a canceled create with the same request ID re-enters the same deterministic workflow.
 - Never duplicate a member while creation outcome is unknown.
 
-Deletion fences interaction, deletes owned Actors, releases its prepared-revision foreign key, triggers cleanup when that was the final reference, and leaves an indefinitely retained V1 tombstone. No retention configuration is added until scale requires one.
+Deletion fences interaction, deletes owned Actors, releases its prepared-revision foreign key, makes the revision eligible for cleanup when that was the final reference, and leaves an indefinitely retained V1 tombstone. No retention configuration is added until scale requires one.
 
 Start with single-member prepared revisions; K9 extends the same state machine to multiple members without changing the public API.
 
@@ -189,6 +189,7 @@ Substrate models each immutable prepared runtime as one uniquely named, Atespace
 - Keep prepared-revision retention, latest-successful selection, AgentInstance/checkpoint/fork behavior, and public APIs unchanged.
 - Require existing AgentInstances to be recreated. Do not add dual-write, backfill, or a legacy compatibility path.
 - Delete the Kubernetes ActorTemplate construction, collection, reconciliation, diagnostics, and RBAC bridge in the same cutover. WorkerPool remains a Kubernetes resource.
+- Run runtime revision GC as a leader-elected manager runnable with startup and one-minute periodic sweeps. Mark deletion durably before calling Substrate, retain the database row until cleanup succeeds, and isolate candidate failures from other cleanup and pair preparation. Each candidate has a one-minute deadline; preparation polls while its desired digest is being deleted.
 - Delete each unreferenced template and its golden Actor. Until Substrate implements that documented behavior, the kagent adapter deletes `ate-golden/<template UID>` explicitly; snapshot reclamation remains Substrate GC's responsibility.
 
 Completion requires clean-install preparation, lifecycle, checkpoint, fork, conflict, failed-golden, and unreferenced-revision cleanup coverage against ate-api resources.

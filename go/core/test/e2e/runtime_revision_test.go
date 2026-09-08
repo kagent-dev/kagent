@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -36,6 +37,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	t.Cleanup(cancel)
 	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 	checkpoints := apiv1alpha1.NewCheckpointServiceClient(conn)
+	system := apiv1alpha1.NewSystemServiceClient(conn)
 	request := func(name string) *apiv1alpha1.CreateAgentInstanceRequest {
 		return &apiv1alpha1.CreateAgentInstanceRequest{
 			AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
@@ -67,6 +69,25 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	source := created.GetAgentInstance()
 	t.Cleanup(func() { deleteInstance(source.GetId()) })
 	send(source.GetId())
+
+	// Observe the actual runtime through the public status API before deleting
+	// references, so an empty response cannot falsely prove cleanup later.
+	backend, err := system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
+	require.NoError(t, err)
+	require.Empty(t, backend.GetAteApiError())
+	var runtimeName, runtimeNamespace, goldenActorID string
+	for _, actor := range backend.GetActors() {
+		if actor.GetActorId() == substrate.ActorName(source.GetId()) {
+			runtimeName, runtimeNamespace = actor.GetActorTemplateName(), actor.GetActorTemplateNamespace()
+		}
+	}
+	require.NotEmpty(t, runtimeName)
+	for _, actorTemplate := range backend.GetActorTemplates() {
+		if actorTemplate.GetNamespace() == runtimeNamespace && actorTemplate.GetName() == runtimeName {
+			goldenActorID = actorTemplate.GetGoldenActorId()
+		}
+	}
+	require.NotEmpty(t, goldenActorID)
 
 	template := &v1alpha3.AgentTemplate{}
 	require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKey{Namespace: "kagent", Name: templateName}, template))
@@ -132,8 +153,28 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 	require.NoError(t, err)
 
-	// Recreating the name drives the current opportunistic GC and must prepare
-	// a new identity despite the retired pair and deleted checkpoint above.
+	// GC must remove both the template and golden actor after the final
+	// checkpoint disappears, without another template event to drive cleanup.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		backend, err := system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
+		if err != nil {
+			return false, err
+		}
+		require.Empty(t, backend.GetAteApiError())
+		for _, actorTemplate := range backend.GetActorTemplates() {
+			if actorTemplate.GetNamespace() == runtimeNamespace && actorTemplate.GetName() == runtimeName {
+				return false, nil
+			}
+		}
+		for _, actor := range backend.GetActors() {
+			if actor.GetAtespace() == "ate-golden" && actor.GetActorId() == goldenActorID {
+				return false, nil
+			}
+		}
+		return true, nil
+	}), "final checkpoint deletion must eventually collect its runtime without template changes")
+
+	// Recreating the name must prepare a new identity after collection.
 	replacement := template.DeepCopy()
 	replacement.ObjectMeta = metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name, Labels: template.Labels}
 	replacement.Spec.ModelConfig.Name = originalModelName
