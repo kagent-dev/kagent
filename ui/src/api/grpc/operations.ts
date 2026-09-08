@@ -572,6 +572,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
 function toAgentInstance(instance: PbAgentInstance): AgentInstance {
   return {
     id: instance.id,
+    contextId: instance.contextId,
     // Carried through as it arrives, empty included: empty means unnamed, which is
     // a state the controller writes deliberately and every row predating the column
     // is in. Turning it into `undefined` here would make every caller handle two

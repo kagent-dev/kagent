@@ -42,8 +42,8 @@ const LIFECYCLE_POLL_MS = 1_000;
  *
  * ## There is no session id here
  *
- * An `AgentInstance` *is* the conversation. The A2A gateway files every task under
- * the instance as the task's `contextId`, and `ListTasks` for the instance is the
+ * An `AgentInstance` owns the conversation's context and isolated history.
+ * `ListTasks` scoped to the instance returns its
  * transcript — so `/agents/:id/chat` is the whole address, and there is
  * nothing to put in a session segment.
  *
@@ -78,8 +78,8 @@ export function AgentChatPage() {
   const instances = useAgentInstances();
 
   const conversation = useMemo(
-    () => (id ? { id } : undefined),
-    [id],
+    () => (id ? { id, contextId: instance.data?.contextId } : undefined),
+    [id, instance.data?.contextId],
   );
   /**
    * Resume a suspended conversation before any turn begins.
