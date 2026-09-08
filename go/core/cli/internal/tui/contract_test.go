@@ -14,7 +14,7 @@ import (
 func TestTUIReachesOnlyV2ControlPlane(t *testing.T) {
 	forbidden := []string{
 		"api/httpapi",
-		"api/database",
+		"core/internal/database",
 		"client.Agent.",
 		"client.Session.",
 		"client.Tool.",

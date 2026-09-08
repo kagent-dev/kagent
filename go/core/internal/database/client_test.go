@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
@@ -35,7 +34,7 @@ func TestConcurrentToolServerUpserts(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			for j := range numUpserts {
-				toolServer := &dbpkg.ToolServer{
+				toolServer := &ToolServer{
 					Name:        serverName,
 					GroupKind:   groupKind,
 					Description: fmt.Sprintf("Description from goroutine %d iteration %d", goroutineID, j),
@@ -67,7 +66,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	groupKind := "RemoteMCPServer"
 
 	// Create the tool server first
-	_, err := client.StoreToolServer(ctx, &dbpkg.ToolServer{
+	_, err := client.StoreToolServer(ctx, &ToolServer{
 		Name:        serverName,
 		GroupKind:   groupKind,
 		Description: "Test server",
@@ -112,7 +111,7 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	client := NewClient(db)
 	ctx := context.Background()
 
-	server := &dbpkg.ToolServer{
+	server := &ToolServer{
 		Name:        "idempotent-server",
 		GroupKind:   "RemoteMCPServer",
 		Description: "Original description",
@@ -179,7 +178,7 @@ func TestStoreAndSearchAgentMemory(t *testing.T) {
 	agentName := "test-agent"
 	userID := "test-user"
 
-	memories := []*dbpkg.Memory{
+	memories := []*Memory{
 		{
 			ID:        "mem-1",
 			AgentName: agentName,
@@ -228,7 +227,7 @@ func TestStoreAgentMemoriesBatch(t *testing.T) {
 	agentName := "batch-agent"
 	userID := "batch-user"
 
-	memories := []*dbpkg.Memory{
+	memories := []*Memory{
 		{ID: "b-1", AgentName: agentName, UserID: userID, Content: "batch memory 1", Embedding: makeEmbedding(0.2)},
 		{ID: "b-2", AgentName: agentName, UserID: userID, Content: "batch memory 2", Embedding: makeEmbedding(0.4)},
 		{ID: "b-3", AgentName: agentName, UserID: userID, Content: "batch memory 3", Embedding: makeEmbedding(0.6)},
@@ -253,7 +252,7 @@ func TestSearchAgentMemoryLimit(t *testing.T) {
 	userID := "limit-user"
 
 	for i := range 5 {
-		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+		err := client.StoreAgentMemory(ctx, &Memory{
 			ID:        fmt.Sprintf("lim-%d", i),
 			AgentName: agentName,
 			UserID:    userID,
@@ -289,10 +288,10 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 	client := NewClient(db)
 	ctx := context.Background()
 
-	mem1 := &dbpkg.Memory{AgentName: "agent-a", UserID: "user-1", Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5)}
+	mem1 := &Memory{AgentName: "agent-a", UserID: "user-1", Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5)}
 	require.NoError(t, client.StoreAgentMemory(ctx, mem1))
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{AgentName: "agent-b", UserID: "user-1", Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5)}))
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{AgentName: "agent-a", UserID: "user-2", Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5)}))
+	require.NoError(t, client.StoreAgentMemory(ctx, &Memory{AgentName: "agent-b", UserID: "user-1", Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5)}))
+	require.NoError(t, client.StoreAgentMemory(ctx, &Memory{AgentName: "agent-a", UserID: "user-2", Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5)}))
 
 	results, err := client.SearchAgentMemory(ctx, "agent-a", "user-1", makeEmbedding(0.5), 10)
 	require.NoError(t, err)
@@ -308,7 +307,7 @@ func TestSearchAgentMemoryNormalizedName(t *testing.T) {
 	client := NewClient(db)
 	ctx := context.Background()
 
-	stored := &dbpkg.Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
+	stored := &Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
 	require.NoError(t, client.StoreAgentMemory(ctx, stored))
 
 	results, err := client.SearchAgentMemory(ctx, "ns__my-agent", "user-1", makeEmbedding(0.5), 10)
@@ -328,7 +327,7 @@ func TestDeleteAgentMemory(t *testing.T) {
 	userID := "del-user"
 
 	for i := range 3 {
-		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+		err := client.StoreAgentMemory(ctx, &Memory{
 			ID:        fmt.Sprintf("del-%d", i),
 			AgentName: agentName,
 			UserID:    userID,
@@ -364,16 +363,16 @@ func TestPruneExpiredMemories(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 
 	// Memory that is expired and unpopular, should be deleted
-	coldMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "cold expired memory", Embedding: makeEmbedding(0.1), ExpiresAt: &past, AccessCount: 2}
+	coldMem := &Memory{AgentName: agentName, UserID: userID, Content: "cold expired memory", Embedding: makeEmbedding(0.1), ExpiresAt: &past, AccessCount: 2}
 	require.NoError(t, client.StoreAgentMemory(ctx, coldMem))
 
 	// Memory that is expired but popular (AccessCount >= 10), TTL should be extended
-	hotMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "hot expired memory", Embedding: makeEmbedding(0.9), ExpiresAt: &past, AccessCount: 15}
+	hotMem := &Memory{AgentName: agentName, UserID: userID, Content: "hot expired memory", Embedding: makeEmbedding(0.9), ExpiresAt: &past, AccessCount: 15}
 	require.NoError(t, client.StoreAgentMemory(ctx, hotMem))
 
 	// Memory that has not expired, should be untouched
 	future := time.Now().Add(24 * time.Hour)
-	liveMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "non-expired memory", Embedding: makeEmbedding(0.5), ExpiresAt: &future, AccessCount: 0}
+	liveMem := &Memory{AgentName: agentName, UserID: userID, Content: "non-expired memory", Embedding: makeEmbedding(0.5), ExpiresAt: &future, AccessCount: 0}
 	require.NoError(t, client.StoreAgentMemory(ctx, liveMem))
 
 	err := client.PruneExpiredMemories(ctx)
@@ -413,7 +412,7 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 
 	// Small store so every search hits the same top rows (max overlap).
 	for i := range 5 {
-		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+		err := client.StoreAgentMemory(ctx, &Memory{
 			AgentName: agentName,
 			UserID:    userID,
 			Content:   fmt.Sprintf("shared memory %d", i),
@@ -455,7 +454,7 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 }
 
 // TestSingleRowReadsMapMissingToErrNotFound verifies that every single-row
-// read maps the driver's no-rows error to dbpkg.ErrNotFound, so callers can
+// read maps the driver's no-rows error to ErrNotFound, so callers can
 // match with errors.Is without importing pgx.
 func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
 	db := setupTestDB(t)
@@ -474,7 +473,7 @@ func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.read()
 			require.Error(t, err)
-			require.ErrorIs(t, err, dbpkg.ErrNotFound)
+			require.ErrorIs(t, err, ErrNotFound)
 		})
 	}
 }

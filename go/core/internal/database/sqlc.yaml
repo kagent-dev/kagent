@@ -12,9 +12,10 @@ sql:
     gen:
       go:
         package: "dbgen"
-        out: "gen"
+        # Go's internal boundary keeps generated rows private to the store.
+        out: "internal/dbgen"
         sql_package: "pgx/v5"
-        emit_interface: true
+        omit_unused_structs: true
         emit_pointers_for_null_types: true
         overrides:
           # pgx/v5 native mode maps all timestamptz → pgtype.Timestamptz by default.

@@ -7,7 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -38,10 +38,10 @@ type fakeATEClient struct {
 }
 
 type fakeRuntimeRevisionStore struct {
-	harnesses []dbpkg.ActorTemplateHarness
+	harnesses []database.ActorTemplateHarness
 }
 
-func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error) {
+func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error) {
 	return store.harnesses, nil
 }
 
@@ -159,7 +159,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 				WorkerPod:       "worker-0",
 			}},
 		}
-		revisions := &fakeRuntimeRevisionStore{harnesses: []dbpkg.ActorTemplateHarness{{
+		revisions := &fakeRuntimeRevisionStore{harnesses: []database.ActorTemplateHarness{{
 			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
 		}}}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions)

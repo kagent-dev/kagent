@@ -9,7 +9,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -35,7 +35,7 @@ type ATEClient interface {
 }
 
 type runtimeRevisionStore interface {
-	ListActorTemplateHarnesses(context.Context) ([]dbpkg.ActorTemplateHarness, error)
+	ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error)
 }
 
 type Service struct {

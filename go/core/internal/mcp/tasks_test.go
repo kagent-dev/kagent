@@ -15,9 +15,9 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
@@ -441,14 +441,14 @@ func (*fakeGateway) GetExtendedAgentCard(context.Context, *a2atype.GetExtendedAg
 type fakeInstanceStore struct{}
 
 func (*fakeInstanceStore) CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error) {
-	return nil, false, dbpkg.ErrNotFound
+	return nil, false, database.ErrNotFound
 }
 
 func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return nil, dbpkg.ErrNotFound
+	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+func (*fakeInstanceStore) ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	return []*apiv1alpha1.AgentInstance{{
 		Id: testInstanceID, State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 		AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"},
@@ -457,14 +457,14 @@ func (*fakeInstanceStore) ListAgentInstances(context.Context, dbpkg.AgentInstanc
 }
 
 func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return nil, dbpkg.ErrNotFound
+	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
-	return nil, dbpkg.ErrNotFound
+func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceShare, error) {
+func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	return nil, nil
 }
 

@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -31,9 +31,10 @@ type serviceTestStore struct {
 	requestID    string
 	createErr    error
 	instances    []*apiv1alpha1.AgentInstance
-	listQuery    dbpkg.AgentInstanceQuery
-	share        dbpkg.AgentInstanceShare
-	shares       []dbpkg.AgentInstanceShare
+	listQuery    database.AgentInstanceQuery
+	share        *apiv1alpha1.AgentInstanceShare
+	tokenHash    []byte
+	shares       []*apiv1alpha1.AgentInstanceShare
 	shareAfterID string
 	shareLimit   int
 	renamed      *apiv1alpha1.AgentInstance
@@ -58,7 +59,7 @@ func (s *serviceTestStore) GetAgentInstance(_ context.Context, _, creator string
 	return &apiv1alpha1.AgentInstance{State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}, nil
 }
 
-func (s *serviceTestStore) ListAgentInstances(_ context.Context, query dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+func (s *serviceTestStore) ListAgentInstances(_ context.Context, query database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	s.listQuery = query
 	return s.instances, nil
 }
@@ -72,12 +73,12 @@ func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, id, userID
 	return s.renamed, nil
 }
 
-func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
-	s.share = share
-	return &s.share, nil
+func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+	s.share, s.tokenHash = share, tokenHash
+	return s.share, nil
 }
 
-func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	s.shareAfterID, s.shareLimit = afterID, limit
 	return s.shares, nil
 }
@@ -134,8 +135,8 @@ func TestServiceCreateMapsStoreErrors(t *testing.T) {
 		err  error
 		code serviceerrors.Code
 	}{
-		{name: "idempotency conflict", err: dbpkg.ErrIdempotencyConflict, code: serviceerrors.CodeAlreadyExists},
-		{name: "missing revision", err: dbpkg.ErrNotFound, code: serviceerrors.CodeFailedPrecondition},
+		{name: "idempotency conflict", err: database.ErrIdempotencyConflict, code: serviceerrors.CodeAlreadyExists},
+		{name: "missing revision", err: database.ErrNotFound, code: serviceerrors.CodeFailedPrecondition},
 		{name: "database failure", err: errors.New("database unavailable"), code: serviceerrors.CodeInternal},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -171,7 +172,7 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 }
 
 func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
-	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: dbpkg.ErrAgentInstanceConflict})
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: database.ErrAgentInstanceConflict})
 	for _, test := range []struct {
 		name string
 		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
@@ -222,18 +223,18 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	instanceID := "11111111-1111-4111-8111-111111111111"
 
-	share, token, err := service.CreateShare(serviceTestContext("alice"), instanceID, "READ_ONLY")
+	share, token, err := service.CreateShare(serviceTestContext("alice"), instanceID, apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if share.ID == uuid.Nil {
-		t.Fatalf("generated share id %q is not a UUID: %v", share.ID, err)
+	if uuid.MustParse(share.GetId()) == uuid.Nil {
+		t.Fatalf("generated share id %q is not a UUID: %v", uuid.MustParse(share.GetId()), err)
 	}
-	if share.ID.Version() != 7 {
-		t.Fatalf("generated share id %q is UUIDv%d, want UUIDv7", share.ID, share.ID.Version())
+	if uuid.MustParse(share.GetId()).Version() != 7 {
+		t.Fatalf("generated share id %q is UUIDv%d, want UUIDv7", uuid.MustParse(share.GetId()), uuid.MustParse(share.GetId()).Version())
 	}
 	digest := sha256.Sum256([]byte(token))
-	if !bytes.Equal(store.share.TokenHash, digest[:]) {
+	if !bytes.Equal(store.tokenHash, digest[:]) {
 		t.Fatal("stored token hash does not match returned token")
 	}
 }
@@ -245,8 +246,8 @@ func TestServiceListSharesPaginatesInStore(t *testing.T) {
 		"33333333-3333-4333-8333-333333333333",
 		"44444444-4444-4444-8444-444444444444",
 	}
-	store := &serviceTestStore{shares: []dbpkg.AgentInstanceShare{
-		{ID: uuid.MustParse(ids[1])}, {ID: uuid.MustParse(ids[2])}, {ID: uuid.MustParse(ids[3])},
+	store := &serviceTestStore{shares: []*apiv1alpha1.AgentInstanceShare{
+		{Id: ids[1]}, {Id: ids[2]}, {Id: ids[3]},
 	}}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	result, err := service.ListShares(serviceTestContext("alice"), ids[0], 2, encodePageToken(ids[0]))
@@ -332,7 +333,7 @@ func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T
 	})
 
 	t.Run("a missing instance is not found", func(t *testing.T) {
-		store := &serviceTestStore{renameErr: dbpkg.ErrNotFound}
+		store := &serviceTestStore{renameErr: database.ErrNotFound}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 		_, err := service.Rename(serviceTestContext("alice"), instanceID, "New title")
 		if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {

@@ -13,7 +13,7 @@ WHERE p.namespace = sqlc.arg(harness_namespace)
   AND p.retired_at IS NULL;
 
 -- name: InsertAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, state, operation, labels, name, data) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7, $8)
+INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7)
 ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING *;
 
@@ -74,13 +74,10 @@ WHERE agent_instance.id = sqlc.arg(id)
   )
 RETURNING *;
 
--- Renames an instance in place. The row's `data` blob also carries the message,
--- but `toAgentInstance` reads the name from this column, exactly as it does for
--- `state` and `operation`, so the column is the single authority and the two
--- cannot drift.
+-- The store locks the row and changes only the display name in the payload.
 -- name: UpdateAgentInstanceName :one
 UPDATE agent_instance
-SET name = sqlc.arg(name)
+SET data = sqlc.arg(data)
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 RETURNING *;
 
@@ -88,7 +85,7 @@ RETURNING *;
 DELETE FROM agent_instance WHERE id = $1;
 
 -- name: CreateAgentInstanceShare :one
-INSERT INTO agent_instance_share (id, instance_id, permission, token_hash) VALUES ($1, $2, $3, $4)
+INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- Resolves a share token to the share and the instance's owner.

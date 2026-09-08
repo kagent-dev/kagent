@@ -1,8 +1,11 @@
 package substrate
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -28,12 +31,19 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
 	// Config is passed inline because Substrate ActorTemplates support only
-	// literal environment variables. The revision digest already covers both
-	// JSON documents.
+	// literal environment variables. Render the typed card only at this boundary.
+	card, err := apia2a.FromProtoAgentCard(spec.AgentCard)
+	if err != nil {
+		return nil, fmt.Errorf("convert runtime Agent Card: %w", err)
+	}
+	cardJSON, err := json.Marshal(card)
+	if err != nil {
+		return nil, fmt.Errorf("render runtime Agent Card: %w", err)
+	}
 	environment := append([]corev1.EnvVar(nil), spec.Environment...)
 	environment = append(environment,
 		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
-		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(spec.AgentCardJSON)},
+		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(cardJSON)},
 	)
 	actorEnv, err := actorTemplateEnvFromPodEnv(environment)
 	if err != nil {

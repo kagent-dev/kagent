@@ -11,6 +11,7 @@ ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
     retired_at = NULL,
     updated_at = NOW();
 
+-- The revision digest pins the card. Reconciliation only refreshes runtime identity.
 -- name: UpsertRuntimeRevision :exec
 INSERT INTO runtime_revision (
     revision, namespace, agent_template_name, agent_template_uid,
@@ -21,7 +22,6 @@ INSERT INTO runtime_revision (
     $9, $10, $11, $12
 )
 ON CONFLICT (revision) DO UPDATE SET
-    agent_card = EXCLUDED.agent_card,
     actor_template_uid = EXCLUDED.actor_template_uid,
     updated_at = NOW();
 

@@ -24,7 +24,7 @@ WHERE NOT EXISTS (
 );
 
 -- name: InsertAgentInstanceCheckpoint :one
-INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, source_context_id, prepared_revision, source_labels, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'CREATING')
+INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, source_context_id, prepared_revision, source_labels, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'CREATING')
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -52,18 +52,19 @@ ORDER BY e.sequence;
 UPDATE agent_instance_checkpoint
 SET state = CASE WHEN sqlc.arg(tag_uid)::text <> '' THEN 'READY' ELSE 'FAILED' END,
     tag_uid = sqlc.arg(tag_uid),
-    failure = sqlc.arg(failure)
+    data = sqlc.arg(data)
 WHERE id = $1
-  AND (
-    state = 'CREATING'
-    OR (state = 'READY' AND tag_uid = sqlc.arg(tag_uid)::text AND sqlc.arg(failure)::text = '')
-    OR (state = 'FAILED' AND sqlc.arg(tag_uid)::text = '' AND failure = sqlc.arg(failure)::text)
-  )
+  AND state = 'CREATING'
 RETURNING *;
 
 -- name: GetAgentInstanceCheckpoint :one
 SELECT * FROM agent_instance_checkpoint
 WHERE id = $1 AND user_id = $2 AND state = 'READY';
+
+-- name: GetAgentInstanceCheckpointSnapshot :one
+-- Lifecycle work also needs the immutable reference while creating or deleting.
+SELECT * FROM agent_instance_checkpoint
+WHERE id = $1 AND user_id = $2;
 
 -- name: ListAgentInstanceCheckpoints :many
 SELECT * FROM agent_instance_checkpoint
@@ -76,7 +77,7 @@ LIMIT sqlc.arg(page_size);
 
 -- name: BeginDeleteAgentInstanceCheckpoint :one
 UPDATE agent_instance_checkpoint
-SET state = 'DELETING'
+SET state = 'DELETING', data = sqlc.arg(data)
 WHERE agent_instance_checkpoint.id = $1 AND agent_instance_checkpoint.user_id = $2
   AND agent_instance_checkpoint.state IN ('READY', 'DELETING')
   AND NOT EXISTS (
@@ -92,3 +93,6 @@ WHERE id = $1 AND user_id = $2 AND state = 'DELETING';
 SELECT * FROM agent_instance_checkpoint
 WHERE id = $1 AND user_id = $2 AND state = 'READY'
 FOR UPDATE;
+
+-- name: LockAgentInstanceCheckpoint :one
+SELECT * FROM agent_instance_checkpoint WHERE id = $1 FOR UPDATE;

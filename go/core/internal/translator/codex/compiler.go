@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
@@ -98,11 +99,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex config: %w", err)
 	}
-	cardJSON, err := json.Marshal(agentTemplateCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.Root.Template))
 	if err != nil {
-		return nil, fmt.Errorf("marshal Codex agent card: %w", err)
+		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}
-	provenance, err := c.buildProvenance(ctx, input, environment, configJSON, cardJSON)
+	provenance, err := c.buildProvenance(ctx, input, environment, configJSON)
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
@@ -118,7 +119,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
 			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Provenance: provenance, EgressDestinations: egress,
 		},
@@ -269,11 +270,10 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON, cardJSON []byte) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON []byte) ([]byte, error) {
 	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.UID, input.Harness.Generation, input.Harness.Spec)}
 	entries = append(entries,
 		objectProvenance("kagent.internal/v1", "GeneratedInput", "config.json", "", 0, json.RawMessage(configJSON)),
-		objectProvenance("kagent.internal/v1", "GeneratedInput", "agent-card.json", "", 0, json.RawMessage(cardJSON)),
 	)
 	seenObjects := map[string]struct{}{}
 	configMaps := map[string]struct{}{}

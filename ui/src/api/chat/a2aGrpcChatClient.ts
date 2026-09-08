@@ -122,8 +122,8 @@ function nextId(prefix: string): string {
 /**
  * Whether a task stopped to wait on the reader rather than because it is running.
  *
- * The controller's own predicate, copied: `TaskParkedAwaitingUser` in
- * `go/api/database/client.go` is these two states and no others. Such a task is
+ * The gateway resumes tasks in these two states in
+ * `go/core/internal/a2agateway/gateway.go`. Such a task is
  * non-terminal, so it holds the instance's single active-task slot and every
  * further message is refused — and the reader has to be told that rather than
  * discovering it by being turned away.

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -58,9 +59,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	cardJSON, err := json.Marshal(agentTemplateCard(template))
+	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(template))
 	if err != nil {
-		return nil, fmt.Errorf("marshal agent card: %w", err)
+		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
 	environment := append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...)
@@ -86,7 +87,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	slices.Sort(compiled.Egress)
 	return &v2translator.CompileResult{Revision: v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil

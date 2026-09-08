@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -50,13 +50,13 @@ func (f *fakeDiscoverer) ListTools(_ context.Context, ref toolservice.MCPServerR
 }
 
 type fakeCatalog struct {
-	server       *dbmodel.ToolServer
+	server       *database.ToolServer
 	tools        []*v1alpha3.MCPTool
 	deletedTools string
 	deleted      string
 }
 
-func (f *fakeCatalog) StoreToolServer(_ context.Context, server *dbmodel.ToolServer) (*dbmodel.ToolServer, error) {
+func (f *fakeCatalog) StoreToolServer(_ context.Context, server *database.ToolServer) (*database.ToolServer, error) {
 	f.server = server
 	return server, nil
 }
