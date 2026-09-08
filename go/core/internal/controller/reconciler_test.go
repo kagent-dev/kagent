@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,9 +11,11 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"github.com/jackc/pgx/v5/pgxpool"
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -77,13 +80,33 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 
 	require.True(t, proto.Equal(revision.AgentCard, store.revision.AgentCard))
 
-	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	templates.template = proto.CloneOf(created)
+	templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	writeErr := errors.New("database unavailable")
+	for _, stage := range []string{"revision", "success"} {
+		t.Run(stage, func(t *testing.T) {
+			t.Cleanup(func() { store.revisionErr, store.markErr = nil, nil })
+			if stage == "revision" {
+				store.revisionErr = writeErr
+			} else {
+				store.markErr = writeErr
+			}
+			require.ErrorIs(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), writeErr)
+			observed := reconciler.collections.ActorTemplates.GetKey("team-a/assistant-kagent-revision")
+			require.NotNil(t, observed)
+			require.Nil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot(),
+				"Ready must not be published before its database writes succeed")
+		})
+	}
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
 	if store.revision == nil || !store.markedSuccessful {
 		t.Fatal("ready revision was not stored and marked successful")
 	}
+	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
+	observed := reconciler.collections.ActorTemplates.GetKey("team-a/assistant-kagent-revision")
+	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot())
 
 	if err := reconciler.reconcileAgentTemplateStatus(context.Background(), "team-a/assistant"); err != nil {
 		t.Fatal(err)
@@ -99,6 +122,63 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 	if store.retired != state.ResourceName() {
 		t.Fatalf("retired pair = %q, want %q", store.retired, state.ResourceName())
+	}
+}
+
+func TestReconcilerCollectsRetiredRevisions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database test in short mode")
+	}
+	ctx := t.Context()
+	dsn := dbtest.StartT(ctx, t)
+	dbtest.MigrateT(t, dsn, false)
+	pool, err := pgxpool.New(ctx, dsn)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	store := database.NewClient(pool)
+	opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
+	states := krt.NewStaticCollection[PairReconciliation](nil, nil, opts.WithName("Reconciliations")...)
+	templates := &fakeActorTemplates{}
+	reconciler := &Reconciler{
+		collections: Collections{
+			ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+			Reconciliations: states,
+		},
+		templates: templates, store: store,
+	}
+	for _, name := range []string{"first", "replacement"} {
+		revision := &v2translator.Revision{
+			AgentCard: &a2apb.AgentCard{Name: name}, Provenance: []byte("{}"), EgressDestinations: []string{},
+		}
+		id, err := revision.Digest()
+		require.NoError(t, err)
+		desired := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{
+			Atespace: "team-a", Name: "assistant-" + name, Uid: name,
+		}}
+		templates.template = proto.CloneOf(desired)
+		templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
+			GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name},
+		}}
+		state := PairReconciliation{
+			Pair: AgentTemplateHarnessPair{
+				AgentTemplate: &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}},
+				Harness:       &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}},
+			},
+			Revision: revision, RevisionID: id, DesiredActorTemplate: desired,
+		}
+		states.UpdateObject(state)
+		require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
+		_, err = store.GetRuntimeRevision(ctx, id.String())
+		require.NoError(t, err)
+
+		states.DeleteObject(state.ResourceName())
+		require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()), "retiring a successful pair must finish GC")
+		require.Nil(t, templates.template)
+		require.Empty(t, reconciler.collections.ActorTemplates.List())
+		_, err = store.GetRuntimeRevision(ctx, id.String())
+		require.ErrorIs(t, err, database.ErrNotFound)
+		// Retrying deletion must converge even after both resources are gone.
+		require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
 	}
 }
 
@@ -131,6 +211,8 @@ type fakeRuntimeRevisionStore struct {
 	revision         *database.RuntimeRevision
 	markedSuccessful bool
 	retired          string
+	revisionErr      error
+	markErr          error
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, pair database.AgentTemplateHarnessPair) error {
@@ -138,9 +220,19 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Cont
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, ready bool) error {
+func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
+	if s.revisionErr != nil {
+		return s.revisionErr
+	}
 	s.revision = &revision
-	s.markedSuccessful = ready
+	return nil
+}
+
+func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error {
+	if s.markErr != nil {
+		return s.markErr
+	}
+	s.markedSuccessful = true
 	return nil
 }
 
