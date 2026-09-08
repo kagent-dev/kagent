@@ -497,6 +497,7 @@ describe("agent instances", () => {
   function instanceMessage(overrides: Record<string, unknown> = {}) {
     return {
       id: INSTANCE_ID,
+      contextId: "distinct-a2a-context",
       creator: "alice@example.com",
       harness: { namespace: "kagent", name: "k8s-agent" },
       agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
@@ -533,6 +534,7 @@ describe("agent instances", () => {
     const ready = rows.find((row) => row.id === INSTANCE_ID);
     const suspended = rows.find((row) => row.id.startsWith("b28e"));
 
+    expect(ready?.contextId).toBe("distinct-a2a-context");
     expect(ready?.state).toBe("ready");
     expect(ready?.operation).toBe("unspecified");
     expect(ready?.harness).toBe("kagent/k8s-agent");

@@ -207,6 +207,7 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	instance.State = apiv1alpha1.AgentInstanceState(state)
 	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
 	instance.Id = row.ID.String()
+	instance.ContextId = row.ContextID.String()
 	instance.Creator = row.UserID
 	instance.PreparedRevision = derefStr(row.PreparedRevision)
 	instance.Labels = nil
@@ -259,6 +260,8 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 
 	now := timestamppb.Now()
 	instance := proto.Clone(request).(*apiv1alpha1.AgentInstance)
+	contextID, historyID := uuid.New(), uuid.New()
+	instance.ContextId = contextID.String()
 	instance.PreparedRevision = revision.Revision
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
 	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
@@ -273,13 +276,13 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
-			ID: instanceID, UserID: request.GetCreator(),
+			ID: historyID, UserID: request.GetCreator(), ContextID: contextID,
 		}); err != nil {
 			return fmt.Errorf("insert A2A context: %w", err)
 		}
 		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
 			ID: instanceID, UserID: request.GetCreator(), RequestID: requestID,
-			ContextID: instanceID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
+			ContextID: contextID, HistoryID: historyID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
 			Data: data,
 		})
 		return err
@@ -344,9 +347,15 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err := json.Unmarshal(checkpoint.SourceLabels, &labels); err != nil {
 			return fmt.Errorf("decode checkpoint labels: %w", err)
 		}
+		sourceContext, err := q.GetA2AContext(ctx, checkpoint.SourceHistoryID)
+		if err != nil {
+			return fmt.Errorf("get checkpoint context: %w", err)
+		}
+		historyID := uuid.New()
 		now := timestamppb.Now()
 		instance := &apiv1alpha1.AgentInstance{
-			Id: instanceID, Creator: userID,
+			Id: instanceID, Creator: userID, ContextId: sourceContext.ContextID.String(),
+			Name:             checkpoint.SourceName,
 			Harness:          &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.HarnessName},
 			AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentTemplateName},
 			PreparedRevision: *checkpoint.PreparedRevision,
@@ -362,12 +371,12 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err != nil {
 			return fmt.Errorf("encode fork labels: %w", err)
 		}
-		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: instanceUUID, UserID: userID}); err != nil {
+		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: historyID, UserID: userID, ContextID: sourceContext.ContextID}); err != nil {
 			return fmt.Errorf("insert fork A2A context: %w", err)
 		}
 		row, err = q.InsertForkedAgentInstance(ctx, dbgen.InsertForkedAgentInstanceParams{
 			ID: instanceUUID, UserID: userID, RequestID: requestID,
-			ContextID: instanceUUID, PreparedRevision: checkpoint.PreparedRevision,
+			ContextID: sourceContext.ContextID, HistoryID: historyID, PreparedRevision: checkpoint.PreparedRevision,
 			SourceCheckpointID: &checkpoint.ID, Labels: encodedLabels, Data: data,
 		})
 		if err != nil {
@@ -378,7 +387,9 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err != nil {
 			return fmt.Errorf("list checkpoint tasks: %w", err)
 		}
-		ids := newForkIDs(instanceID)
+		if len(tasks) == 0 {
+			return fmt.Errorf("checkpoint %s has no immutable task projections; recreate the checkpoint", checkpointID)
+		}
 		var copiedHistorySequence int64
 		for _, source := range tasks {
 			task := &a2apb.Task{}
@@ -390,9 +401,11 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			if err != nil {
 				return fmt.Errorf("decode checkpoint task %s: %w", source.ID, err)
 			}
-			reidentifyForkTask(task, instanceID, ids)
+			if task.Id != source.ID || task.ContextId != sourceContext.ContextID.String() {
+				return fmt.Errorf("checkpoint task %s has inconsistent protocol identity", source.ID)
+			}
 			if len(task.History) > 0 {
-				copiedHistorySequence, err = storeProtoTaskMessages(ctx, q, instanceUUID, task.Id, task.History)
+				copiedHistorySequence, err = storeProtoTaskMessages(ctx, q, historyID, task.Id, task.History)
 				if err != nil {
 					return fmt.Errorf("copy checkpoint task %s history: %w", source.ID, err)
 				}
@@ -403,9 +416,10 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 				return fmt.Errorf("encode fork task %s: %w", task.Id, err)
 			}
 			copy := dbgen.InsertCopiedAgentInstanceTaskParams{
-				ContextID: instanceUUID, ID: task.Id, State: string(decoded.Status.State),
+				HistoryID: historyID, ID: task.Id, State: string(decoded.Status.State),
 				StatusTimestamp: decoded.Status.Timestamp, Data: data,
 				CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt,
+				Position: source.Position, InitialMessageID: source.InitialMessageID, RequestHash: source.RequestHash,
 			}
 			if err := q.InsertCopiedAgentInstanceTask(ctx, copy); err != nil {
 				return fmt.Errorf("copy checkpoint task %s: %w", source.ID, err)
@@ -421,27 +435,12 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			if err != nil {
 				return fmt.Errorf("decode checkpoint event %d: %w", source.Sequence, err)
 			}
-			decoded, err := pbconv.FromProtoStreamResponse(event)
-			if err != nil {
+			if _, err := pbconv.FromProtoStreamResponse(event); err != nil {
 				return fmt.Errorf("decode checkpoint event %d: %w", source.Sequence, err)
 			}
-			sourceTaskID := string(decoded.TaskInfo().TaskID)
-			if sourceTaskID == "" {
-				sourceTaskID = derefStr(source.TaskID)
-			}
-			taskID := reidentifyForkEvent(event, sourceTaskID, instanceID, ids)
-			data, err := proto.Marshal(event)
-			if err != nil {
-				return fmt.Errorf("encode checkpoint event %d: %w", source.Sequence, err)
-			}
-			messageID := source.MessageID
-			if messageID != nil {
-				mapped := ids.message(*messageID)
-				messageID = &mapped
-			}
 			copiedHistorySequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-				ContextID: instanceUUID, TaskID: strPtrIfNotEmpty(taskID),
-				MessageID: messageID, Data: data,
+				HistoryID: historyID, TaskID: source.TaskID,
+				MessageID: source.MessageID, Data: source.Data,
 			})
 			if err != nil {
 				return fmt.Errorf("copy checkpoint event %d: %w", source.Sequence, err)
@@ -450,9 +449,9 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if copiedHistorySequence == 0 {
 			return fmt.Errorf("checkpoint %s has no history events", checkpointID)
 		}
-		headID := string(ids.task(a2a.TaskID(checkpoint.HeadTaskID)))
+		headID := checkpoint.HeadTaskID
 		if err := q.SetAgentInstanceTaskSnapshot(ctx, dbgen.SetAgentInstanceTaskSnapshotParams{
-			ContextID: instanceUUID, ID: headID, SnapshotAtespace: &checkpoint.SnapshotAtespace,
+			HistoryID: historyID, ID: headID, SnapshotAtespace: &checkpoint.SnapshotAtespace,
 			SnapshotUri:          &checkpoint.SnapshotUri,
 			SnapshotContentScope: &checkpoint.SnapshotContentScope, HistorySequence: &copiedHistorySequence,
 		}); err != nil {
@@ -476,80 +475,6 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 	}
 	instance, err := toAgentInstance(row)
 	return instance, err == nil, err
-}
-
-type forkIDs struct {
-	namespace uuid.UUID
-	tasks     map[a2a.TaskID]a2a.TaskID
-	messages  map[string]string
-}
-
-func newForkIDs(instanceID string) *forkIDs {
-	return &forkIDs{
-		namespace: uuid.NewSHA1(uuid.NameSpaceOID, []byte(instanceID)),
-		tasks:     map[a2a.TaskID]a2a.TaskID{},
-		messages:  map[string]string{},
-	}
-}
-
-func (i *forkIDs) task(id a2a.TaskID) a2a.TaskID {
-	if mapped, ok := i.tasks[id]; ok {
-		return mapped
-	}
-	mapped := a2a.TaskID(uuid.NewSHA1(i.namespace, []byte("task:"+string(id))).String())
-	i.tasks[id] = mapped
-	return mapped
-}
-
-func (i *forkIDs) message(id string) string {
-	if mapped, ok := i.messages[id]; ok {
-		return mapped
-	}
-	mapped := uuid.NewSHA1(i.namespace, []byte("message:"+id)).String()
-	i.messages[id] = mapped
-	return mapped
-}
-
-// Fork identities change in the canonical protobuf, leaving all other fields intact.
-func reidentifyForkTask(task *a2apb.Task, contextID string, ids *forkIDs) {
-	task.Id = string(ids.task(a2a.TaskID(task.Id)))
-	task.ContextId = contextID
-	for _, message := range task.History {
-		reidentifyForkMessage(message, task.Id, contextID, ids)
-	}
-	reidentifyForkMessage(task.GetStatus().GetMessage(), task.Id, contextID, ids)
-}
-
-func reidentifyForkMessage(message *a2apb.Message, taskID, contextID string, ids *forkIDs) {
-	if message == nil {
-		return
-	}
-	message.MessageId = ids.message(message.MessageId)
-	message.ContextId = contextID
-	message.TaskId = taskID
-	for index, reference := range message.ReferenceTaskIds {
-		message.ReferenceTaskIds[index] = string(ids.task(a2a.TaskID(reference)))
-	}
-}
-
-func reidentifyForkEvent(event *a2apb.StreamResponse, sourceTaskID, contextID string, ids *forkIDs) string {
-	// The row records the task even for messages whose payload omits it.
-	taskID := string(ids.task(a2a.TaskID(sourceTaskID)))
-	switch payload := event.Payload.(type) {
-	case *a2apb.StreamResponse_Message:
-		reidentifyForkMessage(payload.Message, taskID, contextID, ids)
-	case *a2apb.StreamResponse_Task:
-		reidentifyForkTask(payload.Task, contextID, ids)
-		taskID = payload.Task.Id
-	case *a2apb.StreamResponse_StatusUpdate:
-		payload.StatusUpdate.TaskId = taskID
-		payload.StatusUpdate.ContextId = contextID
-		reidentifyForkMessage(payload.StatusUpdate.GetStatus().GetMessage(), taskID, contextID, ids)
-	case *a2apb.StreamResponse_ArtifactUpdate:
-		payload.ArtifactUpdate.TaskId = taskID
-		payload.ArtifactUpdate.ContextId = contextID
-	}
-	return taskID
 }
 
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
@@ -808,17 +733,21 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 
 	result := task
 	created := false
-	contextID := uuid.MustParse(instanceID)
+	var historyID uuid.UUID
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		instance, err := q.LockAgentInstance(ctx, contextID)
+		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(instanceID))
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
 		if instance.State != "READY" || instance.Operation != "NONE" {
 			return ErrAgentInstanceTaskConflict
 		}
+		historyID = instance.HistoryID
+		if task.ContextID != instance.ContextID.String() {
+			return fmt.Errorf("task context does not match AgentInstance")
+		}
 		rows, err := q.CreateAgentInstanceTask(ctx, dbgen.CreateAgentInstanceTaskParams{
-			ContextID: contextID, ID: string(task.ID), State: string(task.Status.State),
+			HistoryID: historyID, ID: string(task.ID), State: string(task.Status.State),
 			StatusTimestamp: task.Status.Timestamp, Data: taskData,
 			InitialMessageID: &message.ID, RequestHash: requestHash,
 		})
@@ -830,7 +759,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		}
 		if rows == 0 {
 			row, err := q.GetAgentInstanceTaskByMessageID(ctx, dbgen.GetAgentInstanceTaskByMessageIDParams{
-				ContextID: contextID, InitialMessageID: &message.ID,
+				HistoryID: historyID, InitialMessageID: &message.ID,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrAgentInstanceTaskConflict
@@ -845,10 +774,10 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			if err != nil {
 				return err
 			}
-			return loadAgentInstanceTaskHistories(ctx, q, contextID, []*a2a.Task{result})
+			return loadAgentInstanceTaskHistories(ctx, q, historyID, []*a2a.Task{result})
 		}
 		created = true
-		_, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(task.ID), task.History)
+		_, err = storeAgentInstanceTaskMessages(ctx, q, historyID, string(task.ID), task.History)
 		return err
 	})
 	if err != nil {
@@ -861,15 +790,26 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 // longer has an active execution for it.
 const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
 
+func (c *Client) agentInstanceHistoryID(ctx context.Context, instanceID string) (uuid.UUID, error) {
+	id, err := c.q.GetAgentInstanceHistoryID(ctx, uuid.MustParse(instanceID))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
+	}
+	return id, nil
+}
+
 func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
-	contextID := uuid.MustParse(instanceID)
-	row, err := c.q.GetActiveAgentInstanceTask(ctx, contextID)
+	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	row, err := c.q.GetActiveAgentInstanceTask(ctx, historyID)
 	if err != nil {
 		return nil, fmt.Errorf("get active AgentInstance task: %w", notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.q, contextID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.q, historyID, []*a2a.Task{task})
 	}
 	return task, err
 }
@@ -878,9 +818,12 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 // instance's active task.
 func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
 	interruptedTask := false
-	contextID := uuid.MustParse(instanceID)
-	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockActiveAgentInstanceTask(ctx, contextID)
+	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	if err != nil {
+		return false, err
+	}
+	err = c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockActiveAgentInstanceTask(ctx, historyID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -912,12 +855,12 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 			return err
 		}
 		if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-			ContextID: contextID, ID: task.Id, State: string(a2a.TaskStateFailed),
+			HistoryID: historyID, ID: task.Id, State: string(a2a.TaskStateFailed),
 			StatusTimestamp: &now, Data: data,
 		}); err != nil {
 			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.Id, err)
 		}
-		if _, err := storeProtoTaskMessages(ctx, q, contextID, task.Id, messages); err != nil {
+		if _, err := storeProtoTaskMessages(ctx, q, historyID, task.Id, messages); err != nil {
 			return fmt.Errorf("record AgentInstance task interruption: %w", err)
 		}
 		interruptedTask = true
@@ -930,12 +873,29 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 }
 
 func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
-	contextID := uuid.MustParse(instanceID)
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		// Serialize task transitions with checkpoint reservation, without holding
+		// a transaction across runtime or snapshot network calls.
+		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(instanceID))
+		if err != nil {
+			return notFoundOr(err)
+		}
+		historyID := instance.HistoryID
+		if event == nil || event.TaskInfo().ContextID != instance.ContextID.String() ||
+			(task != nil && task.ContextID != instance.ContextID.String()) {
+			return fmt.Errorf("task event context does not match AgentInstance")
+		}
+		creating, err := q.HasCreatingAgentInstanceCheckpoint(ctx, historyID)
+		if err != nil {
+			return err
+		}
+		if creating {
+			return ErrAgentInstanceConflict
+		}
 		var sequence int64
 		var stored *a2apb.Task
 		if task != nil {
-			if row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{ContextID: contextID, ID: string(task.ID)}); err == nil {
+			if row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{HistoryID: historyID, ID: string(task.ID)}); err == nil {
 				stored = &a2apb.Task{}
 				if err := proto.Unmarshal(row.Data, stored); err != nil {
 					return fmt.Errorf("decode stored task: %w", err)
@@ -954,7 +914,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 					}
 				}
 				if len(messages) > 0 {
-					sequence, err = storeProtoTaskMessages(ctx, q, contextID, string(task.ID), messages)
+					sequence, err = storeProtoTaskMessages(ctx, q, historyID, string(task.ID), messages)
 					if err != nil {
 						return fmt.Errorf("archive AgentInstance task history: %w", err)
 					}
@@ -972,7 +932,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 				return err
 			}
 			if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-				ContextID: contextID, ID: string(task.ID), State: string(task.Status.State),
+				HistoryID: historyID, ID: string(task.ID), State: string(task.Status.State),
 				StatusTimestamp: task.Status.Timestamp, Data: data,
 			}); err != nil {
 				if isActiveTaskConflict(err) {
@@ -984,7 +944,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		messages := agentInstanceTaskEventMessages(task, event)
 		if len(messages) > 0 {
 			var err error
-			sequence, err = storeAgentInstanceTaskMessages(ctx, q, contextID, string(event.TaskInfo().TaskID), messages)
+			sequence, err = storeAgentInstanceTaskMessages(ctx, q, historyID, string(event.TaskInfo().TaskID), messages)
 			if err != nil {
 				return fmt.Errorf("store AgentInstance task history: %w", err)
 			}
@@ -998,7 +958,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 				return err
 			}
 			sequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-				ContextID: contextID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
+				HistoryID: historyID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
 			})
 			if err != nil {
 				return fmt.Errorf("store AgentInstance task event: %w", err)
@@ -1009,7 +969,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 				return fmt.Errorf("snapshot has no history boundary")
 			}
 			if err := q.SetAgentInstanceTaskSnapshot(ctx, dbgen.SetAgentInstanceTaskSnapshotParams{
-				ContextID: contextID, ID: string(task.ID), SnapshotAtespace: &snapshot.Atespace,
+				HistoryID: historyID, ID: string(task.ID), SnapshotAtespace: &snapshot.Atespace,
 				SnapshotUri:          &snapshot.URI,
 				SnapshotContentScope: &snapshot.ContentScope, HistorySequence: &sequence,
 			}); err != nil {
@@ -1025,29 +985,35 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 }
 
 func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
-	contextID := uuid.MustParse(instanceID)
-	row, err := c.q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: taskID})
+	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	row, err := c.q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: historyID, ID: taskID})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.q, contextID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.q, historyID, []*a2a.Task{task})
 	}
 	return task, err
 }
 
 func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
-	contextID := uuid.MustParse(instanceID)
+	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	if err != nil {
+		return nil, 0, err
+	}
 	params := dbgen.CountAgentInstanceTasksParams{
-		ContextID: contextID, State: string(state), StatusTimestampAfter: statusTimestampAfter,
+		HistoryID: historyID, State: string(state), StatusTimestampAfter: statusTimestampAfter,
 	}
 	total, err := c.q.CountAgentInstanceTasks(ctx, params)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
 	}
 	rows, err := c.q.ListAgentInstanceTasks(ctx, dbgen.ListAgentInstanceTasksParams{
-		ContextID: contextID, AfterID: afterID, State: params.State,
+		HistoryID: historyID, AfterID: afterID, State: params.State,
 		StatusTimestampAfter: statusTimestampAfter, PageSize: int32(limit),
 	})
 	if err != nil {
@@ -1061,7 +1027,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		}
 		tasks = append(tasks, task)
 	}
-	if err := loadAgentInstanceTaskHistories(ctx, c.q, contextID, tasks); err != nil {
+	if err := loadAgentInstanceTaskHistories(ctx, c.q, historyID, tasks); err != nil {
 		return nil, 0, err
 	}
 	return tasks, int(total), nil
@@ -1101,7 +1067,11 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		if instance.State != "READY" || instance.Operation != "NONE" {
 			return ErrAgentInstanceConflict
 		}
-		boundary, err := q.GetLatestQuiescentAgentInstanceTask(ctx, instance.ContextID)
+		source, err := toAgentInstance(instance)
+		if err != nil {
+			return err
+		}
+		boundary, err := q.GetLatestQuiescentAgentInstanceTask(ctx, instance.HistoryID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrAgentInstanceNotQuiescent
 		}
@@ -1129,8 +1099,8 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			HistorySequence: *boundary.HistorySequence, SnapshotAtespace: *boundary.SnapshotAtespace,
 			SnapshotUri:          *boundary.SnapshotUri,
 			SnapshotContentScope: *boundary.SnapshotContentScope,
-			SourceContextID:      instance.ContextID, PreparedRevision: instance.PreparedRevision,
-			SourceLabels: instance.Labels, Data: data,
+			SourceHistoryID:      instance.HistoryID, PreparedRevision: instance.PreparedRevision,
+			SourceLabels: instance.Labels, SourceName: source.GetName(), Data: data,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, existingErr := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
@@ -1151,6 +1121,9 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		}
 		if err != nil {
 			return fmt.Errorf("insert AgentInstance checkpoint: %w", err)
+		}
+		if err := q.CaptureAgentInstanceCheckpointTasks(ctx, row.ID); err != nil {
+			return fmt.Errorf("capture checkpoint tasks: %w", err)
 		}
 		snapshot = checkpointSnapshot(row)
 		result, err = toAgentInstanceCheckpoint(row)
@@ -1462,7 +1435,7 @@ func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Mess
 	return nil
 }
 
-func storeAgentInstanceTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, taskID string, messages []*a2a.Message) (int64, error) {
+func storeAgentInstanceTaskMessages(ctx context.Context, q *dbgen.Queries, historyID uuid.UUID, taskID string, messages []*a2a.Message) (int64, error) {
 	converted := make([]*a2apb.Message, 0, len(messages))
 	for _, message := range messages {
 		if message == nil || message.ID == "" {
@@ -1474,10 +1447,10 @@ func storeAgentInstanceTaskMessages(ctx context.Context, q *dbgen.Queries, conte
 		}
 		converted = append(converted, event.GetMessage())
 	}
-	return storeProtoTaskMessages(ctx, q, contextID, taskID, converted)
+	return storeProtoTaskMessages(ctx, q, historyID, taskID, converted)
 }
 
-func storeProtoTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, taskID string, messages []*a2apb.Message) (int64, error) {
+func storeProtoTaskMessages(ctx context.Context, q *dbgen.Queries, historyID uuid.UUID, taskID string, messages []*a2apb.Message) (int64, error) {
 	var sequence int64
 	for _, message := range messages {
 		if message.GetMessageId() == "" {
@@ -1488,7 +1461,7 @@ func storeProtoTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uui
 			return 0, err
 		}
 		sequence, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-			ContextID: contextID, TaskID: &taskID, MessageID: &message.MessageId, Data: data,
+			HistoryID: historyID, TaskID: &taskID, MessageID: &message.MessageId, Data: data,
 		})
 		if err != nil {
 			return 0, err
@@ -1497,7 +1470,7 @@ func storeProtoTaskMessages(ctx context.Context, q *dbgen.Queries, contextID uui
 	return sequence, nil
 }
 
-func loadAgentInstanceTaskHistories(ctx context.Context, q *dbgen.Queries, contextID uuid.UUID, tasks []*a2a.Task) error {
+func loadAgentInstanceTaskHistories(ctx context.Context, q *dbgen.Queries, historyID uuid.UUID, tasks []*a2a.Task) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -1507,7 +1480,7 @@ func loadAgentInstanceTaskHistories(ctx context.Context, q *dbgen.Queries, conte
 		ids[index] = string(task.ID)
 		byID[string(task.ID)] = task
 	}
-	rows, err := q.ListAgentInstanceTaskHistory(ctx, dbgen.ListAgentInstanceTaskHistoryParams{ContextID: contextID, TaskIds: ids})
+	rows, err := q.ListAgentInstanceTaskHistory(ctx, dbgen.ListAgentInstanceTaskHistoryParams{HistoryID: historyID, TaskIds: ids})
 	if err != nil {
 		return fmt.Errorf("list AgentInstance task history: %w", err)
 	}

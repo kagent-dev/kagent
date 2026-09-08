@@ -258,7 +258,10 @@ type AgentInstance struct {
 	Labels           map[string]string      `protobuf:"bytes,12,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Reader-supplied display name for the conversation. Empty means unnamed,
 	// which is the state every instance created before this field existed is in.
-	Name          string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
+	Name string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
+	// Output only. Opaque A2A conversation ID within this instance's authority.
+	// Forks preserve this ID; route and authorize using the instance ID.
+	ContextId     string `protobuf:"bytes,14,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -380,6 +383,13 @@ func (x *AgentInstance) GetLabels() map[string]string {
 func (x *AgentInstance) GetName() string {
 	if x != nil {
 		return x.Name
+	}
+	return ""
+}
+
+func (x *AgentInstance) GetContextId() string {
+	if x != nil {
+		return x.ContextId
 	}
 	return ""
 }
@@ -1444,7 +1454,7 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	")kagent/api/v1alpha1/agent_instances.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\";\n" +
 	"\aFailure\x12\x16\n" +
 	"\x06reason\x18\x01 \x01(\tR\x06reason\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xeb\x05\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x8a\x06\n" +
 	"\rAgentInstance\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x12@\n" +
@@ -1461,7 +1471,9 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12F\n" +
 	"\x06labels\x18\f \x03(\v2..kagent.api.v1alpha1.AgentInstance.LabelsEntryR\x06labels\x12\x12\n" +
-	"\x04name\x18\r \x01(\tR\x04name\x1a9\n" +
+	"\x04name\x18\r \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"context_id\x18\x0e \x01(\tR\tcontextId\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xce\x03\n" +

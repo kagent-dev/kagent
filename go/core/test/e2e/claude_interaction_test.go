@@ -120,7 +120,7 @@ func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
 		"x-kagent-agent-instance-id", forkID,
 	), 4*time.Minute)
 	t.Cleanup(forkCancel)
-	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: forkID, PageSize: 10})
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: forked.GetAgentInstance().GetContextId(), PageSize: 10})
 	if err != nil {
 		t.Fatalf("build forked Claude task list request: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
 		t.Fatalf("list forked Claude tasks: %v", err)
 	}
 	listed, err := pbconv.FromProtoListTasksResponse(listedResponse)
-	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ContextID != forkID || listed.Tasks[0].Status.State != a2atype.TaskStateCompleted {
+	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ContextID != forked.GetAgentInstance().GetContextId() || listed.Tasks[0].Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("forked Claude tasks = %+v, error %v; want one copied task in context %s", listed, err, forkID)
 	}
 
@@ -357,7 +357,7 @@ func getClaudeTask(t *testing.T, fixture *interactionFixture, taskID a2atype.Tas
 
 func assertClaudeTaskHistory(t *testing.T, fixture *interactionFixture, taskIDs ...a2atype.TaskID) {
 	t.Helper()
-	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.instanceID})
+	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
 	if err != nil {
 		t.Fatalf("build ListTasks request: %v", err)
 	}

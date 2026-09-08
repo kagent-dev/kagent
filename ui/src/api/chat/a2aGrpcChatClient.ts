@@ -10,11 +10,9 @@
  *
  * ## What a conversation is
  *
- * An `AgentInstance`. Not a session — there is no session id here. The gateway
- * routes on the instance ID header rather than on a path, files every task under the
- * instance as its A2A `contextId`, and answers `ListTasks` with that
- * conversation's turns. So the instance is the address, the context and the
- * transcript at once, and `ChatConversationRef` carries that ID.
+ * The gateway routes and scopes history by the instance ID header. Its bound
+ * A2A context ID is separate and survives a fork. Chat caches use the instance
+ * ID so branches sharing a context cannot share a transcript.
  *
  * ## Why this is so much shorter than the client it replaces
  *
@@ -322,10 +320,8 @@ export class A2AGrpcChatClient implements ChatClient {
       for (let page = 0; page < HISTORY_PAGE_LIMIT; page += 1) {
         const response = await client.listTasks(
           {
-            // The instance's own id is its context id, so this is a belt-and-braces
-            // narrowing: the gateway already scopes the read to the routed instance
-            // and answers empty for any other context.
-            contextId: conversation.id,
+            // History is scoped by the instance header; context is an optional filter.
+            contextId: conversation.contextId,
             pageToken,
             // Artifacts carry the final text of a reply, which for a completed turn
             // may be the only place it exists.
@@ -384,10 +380,8 @@ export class A2AGrpcChatClient implements ChatClient {
         messageId: input.messageId || nextId("msg"),
         role: Role.USER,
         parts: [{ content: { case: "text" as const, value: text } }],
-        // The gateway overwrites this with the instance id and refuses a value
-        // that is neither empty nor the instance's own, so sending it is a
-        // statement of which conversation this belongs to rather than a request.
-        contextId: conversation.id,
+        // An omitted context resolves to the routed instance's bound context.
+        contextId: conversation.contextId,
         /*
          * An answer declares the extension on the message itself.
          *

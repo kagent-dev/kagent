@@ -13,15 +13,21 @@ WHERE p.namespace = sqlc.arg(harness_namespace)
   AND p.retired_at IS NULL;
 
 -- name: InsertAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7)
+INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
 ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING *;
 
 -- name: InsertA2AContext :exec
-INSERT INTO a2a_context (id, user_id) VALUES ($1, $2);
+INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3);
+
+-- name: GetA2AContext :one
+SELECT * FROM a2a_context WHERE id = $1;
+
+-- name: GetAgentInstanceHistoryID :one
+SELECT history_id FROM agent_instance WHERE id = $1;
 
 -- name: InsertForkedAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
+INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
 ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING *;
 

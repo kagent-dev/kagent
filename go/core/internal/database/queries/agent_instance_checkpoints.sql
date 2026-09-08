@@ -6,13 +6,14 @@ WHERE user_id = $1 AND request_id = $2;
 SELECT latest.*
 FROM (
     SELECT * FROM agent_instance_task
-    WHERE agent_instance_task.context_id = $1
-    ORDER BY created_at DESC, id DESC
+    WHERE agent_instance_task.history_id = $1
+    ORDER BY history_sequence DESC NULLS LAST
     LIMIT 1
 ) latest
-WHERE NOT EXISTS (
+WHERE latest.history_sequence = (SELECT MAX(sequence) FROM agent_instance_task_event WHERE history_id = $1)
+AND NOT EXISTS (
     SELECT 1 FROM agent_instance_task active
-    WHERE active.context_id = $1
+    WHERE active.history_id = $1
       AND active.state NOT IN (
           'TASK_STATE_COMPLETED',
           'TASK_STATE_CANCELED',
@@ -24,26 +25,30 @@ WHERE NOT EXISTS (
 );
 
 -- name: InsertAgentInstanceCheckpoint :one
-INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_uri, snapshot_content_scope, source_context_id, prepared_revision, source_labels, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'CREATING')
+INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_uri, snapshot_content_scope, source_history_id, prepared_revision, source_labels, data, source_name, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'CREATING')
 ON CONFLICT DO NOTHING
 RETURNING *;
 
--- name: ListAgentInstanceCheckpointTasks :many
-SELECT t.*
+-- name: CaptureAgentInstanceCheckpointTasks :exec
+INSERT INTO agent_instance_checkpoint_task
+    (checkpoint_id, id, data, position, initial_message_id, request_hash, created_at, updated_at)
+SELECT c.id, t.id, t.data, t.position, t.initial_message_id, t.request_hash, t.created_at, t.updated_at
 FROM agent_instance_checkpoint c
-JOIN agent_instance_task head
-  ON head.context_id = c.source_context_id AND head.id = c.head_task_id
-JOIN agent_instance_task t
-  ON t.context_id = c.source_context_id
- AND (t.created_at, t.id) <= (head.created_at, head.id)
-WHERE c.id = sqlc.arg(checkpoint_id)
-ORDER BY t.created_at, t.id;
+JOIN agent_instance_task t ON t.history_id = c.source_history_id
+WHERE c.id = $1;
+
+-- name: ListAgentInstanceCheckpointTasks :many
+SELECT * FROM agent_instance_checkpoint_task
+WHERE checkpoint_id = $1 ORDER BY position;
+
+-- name: HasCreatingAgentInstanceCheckpoint :one
+SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_history_id = $1 AND state = 'CREATING');
 
 -- name: ListAgentInstanceCheckpointEvents :many
 SELECT e.*
 FROM agent_instance_checkpoint c
 JOIN agent_instance_task_event e
-  ON e.context_id = c.source_context_id
+  ON e.history_id = c.source_history_id
  AND e.sequence <= c.history_sequence
 WHERE c.id = sqlc.arg(checkpoint_id)
 ORDER BY e.sequence;

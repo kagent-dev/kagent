@@ -14,20 +14,20 @@ import (
 
 const countAgentInstanceTasks = `-- name: CountAgentInstanceTasks :one
 SELECT COUNT(*) FROM agent_instance_task
-WHERE context_id = $1
+WHERE history_id = $1
   AND ($2::text = '' OR state = $2)
   AND ($3::timestamptz IS NULL
        OR status_timestamp > $3)
 `
 
 type CountAgentInstanceTasksParams struct {
-	ContextID            uuid.UUID
+	HistoryID            uuid.UUID
 	State                string
 	StatusTimestampAfter *time.Time
 }
 
 func (q *Queries) CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countAgentInstanceTasks, arg.ContextID, arg.State, arg.StatusTimestampAfter)
+	row := q.db.QueryRow(ctx, countAgentInstanceTasks, arg.HistoryID, arg.State, arg.StatusTimestampAfter)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -35,20 +35,20 @@ func (q *Queries) CountAgentInstanceTasks(ctx context.Context, arg CountAgentIns
 
 const createAgentInstanceTask = `-- name: CreateAgentInstanceTask :execrows
 INSERT INTO agent_instance_task (
-    context_id, id, state, status_timestamp, data, initial_message_id, request_hash
+    history_id, id, state, status_timestamp, data, initial_message_id, request_hash
 )
 SELECT $1, $2, $3, $4, $5, $6, $7
 WHERE NOT EXISTS (
     SELECT 1 FROM agent_instance_checkpoint
-    WHERE source_context_id = $1 AND state = 'CREATING'
+    WHERE source_history_id = $1 AND state = 'CREATING'
 )
-ON CONFLICT (context_id, initial_message_id)
+ON CONFLICT (history_id, initial_message_id)
     WHERE initial_message_id IS NOT NULL
 DO NOTHING
 `
 
 type CreateAgentInstanceTaskParams struct {
-	ContextID        uuid.UUID
+	HistoryID        uuid.UUID
 	ID               string
 	State            string
 	StatusTimestamp  *time.Time
@@ -59,7 +59,7 @@ type CreateAgentInstanceTaskParams struct {
 
 func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error) {
 	result, err := q.db.Exec(ctx, createAgentInstanceTask,
-		arg.ContextID,
+		arg.HistoryID,
 		arg.ID,
 		arg.State,
 		arg.StatusTimestamp,
@@ -74,8 +74,8 @@ func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentIn
 }
 
 const getActiveAgentInstanceTask = `-- name: GetActiveAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE context_id = $1
+SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
+WHERE history_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
       'TASK_STATE_CANCELED',
@@ -86,11 +86,11 @@ WHERE context_id = $1
   )
 `
 
-func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, getActiveAgentInstanceTask, contextID)
+func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, historyID uuid.UUID) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, getActiveAgentInstanceTask, historyID)
 	var i AgentInstanceTask
 	err := row.Scan(
-		&i.ContextID,
+		&i.HistoryID,
 		&i.ID,
 		&i.State,
 		&i.StatusTimestamp,
@@ -103,25 +103,26 @@ func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, contextID uuid
 		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
+		&i.Position,
 	)
 	return i, err
 }
 
 const getAgentInstanceTask = `-- name: GetAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE context_id = $1 AND id = $2
+SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
+WHERE history_id = $1 AND id = $2
 `
 
 type GetAgentInstanceTaskParams struct {
-	ContextID uuid.UUID
+	HistoryID uuid.UUID
 	ID        string
 }
 
 func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceTask, arg.ContextID, arg.ID)
+	row := q.db.QueryRow(ctx, getAgentInstanceTask, arg.HistoryID, arg.ID)
 	var i AgentInstanceTask
 	err := row.Scan(
-		&i.ContextID,
+		&i.HistoryID,
 		&i.ID,
 		&i.State,
 		&i.StatusTimestamp,
@@ -134,25 +135,26 @@ func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstance
 		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
+		&i.Position,
 	)
 	return i, err
 }
 
 const getAgentInstanceTaskByMessageID = `-- name: GetAgentInstanceTaskByMessageID :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE context_id = $1 AND initial_message_id = $2
+SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
+WHERE history_id = $1 AND initial_message_id = $2
 `
 
 type GetAgentInstanceTaskByMessageIDParams struct {
-	ContextID        uuid.UUID
+	HistoryID        uuid.UUID
 	InitialMessageID *string
 }
 
 func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceTaskByMessageID, arg.ContextID, arg.InitialMessageID)
+	row := q.db.QueryRow(ctx, getAgentInstanceTaskByMessageID, arg.HistoryID, arg.InitialMessageID)
 	var i AgentInstanceTask
 	err := row.Scan(
-		&i.ContextID,
+		&i.HistoryID,
 		&i.ID,
 		&i.State,
 		&i.StatusTimestamp,
@@ -165,15 +167,16 @@ func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAg
 		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
+		&i.Position,
 	)
 	return i, err
 }
 
 const insertAgentInstanceTaskEvent = `-- name: InsertAgentInstanceTaskEvent :one
 WITH inserted AS (
-    INSERT INTO agent_instance_task_event (context_id, task_id, message_id, data)
+    INSERT INTO agent_instance_task_event (history_id, task_id, message_id, data)
     VALUES ($1, $2, $3, $4)
-    ON CONFLICT (context_id, task_id, message_id)
+    ON CONFLICT (history_id, task_id, message_id)
         WHERE message_id IS NOT NULL
     DO NOTHING
     RETURNING sequence
@@ -181,12 +184,12 @@ WITH inserted AS (
 SELECT sequence FROM inserted
 UNION ALL
 SELECT sequence FROM agent_instance_task_event
-WHERE context_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
+WHERE history_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
 LIMIT 1
 `
 
 type InsertAgentInstanceTaskEventParams struct {
-	ContextID uuid.UUID
+	HistoryID uuid.UUID
 	TaskID    *string
 	MessageID *string
 	Data      []byte
@@ -194,7 +197,7 @@ type InsertAgentInstanceTaskEventParams struct {
 
 func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertAgentInstanceTaskEvent,
-		arg.ContextID,
+		arg.HistoryID,
 		arg.TaskID,
 		arg.MessageID,
 		arg.Data,
@@ -206,14 +209,14 @@ func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAg
 
 const insertCopiedAgentInstanceTask = `-- name: InsertCopiedAgentInstanceTask :exec
 INSERT INTO agent_instance_task (
-    context_id, id, state, status_timestamp, data, created_at, updated_at,
+    history_id, id, state, status_timestamp, data, created_at, updated_at,
     initial_message_id, request_hash, snapshot_atespace, snapshot_uri,
-    snapshot_content_scope, history_sequence
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    snapshot_content_scope, history_sequence, position
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 `
 
 type InsertCopiedAgentInstanceTaskParams struct {
-	ContextID            uuid.UUID
+	HistoryID            uuid.UUID
 	ID                   string
 	State                string
 	StatusTimestamp      *time.Time
@@ -226,11 +229,12 @@ type InsertCopiedAgentInstanceTaskParams struct {
 	SnapshotUri          *string
 	SnapshotContentScope *string
 	HistorySequence      *int64
+	Position             int64
 }
 
 func (q *Queries) InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertCopiedAgentInstanceTaskParams) error {
 	_, err := q.db.Exec(ctx, insertCopiedAgentInstanceTask,
-		arg.ContextID,
+		arg.HistoryID,
 		arg.ID,
 		arg.State,
 		arg.StatusTimestamp,
@@ -243,6 +247,7 @@ func (q *Queries) InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertC
 		arg.SnapshotUri,
 		arg.SnapshotContentScope,
 		arg.HistorySequence,
+		arg.Position,
 	)
 	return err
 }
@@ -250,14 +255,14 @@ func (q *Queries) InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertC
 const listAgentInstanceTaskHistory = `-- name: ListAgentInstanceTaskHistory :many
 SELECT task_id, data
 FROM agent_instance_task_event
-WHERE context_id = $1
+WHERE history_id = $1
   AND task_id = ANY($2::text[])
   AND message_id IS NOT NULL
 ORDER BY sequence
 `
 
 type ListAgentInstanceTaskHistoryParams struct {
-	ContextID uuid.UUID
+	HistoryID uuid.UUID
 	TaskIds   []string
 }
 
@@ -267,7 +272,7 @@ type ListAgentInstanceTaskHistoryRow struct {
 }
 
 func (q *Queries) ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error) {
-	rows, err := q.db.Query(ctx, listAgentInstanceTaskHistory, arg.ContextID, arg.TaskIds)
+	rows, err := q.db.Query(ctx, listAgentInstanceTaskHistory, arg.HistoryID, arg.TaskIds)
 	if err != nil {
 		return nil, err
 	}
@@ -287,18 +292,21 @@ func (q *Queries) ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgen
 }
 
 const listAgentInstanceTasks = `-- name: ListAgentInstanceTasks :many
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE context_id = $1
-  AND id > $2
-  AND ($3::text = '' OR state = $3)
+SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at, t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope, t.history_sequence, t.position FROM agent_instance_task t
+WHERE t.history_id = $1
+  AND ($2::text = '' OR t.position > (
+      SELECT cursor.position FROM agent_instance_task cursor
+      WHERE cursor.history_id = $1 AND cursor.id = $2
+  ))
+  AND ($3::text = '' OR t.state = $3)
   AND ($4::timestamptz IS NULL
-       OR status_timestamp > $4)
-ORDER BY id
+       OR t.status_timestamp > $4)
+ORDER BY t.position
 LIMIT $5
 `
 
 type ListAgentInstanceTasksParams struct {
-	ContextID            uuid.UUID
+	HistoryID            uuid.UUID
 	AfterID              string
 	State                string
 	StatusTimestampAfter *time.Time
@@ -307,7 +315,7 @@ type ListAgentInstanceTasksParams struct {
 
 func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error) {
 	rows, err := q.db.Query(ctx, listAgentInstanceTasks,
-		arg.ContextID,
+		arg.HistoryID,
 		arg.AfterID,
 		arg.State,
 		arg.StatusTimestampAfter,
@@ -321,7 +329,7 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 	for rows.Next() {
 		var i AgentInstanceTask
 		if err := rows.Scan(
-			&i.ContextID,
+			&i.HistoryID,
 			&i.ID,
 			&i.State,
 			&i.StatusTimestamp,
@@ -334,6 +342,7 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 			&i.SnapshotUri,
 			&i.SnapshotContentScope,
 			&i.HistorySequence,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -346,8 +355,8 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 }
 
 const lockActiveAgentInstanceTask = `-- name: LockActiveAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE context_id = $1
+SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task
+WHERE history_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
       'TASK_STATE_CANCELED',
@@ -361,11 +370,11 @@ FOR UPDATE
 
 // LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 // rest of the transaction so reclamation cannot overwrite concurrent progress.
-func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID uuid.UUID) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, lockActiveAgentInstanceTask, contextID)
+func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, historyID uuid.UUID) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, lockActiveAgentInstanceTask, historyID)
 	var i AgentInstanceTask
 	err := row.Scan(
-		&i.ContextID,
+		&i.HistoryID,
 		&i.ID,
 		&i.State,
 		&i.StatusTimestamp,
@@ -378,24 +387,25 @@ func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID uui
 		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
+		&i.Position,
 	)
 	return i, err
 }
 
 const lockAgentInstanceTask = `-- name: LockAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task WHERE context_id = $1 AND id = $2 FOR UPDATE
+SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
 `
 
 type LockAgentInstanceTaskParams struct {
-	ContextID uuid.UUID
+	HistoryID uuid.UUID
 	ID        string
 }
 
 func (q *Queries) LockAgentInstanceTask(ctx context.Context, arg LockAgentInstanceTaskParams) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, lockAgentInstanceTask, arg.ContextID, arg.ID)
+	row := q.db.QueryRow(ctx, lockAgentInstanceTask, arg.HistoryID, arg.ID)
 	var i AgentInstanceTask
 	err := row.Scan(
-		&i.ContextID,
+		&i.HistoryID,
 		&i.ID,
 		&i.State,
 		&i.StatusTimestamp,
@@ -408,6 +418,7 @@ func (q *Queries) LockAgentInstanceTask(ctx context.Context, arg LockAgentInstan
 		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
+		&i.Position,
 	)
 	return i, err
 }
@@ -418,11 +429,11 @@ UPDATE agent_instance_task SET
     snapshot_uri = $4,
     snapshot_content_scope = $5,
     history_sequence = $6
-WHERE context_id = $1 AND id = $2
+WHERE history_id = $1 AND id = $2
 `
 
 type SetAgentInstanceTaskSnapshotParams struct {
-	ContextID            uuid.UUID
+	HistoryID            uuid.UUID
 	ID                   string
 	SnapshotAtespace     *string
 	SnapshotUri          *string
@@ -432,7 +443,7 @@ type SetAgentInstanceTaskSnapshotParams struct {
 
 func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error {
 	_, err := q.db.Exec(ctx, setAgentInstanceTaskSnapshot,
-		arg.ContextID,
+		arg.HistoryID,
 		arg.ID,
 		arg.SnapshotAtespace,
 		arg.SnapshotUri,
@@ -443,9 +454,9 @@ func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgent
 }
 
 const upsertAgentInstanceTask = `-- name: UpsertAgentInstanceTask :exec
-INSERT INTO agent_instance_task (context_id, id, state, status_timestamp, data)
+INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (context_id, id) DO UPDATE SET
+ON CONFLICT (history_id, id) DO UPDATE SET
     state = EXCLUDED.state,
     status_timestamp = EXCLUDED.status_timestamp,
     data = EXCLUDED.data,
@@ -453,7 +464,7 @@ ON CONFLICT (context_id, id) DO UPDATE SET
 `
 
 type UpsertAgentInstanceTaskParams struct {
-	ContextID       uuid.UUID
+	HistoryID       uuid.UUID
 	ID              string
 	State           string
 	StatusTimestamp *time.Time
@@ -462,7 +473,7 @@ type UpsertAgentInstanceTaskParams struct {
 
 func (q *Queries) UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error {
 	_, err := q.db.Exec(ctx, upsertAgentInstanceTask,
-		arg.ContextID,
+		arg.HistoryID,
 		arg.ID,
 		arg.State,
 		arg.StatusTimestamp,

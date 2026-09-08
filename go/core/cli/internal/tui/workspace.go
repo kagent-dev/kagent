@@ -214,7 +214,7 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 	}
 }
 
-// loadHistory reads past tasks, sorted here because the gateway orders them by random task UUID.
+// loadHistory preserves the durable task order returned by the gateway.
 func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
 	id := agentInstance.GetId()
 	return func() tea.Msg {
@@ -224,7 +224,7 @@ func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) t
 		}
 		historyLength := historyMessageLimit
 		response, err := a2aClient.ListTasks(m.ctx, &a2atype.ListTasksRequest{
-			ContextID:        id,
+			ContextID:        agentInstance.GetContextId(),
 			PageSize:         historyTaskLimit,
 			HistoryLength:    &historyLength,
 			IncludeArtifacts: true,
@@ -232,18 +232,8 @@ func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) t
 		if err != nil {
 			return instanceHistoryLoadedMsg{instanceID: id, err: err}
 		}
-		tasks := response.Tasks
-		slices.SortStableFunc(tasks, compareTaskTime)
-		return instanceHistoryLoadedMsg{instanceID: id, tasks: tasks}
+		return instanceHistoryLoadedMsg{instanceID: id, tasks: response.Tasks}
 	}
-}
-
-// compareTaskTime orders oldest first by status timestamp, the only time a task carries.
-func compareTaskTime(a, b *a2atype.Task) int {
-	if a == nil || b == nil || a.Status.Timestamp == nil || b.Status.Timestamp == nil {
-		return 0
-	}
-	return a.Status.Timestamp.Compare(*b.Status.Timestamp)
 }
 
 func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -603,7 +593,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	send := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
-	m.chat = newChatModel(m.ctx, agentInstance.GetAgentTemplate().GetName(), agentInstance.GetId(), send, m.verbose)
+	m.chat = newChatModel(m.ctx, agentInstance.GetAgentTemplate().GetName(), agentInstance.GetContextId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(agentInstance.GetState()), agentInstance.GetUpdatedAt().AsTime())
 	// Bubble Tea calls Init only on the root model, so start the chat's here.
 	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(agentInstance))

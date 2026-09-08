@@ -11,6 +11,12 @@ loads the instance and prepared revision, derives the private Actor route, and
 forwards upstream A2A requests. Actor addresses and runtime credentials remain
 internal.
 
+The instance route (`x-kagent-agent-instance-id`) selects authorization and history.
+`AgentInstance.context_id` is the bound A2A context, not the instance ID. Sends
+may omit context to resolve that binding; a different nonempty context is rejected.
+ListTasks may omit the context filter. Forks retain protocol IDs under distinct
+instance routes, including for cancellation and subscription.
+
 Each running task has one event ingester. It alone owns runtime event consumption,
 durable persistence, and the final quiescence transition; client streams and
 subscribers only observe its queue. This permits multiple observers without
@@ -37,7 +43,7 @@ discarded.
 
 The persistence model enforces:
 
-- one non-quiescent task per A2A context;
+- one non-quiescent task per instance history;
 - message-ID idempotency using the request hash;
 - conflict rejection when an ID is reused for different content; and
 - an exact snapshot identity and history sequence at each quiescent boundary.
