@@ -3,7 +3,7 @@ SELECT * FROM agent_instance
 WHERE user_id = $1 AND request_id = $2;
 
 -- name: GetLatestRuntimeRevisionForInstance :one
-SELECT r.*, p.agent_template_labels
+SELECT r.*, p.agent_template_labels, clock_timestamp()::timestamptz AS db_time
 FROM agent_template_harness_pair p
 JOIN runtime_revision r ON r.revision = p.latest_successful_revision
 WHERE p.namespace = sqlc.arg(harness_namespace)

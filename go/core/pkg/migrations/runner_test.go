@@ -218,8 +218,8 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	executionID := "00000000-0000-0000-0000-000000000004"
 	execSQL(t, dsn, `INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
         VALUES ($1, 'user', 'schedule', $2, $3)`, scheduleID, make([]byte, 32), []byte{})
-	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, agent_instance_id, data)
-        VALUES ($1, $2, 'manual', $3, $4)`, executionID, scheduleID, instanceID, []byte{})
+	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, agent_instance_id, data, deadline)
+        VALUES ($1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, instanceID, []byte{})
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)

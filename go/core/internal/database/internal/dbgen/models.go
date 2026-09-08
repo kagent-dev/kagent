@@ -126,6 +126,8 @@ type ScheduledRun struct {
 	RequestID         string
 	RequestHash       []byte
 	Data              []byte
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 	NextExecutionTime *time.Time
 	DeletedAt         *time.Time
 }
@@ -136,6 +138,8 @@ type ScheduledRunExecution struct {
 	ScheduledTime   *time.Time
 	ManualRequestID *string
 	Data            []byte
+	CreatedAt       time.Time
+	Deadline        time.Time
 	AgentInstanceID *uuid.UUID
 	TaskID          *string
 	CompletedAt     *time.Time

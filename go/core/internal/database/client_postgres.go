@@ -248,11 +248,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		now, err := q.DatabaseNow(ctx)
-		if err != nil {
-			return err
-		}
-		row, err = insertAgentInstance(ctx, q, request, requestID, now)
+		row, err = insertAgentInstance(ctx, q, request, requestID)
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -275,7 +271,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 
 // insertAgentInstance reserves the conversation and pins its prepared revision.
 // Callers own the transaction so execution linkage can commit with creation.
-func insertAgentInstance(ctx context.Context, q *dbgen.Queries, request *apiv1alpha1.AgentInstance, requestID string, now time.Time) (dbgen.AgentInstance, error) {
+func insertAgentInstance(ctx context.Context, q *dbgen.Queries, request *apiv1alpha1.AgentInstance, requestID string) (dbgen.AgentInstance, error) {
 	revision, err := q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
 		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
 	})
@@ -293,8 +289,8 @@ func insertAgentInstance(ctx context.Context, q *dbgen.Queries, request *apiv1al
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
 	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
 	instance.Labels = labels
-	instance.CreatedAt = timestamppb.New(now)
-	instance.UpdatedAt = timestamppb.New(now)
+	instance.CreatedAt = timestamppb.New(revision.DbTime)
+	instance.UpdatedAt = timestamppb.New(revision.DbTime)
 	data, err := marshalAgentInstance(instance)
 	if err != nil {
 		return dbgen.AgentInstance{}, err

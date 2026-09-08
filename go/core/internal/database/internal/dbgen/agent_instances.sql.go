@@ -206,7 +206,7 @@ func (q *Queries) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHas
 }
 
 const getLatestRuntimeRevisionForInstance = `-- name: GetLatestRuntimeRevisionForInstance :one
-SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.harness_name, r.harness_uid, r.source_snapshot, r.egress_destinations, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, p.agent_template_labels
+SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.harness_name, r.harness_uid, r.source_snapshot, r.egress_destinations, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, p.agent_template_labels, clock_timestamp()::timestamptz AS db_time
 FROM agent_template_harness_pair p
 JOIN runtime_revision r ON r.revision = p.latest_successful_revision
 WHERE p.namespace = $1
@@ -239,6 +239,7 @@ type GetLatestRuntimeRevisionForInstanceRow struct {
 	UpdatedAt             time.Time
 	AgentCard             []byte
 	AgentTemplateLabels   []byte
+	DbTime                time.Time
 }
 
 func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error) {
@@ -265,6 +266,7 @@ func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg G
 		&i.UpdatedAt,
 		&i.AgentCard,
 		&i.AgentTemplateLabels,
+		&i.DbTime,
 	)
 	return i, err
 }

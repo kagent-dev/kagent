@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func createTestSchedule(t *testing.T, c *Client) (*apiv1alpha1.ScheduledRun, []byte) {
@@ -149,6 +150,58 @@ func TestScheduledRunRequestsSurviveEditAndDeletion(t *testing.T) {
 	_, err = c.GetScheduledRunExecution(t.Context(), execution.Id, "bob")
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = c.TriggerScheduledRun(t.Context(), schedule.Id, "bob", "manual")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestScheduledRunSQLTimestamps(t *testing.T) {
+	db := setupTestDB(t)
+	c := NewClient(db)
+	schedule, hash := createTestSchedule(t, c)
+	require.True(t, proto.Equal(schedule.CreatedAt, schedule.UpdatedAt))
+	next, err := scheduledrun.Next(schedule.Config, schedule.CreatedAt.AsTime())
+	require.NoError(t, err)
+	require.Equal(t, next, schedule.NextExecutionTime.AsTime())
+
+	// SQL timestamps remain authoritative even if the payload carries stale values.
+	stale := proto.CloneOf(schedule)
+	stale.CreatedAt, stale.UpdatedAt = timestamppb.New(time.Unix(1, 0)), timestamppb.New(time.Unix(2, 0))
+	data, err := proto.Marshal(stale)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "UPDATE scheduled_run SET data = $1 WHERE id = $2", data, schedule.Id)
+	require.NoError(t, err)
+	loaded, err := c.GetScheduledRun(t.Context(), schedule.Id, "alice")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(schedule, loaded))
+	config := proto.CloneOf(schedule.Config)
+	config.ExecutionTimeout = durationpb.New(1500 * time.Nanosecond)
+	config.Schedule = "*/5 * * * *"
+	updated, err := c.UpdateScheduledRun(t.Context(), schedule.Id, "alice", schedule.Etag, config)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(schedule.CreatedAt, updated.CreatedAt))
+	require.True(t, updated.UpdatedAt.AsTime().After(schedule.UpdatedAt.AsTime()))
+	next, err = scheduledrun.Next(config, updated.UpdatedAt.AsTime())
+	require.NoError(t, err)
+	require.Equal(t, next, updated.NextExecutionTime.AsTime())
+	invalidConfig := proto.CloneOf(config)
+	invalidConfig.Schedule = "invalid cron"
+	_, err = c.UpdateScheduledRun(t.Context(), schedule.Id, "alice", updated.Etag, invalidConfig)
+	require.Error(t, err)
+	loaded, err = c.GetScheduledRun(t.Context(), schedule.Id, "alice")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(updated, loaded), "failed cron calculation must roll back the update")
+	execution, err := c.TriggerScheduledRun(t.Context(), schedule.Id, "alice", "fractional-microsecond")
+	require.NoError(t, err)
+	require.Equal(t, 2*time.Microsecond, execution.Deadline.AsTime().Sub(execution.CreatedAt.AsTime()))
+	deleted, err := c.DeleteScheduledRun(t.Context(), schedule.Id, "alice")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(deleted.UpdatedAt, deleted.DeletedAt))
+
+	// A failed cron calculation must also roll back the preceding insert.
+	invalid := proto.CloneOf(schedule)
+	invalid.Config.Schedule = "invalid cron"
+	_, err = c.CreateScheduledRun(t.Context(), invalid, "invalid", hash)
+	require.Error(t, err)
+	_, err = c.FindScheduledRunRequest(t.Context(), "alice", "invalid", hash)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 

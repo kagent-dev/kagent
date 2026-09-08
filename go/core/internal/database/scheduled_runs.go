@@ -11,6 +11,7 @@ import (
 	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/scheduledrun"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
@@ -30,25 +31,29 @@ func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID
 }
 
 func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.ScheduledRun, requestID string, hash []byte) (*apiv1alpha1.ScheduledRun, error) {
-	now, err := c.q.DatabaseNow(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read schedule clock: %w", err)
-	}
-	next, err := nextExecutionTime(request.Config, now)
-	if err != nil {
-		return nil, err
-	}
 	schedule := proto.CloneOf(request)
 	schedule.Id, schedule.Etag = uuid.NewString(), uuid.NewString()
-	schedule.CreatedAt, schedule.UpdatedAt = timestamppb.New(now), timestamppb.New(now)
-	schedule.NextExecutionTime = optionalTimestamp(next)
+	schedule.CreatedAt, schedule.UpdatedAt = nil, nil
+	schedule.NextExecutionTime, schedule.DeletedAt = nil, nil
 	data, err := proto.Marshal(schedule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode schedule: %w", err)
 	}
-	row, err := c.q.CreateScheduledRun(ctx, dbgen.CreateScheduledRunParams{
-		ID: uuid.MustParse(schedule.Id), Creator: schedule.Creator,
-		RequestID: requestID, RequestHash: hash, Data: data, NextExecutionTime: next,
+	var row dbgen.ScheduledRun
+	err = c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err = q.CreateScheduledRun(ctx, dbgen.CreateScheduledRunParams{
+			ID: uuid.MustParse(schedule.Id), Creator: schedule.Creator,
+			RequestID: requestID, RequestHash: hash, Data: data,
+		})
+		if err != nil {
+			return err
+		}
+		row.NextExecutionTime, err = nextExecutionTime(schedule.Config, row.CreatedAt)
+		if err != nil || row.NextExecutionTime == nil {
+			return err
+		}
+		// Keep the first cron time atomic with creation, using the insert's clock.
+		return q.AdvanceScheduledRun(ctx, dbgen.AdvanceScheduledRunParams{ID: row.ID, NextExecutionTime: row.NextExecutionTime})
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c.FindScheduledRunRequest(ctx, schedule.Creator, requestID, hash)
@@ -108,27 +113,25 @@ func (c *Client) UpdateScheduledRun(ctx context.Context, id, creator, etag strin
 		if schedule.Etag != etag {
 			return ErrScheduledRunConflict
 		}
-		now, err := q.DatabaseNow(ctx)
-		if err != nil {
-			return err
-		}
-		next := row.NextExecutionTime
-		// Prompt/name edits must not skip an occurrence already due for reservation.
 		previous := schedule.Config
-		if config.Schedule != previous.Schedule || config.TimeZone != previous.TimeZone || config.Paused != previous.Paused {
-			next, err = nextExecutionTime(config, now)
-			if err != nil {
-				return err
-			}
-		}
 		schedule.Config, schedule.Etag = proto.CloneOf(config), uuid.NewString()
-		schedule.UpdatedAt, schedule.NextExecutionTime = timestamppb.New(now), optionalTimestamp(next)
 		data, err := proto.Marshal(schedule)
 		if err != nil {
 			return err
 		}
-		result, err = q.SaveScheduledRun(ctx, dbgen.SaveScheduledRunParams{ID: row.ID, Data: data, NextExecutionTime: next})
-		return err
+		result, err = q.SaveScheduledRun(ctx, dbgen.SaveScheduledRunParams{ID: row.ID, Data: data, NextExecutionTime: row.NextExecutionTime})
+		if err != nil {
+			return err
+		}
+		// Prompt/name edits must not skip an occurrence already due for reservation.
+		if config.Schedule != previous.Schedule || config.TimeZone != previous.TimeZone || config.Paused != previous.Paused {
+			result.NextExecutionTime, err = nextExecutionTime(config, result.UpdatedAt)
+			if err != nil {
+				return err
+			}
+			return q.AdvanceScheduledRun(ctx, dbgen.AdvanceScheduledRunParams{ID: result.ID, NextExecutionTime: result.NextExecutionTime})
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to update schedule: %w", err)
@@ -151,17 +154,12 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id, creator string) (*a
 		if err != nil {
 			return err
 		}
-		now, err := q.DatabaseNow(ctx)
-		if err != nil {
-			return err
-		}
-		schedule.DeletedAt, schedule.UpdatedAt = timestamppb.New(now), timestamppb.New(now)
 		schedule.Etag, schedule.NextExecutionTime = uuid.NewString(), nil
 		data, err := proto.Marshal(schedule)
 		if err != nil {
 			return err
 		}
-		result, err = q.SaveScheduledRun(ctx, dbgen.SaveScheduledRunParams{ID: row.ID, Data: data, DeletedAt: &now})
+		result, err = q.SaveScheduledRun(ctx, dbgen.SaveScheduledRunParams{ID: row.ID, Data: data, Deleted: true})
 		return err
 	})
 	if err != nil {
@@ -187,11 +185,7 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id, creator, requestID
 		if row.DeletedAt != nil {
 			return ErrScheduledRunDeleted
 		}
-		now, err := q.DatabaseNow(ctx)
-		if err != nil {
-			return err
-		}
-		result, err = reserveScheduledRunExecution(ctx, q, row, now, nil, &requestID)
+		result, err = reserveScheduledRunExecution(ctx, q, row, nil, &requestID)
 		return err
 	})
 	if err != nil {
@@ -208,15 +202,12 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 	}
 	result := []*apiv1alpha1.ScheduledRunExecution{}
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		now, err := q.DatabaseNow(ctx)
+		rows, err := q.GetDueScheduledRunsForUpdate(ctx, int32(limit))
 		if err != nil {
 			return err
 		}
-		rows, err := q.GetDueScheduledRunsForUpdate(ctx, dbgen.GetDueScheduledRunsForUpdateParams{Limit: int32(limit), Now: now})
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
+		for _, due := range rows {
+			row, now := due.ScheduledRun, due.DbTime
 			schedule, err := toScheduledRun(row)
 			if err != nil {
 				return err
@@ -227,7 +218,7 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 			}
 			// ponytail: fixed 30s lateness allowance; configure it if deployments need longer failover tolerance.
 			if now.Sub(*row.NextExecutionTime) <= 30*time.Second {
-				record, err := reserveScheduledRunExecution(ctx, q, row, now, row.NextExecutionTime, nil)
+				record, err := reserveScheduledRunExecution(ctx, q, row, row.NextExecutionTime, nil)
 				if err != nil {
 					return err
 				}
@@ -258,7 +249,7 @@ func getScheduledRunForUpdate(ctx context.Context, q *dbgen.Queries, id, creator
 	return row, notFoundOr(err)
 }
 
-func reserveScheduledRunExecution(ctx context.Context, q *dbgen.Queries, row dbgen.ScheduledRun, now time.Time, due *time.Time, manualRequestID *string) (dbgen.ScheduledRunExecution, error) {
+func reserveScheduledRunExecution(ctx context.Context, q *dbgen.Queries, row dbgen.ScheduledRun, due *time.Time, manualRequestID *string) (dbgen.ScheduledRunExecution, error) {
 	schedule, err := toScheduledRun(row)
 	if err != nil {
 		return dbgen.ScheduledRunExecution{}, err
@@ -269,9 +260,8 @@ func reserveScheduledRunExecution(ctx context.Context, q *dbgen.Queries, row dbg
 	}
 	execution := &apiv1alpha1.ScheduledRunExecution{
 		Id: id.String(), ScheduledRunId: schedule.Id, Creator: schedule.Creator,
-		Prompt: schedule.Config.Prompt, CreatedAt: timestamppb.New(now),
-		Deadline: timestamppb.New(now.Add(schedule.Config.ExecutionTimeout.AsDuration())),
-		State:    apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING,
+		Prompt: schedule.Config.Prompt,
+		State:  apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING,
 	}
 	if due != nil {
 		execution.Trigger = &apiv1alpha1.ScheduledRunExecution_ScheduledTime{ScheduledTime: timestamppb.New(*due)}
@@ -282,8 +272,11 @@ func reserveScheduledRunExecution(ctx context.Context, q *dbgen.Queries, row dbg
 	if err != nil {
 		return dbgen.ScheduledRunExecution{}, err
 	}
+	// PostgreSQL timestamps have microsecond precision; don't shorten a timeout.
+	timeout := (schedule.Config.ExecutionTimeout.AsDuration() + time.Microsecond - 1) / time.Microsecond
 	return q.CreateScheduledRunExecution(ctx, dbgen.CreateScheduledRunExecutionParams{
 		ID: id, ScheduledRunID: row.ID, ScheduledTime: due, ManualRequestID: manualRequestID, Data: data,
+		ExecutionTimeout: pgtype.Interval{Microseconds: int64(timeout), Valid: true},
 	})
 }
 
@@ -341,21 +334,21 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id, c
 		if result.AgentInstanceID != nil || result.State != "PENDING" {
 			return nil
 		}
-		now, err := q.DatabaseNow(ctx)
-		if err != nil {
-			return err
-		}
 		execution, err := toScheduledRunExecution(result)
 		if err != nil {
 			return err
 		}
-		if !now.Before(execution.Deadline.AsTime()) {
-			execution.FailureReason = "Execution deadline elapsed"
-			data, err := proto.Marshal(execution)
-			if err != nil {
-				return err
-			}
-			result, err = q.ExpireScheduledRunExecution(ctx, dbgen.ExpireScheduledRunExecutionParams{ID: uid, Data: data})
+		execution.FailureReason = "Execution deadline elapsed"
+		data, err := proto.Marshal(execution)
+		if err != nil {
+			return err
+		}
+		expired, err := q.ExpireScheduledRunExecution(ctx, dbgen.ExpireScheduledRunExecutionParams{ID: uid, Data: data})
+		if err == nil {
+			result = expired
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 		scheduleRow, err := q.GetScheduledRun(ctx, dbgen.GetScheduledRunParams{Creator: creator, ID: result.ScheduledRunID})
@@ -374,7 +367,7 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id, c
 			Id: instanceID.String(), Creator: creator,
 			Harness:       proto.CloneOf(schedule.Harness),
 			AgentTemplate: proto.CloneOf(schedule.AgentTemplate),
-		}, "scheduled-run/"+id, now)
+		}, "scheduled-run/"+id)
 		if errors.Is(err, ErrNotFound) {
 			return ErrScheduledRunTargetNotReady
 		}
@@ -395,8 +388,8 @@ func toScheduledRunExecution(row dbgen.ScheduledRunExecution) (*apiv1alpha1.Sche
 	if err := proto.Unmarshal(row.Data, execution); err != nil {
 		return nil, fmt.Errorf("failed to decode execution %s: %w", row.ID, err)
 	}
+	execution.CreatedAt, execution.Deadline = timestamppb.New(row.CreatedAt), timestamppb.New(row.Deadline)
 	if execution.GetCreator() == "" || strings.TrimSpace(execution.GetPrompt()) == "" || len(execution.GetPrompt()) > 32768 ||
-		execution.GetCreatedAt() == nil || execution.GetDeadline() == nil ||
 		execution.CreatedAt.CheckValid() != nil || execution.Deadline.CheckValid() != nil ||
 		!execution.Deadline.AsTime().After(execution.CreatedAt.AsTime()) {
 		return nil, fmt.Errorf("invalid execution payload %s", row.ID)
@@ -501,8 +494,8 @@ func toScheduledRun(row dbgen.ScheduledRun) (*apiv1alpha1.ScheduledRun, error) {
 	if err := proto.Unmarshal(row.Data, schedule); err != nil {
 		return nil, fmt.Errorf("failed to decode schedule %s: %w", row.ID, err)
 	}
+	schedule.CreatedAt, schedule.UpdatedAt = timestamppb.New(row.CreatedAt), timestamppb.New(row.UpdatedAt)
 	if schedule.GetConfig() == nil || schedule.Config.ExecutionTimeout == nil ||
-		schedule.CreatedAt == nil || schedule.UpdatedAt == nil ||
 		schedule.CreatedAt.CheckValid() != nil || schedule.UpdatedAt.CheckValid() != nil ||
 		schedule.Etag == "" || schedule.GetHarness().GetNamespace() == "" || schedule.GetHarness().GetName() == "" || schedule.GetAgentTemplate().GetName() == "" ||
 		schedule.GetHarness().GetNamespace() != schedule.GetAgentTemplate().GetNamespace() {

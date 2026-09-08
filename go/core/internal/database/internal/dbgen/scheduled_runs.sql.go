@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const advanceScheduledRun = `-- name: AdvanceScheduledRun :exec
@@ -27,18 +28,17 @@ func (q *Queries) AdvanceScheduledRun(ctx context.Context, arg AdvanceScheduledR
 }
 
 const createScheduledRun = `-- name: CreateScheduledRun :one
-INSERT INTO scheduled_run (id, creator, request_id, request_hash, data, next_execution_time)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_id, request_hash, data, next_execution_time, deleted_at
+INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 `
 
 type CreateScheduledRunParams struct {
-	ID                uuid.UUID
-	Creator           string
-	RequestID         string
-	RequestHash       []byte
-	Data              []byte
-	NextExecutionTime *time.Time
+	ID          uuid.UUID
+	Creator     string
+	RequestID   string
+	RequestHash []byte
+	Data        []byte
 }
 
 func (q *Queries) CreateScheduledRun(ctx context.Context, arg CreateScheduledRunParams) (ScheduledRun, error) {
@@ -48,7 +48,6 @@ func (q *Queries) CreateScheduledRun(ctx context.Context, arg CreateScheduledRun
 		arg.RequestID,
 		arg.RequestHash,
 		arg.Data,
-		arg.NextExecutionTime,
 	)
 	var i ScheduledRun
 	err := row.Scan(
@@ -57,6 +56,8 @@ func (q *Queries) CreateScheduledRun(ctx context.Context, arg CreateScheduledRun
 		&i.RequestID,
 		&i.RequestHash,
 		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.NextExecutionTime,
 		&i.DeletedAt,
 	)
@@ -64,16 +65,18 @@ func (q *Queries) CreateScheduledRun(ctx context.Context, arg CreateScheduledRun
 }
 
 const createScheduledRunExecution = `-- name: CreateScheduledRunExecution :one
-INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data)
-VALUES ($1, $2, $3, $4, $5) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
+INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline)
+VALUES ($1, $2, $3, $4, $5,
+    statement_timestamp() + $6::interval) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
 `
 
 type CreateScheduledRunExecutionParams struct {
-	ID              uuid.UUID
-	ScheduledRunID  uuid.UUID
-	ScheduledTime   *time.Time
-	ManualRequestID *string
-	Data            []byte
+	ID               uuid.UUID
+	ScheduledRunID   uuid.UUID
+	ScheduledTime    *time.Time
+	ManualRequestID  *string
+	Data             []byte
+	ExecutionTimeout pgtype.Interval
 }
 
 func (q *Queries) CreateScheduledRunExecution(ctx context.Context, arg CreateScheduledRunExecutionParams) (ScheduledRunExecution, error) {
@@ -83,6 +86,7 @@ func (q *Queries) CreateScheduledRunExecution(ctx context.Context, arg CreateSch
 		arg.ScheduledTime,
 		arg.ManualRequestID,
 		arg.Data,
+		arg.ExecutionTimeout,
 	)
 	var i ScheduledRunExecution
 	err := row.Scan(
@@ -91,6 +95,8 @@ func (q *Queries) CreateScheduledRunExecution(ctx context.Context, arg CreateSch
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,
@@ -101,20 +107,9 @@ func (q *Queries) CreateScheduledRunExecution(ctx context.Context, arg CreateSch
 	return i, err
 }
 
-const databaseNow = `-- name: DatabaseNow :one
-SELECT clock_timestamp()::timestamptz AS now
-`
-
-func (q *Queries) DatabaseNow(ctx context.Context) (time.Time, error) {
-	row := q.db.QueryRow(ctx, databaseNow)
-	var now time.Time
-	err := row.Scan(&now)
-	return now, err
-}
-
 const expireScheduledRunExecution = `-- name: ExpireScheduledRunExecution :one
 UPDATE scheduled_run_execution SET state = 'TIMED_OUT', completed_at = clock_timestamp(), data = $2
-WHERE id = $1 RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
+WHERE id = $1 AND deadline <= clock_timestamp() RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
 `
 
 type ExpireScheduledRunExecutionParams struct {
@@ -131,6 +126,8 @@ func (q *Queries) ExpireScheduledRunExecution(ctx context.Context, arg ExpireSch
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,
@@ -142,7 +139,7 @@ func (q *Queries) ExpireScheduledRunExecution(ctx context.Context, arg ExpireSch
 }
 
 const findManualScheduledRunExecution = `-- name: FindManualScheduledRunExecution :one
-SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state FROM scheduled_run_execution WHERE scheduled_run_id = $1 AND manual_request_id = $2
+SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state FROM scheduled_run_execution WHERE scheduled_run_id = $1 AND manual_request_id = $2
 `
 
 type FindManualScheduledRunExecutionParams struct {
@@ -159,6 +156,8 @@ func (q *Queries) FindManualScheduledRunExecution(ctx context.Context, arg FindM
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,
@@ -170,7 +169,7 @@ func (q *Queries) FindManualScheduledRunExecution(ctx context.Context, arg FindM
 }
 
 const findScheduledRunRequest = `-- name: FindScheduledRunRequest :one
-SELECT id, creator, request_id, request_hash, data, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND request_id = $2
+SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND request_id = $2
 `
 
 type FindScheduledRunRequestParams struct {
@@ -187,6 +186,8 @@ func (q *Queries) FindScheduledRunRequest(ctx context.Context, arg FindScheduled
 		&i.RequestID,
 		&i.RequestHash,
 		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.NextExecutionTime,
 		&i.DeletedAt,
 	)
@@ -194,33 +195,36 @@ func (q *Queries) FindScheduledRunRequest(ctx context.Context, arg FindScheduled
 }
 
 const getDueScheduledRunsForUpdate = `-- name: GetDueScheduledRunsForUpdate :many
-SELECT id, creator, request_id, request_hash, data, next_execution_time, deleted_at FROM scheduled_run
-WHERE deleted_at IS NULL AND next_execution_time <= $2::timestamptz
+SELECT scheduled_run.id, scheduled_run.creator, scheduled_run.request_id, scheduled_run.request_hash, scheduled_run.data, scheduled_run.created_at, scheduled_run.updated_at, scheduled_run.next_execution_time, scheduled_run.deleted_at, statement_timestamp()::timestamptz AS db_time FROM scheduled_run
+WHERE deleted_at IS NULL AND next_execution_time <= statement_timestamp()
 ORDER BY next_execution_time, id LIMIT $1 FOR UPDATE SKIP LOCKED
 `
 
-type GetDueScheduledRunsForUpdateParams struct {
-	Limit int32
-	Now   time.Time
+type GetDueScheduledRunsForUpdateRow struct {
+	ScheduledRun ScheduledRun
+	DbTime       time.Time
 }
 
-func (q *Queries) GetDueScheduledRunsForUpdate(ctx context.Context, arg GetDueScheduledRunsForUpdateParams) ([]ScheduledRun, error) {
-	rows, err := q.db.Query(ctx, getDueScheduledRunsForUpdate, arg.Limit, arg.Now)
+func (q *Queries) GetDueScheduledRunsForUpdate(ctx context.Context, limit int32) ([]GetDueScheduledRunsForUpdateRow, error) {
+	rows, err := q.db.Query(ctx, getDueScheduledRunsForUpdate, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ScheduledRun
+	var items []GetDueScheduledRunsForUpdateRow
 	for rows.Next() {
-		var i ScheduledRun
+		var i GetDueScheduledRunsForUpdateRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Creator,
-			&i.RequestID,
-			&i.RequestHash,
-			&i.Data,
-			&i.NextExecutionTime,
-			&i.DeletedAt,
+			&i.ScheduledRun.ID,
+			&i.ScheduledRun.Creator,
+			&i.ScheduledRun.RequestID,
+			&i.ScheduledRun.RequestHash,
+			&i.ScheduledRun.Data,
+			&i.ScheduledRun.CreatedAt,
+			&i.ScheduledRun.UpdatedAt,
+			&i.ScheduledRun.NextExecutionTime,
+			&i.ScheduledRun.DeletedAt,
+			&i.DbTime,
 		); err != nil {
 			return nil, err
 		}
@@ -233,7 +237,7 @@ func (q *Queries) GetDueScheduledRunsForUpdate(ctx context.Context, arg GetDueSc
 }
 
 const getLeasedScheduledRunExecutionForUpdate = `-- name: GetLeasedScheduledRunExecutionForUpdate :one
-SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state FROM scheduled_run_execution
+SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state FROM scheduled_run_execution
 WHERE id = $1 AND lease_token = $2 AND next_attempt_at > clock_timestamp()
   AND state IN ('PENDING', 'RUNNING') FOR UPDATE
 `
@@ -252,6 +256,8 @@ func (q *Queries) GetLeasedScheduledRunExecutionForUpdate(ctx context.Context, a
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,
@@ -263,7 +269,7 @@ func (q *Queries) GetLeasedScheduledRunExecutionForUpdate(ctx context.Context, a
 }
 
 const getScheduledRun = `-- name: GetScheduledRun :one
-SELECT id, creator, request_id, request_hash, data, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND id = $2
+SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND id = $2
 `
 
 type GetScheduledRunParams struct {
@@ -280,6 +286,8 @@ func (q *Queries) GetScheduledRun(ctx context.Context, arg GetScheduledRunParams
 		&i.RequestID,
 		&i.RequestHash,
 		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.NextExecutionTime,
 		&i.DeletedAt,
 	)
@@ -287,7 +295,7 @@ func (q *Queries) GetScheduledRun(ctx context.Context, arg GetScheduledRunParams
 }
 
 const getScheduledRunExecution = `-- name: GetScheduledRunExecution :one
-SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
+SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 WHERE s.creator = $1 AND e.id = $2
 `
 
@@ -305,6 +313,8 @@ func (q *Queries) GetScheduledRunExecution(ctx context.Context, arg GetScheduled
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,
@@ -316,7 +326,7 @@ func (q *Queries) GetScheduledRunExecution(ctx context.Context, arg GetScheduled
 }
 
 const getScheduledRunExecutionForUpdate = `-- name: GetScheduledRunExecutionForUpdate :one
-SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
+SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 WHERE s.creator = $1 AND e.id = $2 FOR UPDATE OF e
 `
 
@@ -334,6 +344,8 @@ func (q *Queries) GetScheduledRunExecutionForUpdate(ctx context.Context, arg Get
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,
@@ -345,7 +357,7 @@ func (q *Queries) GetScheduledRunExecutionForUpdate(ctx context.Context, arg Get
 }
 
 const getScheduledRunForUpdate = `-- name: GetScheduledRunForUpdate :one
-SELECT id, creator, request_id, request_hash, data, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND id = $2 FOR UPDATE
+SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND id = $2 FOR UPDATE
 `
 
 type GetScheduledRunForUpdateParams struct {
@@ -362,6 +374,8 @@ func (q *Queries) GetScheduledRunForUpdate(ctx context.Context, arg GetScheduled
 		&i.RequestID,
 		&i.RequestHash,
 		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.NextExecutionTime,
 		&i.DeletedAt,
 	)
@@ -376,7 +390,7 @@ WITH candidates AS (
 )
 UPDATE scheduled_run_execution e
 SET lease_token = $2::uuid, next_attempt_at = clock_timestamp() + interval '30 seconds'
-FROM candidates c WHERE e.id = c.id RETURNING e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state
+FROM candidates c WHERE e.id = c.id RETURNING e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state
 `
 
 type LeaseScheduledRunExecutionsParams struct {
@@ -399,6 +413,8 @@ func (q *Queries) LeaseScheduledRunExecutions(ctx context.Context, arg LeaseSche
 			&i.ScheduledTime,
 			&i.ManualRequestID,
 			&i.Data,
+			&i.CreatedAt,
+			&i.Deadline,
 			&i.AgentInstanceID,
 			&i.TaskID,
 			&i.CompletedAt,
@@ -417,7 +433,7 @@ func (q *Queries) LeaseScheduledRunExecutions(ctx context.Context, arg LeaseSche
 }
 
 const listScheduledRunExecutions = `-- name: ListScheduledRunExecutions :many
-SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
+SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 WHERE s.creator = $1 AND e.scheduled_run_id = $2
   AND ($4::uuid IS NULL OR e.id < $4::uuid)
 ORDER BY e.id DESC LIMIT $3
@@ -450,6 +466,8 @@ func (q *Queries) ListScheduledRunExecutions(ctx context.Context, arg ListSchedu
 			&i.ScheduledTime,
 			&i.ManualRequestID,
 			&i.Data,
+			&i.CreatedAt,
+			&i.Deadline,
 			&i.AgentInstanceID,
 			&i.TaskID,
 			&i.CompletedAt,
@@ -468,7 +486,7 @@ func (q *Queries) ListScheduledRunExecutions(ctx context.Context, arg ListSchedu
 }
 
 const listScheduledRuns = `-- name: ListScheduledRuns :many
-SELECT id, creator, request_id, request_hash, data, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND deleted_at IS NULL
+SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at FROM scheduled_run WHERE creator = $1 AND deleted_at IS NULL
   AND ($3::uuid IS NULL OR id > $3::uuid)
 ORDER BY id LIMIT $2
 `
@@ -494,6 +512,8 @@ func (q *Queries) ListScheduledRuns(ctx context.Context, arg ListScheduledRunsPa
 			&i.RequestID,
 			&i.RequestHash,
 			&i.Data,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.NextExecutionTime,
 			&i.DeletedAt,
 		); err != nil {
@@ -508,15 +528,17 @@ func (q *Queries) ListScheduledRuns(ctx context.Context, arg ListScheduledRunsPa
 }
 
 const saveScheduledRun = `-- name: SaveScheduledRun :one
-UPDATE scheduled_run SET data = $2, next_execution_time = $3, deleted_at = $4
-WHERE id = $1 RETURNING id, creator, request_id, request_hash, data, next_execution_time, deleted_at
+UPDATE scheduled_run SET data = $2, next_execution_time = $3,
+    updated_at = statement_timestamp(),
+    deleted_at = CASE WHEN $4::boolean THEN statement_timestamp() END
+WHERE id = $1 RETURNING id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 `
 
 type SaveScheduledRunParams struct {
 	ID                uuid.UUID
 	Data              []byte
 	NextExecutionTime *time.Time
-	DeletedAt         *time.Time
+	Deleted           bool
 }
 
 func (q *Queries) SaveScheduledRun(ctx context.Context, arg SaveScheduledRunParams) (ScheduledRun, error) {
@@ -524,7 +546,7 @@ func (q *Queries) SaveScheduledRun(ctx context.Context, arg SaveScheduledRunPara
 		arg.ID,
 		arg.Data,
 		arg.NextExecutionTime,
-		arg.DeletedAt,
+		arg.Deleted,
 	)
 	var i ScheduledRun
 	err := row.Scan(
@@ -533,6 +555,8 @@ func (q *Queries) SaveScheduledRun(ctx context.Context, arg SaveScheduledRunPara
 		&i.RequestID,
 		&i.RequestHash,
 		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.NextExecutionTime,
 		&i.DeletedAt,
 	)
@@ -540,7 +564,7 @@ func (q *Queries) SaveScheduledRun(ctx context.Context, arg SaveScheduledRunPara
 }
 
 const setScheduledRunExecutionInstance = `-- name: SetScheduledRunExecutionInstance :one
-UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
+UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
 `
 
 type SetScheduledRunExecutionInstanceParams struct {
@@ -557,6 +581,8 @@ func (q *Queries) SetScheduledRunExecutionInstance(ctx context.Context, arg SetS
 		&i.ScheduledTime,
 		&i.ManualRequestID,
 		&i.Data,
+		&i.CreatedAt,
+		&i.Deadline,
 		&i.AgentInstanceID,
 		&i.TaskID,
 		&i.CompletedAt,

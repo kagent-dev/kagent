@@ -2,8 +2,8 @@
 SELECT * FROM scheduled_run WHERE creator = $1 AND request_id = $2;
 
 -- name: CreateScheduledRun :one
-INSERT INTO scheduled_run (id, creator, request_id, request_hash, data, next_execution_time)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (creator, request_id) DO NOTHING RETURNING *;
 
 -- name: GetScheduledRun :one
@@ -18,26 +18,26 @@ SELECT * FROM scheduled_run WHERE creator = $1 AND deleted_at IS NULL
 ORDER BY id LIMIT $2;
 
 -- name: SaveScheduledRun :one
-UPDATE scheduled_run SET data = $2, next_execution_time = $3, deleted_at = $4
+UPDATE scheduled_run SET data = $2, next_execution_time = $3,
+    updated_at = statement_timestamp(),
+    deleted_at = CASE WHEN sqlc.arg(deleted)::boolean THEN statement_timestamp() END
 WHERE id = $1 RETURNING *;
 
 -- name: GetDueScheduledRunsForUpdate :many
-SELECT * FROM scheduled_run
-WHERE deleted_at IS NULL AND next_execution_time <= sqlc.arg(now)::timestamptz
+SELECT sqlc.embed(scheduled_run), statement_timestamp()::timestamptz AS db_time FROM scheduled_run
+WHERE deleted_at IS NULL AND next_execution_time <= statement_timestamp()
 ORDER BY next_execution_time, id LIMIT $1 FOR UPDATE SKIP LOCKED;
 
 -- name: AdvanceScheduledRun :exec
 UPDATE scheduled_run SET next_execution_time = $2 WHERE id = $1;
 
--- name: DatabaseNow :one
-SELECT clock_timestamp()::timestamptz AS now;
-
 -- name: FindManualScheduledRunExecution :one
 SELECT * FROM scheduled_run_execution WHERE scheduled_run_id = $1 AND manual_request_id = $2;
 
 -- name: CreateScheduledRunExecution :one
-INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data)
-VALUES ($1, $2, $3, $4, $5) RETURNING *;
+INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline)
+VALUES ($1, $2, $3, $4, $5,
+    statement_timestamp() + sqlc.arg(execution_timeout)::interval) RETURNING *;
 
 -- name: GetScheduledRunExecution :one
 SELECT e.* FROM scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
@@ -58,7 +58,7 @@ UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNIN
 
 -- name: ExpireScheduledRunExecution :one
 UPDATE scheduled_run_execution SET state = 'TIMED_OUT', completed_at = clock_timestamp(), data = $2
-WHERE id = $1 RETURNING *;
+WHERE id = $1 AND deadline <= clock_timestamp() RETURNING *;
 
 -- name: LeaseScheduledRunExecutions :many
 WITH candidates AS (
