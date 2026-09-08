@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,13 +103,9 @@ func TestScheduledRunTimeout(t *testing.T) {
 	f.assertQuiescent(t, execution)
 }
 
-// Restarting the controller disrupts other clients, so this test is explicitly
-// enabled and is never parallel with the interaction tests.
+// Keep this test sequential: restarting the controller disrupts other clients.
 func TestScheduledRunControllerRestart(t *testing.T) {
 	target := interactionTarget(t)
-	if os.Getenv("KAGENT_E2E_RESTART_CONTROLLER") != "true" {
-		t.Skip("KAGENT_E2E_RESTART_CONTROLLER is not true")
-	}
 	modelURL, started, release, calls := startScheduledRecoveryModel(t)
 	f := newScheduledFixture(t, target, modelURL, true, 3*time.Minute)
 	execution := f.trigger(t)
