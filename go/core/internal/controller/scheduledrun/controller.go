@@ -190,14 +190,19 @@ func (c *Controller) reconcile(ctx context.Context, execution *apiv1alpha1.Sched
 	}
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
 	message.ID = "scheduled-run/" + execution.GetId()
-	result, err := c.gateway.SendMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message, Config: &a2atype.SendMessageConfig{ReturnImmediately: true}})
+	events := c.gateway.SendStreamingMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message})
 	// Like the MCP boundary, retain the ID assigned when the gateway accepted
 	// the message, even if the runtime response was lost.
 	execution.TaskId = string(message.TaskID)
-	if task, ok := result.(*a2atype.Task); ok {
-		observeTask(execution, task)
+	// The gateway ingests the runtime stream independently of this observer.
+	// Return after acceptance so reconciliation does not wait for completion.
+	for event, err := range events {
+		if task, ok := event.(*a2atype.Task); ok {
+			observeTask(execution, task)
+		}
+		return err
 	}
-	return err
+	return nil
 }
 
 // executionTask only reads persisted history; the live subscription ingests

@@ -100,16 +100,50 @@ func (a scheduledControllerAuthorizer) Check(ctx context.Context, principal auth
 
 type scheduledControllerRuntime struct {
 	a2apb.UnimplementedA2AServiceServer
-	mu     sync.Mutex
-	tasks  map[string]*a2apb.Task
-	sends  int
-	prompt string
-	state  a2atype.TaskState
+	mu            sync.Mutex
+	tasks         map[string]*a2apb.Task
+	sends         int
+	prompt        string
+	state         a2atype.TaskState
+	streamRelease <-chan struct{}
+	subscriptions atomic.Int32
 }
 
-func (r *scheduledControllerRuntime) SendMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessageRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+	ctx := stream.Context()
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Release the lock before waiting for the test to allow streaming.
+	task, err := r.acceptMessage(ctx, req)
+	r.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if r.streamRelease == nil {
+		// The runtime accepted the message, but the controller lost the response.
+		return status.Error(codes.Unavailable, "response lost")
+	}
+	select {
+	case <-r.streamRelease:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	info := a2atype.TaskInfo{TaskID: a2atype.TaskID(task.GetId()), ContextID: task.GetContextId()}
+	for _, event := range []a2atype.Event{
+		a2atype.NewArtifactEvent(info, a2atype.NewTextPart("streamed result")),
+		a2atype.NewStatusUpdateEvent(info, a2atype.TaskStateCompleted, nil),
+	} {
+		response, err := pbconv.ToProtoStreamResponse(event)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(response); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.Task, error) {
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
 		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
 	}
@@ -129,8 +163,7 @@ func (r *scheduledControllerRuntime) SendMessage(ctx context.Context, req *a2apb
 		return nil, err
 	}
 	r.tasks[string(send.Message.TaskID)] = task
-	// The runtime accepted the message, but the controller lost the response.
-	return nil, status.Error(codes.Unavailable, "response lost")
+	return task, nil
 }
 
 func (r *scheduledControllerRuntime) GetTask(_ context.Context, req *a2apb.GetTaskRequest) (*a2apb.Task, error) {
@@ -144,6 +177,7 @@ func (r *scheduledControllerRuntime) GetTask(_ context.Context, req *a2apb.GetTa
 }
 
 func (r *scheduledControllerRuntime) SubscribeToTask(req *a2apb.SubscribeToTaskRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+	r.subscriptions.Add(1)
 	task, err := r.GetTask(stream.Context(), &a2apb.GetTaskRequest{Id: req.GetId()})
 	if err != nil {
 		return err
@@ -161,16 +195,22 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 		deny    string
 		timeout time.Duration
 		want    apiv1alpha1.ScheduledRunExecutionState
+		stream  bool
 	}{
-		{"lost dispatch response", a2atype.TaskStateCompleted, "", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED},
-		{"timeout retries cleanup", a2atype.TaskStateWorking, "", 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
-		{"auth required retains task", a2atype.TaskStateAuthRequired, "", 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
-		{"controller denied", a2atype.TaskStateCompleted, "ScheduledRunExecution", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
-		{"target denied", a2atype.TaskStateCompleted, "AgentTemplate", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
+		{"stream outlives reconciliation", a2atype.TaskStateCompleted, "", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true},
+		{"lost dispatch response", a2atype.TaskStateCompleted, "", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false},
+		{"timeout retries cleanup", a2atype.TaskStateWorking, "", 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
+		{"auth required retains task", a2atype.TaskStateAuthRequired, "", 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
+		{"controller denied", a2atype.TaskStateCompleted, "ScheduledRunExecution", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, false},
+		{"target denied", a2atype.TaskStateCompleted, "AgentTemplate", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
 			runtime := &scheduledControllerRuntime{tasks: map[string]*a2apb.Task{}, state: tc.state}
+			release := make(chan struct{})
+			if tc.stream {
+				runtime.streamRelease = release
+			}
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			server := grpc.NewServer()
@@ -195,19 +235,35 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
 			controllerStore := lostTaskLinkStore{Client: store}
-			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
+			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
 			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledControllerAuthorizer{deny: tc.deny})
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
+				var running *apiv1alpha1.ScheduledRunExecution
 				require.Eventually(t, func() bool {
 					response, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
-					return err == nil && response.Execution.State == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING && response.Execution.TaskId == ""
+					if err != nil {
+						return false
+					}
+					running = response.Execution
+					return running.State == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING && (running.TaskId != "") == tc.stream
 				}, 5*time.Second, 20*time.Millisecond)
 				cancel()
 				require.NoError(t, <-done)
+				close(done)
+				if tc.stream {
+					// The controller has returned and its context is canceled. Only
+					// the original stream can persist this result: no subscription runs.
+					close(release)
+					require.Eventually(t, func() bool {
+						task, err := store.GetAgentInstanceTask(t.Context(), running.AgentInstanceId, running.TaskId)
+						return err == nil && task.Status.State == a2atype.TaskStateCompleted
+					}, 5*time.Second, 20*time.Millisecond)
+					require.Zero(t, runtime.subscriptions.Load())
+				}
 				ctx, cancel = context.WithCancel(t.Context())
 				defer cancel()
 				done = make(chan error, 1)
@@ -247,6 +303,11 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				require.GreaterOrEqual(t, workflow.quiesces.Load(), int32(2))
 			}
 			require.Equal(t, wantTaskState, task.Status.State)
+			if tc.stream {
+				require.Zero(t, runtime.subscriptions.Load())
+				require.Len(t, task.Artifacts, 1)
+				require.Equal(t, "streamed result", task.Artifacts[0].Parts[0].Text())
+			}
 			runtime.mu.Lock()
 			defer runtime.mu.Unlock()
 			require.Equal(t, 1, runtime.sends)
