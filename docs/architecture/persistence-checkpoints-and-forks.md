@@ -97,15 +97,11 @@ snapshot forks. A complete task address includes the instance route. Reads,
 writes, cancellation, subscriptions, authorization, and deduplication remain
 instance-scoped. A context or task ID alone never selects another branch.
 
-## Upgrade behavior
+## Unreleased schema
 
-The migration keeps existing wire identities and backfills history bindings and
-task order. Old checkpoints whose task projections have already changed cannot
-be recovered safely from the current projection; forking rejects those checkpoints
-and asks for recreation. Previously broken runtime forks are not repaired by
-session inference. Recreate them from a usable source checkpoint.
+Until release, core schema changes are folded into `000001_initial.sql`.
+Recreate development databases when that baseline changes; there is no upgrade
+path from earlier development schemas. The Down migration removes the core schema.
 
 Deploy the controller and clients together: clients must use `AgentInstance.context_id`
-or omit the context and let the routed gateway resolve it. The Down migration
-restores the old schema but cannot make new authority-scoped forks usable by the
-old binary; do not use it as a runtime compatibility mechanism.
+or omit the context and let the routed gateway resolve it.

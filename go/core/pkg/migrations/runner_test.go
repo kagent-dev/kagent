@@ -202,12 +202,16 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
-	// A context may outlive one AgentInstance, so these IDs intentionally differ.
+	// Routing, wire context, and durable history are independent identities.
 	contextID := "00000000-0000-0000-0000-000000000001"
 	instanceID := "00000000-0000-0000-0000-000000000002"
-	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'user', $1)", contextID)
-	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'READY', $2, $3, $3)", instanceID, []byte{}, contextID)
-	execSQL(t, dsn, "INSERT INTO agent_instance_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", contextID, []byte{})
+	historyID := "00000000-0000-0000-0000-000000000003"
+	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'user', $2)", historyID, contextID)
+	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'READY', $2, $3, $4)", instanceID, []byte{}, contextID, historyID)
+	execSQL(t, dsn, "INSERT INTO agent_instance_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
+	if got := testVersions(t, dsn, coreTrackingTable); !slices.Equal(got, []int64{0, 1}) {
+		t.Fatalf("core migration versions = %v, want single baseline [0 1]", got)
+	}
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)
@@ -479,64 +483,5 @@ func TestEmptySources(t *testing.T) {
 	}
 	if err := VerifyMigrated(context.Background(), "postgres://unused", nil); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestForkContinuityMigrationPreservesExistingBindings(t *testing.T) {
-	dsn := startTestDB(t)
-	source := BuiltinSources(false)[0]
-	ctx := t.Context()
-	if err := WithProvider(ctx, dsn, source, func(provider *goose.Provider) error {
-		_, err := provider.UpTo(ctx, 1)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	id := "00000000-0000-4000-8000-000000000001"
-	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id) VALUES ($1, 'alice')", id)
-	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, context_id, state, data) VALUES ($1, 'alice', 'create', $1, 'READY', $2)", id, []byte{})
-	// Creation chronology is intentionally the reverse of lexical ID order.
-	execSQL(t, dsn, "INSERT INTO agent_instance_task (context_id, id, state, data, created_at) VALUES ($1, 'z-first', 'TASK_STATE_COMPLETED', $2, '2026-01-01'), ($1, 'a-second', 'TASK_STATE_COMPLETED', $2, '2026-01-02')", id, []byte{})
-	if err := RunUp(ctx, dsn, []Source{source}); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	var contextID, historyID string
-	if err := db.QueryRowContext(ctx, "SELECT context_id, history_id FROM agent_instance WHERE id = $1", id).Scan(&contextID, &historyID); err != nil {
-		t.Fatal(err)
-	}
-	if contextID != id || historyID != id {
-		t.Fatalf("existing binding changed: context %s history %s", contextID, historyID)
-	}
-	var first int64
-	if err := db.QueryRowContext(ctx, "SELECT position FROM agent_instance_task WHERE history_id = $1 AND id = 'z-first'", id).Scan(&first); err != nil {
-		t.Fatal(err)
-	}
-	var second int64
-	if err := db.QueryRowContext(ctx, "SELECT position FROM agent_instance_task WHERE history_id = $1 AND id = 'a-second'", id).Scan(&second); err != nil {
-		t.Fatal(err)
-	}
-	if first >= second {
-		t.Fatalf("backfilled task positions = %d, %d", first, second)
-	}
-	var appended int64
-	if err := db.QueryRowContext(ctx, "INSERT INTO agent_instance_task (history_id, id, state, data) VALUES ($1, 'new-task', 'TASK_STATE_COMPLETED', $2) RETURNING position", id, []byte{}).Scan(&appended); err != nil {
-		t.Fatal(err)
-	}
-	if appended <= second {
-		t.Fatalf("new task position %d did not follow backfilled position %d", appended, second)
-	}
-	if err := WithProvider(ctx, dsn, source, func(provider *goose.Provider) error {
-		_, err := provider.DownTo(ctx, 1)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRowContext(ctx, "SELECT context_id FROM agent_instance WHERE id = $1", id).Scan(&contextID); err != nil || contextID != id {
-		t.Fatalf("downgraded binding = %s, error %v", contextID, err)
 	}
 }
