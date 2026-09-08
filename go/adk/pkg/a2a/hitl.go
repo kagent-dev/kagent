@@ -324,11 +324,11 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 }
 
 // askUserQuestionText joins the question text from a typed Questions field, or "" if none carry text.
-func askUserQuestionText(questions []map[string]any) string {
+func askUserQuestionText(questions []HitlQuestion) string {
 	texts := make([]string, 0, len(questions))
 	for _, q := range questions {
-		if text, ok := q["question"].(string); ok && text != "" {
-			texts = append(texts, text)
+		if q.Question != "" {
+			texts = append(texts, q.Question)
 		}
 	}
 	return strings.Join(texts, " ")

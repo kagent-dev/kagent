@@ -273,8 +273,8 @@ func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
 			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
 				Type: HITLTypeAskUserRequest,
 				ID:   "confirm-1",
-				Questions: []map[string]any{
-					{"question": "What is the GitHub owner/org for the repo?"},
+				Questions: []HitlQuestion{
+					{Question: "What is the GitHub owner/org for the repo?"},
 				},
 			}),
 		},
@@ -299,7 +299,7 @@ func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
 				Type:      HITLTypeAskUserRequest,
 				ID:        "confirm-1",
-				Questions: []map[string]any{{"question": question}},
+				Questions: []HitlQuestion{{Question: question}},
 				Nested: &NestedHitlRequest{
 					TaskID: "grandchild-task", ContextID: "grandchild-context", SubagentName: "grandchild_agent",
 					Tools: []HitlTool{{
