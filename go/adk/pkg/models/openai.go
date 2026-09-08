@@ -68,7 +68,7 @@ func NewOpenAIModel(ctx context.Context, config *OpenAIConfig) (*OpenAIModel, er
 }
 
 // keylessOpenAIPlaceholder is sent to OpenAI-compatible endpoints that ignore
-// the key (vLLM, LiteLLM, proxies) when no key source is configured.
+// the key (vLLM, LiteLLM, Ollama, proxies) when no key source is configured.
 const keylessOpenAIPlaceholder = "unused"
 
 // resolveOpenAIAPIKey picks the client API key. With APIKeyPassthrough the
@@ -99,7 +99,7 @@ func NewOpenAICompatibleModel(ctx context.Context, baseURL, modelName string, he
 		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
 	if apiKey == "" {
-		apiKey = "ollama" // placeholder for Ollama and similar endpoints that ignore key
+		apiKey = keylessOpenAIPlaceholder
 	}
 	config := &OpenAIConfig{
 		TransportConfig: TransportConfig{Headers: headers},
