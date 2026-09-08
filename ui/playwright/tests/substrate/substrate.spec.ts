@@ -47,7 +47,6 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // and snapshotting, which is exactly the case a bare count would hide.
     await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
-    await expect(page.getByTestId("substrate-stat-ateapi-value")).toHaveText("connected");
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
   });
 
@@ -260,7 +259,9 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
   await loadPage(page, routes.substrate, { scenario: "empty", title: "Substrate" });
   await expectSettled(page);
 
-  await expect(page.getByTestId("substrate-stat-ateapi-value")).toHaveText("off");
+  // Said by the two tables it applies to, not by a tile: a tile is for a number that
+  // moves, and this one read `connected` above ate-api's own timeout banner.
+  await expect(page.getByTestId("substrate-stat-ateapi")).toHaveCount(0);
   await expect(page.getByTestId("substrate-inventory-error")).toHaveCount(0);
   await expect(page.getByTestId("substrate-partial")).toHaveCount(0);
 

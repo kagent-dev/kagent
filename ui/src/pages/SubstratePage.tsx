@@ -1659,13 +1659,6 @@ export function SubstratePage() {
             hint={unread}
           />
           <StatTile
-            label="ate-api"
-            testId="substrate-stat-ateapi"
-            value={inventory ? (ateApiEnabled ? "connected" : "off") : undefined}
-            isLoading={summary.isLoading}
-            hint={unread}
-          />
-          <StatTile
             label="Scope"
             testId="substrate-stat-scope"
             // Not read from the response — it is what this page asked for, which is
