@@ -1,18 +1,21 @@
 import { useTheme } from "@emotion/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
-import { CalendarClock, ExternalLink, Globe, Pause, Pencil, Play, Plus } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, CalendarClock, ChevronsDownUp, ChevronsUpDown, ExternalLink, Globe, Pause, Pencil, Play, Plus } from "lucide-react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { invoke } from "@/api/operations";
 import { useApiResource } from "@/api/hooks/useApiResource";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
+import { SearchInput } from "@/components/table/SearchInput";
 import { PageControls, usePageStack } from "@/components/table/PageControls";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { clickableRow, useExpandedRows } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { linkStyles } from "@/components/common/linkStyles";
 import { buildPath, paths } from "@/router/routes";
+import { useUrlStateWriter } from "@/router/useUrlState";
 import { ScheduledRunExecutionState, type ScheduledRun, type ScheduledRunExecution } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 
 function time(value: Timestamp | undefined) {
@@ -21,7 +24,8 @@ function time(value: Timestamp | undefined) {
 
 export function ScheduledRunsPage() {
   const theme = useTheme();
-  const page = usePageStack("schedules");
+  const navigate = useNavigate();
+  const page = usePageStack("schedules", "pages");
   const runs = useApiResource(["scheduledRuns.list", page.current],
     () => invoke("scheduledRuns.list", { page: { limit: 25, pageToken: page.current } }), { refreshInterval: 10000 });
 
@@ -55,7 +59,10 @@ export function ScheduledRunsPage() {
                 onDeleted={runs.refresh} />
             </Space>;
           } },
-        ]} />
+        ]}
+        // The Name cell stays a link, so the row is reachable by keyboard; the guard
+        // sees that link — and the row's edit and delete — and leaves them alone.
+        onRow={(row) => clickableRow(() => void navigate(buildPath(paths.scheduledRun, { id: row.id })))} />
       <PageControls testId="schedules-pages" page={page} hasNext={Boolean(runs.data?.page?.nextPageToken)}
         onNext={() => page.next(runs.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={runs.isLoading} />
     </Space>
@@ -76,13 +83,29 @@ function ScheduledRunDetails({ id }: { id: string }) {
   const [actionError, setActionError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [triggerRequestId, setTriggerRequestId] = useState<string>();
-  const page = usePageStack(id);
+  const page = usePageStack(id, "pages");
+  const expanded = useExpandedRows();
+  /* Search in the address, like a list's filters: it describes which rows are being
+     looked at, so a reload and a shared link should agree. Typing resets the page,
+     because a cursor from the unfiltered list means nothing once narrowed. */
+  const [searchParams] = useSearchParams();
+  const write = useUrlStateWriter();
+  const query = searchParams.get("q") ?? "";
+  const setQuery = (next: string) => write({ q: next || null, pages: null });
   const run = useApiResource(["scheduledRuns.get", id], () => invoke("scheduledRuns.get", { scheduledRunId: id }), { refreshInterval: 10000 });
   const history = useApiResource(["scheduledRuns.executions", id, page.current],
     () => invoke("scheduledRuns.executions", { scheduledRunId: id, page: { limit: 25, pageToken: page.current } }), { refreshInterval: 5000 });
   const schedule = run.data?.scheduledRun;
   const config = schedule?.config;
   const disabled = !!busy || !!run.error || !!schedule?.deletedAt;
+
+  const executions = useMemo(() => history.data?.executions ?? [], [history.data]);
+  const { rows, revealed } = useMemo(() => searchExecutions(executions, query), [executions, query]);
+  /* A row whose only match is inside its panel is opened, so the reader can see why it
+     came back. Merged with what they opened by hand rather than replacing it. */
+  const expandedKeys = useMemo(
+    () => [...new Set([...expanded.keys, ...revealed])], [expanded.keys, revealed]);
+  const visibleKeys = rows.map((row) => row.id);
 
   async function refresh() {
     await Promise.all([run.refresh(), history.refresh()]);
@@ -116,20 +139,18 @@ function ScheduledRunDetails({ id }: { id: string }) {
     }
   }
 
-  /* Top right, not under the description list: there Run and Delete sat below the
-     fold on any schedule with a few firings. */
+  /* Top right, not under the description list: there Run sat below the fold on any
+     schedule with a few firings. Ordered leaving-to-doing, so the filled Run — the
+     action this page exists for — is rightmost and Delete is not beside it at all. */
   const controls = <div css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2), justifyContent: "flex-end" }}>
-    <Button type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
-      onClick={() => void act("trigger")}>Run</Button>
-    <Button icon={config?.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled || !config} loading={busy === "pause"}
-      onClick={() => void act("pause")}>{config?.paused ? "Resume" : "Pause"}</Button>
+    <Link to={paths.scheduledRuns}><Button icon={<ArrowLeft size={14} />}>Back</Button></Link>
+    <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} />
     <Button icon={<Pencil size={14} />} disabled={disabled}
       onClick={() => void navigate(buildPath(paths.scheduledRunEdit, { id }))}>Edit</Button>
-    <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete" confirmation="modal" outlined disabled={disabled}
-      description="Stops future executions. Accepted executions continue; history and conversations are retained."
-      onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }} onDeleted={refresh} />
-    <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} />
-    <Link to={paths.scheduledRuns}><Button>Back to schedules</Button></Link>
+    <Button icon={config?.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled || !config} loading={busy === "pause"}
+      onClick={() => void act("pause")}>{config?.paused ? "Resume" : "Pause"}</Button>
+    <Button type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
+      onClick={() => void act("trigger")}>Run</Button>
   </div>;
 
   /* Its own header: `PageFrame` holds actions at a fixed width, which squeezed this
@@ -164,10 +185,23 @@ function ScheduledRunDetails({ id }: { id: string }) {
         { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
       ]} />}
       <Typography.Title level={3}>Execution history</Typography.Title>
-      <Typography.Text type="secondary">Times are shown in your local time zone. Conversation links may refer to conversations that have since been deleted.</Typography.Text>
+      <Typography.Text css={{ color: theme.color.textMuted }}>Times are shown in your local time zone.</Typography.Text>
+      <div css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2), alignItems: "center" }}>
+        <SearchInput value={query} onChange={setQuery} testId="history-search"
+          label="Search execution history" placeholder="Search the history…" />
+        <Button data-testid="history-expand-all" disabled={visibleKeys.length === 0}
+          icon={expanded.allExpanded(visibleKeys) ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+          onClick={() => expanded.allExpanded(visibleKeys) ? expanded.collapseAll() : expanded.expandAll(visibleKeys)}>
+          {expanded.allExpanded(visibleKeys) ? "Collapse all" : "Expand all"}
+        </Button>
+      </div>
       {history.error && <Alert type="error" showIcon title="Could not load execution history" description={history.error.message} />}
       <Table<ScheduledRunExecution> rowKey="id" loading={history.isLoading} pagination={false} scroll={{ x: 800 }}
-        dataSource={history.data?.executions ?? []} locale={{ emptyText: history.error ? "History unavailable" : "No executions yet" }} columns={[
+        dataSource={rows} locale={{ emptyText: history.error ? "History unavailable"
+          // Three different facts. A search that matched nothing is not an empty history,
+          // and neither is a failed read. Only this one names the page, because only here
+          // does the scope explain the answer.
+          : executions.length === 0 ? "No executions yet" : "Nothing on this page of the history matches that search." }} columns={[
           { title: "Created", key: "created", render: (_, row) => time(row.createdAt) },
           { title: "Trigger", key: "trigger", render: (_, row) => triggerLabel(row) },
           { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
@@ -180,9 +214,28 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { key: "prompt", label: "Prompt", children: <span css={{ whiteSpace: "pre-wrap" }}>{row.prompt}</span> },
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
           { key: "task", label: "Original task", children: row.taskId || "Not assigned" },
-        ]} /> }} />
+        ]} />,
+          // Controlled rather than `expandRowByClick`, so `clickableRow` can let the
+          // row's conversation link navigate instead of unfolding the row.
+          expandedRowKeys: expandedKeys, onExpand: (open, row) => expanded.set(row.id, open) }}
+        onRow={(row) => clickableRow(() => expanded.toggle(row.id))} />
       <PageControls testId="schedule-history-pages" page={page} hasNext={Boolean(history.data?.page?.nextPageToken)}
         onNext={() => page.next(history.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={history.isLoading} />
+      {/* A sibling of Execution history, not a panel inside a red box. `DeleteResourceButton`
+          is already `danger`, so the warning sits on the control that does the destroying;
+          a tinted ground on top of that made the quietest thing on the page the loudest. */}
+      <div data-testid="schedule-danger" css={{ display: "flex", flexDirection: "column",
+        alignItems: "flex-start", gap: theme.space(3), marginTop: theme.space(4) }}>
+        <Typography.Title level={3} css={{ margin: 0 }}>Danger zone</Typography.Title>
+        {/* `textMuted`, not antd's `type="secondary"`: this theme never overrides that
+            token and it measures 2.85:1 on the light page ground. */}
+        <Typography.Text css={{ color: theme.color.textMuted }}>
+          Deleting this schedule stops future executions. Accepted executions continue; history and conversations are retained.
+        </Typography.Text>
+        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
+          description="Stops future executions. Accepted executions continue; history and conversations are retained."
+          onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }} onDeleted={refresh} />
+      </div>
     </Space>
   </PageFrame>;
 }
@@ -200,14 +253,63 @@ function triggerLabel(execution: ScheduledRunExecution) {
   }
 }
 
+/* Split from the tag so search can match what the reader sees. Matching the enum name
+   would leave "Timed out" finding nothing while the screen says exactly that. */
+function executionStateLabel(state: ScheduledRunExecutionState) {
+  switch (state) {
+    case ScheduledRunExecutionState.PENDING: return "Pending";
+    case ScheduledRunExecutionState.RUNNING: return "Running";
+    case ScheduledRunExecutionState.SUCCEEDED: return "Succeeded";
+    case ScheduledRunExecutionState.FAILED: return "Failed";
+    case ScheduledRunExecutionState.TIMED_OUT: return "Timed out";
+    default: return "Unknown";
+  }
+}
+
+const STATE_COLOUR: Partial<Record<ScheduledRunExecutionState, string>> = {
+  [ScheduledRunExecutionState.RUNNING]: "processing",
+  [ScheduledRunExecutionState.SUCCEEDED]: "success",
+  [ScheduledRunExecutionState.FAILED]: "error",
+  [ScheduledRunExecutionState.TIMED_OUT]: "warning",
+};
+
 /* The label carries the state on its own; colour is a second channel, not the only one. */
 function executionStateTag(state: ScheduledRunExecutionState) {
-  switch (state) {
-    case ScheduledRunExecutionState.PENDING: return <Tag>Pending</Tag>;
-    case ScheduledRunExecutionState.RUNNING: return <Tag color="processing">Running</Tag>;
-    case ScheduledRunExecutionState.SUCCEEDED: return <Tag color="success">Succeeded</Tag>;
-    case ScheduledRunExecutionState.FAILED: return <Tag color="error">Failed</Tag>;
-    case ScheduledRunExecutionState.TIMED_OUT: return <Tag color="warning">Timed out</Tag>;
-    default: return <Tag>Unknown</Tag>;
+  return <Tag color={STATE_COLOUR[state]}>{executionStateLabel(state)}</Tag>;
+}
+
+/** What a row shows in its columns, and what it shows only once unfolded. */
+function executionText(row: ScheduledRunExecution) {
+  return {
+    /* Every value as it is rendered, not as it is stored: a timestamp through
+       `toLocaleString` and a state through its label, so what is on screen is what
+       matches. */
+    columns: [time(row.createdAt), triggerLabel(row), executionStateLabel(row.state),
+      time(row.completedAt), row.failureReason || "—",
+      row.agentInstanceId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
+    panel: [row.prompt, time(row.deadline), row.taskId || "Not assigned"].join(" ").toLowerCase(),
+  };
+}
+
+/**
+ * The executions matching `query`, and which of them matched only out of sight.
+ *
+ * Page-scoped by necessity — the RPC takes a page and no filter — so this narrows what
+ * is already loaded. `revealed` is what the caller unfolds: a row returned for a word
+ * only its panel contains is a match the reader would otherwise have to guess at.
+ */
+function searchExecutions(executions: ScheduledRunExecution[], query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return { rows: executions, revealed: [] as string[] };
+
+  const rows: ScheduledRunExecution[] = [];
+  const revealed: string[] = [];
+  for (const row of executions) {
+    const text = executionText(row);
+    const inColumns = text.columns.includes(needle);
+    if (!inColumns && !text.panel.includes(needle)) continue;
+    rows.push(row);
+    if (!inColumns) revealed.push(row.id);
   }
+  return { rows, revealed };
 }

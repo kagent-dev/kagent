@@ -1,4 +1,5 @@
 import { Alert, Button, Skeleton, Space } from "antd";
+import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { invoke } from "@/api/operations";
 import { useApiResource } from "@/api/hooks/useApiResource";
@@ -46,7 +47,7 @@ export function ScheduledRunEditPage() {
       description="Changes take effect from the next firing. Executions already accepted continue."
       actions={
         <Link to={detail}>
-          <Button>Back to schedule</Button>
+          <Button icon={<ArrowLeft size={14} />}>Back</Button>
         </Link>
       }
     >

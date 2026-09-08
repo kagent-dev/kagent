@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
+import { useUrlStateWriter } from "@/router/useUrlState";
 
 const { Text } = Typography;
 
@@ -13,7 +15,9 @@ const { Text } = Typography;
  * and reusing one would ask for "the page after a row that is no longer in the
  * result".
  */
-export function usePageStack(resetKey: string) {
+export function usePageStack(resetKey: string, param?: string) {
+  const [searchParams] = useSearchParams();
+  const write = useUrlStateWriter();
   const [state, setState] = useState<{ key: string; tokens: string[] }>({
     key: resetKey,
     tokens: [],
@@ -28,18 +32,31 @@ export function usePageStack(resetKey: string) {
    * Reading the key alongside the tokens means a changed question is already on the
    * first page in the render that discovers it.
    */
-  const tokens = state.key === resetKey ? state.tokens : [];
+  /*
+   * In the address when the caller names a parameter, so a reload lands on the page
+   * being read rather than back at the first. Safe against carrying one list's cursor
+   * into another's, because a `<Link>` to a new path replaces the whole location —
+   * only a hand-edited address could mix them.
+   */
+  const urlTokens = param
+    ? (searchParams.get(param)?.split(",").filter(Boolean) ?? [])
+    : undefined;
+  const tokens = urlTokens ?? (state.key === resetKey ? state.tokens : []);
+
+  const commit = (next: string[]) => {
+    if (param) write({ [param]: next.length > 0 ? next.join(",") : null });
+    else setState({ key: resetKey, tokens: next });
+  };
 
   return {
     /** The token for the page being shown. Empty is the first page. */
     current: tokens.length > 0 ? tokens[tokens.length - 1] : "",
     pageNumber: tokens.length + 1,
     canGoBack: tokens.length > 0,
-    next: (token: string) =>
-      setState({ key: resetKey, tokens: [...tokens, token] }),
-    back: () => setState({ key: resetKey, tokens: tokens.slice(0, -1) }),
+    next: (token: string) => commit([...tokens, token]),
+    back: () => commit(tokens.slice(0, -1)),
     /** Back to the first page, for a change that reorders the result under us. */
-    reset: () => setState({ key: resetKey, tokens: [] }),
+    reset: () => commit([]),
   };
 }
 

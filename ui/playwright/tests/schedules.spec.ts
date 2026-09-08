@@ -90,7 +90,7 @@ test("schedules: create using an existing agent", async ({ page }) => {
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeEnabled();
   await expect(page.getByText("No executions yet", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Back to schedules" }).click();
+  await page.getByRole("link", { name: "Back", exact: true }).click();
   await expect(page.getByRole("link", { name: "Weekly report", exact: true })).toBeVisible();
 });
 
@@ -114,7 +114,7 @@ test("schedules: create, read, update and delete from the list", async ({ page }
   await page.getByTestId("schedule-submit").click();
   await expect(page.getByRole("heading", { name: "Probe alpha", exact: true })).toBeVisible();
 
-  await page.getByRole("link", { name: "Back to schedules" }).click();
+  await page.getByRole("link", { name: "Back", exact: true }).click();
   await expect(rowNamed("Probe alpha")).toHaveCount(1);
   await expect(rowNamed("Probe alpha")).toContainText("Every day at 09:00");
   await expect(rows).toHaveCount(before + 1);
@@ -128,7 +128,7 @@ test("schedules: create, read, update and delete from the list", async ({ page }
   await page.getByTestId("schedule-submit").click();
   await expect(page.getByRole("heading", { name: "Probe beta", exact: true })).toBeVisible();
 
-  await page.getByRole("link", { name: "Back to schedules" }).click();
+  await page.getByRole("link", { name: "Back", exact: true }).click();
   await expect(rowNamed("Probe beta")).toHaveCount(1);
   await expect(rowNamed("Probe beta")).toContainText("Europe/Berlin");
   // Renamed, not duplicated.
@@ -178,4 +178,130 @@ test("schedules: preserve advanced expressions when editing other fields", async
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page).toHaveURL(`/schedules/${scheduleId}`);
   await expect(page.getByTestId("schedule-meta")).toContainText("Custom: 0 9-17 * * 1-5");
+});
+
+/*
+ * The execution history row behaves like every other expandable row in the app: the
+ * whole row opens it, except where the row holds something separately clickable. The
+ * conversation link is that exception, and it is the reason the table cannot use
+ * antd's `expandRowByClick`.
+ */
+test("schedules: an execution row expands on a click, but its conversation link navigates", async ({ page }) => {
+  await page.goto(`/schedules/${scheduleId}?mock=ok`);
+  const row = page.getByRole("row").filter({ hasText: "Execution deadline exceeded" });
+  await expect(row).toHaveClass(/clickable-table-row/);
+
+  await test.step("a click on the row's own text expands it", async () => {
+    await row.getByRole("cell").filter({ hasText: "Timed out" }).click();
+    await expect(page.getByText("Original task", { exact: true })).toBeVisible();
+    await expect(page.getByText("mock-scheduled-task-1", { exact: true })).toBeVisible();
+  });
+
+  await test.step("the expand icon still collapses it, so a keyboard reaches the panel", async () => {
+    await row.locator(".ant-table-row-expand-icon").click();
+    await expect(page.getByText("Original task", { exact: true })).toBeHidden();
+  });
+
+  await test.step("the conversation link navigates instead of expanding", async () => {
+    await row.getByRole("link", { name: "Open conversation" }).click();
+    await expect(page).toHaveURL("/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat");
+    // The guard silently ceasing to match is the failure this pins: the click would
+    // then unfold the row on the way out, and only this assertion would notice.
+    await expect(page.getByText("Original task", { exact: true })).toHaveCount(0);
+  });
+});
+
+/*
+ * Expand all works on what is on screen, which is why the search sits beside it: the two
+ * compose, and "all" after a search means the matches rather than the page.
+ */
+test("schedules: execution history expands as a whole and searches the loaded page", async ({ page }) => {
+  await page.goto(`/schedules/${scheduleId}?mock=ok`);
+  const expandAll = page.getByTestId("history-expand-all");
+  const panels = page.locator(".ant-table-expanded-row:visible");
+  const rows = page.locator("tbody tr.ant-table-row");
+  await expect(rows).toHaveCount(25);
+
+  await test.step("expand all opens every row, and the label turns around", async () => {
+    await expect(expandAll).toHaveText("Expand all");
+    await expandAll.click();
+    await expect(panels).toHaveCount(25);
+    await expect(expandAll).toHaveText("Collapse all");
+  });
+
+  await test.step("collapse all returns it to where it started", async () => {
+    await expandAll.click();
+    await expect(panels).toHaveCount(0);
+    await expect(expandAll).toHaveText("Expand all");
+  });
+
+  await test.step("searching narrows to the matching rows", async () => {
+    // The state as it is rendered, not the enum: one row of the 25 timed out.
+    await page.getByTestId("history-search").fill("Timed out");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Execution deadline exceeded");
+  });
+
+  await test.step("a row matching only inside its panel comes back opened", async () => {
+    // `mock-scheduled-task-3` is the original task ID, which is only in the panel.
+    await page.getByTestId("history-search").fill("mock-scheduled-task-3");
+    await expect(rows).toHaveCount(1);
+    await expect(panels).toHaveCount(1);
+    await expect(page.getByText("mock-scheduled-task-3", { exact: true })).toBeVisible();
+  });
+
+  await test.step("a search matching nothing is not an empty history", async () => {
+    await page.getByTestId("history-search").fill("nothing matches this");
+    await expect(page.getByText("Nothing on this page of the history matches that search.")).toBeVisible();
+    await expect(page.getByText("No executions yet", { exact: true })).toHaveCount(0);
+  });
+});
+
+/*
+ * The row is a mouse affordance over the link that was already there. Both paths are
+ * asserted, because losing the link would take keyboard users' only way in.
+ */
+test("schedules: a list row opens its schedule, and its buttons still do their own job", async ({ page }) => {
+  await page.goto("/schedules?mock=ok");
+  const row = page.getByRole("row").filter({ hasText: "Daily cluster report" });
+  await expect(row).toHaveClass(/clickable-table-row/);
+
+  await test.step("a click on the row's own text opens the schedule", async () => {
+    await row.getByRole("cell").filter({ hasText: "k8s-agent-7f3a91c" }).click();
+    await expect(page).toHaveURL(`/schedules/${scheduleId}`);
+  });
+
+  await test.step("the edit button edits rather than opening the detail page", async () => {
+    await page.goto("/schedules?mock=ok");
+    await page.getByTestId("edit-Daily cluster report").click();
+    await expect(page).toHaveURL(`/schedules/${scheduleId}/edit`);
+  });
+
+  await test.step("the delete button asks, and navigates nowhere", async () => {
+    await page.goto("/schedules?mock=ok");
+    await page.getByRole("button", { name: "Delete schedule Daily cluster report", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Keep", exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/schedules(\?.*)?$/);
+  });
+});
+
+/*
+ * Delete lives at the foot of the page rather than beside Run. Asserted by position,
+ * not only by presence: the point of the move is that the irreversible control is not
+ * one a reader reaches while aiming at Run.
+ */
+test("schedules: delete sits in its own section at the foot, not in the header", async ({ page }) => {
+  await page.goto(`/schedules/${scheduleId}?mock=ok`);
+  const danger = page.getByTestId("schedule-danger");
+  // Level 3, the same as "Execution history": the two are siblings, not one inside the other.
+  await expect(danger.getByRole("heading", { level: 3, name: "Danger zone" })).toBeVisible();
+  await expect(danger).toContainText("Deleting this schedule stops future executions.");
+  await expect(danger.getByRole("button", { name: "Delete schedule Daily cluster report", exact: true })).toBeVisible();
+
+  // The header keeps the five reversible controls and none of the destructive one.
+  const header = page.getByRole("button", { name: /^(Run|Pause|Resume|Edit|Refresh)$/ });
+  await expect(header).toHaveCount(4);
+  await expect(page.getByRole("button", { name: /^Delete/ })).toHaveCount(1);
+
+  await expect(page.getByRole("link", { name: "Back", exact: true })).toHaveAttribute("href", "/schedules");
 });

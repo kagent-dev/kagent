@@ -1,4 +1,5 @@
 import { Button } from "antd";
+import { ArrowLeft } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ScheduledRunForm } from "@/components/scheduled-runs/ScheduledRunForm";
@@ -20,7 +21,7 @@ export function ScheduledRunNewPage() {
       description="Run an agent automatically. Each execution starts a new conversation."
       actions={
         <Link to={paths.scheduledRuns}>
-          <Button>Back to schedules</Button>
+          <Button icon={<ArrowLeft size={14} />}>Back</Button>
         </Link>
       }
     >
