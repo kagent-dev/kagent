@@ -70,30 +70,25 @@ func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Agen
 
 type scheduledControllerAuth struct {
 	authimpl.UnsecureAuthenticator
-	calls atomic.Int32
 }
 
 func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {
 	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().User.ID != "" || target.Agent.ID == "" {
 		return errors.New("expected control-plane session and target agent")
 	}
-	a.calls.Add(1)
 	req.Header.Set("Authorization", "Bearer controller-test-credential")
 	return nil
 }
 
-type scheduledControllerAuthorizer struct{ deny string }
+type scheduledControllerAuthorizer struct{}
 
-func (a scheduledControllerAuthorizer) Check(ctx context.Context, principal auth.Principal, _ auth.Verb, resource auth.Resource) error {
+func (scheduledControllerAuthorizer) Check(ctx context.Context, principal auth.Principal, _ auth.Verb, _ auth.Resource) error {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return errors.New("missing controller session")
 	}
 	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.User.ID != "" {
 		return errors.New("controller impersonated owner")
-	}
-	if resource.Type == a.deny {
-		return errors.New("controller forbidden")
 	}
 	return nil
 }
@@ -192,17 +187,14 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		state   a2atype.TaskState
-		deny    string
 		timeout time.Duration
 		want    apiv1alpha1.ScheduledRunExecutionState
 		stream  bool
 	}{
-		{"stream outlives reconciliation", a2atype.TaskStateCompleted, "", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true},
-		{"lost dispatch response", a2atype.TaskStateCompleted, "", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false},
-		{"timeout retries cleanup", a2atype.TaskStateWorking, "", 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
-		{"auth required retains task", a2atype.TaskStateAuthRequired, "", 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
-		{"controller denied", a2atype.TaskStateCompleted, "ScheduledRunExecution", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, false},
-		{"target denied", a2atype.TaskStateCompleted, "AgentTemplate", time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, false},
+		{"stream outlives reconciliation", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true},
+		{"lost dispatch response", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false},
+		{"timeout retries cleanup", a2atype.TaskStateWorking, 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
+		{"auth required retains task", a2atype.TaskStateAuthRequired, 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
@@ -238,7 +230,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
-			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledControllerAuthorizer{deny: tc.deny})
+			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"))
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
@@ -267,7 +259,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				ctx, cancel = context.WithCancel(t.Context())
 				defer cancel()
 				done = make(chan error, 1)
-				controller = scheduledrun.NewController(store, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledControllerAuthorizer{})
+				controller = scheduledrun.NewController(store, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"))
 				go func() { done <- controller.Start(ctx) }()
 			}
 			var execution *apiv1alpha1.ScheduledRunExecution
@@ -283,12 +275,6 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			replayed, err := client.TriggerScheduledRun(owner, trigger)
 			require.NoError(t, err)
 			require.Equal(t, execution.Id, replayed.Execution.Id)
-			if tc.deny != "" {
-				require.Empty(t, execution.AgentInstanceId)
-				require.Contains(t, execution.FailureReason, "not authorized")
-				require.Zero(t, authenticator.calls.Load())
-				return
-			}
 			require.NotEmpty(t, execution.TaskId)
 			require.NotEqual(t, execution.Id, execution.TaskId)
 			require.NotEmpty(t, execution.AgentInstanceId)

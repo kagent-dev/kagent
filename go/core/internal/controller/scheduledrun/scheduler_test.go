@@ -45,7 +45,7 @@ func TestSchedulerTicksWhileExecutionIsBlocked(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	store := &blockedExecutionStore{started: make(chan struct{}), reservations: make(chan struct{})}
-	controller := NewController(store, nil, nil, nil)
+	controller := NewController(store, nil, nil)
 	scheduler := NewScheduler(store)
 	require.False(t, controller.NeedLeaderElection())
 	require.True(t, scheduler.NeedLeaderElection())

@@ -12,8 +12,6 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/metadata"
@@ -21,7 +19,6 @@ import (
 )
 
 type controllerStore interface {
-	GetScheduledRun(context.Context, string, string) (*apiv1alpha1.ScheduledRun, error)
 	ReserveScheduledRunExecutionInstance(context.Context, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
 	UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error
@@ -37,17 +34,16 @@ type controllerWorkflow interface {
 // Controller reconciles executions on every replica. SQL leases fence status
 // writes; A2A's initial-message uniqueness fences dispatch across replicas.
 type Controller struct {
-	store      controllerStore
-	workflow   controllerWorkflow
-	gateway    a2asrv.RequestHandler
-	authorizer auth.Authorizer
+	store    controllerStore
+	workflow controllerWorkflow
+	gateway  a2asrv.RequestHandler
 }
 
 var _ manager.LeaderElectionRunnable = (*Controller)(nil)
 var _ manager.Runnable = (*Controller)(nil)
 
-func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, authorizer auth.Authorizer) *Controller {
-	return &Controller{store: store, workflow: workflow, gateway: gateway, authorizer: authorizer}
+func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler) *Controller {
+	return &Controller{store: store, workflow: workflow, gateway: gateway}
 }
 
 func (*Controller) NeedLeaderElection() bool { return false }
@@ -107,12 +103,6 @@ func (c *Controller) reconcile(ctx context.Context, execution *apiv1alpha1.Sched
 			finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 			return nil
 		}
-		if err := c.authorize(ctx, execution); err != nil {
-			if serviceerrors.CodeOf(err) == serviceerrors.CodePermissionDenied {
-				finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Control-plane execution is not authorized")
-			}
-			return err
-		}
 		linked, err := c.store.ReserveScheduledRunExecutionInstance(ctx, execution.GetId(), execution.GetCreator())
 		if err != nil {
 			return err
@@ -158,16 +148,6 @@ func (c *Controller) reconcile(ctx context.Context, execution *apiv1alpha1.Sched
 		}
 		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 		return nil
-	}
-	if err := c.authorize(ctx, execution); err != nil {
-		if serviceerrors.CodeOf(err) != serviceerrors.CodePermissionDenied {
-			return err
-		}
-		if _, cleanupErr := c.stop(ctx, execution, instance, task); cleanupErr != nil {
-			return errors.Join(err, cleanupErr)
-		}
-		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Control-plane execution is not authorized")
-		return err
 	}
 	if execution.GetTaskId() != "" {
 		// Attach to or recover the live ingester. It persists updates independently
@@ -238,19 +218,6 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.S
 		}
 		request.PageToken = page.NextPageToken
 	}
-}
-
-func (c *Controller) authorize(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) error {
-	principal := auth.ControlPlaneSession{}.Principal()
-	if err := c.authorizer.Check(ctx, principal, auth.VerbCreate,
-		auth.Resource{Type: "ScheduledRunExecution", Name: execution.GetId()}); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized to execute schedule", err)
-	}
-	schedule, err := c.store.GetScheduledRun(ctx, execution.GetScheduledRunId(), execution.GetCreator())
-	if err != nil {
-		return err
-	}
-	return scheduledrun.AuthorizeTarget(ctx, c.authorizer, principal, schedule)
 }
 
 func (c *Controller) stop(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution, instance *apiv1alpha1.AgentInstance, task *a2atype.Task) (*a2atype.Task, error) {

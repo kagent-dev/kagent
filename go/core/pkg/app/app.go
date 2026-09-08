@@ -283,7 +283,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
 	if err := manager.Add(scheduledruncontroller.NewController(store, instanceWorkflow,
-		gateway, authorizer)); err != nil {
+		gateway)); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)

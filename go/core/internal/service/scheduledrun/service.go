@@ -221,11 +221,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 
 func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1alpha1.ScheduledRun) error {
 	session, _ := auth.AuthSessionFrom(ctx) // Each public operation authorizes before target access.
-	return AuthorizeTarget(ctx, s.authorizer, session.Principal(), schedule)
-}
-
-// AuthorizeTarget checks the target permissions shared by schedule acceptance and execution.
-func AuthorizeTarget(ctx context.Context, authorizer auth.Authorizer, principal auth.Principal, schedule *apiv1alpha1.ScheduledRun) error {
+	principal := session.Principal()
 	for _, resource := range []struct {
 		kind, name string
 		verb       auth.Verb
@@ -234,7 +230,7 @@ func AuthorizeTarget(ctx context.Context, authorizer auth.Authorizer, principal 
 		{"AgentTemplate", schedule.AgentTemplate.Namespace + "/" + schedule.AgentTemplate.Name, auth.VerbGet},
 		{"AgentInstance", "", auth.VerbCreate},
 	} {
-		if err := authorizer.Check(ctx, principal, resource.verb, auth.Resource{Type: resource.kind, Name: resource.name}); err != nil {
+		if err := s.authorizer.Check(ctx, principal, resource.verb, auth.Resource{Type: resource.kind, Name: resource.name}); err != nil {
 			return serviceerrors.NewPermissionDenied("Not authorized to run target pair", err)
 		}
 	}
