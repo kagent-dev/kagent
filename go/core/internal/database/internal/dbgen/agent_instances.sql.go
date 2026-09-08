@@ -169,17 +169,6 @@ func (q *Queries) GetAgentInstanceForUser(ctx context.Context, arg GetAgentInsta
 	return i, err
 }
 
-const getAgentInstanceHistoryID = `-- name: GetAgentInstanceHistoryID :one
-SELECT history_id FROM agent_instance WHERE id = $1
-`
-
-func (q *Queries) GetAgentInstanceHistoryID(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceHistoryID, id)
-	var history_id uuid.UUID
-	err := row.Scan(&history_id)
-	return history_id, err
-}
-
 const getAgentInstanceShareByTokenHash = `-- name: GetAgentInstanceShareByTokenHash :one
 SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data, i.user_id AS owner_user_id
 FROM agent_instance_share s

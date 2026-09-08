@@ -33,7 +33,7 @@ func (q *Queries) CountAgentInstanceTasks(ctx context.Context, arg CountAgentIns
 	return count, err
 }
 
-const createAgentInstanceTask = `-- name: CreateAgentInstanceTask :execrows
+const createAgentInstanceTask = `-- name: CreateAgentInstanceTask :one
 INSERT INTO agent_instance_task (
     history_id, id, state, status_timestamp, data, initial_message_id, request_hash
 )
@@ -45,6 +45,7 @@ WHERE NOT EXISTS (
 ON CONFLICT (history_id, initial_message_id)
     WHERE initial_message_id IS NOT NULL
 DO NOTHING
+RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
 `
 
 type CreateAgentInstanceTaskParams struct {
@@ -57,8 +58,8 @@ type CreateAgentInstanceTaskParams struct {
 	RequestHash      []byte
 }
 
-func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error) {
-	result, err := q.db.Exec(ctx, createAgentInstanceTask,
+func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, createAgentInstanceTask,
 		arg.HistoryID,
 		arg.ID,
 		arg.State,
@@ -67,10 +68,24 @@ func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentIn
 		arg.InitialMessageID,
 		arg.RequestHash,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var i AgentInstanceTask
+	err := row.Scan(
+		&i.HistoryID,
+		&i.ID,
+		&i.State,
+		&i.StatusTimestamp,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotUri,
+		&i.SnapshotContentScope,
+		&i.HistorySequence,
+		&i.Position,
+	)
+	return i, err
 }
 
 const getActiveAgentInstanceTask = `-- name: GetActiveAgentInstanceTask :one
@@ -172,31 +187,12 @@ func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAg
 	return i, err
 }
 
-const insertAgentInstanceTaskCreationEvent = `-- name: InsertAgentInstanceTaskCreationEvent :one
-INSERT INTO agent_instance_task_event
-    (history_id, task_id, data, task_position, initial_message_id, request_hash, created_at)
-SELECT t.history_id, t.id, $3, t.position, t.initial_message_id, t.request_hash, t.created_at
-FROM agent_instance_task t WHERE t.history_id = $1 AND t.id = $2
-RETURNING sequence
-`
-
-type InsertAgentInstanceTaskCreationEventParams struct {
-	HistoryID uuid.UUID
-	ID        string
-	Data      []byte
-}
-
-func (q *Queries) InsertAgentInstanceTaskCreationEvent(ctx context.Context, arg InsertAgentInstanceTaskCreationEventParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertAgentInstanceTaskCreationEvent, arg.HistoryID, arg.ID, arg.Data)
-	var sequence int64
-	err := row.Scan(&sequence)
-	return sequence, err
-}
-
 const insertAgentInstanceTaskEvent = `-- name: InsertAgentInstanceTaskEvent :one
 WITH inserted AS (
-    INSERT INTO agent_instance_task_event (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO agent_instance_task_event
+        (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope,
+         task_position, initial_message_id, request_hash, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::timestamptz, NOW()))
     ON CONFLICT (history_id, task_id, message_id)
         WHERE message_id IS NOT NULL
     DO NOTHING
@@ -217,6 +213,10 @@ type InsertAgentInstanceTaskEventParams struct {
 	SnapshotAtespace     *string
 	SnapshotUri          *string
 	SnapshotContentScope *string
+	TaskPosition         *int64
+	InitialMessageID     *string
+	RequestHash          []byte
+	CreatedAt            *time.Time
 }
 
 func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error) {
@@ -228,6 +228,10 @@ func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAg
 		arg.SnapshotAtespace,
 		arg.SnapshotUri,
 		arg.SnapshotContentScope,
+		arg.TaskPosition,
+		arg.InitialMessageID,
+		arg.RequestHash,
+		arg.CreatedAt,
 	)
 	var sequence int64
 	err := row.Scan(&sequence)
@@ -277,47 +281,6 @@ func (q *Queries) InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertC
 		arg.Position,
 	)
 	return err
-}
-
-const insertCopiedAgentInstanceTaskEvent = `-- name: InsertCopiedAgentInstanceTaskEvent :one
-INSERT INTO agent_instance_task_event
-    (history_id, task_id, message_id, data, created_at, task_position, initial_message_id, request_hash,
-     snapshot_atespace, snapshot_uri, snapshot_content_scope)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING sequence
-`
-
-type InsertCopiedAgentInstanceTaskEventParams struct {
-	HistoryID            uuid.UUID
-	TaskID               *string
-	MessageID            *string
-	Data                 []byte
-	CreatedAt            time.Time
-	TaskPosition         *int64
-	InitialMessageID     *string
-	RequestHash          []byte
-	SnapshotAtespace     *string
-	SnapshotUri          *string
-	SnapshotContentScope *string
-}
-
-func (q *Queries) InsertCopiedAgentInstanceTaskEvent(ctx context.Context, arg InsertCopiedAgentInstanceTaskEventParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertCopiedAgentInstanceTaskEvent,
-		arg.HistoryID,
-		arg.TaskID,
-		arg.MessageID,
-		arg.Data,
-		arg.CreatedAt,
-		arg.TaskPosition,
-		arg.InitialMessageID,
-		arg.RequestHash,
-		arg.SnapshotAtespace,
-		arg.SnapshotUri,
-		arg.SnapshotContentScope,
-	)
-	var sequence int64
-	err := row.Scan(&sequence)
-	return sequence, err
 }
 
 const listAgentInstanceTaskEvents = `-- name: ListAgentInstanceTaskEvents :many
@@ -558,7 +521,7 @@ func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgent
 	return err
 }
 
-const upsertAgentInstanceTask = `-- name: UpsertAgentInstanceTask :exec
+const upsertAgentInstanceTask = `-- name: UpsertAgentInstanceTask :one
 INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (history_id, id) DO UPDATE SET
@@ -566,6 +529,7 @@ ON CONFLICT (history_id, id) DO UPDATE SET
     status_timestamp = EXCLUDED.status_timestamp,
     data = EXCLUDED.data,
     updated_at = NOW()
+RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
 `
 
 type UpsertAgentInstanceTaskParams struct {
@@ -576,13 +540,30 @@ type UpsertAgentInstanceTaskParams struct {
 	Data            []byte
 }
 
-func (q *Queries) UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error {
-	_, err := q.db.Exec(ctx, upsertAgentInstanceTask,
+func (q *Queries) UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, upsertAgentInstanceTask,
 		arg.HistoryID,
 		arg.ID,
 		arg.State,
 		arg.StatusTimestamp,
 		arg.Data,
 	)
-	return err
+	var i AgentInstanceTask
+	err := row.Scan(
+		&i.HistoryID,
+		&i.ID,
+		&i.State,
+		&i.StatusTimestamp,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotUri,
+		&i.SnapshotContentScope,
+		&i.HistorySequence,
+		&i.Position,
+	)
+	return i, err
 }

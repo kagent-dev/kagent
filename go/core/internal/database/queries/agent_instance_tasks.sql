@@ -1,13 +1,14 @@
--- name: UpsertAgentInstanceTask :exec
+-- name: UpsertAgentInstanceTask :one
 INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (history_id, id) DO UPDATE SET
     state = EXCLUDED.state,
     status_timestamp = EXCLUDED.status_timestamp,
     data = EXCLUDED.data,
-    updated_at = NOW();
+    updated_at = NOW()
+RETURNING *;
 
--- name: CreateAgentInstanceTask :execrows
+-- name: CreateAgentInstanceTask :one
 INSERT INTO agent_instance_task (
     history_id, id, state, status_timestamp, data, initial_message_id, request_hash
 )
@@ -18,12 +19,15 @@ WHERE NOT EXISTS (
 )
 ON CONFLICT (history_id, initial_message_id)
     WHERE initial_message_id IS NOT NULL
-DO NOTHING;
+DO NOTHING
+RETURNING *;
 
 -- name: InsertAgentInstanceTaskEvent :one
 WITH inserted AS (
-    INSERT INTO agent_instance_task_event (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO agent_instance_task_event
+        (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope,
+         task_position, initial_message_id, request_hash, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE(sqlc.narg(created_at)::timestamptz, NOW()))
     ON CONFLICT (history_id, task_id, message_id)
         WHERE message_id IS NOT NULL
     DO NOTHING
@@ -34,20 +38,6 @@ UNION ALL
 SELECT sequence FROM agent_instance_task_event
 WHERE history_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
 LIMIT 1;
-
--- name: InsertAgentInstanceTaskCreationEvent :one
-INSERT INTO agent_instance_task_event
-    (history_id, task_id, data, task_position, initial_message_id, request_hash, created_at)
-SELECT t.history_id, t.id, $3, t.position, t.initial_message_id, t.request_hash, t.created_at
-FROM agent_instance_task t WHERE t.history_id = $1 AND t.id = $2
-RETURNING sequence;
-
--- name: InsertCopiedAgentInstanceTaskEvent :one
-INSERT INTO agent_instance_task_event
-    (history_id, task_id, message_id, data, created_at, task_position, initial_message_id, request_hash,
-     snapshot_atespace, snapshot_uri, snapshot_content_scope)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING sequence;
 
 -- name: ListAgentInstanceTaskHistory :many
 SELECT task_id, data
