@@ -149,6 +149,11 @@ database:
           drop:
             - ALL
 
+      # -- Additional labels for the bundled PostgreSQL pod template, merged over the
+      # global `podLabels` (per-key; component keys win). Selector labels can
+      # never be overridden.
+      podLabels: {}
+
 # ==============================================================================
 # RBAC CONFIGURATION
 # ==============================================================================
