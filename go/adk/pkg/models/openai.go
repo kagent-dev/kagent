@@ -60,14 +60,35 @@ type OpenAIModel struct {
 
 // NewOpenAIModel creates a new OpenAI model instance.
 func NewOpenAIModel(ctx context.Context, config *OpenAIConfig) (*OpenAIModel, error) {
-	apiKey := "passthrough" // placeholder; real auth set per-request by transport
-	if !config.APIKeyPassthrough {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
-		}
+	apiKey, err := resolveOpenAIAPIKey(ctx, config)
+	if err != nil {
+		return nil, err
 	}
 	return newOpenAIModelFromConfig(ctx, config, apiKey)
+}
+
+// keylessOpenAIPlaceholder is sent to OpenAI-compatible endpoints that ignore
+// the key (vLLM, LiteLLM, proxies) when no key source is configured.
+const keylessOpenAIPlaceholder = "unused"
+
+// resolveOpenAIAPIKey picks the client API key. With APIKeyPassthrough the
+// placeholder is overwritten per request by the transport. Otherwise
+// OPENAI_API_KEY is required for api.openai.com, but a custom BaseUrl may be a
+// keyless endpoint, so a missing key falls back to a placeholder there.
+func resolveOpenAIAPIKey(ctx context.Context, config *OpenAIConfig) (string, error) {
+	if config.APIKeyPassthrough {
+		return "passthrough", nil
+	}
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		return apiKey, nil
+	}
+	if config.BaseUrl == "" {
+		return "", fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+	}
+	logging.FromContext(ctx).WarnContext(ctx,
+		"OPENAI_API_KEY is not set; using a placeholder key for the custom OpenAI base URL",
+		"base_url", config.BaseUrl)
+	return keylessOpenAIPlaceholder, nil
 }
 
 // NewOpenAICompatibleModel creates an OpenAI-compatible model (e.g. LiteLLM, Ollama).
