@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { Alert, Form, Input, InputNumber, Modal, Select, Switch } from "antd";
+import { Alert, AutoComplete, Checkbox, Form, Input, InputNumber, Modal, Select, Switch, Typography } from "antd";
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { agentPairsFrom, newConversationBlockedReason, useAgentTemplatesAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
 import type { ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { minuteIntervals, parseSchedule, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
 
-interface FormValues {
+const timeZones = ["UTC", ...Intl.supportedValuesOf("timeZone")].map((value) => ({ value }));
+
+interface FormValues extends ScheduleTiming {
   agent: string;
   name: string;
-  schedule: string;
   timeZone: string;
   prompt: string;
   paused: boolean;
@@ -30,6 +32,9 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
   const templates = useAgentTemplatesAcrossNamespaces(schedule ? undefined : namespaces.data?.map((row) => row.name));
   const agents = agentPairsFrom(templates.data?.templates ?? []);
   const config = schedule?.config;
+  const initialTiming = parseSchedule(config?.schedule ?? "0 9 * * *");
+  const watched = Form.useWatch([], form) as FormValues | undefined;
+  const timing = { ...initialTiming, ...watched };
   const initialTimeout = config?.executionTimeout
     ? Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9 : 900;
   const loadError = namespaces.error ?? templates.error;
@@ -38,10 +43,12 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
     setSaving(true);
     setError(undefined);
     try {
+      const cron = scheduleCron({ ...initialTiming, ...values });
       const nextConfig = {
         ...config,
         name: values.name?.trim() ?? "",
-        schedule: values.schedule.trim(),
+        // Preserve existing expressions when only unrelated fields were edited.
+        schedule: config && cron === scheduleCron(initialTiming) ? config.schedule : cron,
         timeZone: values.timeZone?.trim() || "UTC",
         prompt: values.prompt,
         paused: values.paused,
@@ -73,11 +80,12 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
   }
 
   return <Modal open title={schedule ? "Edit schedule" : "New schedule"}
+    styles={{ body: { maxHeight: "calc(100dvh - 240px)", overflowY: "auto" } }}
     onCancel={onClose} onOk={() => form.submit()} okText={schedule ? "Save changes" : "Create schedule"}
     confirmLoading={saving} cancelButtonProps={{ disabled: saving }} closable={!saving}
     mask={{ closable: !saving }}>
     <Form form={form} layout="vertical" onFinish={save} disabled={saving} initialValues={{
-      name: config?.name ?? "", schedule: config?.schedule ?? "0 9 * * *",
+      ...initialTiming, name: config?.name ?? "",
       timeZone: config?.timeZone || "UTC", prompt: config?.prompt ?? "",
       paused: config?.paused ?? false, timeoutSeconds: initialTimeout,
     }}>
@@ -96,11 +104,48 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
         </Form.Item>
       </>}
       <Form.Item name="name" label="Name" rules={[{ max: 200 }]}><Input maxLength={200} /></Form.Item>
-      <Form.Item name="schedule" label="Cron expression" extra="Five fields: minute, hour, day of month, month, day of week. Example: 0 9 * * * runs daily at 09:00."
-        rules={[{ required: true, whitespace: true }, { max: 256 }]}><Input /></Form.Item>
-      <Form.Item name="timeZone" label="Time zone" extra="Use an IANA time zone, such as America/New_York. Defaults to UTC.">
-        <Input placeholder="UTC" maxLength={253} />
+      <Form.Item name="frequency" label="Repeat">
+        <Select options={[
+          { value: "minutes", label: "Every few minutes" },
+          { value: "hourly", label: "Hourly" },
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
+          { value: "custom", label: "Custom (advanced)" },
+        ]} onChange={(frequency) => {
+          if (frequency === "custom") form.setFieldValue("cron", scheduleCron(timing));
+        }} />
       </Form.Item>
+      {timing.frequency === "minutes" && <Form.Item name="interval" label="Every" rules={[{ required: true }]}>
+        <Select options={minuteIntervals.map((value) => ({ value, label: `${value} minute${value === 1 ? "" : "s"}` }))} />
+      </Form.Item>}
+      {timing.frequency === "hourly" && <Form.Item name="minute" label="Minute past the hour"
+        rules={[{ required: true }, { type: "integer", min: 0, max: 59 }]}>
+        <InputNumber min={0} max={59} precision={0} />
+      </Form.Item>}
+      {timing.frequency === "weekly" && <Form.Item name="days" label="On days"
+        rules={[{ type: "array", min: 1, required: true, message: "Choose at least one day." }]}>
+        <Checkbox.Group options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({ value, label: weekdays[value] }))} />
+      </Form.Item>}
+      {timing.frequency === "monthly" && <Form.Item name="monthDay" label="Day of the month"
+        extra="Months without this day are skipped."
+        rules={[{ required: true }, { type: "integer", min: 1, max: 31 }]}>
+        <InputNumber min={1} max={31} precision={0} />
+      </Form.Item>}
+      {["daily", "weekly", "monthly"].includes(timing.frequency) && <Form.Item name="time" label="At time"
+        rules={[{ required: true, message: "Choose a time." }]}>
+        <Input type="time" step={60} />
+      </Form.Item>}
+      {timing.frequency === "custom" && <Form.Item name="cron" label="Cron expression"
+        extra="Five fields: minute, hour, day of month, month, day of week."
+        rules={[{ required: true, whitespace: true }, { max: 256 }]}><Input /></Form.Item>}
+      <Form.Item name="timeZone" label="Time zone" extra="The schedule uses this time zone, including daylight-saving changes.">
+        <AutoComplete options={timeZones} placeholder="UTC" maxLength={253}
+          filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
+      </Form.Item>
+      {timing.frequency !== "custom" && timing.time && timing.days.length > 0 && timing.minute != null && timing.monthDay != null && <Typography.Paragraph type="secondary" role="status">
+        {scheduleDescription(scheduleCron(timing))} ({(watched?.timeZone ?? config?.timeZone)?.trim() || "UTC"})
+      </Typography.Paragraph>}
       <Form.Item name="prompt" label="Prompt" rules={[{ required: true, whitespace: true }, {
         validator: (_, value: string | undefined) => new TextEncoder().encode(value ?? "").length <= 32768
           ? Promise.resolve() : Promise.reject(new Error("Prompt must be at most 32 KiB.")),

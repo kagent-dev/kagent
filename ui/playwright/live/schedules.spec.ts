@@ -14,7 +14,12 @@ test("live: schedule configuration persists through the browser and controller",
     await page.getByTitle("kagent/smoke on kagent", { exact: true }).click();
     await editor.getByLabel("Name", { exact: true }).fill(name);
     await editor.getByLabel("Prompt", { exact: true }).fill("Report cluster health.");
-    await editor.getByLabel("Cron expression", { exact: true }).fill("0 9 * * 1-5");
+    await editor.getByLabel("Repeat", { exact: true }).click();
+    await page.getByTitle("Weekly", { exact: true }).click();
+    for (const day of ["Tuesday", "Wednesday", "Thursday", "Friday"]) {
+      await editor.getByLabel(day, { exact: true }).check();
+    }
+    await editor.getByLabel("At time", { exact: true }).fill("09:00");
     await editor.getByLabel("Time zone", { exact: true }).fill("America/New_York");
     await editor.getByLabel("Execution timeout (seconds)", { exact: true }).fill("90.001");
     await editor.getByLabel("Paused", { exact: true }).check();
@@ -23,11 +28,15 @@ test("live: schedule configuration persists through the browser and controller",
     detailURL = page.url();
     await page.reload();
     await expect(page.getByRole("button", { name: "Resume schedule", exact: true })).toBeEnabled();
+    await expect(page.getByText("Weekdays at 09:00", { exact: true })).toBeVisible();
     await expect(page.getByText("90.001 seconds", { exact: true })).toBeVisible();
     await expect(page.getByText("America/New_York", { exact: true })).toBeVisible();
     await expect(page.getByText("No executions yet", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Edit schedule", exact: true }).click();
+    await editor.getByLabel("Time zone", { exact: true }).fill("");
+    await expect(editor.getByRole("status")).toHaveText("Weekdays at 09:00 (UTC)");
+    await editor.getByLabel("Time zone", { exact: true }).fill("America/New_York");
     await editor.getByLabel("Prompt", { exact: true }).fill("Report unhealthy workloads only.");
     await editor.getByRole("button", { name: "Save changes", exact: true }).click();
     await expect(editor).toBeHidden();

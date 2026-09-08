@@ -8,6 +8,7 @@ import { useApiResource } from "@/api/hooks/useApiResource";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { ScheduledRunForm } from "@/components/scheduled-runs/ScheduledRunForm";
 import { buildPath, paths } from "@/router/routes";
 import { ScheduledRunExecutionState, type ScheduledRun, type ScheduledRunExecution } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
@@ -44,7 +45,7 @@ export function ScheduledRunsPage() {
         dataSource={runs.data?.scheduledRuns ?? []} locale={{ emptyText: runs.error ? "Schedules unavailable" : "No schedules yet" }} columns={[
           { title: "Name", key: "name", render: (_, row) => <Link to={buildPath(paths.scheduledRun, { id: row.id })}>{row.config?.name || row.id}</Link> },
           { title: "Agent", key: "agent", render: (_, row) => `${row.agentTemplate?.name ?? "—"} on ${row.harness?.name ?? "—"}` },
-          { title: "Cron", key: "cron", render: (_, row) => row.config?.schedule },
+          { title: "Schedule", key: "schedule", render: (_, row) => row.config ? scheduleDescription(row.config.schedule) : "—" },
           { title: "Time zone", key: "zone", render: (_, row) => row.config?.timeZone || "UTC" },
           { title: "Status", key: "status", render: (_, row) => <Tag>{row.config?.paused ? "Paused" : "Active"}</Tag> },
           { title: "Next execution (local)", key: "next", render: (_, row) => time(row.nextExecutionTime) },
@@ -125,7 +126,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
             ? <Link to={buildPath(paths.agent, { namespace: schedule.agentTemplate.namespace, agentTemplate: schedule.agentTemplate.name, harness: schedule.harness.name })}>
               {schedule.agentTemplate.namespace}/{schedule.agentTemplate.name} on {schedule.harness.name}</Link> : "—" },
           { key: "status", label: "Status", children: schedule.deletedAt ? "Deleted" : config.paused ? "Paused" : "Active" },
-          { key: "cron", label: "Cron expression", children: config.schedule },
+          { key: "schedule", label: "Schedule", children: scheduleDescription(config.schedule) },
           { key: "zone", label: "Time zone", children: config.timeZone || "UTC" },
           { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
           { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
