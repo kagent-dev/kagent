@@ -92,8 +92,8 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if _, _, err := client.CreateAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", []byte("different"), first); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("conflicting message error = %v", err)
 	}
-	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
-		t.Fatalf("event count after retries = %d, want 1", events)
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 2 {
+		t.Fatalf("event count after retries = %d, want 2", events)
 	}
 	var eventTaskID string
 	if err := db.QueryRow(ctx, "SELECT task_id FROM agent_instance_task_event").Scan(&eventTaskID); err != nil || eventTaskID != string(first.ID) {
@@ -142,8 +142,8 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", second, second, nil); err != nil {
 		t.Fatal(err)
 	}
-	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 4 {
-		t.Fatalf("event count = %d, want 4", events)
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 5 {
+		t.Fatalf("event count = %d, want 5", events)
 	}
 
 	tasks, total, err := client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", "", a2a.TaskStateUnspecified, nil, 1)
@@ -666,8 +666,8 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 		t.Fatalf("interrupted task status message = %#v, want the appended message", terminated.Status.Message)
 	}
 	if events := countRows(t, db,
-		"SELECT COUNT(*) FROM agent_instance_task_event WHERE task_id = $1", "task-1"); events != 2 {
-		t.Fatalf("events recorded for the interrupted task = %d, want the send and the interruption", events)
+		"SELECT COUNT(*) FROM agent_instance_task_event WHERE task_id = $1", "task-1"); events != 4 {
+		t.Fatalf("events recorded for the interrupted task = %d, want creation, send, interruption message and status", events)
 	}
 }
 

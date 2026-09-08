@@ -22,8 +22,8 @@ DO NOTHING;
 
 -- name: InsertAgentInstanceTaskEvent :one
 WITH inserted AS (
-    INSERT INTO agent_instance_task_event (history_id, task_id, message_id, data)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO agent_instance_task_event (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (history_id, task_id, message_id)
         WHERE message_id IS NOT NULL
     DO NOTHING
@@ -35,6 +35,20 @@ SELECT sequence FROM agent_instance_task_event
 WHERE history_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
 LIMIT 1;
 
+-- name: InsertAgentInstanceTaskCreationEvent :one
+INSERT INTO agent_instance_task_event
+    (history_id, task_id, data, task_position, initial_message_id, request_hash, created_at)
+SELECT t.history_id, t.id, $3, t.position, t.initial_message_id, t.request_hash, t.created_at
+FROM agent_instance_task t WHERE t.history_id = $1 AND t.id = $2
+RETURNING sequence;
+
+-- name: InsertCopiedAgentInstanceTaskEvent :one
+INSERT INTO agent_instance_task_event
+    (history_id, task_id, message_id, data, created_at, task_position, initial_message_id, request_hash,
+     snapshot_atespace, snapshot_uri, snapshot_content_scope)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING sequence;
+
 -- name: ListAgentInstanceTaskHistory :many
 SELECT task_id, data
 FROM agent_instance_task_event
@@ -42,6 +56,9 @@ WHERE history_id = sqlc.arg(history_id)
   AND task_id = ANY(sqlc.arg(task_ids)::text[])
   AND message_id IS NOT NULL
 ORDER BY sequence;
+
+-- name: ListAgentInstanceTaskEvents :many
+SELECT * FROM agent_instance_task_event WHERE history_id = $1 ORDER BY sequence;
 
 -- name: SetAgentInstanceTaskSnapshot :exec
 UPDATE agent_instance_task SET

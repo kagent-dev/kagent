@@ -19,10 +19,9 @@ The core PostgreSQL records are:
 | `agent_instance` | Compute identity, pinned revision, lifecycle phase, and Actor identity |
 | `agent_instance_share` | Instance authorization grants |
 | `a2a_context` | Durable history scope and its wire A2A context binding |
-| `agent_instance_task` | Materialized current A2A task state |
-| `agent_instance_task_event` | Append-only ordered task and message events |
+| `agent_instance_task` | Rebuildable current A2A task state and query indexes |
+| `agent_instance_task_event` | Authoritative append-only task and message events, with creation and runtime-boundary metadata |
 | `agent_instance_checkpoint` | Named immutable snapshot/history boundary |
-| `agent_instance_checkpoint_task` | Task projections frozen at checkpoint reservation |
 
 Identity columns use PostgreSQL's native UUID type. Other framework-specific
 tables are runtime implementation details, not part of this ownership model.
@@ -32,14 +31,14 @@ flowchart TD
     PAIR[Harness + AgentTemplate pair] --> REV[runtime revision]
     REV --> INSTANCE[AgentInstance]
     INSTANCE --> CONTEXT[history scope + wire context]
-    CONTEXT --> TASK[materialized tasks]
-    TASK --> EVENT[ordered task events]
+    CONTEXT --> EVENT[immutable ordered task events]
+    EVENT -->|replay| TASK[materialized task views]
     CONTEXT --> CHECKPOINT[checkpoint boundary]
     REV --> CHECKPOINT
     CHECKPOINT --> TAG[Substrate snapshot tag]
     CHECKPOINT --> FORK[forked AgentInstance]
     FORK --> NEWCTX[new history scope, same wire context]
-    CONTEXT -->|bounded history copy| NEWCTX
+    EVENT -->|copy through checkpoint cutoff| NEWCTX
 ```
 
 ## Checkpoint creation
@@ -60,9 +59,10 @@ The gateway records boundaries without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
 
 The checkpoint retains source-instance provenance, source history, prepared
-revision, labels, name, head task, and history sequence. Reservation freezes all
-current task projections in the same transaction. Later replies to a paused task
-cannot change the saved projection. The head identifies the task whose snapshot
+revision, labels, name, head task, and history sequence. Reservation saves an event
+cutoff in the same transaction as the runtime boundary reference. Later replies
+append events beyond that cutoff and cannot change the saved task state.
+The head identifies the task whose snapshot
 covers the latest history event, including when an older paused task resumes. The source AgentInstance may be
 deleted while its context and checkpoint remain.
 
@@ -73,7 +73,8 @@ the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes 
 
 Forking creates a new AgentInstance authority and durable history scope. It
 preserves wire context, task, message, artifact IDs, and request deduplication
-metadata while copying the frozen projections and bounded events. It creates a
+metadata while copying events through the saved cutoff and reconstructing task
+views from those events. It never reads the source's current task views. It creates a
 separate Actor from the checkpoint's snapshot tag. Private runtime session IDs and
 opaque paused-tool references therefore remain valid without runtime-specific
 rewriting. New work appends only to the fork's history; source history and the
@@ -91,6 +92,18 @@ The workflow lives in
 Tasks have an immutable `position` independent of their opaque IDs and mutable
 status timestamps. Listing and pagination use this position; forks preserve it.
 New tasks append after inherited tasks, including through repeated forks.
+
+Task creation records a full A2A Task event, its position, and request deduplication
+metadata. Later events carry task snapshots or incremental status/artifact changes;
+message-only replies also record their explicit status transition. Live persistence
+and replay use the same protobuf reducer, preserving opaque fields in unchanged
+subtrees. Event writes and task-view updates commit atomically. Runtime boundaries
+are retained on their final task events so the task's snapshot index is rebuildable.
+
+Forks copy the event payloads unchanged. Their final boundary references the retained
+snapshot Tag, and event sequence references are rebound to the fork's event rows.
+Checkpoint creation does not copy task views. Fork reconstruction costs a traversal
+of the saved event history; malformed or incomplete history fails the fork transaction.
 
 Authority-scoped snapshot cloning is a kagent contract; A2A does not specify
 snapshot forks. A complete task address includes the instance route. Reads,

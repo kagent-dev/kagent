@@ -52,20 +52,6 @@ func (q *Queries) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, arg Be
 	return i, err
 }
 
-const captureAgentInstanceCheckpointTasks = `-- name: CaptureAgentInstanceCheckpointTasks :exec
-INSERT INTO agent_instance_checkpoint_task
-    (checkpoint_id, id, data, position, initial_message_id, request_hash, created_at, updated_at)
-SELECT c.id, t.id, t.data, t.position, t.initial_message_id, t.request_hash, t.created_at, t.updated_at
-FROM agent_instance_checkpoint c
-JOIN agent_instance_task t ON t.history_id = c.source_history_id
-WHERE c.id = $1
-`
-
-func (q *Queries) CaptureAgentInstanceCheckpointTasks(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, captureAgentInstanceCheckpointTasks, id)
-	return err
-}
-
 const deleteAgentInstanceCheckpoint = `-- name: DeleteAgentInstanceCheckpoint :execrows
 DELETE FROM agent_instance_checkpoint
 WHERE id = $1 AND user_id = $2 AND state = 'DELETING'
@@ -353,7 +339,7 @@ func (q *Queries) InsertAgentInstanceCheckpoint(ctx context.Context, arg InsertA
 }
 
 const listAgentInstanceCheckpointEvents = `-- name: ListAgentInstanceCheckpointEvents :many
-SELECT e.sequence, e.history_id, e.task_id, e.data, e.created_at, e.message_id
+SELECT e.sequence, e.history_id, e.task_id, e.data, e.created_at, e.message_id, e.task_position, e.initial_message_id, e.request_hash, e.snapshot_atespace, e.snapshot_uri, e.snapshot_content_scope
 FROM agent_instance_checkpoint c
 JOIN agent_instance_task_event e
   ON e.history_id = c.source_history_id
@@ -378,40 +364,12 @@ func (q *Queries) ListAgentInstanceCheckpointEvents(ctx context.Context, checkpo
 			&i.Data,
 			&i.CreatedAt,
 			&i.MessageID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAgentInstanceCheckpointTasks = `-- name: ListAgentInstanceCheckpointTasks :many
-SELECT checkpoint_id, id, data, position, initial_message_id, request_hash, created_at, updated_at FROM agent_instance_checkpoint_task
-WHERE checkpoint_id = $1 ORDER BY position
-`
-
-func (q *Queries) ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID uuid.UUID) ([]AgentInstanceCheckpointTask, error) {
-	rows, err := q.db.Query(ctx, listAgentInstanceCheckpointTasks, checkpointID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AgentInstanceCheckpointTask
-	for rows.Next() {
-		var i AgentInstanceCheckpointTask
-		if err := rows.Scan(
-			&i.CheckpointID,
-			&i.ID,
-			&i.Data,
-			&i.Position,
+			&i.TaskPosition,
 			&i.InitialMessageID,
 			&i.RequestHash,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.SnapshotAtespace,
+			&i.SnapshotUri,
+			&i.SnapshotContentScope,
 		); err != nil {
 			return nil, err
 		}

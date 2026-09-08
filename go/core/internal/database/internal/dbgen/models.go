@@ -51,17 +51,6 @@ type AgentInstanceCheckpoint struct {
 	SourceName           string
 }
 
-type AgentInstanceCheckpointTask struct {
-	CheckpointID     uuid.UUID
-	ID               string
-	Data             []byte
-	Position         int64
-	InitialMessageID *string
-	RequestHash      []byte
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-}
-
 type AgentInstanceShare struct {
 	ID         uuid.UUID
 	InstanceID uuid.UUID
@@ -88,12 +77,18 @@ type AgentInstanceTask struct {
 }
 
 type AgentInstanceTaskEvent struct {
-	Sequence  int64
-	HistoryID uuid.UUID
-	TaskID    *string
-	Data      []byte
-	CreatedAt time.Time
-	MessageID *string
+	Sequence             int64
+	HistoryID            uuid.UUID
+	TaskID               *string
+	Data                 []byte
+	CreatedAt            time.Time
+	MessageID            *string
+	TaskPosition         *int64
+	InitialMessageID     *string
+	RequestHash          []byte
+	SnapshotAtespace     *string
+	SnapshotUri          *string
+	SnapshotContentScope *string
 }
 
 type Memory struct {

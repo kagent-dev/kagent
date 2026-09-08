@@ -29,18 +29,6 @@ INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_
 ON CONFLICT DO NOTHING
 RETURNING *;
 
--- name: CaptureAgentInstanceCheckpointTasks :exec
-INSERT INTO agent_instance_checkpoint_task
-    (checkpoint_id, id, data, position, initial_message_id, request_hash, created_at, updated_at)
-SELECT c.id, t.id, t.data, t.position, t.initial_message_id, t.request_hash, t.created_at, t.updated_at
-FROM agent_instance_checkpoint c
-JOIN agent_instance_task t ON t.history_id = c.source_history_id
-WHERE c.id = $1;
-
--- name: ListAgentInstanceCheckpointTasks :many
-SELECT * FROM agent_instance_checkpoint_task
-WHERE checkpoint_id = $1 ORDER BY position;
-
 -- name: HasCreatingAgentInstanceCheckpoint :one
 SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_history_id = $1 AND state = 'CREATING');
 

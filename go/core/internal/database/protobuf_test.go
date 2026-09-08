@@ -124,10 +124,10 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	task, err := pbconv.FromProtoTask(original)
 	require.NoError(t, err)
 	event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}}
-	_, err = applyAgentInstanceTaskEvent(proto.Clone(original).(*a2apb.Task), task, event)
+	_, _, err = taskTransition(proto.Clone(original).(*a2apb.Task), task, event)
 	// The supplied projection still says working.
 	require.ErrorContains(t, err, "task status does not match event")
-	_, err = applyAgentInstanceTaskEvent(proto.Clone(original).(*a2apb.Task), task, &a2a.TaskArtifactUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("new")}}})
+	_, _, err = taskTransition(proto.Clone(original).(*a2apb.Task), task, &a2a.TaskArtifactUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("new")}}})
 	require.ErrorContains(t, err, "projection does not match event")
 }
 
@@ -188,6 +188,10 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	futureData, err := proto.Marshal(futureTask)
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: taskRow.HistoryID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData}))
+	futureEvent, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: futureTask}})
+	require.NoError(t, err)
+	_, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{HistoryID: taskRow.HistoryID, TaskID: &taskRow.ID, Data: futureEvent})
+	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
 	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}

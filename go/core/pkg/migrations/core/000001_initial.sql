@@ -99,20 +99,6 @@ CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';
 
--- Freeze task state at reservation so later source replies cannot change a fork.
-CREATE TABLE agent_instance_checkpoint_task (
-    checkpoint_id UUID NOT NULL REFERENCES agent_instance_checkpoint(id) ON DELETE CASCADE,
-    id TEXT NOT NULL,
-    data BYTEA NOT NULL,
-    position BIGINT NOT NULL,
-    initial_message_id TEXT,
-    request_hash BYTEA,
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (checkpoint_id, id),
-    UNIQUE (checkpoint_id, position)
-);
-
 CREATE TABLE agent_instance (
     id                   UUID        PRIMARY KEY,
     user_id              TEXT        NOT NULL CHECK (user_id <> ''),
@@ -185,8 +171,23 @@ CREATE TABLE agent_instance_task_event (
     task_id    TEXT,
     data       BYTEA       NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    message_id TEXT
+    message_id TEXT,
+    -- Creation events retain the metadata needed to rebuild task indexes.
+    task_position BIGINT,
+    initial_message_id TEXT,
+    request_hash BYTEA,
+    snapshot_atespace TEXT,
+    snapshot_uri TEXT,
+    snapshot_content_scope TEXT,
+    CHECK ((snapshot_atespace IS NULL AND snapshot_uri IS NULL AND snapshot_content_scope IS NULL)
+        OR (snapshot_atespace IS NOT NULL AND snapshot_uri IS NOT NULL AND snapshot_content_scope IS NOT NULL)),
+    CHECK (task_position IS NULL OR (task_position > 0 AND task_id IS NOT NULL AND message_id IS NULL)),
+    CHECK (task_position IS NOT NULL OR (initial_message_id IS NULL AND request_hash IS NULL))
 );
+CREATE UNIQUE INDEX agent_instance_task_event_creation_idx
+    ON agent_instance_task_event (history_id, task_id) WHERE task_position IS NOT NULL;
+CREATE UNIQUE INDEX agent_instance_task_event_position_idx
+    ON agent_instance_task_event (history_id, task_position) WHERE task_position IS NOT NULL;
 CREATE INDEX agent_instance_task_event_instance_sequence_idx
     ON agent_instance_task_event (history_id, sequence);
 CREATE UNIQUE INDEX agent_instance_task_event_message_idx
@@ -199,7 +200,6 @@ DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
-DROP TABLE agent_instance_checkpoint_task;
 DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
 DROP TABLE agent_template_harness_pair;
