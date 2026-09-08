@@ -25,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -151,6 +152,44 @@ func TestReconcileClearsCatalogAfterDiscoveryFailure(t *testing.T) {
 	}
 	if catalog.server == nil || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
 		t.Fatalf("failed discovery catalog = server %#v, tools %#v", catalog.server, catalog.tools)
+	}
+}
+
+func TestReconcileRemovesCatalogWhenDiscoveryDisabled(t *testing.T) {
+	server := readyServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
+	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
+	catalog := &fakeCatalog{}
+
+	result, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 0 || discoverer.calls != 0 {
+		t.Fatalf("Reconcile() = %#v, discovery calls = %d; want no requeue and no discovery", result, discoverer.calls)
+	}
+	want := "test/tools|" + mcpServerGroupKind
+	if catalog.deletedTools != want || catalog.deleted != want || catalog.server != nil {
+		t.Fatalf("opted-out catalog = deletes tools %q, server %q, stored %#v; want %q deleted and nothing stored",
+			catalog.deletedTools, catalog.deleted, catalog.server, want)
+	}
+}
+
+func TestReconcileDiscoversWhenDiscoveryLabelIsNotDisabled(t *testing.T) {
+	server := readyServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: "enabled"}
+	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "alpha", Description: "first"}}}
+	catalog := &fakeCatalog{}
+
+	if _, err := New(testClient(t, server), discoverer, catalog).Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(server),
+	}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if discoverer.calls != 1 || catalog.server == nil || catalog.server.LastConnected == nil || len(catalog.tools) != 1 {
+		t.Fatalf("discovery calls = %d, catalog = server %#v, tools %#v", discoverer.calls, catalog.server, catalog.tools)
 	}
 }
 

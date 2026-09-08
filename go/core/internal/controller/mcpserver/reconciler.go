@@ -28,6 +28,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -110,6 +111,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, r.deleteCatalog(ctx, request.String())
 	}
 
+	if discoveryDisabled(server) {
+		// The operator opted this server out of discovery (for example because
+		// agentgateway fronts it and agents reach it through a RemoteMCPServer):
+		// do not connect, and keep it out of the catalog altogether. This
+		// controller filters no events, so adding or removing the label re-enters
+		// Reconcile at once; no requeue is needed.
+		if err := r.deleteCatalog(ctx, request.String()); err != nil {
+			return reconcile.Result{}, fmt.Errorf("remove opted-out MCPServer catalog: %w", err)
+		}
+		return reconcile.Result{}, nil
+	}
+
 	if !isReady(server) {
 		if err := r.updateCatalog(ctx, server, nil, false); err != nil {
 			return reconcile.Result{}, fmt.Errorf("clear unready MCPServer catalog: %w", err)
@@ -145,6 +158,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 func isReady(server *kmcp.MCPServer) bool {
 	condition := apiMeta.FindStatusCondition(server.Status.Conditions, string(kmcp.MCPServerConditionReady))
 	return condition != nil && condition.Status == metav1.ConditionTrue && condition.ObservedGeneration == server.Generation
+}
+
+// discoveryDisabled reports whether the operator opted the server out of tool
+// discovery with the kagent.dev/discovery=disabled label.
+func discoveryDisabled(server *kmcp.MCPServer) bool {
+	return server.Labels[consts.DiscoveryLabel] == consts.DiscoveryDisabled
 }
 
 func (r *Reconciler) updateCatalog(ctx context.Context, server *kmcp.MCPServer, tools []*v1alpha3.MCPTool, connected bool) error {
