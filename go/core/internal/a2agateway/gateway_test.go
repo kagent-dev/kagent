@@ -592,28 +592,40 @@ func TestRuntimeDialerRequiresAuthority(t *testing.T) {
 	}
 }
 
-func TestGatewayReadsCompletedTasksWithoutDialingRuntime(t *testing.T) {
-	task := &a2atype.Task{
-		ID: gatewayTestID, ContextID: gatewayTestContextID,
-		Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
-		History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
-		Artifacts: []*a2atype.Artifact{{Name: "result"}},
-	}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
-	dialer := &gatewayTestDialer{}
-	gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
-	historyLength := 1
+func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
+	for _, state := range []a2atype.TaskState{
+		a2atype.TaskStateSubmitted, a2atype.TaskStateWorking,
+		a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired,
+		a2atype.TaskStateCompleted, a2atype.TaskStateFailed,
+		a2atype.TaskStateCanceled, a2atype.TaskStateRejected,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			task := &a2atype.Task{
+				ID: gatewayTestID, ContextID: gatewayTestContextID,
+				Status:    a2atype.TaskStatus{State: state},
+				History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
+				Artifacts: []*a2atype.Artifact{{Name: "result"}},
+			}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
+			dialer := &gatewayTestDialer{}
+			gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
+			historyLength := 1
 
-	got, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID, HistoryLength: &historyLength})
-	if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
-		t.Fatalf("GetTask() = %#v, %v", got, err)
-	}
-	listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
-	if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
-		t.Fatalf("ListTasks() = %#v, %v", listed, err)
-	}
-	if dialer.instance != nil {
-		t.Fatal("task reads dialed the private runtime")
+			got, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID, HistoryLength: &historyLength})
+			if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
+				t.Fatalf("GetTask() = %#v, %v", got, err)
+			}
+			listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
+			if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
+				t.Fatalf("ListTasks() = %#v, %v", listed, err)
+			}
+			if dialer.instance != nil {
+				t.Fatal("task reads dialed the private runtime")
+			}
+			if len(store.stored) != 0 {
+				t.Fatal("task reads persisted runtime state")
+			}
+		})
 	}
 }
 

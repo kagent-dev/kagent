@@ -172,11 +172,12 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 		return err
 	}
 	if execution.GetTaskId() != "" {
-		task, err := w.gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
-		if task != nil {
-			observeTask(execution, task)
+		// Attach to or recover the live ingester. It persists updates independently
+		// of this observer; subsequent reconciliations read those durable updates.
+		for _, err := range w.gateway.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())}) {
+			return err
 		}
-		return err
+		return nil
 	}
 	dispatchCtx, cancel := context.WithDeadline(ctx, execution.GetDeadline().AsTime())
 	defer cancel()
@@ -201,7 +202,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 	return err
 }
 
-// executionTask only reads persisted history; GetTask subsequently refreshes
+// executionTask only reads persisted history; the live subscription ingests
 // running work. Once linked, the stored task ID is the sole execution identity.
 // ponytail: scan the instance's task list; add protocol filtering if long-lived
 // scheduled conversations make pagination costly.

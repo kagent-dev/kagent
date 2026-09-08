@@ -216,14 +216,6 @@ func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to load agent instance task", "error", err, "task_id", req.ID)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load task")
 	}
-	if !isQuiescent(task.Status.State) && instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
-		if _, observing := g.taskRun(instance.GetId(), task.ID); !observing {
-			task, err = g.refreshTask(ctx, instance, task)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
 	return shapeTask(task, req.HistoryLength, true), nil
 }
 
@@ -413,7 +405,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to connect to agent instance runtime", "error", err, "instance_id", instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
-	run, reader, err := g.startTaskRun(ctx, instance, task, client, client.SubscribeToTask(context.WithoutCancel(ctx), req))
+	run, reader, err := g.startTaskRun(ctx, instance, task, client, subscribeTask(context.WithoutCancel(ctx), client, req))
 	if err != nil {
 		_ = client.Destroy()
 		if run, ok := g.taskRun(instance.GetId(), task.ID); ok {

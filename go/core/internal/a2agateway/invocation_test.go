@@ -67,7 +67,7 @@ func TestTaskInvocationRecoversWithoutRepeatingSend(t *testing.T) {
 	for _, lostResponse := range []bool{false, true} {
 		t.Run(map[bool]string{false: "accepted", true: "lost response"}[lostResponse], func(t *testing.T) {
 			store := &gatewayTestStore{instance: gatewayTestInstance()}
-			runtime := &invocationTestRuntime{gatewayTestRuntime: &gatewayTestRuntime{}}
+			runtime := &invocationTestRuntime{gatewayTestRuntime: &gatewayTestRuntime{subscribeErr: a2atype.ErrTaskNotFound}}
 			if lostResponse {
 				runtime.sendErr = errors.New("response lost")
 			}
@@ -91,15 +91,20 @@ func TestTaskInvocationRecoversWithoutRepeatingSend(t *testing.T) {
 			completed := *runtime.task
 			completed.Status.State = a2atype.TaskStateCompleted
 			runtime.task = &completed
+			stored, err := newGateway().GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: taskID})
+			require.NoError(t, err)
+			require.False(t, stored.Status.State.Terminal(), "reads must not refresh runtime state")
+			require.Zero(t, runtime.getTaskCalls)
 			workflow.err = errors.New("snapshot unavailable")
-			_, err = newGateway().GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: taskID})
+			err = consumeTaskSubscription(newGateway(), taskID)
 			require.Error(t, err)
 			require.False(t, store.task.Status.State.Terminal(), "completion waits for cleanup")
 			workflow.err = nil
+			require.NoError(t, consumeTaskSubscription(newGateway(), taskID))
 			task, err = newGateway().GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: taskID})
 			require.NoError(t, err)
 			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
-			require.Equal(t, "message-1", task.History[0].ID, "runtime polling must retain the accepted message")
+			require.Equal(t, "message-1", task.History[0].ID, "subscription recovery must retain the accepted message")
 			require.NotNil(t, store.snapshot)
 			// Protocol clients (including MCP) see the same persisted invocation.
 			visible, err := newGateway().GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: taskID})
@@ -116,7 +121,7 @@ func TestTaskInvocationRecoversWithoutRepeatingSend(t *testing.T) {
 
 func TestTaskInvocationDoesNotResendAnUncertainTask(t *testing.T) {
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
-	runtime := &invocationTestRuntime{gatewayTestRuntime: &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}, sendErr: errors.New("response lost")}
+	runtime := &invocationTestRuntime{gatewayTestRuntime: &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound, subscribeErr: a2atype.ErrTaskNotFound}, sendErr: errors.New("response lost")}
 	workflow := &gatewayTestWorkflow{}
 	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
 	request := invocationTestRequest()
@@ -125,6 +130,8 @@ func TestTaskInvocationDoesNotResendAnUncertainTask(t *testing.T) {
 	taskID := request.Message.TaskID
 	runtime.task, runtime.taskErr = nil, a2atype.ErrTaskNotFound
 	_, err = gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: taskID})
+	require.NoError(t, err)
+	err = consumeTaskSubscription(gateway, taskID)
 	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
 	store.replay = store.task
 	retry := invocationTestRequest()
@@ -141,6 +148,15 @@ func TestTaskInvocationDoesNotResendAnUncertainTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, a2atype.TaskStateCanceled, canceled.Status.State)
 	require.NotNil(t, store.snapshot)
+}
+
+func consumeTaskSubscription(gateway a2asrv.RequestHandler, taskID a2atype.TaskID) error {
+	for _, err := range gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: taskID}) {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func invocationTestRequest() *a2atype.SendMessageRequest {

@@ -143,6 +143,17 @@ func (r *scheduledWorkerRuntime) GetTask(_ context.Context, req *a2apb.GetTaskRe
 	return proto.CloneOf(task), nil
 }
 
+func (r *scheduledWorkerRuntime) SubscribeToTask(req *a2apb.SubscribeToTaskRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+	task, err := r.GetTask(stream.Context(), &a2apb.GetTaskRequest{Id: req.GetId()})
+	if err != nil {
+		return err
+	}
+	if task.GetStatus().GetState() == a2apb.TaskState_TASK_STATE_COMPLETED {
+		return status.Error(codes.NotFound, "task stream already finished")
+	}
+	return stream.Send(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: task}})
+}
+
 func TestScheduledRunWorkerThroughGRPC(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
