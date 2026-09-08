@@ -12,7 +12,7 @@ import (
 
 const beginRuntimeRevisionDeletion = `-- name: BeginRuntimeRevisionDeletion :execrows
 UPDATE runtime_revision
-SET deletion_started_at = COALESCE(deletion_started_at, NOW())
+SET deleted_at = COALESCE(deleted_at, NOW())
 WHERE runtime_revision.revision = $1
   AND runtime_revision.revision IN (SELECT revision FROM unreferenced_runtime_revision)
 `
@@ -28,7 +28,7 @@ func (q *Queries) BeginRuntimeRevisionDeletion(ctx context.Context, revision str
 const deleteRuntimeRevision = `-- name: DeleteRuntimeRevision :exec
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
-  AND r.deletion_started_at IS NOT NULL
+  AND r.deleted_at IS NOT NULL
 `
 
 func (q *Queries) DeleteRuntimeRevision(ctx context.Context, revision string) error {
@@ -37,7 +37,7 @@ func (q *Queries) DeleteRuntimeRevision(ctx context.Context, revision string) er
 }
 
 const getPairRuntimeRevisionsForUpdate = `-- name: GetPairRuntimeRevisionsForUpdate :many
-SELECT r.revision, r.deletion_started_at FROM runtime_revision r
+SELECT r.revision, r.deleted_at FROM runtime_revision r
 JOIN agent_template_harness_pair p
   ON r.revision IN (p.desired_revision, p.latest_successful_revision)
 WHERE p.namespace = $1 AND p.agent_template_uid = $2 AND p.harness_uid = $3
@@ -52,8 +52,8 @@ type GetPairRuntimeRevisionsForUpdateParams struct {
 }
 
 type GetPairRuntimeRevisionsForUpdateRow struct {
-	Revision          string
-	DeletionStartedAt *time.Time
+	Revision  string
+	DeletedAt *time.Time
 }
 
 // Include the retained success pointer when a retired pair is reactivated.
@@ -67,7 +67,7 @@ func (q *Queries) GetPairRuntimeRevisionsForUpdate(ctx context.Context, arg GetP
 	var items []GetPairRuntimeRevisionsForUpdateRow
 	for rows.Next() {
 		var i GetPairRuntimeRevisionsForUpdateRow
-		if err := rows.Scan(&i.Revision, &i.DeletionStartedAt); err != nil {
+		if err := rows.Scan(&i.Revision, &i.DeletedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -79,7 +79,7 @@ func (q *Queries) GetPairRuntimeRevisionsForUpdate(ctx context.Context, arg GetP
 }
 
 const getRuntimeRevision = `-- name: GetRuntimeRevision :one
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision WHERE revision = $1
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deleted_at FROM runtime_revision WHERE revision = $1
 `
 
 func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error) {
@@ -100,13 +100,13 @@ func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (Runt
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AgentCard,
-		&i.DeletionStartedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
 const getRuntimeRevisionForUpdate = `-- name: GetRuntimeRevisionForUpdate :one
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deleted_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
 `
 
 // The store locks first, then checks eligibility in a separate statement so
@@ -129,7 +129,7 @@ func (q *Queries) GetRuntimeRevisionForUpdate(ctx context.Context, revision stri
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.AgentCard,
-		&i.DeletionStartedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -172,7 +172,7 @@ func (q *Queries) ListActorTemplateHarnesses(ctx context.Context) ([]ListActorTe
 }
 
 const listUnreferencedRuntimeRevisions = `-- name: ListUnreferencedRuntimeRevisions :many
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision r
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deleted_at FROM runtime_revision r
 WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision)
 `
 
@@ -200,7 +200,7 @@ func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runti
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AgentCard,
-			&i.DeletionStartedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -383,7 +383,7 @@ INSERT INTO runtime_revision (
 ON CONFLICT (revision) DO UPDATE SET
     actor_template_uid = EXCLUDED.actor_template_uid,
     updated_at = NOW()
-WHERE runtime_revision.deletion_started_at IS NULL
+WHERE runtime_revision.deleted_at IS NULL
 `
 
 type UpsertRuntimeRevisionParams struct {

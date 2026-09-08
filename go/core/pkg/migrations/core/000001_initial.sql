@@ -42,7 +42,8 @@ CREATE TABLE runtime_revision (
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     agent_card               BYTEA       NOT NULL,
-    deletion_started_at      TIMESTAMPTZ,
+    -- Logical deletion; retain the row until ActorTemplate cleanup completes.
+    deleted_at               TIMESTAMPTZ,
     CONSTRAINT runtime_revision_actor_template_namespace_actor_template_na_key
         UNIQUE (actor_template_atespace, actor_template_name)
 );

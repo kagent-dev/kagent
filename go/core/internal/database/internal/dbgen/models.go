@@ -118,7 +118,7 @@ type RuntimeRevision struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	AgentCard             []byte
-	DeletionStartedAt     *time.Time
+	DeletedAt             *time.Time
 }
 
 type ScheduledRun struct {

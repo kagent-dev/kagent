@@ -24,7 +24,7 @@ INSERT INTO runtime_revision (
 ON CONFLICT (revision) DO UPDATE SET
     actor_template_uid = EXCLUDED.actor_template_uid,
     updated_at = NOW()
-WHERE runtime_revision.deletion_started_at IS NULL;
+WHERE runtime_revision.deleted_at IS NULL;
 
 -- name: MarkRuntimeRevisionSuccessful :exec
 UPDATE agent_template_harness_pair
@@ -80,7 +80,7 @@ SELECT * FROM runtime_revision WHERE revision = $1 FOR UPDATE;
 -- Include the retained success pointer when a retired pair is reactivated.
 -- Desired revisions may not exist yet: pairs are stored before compilation.
 -- name: GetPairRuntimeRevisionsForUpdate :many
-SELECT r.revision, r.deletion_started_at FROM runtime_revision r
+SELECT r.revision, r.deleted_at FROM runtime_revision r
 JOIN agent_template_harness_pair p
   ON r.revision IN (p.desired_revision, p.latest_successful_revision)
 WHERE p.namespace = $1 AND p.agent_template_uid = $2 AND p.harness_uid = $3
@@ -89,7 +89,7 @@ FOR UPDATE OF r;
 
 -- name: BeginRuntimeRevisionDeletion :execrows
 UPDATE runtime_revision
-SET deletion_started_at = COALESCE(deletion_started_at, NOW())
+SET deleted_at = COALESCE(deleted_at, NOW())
 WHERE runtime_revision.revision = $1
   AND runtime_revision.revision IN (SELECT revision FROM unreferenced_runtime_revision);
 
@@ -104,4 +104,4 @@ WHERE retired_at IS NOT NULL AND latest_successful_revision = $1;
 -- name: DeleteRuntimeRevision :exec
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
-  AND r.deletion_started_at IS NOT NULL;
+  AND r.deleted_at IS NOT NULL;

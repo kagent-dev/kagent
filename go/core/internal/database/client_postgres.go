@@ -97,7 +97,7 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 			return err
 		}
 		for _, revision := range revisions {
-			if revision.DeletionStartedAt != nil {
+			if revision.DeletedAt != nil {
 				return ErrObjectDeleting
 			}
 		}
@@ -112,7 +112,7 @@ func getAvailableRuntimeRevisionForUpdate(ctx context.Context, q *dbgen.Queries,
 	if err != nil {
 		return row, notFoundOr(err)
 	}
-	if row.DeletionStartedAt != nil {
+	if row.DeletedAt != nil {
 		return row, ErrObjectDeleting
 	}
 	return row, nil
@@ -271,7 +271,7 @@ func (c *Client) DeleteRuntimeRevision(ctx context.Context, revision, actorTempl
 		}
 		// A delayed collector must not finalize a newly recreated runtime at
 		// the same digest after another collector finished the previous one.
-		if row.DeletionStartedAt == nil || row.ActorTemplateUid != actorTemplateUID {
+		if row.DeletedAt == nil || row.ActorTemplateUid != actorTemplateUID {
 			return nil
 		}
 		if err := q.ReleaseRetiredRuntimeRevisionReferences(ctx, &revision); err != nil {
