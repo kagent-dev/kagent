@@ -141,6 +141,29 @@ func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentIns
 	return i, err
 }
 
+const getAgentInstanceForUpdate = `-- name: GetAgentInstanceForUpdate :one
+SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetAgentInstanceForUpdate(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
+	row := q.db.QueryRow(ctx, getAgentInstanceForUpdate, id)
+	var i AgentInstance
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RequestID,
+		&i.PreparedRevision,
+		&i.State,
+		&i.Labels,
+		&i.Data,
+		&i.Operation,
+		&i.ContextID,
+		&i.SourceCheckpointID,
+		&i.HistoryID,
+	)
+	return i, err
+}
+
 const getAgentInstanceForUser = `-- name: GetAgentInstanceForUser :one
 SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 AND user_id = $2
 `
@@ -497,29 +520,6 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 		return nil, err
 	}
 	return items, nil
-}
-
-const lockAgentInstance = `-- name: LockAgentInstance :one
-SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
-`
-
-func (q *Queries) LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, lockAgentInstance, id)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-		&i.Operation,
-		&i.ContextID,
-		&i.SourceCheckpointID,
-		&i.HistoryID,
-	)
-	return i, err
 }
 
 const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one

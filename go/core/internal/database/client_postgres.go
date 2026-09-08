@@ -327,7 +327,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 	instanceUUID := uuid.MustParse(instanceID)
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		checkpoint, err := q.LockReadyAgentInstanceCheckpoint(ctx, dbgen.LockReadyAgentInstanceCheckpointParams{
+		checkpoint, err := q.GetReadyAgentInstanceCheckpointForUpdate(ctx, dbgen.GetReadyAgentInstanceCheckpointForUpdateParams{
 			ID: checkpointUUID, UserID: userID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -506,7 +506,7 @@ func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuer
 func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -539,7 +539,7 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -573,7 +573,7 @@ func (c *Client) TransitionAgentInstance(
 ) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(instance.GetId()))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(instance.GetId()))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -731,7 +731,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 	created := false
 	var historyID uuid.UUID
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(instanceID))
+		instance, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(instanceID))
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
@@ -825,7 +825,7 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 		return false, err
 	}
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockActiveAgentInstanceTask(ctx, historyID)
+		row, err := q.GetActiveAgentInstanceTaskForUpdate(ctx, historyID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -898,7 +898,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		// Serialize task transitions with checkpoint reservation, without holding
 		// a transaction across runtime or snapshot network calls.
-		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(instanceID))
+		instance, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(instanceID))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -920,7 +920,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		var taskRow dbgen.AgentInstanceTask
 		newTask := false
 		if task != nil {
-			if row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{HistoryID: historyID, ID: string(task.ID)}); err == nil {
+			if row, err := q.GetAgentInstanceTaskForUpdate(ctx, dbgen.GetAgentInstanceTaskForUpdateParams{HistoryID: historyID, ID: string(task.ID)}); err == nil {
 				stored = &a2apb.Task{}
 				if err := proto.Unmarshal(row.Data, stored); err != nil {
 					return fmt.Errorf("decode stored task: %w", err)
@@ -1100,7 +1100,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			return fmt.Errorf("get AgentInstance checkpoint by request: %w", err)
 		}
 
-		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(checkpoint.GetAgentInstanceId()))
+		instance, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(checkpoint.GetAgentInstanceId()))
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.UserID != userID)) {
 			return ErrNotFound
 		}
@@ -1181,7 +1181,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 	}
 	var result *apiv1alpha1.Checkpoint
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -1270,7 +1270,7 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 	var snapshot *AgentInstanceTaskSnapshot
 	var tagUID string
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -1602,7 +1602,7 @@ func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string
 		for i, r := range results {
 			ids[i] = r.ID
 		}
-		if err := c.q.IncrementMemoryAccessCount(ctx, ids); err != nil {
+		if err := c.q.IncrementMemoryAccessCountForUpdate(ctx, ids); err != nil {
 			logging.FromContext(ctx).WarnContext(ctx, "failed to increment memory access count", "error", err)
 		}
 	}

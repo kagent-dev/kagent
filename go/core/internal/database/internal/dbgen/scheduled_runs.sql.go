@@ -382,7 +382,7 @@ func (q *Queries) GetScheduledRunForUpdate(ctx context.Context, arg GetScheduled
 	return i, err
 }
 
-const leaseScheduledRunExecutions = `-- name: LeaseScheduledRunExecutions :many
+const leaseScheduledRunExecutionsForUpdate = `-- name: LeaseScheduledRunExecutionsForUpdate :many
 WITH candidates AS (
     SELECT id FROM scheduled_run_execution
     WHERE state IN ('PENDING', 'RUNNING') AND next_attempt_at <= clock_timestamp()
@@ -393,13 +393,13 @@ SET lease_token = $2::uuid, next_attempt_at = clock_timestamp() + interval '30 s
 FROM candidates c WHERE e.id = c.id RETURNING e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state
 `
 
-type LeaseScheduledRunExecutionsParams struct {
+type LeaseScheduledRunExecutionsForUpdateParams struct {
 	Limit      int32
 	LeaseToken uuid.UUID
 }
 
-func (q *Queries) LeaseScheduledRunExecutions(ctx context.Context, arg LeaseScheduledRunExecutionsParams) ([]ScheduledRunExecution, error) {
-	rows, err := q.db.Query(ctx, leaseScheduledRunExecutions, arg.Limit, arg.LeaseToken)
+func (q *Queries) LeaseScheduledRunExecutionsForUpdate(ctx context.Context, arg LeaseScheduledRunExecutionsForUpdateParams) ([]ScheduledRunExecution, error) {
+	rows, err := q.db.Query(ctx, leaseScheduledRunExecutionsForUpdate, arg.Limit, arg.LeaseToken)
 	if err != nil {
 		return nil, err
 	}

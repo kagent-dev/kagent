@@ -105,9 +105,9 @@ INSERT INTO agent_instance_task (
     snapshot_content_scope, history_sequence, position
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
 
--- LockActiveAgentInstanceTask holds the instance's non-terminal task for the
+-- GetActiveAgentInstanceTaskForUpdate holds the instance's non-terminal task for the
 -- rest of the transaction so reclamation cannot overwrite concurrent progress.
--- name: LockActiveAgentInstanceTask :one
+-- name: GetActiveAgentInstanceTaskForUpdate :one
 SELECT * FROM agent_instance_task
 WHERE history_id = $1
   AND state NOT IN (
@@ -120,5 +120,5 @@ WHERE history_id = $1
   )
 FOR UPDATE;
 
--- name: LockAgentInstanceTask :one
+-- name: GetAgentInstanceTaskForUpdate :one
 SELECT * FROM agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE;

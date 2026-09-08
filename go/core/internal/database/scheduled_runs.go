@@ -393,7 +393,7 @@ func toScheduledRunExecution(row dbgen.ScheduledRunExecution) (*apiv1alpha1.Sche
 
 func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]LeasedScheduledRunExecution, error) {
 	token := uuid.New()
-	rows, err := c.q.LeaseScheduledRunExecutions(ctx, dbgen.LeaseScheduledRunExecutionsParams{Limit: int32(limit), LeaseToken: token})
+	rows, err := c.q.LeaseScheduledRunExecutionsForUpdate(ctx, dbgen.LeaseScheduledRunExecutionsForUpdateParams{Limit: int32(limit), LeaseToken: token})
 	if err != nil {
 		return nil, fmt.Errorf("failed to lease scheduled executions: %w", err)
 	}

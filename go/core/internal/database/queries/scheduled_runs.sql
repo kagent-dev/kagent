@@ -60,7 +60,7 @@ UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNIN
 UPDATE scheduled_run_execution SET state = 'TIMED_OUT', completed_at = clock_timestamp(), data = $2
 WHERE id = $1 AND deadline <= clock_timestamp() RETURNING *;
 
--- name: LeaseScheduledRunExecutions :many
+-- name: LeaseScheduledRunExecutionsForUpdate :many
 WITH candidates AS (
     SELECT id FROM scheduled_run_execution
     WHERE state IN ('PENDING', 'RUNNING') AND next_attempt_at <= clock_timestamp()
