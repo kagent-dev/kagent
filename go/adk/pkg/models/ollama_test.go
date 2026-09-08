@@ -2,7 +2,7 @@ package models
 
 import (
 	"reflect"
-	"sort"
+	"slices"
 	"testing"
 
 	"google.golang.org/genai"
@@ -237,13 +237,13 @@ func TestConvertGenaiToolsToOllamaPropertyOrderIsStable(t *testing.T) {
 	}}
 
 	want := names(t, tools)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		if got := names(t, tools); !reflect.DeepEqual(got, want) {
 			t.Fatalf("property order changed between calls:\n first: %v\n call %d: %v", want, i, got)
 		}
 	}
 
-	if !sort.StringsAreSorted(want) {
+	if !slices.IsSorted(want) {
 		t.Errorf("property order is not deterministic across processes: %v", want)
 	}
 }
