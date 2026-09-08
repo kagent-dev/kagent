@@ -260,3 +260,61 @@ func TestBuildRemoteHitlStateAndHint(t *testing.T) {
 		t.Fatalf("hint = %q", got)
 	}
 }
+
+// A sub-agent's ask_user pause should surface the question, not just the tool name.
+func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
+	task := &a2atype.Task{
+		ID: "child-task", ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
+				Type: HITLTypeAskUserRequest,
+				ID:   "confirm-1",
+				Questions: []map[string]any{
+					{"question": "What is the GitHub owner/org for the repo?"},
+				},
+			}),
+		},
+	}
+	state := BuildRemoteHitlState(task, "github_agent")
+	if state == nil || state.AskUserRequest == nil {
+		t.Fatalf("state = %#v", state)
+	}
+	want := "Remote agent 'github_agent' asks: What is the GitHub owner/org for the repo?"
+	if got := RemoteHitlHint(state); got != want {
+		t.Fatalf("hint = %q, want %q", got, want)
+	}
+}
+
+// A two-level nested ask_user pause should also surface the question, since
+// the nested HitlTool's Args round-trip through JSON and lose their type.
+func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
+	question := "What is the GitHub owner/org for the repo?"
+	task := &a2atype.Task{
+		ID: "child-task", ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
+				Type:      HITLTypeAskUserRequest,
+				ID:        "confirm-1",
+				Questions: []map[string]any{{"question": question}},
+				Nested: &NestedHitlRequest{
+					TaskID: "grandchild-task", ContextID: "grandchild-context", SubagentName: "grandchild_agent",
+					Tools: []HitlTool{{
+						ID: "confirm-2", CallID: "confirm-2", Name: "ask_user",
+						Args: map[string]any{"questions": []map[string]any{{"question": question}}},
+					}},
+				},
+			}),
+		},
+	}
+	state := BuildRemoteHitlState(task, "github_agent")
+	if state == nil || state.AskUserRequest == nil || state.AskUserRequest.Nested == nil {
+		t.Fatalf("state = %#v", state)
+	}
+	if _, ok := state.AskUserRequest.Nested.Tools[0].Args["questions"].([]map[string]any); ok {
+		t.Fatalf("nested tool args decoded as []map[string]any; test no longer exercises the []any round-trip shape")
+	}
+	want := "Remote agent 'github_agent' asks: " + question
+	if got := RemoteHitlHint(state); got != want {
+		t.Fatalf("hint = %q, want %q", got, want)
+	}
+}
