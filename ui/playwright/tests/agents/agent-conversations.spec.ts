@@ -573,6 +573,19 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
     await expect(pageTitle(page)).toHaveText("Daily cluster report");
   });
 
+  await test.step("2b. so does the rest of the row, without the link firing twice", async () => {
+    await loadPage(page, agentPage(agents.k8s));
+    const row = page
+      .getByTestId("agent-schedules-list")
+      .locator('[data-testid^="agent-schedule-"]')
+      .filter({ hasText: "Daily cluster report" })
+      .first();
+    // The cadence text, which is as far from the link as the row gets.
+    await row.getByText("Every day at 09:00").click();
+    await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+$/);
+    await expect(pageTitle(page)).toHaveText("Daily cluster report");
+  });
+
   await test.step("3. an agent nothing schedules offers to create one", async () => {
     // The same template's twin on another harness has none, which is also the
     // assertion the client-side filter exists for: keyed on the template alone, the

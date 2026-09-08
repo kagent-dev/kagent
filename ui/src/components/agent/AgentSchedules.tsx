@@ -1,10 +1,11 @@
 import { Alert, Button, Card, Skeleton, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { invoke } from "@/api/operations";
 import { useApiResource } from "@/api/hooks/useApiResource";
 import { linkInk } from "@/components/common/linkStyles";
+import { rowClickHandler } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { buildPath, paths } from "@/router/routes";
 import { schedulesFor, type SchedulePair } from "./scheduleTargets";
@@ -22,6 +23,7 @@ const { Text } = Typography;
  */
 export function AgentSchedules({ pair }: { pair: SchedulePair }) {
   const theme = useTheme();
+  const navigate = useNavigate();
 
   // `ListScheduledRuns` takes only a page, so the narrowing is done here. Past 100
   // schedules that needs a server-side filter on the RPC, not a second page read.
@@ -64,6 +66,9 @@ export function AgentSchedules({ pair }: { pair: SchedulePair }) {
             <li
               key={schedule.id}
               data-testid={`agent-schedule-${schedule.id}`}
+              onClick={rowClickHandler(() =>
+                void navigate(buildPath(paths.scheduledRun, { id: schedule.id })),
+              )}
               css={{
                 display: "flex",
                 // Wraps rather than scrolls: on a narrow window the cadence and the
@@ -72,6 +77,15 @@ export function AgentSchedules({ pair }: { pair: SchedulePair }) {
                 alignItems: "center",
                 gap: theme.space(3),
                 paddingBlock: theme.space(2),
+                paddingInline: theme.space(2),
+                marginInline: `-${theme.space(2)}`,
+                borderRadius: theme.radius.sm,
+                cursor: "pointer",
+                /* The table rows' own hover and press, since `clickable-table-row` is a
+                   table rule and reaches no `li`. The press is brand-tinted rather than a
+                   second grey: grey on grey is a difference nobody sees under a finger. */
+                "&:hover": { background: theme.color.border },
+                "&:active": { background: `${theme.color.primary}4D` },
                 "&:not(:last-of-type)": {
                   borderBottom: `1px solid ${theme.color.border}`,
                 },
