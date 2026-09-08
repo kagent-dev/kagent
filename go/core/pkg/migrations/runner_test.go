@@ -202,12 +202,16 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
-	// A context may outlive one AgentInstance, so these IDs intentionally differ.
+	// Routing, wire context, and durable history are independent identities.
 	contextID := "00000000-0000-0000-0000-000000000001"
 	instanceID := "00000000-0000-0000-0000-000000000002"
-	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id) VALUES ($1, 'user')", contextID)
-	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id) VALUES ($1, 'user', 'request', 'READY', $2, $3)", instanceID, []byte{}, contextID)
-	execSQL(t, dsn, "INSERT INTO agent_instance_task (context_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", contextID, []byte{})
+	historyID := "00000000-0000-0000-0000-000000000003"
+	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'user', $2)", historyID, contextID)
+	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'READY', $2, $3, $4)", instanceID, []byte{}, contextID, historyID)
+	execSQL(t, dsn, "INSERT INTO agent_instance_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
+	if got := testVersions(t, dsn, coreTrackingTable); !slices.Equal(got, []int64{0, 1}) {
+		t.Fatalf("core migration versions = %v, want single baseline [0 1]", got)
+	}
 	for _, source := range slices.Backward(sources) {
 		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)

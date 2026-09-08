@@ -51,8 +51,9 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original"), "create")
 	require.NoError(t, err)
-	contextID := uuid.MustParse(instance.Id)
-	original := &a2apb.Task{Id: "task", ContextId: instance.Id, Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
+	contextID, err := client.agentInstanceHistoryID(ctx, instance.Id)
+	require.NoError(t, err)
+	original := &a2apb.Task{Id: "task", ContextId: instance.GetContextId(), Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
 		Artifacts: []*a2apb.Artifact{{ArtifactId: "one", Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "first"}}, {Content: &a2apb.Part_Text{Text: "second"}}}}, {ArtifactId: "two"}},
 	}
 	addUnknown(original)
@@ -67,10 +68,10 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 		event a2a.Event
 	}{
 		{"reorder artifacts", reordered},
-		{"status", &a2a.TaskStatusUpdateEvent{TaskID: "task", ContextID: instance.Id, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Metadata: map[string]any{"status": "done"}}},
-		{"append", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.Id, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("third")}, Metadata: map[string]any{"chunk": "last"}}}},
-		{"replace parts", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.Id, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("second"), a2a.NewTextPart("first")}}}},
-		{"snapshot", &a2a.Task{ID: "task", ContextID: instance.Id, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Artifacts: []*a2a.Artifact{{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("replacement")}}}}},
+		{"status", &a2a.TaskStatusUpdateEvent{TaskID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Metadata: map[string]any{"status": "done"}}},
+		{"append", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.GetContextId(), Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("third")}, Metadata: map[string]any{"chunk": "last"}}}},
+		{"replace parts", &a2a.TaskArtifactUpdateEvent{TaskID: "task", ContextID: instance.GetContextId(), Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("second"), a2a.NewTextPart("first")}}}},
+		{"snapshot", &a2a.Task{ID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}, Artifacts: []*a2a.Artifact{{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("replacement")}}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			task, err := pbconv.FromProtoTask(original)
@@ -79,9 +80,10 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 			require.NoError(t, err)
 			data, err := proto.Marshal(original)
 			require.NoError(t, err)
-			require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data}))
+			_, err = q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data})
+			require.NoError(t, err)
 			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, next, test.event, nil))
-			row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: original.Id})
+			row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id})
 			require.NoError(t, err)
 			require.Equal(t, string(next.Status.State), row.State)
 			got := &a2apb.Task{}
@@ -105,11 +107,12 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	}
 	data, err := proto.Marshal(original)
 	require.NoError(t, err)
-	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data}))
+	_, err = q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data})
+	require.NoError(t, err)
 	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, original.Id)
 	require.NoError(t, err)
 	require.True(t, interrupted)
-	row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: contextID, ID: original.Id})
+	row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id})
 	require.NoError(t, err)
 	got := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(row.Data, got))
@@ -123,43 +126,11 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	task, err := pbconv.FromProtoTask(original)
 	require.NoError(t, err)
 	event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}}
-	_, err = applyAgentInstanceTaskEvent(proto.Clone(original).(*a2apb.Task), task, event)
+	_, _, err = taskTransition(proto.Clone(original).(*a2apb.Task), task, event)
 	// The supplied projection still says working.
 	require.ErrorContains(t, err, "task status does not match event")
-	_, err = applyAgentInstanceTaskEvent(proto.Clone(original).(*a2apb.Task), task, &a2a.TaskArtifactUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("new")}}})
+	_, _, err = taskTransition(proto.Clone(original).(*a2apb.Task), task, &a2a.TaskArtifactUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Append: true, Artifact: &a2a.Artifact{ID: "one", Parts: a2a.ContentParts{a2a.NewTextPart("new")}}})
 	require.ErrorContains(t, err, "projection does not match event")
-}
-
-func TestForkProtobufEventsRetainUnknownFields(t *testing.T) {
-	message := &a2apb.Message{MessageId: "message", ContextId: "source", TaskId: "task", Role: a2apb.Role_ROLE_AGENT,
-		ReferenceTaskIds: []string{"task"}, Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "hello"}}}}
-	status := &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_COMPLETED, Message: message}
-	task := &a2apb.Task{Id: "task", ContextId: "source", Status: status, History: []*a2apb.Message{proto.Clone(message).(*a2apb.Message)}}
-	for _, pb := range []proto.Message{message, message.Parts[0], status, task} {
-		addUnknown(pb)
-	}
-	for _, event := range []*a2apb.StreamResponse{
-		{Payload: &a2apb.StreamResponse_Task{Task: task}},
-		{Payload: &a2apb.StreamResponse_Message{Message: message}},
-		{Payload: &a2apb.StreamResponse_StatusUpdate{StatusUpdate: &a2apb.TaskStatusUpdateEvent{TaskId: "task", ContextId: "source", Status: status}}},
-		{Payload: &a2apb.StreamResponse_ArtifactUpdate{ArtifactUpdate: &a2apb.TaskArtifactUpdateEvent{TaskId: "task", ContextId: "source", Artifact: &a2apb.Artifact{ArtifactId: "artifact", Parts: message.Parts}}}},
-	} {
-		addUnknown(event)
-		data, err := proto.Marshal(event)
-		require.NoError(t, err)
-		got := &a2apb.StreamResponse{}
-		require.NoError(t, proto.Unmarshal(data, got))
-		ids := newForkIDs("fork")
-		taskID := reidentifyForkEvent(got, "task", "fork", ids)
-		require.Equal(t, string(ids.task("task")), taskID)
-		converted, err := pbconv.FromProtoStreamResponse(got)
-		require.NoError(t, err)
-		require.Equal(t, "fork", converted.TaskInfo().ContextID)
-		// Reverse only the known identity changes and compare the whole protobuf.
-		reverse := &forkIDs{tasks: map[a2a.TaskID]a2a.TaskID{a2a.TaskID(taskID): "task"}, messages: map[string]string{ids.message("message"): "message"}}
-		reidentifyForkEvent(got, taskID, "source", reverse)
-		require.True(t, proto.Equal(event, got))
-	}
 }
 
 func TestProtobufPersistenceLifecycle(t *testing.T) {
@@ -200,25 +171,30 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	instance, err = client.TransitionAgentInstance(ctx, instance, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED, instance.Operation)
 	require.NoError(t, err)
 
-	task := &a2a.Task{ID: "task", ContextID: instance.Id, Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
+	task := &a2a.Task{ID: "task", ContextID: instance.GetContextId(), Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted},
 		History: []*a2a.Message{{ID: "message", Role: a2a.MessageRoleUser, Parts: a2a.ContentParts{a2a.NewTextPart("hello")}}},
 	}
 	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("request hash"), task)
 	require.NoError(t, err)
 	// Simulate a newer writer using the same binary SQL boundary.
-	taskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: uuid.MustParse(instance.Id), ID: string(task.ID)})
+	taskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: row.HistoryID, ID: string(task.ID)})
 	require.NoError(t, err)
 	futureTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(taskRow.Data, futureTask))
 	addUnknown(futureTask)
 	addUnknown(futureTask.Status)
-	futureTask.Status.Message = &a2apb.Message{MessageId: "question", Role: a2apb.Role_ROLE_AGENT, TaskId: string(task.ID), ContextId: instance.Id,
+	futureTask.Status.Message = &a2apb.Message{MessageId: "question", Role: a2apb.Role_ROLE_AGENT, TaskId: string(task.ID), ContextId: instance.GetContextId(),
 		Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "question"}}}}
 	addUnknown(futureTask.Status.Message)
 	addUnknown(futureTask.Status.Message.Parts[0])
 	futureData, err := proto.Marshal(futureTask)
 	require.NoError(t, err)
-	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: taskRow.ContextID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData}))
+	_, err = q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: taskRow.HistoryID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData})
+	require.NoError(t, err)
+	futureEvent, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: futureTask}})
+	require.NoError(t, err)
+	_, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{HistoryID: taskRow.HistoryID, TaskID: &taskRow.ID, Data: futureEvent})
+	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
 	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
@@ -242,14 +218,16 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, tasks[0].History, 2)
-	forkHistory, err := q.ListAgentInstanceTaskHistory(ctx, dbgen.ListAgentInstanceTaskHistoryParams{ContextID: uuid.MustParse(fork.Id), TaskIds: []string{string(tasks[0].ID)}})
+	forkHistoryID, err := client.agentInstanceHistoryID(ctx, fork.Id)
+	require.NoError(t, err)
+	forkHistory, err := q.ListAgentInstanceTaskHistory(ctx, dbgen.ListAgentInstanceTaskHistoryParams{HistoryID: forkHistoryID, TaskIds: []string{string(tasks[0].ID)}})
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
 	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
-	require.NotEqual(t, task.ID, tasks[0].ID)
-	forkTaskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{ContextID: uuid.MustParse(fork.Id), ID: string(tasks[0].ID)})
+	require.Equal(t, task.ID, tasks[0].ID)
+	forkTaskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: forkHistoryID, ID: string(tasks[0].ID)})
 	require.NoError(t, err)
 	forkTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(forkTaskRow.Data, forkTask))

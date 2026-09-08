@@ -11,6 +11,13 @@ import (
 	pgvector_go "github.com/pgvector/pgvector-go"
 )
 
+type A2aContext struct {
+	ID        uuid.UUID
+	UserID    string
+	CreatedAt time.Time
+	ContextID uuid.UUID
+}
+
 type AgentInstance struct {
 	ID                 uuid.UUID
 	UserID             string
@@ -22,6 +29,7 @@ type AgentInstance struct {
 	Operation          string
 	ContextID          uuid.UUID
 	SourceCheckpointID *uuid.UUID
+	HistoryID          uuid.UUID
 }
 
 type AgentInstanceCheckpoint struct {
@@ -37,9 +45,10 @@ type AgentInstanceCheckpoint struct {
 	TagUid               string
 	State                string
 	Data                 []byte
-	SourceContextID      uuid.UUID
+	SourceHistoryID      uuid.UUID
 	PreparedRevision     *string
 	SourceLabels         []byte
+	SourceName           string
 }
 
 type AgentInstanceShare struct {
@@ -51,7 +60,7 @@ type AgentInstanceShare struct {
 }
 
 type AgentInstanceTask struct {
-	ContextID            uuid.UUID
+	HistoryID            uuid.UUID
 	ID                   string
 	State                string
 	StatusTimestamp      *time.Time
@@ -64,15 +73,22 @@ type AgentInstanceTask struct {
 	SnapshotUri          *string
 	SnapshotContentScope *string
 	HistorySequence      *int64
+	Position             int64
 }
 
 type AgentInstanceTaskEvent struct {
-	Sequence  int64
-	ContextID uuid.UUID
-	TaskID    *string
-	Data      []byte
-	CreatedAt time.Time
-	MessageID *string
+	Sequence             int64
+	HistoryID            uuid.UUID
+	TaskID               *string
+	Data                 []byte
+	CreatedAt            time.Time
+	MessageID            *string
+	TaskPosition         *int64
+	InitialMessageID     *string
+	RequestHash          []byte
+	SnapshotAtespace     *string
+	SnapshotUri          *string
+	SnapshotContentScope *string
 }
 
 type Memory struct {

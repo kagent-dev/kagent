@@ -68,6 +68,8 @@ export type ChatEvent =
 export interface ChatConversationRef {
   /** The AgentInstance id. A UUID; the gateway rejects anything else. */
   id: string;
+  /** Omitted until loaded; the routed gateway resolves an empty context. */
+  contextId?: string;
 }
 
 /** How a conversation is keyed in a map or a React dependency list. */
