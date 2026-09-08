@@ -1,7 +1,7 @@
 import { useTheme } from "@emotion/react";
 import { useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
-import { Pause, Pencil, Play, Plus } from "lucide-react";
+import { CalendarClock, ExternalLink, Globe, Pause, Pencil, Play, Plus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { invoke } from "@/api/operations";
@@ -11,7 +11,7 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { PageControls, usePageStack } from "@/components/table/PageControls";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
-import { ScheduledRunForm } from "@/components/scheduled-runs/ScheduledRunForm";
+import { linkStyles } from "@/components/common/linkStyles";
 import { buildPath, paths } from "@/router/routes";
 import { ScheduledRunExecutionState, type ScheduledRun, type ScheduledRunExecution } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 
@@ -21,16 +21,16 @@ function time(value: Timestamp | undefined) {
 
 export function ScheduledRunsPage() {
   const theme = useTheme();
-  const navigate = useNavigate();
-  const [creating, setCreating] = useState(false);
   const page = usePageStack("schedules");
   const runs = useApiResource(["scheduledRuns.list", page.current],
     () => invoke("scheduledRuns.list", { page: { limit: 25, pageToken: page.current } }), { refreshInterval: 10000 });
 
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
-    actions={<Space><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
-      <Button type="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>New Schedule</Button></Space>}>
-    <Space orientation="vertical" css={{ display: "flex", a: { color: theme.color.primaryText } }} size="middle">
+    actions={<Space size={8}><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
+      <Link to={paths.scheduledRunNew}>
+        <Button type="primary" icon={<Plus size={14} />} data-testid="schedules-new">New Schedule</Button>
+      </Link></Space>}>
+    <Space orientation="vertical" css={{ display: "flex", ...linkStyles(theme) }} size="middle">
       {runs.error && <Alert type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
       <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false} scroll={{ x: 800 }}
         dataSource={runs.data?.scheduledRuns ?? []} locale={{ emptyText: runs.error ? "Schedules unavailable" : "No schedules yet" }} columns={[
@@ -40,14 +40,25 @@ export function ScheduledRunsPage() {
           { title: "Time zone", key: "zone", render: (_, row) => row.config?.timeZone || "UTC" },
           { title: "Status", key: "status", render: (_, row) => scheduleStatusTag(row) },
           { title: "Next execution (local)", key: "next", render: (_, row) => time(row.nextExecutionTime) },
+          // Last and untitled, as on every other list: a row's actions belong at the
+          // end of it, past the data they act on.
+          { title: "", key: "actions", width: 76, render: (_, row) => {
+            const name = row.config?.name || row.id;
+            return <Space size={0}>
+              <Link to={buildPath(paths.scheduledRunEdit, { id: row.id })}>
+                <Button type="text" size="small" icon={<Pencil size={14} />}
+                  data-testid={`edit-${name}`} aria-label={`Edit schedule ${name}`} />
+              </Link>
+              <DeleteResourceButton kind="schedule" name={name}
+                description="Stops future executions. Accepted executions continue; history and conversations are retained."
+                onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: row.id }); }}
+                onDeleted={runs.refresh} />
+            </Space>;
+          } },
         ]} />
       <PageControls testId="schedules-pages" page={page} hasNext={Boolean(runs.data?.page?.nextPageToken)}
         onNext={() => page.next(runs.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={runs.isLoading} />
     </Space>
-    {creating && <ScheduledRunForm onClose={() => setCreating(false)} onSaved={(schedule) => {
-      setCreating(false);
-      void navigate(buildPath(paths.scheduledRun, { id: schedule.id }));
-    }} />}
   </PageFrame>;
 }
 
@@ -59,7 +70,7 @@ export function ScheduledRunPage() {
 
 function ScheduledRunDetails({ id }: { id: string }) {
   const theme = useTheme();
-  const [editing, setEditing] = useState<ScheduledRun>();
+  const navigate = useNavigate();
   // Which action is in flight, so only that button spins.
   const [busy, setBusy] = useState<"pause" | "trigger">();
   const [actionError, setActionError] = useState<string>();
@@ -105,37 +116,53 @@ function ScheduledRunDetails({ id }: { id: string }) {
     }
   }
 
-  return <PageFrame title={config?.name || "Schedule"} actions={<Space wrap>
-    <Link to={paths.scheduledRuns}><Button>Back to schedules</Button></Link>
+  /* Top right, not under the description list: there Run and Delete sat below the
+     fold on any schedule with a few firings. */
+  const controls = <div css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2), justifyContent: "flex-end" }}>
+    <Button type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
+      onClick={() => void act("trigger")}>Run</Button>
+    <Button icon={config?.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled || !config} loading={busy === "pause"}
+      onClick={() => void act("pause")}>{config?.paused ? "Resume" : "Pause"}</Button>
+    <Button icon={<Pencil size={14} />} disabled={disabled}
+      onClick={() => void navigate(buildPath(paths.scheduledRunEdit, { id }))}>Edit</Button>
+    <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete" confirmation="modal" outlined disabled={disabled}
+      description="Stops future executions. Accepted executions continue; history and conversations are retained."
+      onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }} onDeleted={refresh} />
     <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} />
-  </Space>}>
-    <Space orientation="vertical" size="middle" css={{ display: "flex", a: { color: theme.color.primaryText } }}>
+    <Link to={paths.scheduledRuns}><Button>Back to schedules</Button></Link>
+  </div>;
+
+  /* Its own header: `PageFrame` holds actions at a fixed width, which squeezed this
+     title to a letter per line once there were six of them. */
+  return <PageFrame>
+    <div css={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start",
+      justifyContent: "space-between", gap: theme.space(4), marginBottom: theme.space(6) }}>
+      <div css={{ flex: "1 1 320px", minWidth: 0 }}>
+        <Typography.Title level={2} css={{ margin: 0 }} data-testid="page-title">{config?.name || "Schedule"}</Typography.Title>
+        {/* What the schedule is, in one line under its name: whether it is running,
+            how often, and in whose clock. The rest is in the list below. */}
+        {schedule && config && <Space size={8} wrap data-testid="schedule-meta" css={{ marginTop: theme.space(2) }}>
+          {scheduleStatusTag(schedule)}
+          <Tag icon={<CalendarClock size={12} />}>{scheduleDescription(config.schedule)}</Tag>
+          <Tag icon={<Globe size={12} />}>{config.timeZone || "UTC"}</Tag>
+        </Space>}
+      </div>
+      {controls}
+    </div>
+    <Space orientation="vertical" size="middle" css={{ display: "flex", ...linkStyles(theme) }}>
       {run.error && <Alert type="error" showIcon title="Could not load schedule" description={run.error.message} />}
       {actionError && <Alert type="error" showIcon title="Schedule action failed" description={actionError} />}
       {notice && <Alert type="success" showIcon title={notice} />}
       {schedule?.deletedAt && <Alert type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
-      {schedule && config && <>
-        <Descriptions bordered column={{ xs: 1, sm: 2 }} items={[
-          { key: "agent", label: "Agent", children: schedule.agentTemplate && schedule.harness
-            ? <Link to={buildPath(paths.agent, { namespace: schedule.agentTemplate.namespace, agentTemplate: schedule.agentTemplate.name, harness: schedule.harness.name })}>
-              {schedule.agentTemplate.namespace}/{schedule.agentTemplate.name} on {schedule.harness.name}</Link> : "—" },
-          { key: "status", label: "Status", children: scheduleStatusTag(schedule) },
-          { key: "schedule", label: "Schedule", children: scheduleDescription(config.schedule) },
-          { key: "zone", label: "Time zone", children: config.timeZone || "UTC" },
-          { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
-          { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
-          { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
-        ]} />
-        <Space wrap>
-          <Button icon={<Play size={14} />} disabled={disabled} loading={busy === "trigger"} onClick={() => void act("trigger")}>Run</Button>
-          <Button icon={config.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled} loading={busy === "pause"}
-            onClick={() => void act("pause")}>{config.paused ? "Resume" : "Pause"}</Button>
-          <Button icon={<Pencil size={14} />} disabled={disabled} onClick={() => setEditing(schedule)}>Edit</Button>
-          <DeleteResourceButton kind="schedule" name={config.name || id} label="Delete" confirmation="modal" outlined disabled={disabled}
-            description="Stops future executions. Accepted executions continue; history and conversations are retained."
-            onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }} onDeleted={refresh} />
-        </Space>
-      </>}
+      {schedule && config && <Descriptions bordered column={{ xs: 1, sm: 2 }} items={[
+        { key: "agent", label: "Agent", children: schedule.agentTemplate && schedule.harness
+          ? <Link to={buildPath(paths.agent, { namespace: schedule.agentTemplate.namespace, agentTemplate: schedule.agentTemplate.name, harness: schedule.harness.name })}>
+            {schedule.agentTemplate.namespace}/{schedule.agentTemplate.name} on {schedule.harness.name}</Link> : "—" },
+        { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
+        { key: "created", label: "Created", children: time(schedule.createdAt) },
+        { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
+        { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
+      ]} />}
       <Typography.Title level={3}>Execution history</Typography.Title>
       <Typography.Text type="secondary">Times are shown in your local time zone. Conversation links may refer to conversations that have since been deleted.</Typography.Text>
       {history.error && <Alert type="error" showIcon title="Could not load execution history" description={history.error.message} />}
@@ -147,7 +174,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.agentInstanceId
-            ? <Link to={buildPath(paths.agentChat, { id: row.agentInstanceId })}>Open conversation</Link> : "Not started" },
+            ? <Link to={buildPath(paths.agentChat, { id: row.agentInstanceId })} css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              Open conversation<ExternalLink size={14} /></Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions column={1} items={[
           { key: "prompt", label: "Prompt", children: <span css={{ whiteSpace: "pre-wrap" }}>{row.prompt}</span> },
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
@@ -156,10 +184,6 @@ function ScheduledRunDetails({ id }: { id: string }) {
       <PageControls testId="schedule-history-pages" page={page} hasNext={Boolean(history.data?.page?.nextPageToken)}
         onNext={() => page.next(history.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={history.isLoading} />
     </Space>
-    {editing && <ScheduledRunForm schedule={editing} onClose={() => setEditing(undefined)} onSaved={() => {
-      setEditing(undefined);
-      void refresh().catch((cause: unknown) => setActionError(`Saved, but could not refresh: ${cause instanceof Error ? cause.message : String(cause)}`));
-    }} />}
   </PageFrame>;
 }
 

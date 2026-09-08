@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, AutoComplete, Checkbox, Form, Input, InputNumber, Modal, Select, Switch, Typography } from "antd";
+import { Alert, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
 import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { agentPairsFrom, newConversationBlockedReason, useAgentTemplatesAcrossNamespaces, useNamespaces } from "@/api";
@@ -18,9 +18,17 @@ interface FormValues extends ScheduleTiming {
   timeoutSeconds: number;
 }
 
-export function ScheduledRunForm({ schedule, onClose, onSaved }: {
+/**
+ * The fields of one schedule, shared by the create and edit pages.
+ *
+ * A page rather than a modal: the timing controls change shape as the frequency
+ * changes, so the form grows past a dialog's height and the reader loses the
+ * submit button behind a scroll — and an address that can be linked to and
+ * reloaded is what makes an edit resumable.
+ */
+export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   schedule?: ScheduledRun;
-  onClose: () => void;
+  onCancel: () => void;
   onSaved: (schedule: ScheduledRun) => void;
 }) {
   const [form] = Form.useForm<FormValues>();
@@ -79,17 +87,12 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
     }
   }
 
-  return <Modal open title={schedule ? "Edit schedule" : "New schedule"}
-    styles={{ body: { maxHeight: "calc(100dvh - 240px)", overflowY: "auto" } }}
-    onCancel={onClose} onOk={() => form.submit()} okText={schedule ? "Save changes" : "Create schedule"}
-    confirmLoading={saving} cancelButtonProps={{ disabled: saving }} closable={!saving}
-    mask={{ closable: !saving }}>
+  return <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 720 }}>
     <Form form={form} layout="vertical" onFinish={save} disabled={saving} initialValues={{
       ...initialTiming, name: config?.name ?? "",
       timeZone: config?.timeZone || "UTC", prompt: config?.prompt ?? "",
       enabled: !(config?.paused ?? false), timeoutSeconds: initialTimeout,
     }}>
-      {error && <Alert type="error" showIcon title="Could not save schedule" description={error} />}
       {!schedule && <>
         {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
         {templates.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
@@ -159,5 +162,15 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
         <Switch />
       </Form.Item>
     </Form>
-  </Modal>;
+    {/* Beside the buttons rather than at the top of the form: a failed save is read
+        where the reader just clicked, not a scroll away. */}
+    {error && <Alert type="error" showIcon title="Could not save schedule" description={error}
+      data-testid="schedule-form-error" />}
+    <Space size={8}>
+      <Button type="primary" loading={saving} onClick={() => form.submit()} data-testid="schedule-submit">
+        {schedule ? "Save changes" : "Create schedule"}
+      </Button>
+      <Button onClick={onCancel} disabled={saving} data-testid="schedule-cancel">Cancel</Button>
+    </Space>
+  </Space>;
 }

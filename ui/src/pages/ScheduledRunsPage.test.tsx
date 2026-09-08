@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SWRConfig } from "swr";
@@ -10,6 +10,7 @@ import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import { setApiTransport } from "@/api/transport";
 import { themeFor } from "@/theme/theme";
 import { ScheduledRunPage } from "./ScheduledRunsPage";
+import { ScheduledRunEditPage } from "./ScheduledRunEditPage";
 
 const schedule = create(ScheduledRunSchema, {
   id: "c686bd1d-9124-4e96-8df7-000000000001", etag: "d686bd1d-9124-4e96-8df7-000000000001",
@@ -18,15 +19,26 @@ const schedule = create(ScheduledRunSchema, {
 
 afterEach(() => setApiTransport(undefined));
 
-function renderSchedule() {
+/*
+ * Both routes, on every render: editing is an address now rather than a dialog, so a
+ * save that leaves the form is a navigation and the detail page has to be there to
+ * land on.
+ */
+function renderAt(entry: string) {
   render(<ThemeProvider theme={themeFor("dark")}>
     <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
-      <MemoryRouter initialEntries={[`/schedules/${schedule.id}`]}>
-        <Routes><Route path="/schedules/:id" element={<ScheduledRunPage />} /></Routes>
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route path="/schedules/:id" element={<ScheduledRunPage />} />
+          <Route path="/schedules/:id/edit" element={<ScheduledRunEditPage />} />
+        </Routes>
       </MemoryRouter>
     </SWRConfig>
   </ThemeProvider>);
 }
+
+const renderSchedule = () => renderAt(`/schedules/${schedule.id}`);
+const renderEditor = () => renderAt(`/schedules/${schedule.id}/edit`);
 
 it("reuses a manual run request ID after a lost response, then gives the next firing a new ID", async () => {
   const requestIds: string[] = [];
@@ -73,14 +85,15 @@ it("keeps unsaved edits after a conflict and preserves the exact timeout on the 
       },
     });
   }));
-  renderSchedule();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
-  const editor = within(await screen.findByRole("dialog"));
-  fireEvent.change(editor.getByLabelText("Prompt", { exact: true }), { target: { value: "Changed prompt" } });
-  fireEvent.click(editor.getByRole("button", { name: "Save changes" }));
-  await editor.findByText(/Schedule changed/);
+  renderEditor();
+  const prompt = await screen.findByLabelText("Prompt", { exact: true });
+  fireEvent.change(prompt, { target: { value: "Changed prompt" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await screen.findByText(/Schedule changed/);
   expect(attempted).toBe(true);
-  expect(editor.getByLabelText("Prompt", { exact: true })).toHaveValue("Changed prompt");
+  // The form is still the one the reader typed into — a failed save must not remount
+  // it, which is also what keeps the create request ID stable across a retry.
+  expect(screen.getByLabelText("Prompt", { exact: true })).toHaveValue("Changed prompt");
 });
 
 it("serializes a fractional timeout without floating-point nanoseconds", async () => {
@@ -98,12 +111,14 @@ it("serializes a fractional timeout without floating-point nanoseconds", async (
       },
     });
   }));
-  renderSchedule();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
-  const editor = within(await screen.findByRole("dialog"));
-  expect(editor.getByLabelText("Execution timeout (seconds)")).toHaveValue("90.000123");
-  fireEvent.change(editor.getByLabelText("Execution timeout (seconds)"), { target: { value: "1.001" } });
-  fireEvent.click(editor.getByRole("button", { name: "Save changes" }));
+  renderEditor();
+  const timeout = await screen.findByLabelText("Execution timeout (seconds)");
+  expect(timeout).toHaveValue("90.000123");
+  fireEvent.change(timeout, { target: { value: "1.001" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() => expect(attempted).toBe(true));
-  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  // A saved edit leaves for the schedule it changed, so the form is gone and the
+  // detail page's history is on screen.
+  await screen.findByText("Execution history");
+  expect(screen.queryByTestId("schedule-submit")).not.toBeInTheDocument();
 });
