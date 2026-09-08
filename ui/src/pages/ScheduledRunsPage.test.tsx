@@ -41,7 +41,7 @@ it("reuses a manual run request ID after a lost response, then gives the next fi
     },
   })));
   renderSchedule();
-  const run = await screen.findByRole("button", { name: "Run now" });
+  const run = await screen.findByRole("button", { name: "Run" });
   fireEvent.click(run);
   await screen.findByText(/Response lost/);
   await waitFor(() => expect(run).toBeEnabled());
@@ -74,7 +74,7 @@ it("keeps unsaved edits after a conflict and preserves the exact timeout on the 
     });
   }));
   renderSchedule();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit schedule" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
   const editor = within(await screen.findByRole("dialog"));
   fireEvent.change(editor.getByLabelText("Prompt", { exact: true }), { target: { value: "Changed prompt" } });
   fireEvent.click(editor.getByRole("button", { name: "Save changes" }));
@@ -99,7 +99,7 @@ it("serializes a fractional timeout without floating-point nanoseconds", async (
     });
   }));
   renderSchedule();
-  fireEvent.click(await screen.findByRole("button", { name: "Edit schedule" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
   const editor = within(await screen.findByRole("dialog"));
   expect(editor.getByLabelText("Execution timeout (seconds)")).toHaveValue("90.000123");
   fireEvent.change(editor.getByLabelText("Execution timeout (seconds)"), { target: { value: "1.001" } });

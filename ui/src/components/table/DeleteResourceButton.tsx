@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Popconfirm } from "antd";
+import { Button, Modal, Popconfirm } from "antd";
 import { Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -24,6 +24,7 @@ export function DeleteResourceButton({
   description,
   label,
   outlined = false,
+  confirmation = "popover",
 }: {
   /** What this is, in words a reader would use: "agent", "model configuration". */
   kind: string;
@@ -59,11 +60,13 @@ export function DeleteResourceButton({
    * to off so no existing row changes.
    */
   outlined?: boolean;
+  confirmation?: "popover" | "modal";
   onDelete: () => Promise<void>;
   /** Called after a successful delete, to refresh whatever listed it. */
   onDeleted: () => void | Promise<void>;
   disabled?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const [isDeleting, setDeleting] = useState(false);
 
   async function confirm() {
@@ -73,6 +76,7 @@ export function DeleteResourceButton({
       // Refreshed before the toast, so the row is gone by the time the reader is
       // told it is. The other order shows a success over a table still listing it.
       await onDeleted();
+      setOpen(false);
       toast.success(`Deleted ${kind} ${name}`);
     } catch (cause: unknown) {
       // Deliberately not a toast that disappears: a delete that failed leaves the
@@ -89,33 +93,42 @@ export function DeleteResourceButton({
     }
   }
 
-  return (
-    <Popconfirm
-      title={`Delete ${kind} ${name}?`}
-      description={description ?? "This removes it from the cluster and cannot be undone."}
-      okText="Delete"
-      okButtonProps={{ danger: true, loading: isDeleting }}
-      cancelText="Keep"
-      onConfirm={confirm}
+  const button = (
+    <Button
+      // `default` gives it the border; `danger` keeps it red either way, so the
+      // extra prominence does not read as encouragement.
+      type={outlined ? "default" : "text"}
+      danger
+      // Full size rather than `small`: at 24px square in a row that is 54px tall this
+      // was a smaller target than anything else on the row, and it is the control with
+      // the worst consequence for a near miss.
+      icon={<Trash2 size={16} />}
+      onClick={confirmation === "modal" ? () => setOpen(true) : undefined}
+      loading={isDeleting}
+      disabled={disabled}
+      data-testid={`delete-${name}`}
+      // Kept even when `label` is set: the visible label says "Delete template",
+      // while a screen reader listing controls out of context needs to know *which*.
+      aria-label={`Delete ${kind} ${name}`}
     >
-      <Button
-        // `default` gives it the border; `danger` keeps it red either way, so the
-        // extra prominence does not read as encouragement.
-        type={outlined ? "default" : "text"}
-        danger
-        // Full size rather than `small`: at 24px square in a row that is 54px tall this
-        // was a smaller target than anything else on the row, and it is the control with
-        // the worst consequence for a near miss.
-        icon={<Trash2 size={16} />}
-        loading={isDeleting}
-        disabled={disabled}
-        data-testid={`delete-${name}`}
-        // Kept even when `label` is set: the visible label says "Delete template",
-        // while a screen reader listing controls out of context needs to know *which*.
-        aria-label={`Delete ${kind} ${name}`}
-      >
-        {label}
-      </Button>
+      {label}
+    </Button>
+  );
+  const title = `Delete ${kind} ${name}?`;
+  const message = description ?? "This removes it from the cluster and cannot be undone.";
+
+  return confirmation === "modal" ? <>
+    {button}
+    <Modal open={open} title={title} onOk={confirm} onCancel={() => setOpen(false)}
+      okText="Delete" okButtonProps={{ danger: true }} confirmLoading={isDeleting}
+      cancelText="Keep" cancelButtonProps={{ disabled: isDeleting }} closable={!isDeleting}
+      mask={{ closable: !isDeleting }} keyboard={!isDeleting}>
+      {message}
+    </Modal>
+  </> : (
+    <Popconfirm title={title} description={message} okText="Delete"
+      okButtonProps={{ danger: true, loading: isDeleting }} cancelText="Keep" onConfirm={confirm}>
+      {button}
     </Popconfirm>
   );
 }

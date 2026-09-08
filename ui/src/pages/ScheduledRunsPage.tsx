@@ -1,6 +1,7 @@
 import { useTheme } from "@emotion/react";
 import { useRef, useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
+import { Pause, Pencil, Play, Plus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { invoke } from "@/api/operations";
@@ -38,7 +39,7 @@ export function ScheduledRunsPage() {
 
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
     actions={<Space><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
-      <Button type="primary" onClick={() => setCreating(true)}>New schedule</Button></Space>}>
+      <Button type="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)}>New Schedule</Button></Space>}>
     <Space orientation="vertical" css={{ display: "flex", a: { color: theme.color.primaryText } }} size="middle">
       {runs.error && <Alert type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
       <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false} scroll={{ x: 800 }}
@@ -133,10 +134,11 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
         ]} />
         <Space wrap>
-          <Button disabled={disabled} onClick={() => setEditing(schedule)}>Edit schedule</Button>
-          <Button disabled={disabled} loading={busy} onClick={() => void act("pause")}>{config.paused ? "Resume schedule" : "Pause schedule"}</Button>
-          <Button disabled={disabled} loading={busy} onClick={() => void act("trigger")}>Run now</Button>
-          <DeleteResourceButton kind="schedule" name={config.name || id} label="Delete schedule" outlined disabled={disabled}
+          <Button icon={<Play size={14} />} disabled={disabled} loading={busy} onClick={() => void act("trigger")}>Run</Button>
+          <Button icon={config.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled} loading={busy}
+            onClick={() => void act("pause")}>{config.paused ? "Resume" : "Pause"}</Button>
+          <Button icon={<Pencil size={14} />} disabled={disabled} onClick={() => setEditing(schedule)}>Edit</Button>
+          <DeleteResourceButton kind="schedule" name={config.name || id} label="Delete" confirmation="modal" outlined disabled={disabled}
             description="Stops future executions. Accepted executions continue; history and conversations are retained."
             onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }} onDeleted={refresh} />
         </Space>
@@ -150,7 +152,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Trigger", key: "trigger", render: (_, row) => row.trigger.case === "scheduledTime" ? `Scheduled: ${time(row.trigger.value)}` : "Manual" },
           { title: "State", key: "state", render: (_, row) => <Tag>{executionState(row.state)}</Tag> },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
-          { title: "Failure", dataIndex: "failureReason", key: "failure" },
+          { title: "Result", dataIndex: "failureReason", key: "result" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.agentInstanceId
             ? <Link to={buildPath(paths.agentChat, { id: row.agentInstanceId })}>Open conversation</Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions column={1} items={[

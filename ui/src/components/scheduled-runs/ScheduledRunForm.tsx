@@ -14,7 +14,7 @@ interface FormValues extends ScheduleTiming {
   name: string;
   timeZone: string;
   prompt: string;
-  paused: boolean;
+  enabled: boolean;
   timeoutSeconds: number;
 }
 
@@ -51,7 +51,7 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
         schedule: config && cron === scheduleCron(initialTiming) ? config.schedule : cron,
         timeZone: values.timeZone?.trim() || "UTC",
         prompt: values.prompt,
-        paused: values.paused,
+        paused: !values.enabled,
         executionTimeout: config?.executionTimeout && values.timeoutSeconds === initialTimeout
           ? config.executionTimeout : fromJson(DurationSchema, `${values.timeoutSeconds}s`),
       };
@@ -87,7 +87,7 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
     <Form form={form} layout="vertical" onFinish={save} disabled={saving} initialValues={{
       ...initialTiming, name: config?.name ?? "",
       timeZone: config?.timeZone || "UTC", prompt: config?.prompt ?? "",
-      paused: config?.paused ?? false, timeoutSeconds: initialTimeout,
+      enabled: !(config?.paused ?? false), timeoutSeconds: initialTimeout,
     }}>
       {error && <Alert type="error" showIcon title="Could not save schedule" description={error} />}
       {!schedule && <>
@@ -103,7 +103,11 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
             })} />
         </Form.Item>
       </>}
-      <Form.Item name="name" label="Name" rules={[{ max: 200 }]}><Input maxLength={200} /></Form.Item>
+      <Form.Item name="name" label="Schedule Name" rules={[{ max: 200 }]}><Input maxLength={200} /></Form.Item>
+      <Form.Item name="timeZone" label="Time zone" extra="The schedule uses this time zone, including daylight-saving changes.">
+        <AutoComplete options={timeZones} placeholder="UTC" maxLength={253}
+          filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
+      </Form.Item>
       <Form.Item name="frequency" label="Repeat">
         <Select options={[
           { value: "minutes", label: "Every few minutes" },
@@ -139,10 +143,6 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
       {timing.frequency === "custom" && <Form.Item name="cron" label="Cron expression"
         extra="Five fields: minute, hour, day of month, month, day of week."
         rules={[{ required: true, whitespace: true }, { max: 256 }]}><Input /></Form.Item>}
-      <Form.Item name="timeZone" label="Time zone" extra="The schedule uses this time zone, including daylight-saving changes.">
-        <AutoComplete options={timeZones} placeholder="UTC" maxLength={253}
-          filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
-      </Form.Item>
       {timing.frequency !== "custom" && timing.time && timing.days.length > 0 && timing.minute != null && timing.monthDay != null && <Typography.Paragraph type="secondary" role="status">
         {scheduleDescription(scheduleCron(timing))} ({(watched?.timeZone ?? config?.timeZone)?.trim() || "UTC"})
       </Typography.Paragraph>}
@@ -154,7 +154,10 @@ export function ScheduledRunForm({ schedule, onClose, onSaved }: {
         rules={[{ required: true }, { type: "number", min: 0.000001, max: 9223372036 }]}>
         <InputNumber min={0.000001} max={9223372036} />
       </Form.Item>
-      <Form.Item name="paused" label="Paused" valuePropName="checked"><Switch /></Form.Item>
+      <Form.Item name="enabled" label="Enable Schedule" valuePropName="checked"
+        extra={`This schedule will ${(watched?.enabled ?? !(config?.paused ?? false)) ? "run" : "not run"} automatically after it is ${schedule ? "saved" : "created"}.`}>
+        <Switch />
+      </Form.Item>
     </Form>
   </Modal>;
 }
