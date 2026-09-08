@@ -159,6 +159,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	items := make(chan parseItem)
 	stopEmit := make(chan struct{})
+	parseDone := make(chan struct{})
 	go func() {
 		defer close(items)
 		parseErr := ParseJSONL(stdout, d.config.MaxEventBytes, func(event Event) error {
@@ -169,13 +170,20 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 				return context.Canceled
 			}
 		})
+		// Wait closes pipes returned by StdoutPipe, so it must not run until the
+		// parser has finished its final read.
+		close(parseDone)
 		select {
 		case items <- parseItem{err: parseErr}:
 		case <-stopEmit:
 		}
 	}()
 	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait(); close(waitDone) }()
+	go func() {
+		<-parseDone
+		waitDone <- cmd.Wait()
+		close(waitDone)
+	}()
 	session := &processSession{
 		command: cmd, items: items, stopEmit: stopEmit, wait: waitDone, stderr: stderr,
 	}
