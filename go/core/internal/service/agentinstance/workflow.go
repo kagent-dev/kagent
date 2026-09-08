@@ -27,10 +27,9 @@ type actorClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
-	CreateActorFromSnapshotTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
+	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
-	GetActorSnapshot(context.Context, string, string) (*ateapipb.ActorSnapshot, error)
 	DeleteActor(context.Context, string, string) error
 }
 
@@ -47,13 +46,14 @@ func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 }
 
 // Quiesce durably suspends the runtime without changing the AgentInstance's
-// logical READY state and returns the exact immutable snapshot it produced.
+// logical READY state and records its external snapshot URI. Only a checkpoint
+// retains a copy after the Actor advances.
 func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
-	atespace, name := revision.ActorTemplateAtespace, actorName(instance.GetId())
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
 	actor, err := w.actors.SuspendActor(ctx, atespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("suspend Actor %s/%s: %w", atespace, name, err)
@@ -61,24 +61,20 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
 	}
-	ref := actor.GetStatus().GetLatestSnapshot()
-	if ref.GetAtespace() == "" || ref.GetName() == "" {
+	metadata := actor.GetMetadata()
+	if metadata.GetAtespace() != atespace || metadata.GetName() != name || metadata.GetUid() == "" {
+		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
+	}
+	snapshot := actor.GetStatus().GetExternalSnapshot()
+	if snapshot.GetSnapshotUri() == "" {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
 	}
-	snapshot, err := w.actors.GetActorSnapshot(ctx, ref.GetAtespace(), ref.GetName())
-	if err != nil {
-		return nil, fmt.Errorf("get ActorSnapshot %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
-	}
-	metadata := snapshot.GetMetadata()
-	if metadata.GetAtespace() != ref.GetAtespace() || metadata.GetName() != ref.GetName() || metadata.GetUid() == "" {
-		return nil, fmt.Errorf("ActorSnapshot %s/%s returned invalid identity", ref.GetAtespace(), ref.GetName())
-	}
-	scope := snapshot.GetStatus().GetContentScope()
+	scope := snapshot.GetContentScope()
 	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL && scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
-		return nil, fmt.Errorf("ActorSnapshot %s/%s returned invalid content scope %s", ref.GetAtespace(), ref.GetName(), scope)
+		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot content scope %s", atespace, name, scope)
 	}
 	return &database.AgentInstanceTaskSnapshot{
-		Atespace: metadata.GetAtespace(), Name: metadata.GetName(), UID: metadata.GetUid(),
+		Atespace: atespace, URI: snapshot.GetSnapshotUri(),
 		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
 	}, nil
 }
@@ -101,7 +97,7 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace := revision.ActorTemplateAtespace
-	name := actorName(instance.GetId())
+	name := substrate.ActorName(instance.GetId())
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
@@ -134,14 +130,14 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
-	atespace, name := revision.ActorTemplateAtespace, actorName(instance.GetId())
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
 	tag := &ateapipb.ObjectRef{Atespace: snapshot.Atespace, Name: tagName}
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
-		actor, err = w.actors.CreateActorFromSnapshotTag(ctx, atespace, name,
+		actor, err = w.actors.CreateActorFromTag(ctx, atespace, name,
 			revision.ActorTemplateAtespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
 	}
 	if err != nil {
@@ -150,15 +146,15 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if !usesActorTemplate(actor, revision) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
 	}
-	if !proto.Equal(actor.GetSourceSnapshotTag(), tag) {
+	if !proto.Equal(actor.GetSourceTag(), tag) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot tag", atespace, name)
 	}
 	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		return nil, fmt.Errorf("fork actor %s/%s is not suspended", atespace, name)
 	}
-	source := actor.GetStatus().GetSourceSnapshot()
-	if source.GetSnapshot().GetAtespace() != snapshot.Atespace || source.GetSnapshot().GetName() != snapshot.Name ||
-		source.GetSnapshotUid() != snapshot.UID {
+	source := actor.GetStatus().GetExternalSnapshot()
+	if snapshot.URI == "" || source.GetSnapshotUri() != snapshot.URI ||
+		strings.TrimPrefix(source.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != snapshot.ContentScope {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
 	}
 	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))
@@ -185,9 +181,9 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.Agent
 		switch actor.GetStatus().GetState() {
 		case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 		case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-			_, err = w.actors.SuspendActor(ctx, actor.GetMetadata().GetAtespace(), actorName(instance.GetId()))
+			_, err = w.actors.SuspendActor(ctx, actor.GetMetadata().GetAtespace(), substrate.ActorName(instance.GetId()))
 		default:
-			err = fmt.Errorf("actor %s/%s cannot be suspended from status %s", actor.GetMetadata().GetAtespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
+			err = fmt.Errorf("actor %s/%s cannot be suspended from status %s", actor.GetMetadata().GetAtespace(), substrate.ActorName(instance.GetId()), actor.GetStatus().GetState())
 		}
 	}
 	if err != nil {
@@ -216,12 +212,12 @@ func (w *ActorWorkflow) Resume(ctx context.Context, instance *apiv1alpha1.AgentI
 		switch actor.GetStatus().GetState() {
 		case ateapipb.ActorState_ACTOR_STATE_RUNNING:
 		case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_SUSPENDING, ateapipb.ActorState_ACTOR_STATE_RESUMING:
-			actor, err = w.actors.ResumeActor(ctx, actor.GetMetadata().GetAtespace(), actorName(instance.GetId()))
+			actor, err = w.actors.ResumeActor(ctx, actor.GetMetadata().GetAtespace(), substrate.ActorName(instance.GetId()))
 			if err == nil && actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
-				err = fmt.Errorf("resume Actor %s/%s returned status %s", actor.GetMetadata().GetAtespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
+				err = fmt.Errorf("resume Actor %s/%s returned status %s", actor.GetMetadata().GetAtespace(), substrate.ActorName(instance.GetId()), actor.GetStatus().GetState())
 			}
 		default:
-			err = fmt.Errorf("actor %s/%s cannot be resumed from status %s", actor.GetMetadata().GetAtespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
+			err = fmt.Errorf("actor %s/%s cannot be resumed from status %s", actor.GetMetadata().GetAtespace(), substrate.ActorName(instance.GetId()), actor.GetStatus().GetState())
 		}
 	}
 	if err != nil {
@@ -242,7 +238,7 @@ func (w *ActorWorkflow) lifecycleActor(ctx context.Context, instance *apiv1alpha
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
-	atespace, name := revision.ActorTemplateAtespace, actorName(instance.GetId())
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
@@ -336,7 +332,7 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 		return nil, w.release(ctx, instance, originalState, claimed, fmt.Errorf("load prepared revision: %w", err))
 	}
 	atespace := revision.ActorTemplateAtespace
-	name := actorName(instance.GetId())
+	name := substrate.ActorName(instance.GetId())
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		return w.finishDelete(ctx, instance)
@@ -377,8 +373,6 @@ func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.
 	// TODO: Trigger runtime revision garbage collection outside the AgentInstance delete workflow.
 	return instance, nil
 }
-
-func actorName(instanceID string) string { return "ai-" + strings.ToLower(instanceID) }
 
 func usesActorTemplate(actor *ateapipb.Actor, revision *database.RuntimeRevision) bool {
 	ref := actor.GetActorTemplate()

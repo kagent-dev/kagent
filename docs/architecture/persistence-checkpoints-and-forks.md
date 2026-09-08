@@ -44,24 +44,33 @@ A checkpoint names a quiescent boundary already recorded by the gateway. Creatin
 one does not suspend the Actor again:
 
 1. Reserve the checkpoint in PostgreSQL.
-2. Verify the exact Substrate snapshot UID and scope recorded on the boundary.
-3. Create an immutable snapshot tag.
-4. Persist the tag UID and mark the checkpoint ready.
+2. Verify that the suspended Actor still holds the external snapshot URI and scope recorded on the boundary.
+3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
+4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
+
+The `CREATING` reservation blocks task admission and lifecycle changes until the
+copy completes or cleanup finishes. A lost response can reuse a completed Tag;
+an incomplete copy is deleted before the failed reservation is released. A
+failed database finalization leaves the reservation and completed Tag for retry.
+The gateway records boundaries without retaining every turn: only explicit
+checkpoints survive subsequent suspends or source deletion.
 
 The checkpoint retains source-instance provenance, source context, prepared
 revision, labels, head task, and history sequence. The source AgentInstance may be
 deleted while its context and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
-the row. A checkpoint referenced by a fork cannot be deleted. Snapshot garbage
-collection is a separate concern.
+the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
 ## Forking
 
 Forking creates a new AgentInstance and A2A context. It copies task/event history
 through the checkpoint sequence, deterministically remapping task and message IDs,
 then creates the Actor from the checkpoint's snapshot tag. New work appends only
-to the fork's context; source history and the checkpoint remain immutable.
+to the fork's context; source history and the checkpoint remain immutable. The copied head boundary
+uses the retained Tag URI, allowing a fresh fork to be checkpointed before its
+first turn. Fork creation verifies the Tag UID and URI as well as the Actor's
+source Tag, suspended state, template, and external snapshot.
 
 Checkpoint sharing is not implemented. Future sharing must be restricted to data
 snapshots without process state.

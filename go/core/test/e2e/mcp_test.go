@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -162,11 +161,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 
 func mcpEndpoint(t *testing.T) string {
 	t.Helper()
-	host, _, err := net.SplitHostPort(interactionTarget(t))
-	if err != nil {
-		t.Fatalf("parse controller target: %v", err)
-	}
-	return "http://" + net.JoinHostPort(host, "8083") + "/mcp"
+	return "http://" + interactionTarget(t) + "/mcp"
 }
 
 func mcpInvoke(t *testing.T, endpoint, instanceID, message string, tasks bool) map[string]any {

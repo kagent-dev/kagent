@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -168,7 +169,7 @@ func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmp
 	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil)
 }
 
-func (c *Client) CreateActorFromSnapshotTag(ctx context.Context, atespace, actorID, tmplNS, tmplName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
+func (c *Client) CreateActorFromTag(ctx context.Context, atespace, actorID, tmplNS, tmplName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
 	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName})
 }
 
@@ -177,9 +178,9 @@ func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmp
 	defer cancel()
 	resp, err := c.ControlClient.CreateActor(ctx, &ateapipb.CreateActorRequest{
 		Actor: &ateapipb.Actor{
-			Metadata:          &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
-			ActorTemplate:     actorRef(tmplNS, tmplName),
-			SourceSnapshotTag: source,
+			Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
+			ActorTemplate: actorRef(tmplNS, tmplName),
+			SourceTag:     source,
 		},
 	})
 	if err != nil {
@@ -208,36 +209,33 @@ func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*a
 	return resp.GetActor(), nil
 }
 
-func (c *Client) GetActorSnapshot(ctx context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
+func (c *Client) GetTag(ctx context.Context, atespace, name string) (*ateapipb.Tag, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	return c.ControlClient.GetActorSnapshot(ctx, &ateapipb.GetActorSnapshotRequest{ActorSnapshot: actorRef(atespace, name)})
+	return c.ControlClient.GetTag(ctx, &ateapipb.GetTagRequest{Tag: actorRef(atespace, name)})
 }
 
-func (c *Client) GetActorSnapshotTag(ctx context.Context, atespace, name string) (*ateapipb.ActorSnapshotTag, error) {
+func (c *Client) CreateTag(ctx context.Context, atespace, name, actorName string) (*ateapipb.Tag, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	return c.ControlClient.GetActorSnapshotTag(ctx, &ateapipb.GetActorSnapshotTagRequest{ActorSnapshotTag: actorRef(atespace, name)})
-}
-
-func (c *Client) CreateActorSnapshotTag(ctx context.Context, atespace, name, snapshotName string) (*ateapipb.ActorSnapshotTag, error) {
-	ctx, cancel := c.callCtx(ctx)
-	defer cancel()
-	return c.ControlClient.CreateActorSnapshotTag(ctx, &ateapipb.CreateActorSnapshotTagRequest{
-		ActorSnapshotTag: &ateapipb.ActorSnapshotTag{
-			Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
-			Snapshot: actorRef(atespace, snapshotName),
-			Scope:    ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE,
+	return c.ControlClient.CreateTag(ctx, &ateapipb.CreateTagRequest{
+		Tag: &ateapipb.Tag{
+			Metadata:    &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
+			SourceActor: actorRef(atespace, actorName),
+			Scope:       ateapipb.TagScope_TAG_SCOPE_ATESPACE,
 		},
 	})
 }
 
-func (c *Client) DeleteActorSnapshotTag(ctx context.Context, atespace, name string) error {
+func (c *Client) DeleteTag(ctx context.Context, atespace, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActorSnapshotTag(ctx, &ateapipb.DeleteActorSnapshotTagRequest{ActorSnapshotTag: actorRef(atespace, name)})
+	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{Tag: actorRef(atespace, name)})
 	return err
 }
+
+// ActorName is the stable private Actor identity for an AgentInstance.
+func ActorName(instanceID string) string { return "ai-" + strings.ToLower(instanceID) }
 
 func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) error {
 	ctx, cancel := c.callCtx(ctx)

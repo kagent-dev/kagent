@@ -142,7 +142,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
 				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-					GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
+					GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
 				}},
 			}},
 			actors: []*ateapipb.Actor{{
@@ -172,7 +172,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.ActorTemplates, 1)
 		assert.Equal(t, "Ready", result.ActorTemplates[0].Phase)
 		assert.Equal(t, "template-uid", result.ActorTemplates[0].GoldenActorID)
-		assert.Equal(t, "golden", result.ActorTemplates[0].GoldenSnapshot)
+		assert.Equal(t, "s3://snapshots/golden", result.ActorTemplates[0].GoldenSnapshot)
 		assert.Equal(t, "gvisor", result.ActorTemplates[0].SandboxClass)
 		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
 		assert.True(t, result.ActorTemplates[0].ManagedByKagent)

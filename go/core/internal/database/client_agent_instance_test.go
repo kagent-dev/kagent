@@ -119,23 +119,23 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	}
 	first.History = append(first.History, a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("done")))
 	first.Status.State = a2a.TaskStateCompleted
-	snapshot := &AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}
+	snapshot := &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", first, first, snapshot); err != nil {
 		t.Fatal(err)
 	}
-	var snapshotAtespace, snapshotName, snapshotUID string
+	var snapshotAtespace, snapshotURI string
 	var historySequence, latestSequence int64
 	if err := db.QueryRow(ctx, `
-		SELECT snapshot_atespace, snapshot_name, snapshot_uid, history_sequence
+		SELECT snapshot_atespace, snapshot_uri, history_sequence
 		FROM agent_instance_task WHERE context_id = '11111111-1111-4111-8111-111111111111' AND id = 'task-1'
-	`).Scan(&snapshotAtespace, &snapshotName, &snapshotUID, &historySequence); err != nil {
+	`).Scan(&snapshotAtespace, &snapshotURI, &historySequence); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(ctx, `SELECT MAX(sequence) FROM agent_instance_task_event`).Scan(&latestSequence); err != nil {
 		t.Fatal(err)
 	}
-	if snapshotAtespace != snapshot.Atespace || snapshotName != snapshot.Name || snapshotUID != snapshot.UID || historySequence != latestSequence {
-		t.Fatalf("stored boundary = %s/%s uid %s sequence %d", snapshotAtespace, snapshotName, snapshotUID, historySequence)
+	if snapshotAtespace != snapshot.Atespace || snapshotURI != snapshot.URI || historySequence != latestSequence {
+		t.Fatalf("stored boundary = %s/%s sequence %d", snapshotAtespace, snapshotURI, historySequence)
 	}
 	got, err = client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1")
 	if err != nil || len(got.History) != 2 || got.History[1].Role != a2a.MessageRoleAgent {
@@ -284,7 +284,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	}
 	task.Status.State = a2a.TaskStateCompleted
 	if err := client.StoreAgentInstanceTaskEvent(ctx, instanceID, task, task,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid", ContentScope: "DATA"}); err != nil {
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -296,7 +296,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("snapshot lookup by another user = %v, want not found", err)
 	}
 	if checkpoint.HeadTaskId != "task-1" || snapshot == nil ||
-		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
+		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
 	}
 	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("blocked-request"), newAgentInstanceTask("task-2", "message-2")); !errors.Is(err, ErrAgentInstanceTaskConflict) {
@@ -312,22 +312,22 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
 		t.Fatalf("replayed checkpoint = %+v, error %v", replayed, err)
 	}
-	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "")
+	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
 	if err != nil || ready.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
 	}
-	_, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
-	if err != nil || tagUID != "tag-uid" {
+	retained, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
+	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
 	}
-	if replayed, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", ""); err != nil || replayed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
+	if replayed, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", ""); err != nil || replayed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
 	}
 	failed, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", AgentInstanceId: instanceID}, "alice", "failed-checkpoint-request")
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.GetId(), "", "tag creation failed")
+	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.GetId(), "", "", "tag creation failed")
 	if err != nil || failed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
 	}
@@ -335,7 +335,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	replayed, replayedSnapshot, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", AgentInstanceId: instanceID}, "alice", "checkpoint-request")
-	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
+	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *retained {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
 	listed, err := client.ListAgentInstanceCheckpoints(ctx, instanceID, "alice", "", 10)
@@ -346,14 +346,14 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatalf("unauthorized deletion = %+v, %q, %v", ref, tag, err)
 	}
 	deletingSnapshot, deletingTagUID, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
-	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *snapshot || deletingTagUID != "tag-uid" {
+	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
 		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
 	}
 	if _, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleting checkpoint is publicly visible: %v", err)
 	}
 	deletingSnapshot, deletingTagUID, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
-	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *snapshot || deletingTagUID != "tag-uid" {
+	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
 		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
 	}
 	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
@@ -412,14 +412,14 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	first.Status.State = a2a.TaskStateCompleted
 	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid-1", ContentScope: "DATA"}); err != nil {
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", AgentInstanceId: source.GetId()}, "alice", "checkpoint-request-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", ""); err != nil {
+	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -429,7 +429,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	second.Status.State = a2a.TaskStateCompleted
 	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), second, second,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-2", UID: "snapshot-uid-2", ContentScope: "DATA"}); err != nil {
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-2", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.DeleteAgentInstance(ctx, source.GetId()); err != nil {
@@ -467,12 +467,12 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	var requestHash []byte
 	var snapshotUID string
 	if err := db.QueryRow(ctx, `
-		SELECT initial_message_id, request_hash, snapshot_uid
+		SELECT initial_message_id, request_hash, snapshot_uri
 		FROM agent_instance_task WHERE context_id = $1 AND id = $2
 	`, fork.GetId(), copied.ID).Scan(&initialMessageID, &requestHash, &snapshotUID); err != nil {
 		t.Fatal(err)
 	}
-	if initialMessageID != nil || requestHash != nil || snapshotUID != "snapshot-uid-1" {
+	if initialMessageID != nil || requestHash != nil || snapshotUID != "s3://tags/checkpoint" {
 		t.Fatalf("copied persistence metadata = message %v hash %v snapshot %q", initialMessageID, requestHash, snapshotUID)
 	}
 	replayed, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", "ignored")
@@ -493,7 +493,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint2.GetId(), "tag-uid-2", ""); err != nil {
+	if _, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint2.GetId(), "tag-uid-2", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.DeleteAgentInstance(ctx, fork.GetId()); err != nil {

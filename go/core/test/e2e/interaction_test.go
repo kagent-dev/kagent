@@ -142,6 +142,14 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	if err != nil || len(listed.GetCheckpoints()) != 1 || listed.GetCheckpoints()[0].GetId() != checkpoint.GetId() {
 		t.Fatalf("list checkpoints = %+v, error %v", listed.GetCheckpoints(), err)
 	}
+	// Tags own a copy: later suspends and source deletion must not change
+	// either the retained runtime state or the history copied into a fork.
+	fixture.send(t, "What is 2+2?")
+	if _, err := fixture.instances.DeleteAgentInstance(fixture.ctx, &apiv1alpha1.DeleteAgentInstanceRequest{
+		AgentInstanceId: fixture.instanceID,
+	}); err != nil {
+		t.Fatalf("delete checkpoint source: %v", err)
+	}
 	forked, err := fixture.checkpoints.ForkAgentInstance(fixture.ctx, &apiv1alpha1.ForkAgentInstanceRequest{
 		CheckpointId: checkpoint.GetId(), RequestId: uuid.NewString(),
 	})
@@ -178,6 +186,19 @@ func TestAgentInstanceCheckpoint(t *testing.T) {
 	copied, err := pbconv.FromProtoListTasksResponse(copiedResponse)
 	if err != nil || len(copied.Tasks) != 1 || copied.Tasks[0].ID == task.ID || copied.Tasks[0].ContextID != fork.GetId() {
 		t.Fatalf("copied fork tasks = %+v, error %v", copied, err)
+	}
+	// Before its first turn a fork borrows the retained Tag snapshot. Its
+	// copied head boundary must refer to that copy, not the deleted source.
+	forkCheckpoint, err := fixture.checkpoints.CreateCheckpoint(forkCtx, &apiv1alpha1.CreateCheckpointRequest{
+		AgentInstanceId: fork.GetId(), RequestId: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("checkpoint fresh fork: %v", err)
+	}
+	if _, err := fixture.checkpoints.DeleteCheckpoint(forkCtx, &apiv1alpha1.DeleteCheckpointRequest{
+		CheckpointId: forkCheckpoint.GetCheckpoint().GetId(),
+	}); err != nil {
+		t.Fatalf("delete fresh fork checkpoint: %v", err)
 	}
 	forkFixture := &interactionFixture{ctx: forkCtx, client: fixture.client}
 	_, _, forkTask := forkFixture.send(t, "What is 2+2?")
