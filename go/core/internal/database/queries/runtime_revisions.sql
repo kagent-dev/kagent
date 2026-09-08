@@ -77,7 +77,7 @@ WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision);
 -- name: GetRuntimeRevisionForUpdate :one
 SELECT * FROM runtime_revision WHERE revision = $1 FOR UPDATE;
 
--- name: ClaimRuntimeRevisionDeletion :execrows
+-- name: BeginRuntimeRevisionDeletion :execrows
 UPDATE runtime_revision
 SET deletion_started_at = COALESCE(deletion_started_at, NOW())
 WHERE runtime_revision.revision = $1

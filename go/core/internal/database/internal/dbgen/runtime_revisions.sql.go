@@ -9,15 +9,15 @@ import (
 	"context"
 )
 
-const claimRuntimeRevisionDeletion = `-- name: ClaimRuntimeRevisionDeletion :execrows
+const beginRuntimeRevisionDeletion = `-- name: BeginRuntimeRevisionDeletion :execrows
 UPDATE runtime_revision
 SET deletion_started_at = COALESCE(deletion_started_at, NOW())
 WHERE runtime_revision.revision = $1
   AND runtime_revision.revision IN (SELECT revision FROM unreferenced_runtime_revision)
 `
 
-func (q *Queries) ClaimRuntimeRevisionDeletion(ctx context.Context, revision string) (int64, error) {
-	result, err := q.db.Exec(ctx, claimRuntimeRevisionDeletion, revision)
+func (q *Queries) BeginRuntimeRevisionDeletion(ctx context.Context, revision string) (int64, error) {
+	result, err := q.db.Exec(ctx, beginRuntimeRevisionDeletion, revision)
 	if err != nil {
 		return 0, err
 	}

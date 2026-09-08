@@ -122,7 +122,7 @@ type runtimeRevisionStore interface {
 	RetireAllPairIdentities(ctx context.Context, namespace, templateName, harnessName string) error
 	RetirePairIdentitiesExcept(ctx context.Context, keep database.AgentTemplateHarnessPair) error
 	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
-	ClaimRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
+	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string, string) error
 }
 
@@ -365,9 +365,9 @@ func (r *Reconciler) cleanupUnreferencedRevisions(ctx context.Context) error {
 		return fmt.Errorf("list unreferenced runtime revisions: %w", err)
 	}
 	for _, candidate := range revisions {
-		revision, err := r.store.ClaimRuntimeRevisionDeletion(ctx, candidate.Revision)
+		revision, err := r.store.BeginRuntimeRevisionDeletion(ctx, candidate.Revision)
 		if err != nil {
-			return fmt.Errorf("claim runtime revision %s for deletion: %w", candidate.Revision, err)
+			return fmt.Errorf("begin deletion of runtime revision %s: %w", candidate.Revision, err)
 		}
 		if revision == nil {
 			continue

@@ -211,9 +211,10 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 	return result, nil
 }
 
-// ClaimRuntimeRevisionDeletion fences reference acquisition before any network
-// deletion. A committed claim remains discoverable after a failure or restart.
-func (c *Client) ClaimRuntimeRevisionDeletion(ctx context.Context, revision string) (*RuntimeRevision, error) {
+// BeginRuntimeRevisionDeletion marks an unreferenced revision as deleting,
+// preventing new references before runtime cleanup. Retrying returns the pending
+// revision; nil means the revision is missing or still referenced.
+func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	var result *RuntimeRevision
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err := q.GetRuntimeRevisionForUpdate(ctx, revision)
@@ -223,7 +224,7 @@ func (c *Client) ClaimRuntimeRevisionDeletion(ctx context.Context, revision stri
 		if err != nil {
 			return err
 		}
-		rows, err := q.ClaimRuntimeRevisionDeletion(ctx, revision)
+		rows, err := q.BeginRuntimeRevisionDeletion(ctx, revision)
 		if err != nil || rows == 0 {
 			return err
 		}

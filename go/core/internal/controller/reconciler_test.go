@@ -285,7 +285,7 @@ func (s *fakeRuntimeRevisionStore) RetirePairIdentitiesExcept(context.Context, d
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) ClaimRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error) {
+func (s *fakeRuntimeRevisionStore) BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error) {
 	return nil, nil
 }
 
