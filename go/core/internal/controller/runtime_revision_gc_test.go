@@ -10,20 +10,18 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
-	"istio.io/istio/pkg/kube/krt"
 )
 
 func TestRuntimeRevisionGCStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 		store := &fakeGCStore{revisions: []database.RuntimeRevision{
 			{Revision: "failed", ActorTemplateName: "failed"},
 			{Revision: "healthy", ActorTemplateName: "healthy"},
 		}, listErr: errors.New("database unavailable")}
 		templates := &fakeGCTemplates{deleteErr: errors.New("Substrate unavailable")}
-		collector := NewRuntimeRevisionGC(krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), store, templates)
+		collector := NewRuntimeRevisionGC(store, templates)
 		require.True(t, collector.NeedLeaderElection())
 		done := make(chan error, 1)
 		go func() { done <- collector.Start(ctx) }()
@@ -56,13 +54,12 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 		store := &fakeGCStore{revisions: []database.RuntimeRevision{
 			{Revision: "failed", ActorTemplateName: "failed"},
 			{Revision: "healthy", ActorTemplateName: "healthy"},
 		}}
 		templates := &fakeGCTemplates{block: true}
-		collector := NewRuntimeRevisionGC(krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), store, templates)
+		collector := NewRuntimeRevisionGC(store, templates)
 		done := make(chan error, 1)
 		go func() { done <- collector.Start(ctx) }()
 		synctest.Wait()

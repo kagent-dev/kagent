@@ -244,7 +244,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	if err := manager.Add(v2controller.NewRuntimeRevisionGC(runtime.Collections.ActorTemplates, store, actors)); err != nil {
+	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors)); err != nil {
 		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {

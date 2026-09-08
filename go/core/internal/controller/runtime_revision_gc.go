@@ -10,7 +10,6 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"istio.io/istio/pkg/kube/krt"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
@@ -29,7 +28,6 @@ type runtimeRevisionGCClient interface {
 
 // RuntimeRevisionGC retries durable runtime deletions independently of preparation.
 type RuntimeRevisionGC struct {
-	observed  krt.StaticCollection[ObservedActorTemplate]
 	store     runtimeRevisionGCStore
 	templates runtimeRevisionGCClient
 }
@@ -39,8 +37,8 @@ var (
 	_ manager.LeaderElectionRunnable = (*RuntimeRevisionGC)(nil)
 )
 
-func NewRuntimeRevisionGC(observed krt.StaticCollection[ObservedActorTemplate], store runtimeRevisionGCStore, templates runtimeRevisionGCClient) *RuntimeRevisionGC {
-	return &RuntimeRevisionGC{observed: observed, store: store, templates: templates}
+func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient) *RuntimeRevisionGC {
+	return &RuntimeRevisionGC{store: store, templates: templates}
 }
 
 func (r *RuntimeRevisionGC) NeedLeaderElection() bool { return true }
@@ -100,7 +98,6 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) error {
 	if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID); err != nil {
 		return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
-	r.observed.DeleteObject(revision.ActorTemplateAtespace + "/" + revision.ActorTemplateName)
 	if err := r.store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision, revision.ActorTemplateUID); err != nil {
 		return fmt.Errorf("delete unreferenced runtime revision %s: %w", revision.Revision, err)
 	}

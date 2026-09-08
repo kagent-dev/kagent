@@ -58,6 +58,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
 	reconciler := &Reconciler{
+		observedActorTemplates: make(map[string]string),
 		collections: Collections{
 			AgentTemplates:  krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 			ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
@@ -126,6 +127,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
 	_, waiting := reconciler.waitingForDeletion.Load(state.ResourceName())
 	require.True(t, waiting)
+	require.Empty(t, reconciler.collections.ActorTemplates.List(), "the reconciler must discard observations for a deleting digest")
 	pollCtx, cancelPoll := context.WithCancel(t.Context())
 	t.Cleanup(cancelPoll)
 	queued := make(chan string, 1)
@@ -151,10 +153,23 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	_, waiting = reconciler.waitingForDeletion.Load(state.ResourceName())
 	require.False(t, waiting)
 
+	oldObservation := (ObservedActorTemplate{Template: state.DesiredActorTemplate}).ResourceName()
+	state.DesiredActorTemplate = proto.CloneOf(state.DesiredActorTemplate)
+	state.DesiredActorTemplate.Metadata.Name = "assistant-next-revision"
+	state.Revision = &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
+	state.RevisionID, err = state.Revision.Digest()
+	require.NoError(t, err)
+	templates.template = nil
+	reconciliations.UpdateObject(state)
+	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
+	require.Nil(t, reconciler.collections.ActorTemplates.GetKey(oldObservation), "a new revision must release the previous observation without waiting for GC")
+	require.Len(t, reconciler.collections.ActorTemplates.List(), 1)
+
 	reconciliations.DeleteObject(state.ResourceName())
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
+	require.Empty(t, reconciler.collections.ActorTemplates.List(), "pair retirement must release its observation without waiting for GC")
 	if store.retired != state.ResourceName() {
 		t.Fatalf("retired pair = %q, want %q", store.retired, state.ResourceName())
 	}
@@ -181,6 +196,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			states := krt.NewStaticCollection[PairReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
 			reconciler := &Reconciler{
+				observedActorTemplates: make(map[string]string),
 				collections: Collections{
 					ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
 					Reconciliations: states,
@@ -213,6 +229,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			state.Revision = nil
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
+			require.Empty(t, reconciler.collections.ActorTemplates.List(), "invalid preparation must release its observation before GC")
 			request := &apiv1alpha1.AgentInstance{
 				Id: uuid.NewString(), Creator: "alice",
 				AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
@@ -232,17 +249,17 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			deleteErr := errors.New("Substrate unavailable")
 			templates.deleteErr, templates.deletedBeforeError = deleteErr, deletedBeforeError
 			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
-			collector := NewRuntimeRevisionGC(reconciler.collections.ActorTemplates, store, templates)
+			collector := NewRuntimeRevisionGC(store, templates)
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.NoError(t, err)
 			_, _, err = store.CreateAgentInstance(ctx, request, "replacement-instance")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			templates.deleteErr = nil
-			restarted := NewRuntimeRevisionGC(reconciler.collections.ActorTemplates, database.NewClient(pool), templates)
+			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)
 			restarted.sweep(ctx)
 			require.Nil(t, templates.template)
-			require.Empty(t, restarted.observed.List())
+			require.Empty(t, reconciler.collections.ActorTemplates.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.ErrorIs(t, err, database.ErrNotFound)
 			restarted.sweep(ctx)

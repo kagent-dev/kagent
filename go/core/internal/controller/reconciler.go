@@ -133,11 +133,12 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections        Collections
-	templates          actorTemplateClient
-	store              runtimeRevisionStore
-	status             kagentclient.ApiV1alpha3Interface
-	waitingForDeletion sync.Map // Pair keys retried by the pending-template poll, outside the error budget.
+	collections            Collections
+	templates              actorTemplateClient
+	store                  runtimeRevisionStore
+	status                 kagentclient.ApiV1alpha3Interface
+	waitingForDeletion     sync.Map          // Pair keys retried by the pending-template poll, outside the error budget.
+	observedActorTemplates map[string]string // Pair key to observation key; owned by the pair queue.
 
 	pairs                      controllers.Queue
 	agentTemplateStatuses      controllers.Queue
@@ -164,10 +165,11 @@ func newReconciler(
 	status kagentclient.ApiV1alpha3Interface,
 ) *Reconciler {
 	r := &Reconciler{
-		collections: collections,
-		templates:   templates,
-		store:       store,
-		status:      status,
+		collections:            collections,
+		templates:              templates,
+		store:                  store,
+		status:                 status,
+		observedActorTemplates: make(map[string]string),
 	}
 	r.pairs = controllers.NewQueue("v2-agent-template-pairs", controllers.WithGenericReconciler(func(item any) error {
 		return r.reconcilePair(context.Background(), item.(string))
@@ -246,6 +248,13 @@ func (r *Reconciler) NeedLeaderElection() bool { return true }
 func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	r.waitingForDeletion.Delete(key)
 	state := r.collections.Reconciliations.GetKey(key)
+	var desiredObservation string
+	if state != nil && state.Revision != nil && !state.RevisionID.IsZero() && state.DesiredActorTemplate != nil {
+		desiredObservation = (ObservedActorTemplate{Template: state.DesiredActorTemplate}).ResourceName()
+	}
+	if r.observedActorTemplates[key] != desiredObservation {
+		r.forgetActorTemplate(key)
+	}
 	if state == nil {
 		parts := strings.Split(key, "/")
 		if len(parts) != 3 {
@@ -275,6 +284,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if errors.Is(err, database.ErrRuntimeRevisionDeleting) {
 			// A desired digest may be awaiting cleanup from an earlier identity.
 			// Let GC finish, then retry even if the cached template looked ready.
+			r.forgetActorTemplate(key)
 			r.waitingForDeletion.Store(key, struct{}{})
 			return nil
 		}
@@ -298,7 +308,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err)
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
-		r.collections.ActorTemplates.ConditionalUpdateObject(ObservedActorTemplate{Template: observed})
+		r.observeActorTemplate(key, observed)
 		return nil
 	}
 
@@ -320,8 +330,23 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	}
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after instance creation can select the persisted revision.
-	r.collections.ActorTemplates.ConditionalUpdateObject(ObservedActorTemplate{Template: observed})
+	r.observeActorTemplate(key, observed)
 	return nil
+}
+
+// Observations belong to the pair's current preparation, independently of how
+// long instances or checkpoints keep its old runtime alive in the database.
+func (r *Reconciler) observeActorTemplate(pairKey string, template *ateapipb.ActorTemplate) {
+	observation := ObservedActorTemplate{Template: template}
+	r.observedActorTemplates[pairKey] = observation.ResourceName()
+	r.collections.ActorTemplates.ConditionalUpdateObject(observation)
+}
+
+func (r *Reconciler) forgetActorTemplate(pairKey string) {
+	if key, ok := r.observedActorTemplates[pairKey]; ok {
+		r.collections.ActorTemplates.DeleteObject(key)
+		delete(r.observedActorTemplates, pairKey)
+	}
 }
 
 func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key string) error {
