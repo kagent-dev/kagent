@@ -16,13 +16,13 @@ import (
 // taskRun is the single owner of task event persistence and runtime quiescence.
 // Public streams only observe the events it publishes.
 type taskRun struct {
-	gateway *Gateway
-	// Cancellation and terminal ingestion can both close ingress. Share the
-	// result so grpc.ClientConn.Close is called exactly once.
-	closeRuntime func() error
-	key          string
-	queueID      a2atype.TaskID
-	done         chan struct{}
+	gateway   *Gateway
+	client    *a2aclient.Client
+	closeOnce sync.Once
+	closeErr  error
+	key       string
+	queueID   a2atype.TaskID
+	done      chan struct{}
 
 	mu   sync.Mutex
 	err  error
@@ -43,7 +43,7 @@ func (g *Gateway) taskRun(instanceID string, taskID a2atype.TaskID) (*taskRun, b
 
 func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) (*taskRun, eventqueue.Reader, error) {
 	key := taskRunKey(instance.GetId(), task.ID)
-	run := &taskRun{gateway: g, closeRuntime: sync.OnceValue(client.Destroy), key: key, queueID: a2atype.TaskID(key), done: make(chan struct{})}
+	run := &taskRun{gateway: g, client: client, key: key, queueID: a2atype.TaskID(key), done: make(chan struct{})}
 	if _, loaded := g.runs.LoadOrStore(key, run); loaded {
 		return nil, nil, fmt.Errorf("task event ingester already exists")
 	}
@@ -61,6 +61,15 @@ func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	go run.ingest(context.WithoutCancel(ctx), instance, task, writer, events)
 	return run, reader, nil
+}
+
+// Cancellation and terminal ingestion can both close ingress. Share the
+// result so grpc.ClientConn.Close is called exactly once.
+func (r *taskRun) closeRuntime() error {
+	r.closeOnce.Do(func() {
+		r.closeErr = r.client.Destroy()
+	})
+	return r.closeErr
 }
 
 func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, writer eventqueue.Writer, events iter.Seq2[a2atype.Event, error]) {
