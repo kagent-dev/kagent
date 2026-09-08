@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Tooltip } from "antd";
 import { FileText, PanelRightClose, PanelRightOpen, Share2 } from "lucide-react";
 import { useTheme } from "@emotion/react";
+import toast from "react-hot-toast";
 import { ChatComposer, type ChatComposerHandle } from "@/components/chat/ChatComposer";
 import { ShareDialog } from "@/components/chat/ShareDialog";
 import { AgentRail } from "@/components/agent/AgentRail";
@@ -23,6 +24,9 @@ import {
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
+import { useExtensionAgentLinks } from "@/appExtensions/hooks";
+import { agentUrl } from "@/components/agent/agentUrl";
 
 /**
  * How often the instance is re-read while it is doing something.
@@ -164,6 +168,29 @@ export function AgentChatPage() {
 
   const [isSharing, setSharing] = useState(false);
   const [isShowingDetails, setShowingDetails] = useState(false);
+
+  const invalidateConversations = useInvalidateConversations();
+  const links = useExtensionAgentLinks();
+  /*
+   * A checkpoint of this conversation as it stands, forked into a new one, which is
+   * then opened. Offered from every message rather than once per conversation, but
+   * a checkpoint is taken at the current turn boundary, so each one forks the whole
+   * conversation — not the transcript up to that message.
+   */
+  const forkConversation = useCallback(async () => {
+    if (!id) return;
+    const title = instance.data?.name || autoTitle;
+    try {
+      const forked = await apiClient.agentInstances.fork(id, title ? `${title} (fork)` : undefined);
+      await invalidateConversations();
+      toast.success(title ? `Forked "${title}"` : "Forked the conversation");
+      navigate(links?.chat?.({ id: forked.id }) ?? agentUrl.chat({ id: forked.id }));
+    } catch (cause: unknown) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      console.error("Could not fork conversation:", cause);
+      toast.error(`Could not fork: ${message}`);
+    }
+  }, [id, instance.data?.name, autoTitle, invalidateConversations, links, navigate]);
 
   /**
    * Starts another conversation with this agent.
@@ -546,6 +573,7 @@ export function AgentChatPage() {
           <ChatTranscript
             chat={chat}
             sessionId={id}
+            onFork={forkConversation}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
             // has no business knowing the composer exists, so the page it belongs to

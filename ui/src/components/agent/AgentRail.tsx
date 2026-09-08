@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -15,13 +15,11 @@ import { useTheme, type Theme } from "@emotion/react";
 import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
-import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import toast from "react-hot-toast";
 import {
   Bot,
   ChevronsUpDown,
   Folder,
-  GitFork,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
@@ -199,7 +197,6 @@ export function AgentRail({
   const theme = useTheme();
   const { mode } = useThemeMode();
   const location = useLocation();
-  const navigate = useNavigate();
   const [query, setQuery] = useState("");
 
   /*
@@ -1122,7 +1119,6 @@ export function AgentRail({
                 href={url.chat({ id: candidate.id })}
                 isActive={candidate.id === ref.id}
                 onDelete={deleteConversation}
-                onForked={(forked) => navigate(url.chat({ id: forked.id }))}
                 isDeleting={deletingId === candidate.id}
                 isSelected={selected.has(candidate.id)}
                 onToggleSelected={toggleSelected}
@@ -1334,7 +1330,6 @@ function ChatEntry({
   href,
   isActive,
   onDelete,
-  onForked,
   shownState,
   shownOperation,
   isDeleting,
@@ -1347,8 +1342,6 @@ function ChatEntry({
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance) => void;
-  /** Told once a fork exists, so the surface can open it. */
-  onForked: (forked: AgentInstance) => void;
   /**
    * The state to draw, which is not always the state on the record.
    *
@@ -1382,30 +1375,6 @@ function ChatEntry({
    */
   const [isConfirming, setConfirming] = useState(false);
   const [isRenaming, setRenaming] = useState(false);
-  const [isForking, setForking] = useState(false);
-  const invalidateConversations = useInvalidateConversations();
-
-  async function fork() {
-    setForking(true);
-    try {
-      // The fork keeps the source's title with a suffix, so the two are told apart in
-      // a list where every other row is alike. An untitled source stays untitled.
-      const title = instance.name || autoTitle;
-      const forked = await apiClient.agentInstances.fork(
-        instance.id,
-        title ? `${title} (fork)` : undefined,
-      );
-      await invalidateConversations();
-      toast.success(`Forked "${conversationTitle(instance, autoTitle)}"`);
-      onForked(forked);
-    } catch (cause: unknown) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      console.error("Could not fork conversation:", cause);
-      toast.error(`Could not fork: ${message}`);
-    } finally {
-      setForking(false);
-    }
-  }
 
   return (
     <li css={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
@@ -1524,13 +1493,6 @@ function ChatEntry({
               onClick: () => setRenaming(true),
             },
             {
-              key: "fork",
-              icon: <GitFork size={13} />,
-              label: "Fork chat",
-              disabled: isForking,
-              onClick: () => void fork(),
-            },
-            {
               key: "delete",
               danger: true,
               icon: <Trash size={13} />,
@@ -1543,7 +1505,7 @@ function ChatEntry({
         <Button
           type="text"
           size="small"
-          loading={isDeleting || isForking}
+          loading={isDeleting}
           data-testid={`chat-session-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
           icon={<MoreVertical size={14} color={theme.color.textMuted} />}

@@ -1,4 +1,5 @@
-import { Typography } from "antd";
+import { Button, Dropdown, Typography } from "antd";
+import { GitFork, MoreVertical } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { ExtensionSlot } from "@/appExtensions";
 import type { ChatMessage } from "@/api";
@@ -18,10 +19,16 @@ const { Text } = Typography;
 export function ChatMessageItem({
   message,
   sessionId,
+  onFork,
 }: {
   message: ChatMessage;
   /** The conversation this message belongs to, for the per-message extension point. */
   sessionId?: string;
+  /**
+   * Forks the conversation. Drawn only on the reader's own messages, and only when a
+   * surface provides this — so a read-only view has no control that would be refused.
+   */
+  onFork?: () => void;
 }) {
   const theme = useTheme();
   const isUser = message.role === "user";
@@ -64,6 +71,39 @@ export function ChatMessageItem({
             sessionId,
           }}
         />
+        {/* The reader's own messages only. Forking reads as "rewind to this prompt and
+            take a different path", so the anchor is always a question they asked — and
+            a transcript of tool calls would otherwise carry a menu per row. */}
+        {onFork && isUser ? (
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                {
+                  key: "fork",
+                  icon: <GitFork size={13} />,
+                  label: "Fork chat",
+                  onClick: onFork,
+                },
+              ],
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              data-testid={`chat-message-menu-${message.id}`}
+              aria-label="Message actions"
+              icon={<MoreVertical size={14} color={theme.color.textMuted} />}
+              css={{
+                // Hidden until the message is hovered or the button has focus, so a
+                // transcript reads as a conversation rather than a column of controls.
+                opacity: 0,
+                transition: "opacity 100ms ease",
+                "article:hover &, &:focus-visible, &[aria-expanded='true']": { opacity: 1 },
+              }}
+            />
+          </Dropdown>
+        ) : null}
       </div>
 
       <div

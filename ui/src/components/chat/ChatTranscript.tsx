@@ -31,8 +31,11 @@ export function ChatTranscript({
   chat,
   sessionId,
   onAnswered,
+  onFork,
 }: {
   chat: ChatController;
+  /** Forks this conversation, offered from the reader's own messages. Absent when read-only. */
+  onFork?: () => void;
   /**
    * An `ask_user` answer has just gone.
    *
@@ -282,7 +285,7 @@ export function ChatTranscript({
         />
       ) : (
         chat.messages.map((message) => (
-          <ChatMessageItem key={message.id} message={message} sessionId={sessionId} />
+          <ChatMessageItem key={message.id} message={message} sessionId={sessionId} onFork={onFork} />
         ))
       )}
 
