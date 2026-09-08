@@ -221,10 +221,11 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 
 func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1alpha1.ScheduledRun) error {
 	session, _ := auth.AuthSessionFrom(ctx) // Each public operation authorizes before target access.
-	return authorizeTarget(ctx, s.authorizer, session.Principal(), schedule)
+	return AuthorizeTarget(ctx, s.authorizer, session.Principal(), schedule)
 }
 
-func authorizeTarget(ctx context.Context, authorizer auth.Authorizer, principal auth.Principal, schedule *apiv1alpha1.ScheduledRun) error {
+// AuthorizeTarget checks the target permissions shared by schedule acceptance and execution.
+func AuthorizeTarget(ctx context.Context, authorizer auth.Authorizer, principal auth.Principal, schedule *apiv1alpha1.ScheduledRun) error {
 	for _, resource := range []struct {
 		kind, name string
 		verb       auth.Verb

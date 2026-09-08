@@ -15,9 +15,9 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-type scheduledWorkerWorkflow struct {
+type scheduledControllerWorkflow struct {
 	store       *database.Client
 	quiesces    atomic.Int32
 	failCleanup bool
@@ -48,32 +48,32 @@ func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, leas
 	return s.Client.UpdateScheduledRunExecution(ctx, lease, progress)
 }
 
-func (w *scheduledWorkerWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+func (w *scheduledControllerWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	return w.store.MarkAgentInstanceReady(ctx, instance.Id, "scheduled-runtime.test")
 }
 
-func (w *scheduledWorkerWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	_, err := w.Quiesce(ctx, instance)
 	return instance, err
 }
 
-func (w *scheduledWorkerWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+func (w *scheduledControllerWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	return instance, w.store.DeleteAgentInstance(ctx, instance.Id)
 }
 
-func (w *scheduledWorkerWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
+func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
 	if w.quiesces.Add(1) == 1 && w.failCleanup {
 		return nil, errors.New("temporary Substrate outage")
 	}
 	return &database.AgentInstanceTaskSnapshot{Atespace: "team", Name: "snapshot", UID: "snapshot-uid", ContentScope: "FULL"}, nil
 }
 
-type scheduledWorkerAuth struct {
+type scheduledControllerAuth struct {
 	authimpl.UnsecureAuthenticator
 	calls atomic.Int32
 }
 
-func (a *scheduledWorkerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {
+func (a *scheduledControllerAuth) UpstreamAuth(req *http.Request, session auth.Session, target auth.Principal) error {
 	if _, ok := session.(auth.ControlPlaneSession); !ok || session.Principal().User.ID != "" || target.Agent.ID == "" {
 		return errors.New("expected control-plane session and target agent")
 	}
@@ -82,15 +82,15 @@ func (a *scheduledWorkerAuth) UpstreamAuth(req *http.Request, session auth.Sessi
 	return nil
 }
 
-type scheduledWorkerAuthorizer struct{ deny string }
+type scheduledControllerAuthorizer struct{ deny string }
 
-func (a scheduledWorkerAuthorizer) Check(ctx context.Context, principal auth.Principal, _ auth.Verb, resource auth.Resource) error {
+func (a scheduledControllerAuthorizer) Check(ctx context.Context, principal auth.Principal, _ auth.Verb, resource auth.Resource) error {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return errors.New("missing controller session")
 	}
 	if _, ok := session.(auth.ControlPlaneSession); !ok || principal.User.ID != "" {
-		return errors.New("worker impersonated owner")
+		return errors.New("controller impersonated owner")
 	}
 	if resource.Type == a.deny {
 		return errors.New("controller forbidden")
@@ -98,7 +98,7 @@ func (a scheduledWorkerAuthorizer) Check(ctx context.Context, principal auth.Pri
 	return nil
 }
 
-type scheduledWorkerRuntime struct {
+type scheduledControllerRuntime struct {
 	a2apb.UnimplementedA2AServiceServer
 	mu     sync.Mutex
 	tasks  map[string]*a2apb.Task
@@ -107,7 +107,7 @@ type scheduledWorkerRuntime struct {
 	state  a2atype.TaskState
 }
 
-func (r *scheduledWorkerRuntime) SendMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+func (r *scheduledControllerRuntime) SendMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
@@ -133,7 +133,7 @@ func (r *scheduledWorkerRuntime) SendMessage(ctx context.Context, req *a2apb.Sen
 	return nil, status.Error(codes.Unavailable, "response lost")
 }
 
-func (r *scheduledWorkerRuntime) GetTask(_ context.Context, req *a2apb.GetTaskRequest) (*a2apb.Task, error) {
+func (r *scheduledControllerRuntime) GetTask(_ context.Context, req *a2apb.GetTaskRequest) (*a2apb.Task, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	task := r.tasks[req.GetId()]
@@ -143,7 +143,7 @@ func (r *scheduledWorkerRuntime) GetTask(_ context.Context, req *a2apb.GetTaskRe
 	return proto.CloneOf(task), nil
 }
 
-func (r *scheduledWorkerRuntime) SubscribeToTask(req *a2apb.SubscribeToTaskRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+func (r *scheduledControllerRuntime) SubscribeToTask(req *a2apb.SubscribeToTaskRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
 	task, err := r.GetTask(stream.Context(), &a2apb.GetTaskRequest{Id: req.GetId()})
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func (r *scheduledWorkerRuntime) SubscribeToTask(req *a2apb.SubscribeToTaskReque
 	return stream.Send(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: task}})
 }
 
-func TestScheduledRunWorkerThroughGRPC(t *testing.T) {
+func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		state   a2atype.TaskState
@@ -170,17 +170,17 @@ func TestScheduledRunWorkerThroughGRPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
-			runtime := &scheduledWorkerRuntime{tasks: map[string]*a2apb.Task{}, state: tc.state}
+			runtime := &scheduledControllerRuntime{tasks: map[string]*a2apb.Task{}, state: tc.state}
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			server := grpc.NewServer()
 			a2apb.RegisterA2AServiceServer(server, runtime)
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
-			authenticator := &scheduledWorkerAuth{}
+			authenticator := &scheduledControllerAuth{}
 			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
 			require.NoError(t, err)
-			workflow := &scheduledWorkerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
+			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
 			created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
 				Harness: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"}, AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
 				Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},
@@ -194,12 +194,12 @@ func TestScheduledRunWorkerThroughGRPC(t *testing.T) {
 			require.NoError(t, err)
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
-			workerStore := lostTaskLinkStore{Client: store}
+			controllerStore := lostTaskLinkStore{Client: store}
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
-				workerStore.loseTaskLink = true
+				controllerStore.loseTaskLink = true
 			}
-			worker := scheduledrun.NewWorker(workerStore, workflow, a2agateway.New(store, scheduledWorkerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledWorkerAuthorizer{deny: tc.deny})
-			go func() { done <- worker.Start(ctx) }()
+			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledControllerAuthorizer{deny: tc.deny})
+			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
 				require.Eventually(t, func() bool {
@@ -211,8 +211,8 @@ func TestScheduledRunWorkerThroughGRPC(t *testing.T) {
 				ctx, cancel = context.WithCancel(t.Context())
 				defer cancel()
 				done = make(chan error, 1)
-				worker = scheduledrun.NewWorker(store, workflow, a2agateway.New(store, scheduledWorkerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledWorkerAuthorizer{})
-				go func() { done <- worker.Start(ctx) }()
+				controller = scheduledrun.NewController(store, workflow, a2agateway.New(store, scheduledControllerAuthorizer{}, dialer, workflow, "http://gateway.test"), scheduledControllerAuthorizer{})
+				go func() { done <- controller.Start(ctx) }()
 			}
 			var execution *apiv1alpha1.ScheduledRunExecution
 			require.Eventually(t, func() bool {

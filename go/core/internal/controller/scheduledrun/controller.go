@@ -12,6 +12,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -19,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-type workerStore interface {
+type controllerStore interface {
 	GetScheduledRun(context.Context, string, string) (*apiv1alpha1.ScheduledRun, error)
 	ReserveScheduledRunExecutionInstance(context.Context, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
 	ReserveDueScheduledRuns(context.Context, int) ([]*apiv1alpha1.ScheduledRunExecution, error)
@@ -28,36 +29,36 @@ type workerStore interface {
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 }
 
-type workerWorkflow interface {
+type controllerWorkflow interface {
 	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 	Suspend(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 	Delete(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 }
 
-// Worker is owned by the controller manager. SQL leases fence status writes;
+// Controller is owned by the controller manager. SQL leases fence status writes;
 // A2A's initial-message uniqueness fences dispatch across overlapping leaders.
-type Worker struct {
-	store      workerStore
-	workflow   workerWorkflow
+type Controller struct {
+	store      controllerStore
+	workflow   controllerWorkflow
 	gateway    a2asrv.RequestHandler
 	authorizer auth.Authorizer
 }
 
-var _ manager.LeaderElectionRunnable = (*Worker)(nil)
-var _ manager.Runnable = (*Worker)(nil)
+var _ manager.LeaderElectionRunnable = (*Controller)(nil)
+var _ manager.Runnable = (*Controller)(nil)
 
-func NewWorker(store workerStore, workflow workerWorkflow, gateway a2asrv.RequestHandler, authorizer auth.Authorizer) *Worker {
-	return &Worker{store: store, workflow: workflow, gateway: gateway, authorizer: authorizer}
+func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, authorizer auth.Authorizer) *Controller {
+	return &Controller{store: store, workflow: workflow, gateway: gateway, authorizer: authorizer}
 }
 
-func (*Worker) NeedLeaderElection() bool { return true }
+func (*Controller) NeedLeaderElection() bool { return true }
 
-func (w *Worker) Start(ctx context.Context) error {
+func (c *Controller) Start(ctx context.Context) error {
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if err := w.tick(ctx); err != nil && ctx.Err() == nil {
+		if err := c.tick(ctx); err != nil && ctx.Err() == nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to reconcile scheduled executions", "error", err)
 		}
 		select {
@@ -68,13 +69,13 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 }
 
-func (w *Worker) tick(ctx context.Context) error {
-	if _, err := w.store.ReserveDueScheduledRuns(ctx, 100); err != nil {
+func (c *Controller) tick(ctx context.Context) error {
+	if _, err := c.store.ReserveDueScheduledRuns(ctx, 100); err != nil {
 		return err
 	}
 	// ponytail: eight concurrent reconciliations per polling batch. Use a
 	// continuous work queue if provisioning latency starts delaying cron ticks.
-	leases, err := w.store.LeaseScheduledRunExecutions(ctx, 8)
+	leases, err := c.store.LeaseScheduledRunExecutions(ctx, 8)
 	if err != nil {
 		return err
 	}
@@ -83,7 +84,7 @@ func (w *Worker) tick(ctx context.Context) error {
 		wg.Go(func() {
 			// Leave room in the 30-second lease for persisting the result.
 			attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := w.reconcile(attemptCtx, lease.Execution)
+			err := c.reconcile(attemptCtx, lease.Execution)
 			cancel()
 			if err != nil && ctx.Err() == nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "failed to advance scheduled execution", "execution_id", lease.Execution.GetId(), "error", err)
@@ -93,7 +94,7 @@ func (w *Worker) tick(ctx context.Context) error {
 			}
 			persistCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			if err := w.store.UpdateScheduledRunExecution(persistCtx, lease.Lease, database.ScheduledRunExecutionProgress{State: lease.Execution.GetState(), TaskID: lease.Execution.GetTaskId(), FailureReason: lease.Execution.GetFailureReason()}); err != nil {
+			if err := c.store.UpdateScheduledRunExecution(persistCtx, lease.Lease, database.ScheduledRunExecutionProgress{State: lease.Execution.GetState(), TaskID: lease.Execution.GetTaskId(), FailureReason: lease.Execution.GetFailureReason()}); err != nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "failed to persist scheduled execution", "execution_id", lease.Execution.GetId(), "error", err)
 			}
 		})
@@ -102,20 +103,20 @@ func (w *Worker) tick(ctx context.Context) error {
 	return nil
 }
 
-func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) error {
+func (c *Controller) reconcile(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) error {
 	expired := !time.Now().Before(execution.GetDeadline().AsTime())
 	if execution.GetAgentInstanceId() == "" {
 		if expired {
 			finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 			return nil
 		}
-		if err := w.authorize(ctx, execution); err != nil {
+		if err := c.authorize(ctx, execution); err != nil {
 			if serviceerrors.CodeOf(err) == serviceerrors.CodePermissionDenied {
 				finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Control-plane execution is not authorized")
 			}
 			return err
 		}
-		linked, err := w.store.ReserveScheduledRunExecutionInstance(ctx, execution.GetId(), execution.GetCreator())
+		linked, err := c.store.ReserveScheduledRunExecutionInstance(ctx, execution.GetId(), execution.GetCreator())
 		if err != nil {
 			return err
 		}
@@ -127,7 +128,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 			return nil
 		}
 	}
-	instance, err := w.store.GetAgentInstance(ctx, execution.GetAgentInstanceId(), execution.GetCreator())
+	instance, err := c.store.GetAgentInstance(ctx, execution.GetAgentInstanceId(), execution.GetCreator())
 	if errors.Is(err, database.ErrNotFound) {
 		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "AgentInstance was deleted")
 		return nil
@@ -138,7 +139,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(apia2a.AgentInstanceIDHeader, instance.GetId()))
 	// A lost response may precede persisting the returned task ID. Recover it
 	// from the original message, including at expiry when sending is forbidden.
-	task, err := w.executionTask(ctx, execution)
+	task, err := c.executionTask(ctx, execution)
 	if err != nil {
 		return err
 	}
@@ -150,7 +151,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 		}
 	}
 	if expired {
-		stopped, err := w.stop(ctx, execution, instance, task)
+		stopped, err := c.stop(ctx, execution, instance, task)
 		if err != nil {
 			return err
 		}
@@ -161,11 +162,11 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 		return nil
 	}
-	if err := w.authorize(ctx, execution); err != nil {
+	if err := c.authorize(ctx, execution); err != nil {
 		if serviceerrors.CodeOf(err) != serviceerrors.CodePermissionDenied {
 			return err
 		}
-		if _, cleanupErr := w.stop(ctx, execution, instance, task); cleanupErr != nil {
+		if _, cleanupErr := c.stop(ctx, execution, instance, task); cleanupErr != nil {
 			return errors.Join(err, cleanupErr)
 		}
 		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Control-plane execution is not authorized")
@@ -174,7 +175,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 	if execution.GetTaskId() != "" {
 		// Attach to or recover the live ingester. It persists updates independently
 		// of this observer; subsequent reconciliations read those durable updates.
-		for _, err := range w.gateway.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())}) {
+		for _, err := range c.gateway.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())}) {
 			return err
 		}
 		return nil
@@ -182,7 +183,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 	dispatchCtx, cancel := context.WithDeadline(ctx, execution.GetDeadline().AsTime())
 	defer cancel()
 	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
-		instance, err = w.workflow.Create(dispatchCtx, instance)
+		instance, err = c.workflow.Create(dispatchCtx, instance)
 		if err != nil {
 			return err
 		}
@@ -192,7 +193,7 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 	}
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
 	message.ID = "scheduled-run/" + execution.GetId()
-	result, err := w.gateway.SendMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message, Config: &a2atype.SendMessageConfig{ReturnImmediately: true}})
+	result, err := c.gateway.SendMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message, Config: &a2atype.SendMessageConfig{ReturnImmediately: true}})
 	// Like the MCP boundary, retain the ID assigned when the gateway accepted
 	// the message, even if the runtime response was lost.
 	execution.TaskId = string(message.TaskID)
@@ -206,14 +207,14 @@ func (w *Worker) reconcile(ctx context.Context, execution *apiv1alpha1.Scheduled
 // running work. Once linked, the stored task ID is the sole execution identity.
 // ponytail: scan the instance's task list; add protocol filtering if long-lived
 // scheduled conversations make pagination costly.
-func (w *Worker) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
+func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
 	request := &a2atype.ListTasksRequest{PageSize: 100}
 	if execution.GetTaskId() != "" {
 		zero := 0
 		request.HistoryLength = &zero
 	}
 	for {
-		page, err := w.gateway.ListTasks(ctx, request)
+		page, err := c.gateway.ListTasks(ctx, request)
 		if err != nil {
 			return nil, err
 		}
@@ -237,32 +238,32 @@ func (w *Worker) executionTask(ctx context.Context, execution *apiv1alpha1.Sched
 	}
 }
 
-func (w *Worker) authorize(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) error {
+func (c *Controller) authorize(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) error {
 	principal := auth.ControlPlaneSession{}.Principal()
-	if err := w.authorizer.Check(ctx, principal, auth.VerbCreate,
+	if err := c.authorizer.Check(ctx, principal, auth.VerbCreate,
 		auth.Resource{Type: "ScheduledRunExecution", Name: execution.GetId()}); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized to execute schedule", err)
 	}
-	schedule, err := w.store.GetScheduledRun(ctx, execution.GetScheduledRunId(), execution.GetCreator())
+	schedule, err := c.store.GetScheduledRun(ctx, execution.GetScheduledRunId(), execution.GetCreator())
 	if err != nil {
 		return err
 	}
-	return authorizeTarget(ctx, w.authorizer, principal, schedule)
+	return scheduledrun.AuthorizeTarget(ctx, c.authorizer, principal, schedule)
 }
 
-func (w *Worker) stop(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution, instance *apiv1alpha1.AgentInstance, task *a2atype.Task) (*a2atype.Task, error) {
+func (c *Controller) stop(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution, instance *apiv1alpha1.AgentInstance, task *a2atype.Task) (*a2atype.Task, error) {
 	if task != nil && (task.Status.State.Terminal() || task.Status.State == a2atype.TaskStateInputRequired || task.Status.State == a2atype.TaskStateAuthRequired) {
 		return task, nil
 	}
 	if execution.GetTaskId() != "" {
-		return w.gateway.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
+		return c.gateway.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
 	}
 	// No invocation was accepted; clean up the ordinary instance lifecycle.
 	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
-		_, err := w.workflow.Delete(ctx, instance)
+		_, err := c.workflow.Delete(ctx, instance)
 		return nil, err
 	}
-	_, err := w.workflow.Suspend(ctx, instance)
+	_, err := c.workflow.Suspend(ctx, instance)
 	return nil, err
 }
 

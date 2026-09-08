@@ -26,6 +26,7 @@ import (
 	v2controller "github.com/kagent-dev/kagent/go/core/internal/controller"
 	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
+	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -278,9 +279,9 @@ func Run(ctx context.Context, opts Options) error {
 	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
 		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
-	if err := manager.Add(scheduledrun.NewWorker(store, instanceWorkflow,
+	if err := manager.Add(scheduledruncontroller.NewController(store, instanceWorkflow,
 		gateway, authorizer)); err != nil {
-		return fmt.Errorf("add scheduled execution worker: %w", err)
+		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)
 	if err != nil {

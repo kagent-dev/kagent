@@ -15,32 +15,32 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type workerTestStore struct {
-	workerStore
+type controllerTestStore struct {
+	controllerStore
 	instance *apiv1alpha1.AgentInstance
 }
 
-func (s workerTestStore) GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error) {
+func (s controllerTestStore) GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error) {
 	if s.instance == nil {
 		return nil, database.ErrNotFound
 	}
 	return s.instance, nil
 }
 
-type workerTestCleanup struct {
-	workerWorkflow
+type controllerTestCleanup struct {
+	controllerWorkflow
 	a2asrv.RequestHandler
 	task             *a2atype.Task
 	err              error
 	deletes, expires int
 }
 
-func (c *workerTestCleanup) Delete(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+func (c *controllerTestCleanup) Delete(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	c.deletes++
 	return instance, c.err
 }
 
-func (c *workerTestCleanup) CancelTask(_ context.Context, request *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+func (c *controllerTestCleanup) CancelTask(_ context.Context, request *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
 	c.expires++
 	if c.err != nil {
 		return nil, c.err
@@ -52,25 +52,25 @@ func (c *workerTestCleanup) CancelTask(_ context.Context, request *a2atype.Cance
 	return &a2atype.Task{ID: request.ID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled, Timestamp: &now}}, nil
 }
 
-func (c *workerTestCleanup) ListTasks(context.Context, *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+func (c *controllerTestCleanup) ListTasks(context.Context, *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
 	if c.task != nil {
 		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{c.task}}, nil
 	}
 	return &a2atype.ListTasksResponse{}, nil
 }
 
-func (c *workerTestCleanup) Suspend(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+func (c *controllerTestCleanup) Suspend(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	c.expires++
 	return instance, c.err
 }
 
-type workerTestDenial struct{}
+type controllerTestDenial struct{}
 
-func (workerTestDenial) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
+func (controllerTestDenial) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
 	return errors.New("controller forbidden")
 }
 
-func TestWorkerRecoversCleanupWithoutReplacingInstance(t *testing.T) {
+func TestControllerRecoversCleanupWithoutReplacingInstance(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		state   apiv1alpha1.AgentInstanceState
@@ -87,13 +87,13 @@ func TestWorkerRecoversCleanupWithoutReplacingInstance(t *testing.T) {
 				deadline = time.Now().Add(-time.Minute)
 			}
 			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", AgentInstanceId: "original", TaskId: "original-task", State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(deadline)}
-			store := workerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "original", State: tc.state}}
-			cleanup := &workerTestCleanup{err: errors.New("Substrate unavailable")}
-			worker := NewWorker(store, cleanup, cleanup, workerTestDenial{})
-			require.Error(t, worker.reconcile(t.Context(), execution))
+			store := controllerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "original", State: tc.state}}
+			cleanup := &controllerTestCleanup{err: errors.New("Substrate unavailable")}
+			controller := NewController(store, cleanup, cleanup, controllerTestDenial{})
+			require.Error(t, controller.reconcile(t.Context(), execution))
 			require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
 			cleanup.err = nil
-			err := worker.reconcile(t.Context(), execution)
+			err := controller.reconcile(t.Context(), execution)
 			if tc.expired {
 				require.NoError(t, err)
 			} else {
@@ -107,16 +107,16 @@ func TestWorkerRecoversCleanupWithoutReplacingInstance(t *testing.T) {
 	// No reserve method is supplied: a missing historical instance must never
 	// call it, even when the execution was still PENDING when deletion happened.
 	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", AgentInstanceId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
-	require.NoError(t, NewWorker(workerTestStore{}, nil, nil, nil).reconcile(t.Context(), execution))
+	require.NoError(t, NewController(controllerTestStore{}, nil, nil, nil).reconcile(t.Context(), execution))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, execution.State)
 	require.Equal(t, "deleted", execution.AgentInstanceId)
 }
 
-func TestWorkerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
+func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	completedAt := time.Now().Add(-2 * time.Minute)
 	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", AgentInstanceId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
-	store := workerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "original"}}
-	gateway := &workerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
-	require.NoError(t, NewWorker(store, nil, gateway, nil).reconcile(t.Context(), execution))
+	store := controllerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "original"}}
+	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
+	require.NoError(t, NewController(store, nil, gateway, nil).reconcile(t.Context(), execution))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
 }
