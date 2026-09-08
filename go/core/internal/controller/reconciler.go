@@ -119,8 +119,8 @@ type runtimeRevisionStore interface {
 	UpsertAgentTemplateHarnessPair(context.Context, database.AgentTemplateHarnessPair) error
 	UpsertRuntimeRevision(context.Context, database.RuntimeRevision) error
 	MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error
-	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
-	RetireReplacedAgentTemplateHarnessPairs(context.Context, database.AgentTemplateHarnessPair) error
+	RetireAllPairIdentities(ctx context.Context, namespace, templateName, harnessName string) error
+	RetirePairIdentitiesExcept(ctx context.Context, keep database.AgentTemplateHarnessPair) error
 	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
 	ClaimRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string, string) error
@@ -248,7 +248,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if len(parts) != 3 {
 			return fmt.Errorf("invalid AgentTemplate/Harness pair key %q", key)
 		}
-		if err := r.store.RetireAgentTemplateHarnessPair(ctx, parts[0], parts[1], parts[2]); err != nil {
+		if err := r.store.RetireAllPairIdentities(ctx, parts[0], parts[1], parts[2]); err != nil {
 			return fmt.Errorf("retire AgentTemplate/Harness pair %s: %w", key, err)
 		}
 		return r.cleanupUnreferencedRevisions(ctx)
@@ -261,7 +261,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if state.Revision == nil || state.RevisionID.IsZero() {
 		// Bad inputs must not destroy the current identity's last-good runtime.
 		// A recreated object at this name must still retire the previous UID.
-		if err := r.store.RetireReplacedAgentTemplateHarnessPairs(ctx, pair); err != nil {
+		if err := r.store.RetirePairIdentitiesExcept(ctx, pair); err != nil {
 			return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
 		}
 		return r.cleanupUnreferencedRevisions(ctx)

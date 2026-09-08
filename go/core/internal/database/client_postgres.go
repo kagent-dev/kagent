@@ -82,9 +82,9 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 	// Replace historical identities atomically without retiring the current UID
 	// or rewriting already-retired rows on every pending-template poll.
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		if err := q.RetireReplacedAgentTemplateHarnessPairs(ctx, dbgen.RetireReplacedAgentTemplateHarnessPairsParams{
+		if err := q.RetirePairIdentitiesExcept(ctx, dbgen.RetirePairIdentitiesExceptParams{
 			Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName, HarnessName: pair.HarnessName,
-			AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+			KeepAgentTemplateUid: pair.AgentTemplateUID, KeepHarnessUid: pair.HarnessUID,
 		}); err != nil {
 			return fmt.Errorf("retire replaced AgentTemplate/Harness pair: %w", err)
 		}
@@ -170,17 +170,23 @@ func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTe
 	}))
 }
 
-// RetireReplacedAgentTemplateHarnessPairs preserves last-good inputs for the
-// current identity even when its new configuration cannot compile.
-func (c *Client) RetireReplacedAgentTemplateHarnessPairs(ctx context.Context, pair AgentTemplateHarnessPair) error {
-	return c.q.RetireReplacedAgentTemplateHarnessPairs(ctx, dbgen.RetireReplacedAgentTemplateHarnessPairsParams{
-		Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName, HarnessName: pair.HarnessName,
-		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+// RetirePairIdentitiesExcept retires identities at keep's template/harness names
+// except the supplied UID pair, preserving its last-good revision.
+func (c *Client) RetirePairIdentitiesExcept(ctx context.Context, keep AgentTemplateHarnessPair) error {
+	return c.q.RetirePairIdentitiesExcept(ctx, dbgen.RetirePairIdentitiesExceptParams{
+		Namespace: keep.Namespace, AgentTemplateName: keep.AgentTemplateName, HarnessName: keep.HarnessName,
+		KeepAgentTemplateUid: keep.AgentTemplateUID, KeepHarnessUid: keep.HarnessUID,
 	})
 }
 
-func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
-	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
+func (c *Client) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
+	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
+}
+
+// RetireAllPairIdentities retires every UID pair at the given template/harness
+// names. Use when the pair no longer exists.
+func (c *Client) RetireAllPairIdentities(ctx context.Context, namespace, templateName, harnessName string) error {
+	return c.q.RetireAllPairIdentities(ctx, dbgen.RetireAllPairIdentitiesParams{Namespace: namespace, AgentTemplateName: templateName, HarnessName: harnessName})
 }
 
 func (c *Client) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
@@ -210,7 +216,7 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 func (c *Client) ClaimRuntimeRevisionDeletion(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	var result *RuntimeRevision
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockRuntimeRevision(ctx, revision)
+		row, err := q.GetRuntimeRevisionForUpdate(ctx, revision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -229,7 +235,7 @@ func (c *Client) ClaimRuntimeRevisionDeletion(ctx context.Context, revision stri
 
 func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision, actorTemplateUID string) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockRuntimeRevision(ctx, revision)
+		row, err := q.GetRuntimeRevisionForUpdate(ctx, revision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

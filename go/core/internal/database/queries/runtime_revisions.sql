@@ -40,14 +40,16 @@ UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
 WHERE namespace = $1 AND agent_template_name = $2;
 
--- name: RetireReplacedAgentTemplateHarnessPairs :exec
+-- Keep the current UID pair and retire older identities at the same names.
+-- name: RetirePairIdentitiesExcept :exec
 UPDATE agent_template_harness_pair
 SET retired_at = NOW(), updated_at = NOW()
 WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
   AND retired_at IS NULL
-  AND (agent_template_uid, harness_uid) IS DISTINCT FROM (sqlc.arg(agent_template_uid)::text, sqlc.arg(harness_uid)::text);
+  AND (agent_template_uid, harness_uid) IS DISTINCT FROM (sqlc.arg(keep_agent_template_uid)::text, sqlc.arg(keep_harness_uid)::text);
 
--- name: RetireAgentTemplateHarnessPair :exec
+-- The pair no longer exists: retire every identity at these names.
+-- name: RetireAllPairIdentities :exec
 UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
 WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3;
@@ -72,7 +74,7 @@ WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision);
 
 -- The store locks first, then checks eligibility in a separate statement so
 -- references committed while waiting for the lock are visible to the claim.
--- name: LockRuntimeRevision :one
+-- name: GetRuntimeRevisionForUpdate :one
 SELECT * FROM runtime_revision WHERE revision = $1 FOR UPDATE;
 
 -- name: ClaimRuntimeRevisionDeletion :execrows

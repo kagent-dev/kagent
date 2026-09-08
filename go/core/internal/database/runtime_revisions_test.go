@@ -33,7 +33,7 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 
 			switch scope {
 			case "pair":
-				err = client.RetireAgentTemplateHarnessPair(ctx, "team-a", "assistant", "kagent")
+				err = client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent")
 			case "template":
 				err = client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant")
 			case "removed harness":
@@ -216,7 +216,7 @@ func TestRuntimeRevisionClaimSerializesWithInstanceCreation(t *testing.T) {
 				// eligibility check must see the subsequent reference commit.
 				require.Eventually(t, func() bool {
 					var waiting bool
-					err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '-- name: LockRuntimeRevision%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
+					err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '-- name: GetRuntimeRevisionForUpdate%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
 					return err == nil && waiting
 				}, 5*time.Second, 10*time.Millisecond)
 				resume.Do(func() { close(barrier.resume) })

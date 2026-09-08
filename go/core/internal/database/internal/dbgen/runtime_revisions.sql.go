@@ -62,6 +62,35 @@ func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (Runt
 	return i, err
 }
 
+const getRuntimeRevisionForUpdate = `-- name: GetRuntimeRevisionForUpdate :one
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
+`
+
+// The store locks first, then checks eligibility in a separate statement so
+// references committed while waiting for the lock are visible to the claim.
+func (q *Queries) GetRuntimeRevisionForUpdate(ctx context.Context, revision string) (RuntimeRevision, error) {
+	row := q.db.QueryRow(ctx, getRuntimeRevisionForUpdate, revision)
+	var i RuntimeRevision
+	err := row.Scan(
+		&i.Revision,
+		&i.Namespace,
+		&i.AgentTemplateName,
+		&i.AgentTemplateUid,
+		&i.HarnessName,
+		&i.HarnessUid,
+		&i.SourceSnapshot,
+		&i.EgressDestinations,
+		&i.ActorTemplateAtespace,
+		&i.ActorTemplateName,
+		&i.ActorTemplateUid,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AgentCard,
+		&i.DeletionStartedAt,
+	)
+	return i, err
+}
+
 const listActorTemplateHarnesses = `-- name: ListActorTemplateHarnesses :many
 SELECT actor_template_atespace, actor_template_name, actor_template_uid, harness_name
 FROM runtime_revision
@@ -140,35 +169,6 @@ func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runti
 	return items, nil
 }
 
-const lockRuntimeRevision = `-- name: LockRuntimeRevision :one
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid, created_at, updated_at, agent_card, deletion_started_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
-`
-
-// The store locks first, then checks eligibility in a separate statement so
-// references committed while waiting for the lock are visible to the claim.
-func (q *Queries) LockRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error) {
-	row := q.db.QueryRow(ctx, lockRuntimeRevision, revision)
-	var i RuntimeRevision
-	err := row.Scan(
-		&i.Revision,
-		&i.Namespace,
-		&i.AgentTemplateName,
-		&i.AgentTemplateUid,
-		&i.HarnessName,
-		&i.HarnessUid,
-		&i.SourceSnapshot,
-		&i.EgressDestinations,
-		&i.ActorTemplateAtespace,
-		&i.ActorTemplateName,
-		&i.ActorTemplateUid,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.AgentCard,
-		&i.DeletionStartedAt,
-	)
-	return i, err
-}
-
 const markRuntimeRevisionSuccessful = `-- name: MarkRuntimeRevisionSuccessful :exec
 UPDATE agent_template_harness_pair
 SET latest_successful_revision = $1, updated_at = NOW()
@@ -210,23 +210,6 @@ func (q *Queries) ReleaseRetiredRuntimeRevisionReferences(ctx context.Context, l
 	return err
 }
 
-const retireAgentTemplateHarnessPair = `-- name: RetireAgentTemplateHarnessPair :exec
-UPDATE agent_template_harness_pair
-SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
-`
-
-type RetireAgentTemplateHarnessPairParams struct {
-	Namespace         string
-	AgentTemplateName string
-	HarnessName       string
-}
-
-func (q *Queries) RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error {
-	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPair, arg.Namespace, arg.AgentTemplateName, arg.HarnessName)
-	return err
-}
-
 const retireAgentTemplateHarnessPairs = `-- name: RetireAgentTemplateHarnessPairs :exec
 UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
@@ -240,6 +223,24 @@ type RetireAgentTemplateHarnessPairsParams struct {
 
 func (q *Queries) RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error {
 	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateName)
+	return err
+}
+
+const retireAllPairIdentities = `-- name: RetireAllPairIdentities :exec
+UPDATE agent_template_harness_pair
+SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
+WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
+`
+
+type RetireAllPairIdentitiesParams struct {
+	Namespace         string
+	AgentTemplateName string
+	HarnessName       string
+}
+
+// The pair no longer exists: retire every identity at these names.
+func (q *Queries) RetireAllPairIdentities(ctx context.Context, arg RetireAllPairIdentitiesParams) error {
+	_, err := q.db.Exec(ctx, retireAllPairIdentities, arg.Namespace, arg.AgentTemplateName, arg.HarnessName)
 	return err
 }
 
@@ -262,7 +263,7 @@ func (q *Queries) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg 
 	return err
 }
 
-const retireReplacedAgentTemplateHarnessPairs = `-- name: RetireReplacedAgentTemplateHarnessPairs :exec
+const retirePairIdentitiesExcept = `-- name: RetirePairIdentitiesExcept :exec
 UPDATE agent_template_harness_pair
 SET retired_at = NOW(), updated_at = NOW()
 WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
@@ -270,21 +271,22 @@ WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
   AND (agent_template_uid, harness_uid) IS DISTINCT FROM ($4::text, $5::text)
 `
 
-type RetireReplacedAgentTemplateHarnessPairsParams struct {
-	Namespace         string
-	AgentTemplateName string
-	HarnessName       string
-	AgentTemplateUid  string
-	HarnessUid        string
+type RetirePairIdentitiesExceptParams struct {
+	Namespace            string
+	AgentTemplateName    string
+	HarnessName          string
+	KeepAgentTemplateUid string
+	KeepHarnessUid       string
 }
 
-func (q *Queries) RetireReplacedAgentTemplateHarnessPairs(ctx context.Context, arg RetireReplacedAgentTemplateHarnessPairsParams) error {
-	_, err := q.db.Exec(ctx, retireReplacedAgentTemplateHarnessPairs,
+// Keep the current UID pair and retire older identities at the same names.
+func (q *Queries) RetirePairIdentitiesExcept(ctx context.Context, arg RetirePairIdentitiesExceptParams) error {
+	_, err := q.db.Exec(ctx, retirePairIdentitiesExcept,
 		arg.Namespace,
 		arg.AgentTemplateName,
 		arg.HarnessName,
-		arg.AgentTemplateUid,
-		arg.HarnessUid,
+		arg.KeepAgentTemplateUid,
+		arg.KeepHarnessUid,
 	)
 	return err
 }

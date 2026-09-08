@@ -276,12 +276,12 @@ func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RetireAgentTemplateHarnessPair(_ context.Context, namespace, template, harness string) error {
+func (s *fakeRuntimeRevisionStore) RetireAllPairIdentities(_ context.Context, namespace, template, harness string) error {
 	s.retired = namespace + "/" + template + "/" + harness
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RetireReplacedAgentTemplateHarnessPairs(context.Context, database.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) RetirePairIdentitiesExcept(context.Context, database.AgentTemplateHarnessPair) error {
 	return nil
 }
 
