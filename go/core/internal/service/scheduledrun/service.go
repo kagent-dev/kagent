@@ -25,12 +25,12 @@ import (
 type serviceStore interface {
 	FindScheduledRunRequest(context.Context, string, string, []byte) (*apiv1alpha1.ScheduledRun, error)
 	CreateScheduledRun(context.Context, *apiv1alpha1.ScheduledRun, string, []byte) (*apiv1alpha1.ScheduledRun, error)
-	GetScheduledRun(context.Context, string, string) (*apiv1alpha1.ScheduledRun, error)
+	GetScheduledRun(context.Context, uuid.UUID, string) (*apiv1alpha1.ScheduledRun, error)
 	ListScheduledRuns(context.Context, database.ScheduledRunQuery) ([]*apiv1alpha1.ScheduledRun, error)
-	UpdateScheduledRun(context.Context, string, string, string, *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error)
-	DeleteScheduledRun(context.Context, string, string) (*apiv1alpha1.ScheduledRun, error)
-	TriggerScheduledRun(context.Context, string, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
-	GetScheduledRunExecution(context.Context, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
+	UpdateScheduledRun(context.Context, uuid.UUID, string, string, *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error)
+	DeleteScheduledRun(context.Context, uuid.UUID, string) (*apiv1alpha1.ScheduledRun, error)
+	TriggerScheduledRun(context.Context, uuid.UUID, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
+	GetScheduledRunExecution(context.Context, uuid.UUID, string) (*apiv1alpha1.ScheduledRunExecution, error)
 	ListScheduledRunExecutions(context.Context, database.ScheduledRunExecutionQuery) ([]*apiv1alpha1.ScheduledRunExecution, error)
 }
 
@@ -44,11 +44,6 @@ type CreateRequest struct {
 	Harness, AgentTemplate *apiv1alpha1.ResourceReference
 	RequestID              string
 	Config                 *apiv1alpha1.ScheduledRunConfig
-}
-
-type ListRequest struct {
-	PageToken string
-	PageSize  int
 }
 
 func NewService(store serviceStore, kube client.Reader, authorizer auth.Authorizer) *Service {
@@ -94,8 +89,8 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 	return result, storeError(err)
 }
 
-func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.ScheduledRun, error) {
-	creator, err := s.authorize(ctx, auth.VerbGet, id)
+func (s *Service) Get(ctx context.Context, id uuid.UUID) (*apiv1alpha1.ScheduledRun, error) {
+	creator, err := s.authorize(ctx, auth.VerbGet, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +98,12 @@ func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.ScheduledRun
 	return result, storeError(err)
 }
 
-func (s *Service) List(ctx context.Context, request ListRequest) ([]*apiv1alpha1.ScheduledRun, string, error) {
+func (s *Service) List(ctx context.Context, page *apiv1alpha1.PageRequest) ([]*apiv1alpha1.ScheduledRun, string, error) {
 	creator, err := s.authorize(ctx, auth.VerbGet, "")
 	if err != nil {
 		return nil, "", err
 	}
-	query, err := listQuery(request, creator)
+	query, err := listQuery(page, creator)
 	if err != nil {
 		return nil, "", err
 	}
@@ -123,8 +118,8 @@ func (s *Service) List(ctx context.Context, request ListRequest) ([]*apiv1alpha1
 	return rows, "", nil
 }
 
-func (s *Service) Update(ctx context.Context, id, etag string, config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error) {
-	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
+func (s *Service) Update(ctx context.Context, id uuid.UUID, etag string, config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error) {
+	creator, err := s.authorize(ctx, auth.VerbUpdate, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -144,8 +139,8 @@ func (s *Service) Update(ctx context.Context, id, etag string, config *apiv1alph
 	return result, storeError(err)
 }
 
-func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.ScheduledRun, error) {
-	creator, err := s.authorize(ctx, auth.VerbDelete, id)
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) (*apiv1alpha1.ScheduledRun, error) {
+	creator, err := s.authorize(ctx, auth.VerbDelete, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -153,8 +148,8 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Scheduled
 	return result, storeError(err)
 }
 
-func (s *Service) Trigger(ctx context.Context, id, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
-	creator, err := s.authorize(ctx, auth.VerbCreate, id+"/executions")
+func (s *Service) Trigger(ctx context.Context, id uuid.UUID, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
+	creator, err := s.authorize(ctx, auth.VerbCreate, id.String()+"/executions")
 	if err != nil {
 		return nil, err
 	}
@@ -169,13 +164,8 @@ func (s *Service) Trigger(ctx context.Context, id, requestID string) (*apiv1alph
 	return result, storeError(err)
 }
 
-type ListExecutionsRequest struct {
-	ListRequest
-	ScheduledRunID string
-}
-
-func (s *Service) GetExecution(ctx context.Context, id string) (*apiv1alpha1.ScheduledRunExecution, error) {
-	creator, err := s.authorize(ctx, auth.VerbGet, "executions/"+id)
+func (s *Service) GetExecution(ctx context.Context, id uuid.UUID) (*apiv1alpha1.ScheduledRunExecution, error) {
+	creator, err := s.authorize(ctx, auth.VerbGet, "executions/"+id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -183,16 +173,16 @@ func (s *Service) GetExecution(ctx context.Context, id string) (*apiv1alpha1.Sch
 	return result, storeError(err)
 }
 
-func (s *Service) ListExecutions(ctx context.Context, request ListExecutionsRequest) ([]*apiv1alpha1.ScheduledRunExecution, string, error) {
-	creator, err := s.authorize(ctx, auth.VerbGet, request.ScheduledRunID+"/executions")
+func (s *Service) ListExecutions(ctx context.Context, id uuid.UUID, page *apiv1alpha1.PageRequest) ([]*apiv1alpha1.ScheduledRunExecution, string, error) {
+	creator, err := s.authorize(ctx, auth.VerbGet, id.String()+"/executions")
 	if err != nil {
 		return nil, "", err
 	}
-	query, err := listQuery(request.ListRequest, creator)
+	query, err := listQuery(page, creator)
 	if err != nil {
 		return nil, "", err
 	}
-	rows, err := s.store.ListScheduledRunExecutions(ctx, database.ScheduledRunExecutionQuery{ScheduledRunQuery: query, ScheduledRunID: request.ScheduledRunID})
+	rows, err := s.store.ListScheduledRunExecutions(ctx, database.ScheduledRunExecutionQuery{ScheduledRunQuery: query, ScheduledRunID: id})
 	if err != nil {
 		return nil, "", storeError(err)
 	}
@@ -273,17 +263,17 @@ func normalizeConfig(config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.Sched
 	return config, nil
 }
 
-func listQuery(request ListRequest, creator string) (database.ScheduledRunQuery, error) {
-	limit := request.PageSize
+func listQuery(page *apiv1alpha1.PageRequest, creator string) (database.ScheduledRunQuery, error) {
+	limit := int(page.GetLimit())
 	if limit == 0 {
 		limit = 50
 	}
 	if limit < 1 || limit > 100 {
 		return database.ScheduledRunQuery{}, serviceerrors.NewInvalidArgument("Invalid page size", nil)
 	}
-	after := ""
-	if request.PageToken != "" {
-		decoded, err := base64.RawURLEncoding.DecodeString(request.PageToken)
+	var after *uuid.UUID
+	if page.GetPageToken() != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(page.GetPageToken())
 		if err != nil {
 			return database.ScheduledRunQuery{}, serviceerrors.NewInvalidArgument("Invalid page token", err)
 		}
@@ -291,7 +281,7 @@ func listQuery(request ListRequest, creator string) (database.ScheduledRunQuery,
 		if err != nil {
 			return database.ScheduledRunQuery{}, serviceerrors.NewInvalidArgument("Invalid page token", err)
 		}
-		after = id.String()
+		after = &id
 	}
 	return database.ScheduledRunQuery{Creator: creator, AfterID: after, Limit: limit + 1}, nil
 }

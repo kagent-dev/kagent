@@ -98,10 +98,23 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	privateHistory, err := client.ListScheduledRunExecutions(visitor, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id})
 	require.NoError(t, err)
 	require.Empty(t, privateHistory.Executions)
-	_, err = client.ListScheduledRunExecutions(owner, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: "invalid"})
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	// The interceptor must reject malformed IDs before handlers convert to UUIDs.
+	for _, id := range []string{"", "invalid"} {
+		_, err = client.GetScheduledRun(owner, &apiv1alpha1.GetScheduledRunRequest{ScheduledRunId: id})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "get schedule: %v", err)
+		_, err = client.UpdateScheduledRun(owner, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: id, Etag: schedule.Etag, Config: config})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "update schedule: %v", err)
+		_, err = client.DeleteScheduledRun(owner, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: id})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "delete schedule: %v", err)
+		_, err = client.TriggerScheduledRun(owner, &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: id, RequestId: "invalid-id"})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "trigger schedule: %v", err)
+		_, err = client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: id})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "get execution: %v", err)
+		_, err = client.ListScheduledRunExecutions(owner, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: id})
+		require.Equal(t, codes.InvalidArgument, status.Code(err), "list executions: %v", err)
+	}
 	// Execution history survives deleting the linked conversation and schedule.
-	linked, err := store.ReserveScheduledRunExecutionInstance(t.Context(), reserved.Execution.Id, "alice")
+	linked, err := store.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(reserved.Execution.Id), "alice")
 	require.NoError(t, err)
 	require.NotEmpty(t, linked.AgentInstanceId)
 	require.NoError(t, store.DeleteAgentInstance(t.Context(), linked.AgentInstanceId))

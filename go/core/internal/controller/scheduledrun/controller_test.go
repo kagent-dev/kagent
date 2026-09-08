@@ -77,10 +77,10 @@ func TestControllerRecoversCleanupWithoutReplacingInstance(t *testing.T) {
 			store := controllerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "original", State: tc.state}}
 			cleanup := &controllerTestCleanup{err: errors.New("Substrate unavailable")}
 			controller := NewController(store, cleanup, cleanup)
-			require.Error(t, controller.reconcile(t.Context(), execution))
+			require.Error(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 			require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
 			cleanup.err = nil
-			require.NoError(t, controller.reconcile(t.Context(), execution))
+			require.NoError(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 			require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, execution.State)
 			require.Equal(t, "original", execution.AgentInstanceId)
 			require.Equal(t, 2, cleanup.deletes+cleanup.expires)
@@ -89,7 +89,7 @@ func TestControllerRecoversCleanupWithoutReplacingInstance(t *testing.T) {
 	// No reserve method is supplied: a missing historical instance must never
 	// call it, even when the execution was still PENDING when deletion happened.
 	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", AgentInstanceId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
-	require.NoError(t, NewController(controllerTestStore{}, nil, nil).reconcile(t.Context(), execution))
+	require.NoError(t, NewController(controllerTestStore{}, nil, nil).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, execution.State)
 	require.Equal(t, "deleted", execution.AgentInstanceId)
 }
@@ -99,6 +99,6 @@ func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", AgentInstanceId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
 	store := controllerTestStore{instance: &apiv1alpha1.AgentInstance{Id: "original"}}
 	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
-	require.NoError(t, NewController(store, nil, gateway).reconcile(t.Context(), execution))
+	require.NoError(t, NewController(store, nil, gateway).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
 }

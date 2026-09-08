@@ -9,6 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/uuid"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -19,7 +20,7 @@ import (
 )
 
 type controllerStore interface {
-	ReserveScheduledRunExecutionInstance(context.Context, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
+	ReserveScheduledRunExecutionInstance(context.Context, uuid.UUID, string) (*apiv1alpha1.ScheduledRunExecution, error)
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
 	UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -74,7 +75,7 @@ func (c *Controller) tick(ctx context.Context) error {
 		wg.Go(func() {
 			// Leave room in the 30-second lease for persisting the result.
 			attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err := c.reconcile(attemptCtx, lease.Execution)
+			err := c.reconcile(attemptCtx, lease)
 			cancel()
 			if err != nil && ctx.Err() == nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "failed to advance scheduled execution", "execution_id", lease.Execution.GetId(), "error", err)
@@ -96,14 +97,15 @@ func (c *Controller) tick(ctx context.Context) error {
 	return nil
 }
 
-func (c *Controller) reconcile(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) error {
+func (c *Controller) reconcile(ctx context.Context, leased database.LeasedScheduledRunExecution) error {
+	execution := leased.Execution
 	expired := !time.Now().Before(execution.GetDeadline().AsTime())
 	if execution.GetAgentInstanceId() == "" {
 		if expired {
 			finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 			return nil
 		}
-		linked, err := c.store.ReserveScheduledRunExecutionInstance(ctx, execution.GetId(), execution.GetCreator())
+		linked, err := c.store.ReserveScheduledRunExecutionInstance(ctx, leased.Lease.ExecutionID, execution.GetCreator())
 		if err != nil {
 			return err
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -50,7 +51,7 @@ func TestScheduleAuthorizationFailsBeforePersistence(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := scheduledrun.NewService(nil, nil, authorizer{deny: tc.deny})
-			_, err := svc.Get(tc.ctx, "id")
+			_, err := svc.Get(tc.ctx, uuid.New())
 			require.Equal(t, tc.want, serviceerrors.CodeOf(err))
 		})
 	}

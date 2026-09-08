@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 
+	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
@@ -11,20 +12,21 @@ var ErrScheduledRunDeleted = errors.New("ScheduledRun was deleted")
 var ErrScheduledRunTargetNotReady = errors.New("ScheduledRun target has no ready prepared revision")
 
 type ScheduledRunQuery struct {
-	Creator, AfterID string
-	Limit            int
+	Creator string
+	AfterID *uuid.UUID
+	Limit   int
 }
 
 type ScheduledRunExecutionQuery struct {
 	ScheduledRunQuery
-	ScheduledRunID string
+	ScheduledRunID uuid.UUID
 }
 
 // ScheduledRunExecutionLease fences status updates from a previous worker.
 // Leases expire after 30 seconds; network work must finish within that lease.
 type ScheduledRunExecutionLease struct {
-	ExecutionID string
-	Token       string
+	ExecutionID uuid.UUID
+	Token       uuid.UUID
 }
 
 // LeasedScheduledRunExecution keeps the immutable lease identity separate from the snapshot.

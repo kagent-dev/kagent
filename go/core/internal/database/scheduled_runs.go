@@ -32,7 +32,8 @@ func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID
 
 func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.ScheduledRun, requestID string, hash []byte) (*apiv1alpha1.ScheduledRun, error) {
 	schedule := proto.CloneOf(request)
-	schedule.Id, schedule.Etag = uuid.NewString(), uuid.NewString()
+	id := uuid.New()
+	schedule.Id, schedule.Etag = id.String(), uuid.NewString()
 	schedule.CreatedAt, schedule.UpdatedAt = nil, nil
 	schedule.NextExecutionTime, schedule.DeletedAt = nil, nil
 	data, err := proto.Marshal(schedule)
@@ -42,7 +43,7 @@ func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.Sc
 	var row dbgen.ScheduledRun
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err = q.CreateScheduledRun(ctx, dbgen.CreateScheduledRunParams{
-			ID: uuid.MustParse(schedule.Id), Creator: schedule.Creator,
+			ID: id, Creator: schedule.Creator,
 			RequestID: requestID, RequestHash: hash, Data: data,
 		})
 		if err != nil {
@@ -64,12 +65,8 @@ func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.Sc
 	return toScheduledRun(row)
 }
 
-func (c *Client) GetScheduledRun(ctx context.Context, id, creator string) (*apiv1alpha1.ScheduledRun, error) {
-	uid, err := uuid.Parse(id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid schedule ID: %w", err)
-	}
-	row, err := c.q.GetScheduledRun(ctx, dbgen.GetScheduledRunParams{ID: uid, Creator: creator})
+func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRun, error) {
+	row, err := c.q.GetScheduledRun(ctx, dbgen.GetScheduledRunParams{ID: id, Creator: creator})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schedule: %w", notFoundOr(err))
 	}
@@ -77,11 +74,7 @@ func (c *Client) GetScheduledRun(ctx context.Context, id, creator string) (*apiv
 }
 
 func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery) ([]*apiv1alpha1.ScheduledRun, error) {
-	after, err := optionalUUID(query.AfterID)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := c.q.ListScheduledRuns(ctx, dbgen.ListScheduledRunsParams{Creator: query.Creator, AfterID: after, Limit: int32(query.Limit)})
+	rows, err := c.q.ListScheduledRuns(ctx, dbgen.ListScheduledRunsParams{Creator: query.Creator, AfterID: query.AfterID, Limit: int32(query.Limit)})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list schedules: %w", err)
 	}
@@ -96,7 +89,7 @@ func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery)
 	return result, nil
 }
 
-func (c *Client) UpdateScheduledRun(ctx context.Context, id, creator, etag string, config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error) {
+func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, etag string, config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error) {
 	var result dbgen.ScheduledRun
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err := getScheduledRunForUpdate(ctx, q, id, creator)
@@ -139,7 +132,7 @@ func (c *Client) UpdateScheduledRun(ctx context.Context, id, creator, etag strin
 	return toScheduledRun(result)
 }
 
-func (c *Client) DeleteScheduledRun(ctx context.Context, id, creator string) (*apiv1alpha1.ScheduledRun, error) {
+func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRun, error) {
 	var result dbgen.ScheduledRun
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err := getScheduledRunForUpdate(ctx, q, id, creator)
@@ -168,7 +161,7 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id, creator string) (*a
 	return toScheduledRun(result)
 }
 
-func (c *Client) TriggerScheduledRun(ctx context.Context, id, creator, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
+func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	var result dbgen.ScheduledRunExecution
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err := getScheduledRunForUpdate(ctx, q, id, creator)
@@ -240,12 +233,8 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 	return result, nil
 }
 
-func getScheduledRunForUpdate(ctx context.Context, q *dbgen.Queries, id, creator string) (dbgen.ScheduledRun, error) {
-	uid, err := uuid.Parse(id)
-	if err != nil {
-		return dbgen.ScheduledRun{}, fmt.Errorf("invalid schedule ID: %w", err)
-	}
-	row, err := q.GetScheduledRunForUpdate(ctx, dbgen.GetScheduledRunForUpdateParams{ID: uid, Creator: creator})
+func getScheduledRunForUpdate(ctx context.Context, q *dbgen.Queries, id uuid.UUID, creator string) (dbgen.ScheduledRun, error) {
+	row, err := q.GetScheduledRunForUpdate(ctx, dbgen.GetScheduledRunForUpdateParams{ID: id, Creator: creator})
 	return row, notFoundOr(err)
 }
 
@@ -280,12 +269,8 @@ func reserveScheduledRunExecution(ctx context.Context, q *dbgen.Queries, row dbg
 	})
 }
 
-func (c *Client) GetScheduledRunExecution(ctx context.Context, id, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
-	uid, err := uuid.Parse(id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid execution ID: %w", err)
-	}
-	row, err := c.q.GetScheduledRunExecution(ctx, dbgen.GetScheduledRunExecutionParams{Creator: creator, ID: uid})
+func (c *Client) GetScheduledRunExecution(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
+	row, err := c.q.GetScheduledRunExecution(ctx, dbgen.GetScheduledRunExecutionParams{Creator: creator, ID: id})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get execution: %w", notFoundOr(err))
 	}
@@ -293,16 +278,8 @@ func (c *Client) GetScheduledRunExecution(ctx context.Context, id, creator strin
 }
 
 func (c *Client) ListScheduledRunExecutions(ctx context.Context, query ScheduledRunExecutionQuery) ([]*apiv1alpha1.ScheduledRunExecution, error) {
-	id, err := uuid.Parse(query.ScheduledRunID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid schedule ID: %w", err)
-	}
-	after, err := optionalUUID(query.AfterID)
-	if err != nil {
-		return nil, err
-	}
 	rows, err := c.q.ListScheduledRunExecutions(ctx, dbgen.ListScheduledRunExecutionsParams{
-		Creator: query.Creator, ScheduledRunID: id, AfterID: after, Limit: int32(query.Limit),
+		Creator: query.Creator, ScheduledRunID: query.ScheduledRunID, AfterID: query.AfterID, Limit: int32(query.Limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list executions: %w", err)
@@ -320,14 +297,11 @@ func (c *Client) ListScheduledRunExecutions(ctx context.Context, query Scheduled
 
 // ReserveScheduledRunExecutionInstance keeps instance creation and the historical
 // link in one transaction. A deleted conversation never becomes a new firing.
-func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
-	uid, err := uuid.Parse(id)
-	if err != nil {
-		return nil, fmt.Errorf("invalid execution ID: %w", err)
-	}
+func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	var result dbgen.ScheduledRunExecution
+	var err error
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		result, err = q.GetScheduledRunExecutionForUpdate(ctx, dbgen.GetScheduledRunExecutionForUpdateParams{Creator: creator, ID: uid})
+		result, err = q.GetScheduledRunExecutionForUpdate(ctx, dbgen.GetScheduledRunExecutionForUpdateParams{Creator: creator, ID: id})
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -343,7 +317,7 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id, c
 		if err != nil {
 			return err
 		}
-		expired, err := q.ExpireScheduledRunExecution(ctx, dbgen.ExpireScheduledRunExecutionParams{ID: uid, Data: data})
+		expired, err := q.ExpireScheduledRunExecution(ctx, dbgen.ExpireScheduledRunExecutionParams{ID: id, Data: data})
 		if err == nil {
 			result = expired
 			return nil
@@ -367,14 +341,14 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id, c
 			Id: instanceID.String(), Creator: creator,
 			Harness:       proto.CloneOf(schedule.Harness),
 			AgentTemplate: proto.CloneOf(schedule.AgentTemplate),
-		}, "scheduled-run/"+id)
+		}, "scheduled-run/"+id.String())
 		if errors.Is(err, ErrNotFound) {
 			return ErrScheduledRunTargetNotReady
 		}
 		if err != nil {
 			return err
 		}
-		result, err = q.SetScheduledRunExecutionInstance(ctx, dbgen.SetScheduledRunExecutionInstanceParams{ID: uid, AgentInstanceID: &instance.ID})
+		result, err = q.SetScheduledRunExecutionInstance(ctx, dbgen.SetScheduledRunExecutionInstanceParams{ID: id, AgentInstanceID: &instance.ID})
 		return err
 	})
 	if err != nil {
@@ -429,22 +403,14 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 		if err != nil {
 			return nil, err
 		}
-		leases = append(leases, LeasedScheduledRunExecution{Execution: execution, Lease: ScheduledRunExecutionLease{ExecutionID: row.ID.String(), Token: token.String()}})
+		leases = append(leases, LeasedScheduledRunExecution{Execution: execution, Lease: ScheduledRunExecutionLease{ExecutionID: row.ID, Token: token}})
 	}
 	return leases, nil
 }
 
 func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease ScheduledRunExecutionLease, progress ScheduledRunExecutionProgress) error {
-	id, err := uuid.Parse(lease.ExecutionID)
-	if err != nil {
-		return err
-	}
-	token, err := uuid.Parse(lease.Token)
-	if err != nil {
-		return err
-	}
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.GetLeasedScheduledRunExecutionForUpdate(ctx, dbgen.GetLeasedScheduledRunExecutionForUpdateParams{ID: id, LeaseToken: &token})
+		row, err := q.GetLeasedScheduledRunExecutionForUpdate(ctx, dbgen.GetLeasedScheduledRunExecutionForUpdateParams{ID: lease.ExecutionID, LeaseToken: &lease.Token})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrScheduledRunConflict
 		}
@@ -465,7 +431,7 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 			taskID = &progress.TaskID
 		}
 		rows, err := q.UpdateScheduledRunExecution(ctx, dbgen.UpdateScheduledRunExecutionParams{
-			ID: id, LeaseToken: token, TaskID: taskID, Data: data,
+			ID: lease.ExecutionID, LeaseToken: lease.Token, TaskID: taskID, Data: data,
 			State: strings.TrimPrefix(progress.State.String(), "SCHEDULED_RUN_EXECUTION_STATE_"),
 		})
 		if err != nil {
@@ -514,15 +480,4 @@ func optionalTimestamp(value *time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return timestamppb.New(*value)
-}
-
-func optionalUUID(value string) (*uuid.UUID, error) {
-	if value == "" {
-		return nil, nil
-	}
-	id, err := uuid.Parse(value)
-	if err != nil {
-		return nil, fmt.Errorf("invalid cursor ID: %w", err)
-	}
-	return &id, nil
 }
