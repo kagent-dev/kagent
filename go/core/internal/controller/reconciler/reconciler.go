@@ -35,6 +35,7 @@ import (
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -676,6 +677,33 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	// error path so a misconfigured RMS still surfaces a Failed condition.
 	secretHash, secretErr := a.computeRemoteMCPServerSecretHash(ctx, server)
 
+	if remoteMCPServerDiscoveryDisabled(server) {
+		// The operator opted this server out of discovery (a server that
+		// authenticates every caller has no credential to offer the controller).
+		// Accept it without connecting: the status carries no tools, the DB keeps
+		// the server with an empty inventory, and agents resolve the tool list at
+		// run time with the credentials they carry. The TLS Secret hash is still
+		// published (agents fold it into their rollout hash), and a broken
+		// spec.tls Secret reference still fails the server.
+		l.Info("skipping tool discovery for remote MCP server", "url", server.Spec.URL, "label", consts.DiscoveryLabel)
+		if _, err := a.dbClient.StoreToolServer(ctx, dbServer); err != nil {
+			return fmt.Errorf("failed to store toolServer %s: %w", dbServer.Name, err)
+		}
+		if err := a.dbClient.RefreshToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
+			return fmt.Errorf("failed to clear tools for toolServer %s: %w", dbServer.Name, err)
+		}
+		if secretErr != nil {
+			if err := a.reconcileRemoteMCPServerStatus(ctx, server, nil, secretHash, secretErr); err != nil {
+				return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
+			}
+			return nil
+		}
+		if err := a.setRemoteMCPServerStatus(ctx, server, nil, secretHash, metav1.ConditionTrue, "DiscoveryDisabled", remoteMCPServerDiscoveryDisabledMessage); err != nil {
+			return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
+		}
+		return nil
+	}
+
 	l.Info("registering remote MCP server", "url", server.Spec.URL, "protocol", server.Spec.Protocol)
 	start := time.Now()
 	tools, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, server)
@@ -739,6 +767,17 @@ func (a *kagentReconciler) computeRemoteMCPServerSecretHash(ctx context.Context,
 	return computeStatusSecretHash([]secretRef{{NamespacedName: nn, Secret: secret}}), nil
 }
 
+// remoteMCPServerDiscoveryDisabledMessage explains an Accepted RemoteMCPServer
+// that publishes no discovered tools because its operator opted out of discovery.
+const remoteMCPServerDiscoveryDisabledMessage = "Tool discovery is disabled by the " + consts.DiscoveryLabel + "=" + consts.DiscoveryDisabled +
+	" label; agents resolve the tool list at run time"
+
+// remoteMCPServerDiscoveryDisabled reports whether the operator opted the server
+// out of tool discovery with the kagent.dev/discovery=disabled label.
+func remoteMCPServerDiscoveryDisabled(server *v1alpha2.RemoteMCPServer) bool {
+	return server.Labels[consts.DiscoveryLabel] == consts.DiscoveryDisabled
+}
+
 func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	ctx context.Context,
 	server *v1alpha2.RemoteMCPServer,
@@ -760,6 +799,21 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 		reason = "Reconciled"
 		message = "Remote MCP server configuration accepted"
 	}
+	return a.setRemoteMCPServerStatus(ctx, server, discoveredTools, secretHash, status, reason, message)
+}
+
+// setRemoteMCPServerStatus writes the Accepted condition, the discovered tools
+// and the Secret hash, skipping the update when nothing changed so the
+// reconciler does not loop on its own status writes.
+func (a *kagentReconciler) setRemoteMCPServerStatus(
+	ctx context.Context,
+	server *v1alpha2.RemoteMCPServer,
+	discoveredTools []*v1alpha2.MCPTool,
+	secretHash string,
+	status metav1.ConditionStatus,
+	reason string,
+	message string,
+) error {
 	conditionChanged := meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeAccepted,
 		Status:             status,
