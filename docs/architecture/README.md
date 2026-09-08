@@ -76,6 +76,7 @@ quiescence. It reaches Actors through the private runtime network.
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
 - [Prompt resolution](prompt-templates.md)
+- [Caller context in traces](trace-context.md)
 
 The documents describe implemented behavior. Deferred work, including full
 cross-AgentInstance delegation and Dedicated agents, belongs in the

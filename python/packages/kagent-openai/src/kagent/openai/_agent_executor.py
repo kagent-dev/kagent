@@ -11,6 +11,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 try:
     from typing import override  # Python 3.12+
@@ -35,6 +36,11 @@ from agents.agent import Agent
 from agents.memory.session import SessionABC
 from agents.run import Runner
 from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
+from kagent.core.tracing import detach_promoted_metadata, promote_message_metadata_to_baggage
+from kagent.core.tracing._span_processor import (
+    clear_kagent_span_attributes,
+    set_kagent_span_attributes,
+)
 from pydantic import BaseModel
 
 from ._event_converter import convert_openai_event_to_a2a_events
@@ -173,6 +179,21 @@ class OpenAIAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
+        span_attributes = _convert_a2a_request_to_span_attributes(context)
+        promote_token = promote_message_metadata_to_baggage(message=context.message)
+        context_token = set_kagent_span_attributes(span_attributes)
+        try:
+            await self._execute_agent(context, event_queue)
+        finally:
+            clear_kagent_span_attributes(context_token)
+            detach_promoted_metadata(promote_token)
+
+    async def _execute_agent(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ) -> None:
+
         # For new tasks, the first event must be a Task (not TaskStatusUpdateEvent).
         if not context.current_task:
             await event_queue.enqueue_event(
@@ -277,3 +298,24 @@ class OpenAIAgentExecutor(AgentExecutor):
                     },
                 )
             )
+
+
+def _get_user_id(request: RequestContext) -> str:
+    return getattr(request, "user_id", "admin@kagent.dev")
+
+
+def _convert_a2a_request_to_span_attributes(
+    request: RequestContext,
+) -> dict[str, Any]:
+    if not request.message:
+        raise ValueError("Request message cannot be None")
+
+    span_attributes: dict[str, Any] = {
+        "kagent.user_id": _get_user_id(request),
+        "gen_ai.conversation.id": request.context_id,
+    }
+
+    if request.task_id:
+        span_attributes["gen_ai.task.id"] = request.task_id
+
+    return span_attributes

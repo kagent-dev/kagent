@@ -14,6 +14,7 @@ func TestOtelEnvFromProcess(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	t.Setenv("OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", "256")
 	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=secret")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.name=controller")
 	t.Setenv("OTEL_SERVICE_NAME", "controller")
@@ -25,6 +26,7 @@ func TestOtelEnvFromProcess(t *testing.T) {
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: "http://collector:4317"},
 		{Name: "OTEL_EXPORTER_OTLP_PROTOCOL", Value: "http/protobuf"},
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", Value: "grpc"},
+		{Name: "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT", Value: "256"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("OtelEnvFromProcess() = %#v, want %#v", got, want)

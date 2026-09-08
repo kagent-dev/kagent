@@ -218,6 +218,44 @@ func TestSetMessageMetadataAttributes(t *testing.T) {
 	}
 }
 
+func TestSetMessageMetadataAttributes_SkipsAllowlistedSources(t *testing.T) {
+	setAllowlist(t, `[{"from":"sub","to":"user.id"}]`)
+
+	attrs := recordMessageMetadata(t, map[string]any{
+		"sub":     "opaque-subject",
+		"channel": "C0AB1",
+	})
+
+	if _, exists := attrs["a2a.message.metadata.sub"]; exists {
+		t.Fatal("allowlisted source must not be stamped as a2a.message.metadata.sub")
+	}
+	if got := attrs["a2a.message.metadata.channel"].AsString(); got != "C0AB1" {
+		t.Errorf("non-allowlisted channel = %q, want C0AB1", got)
+	}
+}
+
+func recordMessageMetadata(t *testing.T, metadata map[string]any) map[string]attribute.Value {
+	t.Helper()
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "test-span")
+	SetMessageMetadataAttributes(ctx, metadata)
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) == 0 {
+		t.Fatal("no spans recorded")
+	}
+	attrs := make(map[string]attribute.Value)
+	for _, a := range spans[0].Attributes {
+		attrs[string(a.Key)] = a.Value
+	}
+	return attrs
+}
+
 func TestSetMessageMetadataAttributes_NilAndEmpty(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))

@@ -8,6 +8,7 @@ from ._consts import (
     A2A_DATA_PART_METADATA_TYPE_KEY,
     ADK_METADATA_KEY_PREFIX,
     get_kagent_metadata_key,
+    read_message_metadata,
     read_metadata_value,
 )
 from ._context import get_request_user_id, set_request_user_id
@@ -49,6 +50,7 @@ __all__ = [
     "KAgentGrpcServerCallContextBuilder",
     "now_timestamp",
     "get_kagent_metadata_key",
+    "read_message_metadata",
     "read_metadata_value",
     "ADK_METADATA_KEY_PREFIX",
     "A2A_DATA_PART_METADATA_TYPE_KEY",

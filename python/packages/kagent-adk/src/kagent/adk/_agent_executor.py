@@ -34,6 +34,7 @@ from kagent.core.a2a import (
     hitl_activated,
     now_timestamp,
 )
+from kagent.core.tracing import detach_promoted_metadata, promote_message_metadata_to_baggage
 from kagent.core.tracing._span_processor import clear_kagent_span_attributes, set_kagent_span_attributes
 from pydantic import BaseModel
 
@@ -119,6 +120,7 @@ class A2aAgentExecutor(AgentExecutor):
 
         runner: Runner | None = None
         context_token = None
+        promote_token = None
         try:
             self._translate_hitl_response(context)
             runner = await self._resolve_runner()
@@ -131,6 +133,10 @@ class A2aAgentExecutor(AgentExecutor):
                 "gen_ai.task.id": context.task_id,
                 "gen_ai.conversation.id": run_request.session_id,
             }
+            # Allowlisted metadata is written into baggage so the baggage
+            # span processor stamps it on every span, including hops the
+            # runtime does not own. Fill-if-absent so existing baggage wins.
+            promote_token = promote_message_metadata_to_baggage(message=context.message)
             context_token = set_kagent_span_attributes(
                 {key: value for key, value in span_attributes.items() if value is not None}
             )
@@ -177,6 +183,7 @@ class A2aAgentExecutor(AgentExecutor):
         finally:
             if context_token is not None:
                 clear_kagent_span_attributes(context_token)
+            detach_promoted_metadata(promote_token)
             if runner is not None:
                 await self._safe_close_runner(runner)
 

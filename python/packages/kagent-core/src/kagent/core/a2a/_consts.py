@@ -1,3 +1,8 @@
+from typing import Any, Optional
+
+from a2a.types import Message
+from google.protobuf.json_format import MessageToDict
+
 # A2A DataPart metadata constants.
 # These values MUST match the upstream google-adk definitions in
 # google.adk.a2a.converters.part_converter. A sync-check test in
@@ -28,6 +33,20 @@ def get_kagent_metadata_key(key: str) -> str:
     if not key:
         raise ValueError("Metadata key cannot be empty or None")
     return f"{KAGENT_METADATA_KEY_PREFIX}{key}"
+
+
+def read_message_metadata(message: Optional[Message]) -> dict[str, Any]:
+    """Return a Message's protobuf ``Struct`` metadata as a plain dict.
+
+    Args:
+      message: The A2A message to read (may be ``None``).
+
+    Returns:
+      The decoded metadata, or an empty dict when the message carries none.
+    """
+    if message is None or not message.HasField("metadata"):
+        return {}
+    return MessageToDict(message.metadata)
 
 
 def read_metadata_value(metadata: dict | None, key: str, default=None):

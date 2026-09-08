@@ -16,6 +16,7 @@ var otelEnvNames = []string{
 	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_PROTOCOL",
 	"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+	"OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT",
 }
 
 // OtelEnvFromProcess returns the controller's supported tracing configuration
