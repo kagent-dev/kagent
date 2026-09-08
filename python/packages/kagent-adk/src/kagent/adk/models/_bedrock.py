@@ -18,9 +18,9 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 import boto3
 from botocore.config import Config as BotocoreConfig
 from google.adk.models import BaseLlm
-from pydantic import Field
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from pydantic import Field
 
 from ._ssl import KAgentTLSMixin
 
