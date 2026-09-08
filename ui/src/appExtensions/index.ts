@@ -144,7 +144,7 @@ export type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
 
 // Branding: the product's own name and mark, which is identity rather than
 // styling and so should not cost a layout replacement.
-export { applyExtensionDocumentTitle } from "./branding";
+export { applyExtensionBranding } from "./branding";
 export type { ExtensionAppIconProps, ExtensionBranding } from "./branding";
 
 // Navigation overrides: the other half of contributing an entry — changing one

@@ -308,11 +308,25 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
     // Last in the fixture and first once sorted: ate-api returns actors in no
     // particular order, so a fixture that is already in the right order cannot tell
     // a page that sorts from one that does not.
-    { actorId: "actor-0aa1", status: "Failed", version: 1 },
+    //
+    // The raw wire constant, because that is what a real controller sends for a state
+    // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
+    // reach the page unread and no test object.
+    { actorId: "actor-0aa1", status: "ACTOR_STATE_CRASHED", version: 1 },
     // Shares "Running" with actor-7f21, which is what makes a two-key sort observable:
     // with every status distinct, sorting by status then by id looks the same as
     // sorting by status alone.
     { actorId: "actor-3b55", status: "Running", version: 1 },
+    // Parked rather than broken, and the only status here that reads as neither:
+    // without it nothing on the page is drawn in the idle tone.
+    { actorId: "actor-5d17", status: "Paused", version: 1 },
+    // The controller's other unnamed state. `ACTOR_STATE_CRASHED` alone would pass a
+    // humaniser that special-cased that one word; two of them do not.
+    { actorId: "actor-2e40", status: "ACTOR_STATE_DELETING", version: 1 },
+    // A transition, and a word the page recognises by its shape rather than from a
+    // list — the same rule that has to carry `Suspending` and `Pausing`.
+    { actorId: "actor-8b91", status: "Resuming", version: 1 },
+    { actorId: "actor-c3f5", status: "Suspended", version: 3 },
   ],
   workers: [
     {
