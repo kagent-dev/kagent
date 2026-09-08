@@ -5,11 +5,11 @@ const scheduleId = "c686bd1d-9124-4e96-8df7-000000000001";
 test("schedules: edit, pause, run manually, inspect history and delete", async ({ page }) => {
   await page.goto(`/schedules/${scheduleId}?mock=ok`);
   await expect(page.getByRole("heading", { name: "Daily cluster report" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Result", exact: true })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Failure reason", exact: true })).toBeVisible();
   await expect(page.getByText("Execution deadline exceeded", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open conversation" }).first())
     .toHaveAttribute("href", "/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat");
-  await page.getByRole("button", { name: "Next page" }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open conversation" })).toHaveCount(1);
 
@@ -95,6 +95,12 @@ test("schedules: read failures stay distinct from an empty list", async ({ page 
   await expect(page.getByText("No schedules yet", { exact: true })).toHaveCount(0);
   await page.goto("/schedules?mock=empty");
   await expect(page.getByText("No schedules yet", { exact: true })).toBeVisible();
+});
+
+test("schedules: a list that fits on one page shows no pagination", async ({ page }) => {
+  await page.goto("/schedules?mock=ok");
+  await expect(page.getByRole("link", { name: "Daily cluster report", exact: true })).toBeVisible();
+  await expect(page.getByTestId("schedules-pages")).toHaveCount(0);
 });
 
 

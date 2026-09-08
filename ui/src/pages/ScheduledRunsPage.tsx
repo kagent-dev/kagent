@@ -1,5 +1,5 @@
 import { useTheme } from "@emotion/react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
 import { Pause, Pencil, Play, Plus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -8,6 +8,7 @@ import { invoke } from "@/api/operations";
 import { useApiResource } from "@/api/hooks/useApiResource";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
+import { PageControls, usePageStack } from "@/components/table/PageControls";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { ScheduledRunForm } from "@/components/scheduled-runs/ScheduledRunForm";
@@ -18,24 +19,13 @@ function time(value: Timestamp | undefined) {
   return value ? timestampDate(value).toLocaleString() : "—";
 }
 
-function PageButtons({ tokens, setTokens, next, loading }: {
-  tokens: string[]; setTokens: (tokens: string[]) => void; next?: string; loading: boolean;
-}) {
-  return <Space>
-    <Button disabled={loading || tokens.length === 1} onClick={() => setTokens(tokens.slice(0, -1))}>Previous page</Button>
-    <Typography.Text>Page {tokens.length}</Typography.Text>
-    <Button disabled={loading || !next} onClick={() => next && setTokens([...tokens, next])}>Next page</Button>
-  </Space>;
-}
-
 export function ScheduledRunsPage() {
   const theme = useTheme();
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
-  const [tokens, setTokens] = useState([""]);
-  const token = tokens[tokens.length - 1];
-  const runs = useApiResource(["scheduledRuns.list", token],
-    () => invoke("scheduledRuns.list", { page: { limit: 25, pageToken: token } }), { refreshInterval: 10000 });
+  const page = usePageStack("schedules");
+  const runs = useApiResource(["scheduledRuns.list", page.current],
+    () => invoke("scheduledRuns.list", { page: { limit: 25, pageToken: page.current } }), { refreshInterval: 10000 });
 
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
     actions={<Space><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
@@ -48,10 +38,11 @@ export function ScheduledRunsPage() {
           { title: "Agent", key: "agent", render: (_, row) => `${row.agentTemplate?.name ?? "—"} on ${row.harness?.name ?? "—"}` },
           { title: "Schedule", key: "schedule", render: (_, row) => row.config ? scheduleDescription(row.config.schedule) : "—" },
           { title: "Time zone", key: "zone", render: (_, row) => row.config?.timeZone || "UTC" },
-          { title: "Status", key: "status", render: (_, row) => <Tag>{row.config?.paused ? "Paused" : "Active"}</Tag> },
+          { title: "Status", key: "status", render: (_, row) => scheduleStatusTag(row) },
           { title: "Next execution (local)", key: "next", render: (_, row) => time(row.nextExecutionTime) },
         ]} />
-      <PageButtons tokens={tokens} setTokens={setTokens} next={runs.data?.page?.nextPageToken} loading={runs.isValidating || !!runs.error} />
+      <PageControls testId="schedules-pages" page={page} hasNext={Boolean(runs.data?.page?.nextPageToken)}
+        onNext={() => page.next(runs.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={runs.isLoading} />
     </Space>
     {creating && <ScheduledRunForm onClose={() => setCreating(false)} onSaved={(schedule) => {
       setCreating(false);
@@ -69,18 +60,18 @@ export function ScheduledRunPage() {
 function ScheduledRunDetails({ id }: { id: string }) {
   const theme = useTheme();
   const [editing, setEditing] = useState<ScheduledRun>();
-  const [busy, setBusy] = useState(false);
+  // Which action is in flight, so only that button spins.
+  const [busy, setBusy] = useState<"pause" | "trigger">();
   const [actionError, setActionError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const triggerRequestId = useRef<string | undefined>(undefined);
-  const [tokens, setTokens] = useState([""]);
-  const token = tokens[tokens.length - 1];
+  const [triggerRequestId, setTriggerRequestId] = useState<string>();
+  const page = usePageStack(id);
   const run = useApiResource(["scheduledRuns.get", id], () => invoke("scheduledRuns.get", { scheduledRunId: id }), { refreshInterval: 10000 });
-  const history = useApiResource(["scheduledRuns.executions", id, token],
-    () => invoke("scheduledRuns.executions", { scheduledRunId: id, page: { limit: 25, pageToken: token } }), { refreshInterval: 5000 });
+  const history = useApiResource(["scheduledRuns.executions", id, page.current],
+    () => invoke("scheduledRuns.executions", { scheduledRunId: id, page: { limit: 25, pageToken: page.current } }), { refreshInterval: 5000 });
   const schedule = run.data?.scheduledRun;
   const config = schedule?.config;
-  const disabled = busy || !!run.error || !!schedule?.deletedAt;
+  const disabled = !!busy || !!run.error || !!schedule?.deletedAt;
 
   async function refresh() {
     await Promise.all([run.refresh(), history.refresh()]);
@@ -88,17 +79,19 @@ function ScheduledRunDetails({ id }: { id: string }) {
 
   async function act(operation: "pause" | "trigger") {
     if (!schedule || !config) return;
-    setBusy(true);
+    setBusy(operation);
     setActionError(undefined);
     setNotice(undefined);
     try {
       if (operation === "pause") {
         await invoke("scheduledRuns.update", { scheduledRunId: id, etag: schedule.etag, config: { ...config, paused: !config.paused } });
       } else {
-        triggerRequestId.current ??= crypto.randomUUID();
-        await invoke("scheduledRuns.trigger", { scheduledRunId: id, requestId: triggerRequestId.current });
-        triggerRequestId.current = undefined;
-        setTokens([""]);
+        // Retained across a failed retry so it cannot queue a second execution.
+        const requestId = triggerRequestId ?? crypto.randomUUID();
+        setTriggerRequestId(requestId);
+        await invoke("scheduledRuns.trigger", { scheduledRunId: id, requestId });
+        setTriggerRequestId(undefined);
+        page.reset();
         setNotice("Execution queued. A new conversation will appear when the agent starts.");
       }
     } catch (cause) {
@@ -108,7 +101,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
       try { await refresh(); } catch (cause) {
         setActionError((previous) => previous ?? `Could not refresh: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
-      setBusy(false);
+      setBusy(undefined);
     }
   }
 
@@ -126,7 +119,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { key: "agent", label: "Agent", children: schedule.agentTemplate && schedule.harness
             ? <Link to={buildPath(paths.agent, { namespace: schedule.agentTemplate.namespace, agentTemplate: schedule.agentTemplate.name, harness: schedule.harness.name })}>
               {schedule.agentTemplate.namespace}/{schedule.agentTemplate.name} on {schedule.harness.name}</Link> : "—" },
-          { key: "status", label: "Status", children: schedule.deletedAt ? "Deleted" : config.paused ? "Paused" : "Active" },
+          { key: "status", label: "Status", children: scheduleStatusTag(schedule) },
           { key: "schedule", label: "Schedule", children: scheduleDescription(config.schedule) },
           { key: "zone", label: "Time zone", children: config.timeZone || "UTC" },
           { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
@@ -134,8 +127,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
         ]} />
         <Space wrap>
-          <Button icon={<Play size={14} />} disabled={disabled} loading={busy} onClick={() => void act("trigger")}>Run</Button>
-          <Button icon={config.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled} loading={busy}
+          <Button icon={<Play size={14} />} disabled={disabled} loading={busy === "trigger"} onClick={() => void act("trigger")}>Run</Button>
+          <Button icon={config.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled} loading={busy === "pause"}
             onClick={() => void act("pause")}>{config.paused ? "Resume" : "Pause"}</Button>
           <Button icon={<Pencil size={14} />} disabled={disabled} onClick={() => setEditing(schedule)}>Edit</Button>
           <DeleteResourceButton kind="schedule" name={config.name || id} label="Delete" confirmation="modal" outlined disabled={disabled}
@@ -149,10 +142,10 @@ function ScheduledRunDetails({ id }: { id: string }) {
       <Table<ScheduledRunExecution> rowKey="id" loading={history.isLoading} pagination={false} scroll={{ x: 800 }}
         dataSource={history.data?.executions ?? []} locale={{ emptyText: history.error ? "History unavailable" : "No executions yet" }} columns={[
           { title: "Created", key: "created", render: (_, row) => time(row.createdAt) },
-          { title: "Trigger", key: "trigger", render: (_, row) => row.trigger.case === "scheduledTime" ? `Scheduled: ${time(row.trigger.value)}` : "Manual" },
-          { title: "State", key: "state", render: (_, row) => <Tag>{executionState(row.state)}</Tag> },
+          { title: "Trigger", key: "trigger", render: (_, row) => triggerLabel(row) },
+          { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
-          { title: "Result", dataIndex: "failureReason", key: "result" },
+          { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.agentInstanceId
             ? <Link to={buildPath(paths.agentChat, { id: row.agentInstanceId })}>Open conversation</Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions column={1} items={[
@@ -160,7 +153,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
           { key: "task", label: "Original task", children: row.taskId || "Not assigned" },
         ]} /> }} />
-      <PageButtons tokens={tokens} setTokens={setTokens} next={history.data?.page?.nextPageToken} loading={history.isValidating || !!history.error} />
+      <PageControls testId="schedule-history-pages" page={page} hasNext={Boolean(history.data?.page?.nextPageToken)}
+        onNext={() => page.next(history.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={history.isLoading} />
     </Space>
     {editing && <ScheduledRunForm schedule={editing} onClose={() => setEditing(undefined)} onSaved={() => {
       setEditing(undefined);
@@ -169,13 +163,27 @@ function ScheduledRunDetails({ id }: { id: string }) {
   </PageFrame>;
 }
 
-function executionState(state: ScheduledRunExecutionState): string {
-  switch (state) {
-    case ScheduledRunExecutionState.PENDING: return "Pending";
-    case ScheduledRunExecutionState.RUNNING: return "Running";
-    case ScheduledRunExecutionState.SUCCEEDED: return "Succeeded";
-    case ScheduledRunExecutionState.FAILED: return "Failed";
-    case ScheduledRunExecutionState.TIMED_OUT: return "Timed out";
+function scheduleStatusTag(schedule: ScheduledRun) {
+  if (schedule.deletedAt) return <Tag>Deleted</Tag>;
+  return schedule.config?.paused ? <Tag color="warning">Paused</Tag> : <Tag color="success">Active</Tag>;
+}
+
+function triggerLabel(execution: ScheduledRunExecution) {
+  switch (execution.trigger.case) {
+    case "scheduledTime": return `Scheduled: ${time(execution.trigger.value)}`;
+    case "manualRequestId": return "Manual";
     default: return "Unknown";
+  }
+}
+
+/* The label carries the state on its own; colour is a second channel, not the only one. */
+function executionStateTag(state: ScheduledRunExecutionState) {
+  switch (state) {
+    case ScheduledRunExecutionState.PENDING: return <Tag>Pending</Tag>;
+    case ScheduledRunExecutionState.RUNNING: return <Tag color="processing">Running</Tag>;
+    case ScheduledRunExecutionState.SUCCEEDED: return <Tag color="success">Succeeded</Tag>;
+    case ScheduledRunExecutionState.FAILED: return <Tag color="error">Failed</Tag>;
+    case ScheduledRunExecutionState.TIMED_OUT: return <Tag color="warning">Timed out</Tag>;
+    default: return <Tag>Unknown</Tag>;
   }
 }
