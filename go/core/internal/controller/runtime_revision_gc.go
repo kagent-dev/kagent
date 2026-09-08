@@ -95,6 +95,9 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) error {
 	if err == nil && (revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID) {
 		return fmt.Errorf("unreferenced ActorTemplate %s/%s UID changed", revision.ActorTemplateAtespace, revision.ActorTemplateName)
 	}
+	// Both deletes tolerate already-missing objects. If runtime cleanup succeeds
+	// but database finalization fails, the durable deletion marker keeps this
+	// revision discoverable so the next sweep can safely retry the sequence.
 	if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID); err != nil {
 		return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
