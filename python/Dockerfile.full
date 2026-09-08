@@ -62,7 +62,7 @@ RUN --mount=type=cache,target=/root/.npm \
     && git checkout -q FETCH_HEAD \
     && npm pkg delete scripts.prepare \
     && npm install --ignore-scripts --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 shell-quote@1.9.0 \
-    && npm install --ignore-scripts --save-exact brace-expansion@5.0.6 \
+    && npm install --ignore-scripts --save-exact brace-expansion@5.0.9 \
     && npm run build \
     && npm prune --omit=dev \
     && npm install -g --ignore-scripts
@@ -98,6 +98,15 @@ RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
     && uv sync --frozen --package kagent-adk                                  \
     && uv cache prune                                                         \
+    # The standalone CPython build bundles pip (with vendored msgpack /
+    # pkg_resources) in its own site-packages. Only the venvs are used at
+    # runtime, so drop it rather than shipping packages nothing imports.
+    && rm -rf /python/cpython-*/lib/python*/site-packages/pip                 \
+              /python/cpython-*/lib/python*/site-packages/pip-*.dist-info     \
+              /python/cpython-*/lib/python*/site-packages/setuptools          \
+              /python/cpython-*/lib/python*/site-packages/setuptools-*.dist-info \
+              /python/cpython-*/lib/python*/site-packages/pkg_resources       \
+    && ! "$(uv python find --system)" -c "import pip" 2>/dev/null             \
     && echo "Installation complete."
 
 # Separate venv for bash tool commands (sandbox environment); no pip installed.
