@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -104,6 +105,78 @@ func TestReconcileKagentRemoteMCPServer_DiscoveryDisabled(t *testing.T) {
 	assert.Equal(t, store.stored.Name, store.refreshed.name)
 	assert.Equal(t, store.stored.GroupKind, store.refreshed.groupKind)
 	assert.Empty(t, store.refreshed.tools)
+}
+
+// TestReconcileKagentRemoteMCPServer_DiscoveryDisabledKeepsSecretHash verifies
+// that the opt-out still publishes the TLS Secret hash agents fold into their
+// rollout hash, and still fails the server on a broken spec.tls reference.
+func TestReconcileKagentRemoteMCPServer_DiscoveryDisabledKeepsSecretHash(t *testing.T) {
+	newServer := func() *v1alpha2.RemoteMCPServer {
+		return &v1alpha2.RemoteMCPServer{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "per-caller-tls",
+				Namespace:  "default",
+				Generation: 1,
+				Labels:     map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled},
+			},
+			Spec: v1alpha2.RemoteMCPServerSpec{
+				Description: "authenticates every caller, pinned CA",
+				URL:         "https://192.0.2.1:1/mcp",
+				Protocol:    v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+				TLS:         &v1alpha2.TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"},
+			},
+		}
+	}
+	caSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "ca", Namespace: "default"},
+		Data:       map[string][]byte{"ca.crt": []byte("-----BEGIN CERTIFICATE-----")},
+	}
+
+	for name, tc := range map[string]struct {
+		objects      []client.Object
+		wantAccepted metav1.ConditionStatus
+		wantReason   string
+		wantHash     bool
+	}{
+		"CA Secret present: Accepted, hash published": {
+			objects: []client.Object{caSecret}, wantAccepted: metav1.ConditionTrue, wantReason: "DiscoveryDisabled", wantHash: true,
+		},
+		"CA Secret missing: the broken reference still fails the server": {
+			wantAccepted: metav1.ConditionFalse, wantReason: "ReconcileFailed",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+			require.NoError(t, v1alpha2.AddToScheme(scheme))
+			server := newServer()
+			kube := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(server).
+				WithObjects(append([]client.Object{server}, tc.objects...)...).
+				Build()
+			store := &recordingToolServerStore{}
+			reconciler := &kagentReconciler{kube: kube, dbClient: store}
+
+			require.NoError(t, reconciler.ReconcileKagentRemoteMCPServer(context.Background(),
+				reconcile.Request{NamespacedName: client.ObjectKeyFromObject(server)}))
+
+			updated := &v1alpha2.RemoteMCPServer{}
+			require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(server), updated))
+			accepted := meta.FindStatusCondition(updated.Status.Conditions, v1alpha2.AgentConditionTypeAccepted)
+			require.NotNil(t, accepted)
+			assert.Equal(t, tc.wantAccepted, accepted.Status)
+			assert.Equal(t, tc.wantReason, accepted.Reason)
+			assert.Empty(t, updated.Status.DiscoveredTools)
+			if tc.wantHash {
+				assert.NotEmpty(t, updated.Status.SecretHash, "the TLS Secret hash is published although discovery is disabled")
+			} else {
+				assert.Empty(t, updated.Status.SecretHash)
+				assert.Contains(t, accepted.Message, "failed to get TLS secret")
+			}
+			require.NotNil(t, store.stored, "the server is stored even when its TLS reference is broken")
+		})
+	}
 }
 
 func TestRemoteMCPServerDiscoveryDisabled(t *testing.T) {
