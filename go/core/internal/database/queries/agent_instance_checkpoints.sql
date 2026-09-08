@@ -24,7 +24,7 @@ WHERE NOT EXISTS (
 );
 
 -- name: InsertAgentInstanceCheckpoint :one
-INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, source_context_id, prepared_revision, source_labels, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'CREATING')
+INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_uri, snapshot_content_scope, source_context_id, prepared_revision, source_labels, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'CREATING')
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -52,6 +52,7 @@ ORDER BY e.sequence;
 UPDATE agent_instance_checkpoint
 SET state = CASE WHEN sqlc.arg(tag_uid)::text <> '' THEN 'READY' ELSE 'FAILED' END,
     tag_uid = sqlc.arg(tag_uid),
+    snapshot_uri = CASE WHEN sqlc.arg(tag_uid)::text <> '' THEN sqlc.arg(snapshot_uri)::text ELSE snapshot_uri END,
     data = sqlc.arg(data)
 WHERE id = $1
   AND state = 'CREATING'

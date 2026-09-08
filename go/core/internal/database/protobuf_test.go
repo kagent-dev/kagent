@@ -220,12 +220,12 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{ContextID: taskRow.ContextID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData}))
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot", UID: "snapshot-uid", ContentScope: "DATA"}))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
 	checkpointRequest := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}
 	addUnknown(checkpointRequest)
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "checkpoint")
 	require.NoError(t, err)
-	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "")
+	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
 	checkpointRow, err := q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice"})
 	require.NoError(t, err)

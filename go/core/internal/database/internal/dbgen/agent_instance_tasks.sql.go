@@ -74,7 +74,7 @@ func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentIn
 }
 
 const getActiveAgentInstanceTask = `-- name: GetActiveAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE context_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
@@ -100,8 +100,7 @@ func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, contextID uuid
 		&i.InitialMessageID,
 		&i.RequestHash,
 		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
+		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
@@ -109,7 +108,7 @@ func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, contextID uuid
 }
 
 const getAgentInstanceTask = `-- name: GetAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE context_id = $1 AND id = $2
 `
 
@@ -132,8 +131,7 @@ func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstance
 		&i.InitialMessageID,
 		&i.RequestHash,
 		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
+		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
@@ -141,7 +139,7 @@ func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstance
 }
 
 const getAgentInstanceTaskByMessageID = `-- name: GetAgentInstanceTaskByMessageID :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE context_id = $1 AND initial_message_id = $2
 `
 
@@ -164,8 +162,7 @@ func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAg
 		&i.InitialMessageID,
 		&i.RequestHash,
 		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
+		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
@@ -210,9 +207,9 @@ func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAg
 const insertCopiedAgentInstanceTask = `-- name: InsertCopiedAgentInstanceTask :exec
 INSERT INTO agent_instance_task (
     context_id, id, state, status_timestamp, data, created_at, updated_at,
-    initial_message_id, request_hash, snapshot_atespace, snapshot_name,
-    snapshot_uid, snapshot_content_scope, history_sequence
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    initial_message_id, request_hash, snapshot_atespace, snapshot_uri,
+    snapshot_content_scope, history_sequence
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 type InsertCopiedAgentInstanceTaskParams struct {
@@ -226,8 +223,7 @@ type InsertCopiedAgentInstanceTaskParams struct {
 	InitialMessageID     *string
 	RequestHash          []byte
 	SnapshotAtespace     *string
-	SnapshotName         *string
-	SnapshotUid          *string
+	SnapshotUri          *string
 	SnapshotContentScope *string
 	HistorySequence      *int64
 }
@@ -244,8 +240,7 @@ func (q *Queries) InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertC
 		arg.InitialMessageID,
 		arg.RequestHash,
 		arg.SnapshotAtespace,
-		arg.SnapshotName,
-		arg.SnapshotUid,
+		arg.SnapshotUri,
 		arg.SnapshotContentScope,
 		arg.HistorySequence,
 	)
@@ -292,7 +287,7 @@ func (q *Queries) ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgen
 }
 
 const listAgentInstanceTasks = `-- name: ListAgentInstanceTasks :many
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE context_id = $1
   AND id > $2
   AND ($3::text = '' OR state = $3)
@@ -336,8 +331,7 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 			&i.InitialMessageID,
 			&i.RequestHash,
 			&i.SnapshotAtespace,
-			&i.SnapshotName,
-			&i.SnapshotUid,
+			&i.SnapshotUri,
 			&i.SnapshotContentScope,
 			&i.HistorySequence,
 		); err != nil {
@@ -352,7 +346,7 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 }
 
 const lockActiveAgentInstanceTask = `-- name: LockActiveAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE context_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
@@ -381,8 +375,7 @@ func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID uui
 		&i.InitialMessageID,
 		&i.RequestHash,
 		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
+		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
@@ -390,7 +383,7 @@ func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID uui
 }
 
 const lockAgentInstanceTask = `-- name: LockAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task WHERE context_id = $1 AND id = $2 FOR UPDATE
+SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence FROM agent_instance_task WHERE context_id = $1 AND id = $2 FOR UPDATE
 `
 
 type LockAgentInstanceTaskParams struct {
@@ -412,8 +405,7 @@ func (q *Queries) LockAgentInstanceTask(ctx context.Context, arg LockAgentInstan
 		&i.InitialMessageID,
 		&i.RequestHash,
 		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
+		&i.SnapshotUri,
 		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
@@ -423,10 +415,9 @@ func (q *Queries) LockAgentInstanceTask(ctx context.Context, arg LockAgentInstan
 const setAgentInstanceTaskSnapshot = `-- name: SetAgentInstanceTaskSnapshot :exec
 UPDATE agent_instance_task SET
     snapshot_atespace = $3,
-    snapshot_name = $4,
-    snapshot_uid = $5,
-    snapshot_content_scope = $6,
-    history_sequence = $7
+    snapshot_uri = $4,
+    snapshot_content_scope = $5,
+    history_sequence = $6
 WHERE context_id = $1 AND id = $2
 `
 
@@ -434,8 +425,7 @@ type SetAgentInstanceTaskSnapshotParams struct {
 	ContextID            uuid.UUID
 	ID                   string
 	SnapshotAtespace     *string
-	SnapshotName         *string
-	SnapshotUid          *string
+	SnapshotUri          *string
 	SnapshotContentScope *string
 	HistorySequence      *int64
 }
@@ -445,8 +435,7 @@ func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgent
 		arg.ContextID,
 		arg.ID,
 		arg.SnapshotAtespace,
-		arg.SnapshotName,
-		arg.SnapshotUid,
+		arg.SnapshotUri,
 		arg.SnapshotContentScope,
 		arg.HistorySequence,
 	)

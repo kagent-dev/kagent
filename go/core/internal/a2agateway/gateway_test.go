@@ -159,7 +159,7 @@ func (w *gatewayTestWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstanc
 	if w.onQuiesce != nil {
 		w.onQuiesce()
 	}
-	return &database.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}, w.err
+	return &database.AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}, w.err
 }
 
 func (d *gatewayTestDialer) Dial(_ context.Context, instance *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
@@ -752,7 +752,7 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	if got := strings.Join(order, ","); got != "suspend,store,publish" {
 		t.Fatalf("terminal event order = %q", got)
 	}
-	if workflow.quiesceCalls != 1 || store.snapshot == nil || store.snapshot.UID != "snapshot-uid" {
+	if workflow.quiesceCalls != 1 || store.snapshot == nil || store.snapshot.URI != "s3://snapshots/snapshot-1" {
 		t.Fatalf("quiescence calls = %d, stored snapshot = %#v", workflow.quiesceCalls, store.snapshot)
 	}
 }

@@ -46,10 +46,9 @@ ORDER BY sequence;
 -- name: SetAgentInstanceTaskSnapshot :exec
 UPDATE agent_instance_task SET
     snapshot_atespace = $3,
-    snapshot_name = $4,
-    snapshot_uid = $5,
-    snapshot_content_scope = $6,
-    history_sequence = $7
+    snapshot_uri = $4,
+    snapshot_content_scope = $5,
+    history_sequence = $6
 WHERE context_id = $1 AND id = $2;
 
 -- name: GetAgentInstanceTask :one
@@ -92,9 +91,9 @@ LIMIT sqlc.arg(page_size);
 -- name: InsertCopiedAgentInstanceTask :exec
 INSERT INTO agent_instance_task (
     context_id, id, state, status_timestamp, data, created_at, updated_at,
-    initial_message_id, request_hash, snapshot_atespace, snapshot_name,
-    snapshot_uid, snapshot_content_scope, history_sequence
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
+    initial_message_id, request_hash, snapshot_atespace, snapshot_uri,
+    snapshot_content_scope, history_sequence
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
 
 -- LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 -- rest of the transaction so reclamation cannot overwrite concurrent progress.

@@ -77,7 +77,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 
 	require.True(t, proto.Equal(revision.AgentCard, store.revision.AgentCard))
 
-	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
+	created.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}

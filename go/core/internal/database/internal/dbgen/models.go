@@ -32,8 +32,7 @@ type AgentInstanceCheckpoint struct {
 	HeadTaskID           string
 	HistorySequence      int64
 	SnapshotAtespace     string
-	SnapshotName         string
-	SnapshotUid          string
+	SnapshotUri          string
 	SnapshotContentScope string
 	TagUid               string
 	State                string
@@ -62,8 +61,7 @@ type AgentInstanceTask struct {
 	InitialMessageID     *string
 	RequestHash          []byte
 	SnapshotAtespace     *string
-	SnapshotName         *string
-	SnapshotUid          *string
+	SnapshotUri          *string
 	SnapshotContentScope *string
 	HistorySequence      *int64
 }

@@ -70,7 +70,7 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right := proto.CloneOf(left)
 	right.Metadata.Uid = "uid"
 	right.Metadata.Version = 2
-	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Name: "golden"}}}
+	right.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	if !ActorTemplateSpecEqual(left, right) {
 		t.Fatal("server-owned fields changed the immutable spec comparison")
 	}
