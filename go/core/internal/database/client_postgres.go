@@ -52,14 +52,6 @@ func (c *Client) withTx(ctx context.Context, fn func(*dbgen.Queries) error) erro
 	return tx.Commit(ctx)
 }
 
-func runtimeRevisionError(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.ConstraintName == "runtime_revision_not_deleting" {
-		return ErrObjectDeleting
-	}
-	return err
-}
-
 // notFoundOr maps the driver's no-rows error to ErrNotFound so callers
 // outside this package match on the exported sentinel, never on pgx.
 func notFoundOr(err error) error {
@@ -88,13 +80,42 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 		}); err != nil {
 			return fmt.Errorf("retire replaced AgentTemplate/Harness pair: %w", err)
 		}
-		return runtimeRevisionError(q.UpsertAgentTemplateHarnessPair(ctx, dbgen.UpsertAgentTemplateHarnessPairParams{
+		if err := q.UpsertAgentTemplateHarnessPair(ctx, dbgen.UpsertAgentTemplateHarnessPairParams{
 			Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 			AgentTemplateUid: pair.AgentTemplateUID, HarnessName: pair.HarnessName,
 			HarnessUid: pair.HarnessUID, DesiredRevision: pair.DesiredRevision,
 			AgentTemplateLabels: labels,
-		}))
+		}); err != nil {
+			return err
+		}
+		// Validate the resulting pair before committing, including any last-good
+		// reference restored by reactivation. The revision locks serialize with GC.
+		revisions, err := q.GetPairRuntimeRevisionsForUpdate(ctx, dbgen.GetPairRuntimeRevisionsForUpdateParams{
+			Namespace: pair.Namespace, AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+		})
+		if err != nil {
+			return err
+		}
+		for _, revision := range revisions {
+			if revision.DeletionStartedAt != nil {
+				return ErrObjectDeleting
+			}
+		}
+		return nil
 	})
+}
+
+// Call within the transaction that acquires the reference, so GC cannot begin
+// deletion between checking the revision and committing its new reference.
+func getAvailableRuntimeRevisionForUpdate(ctx context.Context, q *dbgen.Queries, revision string) (dbgen.RuntimeRevision, error) {
+	row, err := q.GetRuntimeRevisionForUpdate(ctx, revision)
+	if err != nil {
+		return row, notFoundOr(err)
+	}
+	if row.DeletionStartedAt != nil {
+		return row, ErrObjectDeleting
+	}
+	return row, nil
 }
 
 func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
@@ -164,10 +185,15 @@ func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplat
 
 func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
-	return runtimeRevisionError(c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
-		Revision: &revision, Namespace: pair.Namespace,
-		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
-	}))
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		if _, err := getAvailableRuntimeRevisionForUpdate(ctx, q, revision); err != nil {
+			return err
+		}
+		return q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
+			Revision: &revision, Namespace: pair.Namespace,
+			AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+		})
+	})
 }
 
 // RetirePairIdentitiesExcept retires identities at keep's template/harness names
@@ -322,7 +348,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err = insertAgentInstance(ctx, q, request, requestID)
-		return runtimeRevisionError(err)
+		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, err = c.q.GetAgentInstanceByRequest(ctx, requestKey)
@@ -350,6 +376,9 @@ func insertAgentInstance(ctx context.Context, q *dbgen.Queries, request *apiv1al
 	})
 	if err != nil {
 		return dbgen.AgentInstance{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+	}
+	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, q, revision.Revision); err != nil {
+		return dbgen.AgentInstance{}, err
 	}
 	labels := map[string]string{}
 	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
@@ -416,7 +445,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			return fmt.Errorf("checkpoint %s has no fork source", checkpointID)
 		}
 
-		revision, err := q.GetRuntimeRevision(ctx, *checkpoint.PreparedRevision)
+		revision, err := getAvailableRuntimeRevisionForUpdate(ctx, q, *checkpoint.PreparedRevision)
 		if err != nil {
 			return fmt.Errorf("get checkpoint runtime revision: %w", err)
 		}
@@ -457,7 +486,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			SourceCheckpointID: &checkpoint.ID, Labels: encodedLabels, Data: data,
 		})
 		if err != nil {
-			return runtimeRevisionError(err)
+			return err
 		}
 
 		events, err := q.ListAgentInstanceCheckpointEvents(ctx, checkpoint.ID)
@@ -1187,6 +1216,11 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		if err != nil {
 			return err
 		}
+		if instance.PreparedRevision != nil {
+			if _, err := getAvailableRuntimeRevisionForUpdate(ctx, q, *instance.PreparedRevision); err != nil {
+				return err
+			}
+		}
 		boundary, err := q.GetLatestQuiescentAgentInstanceTask(ctx, instance.HistoryID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrAgentInstanceNotQuiescent
@@ -1236,7 +1270,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			return fmt.Errorf("get conflicting AgentInstance checkpoint request: %w", existingErr)
 		}
 		if err != nil {
-			return fmt.Errorf("insert AgentInstance checkpoint: %w", runtimeRevisionError(err))
+			return fmt.Errorf("insert AgentInstance checkpoint: %w", err)
 		}
 		snapshot = checkpointSnapshot(row)
 		result, err = toAgentInstanceCheckpoint(row)

@@ -7,6 +7,7 @@ package dbgen
 
 import (
 	"context"
+	"time"
 )
 
 const beginRuntimeRevisionDeletion = `-- name: BeginRuntimeRevisionDeletion :execrows
@@ -33,6 +34,48 @@ WHERE r.revision = $1
 func (q *Queries) DeleteRuntimeRevision(ctx context.Context, revision string) error {
 	_, err := q.db.Exec(ctx, deleteRuntimeRevision, revision)
 	return err
+}
+
+const getPairRuntimeRevisionsForUpdate = `-- name: GetPairRuntimeRevisionsForUpdate :many
+SELECT r.revision, r.deletion_started_at FROM runtime_revision r
+JOIN agent_template_harness_pair p
+  ON r.revision IN (p.desired_revision, p.latest_successful_revision)
+WHERE p.namespace = $1 AND p.agent_template_uid = $2 AND p.harness_uid = $3
+ORDER BY r.revision
+FOR UPDATE OF r
+`
+
+type GetPairRuntimeRevisionsForUpdateParams struct {
+	Namespace        string
+	AgentTemplateUid string
+	HarnessUid       string
+}
+
+type GetPairRuntimeRevisionsForUpdateRow struct {
+	Revision          string
+	DeletionStartedAt *time.Time
+}
+
+// Include the retained success pointer when a retired pair is reactivated.
+// Desired revisions may not exist yet: pairs are stored before compilation.
+func (q *Queries) GetPairRuntimeRevisionsForUpdate(ctx context.Context, arg GetPairRuntimeRevisionsForUpdateParams) ([]GetPairRuntimeRevisionsForUpdateRow, error) {
+	rows, err := q.db.Query(ctx, getPairRuntimeRevisionsForUpdate, arg.Namespace, arg.AgentTemplateUid, arg.HarnessUid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPairRuntimeRevisionsForUpdateRow
+	for rows.Next() {
+		var i GetPairRuntimeRevisionsForUpdateRow
+		if err := rows.Scan(&i.Revision, &i.DeletionStartedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getRuntimeRevision = `-- name: GetRuntimeRevision :one

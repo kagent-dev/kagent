@@ -77,6 +77,16 @@ WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision);
 -- name: GetRuntimeRevisionForUpdate :one
 SELECT * FROM runtime_revision WHERE revision = $1 FOR UPDATE;
 
+-- Include the retained success pointer when a retired pair is reactivated.
+-- Desired revisions may not exist yet: pairs are stored before compilation.
+-- name: GetPairRuntimeRevisionsForUpdate :many
+SELECT r.revision, r.deletion_started_at FROM runtime_revision r
+JOIN agent_template_harness_pair p
+  ON r.revision IN (p.desired_revision, p.latest_successful_revision)
+WHERE p.namespace = $1 AND p.agent_template_uid = $2 AND p.harness_uid = $3
+ORDER BY r.revision
+FOR UPDATE OF r;
+
 -- name: BeginRuntimeRevisionDeletion :execrows
 UPDATE runtime_revision
 SET deletion_started_at = COALESCE(deletion_started_at, NOW())

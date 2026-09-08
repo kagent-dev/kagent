@@ -148,18 +148,18 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "old", "old-actor-uid"))
 }
 
-// Pause the real store's INSERT at either side of reference acquisition. This
-// exercises CreateAgentInstance's stale SELECT and commit ordering, without
-// replacing its transaction or persistence queries with test-only writes.
+// Pause the real store before or after it locks a revision. Exercise both
+// commit orderings without replacing persistence queries with test-only writes.
 type runtimeReferenceBarrier struct {
-	afterInsert bool
-	reached     chan struct{}
-	resume      chan struct{}
+	query      string
+	afterQuery bool
+	reached    chan struct{}
+	resume     chan struct{}
 }
 
 func (b *runtimeReferenceBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(data.SQL, "-- name: InsertAgentInstance :one") {
-		if !b.afterInsert {
+	if strings.Contains(data.SQL, "-- name: "+b.query+" :") {
+		if !b.afterQuery {
 			close(b.reached)
 			<-b.resume
 		}
@@ -169,69 +169,91 @@ func (b *runtimeReferenceBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Co
 }
 
 func (b *runtimeReferenceBarrier) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
-	if b.afterInsert && ctx.Value(b) != nil {
+	if b.afterQuery && ctx.Value(b) != nil {
 		close(b.reached)
 		<-b.resume
 	}
 }
 
-func TestRuntimeRevisionClaimSerializesWithInstanceCreation(t *testing.T) {
-	for _, referenceFirst := range []bool{false, true} {
-		t.Run(fmt.Sprintf("reference_first=%t", referenceFirst), func(t *testing.T) {
-			pool := setupTestDB(t)
-			client := NewClient(pool)
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-			barrier := &runtimeReferenceBarrier{afterInsert: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
-			var resume sync.Once
-			defer resume.Do(func() { close(barrier.resume) })
-			config := pool.Config()
-			config.ConnConfig.Tracer = barrier
-			creatingPool, err := pgxpool.NewWithConfig(ctx, config)
-			require.NoError(t, err)
-			t.Cleanup(creatingPool.Close)
-			created := make(chan error, 1)
-			go func() {
-				_, _, err := NewClient(creatingPool).CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
-				created <- err
-			}()
-			select {
-			case <-barrier.reached:
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
-			}
-			require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
-			type claimResult struct {
-				revision *RuntimeRevision
-				err      error
-			}
-			claimed := make(chan claimResult, 1)
-			go func() {
-				r, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
-				claimed <- claimResult{r, err}
-			}()
-			if referenceFirst {
-				// Wait for the actual row-lock wait, not an arbitrary sleep. The
-				// eligibility check must see the subsequent reference commit.
-				require.Eventually(t, func() bool {
-					var waiting bool
-					err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '-- name: GetRuntimeRevisionForUpdate%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
-					return err == nil && waiting
-				}, 5*time.Second, 10*time.Millisecond)
-				resume.Do(func() { close(barrier.resume) })
-				require.NoError(t, <-created)
-				result := <-claimed
-				require.NoError(t, result.err)
-				require.Nil(t, result.revision)
-			} else {
-				result := <-claimed
-				require.NoError(t, result.err)
-				require.NotNil(t, result.revision)
-				resume.Do(func() { close(barrier.resume) })
-				require.ErrorIs(t, <-created, ErrObjectDeleting)
-			}
-		})
+func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T) {
+	for _, source := range []string{"instance", "reactivated pair", "new pair"} {
+		for _, referenceFirst := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reference_first=%t", source, referenceFirst), func(t *testing.T) {
+				pool := setupTestDB(t)
+				client := NewClient(pool)
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+				query := "GetRuntimeRevisionForUpdate"
+				if source != "instance" {
+					query = "GetPairRuntimeRevisionsForUpdate"
+					require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+				}
+				barrier := &runtimeReferenceBarrier{query: query, afterQuery: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
+				var resume sync.Once
+				defer resume.Do(func() { close(barrier.resume) })
+				config := pool.Config()
+				config.ConnConfig.Tracer = barrier
+				creatingPool, err := pgxpool.NewWithConfig(ctx, config)
+				require.NoError(t, err)
+				t.Cleanup(creatingPool.Close)
+				created := make(chan error, 1)
+				go func() {
+					creating := NewClient(creatingPool)
+					if source == "instance" {
+						_, _, err := creating.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
+						created <- err
+						return
+					}
+					pair := AgentTemplateHarnessPair{
+						Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
+						HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "pending",
+					}
+					if source == "new pair" {
+						pair.AgentTemplateUID = "replacement-uid"
+						pair.DesiredRevision = "revision"
+					}
+					created <- creating.UpsertAgentTemplateHarnessPair(ctx, pair)
+				}()
+				select {
+				case <-barrier.reached:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+				if source == "instance" {
+					require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+				}
+				type claimResult struct {
+					revision *RuntimeRevision
+					err      error
+				}
+				claimed := make(chan claimResult, 1)
+				go func() {
+					r, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+					claimed <- claimResult{r, err}
+				}()
+				if referenceFirst {
+					// Wait for the actual row-lock wait. The eligibility check
+					// must see the reference committed after the wait ends.
+					require.Eventually(t, func() bool {
+						var waiting bool
+						err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '-- name: GetRuntimeRevisionForUpdate%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
+						return err == nil && waiting
+					}, 5*time.Second, 10*time.Millisecond)
+					resume.Do(func() { close(barrier.resume) })
+					require.NoError(t, <-created)
+					result := <-claimed
+					require.NoError(t, result.err)
+					require.Nil(t, result.revision)
+				} else {
+					result := <-claimed
+					require.NoError(t, result.err)
+					require.NotNil(t, result.revision)
+					resume.Do(func() { close(barrier.resume) })
+					require.ErrorIs(t, <-created, ErrObjectDeleting)
+				}
+			})
+		}
 	}
 }
 
