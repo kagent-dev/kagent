@@ -87,7 +87,6 @@ function ScheduledRunDetails({ id }: { id: string }) {
   const [notice, setNotice] = useState<string>();
   const [triggerRequestId, setTriggerRequestId] = useState<string>();
   const page = usePageStack(id, "pages");
-  const expanded = useExpandedRows();
   /* Search in the address, like a list's filters: it describes which rows are being
      looked at, so a reload and a shared link should agree. Typing resets the page,
      because a cursor from the unfiltered list means nothing once narrowed. */
@@ -104,10 +103,10 @@ function ScheduledRunDetails({ id }: { id: string }) {
 
   const executions = useMemo(() => history.data?.executions ?? [], [history.data]);
   const { rows, revealed } = useMemo(() => searchExecutions(executions, query), [executions, query]);
-  /* A row whose only match is inside its panel is opened, so the reader can see why it
-     came back. Merged with what they opened by hand rather than replacing it. */
-  const expandedKeys = useMemo(
-    () => [...new Set([...expanded.keys, ...revealed])], [expanded.keys, revealed]);
+  /* Seeded with what the search matched out of sight, so the reader can see why a row
+     came back — and can still close it. */
+  const expanded = useExpandedRows({ keys: revealed, when: query });
+
   const visibleKeys = rows.map((row) => row.id);
 
   async function refresh() {
@@ -220,7 +219,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
         ]} />,
           // Controlled rather than `expandRowByClick`, so `clickableRow` can let the
           // row's conversation link navigate instead of unfolding the row.
-          expandedRowKeys: expandedKeys, onExpand: (open, row) => expanded.set(row.id, open) }}
+          expandedRowKeys: expanded.keys, onExpand: (open, row) => expanded.set(row.id, open) }}
         onRow={(row) => clickableRow(() => expanded.toggle(row.id))} />
       <PageControls testId="schedule-history-pages" page={page} hasNext={Boolean(history.data?.page?.nextPageToken)}
         onNext={() => page.next(history.data?.page?.nextPageToken ?? "")} onBack={page.back} isLoading={history.isLoading} />

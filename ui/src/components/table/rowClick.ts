@@ -64,21 +64,35 @@ export function clickableRow(
  * caller knows which rows are on screen — a filtered, paginated table's "all" is its
  * current page's matches, not everything it could ever show.
  */
-export function useExpandedRows() {
-  const [keys, setKeys] = useState<string[]>([]);
+export function useExpandedRows(seed?: { keys: string[]; when: string }) {
+  const when = seed?.when ?? "";
+  const [state, setState] = useState<{ when: string; keys: string[] }>({ when, keys: [] });
+
+  /*
+   * A seed is a starting point, not an override.
+   *
+   * Derived the way `usePageStack` resets, and for the same reason: a search that opens
+   * the rows it matched inside must hand them back to the reader. Union the seed into
+   * every render instead and the row cannot be closed at all — the click removes the key
+   * and the seed puts it straight back.
+   */
+  const keys = state.when === when ? state.keys : (seed?.keys ?? []);
 
   function set(key: string, open: boolean) {
-    setKeys((current) =>
-      open ? [...current, key] : current.filter((candidate) => candidate !== key),
-    );
+    setState({
+      when,
+      // Deduped: the caller decides from the rendered keys, so a repeat would otherwise
+      // append a key that is already there.
+      keys: open ? [...new Set([...keys, key])] : keys.filter((candidate) => candidate !== key),
+    });
   }
 
   return {
     keys,
     set,
     toggle: (key: string) => set(key, !keys.includes(key)),
-    expandAll: (visible: string[]) => setKeys(visible),
-    collapseAll: () => setKeys([]),
+    expandAll: (visible: string[]) => setState({ when, keys: visible }),
+    collapseAll: () => setState({ when, keys: [] }),
     /** Whether every one of `visible` is already open, for a button that says which it will do. */
     allExpanded: (visible: string[]) =>
       visible.length > 0 && visible.every((key) => keys.includes(key)),

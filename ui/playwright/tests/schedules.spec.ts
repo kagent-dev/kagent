@@ -266,6 +266,19 @@ test("schedules: execution history expands as a whole and searches the loaded pa
     await expect(page.getByText("mock-scheduled-task-3", { exact: true })).toBeVisible();
   });
 
+  await test.step("a revealed row is still the reader's to close", async () => {
+    // It was not: `revealed` used to be unioned into the expanded keys on every render,
+    // so the click removed the key and the reveal put it straight back.
+    await expect(expandAll).toHaveText("Collapse all");
+    await rows.first().click();
+    await expect(panels).toHaveCount(0);
+    await rows.first().click();
+    await expect(panels).toHaveCount(1);
+    // A different search seeds again rather than remembering the last collapse.
+    await page.getByTestId("history-search").fill("mock-scheduled-task-4");
+    await expect(panels).toHaveCount(1);
+  });
+
   await test.step("a search matching nothing is not an empty history", async () => {
     await page.getByTestId("history-search").fill("nothing matches this");
     await expect(page.getByText("Nothing on this page of the history matches that search.")).toBeVisible();
