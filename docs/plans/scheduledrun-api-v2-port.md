@@ -7,12 +7,9 @@ Harness and AgentTemplate remain Kubernetes configuration resources.
 
 ## Implementation progress
 
-Active workspace: repository CWD, branch `feat/scheduled-run-current-api`, based
-on merged namespace-cleanup PR #2730 (`c677a207`). Changes are uncommitted.
-The original contributor branch and its resolved, uncommitted merge remain saved
-in `/tmp/kagent-scheduled-run-v2`; scheduling also has a pre-port stash backup.
-Contributor ancestry must be incorporated before publishing the scheduling PR.
-The separate AgentInstance tombstone PR is not a dependency.
+The port includes main through Substrate 0.0.26 (#2738). Original contributor
+commits `7e6ad0dd` and `f68a7cc0` remain ancestors with their original authors and
+SHAs. The separate AgentInstance tombstone PR is not a dependency.
 
 Implemented:
 
@@ -22,8 +19,8 @@ Implemented:
   and schedule advancement commit together; neither requires a prepared runtime.
 - Execution records own firing identity, immutable prompt/deadline, status, and an
   optional historical instance ID. Trigger returns an execution. Dedicated get/list
-  RPCs provide creator-scoped, paginated execution history, including after deletion
-  of the schedule or instance.
+  RPCs provide creator-scoped, paginated execution history, newest first, including
+  after deletion of the schedule or instance.
 - A separate store operation atomically creates an ordinary instance/A2A context
   and links it to the execution. It pins the ready revision at instance reservation.
   Concurrent retries return the same link. A link to a deleted instance never
@@ -225,9 +222,11 @@ without replacement. Execution history and historical references remain availabl
 3. UI: implemented with React Router/antd/SWR schedule CRUD, pause/trigger,
    paginated execution history, and links to existing conversations. Fixtures remain
    opt-in. Edits use etags; create/trigger retries retain their request IDs.
-4. Clean-install Kind E2E: passed against this branch's Substrate 0.0.25 and fresh
-   PostgreSQL. Cron/manual firing, timeout cleanup, and controller restart recovery
-   run through real gRPC, A2A, and Substrate boundaries with a controlled model.
+4. Kind E2E: passed against fresh PostgreSQL on Substrate 0.0.25, then repeated on
+   0.0.26 after merging main. Cron/manual firing, timeout cleanup, and controller
+   restart recovery run through real gRPC, A2A, and Substrate boundaries with a
+   controlled model. The live browser create/reload/edit/delete test also passed
+   against 0.0.26.
 
 Verify PostgreSQL concurrency/idempotency and migration Up/Down, creator-isolated
 execution history, replay after edits and schedule/instance deletion, optional
@@ -248,13 +247,18 @@ all Go packages compile; full Go lint, Buf lint/regeneration, and sqlc generatio
 pass; UI TypeScript checks pass. Regression coverage includes malformed protobuf payloads,
 immutable execution inputs despite snapshot mutation, lease takeover/reuse, and
 immutable task identity. UI unit tests, typecheck, build, and source lint passed.
-The scheduling mock browser tests passed in Chromium and Firefox. The full mock
-browser run initially had five failures; corrected navigation expectations and
-the affected tests passed with two workers. Source lint has seven existing warnings;
-plain `yarn lint` also scans unrelated old build artifacts in this workspace.
-The live Chromium test passed create/reload/edit/delete against PostgreSQL,
-including `America/New_York` and a fractional timeout. It exposed missing timezone
-data in the controller image; embedding `time/tzdata` fixed the real API rejection.
+The final full mock browser run finished with 202 passes and one Firefox chat
+startup failure. Its trace recorded `NS_ERROR_FILE_NO_DEVICE_SPACE` while loading
+an application module; `/tmp` was 94% full. The affected test passed on rerun with
+browser profiles on the workspace filesystem. All scheduling tests passed in both
+Chromium and Firefox. The schedule creation test waits for the dialog animation
+before submitting the empty form. Source lint has seven existing warnings; plain
+`yarn lint` also scans unrelated old build artifacts in this workspace.
+The live Chromium test includes `America/New_York` and a fractional timeout. It
+exposed missing timezone data in the controller image; embedding `time/tzdata`
+fixed the real API rejection. The final review also corrected history ordering:
+new executions appear on page one instead of behind older pages; real database and
+gRPC pagination tests verify the descending cursor.
 The cluster also logged the existing runtime-revision GC foreign-key error seen
 outside scheduling; it did not block these tests and remains outside this change.
 
@@ -288,76 +292,25 @@ Keep the original contributor's commits as ancestors. Replace CRD/controller/RES
 legacy Session wiring with current API boundaries. No schedule CRD, Kubernetes
 CronJob, generic job framework, or catch-up policy matrix is needed.
 
-## What is actually in the PR
+## Attribution and merge policy
 
-The PR currently targets `release/v0.10.x`. Its GitHub commit/file listing includes
-unrelated mainline work. Relative to current main, only five commits are unique:
+This port follows the original PR #2097 snapshot at `f68a7cc0`. Its core feature
+commit is `7e6ad0dd` by 0xLeo258. The original CRD reused an agent runtime and
+created a fresh session per firing; this port preserves independent conversations,
+manual triggers while paused, overlapping firings, and no catch-up backlog.
 
-| Commit | Author | Content |
-| --- | --- | --- |
-| `7e6ad0dd` | `0xLeo258 <noixe0312@gmail.com>` | Entire ScheduledRun implementation; signed off by the author |
-| `f13c8deb` | Eitan Yarmush | Merge main |
-| `41d41380` | Eitan Yarmush | Merge main |
-| `a1d0bf1d` | 0xLeo258 | Merge upstream/main |
-| `f68a7cc0` | 0xLeo258 | Remove one blank line from a handler test |
+Commit `7d13eb60` implements the port on the current API. Merge `0513fec0` retains
+the original branch using the `ours` strategy because the legacy CRD, REST, and
+Session implementation has been replaced completely. That merge changes no files.
+Both original contributor commits are verified ancestors. The original worktree
+remains untouched as a backup.
 
-The feature comparison is **58 files, 8,274 additions, 93 deletions**. The initial
-feature commit already contains essentially all of the implementation. Its
-scheduler, target resolver, controller, and CRD source are unchanged at PR head.
+PR #2097 has since been rewritten against `release/v0.10.x` (head `56d7330d` when
+checked on 2026-09-08). Publish this as a successor against main, linking #2097 and
+crediting 0xLeo258; do not overwrite their release branch.
 
-`git merge-tree --write-tree origin/main origin/pr-2097` reports **32 conflicts**.
-Several are modified files that main deliberately deleted. Git also incorrectly
-suggests moving the new REST handlers into `internal/service/model`; reject that
-directory-rename guess. An automatically merging file is not necessarily reusable:
-the old scheduler and Next.js pages are new files and still need semantic changes.
-
-The PR body is stale. Source and tests say:
-
-- Suspension stops cron ticks; **manual triggering remains allowed**.
-- Each execution gets an independent session; overlapping executions are allowed.
-- Missed ticks are not replayed.
-- Status names are `DispatchFailed/InProgress/Succeeded/Failed/TimedOut`.
-- A durable database execution table supplements recent executions in CRD status.
-- The inspected scheduler/controller contain no dedicated metrics implementation.
-
-Use these implemented semantics as the baseline, rather than the PR description.
-
-## Git procedure and attribution
-
-Recommended procedure, to execute when implementing the port:
-
-```sh
-git fetch origin main refs/pull/2097/head:refs/remotes/origin/pr-2097
-git worktree add -b feat/scheduled-run-v2 /tmp/kagent-scheduled-run-v2 origin/pr-2097
-git -C /tmp/kagent-scheduled-run-v2 merge --no-commit --no-ff origin/main
-```
-
-The last command is expected to stop with conflicts. Resolve legacy infrastructure
-and deleted files to current main, migrate the retained feature sources, remove
-obsolete newly added files, and regenerate outputs. Inspect the complete diff
-against main, not just Git's conflict list. Keep the original scheduling semantics and useful
-pure helpers/tests. Remove the
-ScheduledRun CRD, its generated artifacts, controller, Kubernetes RBAC additions,
-and old REST/UI integrations from the resulting tree. The merge commit should
-explicitly describe the move to a PostgreSQL-backed API object.
-
-Once validation passes, create a signed-off merge commit describing the port.
-Further fixes can be ordinary signed-off commits. This puts both original feature
-commits, with their author metadata and original SHAs, in the branch ancestry.
-No existing contributor branch needs a force-push.
-
-Before publishing, verify ancestry with `git merge-base --is-ancestor` for
-`7e6ad0dd` and `f68a7cc0`, and inspect `git diff origin/main...HEAD`. Retarget #2097
-to main if continuing that PR is possible; otherwise open a successor against main
-crediting and linking #2097. Preserve commits when merging the finished PR:
-**squash-merging would discard this exact history**.
-
-If project policy requires linear history instead, cherry-pick `7e6ad0dd` with
-`-x -s` onto current main and resolve it as the port. Git preserves the original
-author while changing the commit SHA. The whitespace-only follow-up becomes
-irrelevant when the old REST test is removed; record that in the PR description.
-This is a valid attribution-preserving alternative, but not exact history retention.
-
-The attribution investigation above predates implementation. Current port and
-worker changes are uncommitted in CWD; the original worktree remains a history
-backup. No scheduling branch push or PR edit has been made.
+The repository currently allows only squash merges. The PR branch retains the
+original history, but preserving those commits on main requires enabling and using
+a merge commit. If the repository keeps its squash-only policy, include
+`Co-authored-by: 0xLeo258 <noixe0312@gmail.com>` in the squash commit to retain credit;
+the original SHAs will remain on the PR branch rather than in main's ancestry.

@@ -41,6 +41,10 @@ test("schedules: create using an existing agent", async ({ page }) => {
   await page.goto("/schedules?mock=ok");
   await page.getByRole("button", { name: "New schedule", exact: true }).click();
   const editor = page.getByRole("dialog");
+  // The first click is in the footer, which moves during the opening animation.
+  await expect.poll(() => editor.evaluate((element) =>
+    element.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running"),
+  )).toBe(true);
   await editor.getByRole("button", { name: "Create schedule", exact: true }).click();
   await expect(editor.getByText("Choose an agent.", { exact: true })).toBeVisible();
   await editor.getByLabel("Agent", { exact: true }).click();
