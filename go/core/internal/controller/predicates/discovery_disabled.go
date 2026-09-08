@@ -20,9 +20,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-)
 
-const discoveryLabel = "kagent.dev/discovery"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
+)
 
 // DiscoveryDisabledPredicate filters out resources with the discovery label set to disabled
 type DiscoveryDisabledPredicate struct {
@@ -55,6 +55,6 @@ func isDiscoveryDisabled(obj client.Object) bool {
 		return false
 	}
 
-	discoveryLabelValue, exists := labels[discoveryLabel]
-	return exists && discoveryLabelValue == "disabled"
+	discoveryLabelValue, exists := labels[consts.DiscoveryLabel]
+	return exists && discoveryLabelValue == consts.DiscoveryDisabled
 }
