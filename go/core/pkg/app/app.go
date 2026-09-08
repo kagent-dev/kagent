@@ -279,6 +279,9 @@ func Run(ctx context.Context, opts Options) error {
 	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
 		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
+	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
+		return fmt.Errorf("add scheduled run scheduler: %w", err)
+	}
 	if err := manager.Add(scheduledruncontroller.NewController(store, instanceWorkflow,
 		gateway, authorizer)); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)

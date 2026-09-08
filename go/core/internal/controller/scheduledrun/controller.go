@@ -23,7 +23,6 @@ import (
 type controllerStore interface {
 	GetScheduledRun(context.Context, string, string) (*apiv1alpha1.ScheduledRun, error)
 	ReserveScheduledRunExecutionInstance(context.Context, string, string) (*apiv1alpha1.ScheduledRunExecution, error)
-	ReserveDueScheduledRuns(context.Context, int) ([]*apiv1alpha1.ScheduledRunExecution, error)
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
 	UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -35,8 +34,8 @@ type controllerWorkflow interface {
 	Delete(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 }
 
-// Controller is owned by the controller manager. SQL leases fence status writes;
-// A2A's initial-message uniqueness fences dispatch across overlapping leaders.
+// Controller reconciles executions on every replica. SQL leases fence status
+// writes; A2A's initial-message uniqueness fences dispatch across replicas.
 type Controller struct {
 	store      controllerStore
 	workflow   controllerWorkflow
@@ -51,7 +50,7 @@ func NewController(store controllerStore, workflow controllerWorkflow, gateway a
 	return &Controller{store: store, workflow: workflow, gateway: gateway, authorizer: authorizer}
 }
 
-func (*Controller) NeedLeaderElection() bool { return true }
+func (*Controller) NeedLeaderElection() bool { return false }
 
 func (c *Controller) Start(ctx context.Context) error {
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
@@ -70,11 +69,6 @@ func (c *Controller) Start(ctx context.Context) error {
 }
 
 func (c *Controller) tick(ctx context.Context) error {
-	if _, err := c.store.ReserveDueScheduledRuns(ctx, 100); err != nil {
-		return err
-	}
-	// ponytail: eight concurrent reconciliations per polling batch. Use a
-	// continuous work queue if provisioning latency starts delaying cron ticks.
 	leases, err := c.store.LeaseScheduledRunExecutions(ctx, 8)
 	if err != nil {
 		return err
@@ -99,6 +93,9 @@ func (c *Controller) tick(ctx context.Context) error {
 			}
 		})
 	}
+	// ponytail: each batch waits for its slowest reconciliation. We'll likely
+	// need a custom work queue that leases more work as capacity becomes available,
+	// without blocking on the whole batch's results.
 	wg.Wait()
 	return nil
 }
