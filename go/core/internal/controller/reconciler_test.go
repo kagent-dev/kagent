@@ -123,7 +123,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	// bounded error retries, and must stop once the reference can be acquired.
 	state.ObservedActorTemplate = templates.template
 	reconciliations.UpdateObject(state)
-	store.pairErr = database.ErrRuntimeRevisionDeleting
+	store.pairErr = database.ErrObjectDeleting
 	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
 	_, waiting := reconciler.waitingForDeletion.Load(state.ResourceName())
 	require.True(t, waiting)

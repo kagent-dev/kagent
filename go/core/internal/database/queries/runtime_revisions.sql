@@ -91,7 +91,7 @@ UPDATE agent_template_harness_pair
 SET latest_successful_revision = NULL, updated_at = NOW()
 WHERE retired_at IS NOT NULL AND latest_successful_revision = $1;
 
--- name: DeleteUnreferencedRuntimeRevision :exec
+-- name: DeleteRuntimeRevision :exec
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
   AND r.deletion_started_at IS NOT NULL;

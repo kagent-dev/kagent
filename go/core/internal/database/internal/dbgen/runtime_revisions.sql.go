@@ -24,14 +24,14 @@ func (q *Queries) BeginRuntimeRevisionDeletion(ctx context.Context, revision str
 	return result.RowsAffected(), nil
 }
 
-const deleteUnreferencedRuntimeRevision = `-- name: DeleteUnreferencedRuntimeRevision :exec
+const deleteRuntimeRevision = `-- name: DeleteRuntimeRevision :exec
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
   AND r.deletion_started_at IS NOT NULL
 `
 
-func (q *Queries) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
-	_, err := q.db.Exec(ctx, deleteUnreferencedRuntimeRevision, revision)
+func (q *Queries) DeleteRuntimeRevision(ctx context.Context, revision string) error {
+	_, err := q.db.Exec(ctx, deleteRuntimeRevision, revision)
 	return err
 }
 

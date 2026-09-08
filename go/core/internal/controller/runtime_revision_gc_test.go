@@ -100,7 +100,7 @@ func (s *fakeGCStore) BeginRuntimeRevisionDeletion(_ context.Context, id string)
 	return nil, nil
 }
 
-func (s *fakeGCStore) DeleteUnreferencedRuntimeRevision(_ context.Context, id, _ string) error {
+func (s *fakeGCStore) DeleteRuntimeRevision(_ context.Context, id, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.deleted = append(s.deleted, id)

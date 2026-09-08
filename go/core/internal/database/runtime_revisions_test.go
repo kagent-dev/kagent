@@ -27,7 +27,7 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 			revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Empty(t, revisions)
-			require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 			_, err = client.GetRuntimeRevision(ctx, "revision")
 			require.NoError(t, err)
 
@@ -47,10 +47,10 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 			claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 			require.NoError(t, err)
 			require.NotNil(t, claimed)
-			require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 			_, err = client.GetRuntimeRevision(ctx, "revision")
 			require.ErrorIs(t, err, ErrNotFound)
-			require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 		})
 	}
 }
@@ -73,7 +73,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 		claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 		require.NoError(t, err)
 		require.Nil(t, claimed)
-		require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+		require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 		_, err = client.GetRuntimeRevision(ctx, "revision")
 		require.NoError(t, err)
 	}
@@ -106,7 +106,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	_, err = client.GetRuntimeRevision(ctx, "revision")
 	require.ErrorIs(t, err, ErrNotFound)
 }
@@ -145,7 +145,7 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "old")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
-	require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "old", "old-actor-uid"))
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "old", "old-actor-uid"))
 }
 
 // Pause the real store's INSERT at either side of reference acquisition. This
@@ -229,7 +229,7 @@ func TestRuntimeRevisionClaimSerializesWithInstanceCreation(t *testing.T) {
 				require.NoError(t, result.err)
 				require.NotNil(t, result.revision)
 				resume.Do(func() { close(barrier.resume) })
-				require.ErrorIs(t, <-created, ErrRuntimeRevisionDeleting)
+				require.ErrorIs(t, <-created, ErrObjectDeleting)
 			}
 		})
 	}
@@ -246,7 +246,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	}
 	require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
 	// A skipped finalization must leave last-good intact for reactivation.
-	require.NoError(t, client.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
 	require.NoError(t, err)
@@ -258,11 +258,11 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.NotNil(t, claimed)
 	// Reactivating a retired success pointer and adding a new desired edge are
 	// both forbidden, as is overwriting a runtime while deletion is in flight.
-	require.ErrorIs(t, client.UpsertAgentTemplateHarnessPair(ctx, pair), ErrRuntimeRevisionDeleting)
+	require.ErrorIs(t, client.UpsertAgentTemplateHarnessPair(ctx, pair), ErrObjectDeleting)
 	pair.AgentTemplateUID = "replacement-uid"
 	pair.DesiredRevision = "revision"
-	require.ErrorIs(t, client.UpsertAgentTemplateHarnessPair(ctx, pair), ErrRuntimeRevisionDeleting)
-	require.ErrorIs(t, client.UpsertRuntimeRevision(ctx, *claimed), ErrRuntimeRevisionDeleting)
+	require.ErrorIs(t, client.UpsertAgentTemplateHarnessPair(ctx, pair), ErrObjectDeleting)
+	require.ErrorIs(t, client.UpsertRuntimeRevision(ctx, *claimed), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
 	restarted := NewClient(pool)
 	revisions, err := restarted.ListUnreferencedRuntimeRevisions(ctx)
@@ -273,7 +273,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.NotNil(t, retry)
 	require.Equal(t, claimed.Revision, retry.Revision)
 	require.Equal(t, claimed.ActorTemplateUID, retry.ActorTemplateUID)
-	require.NoError(t, restarted.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.ErrorIs(t, err, ErrNotFound)
 	// The same digest can be prepared again once cleanup has completed.
@@ -282,10 +282,10 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	newClaim, err := restarted.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, newClaim)
-	require.NoError(t, restarted.DeleteUnreferencedRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err, "a delayed collector must not finalize the new runtime")
-	require.NoError(t, restarted.DeleteUnreferencedRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
+	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
 	require.NoError(t, restarted.UpsertRuntimeRevision(ctx, *claimed))
 	require.NoError(t, restarted.UpsertAgentTemplateHarnessPair(ctx, pair))
 }

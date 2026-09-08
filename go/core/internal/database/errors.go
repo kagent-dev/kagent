@@ -18,5 +18,6 @@ var (
 	ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
 )
 
-// A claimed revision is unavailable to new instances until cleanup finishes.
-var ErrRuntimeRevisionDeleting = fmt.Errorf("runtime revision is being deleted: %w", ErrNotFound)
+// ErrObjectDeleting reports that deletion has started. The object is unavailable
+// to new callers, so it also matches ErrNotFound.
+var ErrObjectDeleting = fmt.Errorf("object is being deleted: %w", ErrNotFound)

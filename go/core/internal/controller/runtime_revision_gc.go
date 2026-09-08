@@ -18,7 +18,7 @@ const runtimeRevisionGCInterval = time.Minute
 type runtimeRevisionGCStore interface {
 	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
 	BeginRuntimeRevisionDeletion(context.Context, string) (*database.RuntimeRevision, error)
-	DeleteUnreferencedRuntimeRevision(context.Context, string, string) error
+	DeleteRuntimeRevision(context.Context, string, string) error
 }
 
 type runtimeRevisionGCClient interface {
@@ -101,7 +101,7 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) error {
 	if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID); err != nil {
 		return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
-	if err := r.store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision, revision.ActorTemplateUID); err != nil {
+	if err := r.store.DeleteRuntimeRevision(ctx, revision.Revision, revision.ActorTemplateUID); err != nil {
 		return fmt.Errorf("delete unreferenced runtime revision %s: %w", revision.Revision, err)
 	}
 	return nil

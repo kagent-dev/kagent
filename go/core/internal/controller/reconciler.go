@@ -281,7 +281,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state.
 	if err := r.store.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
-		if errors.Is(err, database.ErrRuntimeRevisionDeleting) {
+		if errors.Is(err, database.ErrObjectDeleting) {
 			// A desired digest may be awaiting cleanup from an earlier identity.
 			// Let GC finish, then retry even if the cached template looked ready.
 			r.forgetActorTemplate(key)
