@@ -67,14 +67,11 @@ func NewOpenAIModel(ctx context.Context, config *OpenAIConfig) (*OpenAIModel, er
 	return newOpenAIModelFromConfig(ctx, config, apiKey)
 }
 
-// keylessOpenAIPlaceholder is sent to OpenAI-compatible endpoints that ignore
-// the key (vLLM, LiteLLM, Ollama, proxies) when no key source is configured.
-const keylessOpenAIPlaceholder = "unused"
-
-// resolveOpenAIAPIKey picks the client API key. With APIKeyPassthrough the
-// placeholder is overwritten per request by the transport. Otherwise
-// OPENAI_API_KEY is required for api.openai.com, but a custom BaseUrl may be a
-// keyless endpoint, so a missing key falls back to a placeholder there.
+// resolveOpenAIAPIKey resolves the data-plane API key for the OpenAI provider.
+// api.openai.com requires a key. A custom BaseUrl may point at an
+// OpenAI-compatible endpoint that takes no credentials, so there a missing key
+// yields an empty one and the client sends no Authorization header. With
+// APIKeyPassthrough the transport sets the key per request.
 func resolveOpenAIAPIKey(ctx context.Context, config *OpenAIConfig) (string, error) {
 	if config.APIKeyPassthrough {
 		return "passthrough", nil
@@ -86,20 +83,17 @@ func resolveOpenAIAPIKey(ctx context.Context, config *OpenAIConfig) (string, err
 		return "", fmt.Errorf("OPENAI_API_KEY environment variable is not set")
 	}
 	logging.FromContext(ctx).WarnContext(ctx,
-		"OPENAI_API_KEY is not set; using a placeholder key for the custom OpenAI base URL",
+		"OPENAI_API_KEY is not set; calling the custom OpenAI base URL without an Authorization header",
 		"base_url", config.BaseUrl)
-	return keylessOpenAIPlaceholder, nil
+	return "", nil
 }
 
 // NewOpenAICompatibleModel creates an OpenAI-compatible model (e.g. LiteLLM, Ollama).
 // baseURL is the API base (e.g. http://localhost:11434/v1 for Ollama). apiKey is optional; if empty,
-// OPENAI_API_KEY is used, then a placeholder for endpoints that do not require a key.
+// OPENAI_API_KEY is used, and if that is also empty the endpoint is called unauthenticated.
 func NewOpenAICompatibleModel(ctx context.Context, baseURL, modelName string, headers map[string]string, apiKey string) (*OpenAIModel, error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-	if apiKey == "" {
-		apiKey = keylessOpenAIPlaceholder
 	}
 	config := &OpenAIConfig{
 		TransportConfig: TransportConfig{Headers: headers},
@@ -114,6 +108,8 @@ func NewOpenAICompatibleModel(ctx context.Context, baseURL, modelName string, he
 func newOpenAIModelFromConfig(ctx context.Context, config *OpenAIConfig, apiKey string) (*OpenAIModel, error) {
 	logger := logging.FromContext(ctx)
 	opts := []option.RequestOption{
+		// An empty key overrides the SDK's own OPENAI_API_KEY default, so the
+		// client sends no Authorization header.
 		option.WithAPIKey(apiKey),
 	}
 	if config.BaseUrl != "" {
