@@ -17,10 +17,12 @@ import (
 // Public streams only observe the events it publishes.
 type taskRun struct {
 	gateway *Gateway
-	client  *a2aclient.Client
-	key     string
-	queueID a2atype.TaskID
-	done    chan struct{}
+	// Cancellation and terminal ingestion can both close ingress. Share the
+	// result so grpc.ClientConn.Close is called exactly once.
+	closeRuntime func() error
+	key          string
+	queueID      a2atype.TaskID
+	done         chan struct{}
 
 	mu   sync.Mutex
 	err  error
@@ -41,7 +43,7 @@ func (g *Gateway) taskRun(instanceID string, taskID a2atype.TaskID) (*taskRun, b
 
 func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) (*taskRun, eventqueue.Reader, error) {
 	key := taskRunKey(instance.GetId(), task.ID)
-	run := &taskRun{gateway: g, client: client, key: key, queueID: a2atype.TaskID(key), done: make(chan struct{})}
+	run := &taskRun{gateway: g, closeRuntime: sync.OnceValue(client.Destroy), key: key, queueID: a2atype.TaskID(key), done: make(chan struct{})}
 	if _, loaded := g.runs.LoadOrStore(key, run); loaded {
 		return nil, nil, fmt.Errorf("task event ingester already exists")
 	}
@@ -57,14 +59,14 @@ func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentI
 		g.runs.Delete(key)
 		return nil, nil, fmt.Errorf("create task event reader: %w", err)
 	}
-	go run.ingest(context.WithoutCancel(ctx), instance, task, client, writer, events)
+	go run.ingest(context.WithoutCancel(ctx), instance, task, writer, events)
 	return run, reader, nil
 }
 
-func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, client *a2aclient.Client, writer eventqueue.Writer, events iter.Seq2[a2atype.Event, error]) {
+func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, writer eventqueue.Writer, events iter.Seq2[a2atype.Event, error]) {
 	defer func() {
 		_ = writer.Close()
-		_ = client.Destroy()
+		_ = r.closeRuntime()
 		close(r.done)
 		_ = r.gateway.events.Destroy(ctx, r.queueID)
 		r.gateway.runs.CompareAndDelete(r.key, r)
@@ -79,7 +81,7 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 		if err == nil && isQuiescent(updated.Status.State) {
 			release := r.gateway.coordinator.Quiesce(instance.GetId())
 			// Quiescence drains ingress; close this terminal stream so it cannot wait on itself.
-			if closeErr := client.Destroy(); closeErr != nil {
+			if closeErr := r.closeRuntime(); closeErr != nil {
 				err = fmt.Errorf("close terminal runtime stream: %w", closeErr)
 			}
 			if err == nil {

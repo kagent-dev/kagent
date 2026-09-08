@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -865,6 +867,58 @@ func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
 	}
 	if workflow.quiesceCalls != 1 || len(store.stored) != 2 {
 		t.Fatalf("quiescence calls = %d, stored events = %d; want 1 and 2", workflow.quiesceCalls, len(store.stored))
+	}
+}
+
+// Like grpc.ClientConn, this transport rejects closing an already closed connection.
+type singleCloseGatewayRuntime struct {
+	gatewayTestRuntime
+	closes atomic.Int32
+}
+
+func (r *singleCloseGatewayRuntime) Destroy() error {
+	if r.closes.Add(1) > 1 {
+		return errors.New("grpc: the client connection is closing")
+	}
+	return nil
+}
+
+func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T) {
+	runtime := &singleCloseGatewayRuntime{}
+	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	workflow := &gatewayTestWorkflow{}
+	gateway := &Gateway{store: store, workflow: workflow, events: eventqueue.NewInMemoryManager(), coordinator: &memoryRuntimeCoordinator{}}
+	task := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	release := make(chan struct{})
+	events := func(yield func(a2atype.Event, error) bool) {
+		<-release
+		yield(a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, nil), nil)
+	}
+	run, reader, err := gateway.startTaskRun(gatewayTestContext(), store.instance, task, gatewayTestClient(t, runtime), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cancellation closes ingress while a terminal event is already in flight.
+	closeErr := run.closeRuntime()
+	close(release)
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	terminal := a2atype.TaskStateUnspecified
+	for event, err := range run.observeReader(t.Context(), nil, reader) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok {
+			terminal = update.Status.State
+		}
+	}
+	<-run.done
+	if terminal != a2atype.TaskStateCanceled || len(store.stored) != 1 || workflow.quiesceCalls != 1 {
+		t.Fatalf("terminal=%s, writes=%d, quiescence=%d", terminal, len(store.stored), workflow.quiesceCalls)
+	}
+	if got := runtime.closes.Load(); got != 1 {
+		t.Fatalf("runtime closed %d times, want once", got)
 	}
 }
 

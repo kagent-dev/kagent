@@ -302,7 +302,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if observing {
 		// CancelTask need not deliver a final stream event. Stop ingress before
 		// cleanup, then let its owner finish any event already being persisted.
-		if err := run.client.Destroy(); err != nil {
+		if err := run.closeRuntime(); err != nil {
 			return nil, err
 		}
 		select {
