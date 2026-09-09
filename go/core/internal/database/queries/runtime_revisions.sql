@@ -35,11 +35,6 @@ WHERE namespace = sqlc.arg(namespace)
   AND desired_revision = sqlc.arg(revision)
   AND retired_at IS NULL;
 
--- name: RetireAgentTemplateHarnessPairs :exec
-UPDATE agent_template_harness_pair
-SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-WHERE namespace = $1 AND agent_template_name = $2;
-
 -- Keep the current UID pair and retire older identities at the same names.
 -- name: RetirePairIdentitiesExcept :exec
 UPDATE agent_template_harness_pair
@@ -76,6 +71,18 @@ WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision);
 -- references committed while waiting for the lock are visible to the claim.
 -- name: GetRuntimeRevisionForUpdate :one
 SELECT * FROM runtime_revision WHERE revision = $1 FOR UPDATE;
+
+-- Operations touching both pairs and revisions always lock pairs first.
+-- name: GetAgentTemplateHarnessPairForUpdate :one
+SELECT * FROM agent_template_harness_pair
+WHERE namespace = $1 AND agent_template_uid = $2 AND harness_uid = $3
+FOR UPDATE;
+
+-- name: GetRetiredRuntimeRevisionPairsForUpdate :many
+SELECT * FROM agent_template_harness_pair
+WHERE retired_at IS NOT NULL AND latest_successful_revision = $1
+ORDER BY namespace, agent_template_uid, harness_uid
+FOR UPDATE;
 
 -- Include the retained success pointer when a retired pair is reactivated.
 -- Desired revisions may not exist yet: pairs are stored before compilation.

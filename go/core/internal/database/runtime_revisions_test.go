@@ -17,7 +17,7 @@ import (
 )
 
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
-	for _, scope := range []string{"pair", "template", "removed harness"} {
+	for _, scope := range []string{"pair", "removed harness"} {
 		t.Run(scope, func(t *testing.T) {
 			client := NewClient(setupTestDB(t))
 			ctx := t.Context()
@@ -34,8 +34,6 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 			switch scope {
 			case "pair":
 				err = client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent")
-			case "template":
-				err = client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant")
 			case "removed harness":
 				err = client.RetireOtherAgentTemplateHarnessPairs(ctx, "team-a", "assistant-uid", []string{})
 			}
@@ -63,7 +61,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.MarkAgentInstanceReady(ctx, instance.GetId(), "runtime")
 	require.NoError(t, err)
-	require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 
 	assertRetained := func() {
 		t.Helper()
@@ -188,7 +186,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				query := "GetRuntimeRevisionForUpdate"
 				if source != "instance" {
 					query = "GetPairRuntimeRevisionsForUpdate"
-					require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+					require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 				}
 				barrier := &runtimeReferenceBarrier{query: query, afterQuery: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
 				var resume sync.Once
@@ -222,7 +220,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					t.Fatal(ctx.Err())
 				}
 				if source == "instance" {
-					require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+					require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 				}
 				type claimResult struct {
 					revision *RuntimeRevision
@@ -267,7 +265,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
 		HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "pending",
 	}
-	require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 	// A skipped finalization must leave last-good intact for reactivation.
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
@@ -275,7 +273,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, "revision", instance.GetPreparedRevision())
 	require.NoError(t, client.DeleteAgentInstance(ctx, instance.GetId()))
-	require.NoError(t, client.RetireAgentTemplateHarnessPairs(ctx, "team-a", "assistant"))
+	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -311,4 +309,75 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
 	require.NoError(t, restarted.UpsertRuntimeRevision(ctx, *claimed))
 	require.NoError(t, restarted.UpsertAgentTemplateHarnessPair(ctx, pair))
+}
+
+func TestRuntimeRevisionFinalizationSerializesWithPairReactivation(t *testing.T) {
+	for _, finalizeFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("finalize_first=%t", finalizeFirst), func(t *testing.T) {
+			pool := setupTestDB(t)
+			client := NewClient(pool)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+			claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+			require.NoError(t, err)
+			require.NotNil(t, claimed)
+
+			barrier := &runtimeReferenceBarrier{
+				query: "GetPairRuntimeRevisionsForUpdate", reached: make(chan struct{}), resume: make(chan struct{}),
+			}
+			waitingQuery := "GetRetiredRuntimeRevisionPairsForUpdate"
+			if finalizeFirst {
+				barrier.query, barrier.afterQuery = "GetRuntimeRevisionForUpdate", true
+				waitingQuery = "UpsertAgentTemplateHarnessPair"
+			}
+			var resume sync.Once
+			defer resume.Do(func() { close(barrier.resume) })
+			config := pool.Config()
+			config.ConnConfig.Tracer = barrier
+			blockedPool, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			t.Cleanup(blockedPool.Close)
+			creating, deleting := NewClient(blockedPool), client
+			if finalizeFirst {
+				creating, deleting = client, creating
+			}
+			pair := AgentTemplateHarnessPair{
+				Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
+				HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "revision",
+			}
+			created, deleted := make(chan error, 1), make(chan error, 1)
+			create := func() { created <- creating.UpsertAgentTemplateHarnessPair(ctx, pair) }
+			finalize := func() { deleted <- deleting.DeleteRuntimeRevision(ctx, "revision", claimed.ActorTemplateUID) }
+			if finalizeFirst {
+				go finalize()
+			} else {
+				go create()
+			}
+			select {
+			case <-barrier.reached:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			if finalizeFirst {
+				go create()
+			} else {
+				go finalize()
+			}
+			require.Eventually(t, func() bool {
+				var waiting bool
+				err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE $1 AND cardinality(pg_blocking_pids(pid)) > 0)", "-- name: "+waitingQuery+"%").Scan(&waiting)
+				return err == nil && waiting
+			}, 5*time.Second, 10*time.Millisecond)
+			resume.Do(func() { close(barrier.resume) })
+			if finalizeFirst {
+				require.NoError(t, <-created)
+			} else {
+				require.ErrorIs(t, <-created, ErrObjectDeleting)
+			}
+			require.NoError(t, <-deleted, "finalization and reactivation must not deadlock")
+			require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
+		})
+	}
 }

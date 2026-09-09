@@ -186,6 +186,15 @@ func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplat
 func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		_, err := q.GetAgentTemplateHarnessPairForUpdate(ctx, dbgen.GetAgentTemplateHarnessPairForUpdateParams{
+			Namespace: pair.Namespace, AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 		if _, err := getAvailableRuntimeRevisionForUpdate(ctx, q, revision); err != nil {
 			return err
 		}
@@ -203,10 +212,6 @@ func (c *Client) RetirePairIdentitiesExcept(ctx context.Context, keep AgentTempl
 		Namespace: keep.Namespace, AgentTemplateName: keep.AgentTemplateName, HarnessName: keep.HarnessName,
 		KeepAgentTemplateUid: keep.AgentTemplateUID, KeepHarnessUid: keep.HarnessUID,
 	})
-}
-
-func (c *Client) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
-	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
 }
 
 // RetireAllPairIdentities retires every UID pair at the given template/harness
@@ -262,6 +267,11 @@ func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision stri
 
 func (c *Client) DeleteRuntimeRevision(ctx context.Context, revision, actorTemplateUID string) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		// Match pair preparation's lock order, including reactivation of a
+		// retired success pointer while GC is finalizing its revision.
+		if _, err := q.GetRetiredRuntimeRevisionPairsForUpdate(ctx, &revision); err != nil {
+			return err
+		}
 		row, err := q.GetRuntimeRevisionForUpdate(ctx, revision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

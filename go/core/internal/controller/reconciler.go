@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/workqueue"
 )
 
 // PairReconciliation is the complete desired and observed state for one
@@ -93,9 +94,8 @@ func newPairReconciliations(
 			return state
 		}
 
-		ref := state.DesiredActorTemplate.GetMetadata()
-		observed := krt.FetchOne(ctx, actorTemplates, krt.FilterKey(ref.GetAtespace()+"/"+ref.GetName()))
-		if observed == nil {
+		observed := krt.FetchOne(ctx, actorTemplates, krt.FilterKey(pair.ResourceName()))
+		if observed == nil || observed.RevisionID != state.RevisionID {
 			return state
 		}
 		state.ObservedActorTemplate = (*observed).Template
@@ -132,11 +132,10 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections            Collections
-	templates              actorTemplateClient
-	store                  runtimeRevisionStore
-	status                 kagentclient.ApiV1alpha3Interface
-	observedActorTemplates map[string]string // Pair key to observation key; owned by the pair queue.
+	collections Collections
+	templates   actorTemplateClient
+	store       runtimeRevisionStore
+	status      kagentclient.ApiV1alpha3Interface
 
 	pairs                      controllers.Queue
 	agentTemplateStatuses      controllers.Queue
@@ -163,21 +162,20 @@ func newReconciler(
 	status kagentclient.ApiV1alpha3Interface,
 ) *Reconciler {
 	r := &Reconciler{
-		collections:            collections,
-		templates:              templates,
-		store:                  store,
-		status:                 status,
-		observedActorTemplates: make(map[string]string),
+		collections: collections,
+		templates:   templates,
+		store:       store,
+		status:      status,
 	}
-	r.pairs = controllers.NewQueue("v2-agent-template-pairs", controllers.WithGenericReconciler(func(item any) error {
+	r.pairs = newReconciliationQueue("v2-agent-template-pairs", func(item any) error {
 		return r.reconcilePair(context.Background(), item.(string))
-	}), controllers.WithMaxAttempts(5))
-	r.agentTemplateStatuses = controllers.NewQueue("v2-agent-template-status", controllers.WithGenericReconciler(func(item any) error {
+	})
+	r.agentTemplateStatuses = newReconciliationQueue("v2-agent-template-status", func(item any) error {
 		return r.reconcileAgentTemplateStatus(context.Background(), item.(string))
-	}), controllers.WithMaxAttempts(5))
-	r.modelConfigStatuses = controllers.NewQueue("v2-model-config-status", controllers.WithGenericReconciler(func(item any) error {
+	})
+	r.modelConfigStatuses = newReconciliationQueue("v2-model-config-status", func(item any) error {
 		return r.reconcileModelConfigStatus(context.Background(), item.(string))
-	}), controllers.WithMaxAttempts(5))
+	})
 
 	r.pairHandler = collections.Reconciliations.Register(func(event krt.Event[PairReconciliation]) {
 		r.pairs.Add(krt.GetKey(event.Latest()))
@@ -197,6 +195,15 @@ func newReconciler(
 		r.modelConfigStatuses.Add(status.ResourceName())
 	})
 	return r
+}
+
+// Ten attempts span about 2.5 minutes. Each queue owns its backoff state;
+// fresh graph events can enqueue work again after an error budget is exhausted.
+func newReconciliationQueue(name string, reconcile func(any) error) controllers.Queue {
+	return controllers.NewQueue(name, controllers.WithGenericReconciler(reconcile),
+		controllers.WithMaxAttempts(10),
+		controllers.WithRateLimiter(workqueue.NewTypedItemExponentialFailureRateLimiter[any](time.Second, 30*time.Second)),
+	)
 }
 
 // Run waits for the graph boundary to observe initial state, then processes
@@ -241,12 +248,9 @@ func (r *Reconciler) NeedLeaderElection() bool { return true }
 
 func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	state := r.collections.Reconciliations.GetKey(key)
-	var desiredObservation string
-	if state != nil && state.Revision != nil && !state.RevisionID.IsZero() && state.DesiredActorTemplate != nil {
-		desiredObservation = (ObservedActorTemplate{Template: state.DesiredActorTemplate}).ResourceName()
-	}
-	if r.observedActorTemplates[key] != desiredObservation {
-		r.forgetActorTemplate(key)
+	if observation := r.collections.ActorTemplates.GetKey(key); observation != nil &&
+		(state == nil || state.Revision == nil || observation.RevisionID != state.RevisionID) {
+		r.collections.ActorTemplates.DeleteObject(key)
 	}
 	if state == nil {
 		parts := strings.Split(key, "/")
@@ -278,7 +282,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 			// A desired digest may be awaiting cleanup from an earlier identity.
 			// Clearing the observation makes KRT derive a pending pair, which
 			// the pending-template poll retries until GC finishes.
-			r.forgetActorTemplate(key)
+			r.collections.ActorTemplates.DeleteObject(key)
 			return nil
 		}
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
@@ -301,7 +305,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err)
 	}
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
-		r.observeActorTemplate(key, observed)
+		r.observeActorTemplate(*state, observed)
 		return nil
 	}
 
@@ -323,23 +327,16 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	}
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after instance creation can select the persisted revision.
-	r.observeActorTemplate(key, observed)
+	r.observeActorTemplate(*state, observed)
 	return nil
 }
 
 // Observations belong to the pair's current preparation, independently of how
 // long instances or checkpoints keep its old runtime alive in the database.
-func (r *Reconciler) observeActorTemplate(pairKey string, template *ateapipb.ActorTemplate) {
-	observation := ObservedActorTemplate{Template: template}
-	r.observedActorTemplates[pairKey] = observation.ResourceName()
-	r.collections.ActorTemplates.ConditionalUpdateObject(observation)
-}
-
-func (r *Reconciler) forgetActorTemplate(pairKey string) {
-	if key, ok := r.observedActorTemplates[pairKey]; ok {
-		r.collections.ActorTemplates.DeleteObject(key)
-		delete(r.observedActorTemplates, pairKey)
-	}
+func (r *Reconciler) observeActorTemplate(state PairReconciliation, template *ateapipb.ActorTemplate) {
+	r.collections.ActorTemplates.ConditionalUpdateObject(ObservedActorTemplate{
+		PairKey: state.ResourceName(), RevisionID: state.RevisionID, Template: template,
+	})
 }
 
 func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key string) error {

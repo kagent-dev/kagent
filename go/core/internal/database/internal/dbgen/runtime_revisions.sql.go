@@ -36,6 +36,38 @@ func (q *Queries) DeleteRuntimeRevision(ctx context.Context, revision string) er
 	return err
 }
 
+const getAgentTemplateHarnessPairForUpdate = `-- name: GetAgentTemplateHarnessPairForUpdate :one
+SELECT namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, desired_revision, latest_successful_revision, retired_at, created_at, updated_at, agent_template_labels FROM agent_template_harness_pair
+WHERE namespace = $1 AND agent_template_uid = $2 AND harness_uid = $3
+FOR UPDATE
+`
+
+type GetAgentTemplateHarnessPairForUpdateParams struct {
+	Namespace        string
+	AgentTemplateUid string
+	HarnessUid       string
+}
+
+// Operations touching both pairs and revisions always lock pairs first.
+func (q *Queries) GetAgentTemplateHarnessPairForUpdate(ctx context.Context, arg GetAgentTemplateHarnessPairForUpdateParams) (AgentTemplateHarnessPair, error) {
+	row := q.db.QueryRow(ctx, getAgentTemplateHarnessPairForUpdate, arg.Namespace, arg.AgentTemplateUid, arg.HarnessUid)
+	var i AgentTemplateHarnessPair
+	err := row.Scan(
+		&i.Namespace,
+		&i.AgentTemplateName,
+		&i.AgentTemplateUid,
+		&i.HarnessName,
+		&i.HarnessUid,
+		&i.DesiredRevision,
+		&i.LatestSuccessfulRevision,
+		&i.RetiredAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AgentTemplateLabels,
+	)
+	return i, err
+}
+
 const getPairRuntimeRevisionsForUpdate = `-- name: GetPairRuntimeRevisionsForUpdate :many
 SELECT r.revision, r.deleted_at FROM runtime_revision r
 JOIN agent_template_harness_pair p
@@ -68,6 +100,45 @@ func (q *Queries) GetPairRuntimeRevisionsForUpdate(ctx context.Context, arg GetP
 	for rows.Next() {
 		var i GetPairRuntimeRevisionsForUpdateRow
 		if err := rows.Scan(&i.Revision, &i.DeletedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getRetiredRuntimeRevisionPairsForUpdate = `-- name: GetRetiredRuntimeRevisionPairsForUpdate :many
+SELECT namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, desired_revision, latest_successful_revision, retired_at, created_at, updated_at, agent_template_labels FROM agent_template_harness_pair
+WHERE retired_at IS NOT NULL AND latest_successful_revision = $1
+ORDER BY namespace, agent_template_uid, harness_uid
+FOR UPDATE
+`
+
+func (q *Queries) GetRetiredRuntimeRevisionPairsForUpdate(ctx context.Context, latestSuccessfulRevision *string) ([]AgentTemplateHarnessPair, error) {
+	rows, err := q.db.Query(ctx, getRetiredRuntimeRevisionPairsForUpdate, latestSuccessfulRevision)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentTemplateHarnessPair
+	for rows.Next() {
+		var i AgentTemplateHarnessPair
+		if err := rows.Scan(
+			&i.Namespace,
+			&i.AgentTemplateName,
+			&i.AgentTemplateUid,
+			&i.HarnessName,
+			&i.HarnessUid,
+			&i.DesiredRevision,
+			&i.LatestSuccessfulRevision,
+			&i.RetiredAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AgentTemplateLabels,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -250,22 +321,6 @@ WHERE retired_at IS NOT NULL AND latest_successful_revision = $1
 // protection for active pairs, instances, and checkpoints.
 func (q *Queries) ReleaseRetiredRuntimeRevisionReferences(ctx context.Context, latestSuccessfulRevision *string) error {
 	_, err := q.db.Exec(ctx, releaseRetiredRuntimeRevisionReferences, latestSuccessfulRevision)
-	return err
-}
-
-const retireAgentTemplateHarnessPairs = `-- name: RetireAgentTemplateHarnessPairs :exec
-UPDATE agent_template_harness_pair
-SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-WHERE namespace = $1 AND agent_template_name = $2
-`
-
-type RetireAgentTemplateHarnessPairsParams struct {
-	Namespace         string
-	AgentTemplateName string
-}
-
-func (q *Queries) RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error {
-	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateName)
 	return err
 }
 

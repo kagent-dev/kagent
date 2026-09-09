@@ -32,13 +32,16 @@ type Collections struct {
 	AgentTemplateStatuses krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
 }
 
-// ObservedActorTemplate adapts an ate-api resource to KRT's keyed collection.
+// ObservedActorTemplate records a pair's preparation. The revision prevents a
+// cached observation from making changed inputs ready before reconciliation.
 type ObservedActorTemplate struct {
-	Template *ateapipb.ActorTemplate
+	PairKey    string
+	RevisionID v2translator.RevisionID
+	Template   *ateapipb.ActorTemplate
 }
 
 func (t ObservedActorTemplate) ResourceName() string {
-	return t.Template.GetMetadata().GetAtespace() + "/" + t.Template.GetMetadata().GetName()
+	return t.PairKey
 }
 
 // AgentTemplateHarnessPair is one same-namespace combination selected by a

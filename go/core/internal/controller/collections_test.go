@@ -121,7 +121,6 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	store := &fakeRuntimeRevisionStore{}
 	reconciler := &Reconciler{
 		collections: collections, templates: &fakeActorTemplates{template: observed}, store: store,
-		observedActorTemplates: make(map[string]string),
 	}
 	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
 	waitFor(t, func() bool {

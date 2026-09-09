@@ -1,0 +1,29 @@
+suite: controller leader election
+templates:
+  - controller-configmap.yaml
+  - rbac/leader-election-role.yaml
+  - rbac/leader-election-rolebinding.yaml
+tests:
+  - it: elects a leader during single-replica rolling updates
+    set:
+      controller.replicas: 1
+    asserts:
+      - equal:
+          path: data.LEADER_ELECT
+          value: "true"
+        template: controller-configmap.yaml
+      - contains:
+          path: rules
+          content:
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            verbs: [get, list, watch, create, update, patch]
+        template: rbac/leader-election-role.yaml
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-leader-election-role
+        template: rbac/leader-election-rolebinding.yaml
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-controller
+        template: rbac/leader-election-rolebinding.yaml

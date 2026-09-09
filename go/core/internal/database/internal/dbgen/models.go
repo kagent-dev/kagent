@@ -91,6 +91,20 @@ type AgentInstanceTaskEvent struct {
 	SnapshotContentScope *string
 }
 
+type AgentTemplateHarnessPair struct {
+	Namespace                string
+	AgentTemplateName        string
+	AgentTemplateUid         string
+	HarnessName              string
+	HarnessUid               string
+	DesiredRevision          string
+	LatestSuccessfulRevision *string
+	RetiredAt                *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	AgentTemplateLabels      []byte
+}
+
 type Memory struct {
 	ID          string
 	AgentName   *string
