@@ -5,6 +5,26 @@ import { themeFor } from "@/theme/theme";
 import { ToolCallCard } from "./ToolCallCard";
 
 describe("ToolCallCard", () => {
+  it("keeps invocation arguments in the tool call card", () => {
+    render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ToolCallCard
+          part={{
+            kind: "data",
+            dataKind: "tool_call",
+            data: {
+              name: "k8s_get_resources",
+              args: { namespace: "default", kind: "Pod" },
+            },
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText(/"namespace": "default"/)).toBeTruthy();
+    expect(screen.getByText(/"kind": "Pod"/)).toBeTruthy();
+  });
+
   it("renders a denied legacy invocation as not run rather than failed", () => {
     render(
       <ThemeProvider theme={themeFor("dark")}>

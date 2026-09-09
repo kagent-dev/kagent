@@ -5,7 +5,7 @@ import { themeFor } from "@/theme/theme";
 import { AskUserPrompt } from "./AskUserPrompt";
 
 describe("AskUserPrompt tool approval", () => {
-  it("shows the invocation and returns an approval for its opaque id", () => {
+  it("identifies the invocation without repeating its arguments and returns an approval", () => {
     const onToolApproval = vi.fn();
     render(
       <ThemeProvider theme={themeFor("dark")}>
@@ -31,7 +31,7 @@ describe("AskUserPrompt tool approval", () => {
     );
 
     expect(screen.getByText("kagent-tool-server.k8s_get_resources")).toBeTruthy();
-    expect(screen.getByText(/"namespace": "default"/)).toBeTruthy();
+    expect(screen.queryByText(/"namespace": "default"/)).toBeNull();
 
     fireEvent.click(screen.getByTestId("chat-approval-approve"));
 

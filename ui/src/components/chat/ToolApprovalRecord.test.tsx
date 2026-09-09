@@ -5,7 +5,7 @@ import { themeFor } from "@/theme/theme";
 import { ToolApprovalRecord } from "./ToolApprovalRecord";
 
 describe("ToolApprovalRecord", () => {
-  it("renders decisions as statuses and keeps arguments collapsed", () => {
+  it("renders a compact decision without repeating the tool arguments", () => {
     render(
       <ThemeProvider theme={themeFor("dark")}>
         <ToolApprovalRecord
@@ -23,7 +23,7 @@ describe("ToolApprovalRecord", () => {
     expect(screen.getByText("Tool access approved")).toBeTruthy();
     expect(screen.getByText("delete_pod")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
-    expect(screen.getByTestId("chat-approval-record-args").closest("details")?.open).toBe(false);
+    expect(screen.queryByText(/"name": "old"/)).toBeNull();
     expect(screen.queryByText("Approved: delete_pod")).toBeNull();
   });
 

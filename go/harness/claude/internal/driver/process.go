@@ -70,6 +70,25 @@ type pendingTurn struct {
 	pending *PendingApprovalRequest
 }
 
+const interruptedResponseWarning = "API Error: Connection lost mid-response. The response above may be incomplete."
+
+// resumedEventSink removes Claude Code's synthetic connection warning after an
+// intentional Actor pause. The live process and its provider stream are frozen
+// while input is pending; Claude reports that interruption as assistant text
+// when execution resumes even though it continues the tool call successfully.
+// Keep the filter on the resume path so the same text remains visible if Claude
+// emits it during an ordinary, uninterrupted turn.
+type resumedEventSink struct {
+	runtime.EventSink
+}
+
+func (s resumedEventSink) TextDelta(event runtime.TextDelta) error {
+	if strings.TrimSpace(event.Text) == interruptedResponseWarning {
+		return nil
+	}
+	return s.EventSink.TextDelta(event)
+}
+
 // NewProcessDriver constructs a Claude Code process driver.
 func NewProcessDriver(config ProcessConfig) *ProcessDriver {
 	return &ProcessDriver{config: config}
@@ -279,7 +298,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if err := p.pending.resolve(*decision); err != nil {
 		return runtime.Outcome{}, err
 	}
-	outcome, err := p.driver.consume(ctx, p.session, sink)
+	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink})
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
 }

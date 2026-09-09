@@ -52,9 +52,13 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
         data-testid="chat-tool-payload"
         css={{
           margin: 0,
+          padding: theme.space(2),
+          border: `1px solid ${theme.color.border}`,
+          borderRadius: theme.radius.sm,
+          background: theme.color.bg,
           fontFamily: theme.font.mono,
           fontSize: 12,
-          color: theme.color.textMuted,
+          color: theme.color.text,
           /*
            * Not wrapped. A tool's payload is JSON, and wrapping it breaks lines wherever
            * the column happens to end — so indentation stops meaning depth, keys and

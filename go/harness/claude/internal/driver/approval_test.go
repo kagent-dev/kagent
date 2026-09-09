@@ -112,7 +112,7 @@ func TestProcessDriverParksAndResumesSequentialApprovals(t *testing.T) {
 	decisionOne := filepath.Join(dir, "decision-1")
 	decisionTwo := filepath.Join(dir, "decision-2")
 	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nwhile [ ! -f \"$DECISION_ONE\" ]; do sleep 0.01; done\nwhile [ ! -f \"$DECISION_TWO\" ]; do sleep 0.01; done\nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nwhile [ ! -f \"$DECISION_ONE\" ]; do sleep 0.01; done\nwhile [ ! -f \"$DECISION_TWO\" ]; do sleep 0.01; done\nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"id\":\"msg_warning\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: Connection lost mid-response. The response above may be incomplete.\"}]}}' '{\"type\":\"assistant\",\"message\":{\"id\":\"msg_continued\",\"content\":[{\"type\":\"text\",\"text\":\"continued\"}]}}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\n"
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +140,13 @@ func TestProcessDriverParksAndResumesSequentialApprovals(t *testing.T) {
 	if err != nil || outcome.Pending == nil || outcome.Pending.Request().(*runtime.ApprovalRequest).ID != "approval-2" {
 		t.Fatalf("second Run() = %#v, %v", outcome, err)
 	}
-	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-2", Approved: false}, &recordingSink{})
+	resumed := &recordingSink{}
+	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-2", Approved: false}, resumed)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("final Resume() = %#v, %v", outcome, err)
+	}
+	if resumed.text.String() != "continued" {
+		t.Fatalf("resumed text = %q, want only continued", resumed.text.String())
 	}
 }
 

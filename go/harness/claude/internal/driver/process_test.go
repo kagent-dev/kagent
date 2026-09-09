@@ -13,15 +13,41 @@ import (
 
 type recordingSink struct {
 	sessions []runtime.SessionStarted
+	text     strings.Builder
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
 	s.sessions = append(s.sessions, event)
 	return nil
 }
-func (*recordingSink) TextDelta(runtime.TextDelta) error   { return nil }
+func (s *recordingSink) TextDelta(event runtime.TextDelta) error {
+	s.text.WriteString(event.Text)
+	return nil
+}
 func (*recordingSink) ToolCall(runtime.ToolCall) error     { return nil }
 func (*recordingSink) ToolResult(runtime.ToolResult) error { return nil }
+
+func TestResumedEventSinkDropsOnlyInterruptedResponseWarning(t *testing.T) {
+	underlying := &recordingSink{}
+	sink := resumedEventSink{EventSink: underlying}
+
+	if err := sink.TextDelta(runtime.TextDelta{Text: "\n" + interruptedResponseWarning + "\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.TextDelta(runtime.TextDelta{Text: "continued"}); err != nil {
+		t.Fatal(err)
+	}
+	if underlying.text.String() != "continued" {
+		t.Fatalf("resumed text = %q, want continued", underlying.text.String())
+	}
+
+	if _, err := emitEvent(Event{Kind: EventTextDelta, Text: interruptedResponseWarning}, underlying, false); err != nil {
+		t.Fatal(err)
+	}
+	if underlying.text.String() != "continued"+interruptedResponseWarning {
+		t.Fatalf("ordinary text = %q, want the vendor warning preserved", underlying.text.String())
+	}
+}
 
 func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	dir := t.TempDir()

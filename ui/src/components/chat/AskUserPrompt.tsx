@@ -23,7 +23,6 @@ import { Alert, Button, Checkbox, Input, Radio, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import { Check, ShieldAlert, X } from "lucide-react";
 import type { PendingRequest, ToolApprovalDecision } from "@/api";
-import { stableJson } from "./stableJson";
 
 export function AskUserPrompt({
   request,
@@ -199,21 +198,6 @@ export function AskUserPrompt({
                       </Space>
                     ) : null}
                   </div>
-                  {Object.keys(tool.args).length > 0 ? (
-                    <pre
-                      data-testid="chat-approval-args"
-                      css={{
-                        margin: 0,
-                        color: theme.color.textMuted,
-                        fontFamily: theme.font.mono,
-                        fontSize: 12,
-                        whiteSpace: "pre-wrap",
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {stableJson(tool.args)}
-                    </pre>
-                  ) : null}
                   {decision === false ? (
                     <Input.TextArea
                       data-testid={`chat-approval-reason-${tool.id}`}

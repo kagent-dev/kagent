@@ -1,8 +1,7 @@
 import { Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { CheckCircle2, ShieldCheck, XCircle } from "lucide-react";
+import { Check, ShieldCheck, X } from "lucide-react";
 import type { ChatToolApprovalPart } from "@/api";
-import { stableJson } from "./stableJson";
 
 const { Text } = Typography;
 
@@ -46,25 +45,23 @@ export function ToolApprovalRecord({ part }: { part: ChatToolApprovalPart }) {
       <div css={{ display: "grid", gap: theme.space(1) }}>
         {decisions.map((decision) => {
           const tool = names.get(decision.id);
-          const hasDetails =
-            (tool !== undefined && Object.keys(tool.args).length > 0) ||
-            decision.rejectionReason !== undefined;
           return (
-            <details key={decision.id}>
-              <summary
+            <div key={decision.id} css={{ display: "grid", gap: theme.space(1) }}>
+              <div
                 css={{
-                  cursor: hasDetails ? "pointer" : "default",
                   display: "flex",
                   alignItems: "center",
                   gap: theme.space(2),
-                  listStyle: "none",
                 }}
-                onClick={hasDetails ? undefined : (event) => event.preventDefault()}
               >
                 {decision.approved ? (
-                  <CheckCircle2 size={14} css={{ color: theme.color.successText }} />
+                  <Check
+                    size={15}
+                    strokeWidth={3}
+                    css={{ color: theme.color.successText }}
+                  />
                 ) : (
-                  <XCircle size={14} css={{ color: theme.color.dangerText }} />
+                  <X size={15} strokeWidth={3} css={{ color: theme.color.dangerText }} />
                 )}
                 <Text css={{ color: "inherit", fontFamily: theme.font.mono, fontSize: 12 }}>
                   {tool?.name || "Tool"}
@@ -72,31 +69,13 @@ export function ToolApprovalRecord({ part }: { part: ChatToolApprovalPart }) {
                 <Tag color={decision.approved ? "success" : "error"}>
                   {decision.approved ? "Approved" : "Rejected"}
                 </Tag>
-                {hasDetails ? (
-                  <Text css={{ color: theme.color.textMuted, fontSize: 11 }}>Details</Text>
-                ) : null}
-              </summary>
-              {tool && Object.keys(tool.args).length > 0 ? (
-                <pre
-                  data-testid="chat-approval-record-args"
-                  css={{
-                    margin: `${theme.space(2)} 0 0 ${theme.space(5)}`,
-                    color: theme.color.textMuted,
-                    fontFamily: theme.font.mono,
-                    fontSize: 12,
-                    whiteSpace: "pre-wrap",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  {stableJson(tool.args)}
-                </pre>
-              ) : null}
+              </div>
               {decision.rejectionReason ? (
                 <div css={{ margin: `${theme.space(1)} 0 0 ${theme.space(5)}`, fontSize: 12 }}>
                   {decision.rejectionReason}
                 </div>
               ) : null}
-            </details>
+            </div>
           );
         })}
       </div>
