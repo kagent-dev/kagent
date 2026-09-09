@@ -114,12 +114,22 @@ export function ChatTranscript({
     if (!box) return;
     const atBottom = () =>
       box.scrollHeight - box.scrollTop - box.clientHeight <= AT_BOTTOM_SLACK;
+    /*
+     * Growth moves the foot away without anybody scrolling. A scroll event arriving
+     * mid-growth read that as the reader having left and unset the pin the observer
+     * below needs to close the gap — so the button came back, and stayed.
+     */
+    let lastTop = box.scrollTop;
     const measure = () => {
       const now = atBottom();
+      const movedUp = box.scrollTop < lastTop;
+      lastTop = box.scrollTop;
       if (returningRef.current) {
         if (!now) return;
         returningRef.current = false;
       }
+      // Short of the foot without having scrolled up is growth, not the reader leaving.
+      if (pinnedRef.current && !now && !movedUp) return;
       pinnedRef.current = now;
       setAtBottom(now);
     };

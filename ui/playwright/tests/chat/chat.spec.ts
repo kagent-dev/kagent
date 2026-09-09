@@ -344,6 +344,20 @@ test("chat: leaving the foot of a conversation offers a way back to it", async (
      */
     await expect(button).toHaveCount(0, { timeout: 10_000 });
   });
+
+  await test.step("4. and a transcript still growing does not take it away", async () => {
+    /*
+     * Growth landing after the pin, with the scroll event the pin queued behind it.
+     * Dispatched rather than waited for: on an idle machine the two land in the same
+     * frame, which is why this only ever failed on a loaded one.
+     */
+    await box.evaluate((node) => {
+      (node.firstElementChild as HTMLElement).style.paddingBottom = "900px";
+      node.dispatchEvent(new Event("scroll"));
+    });
+
+    await expect(button).toHaveCount(0);
+  });
 });
 
 /**
