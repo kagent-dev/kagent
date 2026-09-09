@@ -43,8 +43,8 @@ type instanceStore interface {
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event, *database.AgentInstanceTaskSnapshot) error
-	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
-	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
+	GetAgentInstanceTask(context.Context, string, string, *int) (*a2atype.Task, error)
+	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int, *int) ([]*a2atype.Task, int, error)
 }
 
 type runtimeDialer interface {
@@ -208,7 +208,7 @@ func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2
 	if req == nil || req.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required")
 	}
-	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), req.HistoryLength)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
@@ -241,7 +241,7 @@ func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) 
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "invalid page token")
 	}
-	tasks, total, err := g.store.ListAgentInstanceTasks(ctx, instance.GetId(), afterID, req.Status, req.StatusTimestampAfter, pageSize+1)
+	tasks, total, err := g.store.ListAgentInstanceTasks(ctx, instance.GetId(), afterID, req.Status, req.StatusTimestampAfter, pageSize+1, req.HistoryLength)
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list agent instance tasks", "error", err, "instance_id", instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to list tasks")
@@ -265,7 +265,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if req == nil || req.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required")
 	}
-	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
@@ -307,7 +307,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 		}
 		select {
 		case <-run.done:
-			latest, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+			latest, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 			if err != nil {
 				return nil, g.storeError(ctx, err)
 			}
@@ -320,7 +320,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	}
 	release := g.coordinator.Quiesce(instance.GetId())
 	defer release()
-	task, err = g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err = g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
@@ -386,7 +386,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 	if req == nil || req.ID == "" {
 		return errorEvents(a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required"))
 	}
-	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 	if errors.Is(err, database.ErrNotFound) {
 		return errorEvents(a2atype.ErrTaskNotFound)
 	}
@@ -548,7 +548,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 
 func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentInstance, req *a2atype.SendMessageRequest) (*preparedSend, error) {
 	message := req.Message
-	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID))
+	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID), nil)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}

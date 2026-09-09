@@ -27,7 +27,7 @@ type store interface {
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error)
 	UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error)
+	CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte, string) (*apiv1alpha1.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string) error
 }
@@ -264,13 +264,6 @@ func (s *Service) CreateShare(ctx context.Context, instanceID string, permission
 	if err != nil {
 		return nil, "", err
 	}
-	_, err = s.store.GetAgentInstance(ctx, instanceID, userID)
-	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
-			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
-		}
-		return nil, "", serviceerrors.NewInternal("Failed to get AgentInstance", err)
-	}
 	token, tokenHash, err := generateShareToken()
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
@@ -280,7 +273,10 @@ func (s *Service) CreateShare(ctx context.Context, instanceID string, permission
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
 	share, err := s.store.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: instanceID,
-		Permission: permission}, tokenHash)
+		Permission: permission}, tokenHash, userID)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
 	}

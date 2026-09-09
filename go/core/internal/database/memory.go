@@ -10,32 +10,44 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
-// StoreAgentMemory inserts a memory and assigns its generated ID to the input on success.
-// Creation time comes from the database; the supplied owner, agent, expiration, and access
-// count are stored as given.
-func (c *Client) StoreAgentMemory(ctx context.Context, memory *Memory) error {
-	id, err := insertAgentMemory(ctx, c.db, memory)
-	if err != nil {
-		return err
+// StoreAgentMemories inserts one or more memories atomically and assigns generated IDs
+// only after success. A single insert uses one statement; a batch uses a transaction.
+// Creation time comes from the database. Empty input is a no-op, and failures leave
+// input IDs unchanged.
+func (c *Client) StoreAgentMemories(ctx context.Context, memories ...*Memory) error {
+	for _, memory := range memories {
+		if memory == nil {
+			return fmt.Errorf("missing memory")
+		}
 	}
-	memory.ID = id
-	return nil
-}
-
-// StoreAgentMemories inserts all memories in one transaction and assigns their generated
-// IDs to the inputs. On failure no inserts commit, but inputs already processed can retain
-// IDs from the rolled-back transaction.
-func (c *Client) StoreAgentMemories(ctx context.Context, memories []*Memory) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		for _, m := range memories {
-			id, err := insertAgentMemory(ctx, tx, m)
+	switch len(memories) {
+	case 0:
+		return nil
+	case 1:
+		id, err := insertAgentMemory(ctx, c.db, memories[0])
+		if err != nil {
+			return err
+		}
+		memories[0].ID = id
+		return nil
+	}
+	ids := make([]string, len(memories))
+	if err := c.withTx(ctx, func(tx pgx.Tx) error {
+		for i, memory := range memories {
+			id, err := insertAgentMemory(ctx, tx, memory)
 			if err != nil {
 				return fmt.Errorf("failed to store memory: %w", err)
 			}
-			m.ID = id
+			ids[i] = id
 		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	for i, memory := range memories {
+		memory.ID = ids[i]
+	}
+	return nil
 }
 
 // SearchAgentMemory returns up to limit memories for the user and agent, ranked by cosine

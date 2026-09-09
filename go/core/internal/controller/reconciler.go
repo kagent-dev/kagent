@@ -117,8 +117,7 @@ func newPairReconciliations(
 // or, later, an AgentInstance or checkpoint references them.
 type runtimeRevisionStore interface {
 	UpsertAgentTemplateHarnessPair(context.Context, database.AgentTemplateHarnessPair) error
-	UpsertRuntimeRevision(context.Context, database.RuntimeRevision) error
-	MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
 	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
@@ -298,13 +297,11 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		EgressDestinations:    state.Revision.EgressDestinations,
 		ActorTemplateAtespace: observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
-	if err := r.store.UpsertRuntimeRevision(ctx, revision); err != nil {
+	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() != nil
+	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {
 		return fmt.Errorf("store runtime revision %s: %w", state.RevisionID, err)
 	}
-	if observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() != nil {
-		if err := r.store.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
-			return fmt.Errorf("mark runtime revision %s successful: %w", state.RevisionID, err)
-		}
+	if ready {
 		return r.cleanupUnreferencedRevisions(ctx)
 	}
 	return nil

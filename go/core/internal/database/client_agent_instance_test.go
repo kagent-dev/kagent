@@ -35,7 +35,7 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 			return err
 		}},
 		{"create share", func() error {
-			_, err := client.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: "invalid", Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY}, []byte("token"))
+			_, err := client.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: "invalid", Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY}, []byte("token"), "alice")
 			return err
 		}},
 		{"create task", func() error {
@@ -128,7 +128,7 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if err := db.QueryRow(ctx, "SELECT task_id FROM agent_instance_task_event").Scan(&eventTaskID); err != nil || eventTaskID != string(first.ID) {
 		t.Fatalf("initial event task ID = %q, want %q: %v", eventTaskID, first.ID, err)
 	}
-	got, err := client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1")
+	got, err := client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1", nil)
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
 		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)
 	}
@@ -164,7 +164,7 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if snapshotAtespace != snapshot.Atespace || snapshotURI != snapshot.URI || historySequence != latestSequence {
 		t.Fatalf("stored boundary = %s/%s sequence %d", snapshotAtespace, snapshotURI, historySequence)
 	}
-	got, err = client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1")
+	got, err = client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1", nil)
 	if err != nil || len(got.History) != 2 || got.History[1].Role != a2a.MessageRoleAgent {
 		t.Fatalf("reconstructed task history = %#v, error %v", got, err)
 	}
@@ -175,11 +175,11 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 		t.Fatalf("event count = %d, want 5", events)
 	}
 
-	tasks, total, err := client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", "", a2a.TaskStateUnspecified, nil, 1)
+	tasks, total, err := client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", "", a2a.TaskStateUnspecified, nil, 1, nil)
 	if err != nil || total != 2 || len(tasks) != 1 || tasks[0].ID != first.ID {
 		t.Fatalf("first page = %#v, total %d, error %v", tasks, total, err)
 	}
-	tasks, total, err = client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", string(first.ID), a2a.TaskStateSubmitted, nil, 2)
+	tasks, total, err = client.ListAgentInstanceTasks(ctx, "11111111-1111-4111-8111-111111111111", string(first.ID), a2a.TaskStateSubmitted, nil, 2, nil)
 	if err != nil || total != 1 || len(tasks) != 1 || tasks[0].ID != second.ID {
 		t.Fatalf("filtered page = %#v, total %d, error %v", tasks, total, err)
 	}
@@ -263,7 +263,7 @@ func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := client.GetAgentInstanceTask(ctx, instanceID, "task-1")
+	got, err := client.GetAgentInstanceTask(ctx, instanceID, "task-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,9 +409,6 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
-	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
-		t.Fatal(err)
-	}
 	pair := AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
@@ -419,7 +416,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -431,7 +428,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.MarkAgentInstanceReady(ctx, source.GetId(), "source.example"); err != nil {
+	if _, err := markAgentInstanceReady(ctx, client, source.GetId(), "source.example"); err != nil {
 		t.Fatal(err)
 	}
 	first := newAgentInstanceTask("task-1", "message-1")
@@ -494,7 +491,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	if err != nil || len(instances) != 1 || instances[0].GetId() != fork.GetId() {
 		t.Fatalf("listed forks = %+v, error %v", instances, err)
 	}
-	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.GetId(), "", a2a.TaskStateUnspecified, nil, 10)
+	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.GetId(), "", a2a.TaskStateUnspecified, nil, 10, nil)
 	if err != nil || total != 1 || len(tasks) != 1 {
 		t.Fatalf("fork tasks = %+v, total %d, error %v", tasks, total, err)
 	}
@@ -529,7 +526,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatalf("delete referenced checkpoint error = %v", err)
 	}
 
-	if _, err := client.MarkAgentInstanceReady(ctx, fork.GetId(), "fork.example"); err != nil {
+	if _, err := markAgentInstanceReady(ctx, client, fork.GetId(), "fork.example"); err != nil {
 		t.Fatal(err)
 	}
 	checkpoint2, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", AgentInstanceId: fork.GetId()}, "alice", "checkpoint-request-2")
@@ -560,16 +557,6 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid",
 	}
-	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
-		t.Fatal(err)
-	}
-	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if storedRevision.AgentCard.GetName() != "assistant" {
-		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
-	}
 	pair := AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
@@ -577,8 +564,16 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
 		t.Fatal(err)
+	}
+
+	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedRevision.AgentCard.GetName() != "assistant" {
+		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
 	}
 
 	request := &apiv1alpha1.AgentInstance{
@@ -604,7 +599,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
 	}
-	ready, err := client.MarkAgentInstanceReady(ctx, created.GetId(), "actor.example")
+	ready, err := markAgentInstanceReady(ctx, client, created.GetId(), "actor.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +679,7 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 		t.Fatalf("InterruptActiveAgentInstanceTask(terminal task) = %v, %v", interruptedTask, err)
 	}
 
-	terminated, err := client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1")
+	terminated, err := client.GetAgentInstanceTask(ctx, "11111111-1111-4111-8111-111111111111", "task-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,9 +714,6 @@ func agentInstanceFixture(t *testing.T, client *Client, ctx context.Context, nam
 		ActorTemplateAtespace: namespace, ActorTemplateName: revisionID + "-actor-template",
 		ActorTemplateUID: revisionID + "-actor-uid",
 	}
-	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
-		t.Fatal(err)
-	}
 	pair := AgentTemplateHarnessPair{
 		Namespace: namespace, AgentTemplateName: template, AgentTemplateUID: template + "-uid",
 		HarnessName: harness, HarnessUID: harness + "-uid", DesiredRevision: revisionID,
@@ -729,7 +721,7 @@ func agentInstanceFixture(t *testing.T, client *Client, ctx context.Context, nam
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -914,7 +906,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	source, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
 	require.NoError(t, err)
-	_, err = client.MarkAgentInstanceReady(ctx, source.GetId(), "source.example")
+	_, err = markAgentInstanceReady(ctx, client, source.GetId(), "source.example")
 	require.NoError(t, err)
 	require.NotEqual(t, source.GetId(), source.GetContextId())
 	sourceRow, err := readAgentInstance(ctx, client.db, source.GetId())
@@ -938,7 +930,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		Id: uuid.NewString(), AgentInstanceId: source.GetId(),
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
-	waiting, err := client.GetAgentInstanceTask(ctx, source.GetId(), "z-first")
+	waiting, err := client.GetAgentInstanceTask(ctx, source.GetId(), "z-first", nil)
 	require.NoError(t, err)
 	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), waiting, waiting, nil), ErrAgentInstanceConflict)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag", "tag-snapshot", "")
@@ -947,7 +939,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	fork, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
-	_, err = client.MarkAgentInstanceReady(ctx, fork.GetId(), "fork.example")
+	_, err = markAgentInstanceReady(ctx, client, fork.GetId(), "fork.example")
 	require.NoError(t, err)
 	require.Equal(t, source.GetContextId(), fork.GetContextId())
 	forkRow, err := readAgentInstance(ctx, client.db, fork.GetId())
@@ -955,12 +947,12 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NotEqual(t, sourceRow.HistoryID, forkRow.HistoryID)
 
 	for _, instance := range []*apiv1alpha1.AgentInstance{source, fork} {
-		page, total, err := client.ListAgentInstanceTasks(ctx, instance.GetId(), "", a2a.TaskStateUnspecified, nil, 1)
+		page, total, err := client.ListAgentInstanceTasks(ctx, instance.GetId(), "", a2a.TaskStateUnspecified, nil, 1, nil)
 		require.NoError(t, err)
 		require.Equal(t, 2, total)
 		require.Len(t, page, 1)
 		require.Equal(t, a2a.TaskID("z-first"), page[0].ID)
-		page, _, err = client.ListAgentInstanceTasks(ctx, instance.GetId(), string(page[0].ID), a2a.TaskStateUnspecified, nil, 1)
+		page, _, err = client.ListAgentInstanceTasks(ctx, instance.GetId(), string(page[0].ID), a2a.TaskStateUnspecified, nil, 1, nil)
 		require.NoError(t, err)
 		require.Len(t, page, 1)
 		require.Equal(t, a2a.TaskID("a-second"), page[0].ID)
@@ -985,11 +977,11 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	waiting.Status.State = a2a.TaskStateCanceled
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, fork.GetId(), waiting, waiting,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "fork-resumed", ContentScope: "DATA"}))
-	unchanged, err := client.GetAgentInstanceTask(ctx, source.GetId(), string(waiting.ID))
+	unchanged, err := client.GetAgentInstanceTask(ctx, source.GetId(), string(waiting.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateInputRequired, unchanged.Status.State)
 	require.Len(t, unchanged.History, 1)
-	changed, err := client.GetAgentInstanceTask(ctx, fork.GetId(), string(waiting.ID))
+	changed, err := client.GetAgentInstanceTask(ctx, fork.GetId(), string(waiting.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCanceled, changed.Status.State)
 	require.Len(t, changed.History, 2)
@@ -1005,7 +997,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NoError(t, err)
 	fork2, _, err := client.ForkAgentInstance(ctx, nested.GetId(), "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
-	tasks, _, err := client.ListAgentInstanceTasks(ctx, fork2.GetId(), "", a2a.TaskStateUnspecified, nil, 10)
+	tasks, _, err := client.ListAgentInstanceTasks(ctx, fork2.GetId(), "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
 	require.Len(t, tasks, 2)
 	require.Equal(t, a2a.TaskID("z-first"), tasks[0].ID)
@@ -1014,4 +1006,41 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	wrong := *waiting
 	wrong.ContextID = fork.GetId()
 	require.Error(t, client.StoreAgentInstanceTaskEvent(ctx, fork.GetId(), &wrong, &wrong, nil))
+}
+
+// markAgentInstanceReady completes creation for persistence fixtures using the lifecycle CAS.
+func markAgentInstanceReady(ctx context.Context, client *Client, id, authority string) (*apiv1alpha1.AgentInstance, error) {
+	return client.TransitionAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+		Id:           id,
+		State:        apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		A2AAuthority: authority,
+	}, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
+}
+
+func TestAgentInstanceShareCreationRequiresOwner(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
+	require.NoError(t, err)
+	share := &apiv1alpha1.AgentInstanceShare{
+		Id: uuid.NewString(), AgentInstanceId: instance.Id,
+		Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY,
+	}
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("token"), "bob")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, _, err = client.GetAgentInstanceShareByTokenHash(ctx, []byte("token"))
+	require.ErrorIs(t, err, ErrNotFound)
+
+	created, err := client.CreateAgentInstanceShare(ctx, share, []byte("token"), "alice")
+	require.NoError(t, err)
+	require.Equal(t, share.Id, created.Id)
+	require.NotNil(t, created.CreatedAt)
+	require.Nil(t, share.CreatedAt)
+
+	require.NoError(t, client.DeleteAgentInstance(ctx, instance.Id))
+	share.Id = uuid.NewString()
+	_, err = client.CreateAgentInstanceShare(ctx, share, []byte("missing-token"), "alice")
+	require.ErrorIs(t, err, ErrNotFound)
 }

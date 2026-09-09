@@ -20,7 +20,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
 	require.NoError(t, err)
-	_, err = client.MarkAgentInstanceReady(ctx, instance.Id, "source.example")
+	_, err = markAgentInstanceReady(ctx, client, instance.Id, "source.example")
 	require.NoError(t, err)
 	instanceRow, err := readAgentInstance(ctx, q, instance.Id)
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	boundaryEvents, err := readCheckpointEvents(ctx, q, uuid.MustParse(checkpoint.Id))
 	require.NoError(t, err)
-	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task")
+	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task", nil)
 	require.NoError(t, err)
 	// Both a user reply and an immediate message result must persist their status.
 	for _, state := range []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateCompleted} {
@@ -114,7 +114,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	fork, _, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
-	forked, err := client.GetAgentInstanceTask(ctx, fork.Id, "task")
+	forked, err := client.GetAgentInstanceTask(ctx, fork.Id, "task", nil)
 	require.NoError(t, err)
 	require.Equal(t, before, forked)
 	for _, row := range rows {

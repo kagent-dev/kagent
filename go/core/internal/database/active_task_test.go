@@ -16,7 +16,7 @@ func TestGetActiveAgentInstanceTaskUsesInstanceHistory(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	_, err = client.MarkAgentInstanceReady(ctx, instance.GetId(), "agent.example")
+	_, err = markAgentInstanceReady(ctx, client, instance.GetId(), "agent.example")
 	require.NoError(t, err)
 
 	_, err = client.GetActiveAgentInstanceTask(ctx, instance.GetId())
@@ -67,7 +67,7 @@ func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
-	_, err = client.MarkAgentInstanceReady(ctx, instance.GetId(), "agent.example")
+	_, err = markAgentInstanceReady(ctx, client, instance.GetId(), "agent.example")
 	require.NoError(t, err)
 
 	task := newAgentInstanceTask("completed", "initial-message")

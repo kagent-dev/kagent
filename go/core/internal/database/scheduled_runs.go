@@ -226,7 +226,11 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator,
 		if row.DeletedAt != nil {
 			return ErrScheduledRunDeleted
 		}
-		result, err = reserveScheduledRunExecution(ctx, tx, row, nil, &requestID)
+		schedule, err := toScheduledRun(row)
+		if err != nil {
+			return err
+		}
+		result, err = reserveScheduledRunExecution(ctx, tx, schedule, nil, &requestID)
 		return err
 	})
 	if err != nil {
@@ -238,13 +242,12 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator,
 // ReserveDueScheduledRuns atomically reserves due occurrences and advances their
 // schedules, skipping rows held by other workers. Limit must be between 1 and 100.
 // Occurrences over thirty seconds late are skipped; malformed schedules are removed from
-// the due queue with their payloads retained for repair. Callers execute the returned
-// reservations separately.
-func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*apiv1alpha1.ScheduledRunExecution, error) {
+// the due queue with their payloads retained for repair. Execution workers claim the
+// stored reservations separately.
+func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) error {
 	if limit < 1 || limit > 100 {
-		return nil, fmt.Errorf("reservation limit must be between 1 and 100")
+		return fmt.Errorf("reservation limit must be between 1 and 100")
 	}
-	result := []*apiv1alpha1.ScheduledRunExecution{}
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		rows, err := queryMany(ctx, tx, `
 			SELECT scheduled_run.id, scheduled_run.creator, scheduled_run.request_hash,
@@ -274,15 +277,10 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 			}
 			// ponytail: fixed 30s lateness allowance; configure it if deployments need longer failover tolerance.
 			if now.Sub(*row.NextExecutionTime) <= 30*time.Second {
-				record, err := reserveScheduledRunExecution(ctx, tx, row, row.NextExecutionTime, nil)
+				_, err := reserveScheduledRunExecution(ctx, tx, schedule, row.NextExecutionTime, nil)
 				if err != nil {
 					return err
 				}
-				execution, err := toScheduledRunExecution(record)
-				if err != nil {
-					return err
-				}
-				result = append(result, execution)
 			}
 			if err := advanceScheduledRun(ctx, tx, row.ID, next); err != nil {
 				return err
@@ -291,9 +289,9 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to reserve due executions: %w", err)
+		return fmt.Errorf("failed to reserve due executions: %w", err)
 	}
-	return result, nil
+	return nil
 }
 
 // getScheduledRunForUpdate locks an owned schedule, including tombstones, until the
@@ -311,11 +309,7 @@ func getScheduledRunForUpdate(ctx context.Context, db dbExecutor, id uuid.UUID, 
 // timeout, using either a scheduled time or manual request ID. Callers hold the schedule
 // lock and handle deduplication in the same transaction; this function does not launch
 // runtime work.
-func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, row scheduledRunRow, due *time.Time, manualRequestID *string) (scheduledRunExecutionRow, error) {
-	schedule, err := toScheduledRun(row)
-	if err != nil {
-		return scheduledRunExecutionRow{}, err
-	}
+func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, schedule *apiv1alpha1.ScheduledRun, due *time.Time, manualRequestID *string) (scheduledRunExecutionRow, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return scheduledRunExecutionRow{}, fmt.Errorf("failed to generate execution ID: %w", err)
@@ -341,7 +335,7 @@ func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, row schedu
 		VALUES ($1, $2, $3, $4, $5,
 		    statement_timestamp() + $6::interval) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, state
 	`,
-		pgx.RowToStructByName[scheduledRunExecutionRow], id, row.ID, due, manualRequestID, data,
+		pgx.RowToStructByName[scheduledRunExecutionRow], id, schedule.Id, due, manualRequestID, data,
 		pgtype.Interval{Microseconds: int64(timeout), Valid: true},
 	)
 }
@@ -420,12 +414,13 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 		if err != nil {
 			return err
 		}
-		expired, err := queryOne(ctx, tx, `
+		completedAt, err := queryOne(ctx, tx, `
 			UPDATE scheduled_run_execution SET state = 'SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT', completed_at = clock_timestamp(), data = $2
-			WHERE id = $1 AND deadline <= clock_timestamp() RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, state
-		`, pgx.RowToStructByName[scheduledRunExecutionRow], id, data)
+			WHERE id = $1 AND deadline <= clock_timestamp() RETURNING completed_at
+		`, pgx.RowTo[time.Time], id, data)
 		if err == nil {
-			result = expired
+			result.State = "SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT"
+			result.CompletedAt, result.Data = &completedAt, data
 			return nil
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
@@ -454,10 +449,17 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 		if err != nil {
 			return err
 		}
-		result, err = queryOne(ctx, tx, `
-			UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, state
-		`, pgx.RowToStructByName[scheduledRunExecutionRow], id, &instance.ID)
-		return err
+		rows, err := tx.Exec(ctx, `
+			UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1
+		`, id, instance.ID)
+		if err != nil {
+			return err
+		}
+		if rows.RowsAffected() != 1 {
+			return pgx.ErrNoRows
+		}
+		result.AgentInstanceID = &instance.ID
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to reserve execution instance: %w", err)
