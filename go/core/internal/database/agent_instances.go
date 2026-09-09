@@ -155,8 +155,9 @@ func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alp
 // and instances owned by another user return ErrNotFound.
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 AND user_id = $2
+		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
+		    h.source_checkpoint_id, i.history_id FROM agent_instance i
+		JOIN a2a_context h ON h.id = i.history_id WHERE i.id = $1 AND i.user_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
@@ -170,7 +171,8 @@ func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv
 func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation,
-		    i.context_id, i.source_checkpoint_id, i.history_id FROM agent_instance i
+		    i.context_id, h.source_checkpoint_id, i.history_id FROM agent_instance i
+		JOIN a2a_context h ON h.id = i.history_id
 		LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 		WHERE ($1::boolean OR i.user_id = $2)
 		  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
@@ -335,8 +337,9 @@ type agentInstanceRow struct {
 // absent.
 func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
+		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
+		    h.source_checkpoint_id, i.history_id FROM agent_instance i
+		JOIN a2a_context h ON h.id = i.history_id WHERE i.id = $1 FOR UPDATE OF i
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
 
@@ -345,9 +348,10 @@ func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstance
 // idempotent retry.
 func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, requestID string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id FROM agent_instance
-		WHERE user_id = $1 AND request_id = $2
+		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
+		    h.source_checkpoint_id, i.history_id FROM agent_instance i
+		JOIN a2a_context h ON h.id = i.history_id
+		WHERE i.user_id = $1 AND i.request_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], userID, requestID)
 }
 
@@ -355,8 +359,9 @@ func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, reques
 // instances return pgx.ErrNoRows; callers authorize access.
 func readAgentInstance(ctx context.Context, db dbExecutor, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
+		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
+		    h.source_checkpoint_id, i.history_id FROM agent_instance i
+		JOIN a2a_context h ON h.id = i.history_id WHERE i.id = $1
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
 
@@ -369,17 +374,17 @@ func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *ap
 		return agentInstanceRow{}, err
 	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3)
-	`, historyID, instance.Creator, instance.ContextId); err != nil {
+		INSERT INTO a2a_context (id, user_id, context_id, source_checkpoint_id) VALUES ($1, $2, $3, $4)
+	`, historyID, instance.Creator, instance.ContextId, sourceCheckpointID); err != nil {
 		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
 	}
 	return queryOne(ctx, db, `
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,
-		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid,
+		    state, operation, data) VALUES ($1, $2, $3, $4, $5, $6,
 		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $8)
 		ON CONFLICT (user_id, request_id) DO NOTHING
 		RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id
+		    $7::uuid AS source_checkpoint_id, history_id
 	`,
 		pgx.RowToStructByName[agentInstanceRow], instance.Id, instance.Creator, requestID, instance.ContextId,
 		historyID, instance.PreparedRevision, sourceCheckpointID, data,
