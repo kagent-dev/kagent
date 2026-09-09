@@ -52,6 +52,13 @@ function conversationLabel(row: Snapshot): string {
  * There is no create here. A snapshot is taken where it means something — at a turn
  * boundary in a conversation, from the composer's Checkpoint button — and a control
  * here would have nothing to take one *of*.
+ *
+ * ## Why a delete can refuse
+ *
+ * `BeginDeleteAgentInstanceCheckpoint` will not remove a snapshot while any chat still
+ * names it as the boundary it was forked from — and it reports that refusal as
+ * `NotFound`, which is indistinguishable here from a snapshot that has genuinely gone.
+ * So the page says the condition up front rather than guessing at it per failure.
  */
 export function SnapshotsPage() {
   const theme = useTheme();
@@ -164,7 +171,7 @@ export function SnapshotsPage() {
           <DeleteResourceButton
             kind="snapshot"
             name={conversationLabel(row)}
-            description="The copy of the conversation's runtime this was holding is released. Chats already forked from it are unaffected."
+            description="The copy of the conversation's runtime this was holding is released. A snapshot a chat was forked from cannot be deleted until that chat is."
             onDelete={() => apiClient.agentInstances.checkpoints.remove(row.id)}
             onDeleted={refresh}
           />
@@ -177,7 +184,7 @@ export function SnapshotsPage() {
   return (
     <PageFrame
       title="Snapshots"
-      description="Saved turn boundaries. Each one holds a copy of a conversation's runtime, which a fork starts from."
+      description="Saved turn boundaries. Each one holds a copy of a conversation's runtime, which a fork starts from — and cannot be deleted while a chat forked from it still exists."
       actions={
         <Space size={8}>
           <RefreshButton onRefresh={refresh} what="Snapshots" loading={isLoading} />
