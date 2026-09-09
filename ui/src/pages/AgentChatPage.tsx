@@ -21,10 +21,13 @@ import {
   useChat,
   type AgentInstanceOperation,
   type AgentInstanceState,
+  type ChatMessage,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
+import { useCheckpoints } from "@/api/hooks/useCheckpoints";
+import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentUrl } from "@/components/agent/agentUrl";
 
@@ -171,26 +174,84 @@ export function AgentChatPage() {
 
   const invalidateConversations = useInvalidateConversations();
   const links = useExtensionAgentLinks();
-  /*
-   * A checkpoint of this conversation as it stands, forked into a new one, which is
-   * then opened. Offered from every message rather than once per conversation, but
-   * a checkpoint is taken at the current turn boundary, so each one forks the whole
-   * conversation — not the transcript up to that message.
+  const checkpoints = useCheckpoints(id);
+  /**
+   * Boundaries saved since this page loaded, by the message they were saved at.
+   *
+   * See `checkpointsByMessage`: the controller ties a checkpoint to a *turn*, and the
+   * message the reader has just sent does not know its turn yet.
    */
-  const forkConversation = useCallback(async () => {
-    if (!id) return;
-    const title = instance.data?.name || autoTitle;
-    try {
-      const forked = await apiClient.agentInstances.fork(id, title ? `${title} (fork)` : undefined);
-      await invalidateConversations();
-      toast.success(title ? `Forked "${title}"` : "Forked the conversation");
-      navigate(links?.chat?.({ id: forked.id }) ?? agentUrl.chat({ id: forked.id }));
-    } catch (cause: unknown) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      console.error("Could not fork conversation:", cause);
-      toast.error(`Could not fork: ${message}`);
-    }
-  }, [id, instance.data?.name, autoTitle, invalidateConversations, links, navigate]);
+  const [savedHere, setSavedHere] = useState<ReadonlyMap<string, string>>(new Map());
+  const [checkpointingMessageId, setCheckpointing] = useState<string>();
+
+  const checkpointByMessage = useMemo(
+    () => checkpointsByMessage(chat.messages, checkpoints.data, savedHere),
+    [chat.messages, checkpoints.data, savedHere],
+  );
+  const checkpointedMessageIds = useMemo(
+    () => new Set(checkpointByMessage.keys()),
+    [checkpointByMessage],
+  );
+
+  /*
+   * Saves the conversation's current turn boundary, marked against the message the
+   * reader asked from.
+   *
+   * The controller takes no cutoff, so this is only offered on their latest message —
+   * and the boundary it saves is the one that message ends.
+   */
+  const checkpointMessage = useCallback(
+    async (message: ChatMessage) => {
+      if (!id) return;
+      setCheckpointing(message.id);
+      try {
+        const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
+        setSavedHere((current) => new Map(current).set(message.id, checkpoint.id));
+        await checkpoints.refresh();
+        toast.success("Checkpoint saved");
+      } catch (cause: unknown) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        console.error("Could not checkpoint the conversation:", cause);
+        toast.error(`Could not checkpoint: ${reason}`);
+      } finally {
+        setCheckpointing(undefined);
+      }
+    },
+    [id, checkpoints],
+  );
+
+  /*
+   * A new conversation holding the transcript up to a saved boundary, which is then
+   * opened. Forking the same boundary again is allowed and makes another one.
+   */
+  const forkFromMessage = useCallback(
+    async (message: ChatMessage) => {
+      const checkpointId = checkpointByMessage.get(message.id);
+      if (!checkpointId) return;
+      const title = instance.data?.name || autoTitle;
+      try {
+        const forked = await apiClient.agentInstances.checkpoints.fork(
+          checkpointId,
+          title ? `${title} (fork)` : undefined,
+        );
+        await invalidateConversations();
+        toast.success(title ? `Forked "${title}"` : "Forked the conversation");
+        navigate(links?.chat?.({ id: forked.id }) ?? agentUrl.chat({ id: forked.id }));
+      } catch (cause: unknown) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        console.error("Could not fork conversation:", cause);
+        toast.error(`Could not fork: ${reason}`);
+      }
+    },
+    [
+      checkpointByMessage,
+      instance.data?.name,
+      autoTitle,
+      invalidateConversations,
+      links,
+      navigate,
+    ],
+  );
 
   /**
    * Starts another conversation with this agent.
@@ -573,7 +634,10 @@ export function AgentChatPage() {
           <ChatTranscript
             chat={chat}
             sessionId={id}
-            onFork={forkConversation}
+            onCheckpoint={checkpointMessage}
+            onFork={forkFromMessage}
+            checkpointedMessageIds={checkpointedMessageIds}
+            checkpointingMessageId={checkpointingMessageId}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
             // has no business knowing the composer exists, so the page it belongs to

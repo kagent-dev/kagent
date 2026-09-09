@@ -209,6 +209,11 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     // after the reload — the inner-text comparison below would otherwise catch
     // it mid-render, showing the raw source where the SVG will be.
     await expect(page.getByTestId("chat-mermaid").locator("svg")).toBeVisible();
+    // The saved boundaries are their own read, so the mark on a checkpointed message
+    // lands a moment after the transcript it belongs to.
+    await expect(
+      messages.first().locator('[data-testid^="chat-message-checkpointed-"]'),
+    ).toBeVisible();
     expect(
       await messages.allInnerTexts(),
       "the reloaded conversation should be the one that was on screen",

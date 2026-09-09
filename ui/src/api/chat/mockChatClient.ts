@@ -501,6 +501,48 @@ function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
 }
 
 /**
+ * What the fixture backend needs to fake a checkpoint, which only this file knows.
+ *
+ * A checkpoint is a turn boundary and a fork is the transcript up to one, so both
+ * are questions about the conversation — and the conversation lives here rather than
+ * in `src/mocks/state.ts`. The alternative was the transport reaching into this
+ * file's storage keys, which is the same coupling with nothing naming it.
+ */
+export function mockTranscriptOf(sessionId: string): ChatMessage[] {
+  return loadTranscript(sessionId) ?? SEEDED_TRANSCRIPTS[sessionId]?.() ?? [];
+}
+
+/** The turn a checkpoint taken now would sit at, or nothing if nothing was said. */
+export function mockLatestTaskId(sessionId: string): string {
+  const messages = mockTranscriptOf(sessionId);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const taskId = messages[index].taskId;
+    if (taskId) return taskId;
+  }
+  return "";
+}
+
+/**
+ * Copies the source's transcript up to and including one turn, as a fork's history.
+ *
+ * Truncating is what makes a fork of an earlier boundary different from a fork of
+ * the latest one, and it is the behaviour the whole feature rests on — a fixture
+ * that copied the lot would let a broken cutoff look right.
+ */
+export function mockForkTranscript(
+  sourceId: string,
+  forkId: string,
+  headTaskId: string,
+): void {
+  const messages = mockTranscriptOf(sourceId);
+  let end = -1;
+  for (let index = messages.length - 1; index >= 0 && end === -1; index -= 1) {
+    if (messages[index].taskId === headTaskId) end = index;
+  }
+  saveTranscript(forkId, end === -1 ? messages : messages.slice(0, end + 1));
+}
+
+/**
  * Conversations that already exist when the app opens.
  *
  * Built fresh per call so one test's turns cannot leak into the next.

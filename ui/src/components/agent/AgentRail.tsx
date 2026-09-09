@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -18,6 +18,7 @@ import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
   ChevronsUpDown,
+  Copy,
   Folder,
   MoreVertical,
   PanelLeftClose,
@@ -489,6 +490,9 @@ export function AgentRail({
     }
   }
 
+  const [duplicatingId, setDuplicatingId] = useState<string>();
+  const navigate = useNavigate();
+
   async function deleteConversation(target: AgentInstance): Promise<void> {
     setDeletingId(target.id);
     setActionError(undefined);
@@ -503,9 +507,37 @@ export function AgentRail({
     }
   }
 
+  /**
+   * A copy of a conversation, opened.
+   *
+   * A checkpoint of it as it stands and a fork of that checkpoint — which is what a
+   * duplicate *is*: the same transcript, its own worker, and its own future. The copy
+   * opens because the reader duplicated it in order to say something else in it, and
+   * leaving them in the original would make the next thing they typed land in the
+   * conversation they had just set aside.
+   */
+  async function duplicateConversation(target: AgentInstance): Promise<void> {
+    setDuplicatingId(target.id);
+    setActionError(undefined);
+    try {
+      // The title, not the row's label: that carries the age too, and a copy called
+      // "… · 2 minutes ago (copy)" is stamped with the age of the thing it came from.
+      const title = conversationTitle(target, derivedTitles[target.id]);
+      const copy = await apiClient.agentInstances.fork(target.id, `${title} (copy)`);
+      await conversations.refresh();
+      toast.success(`Duplicated "${title}"`);
+      navigate(url.chat({ id: copy.id }));
+    } catch (cause: unknown) {
+      reportActionFailure("duplicate", cause, setActionError);
+    } finally {
+      setDuplicatingId(undefined);
+    }
+  }
+
   const [isCollapsed, setCollapsed] = useState(
     () => window.localStorage.getItem(RAIL_COLLAPSED) === "true",
   );
+
 
   function toggleCollapsed() {
     setCollapsed((collapsed) => {
@@ -1092,7 +1124,9 @@ export function AgentRail({
                 href={url.chat({ id: candidate.id })}
                 isActive={candidate.id === ref.id}
                 onDelete={deleteConversation}
+                onDuplicate={duplicateConversation}
                 isDeleting={deletingId === candidate.id}
+                isDuplicating={duplicatingId === candidate.id}
                 isSelected={selected.has(candidate.id)}
                 onToggleSelected={toggleSelected}
                 isSelecting={selected.size > 0}
@@ -1303,9 +1337,11 @@ function ChatEntry({
   href,
   isActive,
   onDelete,
+  onDuplicate,
   shownState,
   shownOperation,
   isDeleting,
+  isDuplicating,
   isSelected,
   onToggleSelected,
   isSelecting,
@@ -1315,6 +1351,8 @@ function ChatEntry({
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance) => void;
+  /** Copies the conversation and opens the copy. */
+  onDuplicate: (instance: AgentInstance) => void;
   /**
    * The state to draw, which is not always the state on the record.
    *
@@ -1332,6 +1370,7 @@ function ChatEntry({
    */
   shownOperation?: AgentInstanceOperation;
   isDeleting: boolean;
+  isDuplicating: boolean;
   isSelected: boolean;
   onToggleSelected: (id: string, withShift: boolean) => void;
   /** Whether anything is selected, which is what keeps the boxes on screen. */
@@ -1455,6 +1494,22 @@ function ChatEntry({
         and nowhere else. The rail owns the delete now, so the row behaves the same on
         every surface that mounts it.
       */}
+      {/* Its own button rather than a third menu item: duplicating is the one thing
+          here a reader does repeatedly — a copy per branch of an idea — and each one
+          behind a menu is two clicks instead of one. It is revealed on hover like the
+          menu beside it, so a row still reads as a name. */}
+      <Tooltip title="Duplicate chat">
+        <Button
+          type="text"
+          size="small"
+          loading={isDuplicating}
+          data-testid={`chat-session-duplicate-${instance.id}`}
+          aria-label={`Duplicate ${conversationLabel(instance, autoTitle)}`}
+          onClick={() => onDuplicate(instance)}
+          icon={<Copy size={14} color={theme.color.textMuted} />}
+          css={rowActionStyles}
+        />
+      </Tooltip>
       <Dropdown
         trigger={["click"]}
         menu={{
@@ -1482,15 +1537,7 @@ function ChatEntry({
           data-testid={`chat-session-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
           icon={<MoreVertical size={14} color={theme.color.textMuted} />}
-          css={{
-            flexShrink: 0,
-            // Hidden until the row is hovered or the button itself has focus, so the
-            // list reads as names rather than as a column of controls. Focus matters as
-            // much as hover: a keyboard reader has no pointer to reveal it with.
-            opacity: 0,
-            transition: "opacity 100ms ease",
-            "li:hover &, &:focus-visible, &[aria-expanded='true']": { opacity: 1 },
-          }}
+          css={rowActionStyles}
         />
       </Dropdown>
 
@@ -1521,6 +1568,20 @@ function ChatEntry({
  * instance is scoped to its creator on write, so being refused is an ordinary outcome
  * here rather than an exceptional one — which is exactly why it must be said.
  */
+
+/**
+ * The controls that live on a conversation row.
+ *
+ * Hidden until the row is hovered or the button itself has focus, so the list reads as
+ * names rather than as a column of controls. Focus matters as much as hover: a
+ * keyboard reader has no pointer to reveal it with.
+ */
+const rowActionStyles = {
+  flexShrink: 0,
+  opacity: 0,
+  transition: "opacity 100ms ease",
+  "li:hover &, &:focus-visible, &[aria-expanded='true']": { opacity: 1 },
+} as const;
 
 function reportActionFailure(
   /** What was attempted, lower case — it is read in the middle of a sentence. */

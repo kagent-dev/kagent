@@ -64,6 +64,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
+import type { Checkpoint } from "./domain/checkpoints";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
@@ -230,6 +231,36 @@ export interface OperationMap {
    */
   "agentInstances.fork": {
     input: AgentInstanceRef & { requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
+  /**
+   * Saves the conversation's current turn boundary, so a fork can start from it later.
+   *
+   * The controller has no cutoff to offer: what is saved is wherever the conversation
+   * stands now. A conversation mid-turn has no boundary to save and is refused with
+   * `FailedPrecondition`.
+   */
+  "agentInstances.checkpoints.create": {
+    input: AgentInstanceRef & { requestId: string };
+    output: Checkpoint;
+  };
+
+  /** Every boundary saved against this conversation, newest first. */
+  "agentInstances.checkpoints.list": {
+    input: AgentInstanceRef;
+    output: Checkpoint[];
+  };
+
+  /**
+   * Forks a saved boundary: a new conversation holding the transcript up to it.
+   *
+   * Unlike `agentInstances.fork` this starts from a boundary saved earlier, so the
+   * fork's history stops there rather than at the source's latest turn. The fork
+   * comes back unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.checkpoints.fork": {
+    input: { checkpointId: string; requestId: string; name?: string };
     output: AgentInstance;
   };
 

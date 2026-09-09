@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import type { ChatController, ChatTurnPhase } from "@/api";
+import type { ChatController, ChatMessage, ChatTurnPhase } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
 
@@ -31,11 +31,25 @@ export function ChatTranscript({
   chat,
   sessionId,
   onAnswered,
+  onCheckpoint,
   onFork,
+  checkpointedMessageIds,
+  checkpointingMessageId,
 }: {
   chat: ChatController;
-  /** Forks this conversation, offered from the reader's own messages. Absent when read-only. */
-  onFork?: () => void;
+  /**
+   * Saves a turn boundary at one of the reader's messages. Absent when read-only.
+   *
+   * Only the latest of them can be saved — see `ChatMessageItem` — but the handler is
+   * given the message either way so the caller need not re-derive which one it was.
+   */
+  onCheckpoint?: (message: ChatMessage) => void;
+  /** Forks from a message's saved boundary. Absent when read-only. */
+  onFork?: (message: ChatMessage) => void;
+  /** The reader's messages a boundary is already saved at. */
+  checkpointedMessageIds?: ReadonlySet<string>;
+  /** The message whose checkpoint is being saved right now, if any. */
+  checkpointingMessageId?: string;
   /**
    * An `ask_user` answer has just gone.
    *
@@ -281,9 +295,9 @@ export function ChatTranscript({
         minHeight: "100%",
       }}
     >
-      {/* Which message a fork may start from: the reader's latest, because that is the
-          conversation's latest turn boundary. Computed here rather than in the message,
-          which cannot see its siblings. */}
+      {/* Which message a checkpoint may be taken at: the reader's latest, because that
+          is the conversation's current turn boundary. Computed here rather than in the
+          message, which cannot see its siblings. */}
       {chat.messages.length === 0 ? (
         <Empty
           data-testid="chat-empty"
@@ -295,8 +309,11 @@ export function ChatTranscript({
             key={message.id}
             message={message}
             sessionId={sessionId}
-            onFork={onFork}
-            isForkable={message.id === latestFromReader}
+            onCheckpoint={onCheckpoint && (() => onCheckpoint(message))}
+            canCheckpoint={message.id === latestFromReader}
+            isCheckpointed={checkpointedMessageIds?.has(message.id) ?? false}
+            isCheckpointing={checkpointingMessageId === message.id}
+            onFork={onFork && (() => onFork(message))}
           />
         ))
       )}

@@ -54,6 +54,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
+import type { Checkpoint } from "./domain/checkpoints";
 
 /** Options every read method accepts, so callers can cancel in-flight work. */
 export interface ReadOptions {
@@ -240,6 +241,19 @@ export interface AgentInstancesApi {
   fork(id: string, name?: string): Promise<AgentInstance>;
 
   /**
+   * The turn boundaries a fork can start from.
+   *
+   * `create` saves the conversation where it stands — there is no cutoff to pass, so
+   * a boundary further back is one that was saved while it was the latest. `fork`
+   * then starts a conversation holding the history up to whichever one is named.
+   */
+  checkpoints: {
+    list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
+    create(id: string): Promise<Checkpoint>;
+    fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+  };
+
+  /**
    * Deletes an instance, and with it the conversation held against it.
    *
    * The instance *is* the conversation, so this is not a tidy-up — it removes what
@@ -356,6 +370,21 @@ export function createApiClient(): KagentApiClient {
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>
         invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
+      checkpoints: {
+        list: (id, options) =>
+          invoke("agentInstances.checkpoints.list", { id }, options),
+        create: (id) =>
+          invoke("agentInstances.checkpoints.create", {
+            id,
+            requestId: crypto.randomUUID(),
+          }),
+        fork: (checkpointId, name) =>
+          invoke("agentInstances.checkpoints.fork", {
+            checkpointId,
+            requestId: crypto.randomUUID(),
+            name,
+          }),
+      },
       shares: {
         list: (id, options) =>
           invoke("agentInstances.shares.list", { id }, options),
