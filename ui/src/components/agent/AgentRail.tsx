@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -513,6 +513,29 @@ export function AgentRail({
 
   const [duplicatingId, setDuplicatingId] = useState<string>();
   const [isBulkMenuOpen, setBulkMenuOpen] = useState(false);
+  /*
+   * How wide the conversation list's scrollbar track is, so the bar above it can hold
+   * its controls in the same column as the rows'.
+   *
+   * Measured rather than declared: it is 0 where scrollbars overlay the content and
+   * about 11px where the reader has asked for them always, and hard-coding either puts
+   * the two columns of controls a scrollbar apart on the other. The bar reserved it
+   * with a `scrollbar-gutter` of its own for a while, which meant making a bar that
+   * never scrolls into a scroll container — and a scroll container clips, which took
+   * the top and bottom off its focus ring.
+   */
+  const [listGutter, setListGutter] = useState(0);
+  const gutterWatch = useRef<ResizeObserver | null>(null);
+  const measureGutter = useCallback((list: HTMLUListElement | null) => {
+    if (!list) return;
+    const read = () => setListGutter(list.offsetWidth - list.clientWidth);
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(list);
+    gutterWatch.current?.disconnect();
+    gutterWatch.current = observer;
+  }, []);
+  useEffect(() => () => gutterWatch.current?.disconnect(), []);
   const navigate = useNavigate();
 
   async function deleteConversation(target: AgentInstance): Promise<void> {
@@ -974,20 +997,8 @@ export function AgentRail({
                * but the same jump, at the same moment.
                */
               minHeight: 38,
-              /* The list's reserved scrollbar track, so this bar's controls sit in the
-                 same column as the rows'. `hidden` rather than `auto`: the gutter is
-                 reserved either way, and `auto` made a bar that never has anything to
-                 scroll scrollable. `thin` because a track of a different width is the
-                 misalignment this is here to fix. */
-              overflowY: "hidden",
-              scrollbarGutter: "stable",
-              scrollbarWidth: "thin",
-              /* And room on the left for the ring its checkbox draws outside itself,
-                 pulled back by the same amount — this box clips too, for the gutter
-                 above. The list below does exactly this, and by the same measure, which
-                 is what keeps the two columns of controls in line. */
-              paddingInlineStart: theme.space(2),
-              marginInlineStart: `-${theme.space(2)}`,
+              // The list's reserved scrollbar track, measured — see `listGutter`.
+              paddingInlineEnd: listGutter,
             }}
             data-testid="chat-bulk-bar"
           >
@@ -1128,6 +1139,7 @@ export function AgentRail({
           </Text>
         ) : (
           <ul
+            ref={measureGutter}
             data-testid="chat-sessions-list"
             css={{
               listStyle: "none",
@@ -1149,7 +1161,9 @@ export function AgentRail({
                  with them. Without it the two menus were aligned in a short list and
                  a scrollbar's width apart in a long one. */
               scrollbarGutter: "stable",
-              paddingBlock: 2,
+              /* Room for the focus ring on the first and last rows, which is drawn
+                 outside them and was clipped by the scroll box at 2px. */
+              paddingBlock: theme.space(1),
               /* The list clips its own overflow, and a checkbox's ring is drawn just
                  outside the box it belongs to — so the clip box is widened to the left
                  and pulled back by the same amount. The rail's own left padding is
