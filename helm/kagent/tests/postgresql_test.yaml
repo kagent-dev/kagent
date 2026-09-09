@@ -4,7 +4,7 @@ templates:
   - postgresql-secret.yaml
 tests:
   # =============================================================================
-  # bundled mode (default — url and urlFile both empty, bundled.enabled true)
+  # bundled mode (default — no external connection, bundled.enabled true)
   # =============================================================================
 
   - it: should render ServiceAccount, PVC, Deployment, and Service when bundled is enabled
@@ -34,12 +34,13 @@ tests:
       - hasDocuments:
           count: 4
 
-  - it: should still render resources when urlFile is set and bundled is enabled
+  - it: should still render resources when an external Secret is set and bundled is enabled
     template: postgresql.yaml
     set:
       database:
         postgres:
-          urlFile: "/var/secrets/db-url"
+          secretRef:
+            name: external-postgres
     asserts:
       - hasDocuments:
           count: 4
@@ -409,15 +410,78 @@ tests:
       - hasDocuments:
           count: 1
 
-  - it: should still create secret when urlFile is set and bundled is enabled
+  - it: should still create the bundled password secret when an external Secret is set
     template: postgresql-secret.yaml
     set:
       database:
         postgres:
-          urlFile: "/var/secrets/db-url"
+          secretRef:
+            name: external-postgres
     asserts:
       - hasDocuments:
           count: 1
+
+  - it: should create a shared Substrate connection secret for bundled postgres
+    template: postgresql-secret.yaml
+    documentIndex: 1
+    set:
+      substrate:
+        enabled: true
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-postgres-connection
+      - equal:
+          path: stringData.connectionString
+          value: "postgres://kagent:kagent@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
+
+  - it: should put an external URL in the shared Substrate connection secret
+    template: postgresql-secret.yaml
+    set:
+      database:
+        postgres:
+          url: "postgres://user:pass@external-host:5432/db"
+          bundled:
+            enabled: false
+      substrate:
+        enabled: true
+    asserts:
+      - equal:
+          path: stringData.connectionString
+          value: "postgres://user:pass@external-host:5432/db"
+
+  - it: should use an existing Substrate connection secret without creating one
+    template: postgresql-secret.yaml
+    set:
+      database:
+        postgres:
+          bundled:
+            enabled: false
+      substrate:
+        enabled: true
+        postgres:
+          connectionStringSecretRef:
+            name: shared-db
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should require an explicit Substrate reference for an existing Kagent Secret
+    template: postgresql-secret.yaml
+    set:
+      database:
+        postgres:
+          secretRef:
+            name: shared-db
+          bundled:
+            enabled: false
+      substrate:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "database.postgres.secretRef cannot be inherited by Substrate; set substrate.postgres.connectionStringSecretRef to the same Secret"
 
   - it: should not render imagePullSecret by default
     template: postgresql.yaml

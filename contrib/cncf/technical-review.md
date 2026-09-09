@@ -325,7 +325,7 @@ Default values can be found in [helm/kagent/values.yaml](https://github.com/kage
 **Additional Configurations:**
 For production use, configure:
 
-- External PostgreSQL connection (set `database.postgres.bundled.enabled=false` and set either `database.postgres.url` or `database.postgres.urlFile`)
+- External PostgreSQL connection (set `database.postgres.bundled.enabled=false` and configure `database.postgres.url` or `database.postgres.secretRef`)
 - LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
