@@ -56,33 +56,48 @@ export function CheckpointDivider({
       >
         Checkpoint
       </Text>
-      {/* Icon only, but outlined: sitting on the line beside the label, a borderless
-          icon reads as part of the mark rather than as something to press. Its name is
-          in the tooltip, so the line stays a line. */}
+      {/* Outlined, and named: on the line beside the label a bare icon left what it
+          does to a hover, and a filled button pulled the eye off the conversation. One
+          word — the tooltip says where from, so the line stays a line. */}
       {onFork ? (
-        <Tooltip title="Fork chat from here">
-          <Button
-            size="small"
-            data-testid={`chat-checkpoint-fork-${checkpointId}`}
-            aria-label="Fork chat from here"
-            icon={<GitFork size={13} />}
-            onClick={onFork}
+        <>
+          {/* The rule carrying on between the two, so the mark and the control read as
+              two things on one line rather than a label with a button stuck to it. */}
+          <span
+            aria-hidden
             css={{
-              width: 24,
-              height: 24,
-              minWidth: 24,
-              color: theme.color.primaryText,
-              borderColor: theme.color.primaryText,
-              background: "transparent",
-              "&:hover, &:focus-visible": {
-                color: theme.color.primaryText,
-                borderColor: theme.color.primaryText,
-                background: theme.color.accentBg,
-              },
-              "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+              width: 14,
+              height: 1,
+              background: theme.color.primaryText,
+              opacity: 0.4,
             }}
           />
-        </Tooltip>
+          <Tooltip title="Fork the chat from this checkpoint">
+            <Button
+              size="small"
+              data-testid={`chat-checkpoint-fork-${checkpointId}`}
+              aria-label="Fork the chat from this checkpoint"
+              icon={<GitFork size={13} />}
+              onClick={onFork}
+              css={{
+                height: 24,
+                fontSize: 12,
+                paddingInline: theme.space(2),
+                color: theme.color.primaryText,
+                borderColor: theme.color.primaryText,
+                background: "transparent",
+                "&:hover, &:focus-visible": {
+                  color: theme.color.primaryText,
+                  borderColor: theme.color.primaryText,
+                  background: theme.color.accentBg,
+                },
+                "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+              }}
+            >
+              Fork
+            </Button>
+          </Tooltip>
+        </>
       ) : null}
     </div>
   );

@@ -462,6 +462,37 @@ export function ChatTranscript({
               css={{
                 transform: "translateY(-100%)",
                 boxShadow: `0 6px 18px -6px ${theme.color.bg}`,
+                /*
+                 * Purple rather than the default grey: it floats over the conversation
+                 * rather than sitting in a row of controls, so its edge is the only
+                 * thing separating it from whatever is behind it.
+                 *
+                 * Through `&.ant-btn`, because antd's own default-variant rule is more
+                 * specific than the emitted class and wins a plain declaration.
+                 */
+                "&.ant-btn": {
+                  color: theme.color.primaryText,
+                  borderColor: theme.color.primaryText,
+                },
+                /*
+                 * Filled on hover rather than tinted: `accentBg` is a near-white on the
+                 * light theme, so a tint under a white button was no answer at all to
+                 * "did I hit it?". Pressing takes the darker fill.
+                 *
+                 * The variant class is in the selector to outrank antd's own hover rule,
+                 * which carries three classes of its own and otherwise wins.
+                 */
+                "&.ant-btn.ant-btn-variant-outlined:not(:disabled):hover, &.ant-btn.ant-btn-variant-outlined:not(:disabled):focus-visible":
+                  {
+                    color: theme.color.textOnPrimary,
+                    borderColor: theme.color.primary,
+                    background: theme.color.primary,
+                  },
+                "&.ant-btn.ant-btn-variant-outlined:not(:disabled):active": {
+                  color: theme.color.textOnPrimary,
+                  borderColor: theme.color.primaryHover,
+                  background: theme.color.primaryHover,
+                },
               }}
             />
           </Tooltip>
