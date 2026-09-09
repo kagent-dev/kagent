@@ -16,11 +16,22 @@ export function rowStyles(theme: Theme, isActive: boolean) {
     alignItems: "center",
     gap: theme.space(2),
     padding: `${theme.space(2)} ${theme.space(3)}`,
-    borderRadius: theme.radius.md,
+    // The smaller of the two radii the rail uses, shared with the menu button beside
+    // it: two rounded rectangles side by side with different corners read as a mistake.
+    borderRadius: theme.radius.sm,
     minWidth: 0,
     color: isActive ? theme.color.text : theme.color.textMuted,
-    background: isActive ? `${theme.color.primary}26` : "transparent",
-    border: `1px solid ${isActive ? theme.color.primary : "transparent"}`,
+    /*
+     * The open row is a tint and a weight, not an outlined pill.
+     *
+     * Outlined, it read as a selected field rather than the place you are — a hard
+     * edge a few pixels from the menu button beside it, in a column of rows that have
+     * none. The tint is deeper than hover so the two are never confused, and the
+     * heavier text is what carries it when a row is scrolled past at speed.
+     */
+    background: isActive ? `${theme.color.primary}24` : "transparent",
+    border: "1px solid transparent",
+    fontWeight: isActive ? 600 : 400,
     transition: "background 100ms ease, color 100ms ease",
     /*
      * A tint of the foreground, not a named surface.

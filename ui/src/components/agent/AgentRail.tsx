@@ -982,6 +982,12 @@ export function AgentRail({
               overflowY: "hidden",
               scrollbarGutter: "stable",
               scrollbarWidth: "thin",
+              /* And room on the left for the ring its checkbox draws outside itself,
+                 pulled back by the same amount — this box clips too, for the gutter
+                 above. The list below does exactly this, and by the same measure, which
+                 is what keeps the two columns of controls in line. */
+              paddingInlineStart: theme.space(2),
+              marginInlineStart: `-${theme.space(2)}`,
             }}
             data-testid="chat-bulk-bar"
           >
@@ -1028,7 +1034,7 @@ export function AgentRail({
                 icon={
                   <MoreVertical
                     size={14}
-                    color={isBulkMenuOpen ? theme.color.textOnPrimary : theme.color.textMuted}
+                    color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
                   />
                 }
                 aria-label="Actions for the selected conversations"
@@ -1462,7 +1468,10 @@ function ChatEntry({
   const [isMenuOpen, setMenuOpen] = useState(false);
 
   return (
-    <li css={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+    /* Room between the three things on a row. At 2px the checkbox, the name and the
+       menu were one undifferentiated strip, and the open conversation's outline ran
+       straight into the button beside it. */
+    <li css={{ display: "flex", alignItems: "center", gap: theme.space(2), minWidth: 0 }}>
       <Modal
         open={isConfirming}
         onCancel={() => setConfirming(false)}
@@ -1597,6 +1606,7 @@ function ChatEntry({
               label: "Duplicate chat",
               onClick: () => onDuplicate(instance),
             },
+            { type: "divider" as const },
             {
               key: "delete",
               danger: true,
@@ -1616,7 +1626,7 @@ function ChatEntry({
           icon={
             <MoreVertical
               size={14}
-              color={isMenuOpen ? theme.color.textOnPrimary : theme.color.textMuted}
+              color={isMenuOpen ? theme.color.primaryText : theme.color.textMuted}
             />
           }
           // Square, and as tall as the row beside it: at antd's own size it was a
@@ -1677,20 +1687,30 @@ function ChatEntry({
 /**
  * The square menu button, on a row and on the bulk bar.
  *
- * Filled while its menu is open, because the menu opens somewhere else on the screen
- * and nothing else says which of a dozen identical buttons it belongs to. Driven from
- * React rather than `[aria-expanded]`, because the state has to reach the icon too —
- * lucide takes its colour as a prop, which no stylesheet can reach.
+ * Outlined while its menu is open, because the menu opens somewhere else on the screen
+ * and nothing else says which of a dozen identical buttons it belongs to. An outline
+ * rather than a fill: a solid square in a list of quiet rows read as the row itself
+ * being selected. Driven from React rather than `[aria-expanded]`, because the state
+ * has to reach the icon too — lucide takes its colour as a prop, which no stylesheet
+ * can reach.
  */
 function menuButtonStyles(theme: Theme, isOpen: boolean) {
-  const size = { width: 38, minWidth: 38, height: 38, padding: 0 };
+  // The row's radius, not antd's: they sit side by side and are the same shape.
+  const size = {
+    width: 38,
+    minWidth: 38,
+    height: 38,
+    padding: 0,
+    borderRadius: theme.radius.sm,
+  };
   if (!isOpen) return { flexShrink: 0, ...size } as const;
   return {
     flexShrink: 0,
     ...size,
     "&.ant-btn.ant-btn-variant-text.ant-btn-color-default": {
-      background: theme.color.primary,
-      "&:hover, &:active": { background: theme.color.primaryHover },
+      border: `1px solid ${theme.color.primary}`,
+      background: "transparent",
+      "&:hover, &:active": { background: theme.color.accentBg },
     },
   } as const;
 }

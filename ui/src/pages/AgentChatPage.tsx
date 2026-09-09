@@ -190,6 +190,18 @@ export function AgentChatPage() {
    * message the reader has just sent does not know its turn yet.
    */
   const [savedHere, setSavedHere] = useState<ReadonlyMap<string, string>>(new Map());
+  /*
+   * Dropped the moment the conversation changes.
+   *
+   * These are keyed by message id, and a fork is given copies of its source's messages
+   * under the same ids — so a fork opened from this page inherited the marks of
+   * boundaries it does not have, until something reloaded it. The controller's list is
+   * the truth about a conversation's boundaries; this map only ever covers the gap
+   * before the first read of it lands.
+   */
+  useEffect(() => {
+    setSavedHere(new Map());
+  }, [id]);
   const [isCheckpointing, setCheckpointing] = useState(false);
 
   const checkpointByMessage = useMemo(

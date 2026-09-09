@@ -76,6 +76,36 @@ test("chat: a fork of an earlier checkpoint opens holding only what was above it
   await expect(mine).toHaveCount(1, { timeout: 30_000 });
 });
 
+/*
+ * The marks a fork must not inherit.
+ *
+ * A boundary saved on this page is remembered against the message it was taken at,
+ * because the reader's newest message has no turn id yet. A fork is handed copies of
+ * its source's messages under the same ids — so without dropping that memory when the
+ * conversation changes, a fork opened from here drew a line it does not have.
+ */
+test("chat: a fork does not inherit the marks of the page it was made from", async ({
+  page,
+}) => {
+  await page.goto(agentChat(instances.ready));
+  const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
+  await expect(mine.first()).toBeVisible({ timeout: 30_000 });
+
+  await page.getByTestId("chat-input").fill("A turn to save a boundary at.");
+  await page.getByTestId("chat-send").click();
+  await expect(mine).toHaveCount(2, { timeout: 30_000 });
+  await page.getByTestId("chat-checkpoint").click();
+  await expect(dividers(page)).toHaveCount(2);
+
+  await dividers(page).last().locator('[data-testid^="chat-checkpoint-fork-"]').click();
+  await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {
+    timeout: 30_000,
+  });
+
+  await expect(mine.first()).toBeVisible({ timeout: 30_000 });
+  await expect(dividers(page)).toHaveCount(0);
+});
+
 test("chat: a conversation is duplicated from the rail menu, and the copy opens", async ({
   page,
 }) => {
