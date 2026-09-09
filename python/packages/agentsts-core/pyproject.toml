@@ -9,7 +9,7 @@ description = "Security Token Service client implementing RFC 8693 OAuth 2.0 Tok
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.25.0",
-  "pydantic>=2.5.0",
+  "pydantic>=2.13.5",
   "typing-extensions>=4.16.0",
   "cryptography>=41.0.0",  # For JWT handling
   "PyJWT>=2.13.0",  # For JWT token parsing
