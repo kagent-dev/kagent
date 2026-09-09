@@ -28,54 +28,49 @@ export function CheckpointDivider({
   return (
     <div
       data-testid={`chat-checkpoint-mark-${checkpointId}`}
-      css={{ display: "grid", gap: theme.space(2) }}
+      role="separator"
+      aria-label="Checkpoint"
+      css={{
+        display: "flex",
+        alignItems: "center",
+        gap: theme.space(2),
+        color: theme.color.primaryText,
+        fontSize: 12,
+        // The rule is the element, so it is drawn as two halves either side of the
+        // label rather than as a border something else sits on top of.
+        "&::before, &::after": {
+          content: '""',
+          flex: 1,
+          height: 1,
+          background: theme.color.primaryText,
+          // Quiet enough to read as a mark on the conversation rather than a section
+          // heading; the label and the button carry the colour at full strength.
+          opacity: 0.4,
+        },
+      }}
     >
-      <div
-        role="separator"
-        aria-label="Checkpoint"
-        css={{
-          display: "flex",
-          alignItems: "center",
-          gap: theme.space(2),
-          color: theme.color.primaryText,
-          fontSize: 12,
-          // The rule is the element, so it is drawn as two halves either side of the
-          // label rather than as a border something else sits on top of.
-          "&::before, &::after": {
-            content: '""',
-            flex: 1,
-            height: 1,
-            background: theme.color.primaryText,
-            // Quiet enough to read as a mark on the conversation rather than a section
-            // heading; the label and the button carry the colour at full strength.
-            opacity: 0.4,
-          },
-        }}
+      <Save size={12} aria-hidden />
+      <Text
+        data-testid="chat-checkpoint-label"
+        css={{ color: "inherit", fontSize: "inherit", fontWeight: 600 }}
       >
-        <Save size={12} aria-hidden />
-        <Text
-          data-testid="chat-checkpoint-label"
-          css={{ color: "inherit", fontSize: "inherit", fontWeight: 600 }}
-        >
-          Checkpoint
-        </Text>
-      </div>
-      {/* Below the line rather than on it: the line says where the cut falls, and a
-          control sitting in the break reads as part of the label. Outlined, so it is a
-          button in a conversation of prose rather than another piece of text — and
-          kept small, because every one of these pushes the conversation apart. */}
+        Checkpoint
+      </Text>
+      {/* Icon only, but outlined: sitting on the line beside the label, a borderless
+          icon reads as part of the mark rather than as something to press. Its name is
+          in the tooltip, so the line stays a line. */}
       {onFork ? (
-        <Tooltip title="Start a new chat holding everything above this line">
+        <Tooltip title="Fork chat from here">
           <Button
             size="small"
             data-testid={`chat-checkpoint-fork-${checkpointId}`}
+            aria-label="Fork chat from here"
             icon={<GitFork size={13} />}
             onClick={onFork}
             css={{
-              justifySelf: "center",
-              fontSize: 12,
+              width: 24,
               height: 24,
-              paddingInline: theme.space(2),
+              minWidth: 24,
               color: theme.color.primaryText,
               borderColor: theme.color.primaryText,
               background: "transparent",
@@ -86,9 +81,7 @@ export function CheckpointDivider({
               },
               "&:active": { background: theme.color.accentBg, opacity: 0.85 },
             }}
-          >
-            Fork chat from here
-          </Button>
+          />
         </Tooltip>
       ) : null}
     </div>
