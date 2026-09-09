@@ -7,12 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-
-	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -27,7 +25,7 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	instance, err := toAgentInstance(dbgen.AgentInstance{
+	instance, err := toAgentInstance(agentInstanceRow{
 		ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "SUSPENDED", Operation: "RESUME",
 	})
 	if err != nil {
@@ -54,7 +52,7 @@ func TestToAgentInstanceLeavesAnEmptyNameEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instance, err := toAgentInstance(dbgen.AgentInstance{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "READY", Operation: "NONE"})
+	instance, err := toAgentInstance(agentInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), Data: data, State: "READY", Operation: "NONE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +66,6 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
 		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
-
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'READY', '\x')
 	`); err != nil {
 		t.Fatal(err)

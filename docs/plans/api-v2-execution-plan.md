@@ -501,7 +501,7 @@ After K0:
 High-conflict integration files should have one owner at a time:
 
 - Protobuf/Buf configuration: K2, then K10/K17.
-- Database migrations/sqlc: K3, then K5/K10/K17.
+- Database migrations/store: K3, then K5/K10/K17.
 - Controller application wiring: K5, K10, then K19.
 - Generated CRDs/RBAC: K1, then K19.
 

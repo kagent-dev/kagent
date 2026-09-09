@@ -8,7 +8,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -160,10 +159,10 @@ func applyTaskEvent(stored *a2apb.Task, event *a2apb.StreamResponse) (*a2apb.Tas
 
 // replayTaskEvents rebuilds only from immutable events, including creation order
 // and idempotency metadata. It never reads the source's current task rows.
-func replayTaskEvents(events []dbgen.AgentInstanceTaskEvent, contextID string) ([]dbgen.InsertCopiedAgentInstanceTaskParams, error) {
+func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]agentInstanceTaskRow, error) {
 	tasks := make(map[string]*a2apb.Task)
 	indexes := make(map[string]int)
-	var rows []dbgen.InsertCopiedAgentInstanceTaskParams
+	var rows []agentInstanceTaskRow
 	var sequence int64
 	for _, source := range events {
 		if source.Sequence <= sequence || source.TaskID == nil {
@@ -195,7 +194,7 @@ func replayTaskEvents(events []dbgen.AgentInstanceTaskEvent, contextID string) (
 				return nil, fmt.Errorf("invalid creation event for task %s", id)
 			}
 			indexes[id] = len(rows)
-			rows = append(rows, dbgen.InsertCopiedAgentInstanceTaskParams{
+			rows = append(rows, agentInstanceTaskRow{
 				ID: id, Position: *source.TaskPosition, CreatedAt: source.CreatedAt,
 				InitialMessageID: source.InitialMessageID, RequestHash: source.RequestHash,
 			})
@@ -220,15 +219,15 @@ func replayTaskEvents(events []dbgen.AgentInstanceTaskEvent, contextID string) (
 		if err != nil {
 			return nil, err
 		}
-		if source.SnapshotUri != nil {
+		if source.SnapshotURI != nil {
 			if event.GetMessage() != nil {
 				return nil, fmt.Errorf("runtime boundary requires an explicit task transition")
 			}
-			row.SnapshotAtespace, row.SnapshotUri, row.SnapshotContentScope = source.SnapshotAtespace, source.SnapshotUri, source.SnapshotContentScope
+			row.SnapshotAtespace, row.SnapshotURI, row.SnapshotContentScope = source.SnapshotAtespace, source.SnapshotURI, source.SnapshotContentScope
 			row.HistorySequence = &source.Sequence
 		}
 	}
-	slices.SortFunc(rows, func(a, b dbgen.InsertCopiedAgentInstanceTaskParams) int {
+	slices.SortFunc(rows, func(a, b agentInstanceTaskRow) int {
 		return cmp.Compare(a.Position, b.Position)
 	})
 	return rows, nil

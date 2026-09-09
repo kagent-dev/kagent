@@ -8,15 +8,15 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	pool := setupTestDB(t)
-	client, q, ctx := NewClient(pool), dbgen.New(pool), t.Context()
+	client, q, ctx := NewClient(pool), pool, t.Context()
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
 	require.NoError(t, err)
@@ -30,13 +30,22 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	assertReplay := func() {
 		t.Helper()
-		events, err := q.ListAgentInstanceTaskEvents(ctx, historyID)
+		events, err := queryMany(ctx, q, `
+			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
+			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+			    history_id = $1 ORDER BY sequence
+		`, pgx.RowToStructByName[agentInstanceTaskEventRow], historyID)
 		require.NoError(t, err)
 		rows, err := replayTaskEvents(events, instance.ContextId)
 		require.NoError(t, err)
 		require.NotEmpty(t, rows)
 		for _, rebuilt := range rows {
-			stored, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: historyID, ID: rebuilt.ID})
+			stored, err := queryOne(ctx, q, `
+				SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+				    agent_instance_task
+				WHERE history_id = $1 AND id = $2
+			`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, rebuilt.ID)
 			require.NoError(t, err)
 			want, got := &a2apb.Task{}, &a2apb.Task{}
 			require.NoError(t, proto.Unmarshal(stored.Data, want))
@@ -56,7 +65,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 			require.Equal(t, stored.RequestHash, rebuilt.RequestHash)
 			require.Equal(t, stored.CreatedAt, rebuilt.CreatedAt)
 			require.Equal(t, stored.UpdatedAt, rebuilt.UpdatedAt)
-			require.Equal(t, stored.SnapshotUri, rebuilt.SnapshotUri)
+			require.Equal(t, stored.SnapshotURI, rebuilt.SnapshotURI)
 			require.Equal(t, stored.SnapshotAtespace, rebuilt.SnapshotAtespace)
 			require.Equal(t, stored.SnapshotContentScope, rebuilt.SnapshotContentScope)
 			require.Equal(t, stored.HistorySequence, rebuilt.HistorySequence)
@@ -82,7 +91,16 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
 	require.NoError(t, err)
-	boundaryEvents, err := q.ListAgentInstanceCheckpointEvents(ctx, uuid.MustParse(checkpoint.Id))
+	boundaryEvents, err := queryMany(ctx, q, `
+		SELECT e.sequence, e.history_id, e.task_id, e.data, e.created_at, e.message_id, e.task_position,
+		    e.initial_message_id, e.request_hash, e.snapshot_atespace, e.snapshot_uri, e.snapshot_content_scope
+		FROM agent_instance_checkpoint c
+		JOIN agent_instance_task_event e
+		  ON e.history_id = c.source_history_id
+		 AND e.sequence <= c.history_sequence
+		WHERE c.id = $1
+		ORDER BY e.sequence
+	`, pgx.RowToStructByName[agentInstanceTaskEventRow], uuid.MustParse(checkpoint.Id))
 	require.NoError(t, err)
 	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task")
 	require.NoError(t, err)
@@ -98,7 +116,11 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		assertReplay()
 	}
 	// A source task changing or even losing its view must not affect an old fork.
-	events, err := q.ListAgentInstanceTaskEvents(ctx, historyID)
+	events, err := queryMany(ctx, q, `
+		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
+		    history_id = $1 ORDER BY sequence
+	`, pgx.RowToStructByName[agentInstanceTaskEventRow], historyID)
 	require.NoError(t, err)
 	rows, err := replayTaskEvents(events, instance.ContextId)
 	require.NoError(t, err)
@@ -111,7 +133,17 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.Equal(t, before, forked)
 	for _, row := range rows {
 		row.HistoryID = historyID
-		require.NoError(t, q.InsertCopiedAgentInstanceTask(ctx, row))
+		require.NoError(t, execSQL(ctx, q, `
+			INSERT INTO agent_instance_task (
+			    history_id, id, state, status_timestamp, data, created_at, updated_at,
+			    initial_message_id, request_hash, snapshot_atespace, snapshot_uri,
+			    snapshot_content_scope, history_sequence, position
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`,
+			row.HistoryID, row.ID, row.State, row.StatusTimestamp, row.Data, row.CreatedAt, row.UpdatedAt,
+			row.InitialMessageID, row.RequestHash, row.SnapshotAtespace, row.SnapshotURI, row.SnapshotContentScope,
+			row.HistorySequence, row.Position,
+		))
 	}
 	assertReplay()
 	retry := newAgentInstanceTask("ignored", "initial-message")
@@ -120,7 +152,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, created)
 	// Missing creation, out-of-order events, and identity corruption fail closed.
-	for _, broken := range [][]dbgen.AgentInstanceTaskEvent{boundaryEvents[1:], {boundaryEvents[0], boundaryEvents[0]}} {
+	for _, broken := range [][]agentInstanceTaskEventRow{boundaryEvents[1:], {boundaryEvents[0], boundaryEvents[0]}} {
 		_, err := replayTaskEvents(broken, instance.ContextId)
 		require.Error(t, err)
 	}

@@ -4,13 +4,13 @@ import (
 	"crypto/sha256"
 	"testing"
 
-	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -25,17 +25,17 @@ func TestMalformedProtobufPayloads(t *testing.T) {
 		name   string
 		decode func([]byte) error
 	}{
-		{"instance", func(data []byte) error { _, err := toAgentInstance(dbgen.AgentInstance{Data: data}); return err }},
+		{"instance", func(data []byte) error { _, err := toAgentInstance(agentInstanceRow{Data: data}); return err }},
 		{"checkpoint", func(data []byte) error {
-			_, err := toAgentInstanceCheckpoint(dbgen.AgentInstanceCheckpoint{Data: data})
+			_, err := toAgentInstanceCheckpoint(agentInstanceCheckpointRow{Data: data})
 			return err
 		}},
 		{"share", func(data []byte) error {
-			_, err := toAgentInstanceShare(dbgen.AgentInstanceShare{Data: data})
+			_, err := toAgentInstanceShare(agentInstanceShareRow{Data: data})
 			return err
 		}},
 		{"card", func(data []byte) error {
-			_, err := toRuntimeRevision(dbgen.RuntimeRevision{AgentCard: data})
+			_, err := toRuntimeRevision(runtimeRevisionRow{AgentCard: data})
 			return err
 		}},
 		{"task", func(data []byte) error { _, err := unmarshalAgentInstanceTask(data); return err }},
@@ -47,7 +47,7 @@ func TestMalformedProtobufPayloads(t *testing.T) {
 
 func TestA2AProtobufTaskEventScope(t *testing.T) {
 	pool := setupTestDB(t)
-	client, q, ctx := NewClient(pool), dbgen.New(pool), t.Context()
+	client, q, ctx := NewClient(pool), pool, t.Context()
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original"), "create")
 	require.NoError(t, err)
@@ -80,10 +80,28 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 			require.NoError(t, err)
 			data, err := proto.Marshal(original)
 			require.NoError(t, err)
-			_, err = q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data})
+			_, err = queryOne(ctx, q, `
+				INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
+				VALUES ($1, $2, $3, $4, $5)
+				ON CONFLICT (history_id, id) DO UPDATE SET
+				    state = EXCLUDED.state,
+				    status_timestamp = EXCLUDED.status_timestamp,
+				    data = EXCLUDED.data,
+				    updated_at = NOW()
+				RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+			`,
+				pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id, string(a2a.TaskStateWorking), nil,
+				data,
+			)
 			require.NoError(t, err)
 			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, next, test.event, nil))
-			row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id})
+			row, err := queryOne(ctx, q, `
+				SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+				    agent_instance_task
+				WHERE history_id = $1 AND id = $2
+			`, pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id)
 			require.NoError(t, err)
 			require.Equal(t, string(next.Status.State), row.State)
 			got := &a2apb.Task{}
@@ -107,12 +125,29 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	}
 	data, err := proto.Marshal(original)
 	require.NoError(t, err)
-	_, err = q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id, State: string(a2a.TaskStateWorking), Data: data})
+	_, err = queryOne(ctx, q, `
+		INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (history_id, id) DO UPDATE SET
+		    state = EXCLUDED.state,
+		    status_timestamp = EXCLUDED.status_timestamp,
+		    data = EXCLUDED.data,
+		    updated_at = NOW()
+		RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+	`,
+		pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id, string(a2a.TaskStateWorking), nil, data,
+	)
 	require.NoError(t, err)
 	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, original.Id)
 	require.NoError(t, err)
 	require.True(t, interrupted)
-	row, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: contextID, ID: original.Id})
+	row, err := queryOne(ctx, q, `
+		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		    agent_instance_task
+		WHERE history_id = $1 AND id = $2
+	`, pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id)
 	require.NoError(t, err)
 	got := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(row.Data, got))
@@ -136,7 +171,7 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 func TestProtobufPersistenceLifecycle(t *testing.T) {
 	pool := setupTestDB(t)
 	client := NewClient(pool)
-	q := dbgen.New(pool)
+	q := pool
 	ctx := t.Context()
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original")
@@ -160,7 +195,10 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Equal(t, "alice", instance.Creator)
 	require.Equal(t, "revision", instance.PreparedRevision)
 	require.Empty(t, instance.Labels)
-	row, err := q.GetAgentInstanceByID(ctx, uuid.MustParse(instance.Id))
+	row, err := queryOne(ctx, q, `
+		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
+	`, pgx.RowToStructByName[agentInstanceRow], uuid.MustParse(instance.Id))
 	require.NoError(t, err)
 	stored := &apiv1alpha1.AgentInstance{}
 	require.NoError(t, proto.Unmarshal(row.Data, stored))
@@ -177,7 +215,12 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("request hash"), task)
 	require.NoError(t, err)
 	// Simulate a newer writer using the same binary SQL boundary.
-	taskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: row.HistoryID, ID: string(task.ID)})
+	taskRow, err := queryOne(ctx, q, `
+		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		    agent_instance_task
+		WHERE history_id = $1 AND id = $2
+	`, pgx.RowToStructByName[agentInstanceTaskRow], row.HistoryID, string(task.ID))
 	require.NoError(t, err)
 	futureTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(taskRow.Data, futureTask))
@@ -189,11 +232,28 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	addUnknown(futureTask.Status.Message.Parts[0])
 	futureData, err := proto.Marshal(futureTask)
 	require.NoError(t, err)
-	_, err = q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{HistoryID: taskRow.HistoryID, ID: taskRow.ID, State: taskRow.State, StatusTimestamp: taskRow.StatusTimestamp, Data: futureData})
+	_, err = queryOne(ctx, q, `
+		INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (history_id, id) DO UPDATE SET
+		    state = EXCLUDED.state,
+		    status_timestamp = EXCLUDED.status_timestamp,
+		    data = EXCLUDED.data,
+		    updated_at = NOW()
+		RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+	`,
+		pgx.RowToStructByName[agentInstanceTaskRow], taskRow.HistoryID, taskRow.ID, taskRow.State,
+		taskRow.StatusTimestamp, futureData,
+	)
 	require.NoError(t, err)
 	futureEvent, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: futureTask}})
 	require.NoError(t, err)
-	_, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{HistoryID: taskRow.HistoryID, TaskID: &taskRow.ID, Data: futureEvent})
+	_, err = insertTaskEvent(ctx, q, taskEventWrite{
+		HistoryID: taskRow.HistoryID,
+		TaskID:    &taskRow.ID,
+		Data:      futureEvent,
+	})
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot", ContentScope: "DATA"}))
@@ -203,7 +263,16 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
-	checkpointRow, err := q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice", State: new("READY")})
+	checkpointRow, err := queryOne(ctx, q, `
+		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
+		    source_labels, source_name FROM agent_instance_checkpoint
+		WHERE id = $1 AND user_id = $2
+		  -- Lifecycle work also reads creating and deleting checkpoints.
+		  AND ($3::text IS NULL OR state = $3)
+	`,
+		pgx.RowToStructByName[agentInstanceCheckpointRow], uuid.MustParse(checkpoint.Id), "alice", new("READY"),
+	)
 	require.NoError(t, err)
 	storedCheckpoint := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, storedCheckpoint))
@@ -220,14 +289,26 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Len(t, tasks[0].History, 2)
 	forkHistoryID, err := client.agentInstanceHistoryID(ctx, fork.Id)
 	require.NoError(t, err)
-	forkHistory, err := q.ListAgentInstanceTaskHistory(ctx, dbgen.ListAgentInstanceTaskHistoryParams{HistoryID: forkHistoryID, TaskIds: []string{string(tasks[0].ID)}})
+	forkHistory, err := queryMany(ctx, q, `
+		SELECT task_id, data
+		FROM agent_instance_task_event
+		WHERE history_id = $1
+		  AND task_id = ANY($2::text[])
+		  AND message_id IS NOT NULL
+		ORDER BY sequence
+	`, pgx.RowToStructByName[taskHistoryRow], forkHistoryID, []string{string(tasks[0].ID)})
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
 	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
 	require.Equal(t, task.ID, tasks[0].ID)
-	forkTaskRow, err := q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{HistoryID: forkHistoryID, ID: string(tasks[0].ID)})
+	forkTaskRow, err := queryOne(ctx, q, `
+		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		    agent_instance_task
+		WHERE history_id = $1 AND id = $2
+	`, pgx.RowToStructByName[agentInstanceTaskRow], forkHistoryID, string(tasks[0].ID))
 	require.NoError(t, err)
 	forkTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(forkTaskRow.Data, forkTask))
@@ -237,7 +318,14 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, client.DeleteAgentInstance(ctx, fork.Id))
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
-	checkpointRow, err = q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice"})
+	checkpointRow, err = queryOne(ctx, q, `
+		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
+		    source_labels, source_name FROM agent_instance_checkpoint
+		WHERE id = $1 AND user_id = $2
+		  -- Lifecycle work also reads creating and deleting checkpoints.
+		  AND ($3::text IS NULL OR state = $3)
+	`, pgx.RowToStructByName[agentInstanceCheckpointRow], uuid.MustParse(checkpoint.Id), "alice", nil)
 	require.NoError(t, err)
 	deleting := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, deleting))
@@ -305,11 +393,11 @@ func TestProtobufRowsRejectInconsistentIndexes(t *testing.T) {
 	checkpoint := &apiv1alpha1.Checkpoint{Id: id.String(), AgentInstanceId: id.String(), State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY}
 	data, err := proto.Marshal(checkpoint)
 	require.NoError(t, err)
-	_, err = toAgentInstanceCheckpoint(dbgen.AgentInstanceCheckpoint{ID: id, SourceInstanceID: id, State: "CREATING", Data: data})
+	_, err = toAgentInstanceCheckpoint(agentInstanceCheckpointRow{ID: id, SourceInstanceID: id, State: "CREATING", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
 	share := &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: id.String(), Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE}
 	data, err = proto.Marshal(share)
 	require.NoError(t, err)
-	_, err = toAgentInstanceShare(dbgen.AgentInstanceShare{ID: id, InstanceID: id, Permission: "READ_ONLY", Data: data})
+	_, err = toAgentInstanceShare(agentInstanceShareRow{ID: id, InstanceID: id, Permission: "READ_ONLY", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
 }

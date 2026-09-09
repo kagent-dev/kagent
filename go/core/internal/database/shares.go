@@ -1,0 +1,122 @@
+package database
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+func toAgentInstanceShare(row agentInstanceShareRow) (*apiv1alpha1.AgentInstanceShare, error) {
+	share := &apiv1alpha1.AgentInstanceShare{}
+	if err := proto.Unmarshal(row.Data, share); err != nil {
+		return nil, fmt.Errorf("decode AgentInstance share %s: %w", row.ID, err)
+	}
+	if share.GetId() != row.ID.String() || share.GetAgentInstanceId() != row.InstanceID.String() ||
+		strings.TrimPrefix(share.GetPermission().String(), "AGENT_INSTANCE_SHARE_PERMISSION_") != row.Permission {
+		return nil, fmt.Errorf("AgentInstance share %s payload disagrees with indexed columns", row.ID)
+	}
+	return share, nil
+}
+
+func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+	if share == nil {
+		return nil, fmt.Errorf("missing AgentInstance share")
+	}
+	value := proto.Clone(share).(*apiv1alpha1.AgentInstanceShare)
+	value.CreatedAt = timestamppb.Now()
+	data, err := proto.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode AgentInstance share: %w", err)
+	}
+	row, err := queryOne(ctx, c.db, `
+		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, instance_id, permission, token_hash, data
+	`,
+		pgx.RowToStructByName[agentInstanceShareRow], uuid.MustParse(value.Id),
+		uuid.MustParse(value.AgentInstanceId),
+		strings.TrimPrefix(value.Permission.String(), "AGENT_INSTANCE_SHARE_PERMISSION_"), tokenHash, data,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create AgentInstance share: %w", err)
+	}
+	return toAgentInstanceShare(row)
+}
+
+// GetAgentInstanceShareByTokenHash returns the share and its instance's owner ID.
+// Only the digest is stored; the plaintext token is returned once by the service.
+func (c *Client) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, string, error) {
+	row, err := queryOne(ctx, c.db, `
+		SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data, i.user_id AS owner_user_id
+		FROM agent_instance_share s
+		JOIN agent_instance i ON i.id = s.instance_id
+		WHERE s.token_hash = $1
+	`, pgx.RowToStructByName[shareWithOwnerRow], tokenHash)
+	if err != nil {
+		return nil, "", fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
+	}
+	share, err := toAgentInstanceShare(row.agentInstanceShareRow)
+	if err != nil {
+		return nil, "", err
+	}
+	return share, row.OwnerUserID, nil
+}
+
+func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
+	rows, err := queryMany(ctx, c.db, `
+		SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data FROM agent_instance_share s
+		JOIN agent_instance i ON i.id = s.instance_id
+		WHERE s.instance_id = $1 AND i.user_id = $2
+		  AND (NULLIF($3::text, '') IS NULL OR s.id > NULLIF($3::text, '')::uuid)
+		ORDER BY s.id
+		LIMIT $4
+	`,
+		pgx.RowToStructByName[agentInstanceShareRow], uuid.MustParse(instanceID), userID, afterID, int32(limit),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list AgentInstance shares: %w", err)
+	}
+	result := make([]*apiv1alpha1.AgentInstanceShare, 0, len(rows))
+	for _, row := range rows {
+		share, err := toAgentInstanceShare(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, share)
+	}
+	return result, nil
+}
+
+func (c *Client) DeleteAgentInstanceShare(ctx context.Context, id, userID string) error {
+	count, err := c.db.Exec(ctx, `
+		DELETE FROM agent_instance_share s
+		USING agent_instance i
+		WHERE s.id = $1
+		  AND i.id = s.instance_id AND i.user_id = $2
+	`, uuid.MustParse(id), userID)
+	if err != nil {
+		return fmt.Errorf("delete AgentInstance share %s: %w", id, err)
+	}
+	if count.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+type agentInstanceShareRow struct {
+	ID         uuid.UUID
+	InstanceID uuid.UUID
+	Permission string
+	TokenHash  []byte
+	Data       []byte
+}
+
+type shareWithOwnerRow struct {
+	agentInstanceShareRow
+	OwnerUserID string
+}
