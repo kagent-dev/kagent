@@ -1,13 +1,8 @@
 ARG UV_VERSION=0.12.3
 ARG TOOLS_PYTHON_VERSION=3.13
-ARG BASE_IMAGE_REGISTRY=cgr.dev
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
-# Wolfi package names encode the Python major.minor, so `python-3.13` pins the
-# interpreter and only its patch level floats on rebuild.
-FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest AS builder
-ARG TOOLS_PYTHON_VERSION
-RUN apk add --no-cache python-${TOOLS_PYTHON_VERSION}
+FROM python:${TOOLS_PYTHON_VERSION}-slim AS builder
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_NO_PROGRESS=1 \
@@ -25,12 +20,11 @@ COPY packages/agentsts-core packages/agentsts-core
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --package kagent-adk --no-editable
 
-FROM ${BASE_IMAGE_REGISTRY}/chainguard/wolfi-base:latest
+FROM python:${TOOLS_PYTHON_VERSION}-slim
 ARG VERSION
-ARG TOOLS_PYTHON_VERSION
-# The copied venv symlinks the interpreter, so the runtime needs the same python
-# package as the builder. tzdata is required for zoneinfo lookups.
-RUN apk add --no-cache python-${TOOLS_PYTHON_VERSION} bash ca-certificates tzdata \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
     && mkdir /config \
     && chown 65532:65532 /config
 COPY --from=builder /.kagent/.venv /.kagent/.venv
