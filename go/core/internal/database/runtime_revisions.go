@@ -30,10 +30,11 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 	)
 }
 
-// UpsertRuntimeRevision stores a prepared revision's configuration and agent card. An
-// existing revision retains those immutable inputs; only its actor-template UID and update
-// time are refreshed.
-func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
+// RecordRuntimeRevision stores a prepared revision and, when ready, atomically promotes
+// it for an active pair that still desires it. Stale readiness reports do not change the
+// pair. Existing revisions retain immutable inputs; only the actor-template UID and
+// update time are refreshed.
+func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, ready bool) error {
 	if revision.AgentCard == nil {
 		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
 	}
@@ -42,23 +43,35 @@ func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
 	if err := execSQL(ctx, c.db, `
-		INSERT INTO runtime_revision (
-		    revision, namespace, agent_template_name, agent_template_uid,
-		    harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
-		    actor_template_atespace, actor_template_name, actor_template_uid
-		) VALUES (
-		    $1, $2, $3, $4, $5, $6, $7, $8,
-		    $9, $10, $11, $12
+		WITH stored AS (
+			INSERT INTO runtime_revision (
+			    revision, namespace, agent_template_name, agent_template_uid,
+			    harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
+			    actor_template_atespace, actor_template_name, actor_template_uid
+			) VALUES (
+			    $1, $2, $3, $4, $5, $6, $7, $8,
+			    $9, $10, $11, $12
+			)
+			ON CONFLICT (revision) DO UPDATE SET
+			    actor_template_uid = EXCLUDED.actor_template_uid,
+			    updated_at = NOW()
+			RETURNING revision, namespace, agent_template_uid, harness_uid
 		)
-		ON CONFLICT (revision) DO UPDATE SET
-		    actor_template_uid = EXCLUDED.actor_template_uid,
-		    updated_at = NOW()
+		UPDATE agent_template_harness_pair p
+		SET latest_successful_revision = r.revision, updated_at = NOW()
+		FROM stored r
+		WHERE $13::boolean
+		  AND p.namespace = r.namespace
+		  AND p.agent_template_uid = r.agent_template_uid
+		  AND p.harness_uid = r.harness_uid
+		  AND p.desired_revision = r.revision
+		  AND p.retired_at IS NULL
 	`,
 		revision.Revision, revision.Namespace, revision.AgentTemplateName, revision.AgentTemplateUID,
 		revision.HarnessName, revision.HarnessUID, revision.SourceSnapshot, card, revision.EgressDestinations,
-		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID,
+		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, ready,
 	); err != nil {
-		return fmt.Errorf("upsert runtime revision %s: %w", revision.Revision, err)
+		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
 	}
 	return nil
 }
@@ -108,21 +121,6 @@ func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplat
 	return rows, nil
 }
 
-// MarkRuntimeRevisionSuccessful promotes a revision only if its pair is still active and
-// still desires that revision. Stale reconciliation results are a successful no-op.
-func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
-	revision := pair.DesiredRevision
-	return execSQL(ctx, c.db, `
-		UPDATE agent_template_harness_pair
-		SET latest_successful_revision = $1, updated_at = NOW()
-		WHERE namespace = $2
-		  AND agent_template_uid = $3
-		  AND harness_uid = $4
-		  AND desired_revision = $1
-		  AND retired_at IS NULL
-	`, &revision, pair.Namespace, pair.AgentTemplateUID, pair.HarnessUID)
-}
-
 // RetireAgentTemplateHarnessPair excludes matching namespace/template/harness pairs from
 // new instance creation. Existing instances retain their pinned revisions; missing pairs
 // are a no-op.
@@ -132,19 +130,6 @@ func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, 
 		SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
 		WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
 	`, namespace, template, harness)
-}
-
-// RetireOtherAgentTemplateHarnessPairs retires a template's pairs whose harness names are
-// absent from harnesses. An empty non-nil slice retires every pair for that template;
-// a nil slice matches no pairs. Existing instances retain their pinned revisions.
-func (c *Client) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
-	return execSQL(ctx, c.db, `
-		UPDATE agent_template_harness_pair
-		SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-		WHERE namespace = $1
-		  AND agent_template_uid = $2
-		  AND NOT (harness_name = ANY($3::text[]))
-	`, namespace, templateUID, harnesses)
 }
 
 // ListUnreferencedRuntimeRevisions lists revisions unused by instances or active pairs'

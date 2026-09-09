@@ -18,7 +18,6 @@ import (
 
 type workflowStore interface {
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
 }
@@ -112,7 +111,7 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	if !usesActorTemplate(actor, revision) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
 	}
-	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))
+	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance ready: %w", err)
 	}
@@ -157,11 +156,28 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 		strings.TrimPrefix(source.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != snapshot.ContentScope {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
 	}
-	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))
+	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
 		return nil, fmt.Errorf("mark fork AgentInstance ready: %w", err)
 	}
 	return instance, nil
+}
+
+// finishCreate publishes the runtime authority only while creation owns the instance.
+// A delayed completion returns the current lifecycle unchanged.
+func (w *ActorWorkflow) finishCreate(ctx context.Context, instance *apiv1alpha1.AgentInstance, authority string) (*apiv1alpha1.AgentInstance, error) {
+	next := proto.CloneOf(instance)
+	next.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	next.A2AAuthority = authority
+	next.Failure = nil
+	current, err := w.store.TransitionAgentInstance(ctx, next,
+		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
+	if errors.Is(err, database.ErrAgentInstanceConflict) {
+		return current, nil
+	}
+	return current, err
 }
 
 // Suspend completes synchronously: success means both Substrate and the

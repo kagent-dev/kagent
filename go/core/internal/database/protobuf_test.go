@@ -145,7 +145,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "renamed while creating")
 	require.NoError(t, err)
-	instance, err = client.MarkAgentInstanceReady(ctx, instance.Id, "runtime:80")
+	instance, err = markAgentInstanceReady(ctx, client, instance.Id, "runtime:80")
 	require.NoError(t, err)
 	require.Equal(t, "renamed while creating", instance.Name)
 	stale := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
@@ -216,13 +216,13 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
 	require.True(t, created)
-	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10)
+	tasks, total, err := client.ListAgentInstanceTasks(ctx, fork.Id, "", a2a.TaskStateUnspecified, nil, 10, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, tasks[0].History, 2)
 	forkRow, err := readAgentInstance(ctx, q, fork.Id)
 	require.NoError(t, err)
-	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)})
+	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)}, nil)
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
@@ -258,11 +258,11 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.NoError(t, err)
 	addUnknown(card)
 	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template", HarnessName: "kagent", HarnessUID: "harness", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
-	require.NoError(t, client.UpsertRuntimeRevision(ctx, revision))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
 	revision.ActorTemplateUID = "new-uid"
-	require.NoError(t, client.UpsertRuntimeRevision(ctx, revision))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
 	stored, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(card, stored.AgentCard))
@@ -284,7 +284,7 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 		digest := sha256.Sum256([]byte(permission.String()))
 		value := &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: instance.Id, Permission: permission}
 		addUnknown(value)
-		share, err := client.CreateAgentInstanceShare(ctx, value, digest[:])
+		share, err := client.CreateAgentInstanceShare(ctx, value, digest[:], "alice")
 		require.NoError(t, err)
 		require.Equal(t, value.ProtoReflect().GetUnknown(), share.ProtoReflect().GetUnknown())
 		resolved, ownerUserID, err := client.GetAgentInstanceShareByTokenHash(ctx, digest[:])

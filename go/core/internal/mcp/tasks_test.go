@@ -460,7 +460,7 @@ func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, strin
 	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte, string) (*apiv1alpha1.AgentInstanceShare, error) {
 	return nil, database.ErrNotFound
 }
 

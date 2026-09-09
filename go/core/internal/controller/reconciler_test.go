@@ -138,13 +138,9 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Cont
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, ready bool) error {
 	s.revision = &revision
-	return nil
-}
-
-func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error {
-	s.markedSuccessful = true
+	s.markedSuccessful = ready
 	return nil
 }
 

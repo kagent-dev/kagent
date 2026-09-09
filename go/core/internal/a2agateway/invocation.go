@@ -33,7 +33,7 @@ func (g *Gateway) recordResult(ctx context.Context, instance *apiv1alpha1.AgentI
 	defer release()
 	// A cancellation or another observer may have finished while the RPC was
 	// in flight. The stream ingester, when present, owns task persistence.
-	latest, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(task.ID))
+	latest, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(task.ID), nil)
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}

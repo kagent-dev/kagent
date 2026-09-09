@@ -50,6 +50,7 @@ type gatewayTestStore struct {
 	created         *a2atype.Task
 	tasks           []*a2atype.Task
 	total           int
+	historyLength   *int
 	taskErr         error
 	replay          *a2atype.Task
 	active          *a2atype.Task
@@ -128,7 +129,8 @@ func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _
 	return true, nil
 }
 
-func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string) (*a2atype.Task, error) {
+func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string, historyLength *int) (*a2atype.Task, error) {
+	s.historyLength = historyLength
 	if s.taskErr != nil {
 		return nil, s.taskErr
 	}
@@ -138,7 +140,8 @@ func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, tas
 	return s.task, nil
 }
 
-func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error) {
+func (s *gatewayTestStore) ListAgentInstanceTasks(_ context.Context, _, _ string, _ a2atype.TaskState, _ *time.Time, _ int, historyLength *int) ([]*a2atype.Task, int, error) {
+	s.historyLength = historyLength
 	return s.tasks, s.total, s.taskErr
 }
 
@@ -617,9 +620,16 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 			if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
 				t.Fatalf("GetTask() = %#v, %v", got, err)
 			}
+			if store.historyLength == nil || *store.historyLength != historyLength {
+				t.Fatal("GetTask did not pass the history limit to persistence")
+			}
+			store.historyLength = nil
 			listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
 			if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
 				t.Fatalf("ListTasks() = %#v, %v", listed, err)
+			}
+			if store.historyLength == nil || *store.historyLength != historyLength {
+				t.Fatal("ListTasks did not pass the history limit to persistence")
 			}
 			if dialer.instance != nil {
 				t.Fatal("task reads dialed the private runtime")

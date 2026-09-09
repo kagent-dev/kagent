@@ -31,6 +31,16 @@ func createTestSchedule(t *testing.T, c *Client) (*apiv1alpha1.ScheduledRun, []b
 	return result, hash[:]
 }
 
+func listTestScheduleExecutions(t *testing.T, c *Client, schedule *apiv1alpha1.ScheduledRun) []*apiv1alpha1.ScheduledRunExecution {
+	t.Helper()
+	executions, err := c.ListScheduledRunExecutions(t.Context(), ScheduledRunExecutionQuery{
+		ScheduledRunQuery: ScheduledRunQuery{Creator: schedule.Creator, Limit: 100},
+		ScheduledRunID:    uuid.MustParse(schedule.Id),
+	})
+	require.NoError(t, err)
+	return executions
+}
+
 func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
@@ -233,34 +243,23 @@ func TestScheduledRunConcurrentReservation(t *testing.T) {
 
 	_, err := db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '1 second' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
-	due := make(chan *apiv1alpha1.ScheduledRunExecution, 12)
 	for range 12 {
 		wg.Go(func() {
-			runs, err := c.ReserveDueScheduledRuns(t.Context(), 100)
-			if err != nil {
+			if err := c.ReserveDueScheduledRuns(t.Context(), 100); err != nil {
 				t.Error(err)
-				return
-			}
-			for _, run := range runs {
-				due <- run
 			}
 		})
 	}
 	wg.Wait()
-	close(due)
-	var runs []*apiv1alpha1.ScheduledRunExecution
-	for run := range due {
-		runs = append(runs, run)
-	}
-	require.Len(t, runs, 1)
+	runs := listTestScheduleExecutions(t, c, schedule)
+	require.Len(t, runs, 2, "one manual execution and one due occurrence")
 	require.NotNil(t, runs[0].GetScheduledTime())
 	require.False(t, unique[runs[0].Id])
 
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '2 minutes' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
-	skipped, err := c.ReserveDueScheduledRuns(t.Context(), 100)
-	require.NoError(t, err)
-	require.Empty(t, skipped)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 100))
+	require.Len(t, listTestScheduleExecutions(t, c, schedule), 2, "late occurrence must not create an execution")
 	advanced, err := c.GetScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice")
 	require.NoError(t, err)
 	require.True(t, advanced.NextExecutionTime.AsTime().After(time.Now()))
@@ -405,9 +404,10 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	// Unready targets no longer roll back due reservations or block other schedules.
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '1 second' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
-	due, err := c.ReserveDueScheduledRuns(t.Context(), 100)
-	require.NoError(t, err)
-	require.Len(t, due, 1)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 100))
+	due := listTestScheduleExecutions(t, c, schedule)
+	require.Len(t, due, 2, "manual and due executions survive unready targets")
+	require.NotNil(t, due[0].GetScheduledTime())
 	require.Empty(t, due[0].AgentInstanceId)
 	agentInstanceFixture(t, c, t.Context(), "team-a", "scheduled-revision-2", "report", "runtime")
 	linked, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
@@ -517,12 +517,11 @@ func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
 	_, err = db.Exec(t.Context(), `UPDATE scheduled_run SET next_execution_time = created_at - interval '1 second'`)
 	require.NoError(t, err)
 	// A full batch of malformed rows must get out of the way of later rows.
-	executions, err := c.ReserveDueScheduledRuns(t.Context(), 2)
-	require.NoError(t, err)
-	require.Empty(t, executions)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 2))
+	require.Empty(t, listTestScheduleExecutions(t, c, good))
 	// A malformed config must not roll back a healthy row in the same batch.
-	executions, err = c.ReserveDueScheduledRuns(t.Context(), 2)
-	require.NoError(t, err)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 2))
+	executions := listTestScheduleExecutions(t, c, good)
 	require.Len(t, executions, 1)
 	require.Equal(t, good.Id, executions[0].ScheduledRunId)
 	for i, id := range badIDs {
@@ -532,9 +531,8 @@ func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
 		require.Equal(t, badData[i], data, "preserve malformed payloads for repair")
 		require.Nil(t, next)
 	}
-	executions, err = c.ReserveDueScheduledRuns(t.Context(), 2)
-	require.NoError(t, err)
-	require.Empty(t, executions, "healthy occurrences must not be duplicated")
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 2))
+	require.Equal(t, executions, listTestScheduleExecutions(t, c, good), "healthy occurrences must not be duplicated")
 }
 
 func TestMalformedScheduledExecutionsDoNotDiscardHealthyLeases(t *testing.T) {

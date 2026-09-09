@@ -42,6 +42,8 @@ type serviceTestStore struct {
 	renameUserID string
 	renameErr    error
 	getCreator   string
+	shareUserID  string
+	shareErr     error
 }
 
 func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -73,9 +75,9 @@ func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, id, userID
 	return s.renamed, nil
 }
 
-func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
-	s.share, s.tokenHash = share, tokenHash
-	return s.share, nil
+func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte, userID string) (*apiv1alpha1.AgentInstanceShare, error) {
+	s.share, s.tokenHash, s.shareUserID = share, tokenHash, userID
+	return s.share, s.shareErr
 }
 
 func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
@@ -236,6 +238,9 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	digest := sha256.Sum256([]byte(token))
 	if !bytes.Equal(store.tokenHash, digest[:]) {
 		t.Fatal("stored token hash does not match returned token")
+	}
+	if store.shareUserID != "alice" || store.getCreator != "" {
+		t.Fatalf("share owner = %q, preparatory lookup owner = %q", store.shareUserID, store.getCreator)
 	}
 }
 
@@ -449,5 +454,18 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 				t.Fatalf("store query pair = %v, want %v", got, test.wantPair)
 			}
 		})
+	}
+}
+
+func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
+	store := &serviceTestStore{shareErr: database.ErrNotFound}
+	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+	share, token, err := service.CreateShare(serviceTestContext("alice"), uuid.NewString(),
+		apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY)
+	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+		t.Fatalf("CreateShare error = %v, want NotFound", err)
+	}
+	if share != nil || token != "" {
+		t.Fatal("failed share creation returned credentials")
 	}
 }
