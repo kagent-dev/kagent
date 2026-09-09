@@ -106,6 +106,27 @@ Join registry/repository/name/tag for grafana-mcp image, skipping empty segments
 */}}
 {{- define "grafana-mcp.image" -}}
 {{- $img := .Values.image -}}
-{{- $parts := compact (list $img.registry $img.repository $img.name) -}}
+{{/* image.registry holds the docker.io org here ("mcp"), not a host, so the
+     air-gap override is prepended rather than substituted: the mirror serves
+     the image under its existing mcp/grafana path. */}}
+{{- $parts := compact (list ((.Values.global).imageRegistry) $img.registry $img.repository $img.name) -}}
 {{- printf "%s:%s" (join "/" $parts) $img.tag -}}
+{{- end -}}
+{{/*
+Pull secrets for the pod: the chart's own list merged (union) with
+global.imagePullSecrets. Renders nothing when both are empty.
+*/}}
+{{- define "grafana-mcp.imagePullSecrets" -}}
+{{- $merged := concat (.Values.imagePullSecrets | default list) (((.Values.global).imagePullSecrets) | default list) | uniq -}}
+{{- if $merged -}}
+imagePullSecrets:
+{{- toYaml $merged | nindent 2 }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+imagePullPolicy: image.pullPolicy, then global.imagePullPolicy, then IfNotPresent.
+*/}}
+{{- define "grafana-mcp.imagePullPolicy" -}}
+{{- .Values.image.pullPolicy | default ((.Values.global).imagePullPolicy) | default "IfNotPresent" -}}
 {{- end -}}

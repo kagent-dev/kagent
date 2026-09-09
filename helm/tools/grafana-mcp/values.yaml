@@ -12,6 +12,9 @@ image:
   pullPolicy: Always
   tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
 
+# -- Pull secrets for the pod, merged (union) with global.imagePullSecrets.
+imagePullSecrets: []
+
 nameOverride: ""
 fullnameOverride: ""
 

@@ -51,7 +51,7 @@ spec:
         {{- include "kagent.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: database
     spec:
-      {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
+      {{- with include "kagent.imagePullSecrets" (dict "root" $) }}{{- . | nindent 6 }}{{- end }}
       serviceAccountName: {{ $fullname }}
       {{- with $pg.podSecurityContext }}
       securityContext:
@@ -72,7 +72,7 @@ spec:
       containers:
         - name: postgresql
           image: {{ include "kagent.postgresql.image" . }}
-          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" $ "local" $pg.image.pullPolicy) }}
           {{- with $pg.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
