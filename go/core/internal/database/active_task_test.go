@@ -82,8 +82,8 @@ func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
 	next := newAgentInstanceTask("next", "next-message")
 	next.ContextID = instance.GetContextId()
 	_, _, err = client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("next-request"), next)
-	require.ErrorIs(t, err, ErrAgentInstanceTaskConflict)
-	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task, nil), ErrAgentInstanceConflict)
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task, nil), ErrConflict)
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
 

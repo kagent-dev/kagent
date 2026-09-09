@@ -194,8 +194,8 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Delete(ctx, instance)
-	if errors.Is(err, database.ErrAgentInstanceConflict) {
-		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to delete AgentInstance", err)
@@ -219,8 +219,8 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.AgentIns
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Suspend(ctx, instance)
-	if errors.Is(err, database.ErrAgentInstanceConflict) {
-		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to suspend AgentInstance", err)
@@ -244,8 +244,8 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.AgentInst
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Resume(ctx, instance)
-	if errors.Is(err, database.ErrAgentInstanceConflict) {
-		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to resume AgentInstance", err)

@@ -238,7 +238,7 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 
 // TransitionAgentInstance changes lifecycle fields only if the stored state and operation
 // match the expected values. A mismatch, or a creating checkpoint when starting a new
-// operation, returns ErrAgentInstanceConflict. It preserves other instance fields; callers
+// operation, returns ErrConflict. It preserves other instance fields; callers
 // choose a valid transition and authorize it.
 func (c *Client) TransitionAgentInstance(
 	ctx context.Context,
@@ -257,7 +257,7 @@ func (c *Client) TransitionAgentInstance(
 			return err
 		}
 		if result.State != expectedState || result.Operation != expectedOperation {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance lifecycle state or operation changed: %w", ErrConflict)
 		}
 		// Only lifecycle fields belong to this operation. Keep concurrent renames,
 		// immutable indexed fields and unknown protobuf fields from the locked row.
@@ -292,7 +292,7 @@ func (c *Client) TransitionAgentInstance(
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instance.GetId(), ErrConflict)
 		}
 		result = next
 		return nil

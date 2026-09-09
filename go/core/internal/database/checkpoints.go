@@ -198,7 +198,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			return fmt.Errorf("lock AgentInstance %s: %w", checkpoint.GetAgentInstanceId(), err)
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance %s cannot checkpoint in state %s with operation %s: %w", checkpoint.GetAgentInstanceId(), instance.State, instance.Operation, ErrConflict)
 		}
 		source, err := toAgentInstance(instance)
 		if err != nil {
@@ -229,14 +229,14 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			)
 		`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrAgentInstanceNotQuiescent
+			return fmt.Errorf("AgentInstance %s has no quiescent turn boundary: %w", checkpoint.GetAgentInstanceId(), ErrFailedPrecondition)
 		}
 		if err != nil {
 			return fmt.Errorf("get latest AgentInstance task boundary: %w", err)
 		}
 		if boundary.SnapshotAtespace == nil || boundary.SnapshotURI == nil ||
 			boundary.SnapshotContentScope == nil || boundary.HistorySequence == nil {
-			return ErrAgentInstanceNotQuiescent
+			return fmt.Errorf("AgentInstance %s has no quiescent turn boundary: %w", checkpoint.GetAgentInstanceId(), ErrFailedPrecondition)
 		}
 
 		value := proto.Clone(checkpoint).(*apiv1alpha1.Checkpoint)
@@ -275,7 +275,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 				return existingErr
 			}
 			if errors.Is(existingErr, pgx.ErrNoRows) {
-				return ErrAgentInstanceConflict
+				return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", checkpoint.GetAgentInstanceId(), ErrConflict)
 			}
 			return fmt.Errorf("get conflicting AgentInstance checkpoint request: %w", existingErr)
 		}

@@ -141,7 +141,7 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 		t.Fatalf("stored task projection history = %#v, error %v", projection.History, err)
 	}
 	second := &a2a.Task{ID: "task-2", ContextID: "11111111-1111-4111-8111-111111111111", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
-	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", second, second, nil); !errors.Is(err, ErrAgentInstanceTaskConflict) {
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "11111111-1111-4111-8111-111111111111", second, second, nil); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second active task error = %v", err)
 	}
 	first.History = append(first.History, a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("done")))
@@ -329,13 +329,15 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
 	}
-	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("blocked-request"), newAgentInstanceTask("task-2", "message-2")); !errors.Is(err, ErrAgentInstanceTaskConflict) {
-		t.Fatalf("CreateAgentInstanceTask() during checkpoint = %v, want %v", err, ErrAgentInstanceTaskConflict)
+	if _, _, err := client.CreateAgentInstanceTask(ctx, instanceID, []byte("blocked-request"), newAgentInstanceTask("task-2", "message-2")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("CreateAgentInstanceTask() during checkpoint = %v, want %v", err, ErrConflict)
+	} else {
+		require.ErrorContains(t, err, "checkpoint being created")
 	}
 	suspending := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	suspending.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND
 	current, err := client.TransitionAgentInstance(ctx, suspending, instance.GetState(), instance.GetOperation())
-	if !errors.Is(err, ErrAgentInstanceConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+	if !errors.Is(err, ErrConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		t.Fatalf("lifecycle transition during checkpoint = %+v, error %v", current, err)
 	}
 	replayed, replayedSnapshot, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", AgentInstanceId: instanceID}, "alice", "checkpoint-request")
@@ -611,7 +613,7 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	resuming := proto.Clone(ready).(*apiv1alpha1.AgentInstance)
 	resuming.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME
 	current, err := client.TransitionAgentInstance(ctx, resuming, ready.GetState(), ready.GetOperation())
-	if !errors.Is(err, ErrAgentInstanceConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
+	if !errors.Is(err, ErrConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
 		t.Fatalf("conflicting transition = instance %v, error %v", current, err)
 	}
 	suspended := proto.Clone(suspending).(*apiv1alpha1.AgentInstance)
@@ -932,7 +934,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NoError(t, err)
 	waiting, err := client.GetAgentInstanceTask(ctx, source.GetId(), "z-first", nil)
 	require.NoError(t, err)
-	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), waiting, waiting, nil), ErrAgentInstanceConflict)
+	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), waiting, waiting, nil), ErrConflict)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag", "tag-snapshot", "")
 	require.NoError(t, err)
 	_, _, err = client.ForkAgentInstance(ctx, checkpoint.GetId(), "bob", uuid.NewString(), uuid.NewString())

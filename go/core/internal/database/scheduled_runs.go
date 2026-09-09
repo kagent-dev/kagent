@@ -110,8 +110,8 @@ func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery)
 }
 
 // UpdateScheduledRun replaces an owned schedule's config and etag only if the supplied
-// etag matches; stale edits return ErrScheduledRunConflict and deleted schedules return
-// ErrScheduledRunDeleted. The next occurrence changes only when the schedule, time zone,
+// etag matches; stale edits return ErrConflict and deleted schedules return
+// ErrFailedPrecondition. The next occurrence changes only when the schedule, time zone,
 // or pause setting changes, so unrelated edits cannot skip an already-due occurrence.
 func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, etag string, config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error) {
 	var result scheduledRunRow
@@ -125,10 +125,10 @@ func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, 
 			return err
 		}
 		if row.DeletedAt != nil {
-			return ErrScheduledRunDeleted
+			return fmt.Errorf("ScheduledRun %s was deleted: %w", id, ErrFailedPrecondition)
 		}
 		if schedule.Etag != etag {
-			return ErrScheduledRunConflict
+			return fmt.Errorf("ScheduledRun %s changed; reload before updating: %w", id, ErrConflict)
 		}
 		previous := schedule.Config
 		schedule.Config, schedule.Etag = proto.CloneOf(config), uuid.NewString()
@@ -204,7 +204,7 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator s
 // TriggerScheduledRun reserves a manual execution for an owned schedule, including when
 // paused, without starting runtime work or changing the next scheduled occurrence. Reusing
 // requestID for that schedule returns the same execution, even after deletion; new
-// triggers on a deleted schedule return ErrScheduledRunDeleted.
+// triggers on a deleted schedule return ErrFailedPrecondition.
 func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	var result scheduledRunExecutionRow
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -224,7 +224,7 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator,
 			return err
 		}
 		if row.DeletedAt != nil {
-			return ErrScheduledRunDeleted
+			return fmt.Errorf("ScheduledRun %s was deleted: %w", id, ErrFailedPrecondition)
 		}
 		schedule, err := toScheduledRun(row)
 		if err != nil {
@@ -387,7 +387,7 @@ func (c *Client) ListScheduledRunExecutions(ctx context.Context, query Scheduled
 // ReserveScheduledRunExecutionInstance atomically reserves an owned execution's instance
 // and saves its historical link. Existing links and non-pending executions are returned
 // unchanged, even if the linked instance was deleted. An elapsed deadline marks the
-// execution timed out; an unprepared target returns ErrScheduledRunTargetNotReady for
+// execution timed out; an unprepared target returns ErrFailedPrecondition for
 // retry. Callers provision the runtime separately.
 func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	var result scheduledRunExecutionRow
@@ -444,7 +444,7 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 			AgentTemplate: proto.CloneOf(schedule.AgentTemplate),
 		}, "scheduled-run/"+id.String())
 		if errors.Is(err, ErrNotFound) {
-			return ErrScheduledRunTargetNotReady
+			return fmt.Errorf("ScheduledRun %s target has no ready prepared revision: %w", result.ScheduledRunID, ErrFailedPrecondition)
 		}
 		if err != nil {
 			return err
@@ -540,7 +540,7 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 // UpdateScheduledRunExecution records progress only under a matching, unexpired lease on a
 // pending or running execution. It preserves an existing task ID, records terminal
 // completion time, and releases the lease with a one-second retry delay. A lost lease or
-// conflicting task ID returns ErrScheduledRunConflict.
+// conflicting task ID returns ErrConflict.
 func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease ScheduledRunExecutionLease, progress ScheduledRunExecutionProgress) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
@@ -550,7 +550,7 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 			  AND state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING') FOR UPDATE
 		`, pgx.RowToStructByName[scheduledRunExecutionRow], lease.ExecutionID, &lease.Token)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrScheduledRunConflict
+			return fmt.Errorf("ScheduledRunExecution %s lease expired or execution changed: %w", lease.ExecutionID, ErrConflict)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to get leased execution: %w", err)
@@ -587,7 +587,7 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 			return fmt.Errorf("failed to update scheduled execution: %w", err)
 		}
 		if rows.RowsAffected() == 0 {
-			return ErrScheduledRunConflict
+			return fmt.Errorf("ScheduledRunExecution %s lease expired or execution changed: %w", lease.ExecutionID, ErrConflict)
 		}
 		return nil
 	})
