@@ -411,8 +411,8 @@ func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *ap
 		return agentInstanceRow{}, err
 	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3)
-	`, historyID, instance.Creator, instance.ContextId); err != nil {
+		INSERT INTO a2a_context (id, user_id, context_id, source_checkpoint_id) VALUES ($1, $2, $3, $4)
+	`, historyID, instance.Creator, instance.ContextId, sourceCheckpointID); err != nil {
 		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
 	}
 	return queryOne(ctx, db, `

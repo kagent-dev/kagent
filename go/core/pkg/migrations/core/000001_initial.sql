@@ -94,9 +94,16 @@ CREATE TABLE agent_instance_checkpoint (
 );
 CREATE INDEX agent_instance_checkpoint_list_idx
     ON agent_instance_checkpoint (source_instance_id, id);
+CREATE INDEX agent_instance_checkpoint_history_idx
+    ON agent_instance_checkpoint (source_history_id, history_sequence);
 CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';
+
+ALTER TABLE a2a_context ADD COLUMN source_checkpoint_id UUID
+    REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT;
+CREATE INDEX a2a_context_source_checkpoint_idx ON a2a_context (source_checkpoint_id)
+    WHERE source_checkpoint_id IS NOT NULL;
 
 CREATE TABLE agent_instance (
     id                   UUID        PRIMARY KEY,
@@ -279,6 +286,7 @@ DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
+ALTER TABLE a2a_context DROP COLUMN source_checkpoint_id;
 DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
 DROP TABLE agent_template_harness_pair;
