@@ -101,7 +101,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 // template/harness pair's latest successful revision. Callers must supply a transaction so
 // the history and instance commit together. A missing prepared target returns ErrNotFound;
 // a duplicate creator/requestID returns pgx.ErrNoRows for the caller to resolve.
-func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha1.AgentInstance, requestID string) (agentInstanceRow, error) {
+func insertAgentInstance(ctx context.Context, db pgx.Tx, request *apiv1alpha1.AgentInstance, requestID string) (agentInstanceRow, error) {
 	type preparedRevision struct {
 		Revision string
 		DBTime   time.Time
@@ -122,6 +122,9 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 	)
 	if err != nil {
 		return agentInstanceRow{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+	}
+	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revision.Revision); err != nil {
+		return agentInstanceRow{}, err
 	}
 	instance := proto.CloneOf(request)
 	contextID, historyID := uuid.New(), uuid.New()
