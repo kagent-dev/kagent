@@ -65,12 +65,15 @@ CREATE INDEX agent_template_harness_pair_name_idx
     ON agent_template_harness_pair (namespace, agent_template_name, harness_name);
 
 CREATE TABLE a2a_context (
-    id         UUID        PRIMARY KEY,
-    user_id    TEXT        NOT NULL CHECK (user_id <> ''),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    context_id UUID        NOT NULL,
+    id                   UUID        PRIMARY KEY,
+    user_id              TEXT        NOT NULL CHECK (user_id <> ''),
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    context_id           UUID        NOT NULL,
+    source_checkpoint_id UUID,
     CONSTRAINT a2a_context_binding_key UNIQUE (id, context_id)
 );
+CREATE INDEX a2a_context_source_checkpoint_idx ON a2a_context (source_checkpoint_id)
+    WHERE source_checkpoint_id IS NOT NULL;
 
 CREATE TABLE agent_instance_checkpoint (
     id                     UUID        PRIMARY KEY,
@@ -100,10 +103,9 @@ CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';
 
-ALTER TABLE a2a_context ADD COLUMN source_checkpoint_id UUID
-    REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT;
-CREATE INDEX a2a_context_source_checkpoint_idx ON a2a_context (source_checkpoint_id)
-    WHERE source_checkpoint_id IS NOT NULL;
+-- History and checkpoints reference each other, so this foreign key follows both tables.
+ALTER TABLE a2a_context ADD CONSTRAINT a2a_context_source_checkpoint_id_fkey
+    FOREIGN KEY (source_checkpoint_id) REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT;
 
 CREATE TABLE agent_instance (
     id                   UUID        PRIMARY KEY,
@@ -273,7 +275,7 @@ DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
-ALTER TABLE a2a_context DROP COLUMN source_checkpoint_id;
+ALTER TABLE a2a_context DROP CONSTRAINT a2a_context_source_checkpoint_id_fkey;
 DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
 DROP TABLE agent_template_harness_pair;
