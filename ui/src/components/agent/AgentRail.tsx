@@ -17,7 +17,6 @@ import { RenameConversationDialog } from "@/components/agent-instances/RenameCon
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
-  Bot,
   ChevronsUpDown,
   Folder,
   MoreVertical,
@@ -28,7 +27,6 @@ import {
   Pencil,
   Trash,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   apiClient,
@@ -44,7 +42,13 @@ import {
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { useThemeMode } from "@/theme/themeMode";
-import { useExtensionAgentLinks } from "@/appExtensions/hooks";
+import {
+  useExtensionAgentLinks,
+  useExtensionAgentRailItems,
+  useExtensionAgentRailOverrides,
+} from "@/appExtensions/hooks";
+import { applyAgentRailOverrides, isRailEntryHidden } from "@/appExtensions";
+import { coreRailItems, mergeRailEntries, type RailItem } from "./railItems";
 import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { iconControlStyles, rowStyles, searchInputStyles } from "./controlStyles";
@@ -74,23 +78,8 @@ const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
  * works, and it makes "New Chat" a create rather than a navigation.
  */
 
-interface RailLink {
-  label: string;
-  to: string;
-  icon: LucideIcon;
-  /**
-   * Named rather than derived from the label.
-   *
-   * "New Chat" answers to `chat-new-session`, which is what it was called before it
-   * became a rail entry and what the browser suite still reaches for. A generated id
-   * would have renamed it for no reason a reader of the tests could see.
-   */
-  testId: string;
-  /** Other paths this entry stands for — the edit view belongs to Agent Details. */
-  alsoActiveOn?: string[];
-}
 
-interface AgentRailProps {
+export interface AgentRailProps {
   /**
    * Which agent the rail is scoped to. From the URL, so the rail stands up before
    * anything has been read — including when the read fails.
@@ -263,20 +252,6 @@ export function AgentRail({
    * places holding the same facts. The details entry stays lit while editing, because
    * that is where the reader came from and where saving returns them.
    */
-  const entries: RailLink[] = [
-  ];
-
-  /*
-   * Up to the agent, when the instance names a pair.
-   *
-   * The rail already lists the conversations with this agent, so this is not a
-   * second way to reach them — it is the way to reach the agent *itself*: what it
-   * is made of, its template, and the conversations other people have had with it,
-   * which this rail cannot show because it lists only the caller's own.
-   *
-   * Conditional rather than always present, because an instance with no prepared
-   * revision belongs to no pair and there would be nothing at the other end.
-   */
   const agentHref =
     agentHrefFromCaller ??
     (instance?.harness && instance.agentTemplate
@@ -286,6 +261,7 @@ export function AgentRail({
           harness: bareName(instance.harness),
         })
       : undefined);
+
   /*
    * Where "New chat" goes.
    *
@@ -297,16 +273,22 @@ export function AgentRail({
    */
   const newChatHref = agentHref ? `${agentHref}/new` : undefined;
 
-  if (agentHref) {
-    entries.unshift({
-      // "Agent Details" rather than "Agent": beside "New chat" and a list of chats, a
-      // bare noun reads as a heading for the section rather than as a place to go.
-      label: "Agent Details",
-      to: agentHref,
-      icon: Bot,
-      testId: "agent-nav-agent-conversations",
-    });
-  }
+  /*
+   * The rail's navigation, as data an extension can reach.
+   *
+   * The two entries were an array built here and a link written inline below it,
+   * which meant a product could retarget them through `agentLinks` and do nothing
+   * else: not add a third, not hide one, not put them in a different order. They are
+   * `coreRailItems` now, overrides are applied before anything is drawn, and
+   * contributions interleave by `order` — the same pair of extension points the
+   * application sidebar has had all along.
+   */
+  const railOverrides = useExtensionAgentRailOverrides();
+  const railContributions = useExtensionAgentRailItems();
+  const railEntries = mergeRailEntries(
+    applyAgentRailOverrides(coreRailItems({ agentHref, newChatHref }), railOverrides),
+    railContributions,
+  );
 
   /*
    * The other conversations with this agent: the instances cut from the same pair.
@@ -791,69 +773,60 @@ export function AgentRail({
           they sit together at one gap, and the sections around them at the rail's own.
           New chat used to live with the conversation list, which put a nav entry inside
           a section it did not belong to and left the two gaps visibly different. */}
-      <nav css={{ display: "grid", gap: theme.space(3) }}>
-        {entries.map((link) => (
-          <RailEntry
-            key={link.label}
-            link={link}
-            isActive={
-              location.pathname === link.to ||
-              (link.alsoActiveOn ?? []).includes(location.pathname)
-            }
-          />
-        ))}
-      {/* A button, not a link: another conversation with this agent is another
-          instance of the same pair, so this creates rather than navigates. It sits
-          where the "New Chat" rail entry used to, because that is where a reader
-          reaches for it. */}
-      {/* Always a link when the agent is known, so it can be opened in a new tab like
-          any other navigation — and so that starting a conversation is one thing
-          everywhere rather than a create here and a navigation there. A button only
-          where there is no agent to link to and a caller has offered to handle it. */}
-      {/*
-        Styled as a rail entry, not as a button.
+      <nav data-testid="chat-sessions-nav" css={{ display: "grid", gap: theme.space(3) }}>
+        {railEntries.map((entry) =>
+          entry.kind === "core" ? (
+            <RailEntry
+              key={entry.item.key}
+              item={entry.item}
+              isActive={
+                location.pathname === entry.item.to ||
+                (entry.item.alsoActiveOn ?? []).includes(location.pathname)
+              }
+            />
+          ) : (
+            <entry.contribution.Component
+              key={entry.contribution.key}
+              isActive={
+                entry.contribution.path
+                  ? location.pathname === entry.contribution.path
+                  : false
+              }
+              agent={ref.id ? { id: ref.id } : undefined}
+            />
+          ),
+        )}
 
-        It sits directly under Agent and Conversation and does the same kind of thing
-        — it goes somewhere — so a bordered button among them read as a different
-        class of control and drew the eye away from the navigation it belongs to.
-        Same `rowStyles` as those entries, so all three highlight identically.
-      */}
-      {newChatHref ? (
-        <Link
-          to={newChatHref}
-          data-testid="chat-new-session"
-          // Highlighted while the reader is on it, like every other entry. Without this
-          // the new-conversation page was the one surface in the rail that gave no sign
-          // of where you were.
-          data-active={location.pathname === newChatHref}
-          aria-current={location.pathname === newChatHref ? "page" : undefined}
-          css={{
-            ...rowStyles(theme, location.pathname === newChatHref),
-            fontSize: 13,
-            fontWeight: location.pathname === newChatHref ? 600 : 400,
-          }}
-        >
-          <SquarePen size={14} aria-hidden />
-          New chat
-        </Link>
-      ) : (
-        <button
-          type="button"
-          disabled={!onNewChat}
-          onClick={() => onNewChat?.()}
-          data-testid="chat-new-session"
-          css={{
-            ...rowStyles(theme, false),
-            fontSize: 13,
-            width: "100%",
-            cursor: onNewChat ? "pointer" : "not-allowed",
-            opacity: onNewChat ? 1 : 0.5,
-          }}
-        >
-          <SquarePen size={14} aria-hidden />
-          New chat
-        </button>
-      )}
+        {/*
+          The one entry that is not always a link.
+
+          "New chat" is an address whenever the agent has one, so it is a core rail
+          item like Agent Details and behaves like every other entry. Where the agent
+          cannot be resolved there is nothing to link to, and a caller may still offer
+          to handle it — so this stands in, and honours a `hidden` override the same
+          way the item would.
+        */}
+        {!newChatHref && !isRailEntryHidden("newChat", railOverrides) ? (
+          <button
+            type="button"
+            disabled={!onNewChat}
+            onClick={() => onNewChat?.()}
+            data-testid="chat-new-session"
+            css={{
+              ...rowStyles(theme, false),
+              fontSize: 13,
+              width: "100%",
+              cursor: onNewChat ? "pointer" : "not-allowed",
+              opacity: onNewChat ? 1 : 0.5,
+              background: "none",
+              border: "none",
+              textAlign: "left",
+            }}
+          >
+            <SquarePen size={14} aria-hidden />
+            New chat
+          </button>
+        ) : null}
       </nav>
 
       {/* The one part that gives. `minHeight: 0` because a flex child will not shrink
@@ -1306,9 +1279,9 @@ const OPERATION_WORDS: Record<string, string> = {
   delete: "being deleted",
 };
 
-function RailEntry({ link, isActive }: { link: RailLink; isActive: boolean }) {
+function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
   const theme = useTheme();
-  const { icon: Icon, label, to, testId } = link;
+  const { icon: Icon, label, to, testId } = item;
 
   return (
     <Link

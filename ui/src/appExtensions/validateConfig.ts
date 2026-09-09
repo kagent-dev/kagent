@@ -3,6 +3,7 @@ import { isExtensionFormId } from "./formFields";
 import { isExtensionTableId } from "./tableColumns";
 import { coreRouteKeys } from "@/router/router";
 import type { AppExtensionConfig } from "./types";
+import { CORE_RAIL_KEYS } from "@/components/agent/railItems";
 
 /**
  * Thrown when an install is malformed. A broken extension config is a deployment
@@ -128,6 +129,22 @@ function problemsIn(
     seenNavKeys.add(item.key);
   }
 
+  // Rail keys are checked against the application's own as well as each other: an
+  // entry keyed `newChat` would sit beside the entry it was probably meant to
+  // replace, and `agentRailOverrides` is how a product changes that one.
+  const seenRailKeys = new Set<string>();
+  for (const item of config.agentRailItems ?? []) {
+    if (seenRailKeys.has(item.key)) {
+      problems.push(`agent rail item key "${item.key}" is declared twice`);
+    }
+    if ((CORE_RAIL_KEYS as readonly string[]).includes(item.key)) {
+      problems.push(
+        `agent rail item key "${item.key}" is one of the application's own. Use \`agentRailOverrides\` to change that entry.`,
+      );
+    }
+    seenRailKeys.add(item.key);
+  }
+
   const reserved = new Set(reservedPaths);
   const seenPaths = new Set<string>();
   for (const route of config.routes ?? []) {
@@ -172,6 +189,20 @@ function collisionsAcross(extensions: readonly AppExtensionConfig[]): string[] {
     ).map(
       ([key, owners]) =>
         `nav item key "${key}" is contributed by more than one extension (${owners.join(", ")})`,
+    ),
+  );
+
+  problems.push(
+    ...duplicates(
+      extensions.flatMap((extension) =>
+        (extension.agentRailItems ?? []).map((item) => ({
+          owner: extension.id,
+          value: item.key,
+        })),
+      ),
+    ).map(
+      ([key, owners]) =>
+        `agent rail item key "${key}" is contributed by more than one extension (${owners.join(", ")})`,
     ),
   );
 

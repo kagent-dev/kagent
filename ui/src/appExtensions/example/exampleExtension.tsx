@@ -2,6 +2,7 @@ import { css } from "@emotion/react";
 import type { AppExtensionConfig } from "@/appExtensions";
 import { ExamplePage } from "./ExamplePage";
 import { ExampleNavItem } from "./ExampleNavItem";
+import { ExampleRailItem } from "./ExampleRailItem";
 import { ExampleTenantProvider } from "./ExampleTenantProvider";
 import { exampleTeamField } from "./exampleFormFields";
 import { exampleAgentRegionColumn } from "./exampleTableColumns";
@@ -33,6 +34,12 @@ export const exampleAppExtension: AppExtensionConfig = {
   // Site-wide: a nav entry positioned between Agents (200) and Models (300).
   navItems: [
     { key: "example", order: 250, path: EXAMPLE_PATH, Component: ExampleNavItem },
+  ],
+
+  // The agent rail: an entry between Agent Details (100) and New chat (200), which
+  // is what `order` is for. `agentRailOverrides` would change those two.
+  agentRailItems: [
+    { key: "exampleRail", order: 150, path: EXAMPLE_PATH, Component: ExampleRailItem },
   ],
 
   // Site-wide: a whole page merged into the router.

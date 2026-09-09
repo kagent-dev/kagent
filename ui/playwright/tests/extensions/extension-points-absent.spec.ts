@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { agents, loadPage, routes } from "../../helpers/app";
+import { agentChat, agents, instances, loadPage, routes } from "../../helpers/app";
 import { expectShell } from "../../helpers/nav";
 import { CORE_NAV_ORDER, allSlots, navOrder } from "../../helpers/extensions";
 
@@ -49,6 +49,21 @@ test("extension points: a bare build renders the application and nothing else", 
         .filter({ hasText: agents.k8s.template })
         .filter({ hasText: agents.k8s.harness }),
     ).toHaveCount(1);
+  });
+
+  await test.step("4. the agent rail carries the application's two entries and no more", async () => {
+    await loadPage(page, agentChat(instances.ready));
+    const rail = page.getByTestId("chat-sessions-nav");
+    // Both destinations are addresses of this agent, and the chat page derives them
+    // from the instance it is still fetching — so the nav is empty for a moment and
+    // reading it straight away reads nothing.
+    await expect(rail.getByTestId("agent-nav-agent-conversations")).toBeVisible({
+      timeout: 30_000,
+    });
+    const order = await rail
+      .locator("[data-testid]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-testid") ?? ""));
+    expect(order).toEqual(["agent-nav-agent-conversations", "chat-new-session"]);
   });
 
   await test.step("4. a route only an extension would contribute is a 404", async () => {

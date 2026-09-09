@@ -195,6 +195,13 @@ const INPUTS = {
     name: "Renamed by the fixture suite",
   },
 
+  // Forking reads the source and writes a new row, so it races nothing above.
+  "agentInstances.fork": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-fork",
+    name: "Forked by the fixture suite",
+  },
+
   "namespaces.list": {},
   "substrate.status": {},
   "substrate.summary": {},
