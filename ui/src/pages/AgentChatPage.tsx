@@ -500,7 +500,7 @@ export function AgentChatPage() {
           // The columns are a rail, two one-icon gutters and the conversation between
           // them. At `space(6)` the gutters sat in more air than they are wide, which
           // read as three separated panels rather than one page.
-          gap: theme.space(4),
+          gap: theme.space(2),
           /*
            * `flex-start`, not `stretch`.
            *

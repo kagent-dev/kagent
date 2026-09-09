@@ -512,6 +512,7 @@ export function AgentRail({
   }
 
   const [duplicatingId, setDuplicatingId] = useState<string>();
+  const [isBulkMenuOpen, setBulkMenuOpen] = useState(false);
   const navigate = useNavigate();
 
   async function deleteConversation(target: AgentInstance): Promise<void> {
@@ -671,6 +672,12 @@ export function AgentRail({
            scrolled, by 8px, because of the column beside it. */
         height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(12)})`,
         overflow: "hidden",
+        /* A sliver at the left edge, because this box clips — it has to, to animate to
+           nothing when collapsed. Without it a checkbox's focus or hover ring, drawn
+           just outside the box it belongs to, came back with its left side sliced flat.
+           Inside the width rather than added to it, so nothing beside the rail moves. */
+        boxSizing: "border-box",
+        paddingInlineStart: theme.space(2),
       }}
     >
       {/* Which agent you are in, stated before what you can do to it: a reader
@@ -967,6 +974,14 @@ export function AgentRail({
                * but the same jump, at the same moment.
                */
               minHeight: 38,
+              /* The list's reserved scrollbar track, so this bar's controls sit in the
+                 same column as the rows'. `hidden` rather than `auto`: the gutter is
+                 reserved either way, and `auto` made a bar that never has anything to
+                 scroll scrollable. `thin` because a track of a different width is the
+                 misalignment this is here to fix. */
+              overflowY: "hidden",
+              scrollbarGutter: "stable",
+              scrollbarWidth: "thin",
             }}
             data-testid="chat-bulk-bar"
           >
@@ -993,6 +1008,7 @@ export function AgentRail({
             {selected.size > 0 ? (
             <Dropdown
               trigger={["click"]}
+              onOpenChange={setBulkMenuOpen}
               menu={{
                 items: [
                   {
@@ -1009,17 +1025,16 @@ export function AgentRail({
                 type="text"
                 size="small"
                 loading={isBulkDeleting}
-                icon={<MoreVertical size={14} color={theme.color.textMuted} />}
+                icon={
+                  <MoreVertical
+                    size={14}
+                    color={isBulkMenuOpen ? theme.color.textOnPrimary : theme.color.textMuted}
+                  />
+                }
                 aria-label="Actions for the selected conversations"
                 data-testid="chat-bulk-menu"
                 // The same square as the menu on each row below it.
-                css={{
-                  marginInlineStart: "auto",
-                  width: 38,
-                  minWidth: 38,
-                  height: 38,
-                  padding: 0,
-                }}
+                css={{ ...menuButtonStyles(theme, isBulkMenuOpen), marginInlineStart: "auto" }}
               />
             </Dropdown>
             ) : null}
@@ -1122,12 +1137,19 @@ export function AgentRail({
               flex: "1 1 auto",
               minHeight: 0,
               overflowY: "auto",
-              /* Room on the right for what the rows hang outside themselves, pulled
-                 back by the same amount so they stay where they were. Nothing is given
-                 on the left: the rail clips there, so a row cannot reach past it. */
-              paddingInlineEnd: theme.space(3),
-              marginInlineEnd: `-${theme.space(3)}`,
+              /* The track is reserved whether or not there is anything to scroll, so
+                 the rows do not shift left the moment the list outgrows the rail —
+                 and so the bulk bar above, which reserves the same, stays lined up
+                 with them. Without it the two menus were aligned in a short list and
+                 a scrollbar's width apart in a long one. */
+              scrollbarGutter: "stable",
               paddingBlock: 2,
+              /* The list clips its own overflow, and a checkbox's ring is drawn just
+                 outside the box it belongs to — so the clip box is widened to the left
+                 and pulled back by the same amount. The rail's own left padding is
+                 what this then has room to reach into. */
+              paddingInlineStart: theme.space(2),
+              marginInlineStart: `-${theme.space(2)}`,
               // The conversation's scrollbar, a few hundred pixels away: two that do
               // not match read as two applications.
               ...scrollbarStyles(theme),
@@ -1437,6 +1459,7 @@ function ChatEntry({
   const [isRenaming, setRenaming] = useState(false);
   const [isShowingDetails, setShowingDetails] = useState(false);
   const [isSharing, setSharing] = useState(false);
+  const [isMenuOpen, setMenuOpen] = useState(false);
 
   return (
     <li css={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
@@ -1544,6 +1567,7 @@ function ChatEntry({
       */}
       <Dropdown
         trigger={["click"]}
+        onOpenChange={setMenuOpen}
         menu={{
           items: [
             /* Details and Share are the gutter controls from the chat page, offered here
@@ -1589,16 +1613,15 @@ function ChatEntry({
           loading={isDeleting || isDuplicating}
           data-testid={`chat-session-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
-          icon={<MoreVertical size={14} color={theme.color.textMuted} />}
+          icon={
+            <MoreVertical
+              size={14}
+              color={isMenuOpen ? theme.color.textOnPrimary : theme.color.textMuted}
+            />
+          }
           // Square, and as tall as the row beside it: at antd's own size it was a
           // 24px control against a 38px row and sat visibly short of both edges.
-          css={{
-            ...rowActionStyles,
-            width: 38,
-            minWidth: 38,
-            height: 38,
-            padding: 0,
-          }}
+          css={menuButtonStyles(theme, isMenuOpen)}
         />
       </Dropdown>
 
@@ -1651,7 +1674,26 @@ function ChatEntry({
  * pointing at a row changed it — the actions are the reason most people open this rail
  * on a conversation that is not the one they are in.
  */
-const rowActionStyles = { flexShrink: 0 } as const;
+/**
+ * The square menu button, on a row and on the bulk bar.
+ *
+ * Filled while its menu is open, because the menu opens somewhere else on the screen
+ * and nothing else says which of a dozen identical buttons it belongs to. Driven from
+ * React rather than `[aria-expanded]`, because the state has to reach the icon too —
+ * lucide takes its colour as a prop, which no stylesheet can reach.
+ */
+function menuButtonStyles(theme: Theme, isOpen: boolean) {
+  const size = { width: 38, minWidth: 38, height: 38, padding: 0 };
+  if (!isOpen) return { flexShrink: 0, ...size } as const;
+  return {
+    flexShrink: 0,
+    ...size,
+    "&.ant-btn.ant-btn-variant-text.ant-btn-color-default": {
+      background: theme.color.primary,
+      "&:hover, &:active": { background: theme.color.primaryHover },
+    },
+  } as const;
+}
 
 function reportActionFailure(
   /** What was attempted, lower case — it is read in the middle of a sentence. */

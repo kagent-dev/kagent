@@ -117,46 +117,27 @@ export function searchInputStyles(theme: Theme) {
  * the checked box too, which antd fills and otherwise leaves inert under the pointer.
  */
 export function checkboxStyles(theme: Theme) {
-  const pressed = {
-    background: theme.color.primaryHover,
-    borderColor: theme.color.primaryHover,
-  };
   return {
-    /* Grown up, down and right, never left: the rail clips at exactly the column these
-       sit in — it has `overflow: hidden` for its collapse animation — so anything
-       reaching past that edge is sliced off rather than drawn. */
-    padding: `${theme.space(3)} ${theme.space(2)} ${theme.space(3)} 0`,
-    margin: `-${theme.space(3)} -${theme.space(2)} -${theme.space(3)} 0`,
-    // Quiet at rest — a list of them down the side of a conversation should read as
-    // a list of names — and unmistakable under the pointer.
-    "& .ant-checkbox:not(.ant-checkbox-disabled)": {
-      borderColor: theme.color.border,
-      transition: "background 80ms ease, border-color 80ms ease",
+    // antd's own 16px box, untouched: growing it moved the tick it positions against,
+    // and a checkbox that changes size under the pointer is a target that moves.
+    "& .ant-checkbox": {
+      transition: "outline-color 80ms ease, outline-width 80ms ease",
+      outline: "2px solid transparent",
+      outlineOffset: 2,
     },
     "&:hover .ant-checkbox:not(.ant-checkbox-disabled)": {
-      borderColor: theme.color.primary,
-      background: `color-mix(in srgb, ${theme.color.primary} 22%, ${theme.color.bgElevated})`,
+      outline: `2px solid ${theme.color.accentBorder}`,
+      outlineOffset: 2,
     },
-    "&:hover .ant-checkbox-checked:not(.ant-checkbox-disabled), &:hover .ant-checkbox-indeterminate:not(.ant-checkbox-disabled)":
-      pressed,
-    // A deeper fill for the press, not a louder edge: the ring is already saying
-    // "this one", and darkening it too made the press read as an error state.
     "&:active .ant-checkbox:not(.ant-checkbox-disabled)": {
-      borderColor: theme.color.primary,
-      background: `color-mix(in srgb, ${theme.color.primary} 40%, ${theme.color.bgElevated})`,
+      outline: `3px solid ${theme.color.primary}`,
+      outlineOffset: 2,
     },
-    "&:active .ant-checkbox-checked:not(.ant-checkbox-disabled), &:active .ant-checkbox-indeterminate:not(.ant-checkbox-disabled)":
-      pressed,
-    /*
-     * A ring rather than antd's faint shadow: a keyboard reader has no hover to fall
-     * back on, and this is the only thing telling them where they are.
-     *
-     * Drawn *inside* the box. Outside it, at any offset, it crossed the rail's left
-     * edge — which clips — and came back with its left side sliced flat.
-     */
+    // A keyboard reader has no hover to fall back on, and this is the only thing
+    // telling them where they are.
     "&:focus-within .ant-checkbox": {
       outline: `2px solid ${theme.color.primaryText}`,
-      outlineOffset: -2,
+      outlineOffset: 2,
     },
   };
 }
