@@ -492,3 +492,115 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	require.Equal(t, linked.AgentInstanceId, loaded.AgentInstanceId)
 	require.Equal(t, progress.State, loaded.State)
 }
+
+func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
+	db := setupTestDB(t)
+	c := NewClient(db)
+	schedule, hash := createTestSchedule(t, c)
+	invalidCron := proto.CloneOf(schedule)
+	invalidCron.Config.Schedule = "not a cron expression"
+	cronData, err := proto.Marshal(invalidCron)
+	require.NoError(t, err)
+	badData := [][]byte{{0xff}, {}, cronData}
+	badIDs := []string{schedule.Id}
+	for range 2 {
+		bad, err := c.CreateScheduledRun(t.Context(), schedule, uuid.NewString(), hash)
+		require.NoError(t, err)
+		badIDs = append(badIDs, bad.Id)
+	}
+	good, err := c.CreateScheduledRun(t.Context(), schedule, "healthy", hash)
+	require.NoError(t, err)
+	for i, id := range badIDs {
+		_, err = db.Exec(t.Context(), `UPDATE scheduled_run SET data = $1 WHERE id = $2`, badData[i], id)
+		require.NoError(t, err)
+	}
+	_, err = db.Exec(t.Context(), `UPDATE scheduled_run SET next_execution_time = created_at - interval '1 second'`)
+	require.NoError(t, err)
+	// A full batch of malformed rows must get out of the way of later rows.
+	executions, err := c.ReserveDueScheduledRuns(t.Context(), 2)
+	require.NoError(t, err)
+	require.Empty(t, executions)
+	// A malformed config must not roll back a healthy row in the same batch.
+	executions, err = c.ReserveDueScheduledRuns(t.Context(), 2)
+	require.NoError(t, err)
+	require.Len(t, executions, 1)
+	require.Equal(t, good.Id, executions[0].ScheduledRunId)
+	for i, id := range badIDs {
+		var data []byte
+		var next *time.Time
+		require.NoError(t, db.QueryRow(t.Context(), `SELECT data, next_execution_time FROM scheduled_run WHERE id = $1`, id).Scan(&data, &next))
+		require.Equal(t, badData[i], data, "preserve malformed payloads for repair")
+		require.Nil(t, next)
+	}
+	executions, err = c.ReserveDueScheduledRuns(t.Context(), 2)
+	require.NoError(t, err)
+	require.Empty(t, executions, "healthy occurrences must not be duplicated")
+}
+
+func TestMalformedScheduledExecutionsDoNotDiscardHealthyLeases(t *testing.T) {
+	db := setupTestDB(t)
+	c := NewClient(db)
+	schedule, _ := createTestSchedule(t, c)
+	var badIDs []string
+	for _, data := range [][]byte{{0xff}, {}} {
+		bad, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, uuid.NewString())
+		require.NoError(t, err)
+		_, err = db.Exec(t.Context(), `UPDATE scheduled_run_execution SET data = $1 WHERE id = $2`, data, bad.Id)
+		require.NoError(t, err)
+		badIDs = append(badIDs, bad.Id)
+	}
+	good, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, "healthy")
+	require.NoError(t, err)
+	leases, err := c.LeaseScheduledRunExecutions(t.Context(), 8)
+	require.NoError(t, err)
+	require.Len(t, leases, 1)
+	require.Equal(t, good.Id, leases[0].Execution.Id)
+	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, ScheduledRunExecutionProgress{
+		State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, FailureReason: "test completion",
+	}))
+	leases, err = c.LeaseScheduledRunExecutions(t.Context(), 8)
+	require.NoError(t, err)
+	require.Empty(t, leases, "malformed rows retain their retry delay")
+	// Repair a record and expire its lease; it must become eligible again.
+	data, err := proto.Marshal(good)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `UPDATE scheduled_run_execution SET data = $1, next_attempt_at = created_at WHERE id = $2`, data, badIDs[0])
+	require.NoError(t, err)
+	leases, err = c.LeaseScheduledRunExecutions(t.Context(), 8)
+	require.NoError(t, err)
+	require.Len(t, leases, 1)
+	require.Equal(t, badIDs[0], leases[0].Execution.Id)
+}
+
+func TestDeleteMalformedScheduledRun(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data []byte
+	}{{"invalid wire format", []byte{0xff}}, {"missing fields", []byte{}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.data
+			db := setupTestDB(t)
+			c := NewClient(db)
+			schedule, _ := createTestSchedule(t, c)
+			_, err := db.Exec(t.Context(), `UPDATE scheduled_run SET data = $1 WHERE id = $2`, data, schedule.Id)
+			require.NoError(t, err)
+			_, err = c.DeleteScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "bob")
+			require.ErrorIs(t, err, ErrNotFound)
+			deleted, err := c.DeleteScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator)
+			require.NoError(t, err)
+			require.Equal(t, schedule.Id, deleted.Id)
+			require.Equal(t, schedule.Creator, deleted.Creator)
+			require.NotNil(t, deleted.DeletedAt)
+			require.Nil(t, deleted.Config)
+			require.Nil(t, deleted.NextExecutionTime)
+			again, err := c.DeleteScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator)
+			require.NoError(t, err)
+			require.True(t, proto.Equal(deleted, again))
+			var persisted []byte
+			require.NoError(t, db.QueryRow(t.Context(), `SELECT data FROM scheduled_run WHERE id = $1`, schedule.Id).Scan(&persisted))
+			require.Equal(t, data, persisted)
+			_, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, "after-delete")
+			require.ErrorIs(t, err, ErrScheduledRunDeleted)
+		})
+	}
+}

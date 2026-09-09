@@ -210,3 +210,43 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	owner := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
 	return store, client, instances, owner
 }
+
+func TestScheduledRunServiceDeletesMalformedConfig(t *testing.T) {
+	store, client, _, owner := scheduledRunTestServer(t)
+	created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team", Name: "runtime"},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
+		Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
+	})
+	require.NoError(t, err)
+	schedule := created.ScheduledRun
+	execution, err := client.TriggerScheduledRun(owner, &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "manual"})
+	require.NoError(t, err)
+	// Inject a persisted config that public request validation would reject.
+	// The internal write commits, then its response decoder rejects the payload.
+	invalid := proto.CloneOf(schedule.Config)
+	invalid.Prompt = " "
+	_, err = store.UpdateScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, schedule.Etag, invalid)
+	require.Error(t, err)
+	_, err = client.GetScheduledRun(owner, &apiv1alpha1.GetScheduledRunRequest{ScheduledRunId: schedule.Id})
+	require.Equal(t, codes.Internal, status.Code(err))
+	visitor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "bob"))
+	request := &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: schedule.Id}
+	_, err = client.DeleteScheduledRun(visitor, request)
+	require.Equal(t, codes.NotFound, status.Code(err))
+	deleted, err := client.DeleteScheduledRun(owner, request)
+	require.NoError(t, err)
+	require.Equal(t, schedule.Id, deleted.ScheduledRun.Id)
+	require.Equal(t, schedule.Creator, deleted.ScheduledRun.Creator)
+	require.NotNil(t, deleted.ScheduledRun.DeletedAt)
+	require.Nil(t, deleted.ScheduledRun.Config)
+	again, err := client.DeleteScheduledRun(owner, request)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(deleted, again))
+	listed, err := client.ListScheduledRuns(owner, &apiv1alpha1.ListScheduledRunsRequest{})
+	require.NoError(t, err)
+	require.Empty(t, listed.ScheduledRuns)
+	history, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: execution.Execution.Id})
+	require.NoError(t, err)
+	require.True(t, proto.Equal(execution.Execution, history.Execution))
+}

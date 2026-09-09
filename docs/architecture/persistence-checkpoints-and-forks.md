@@ -118,3 +118,24 @@ path from earlier development schemas. The Down migration removes the core schem
 
 Deploy the controller and clients together: clients must use `AgentInstance.context_id`
 or omit the context and let the routed gateway resolve it.
+
+## Malformed scheduling records
+
+Cron reservation removes schedules with undecodable payloads or invalid scheduling
+configuration from the due queue by clearing `next_execution_time`. Their bytes
+remain intact, and an error log identifies each affected schedule. Repair requires
+correcting the persisted payload and restoring its next execution time. Clearing
+the queue entry prevents even a full batch of malformed rows from starving healthy
+schedules; database write failures still roll back the transaction.
+
+Execution leasing reports and skips individual malformed payloads, returning the
+healthy leases from the same batch. The malformed records retain their existing
+30-second lease delay and become eligible again after repair. Their runtime state
+is not changed: a decoding error does not establish whether an actor has stopped.
+
+Get and List continue to reject malformed payloads. An owner can still delete a
+malformed schedule by ID: ownership and tombstoning use database columns, and the
+response contains only ID, creator, creation/update timestamps, and deletion time.
+It does not synthesize configuration or an etag from damaged bytes. Deletion retries
+return the same tombstone, the original payload remains stored, and execution
+history is retained. Valid schedules keep their existing full deletion response.

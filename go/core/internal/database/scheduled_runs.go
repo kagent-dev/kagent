@@ -15,6 +15,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/scheduledrun"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -145,6 +146,8 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator s
 		}
 		schedule, err := toScheduledRun(row)
 		if err != nil {
+			// Identity and ownership come from columns, not the damaged payload.
+			result, err = q.SaveScheduledRun(ctx, dbgen.SaveScheduledRunParams{ID: row.ID, Data: row.Data, Deleted: true})
 			return err
 		}
 		schedule.Etag, schedule.NextExecutionTime = uuid.NewString(), nil
@@ -158,7 +161,17 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator s
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete schedule: %w", err)
 	}
-	return toScheduledRun(result)
+	schedule, err := toScheduledRun(result)
+	if err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "deleted malformed schedule", "scheduled_run_id", result.ID, "error", err)
+		// Return only authoritative tombstone metadata; preserve the bytes for repair.
+		return &apiv1alpha1.ScheduledRun{
+			Id: result.ID.String(), Creator: result.Creator,
+			CreatedAt: timestamppb.New(result.CreatedAt), UpdatedAt: timestamppb.New(result.UpdatedAt),
+			DeletedAt: optionalTimestamp(result.DeletedAt),
+		}, nil
+	}
+	return schedule, nil
 }
 
 func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
@@ -202,12 +215,18 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 		for _, due := range rows {
 			row, now := due.ScheduledRun, due.DbTime
 			schedule, err := toScheduledRun(row)
-			if err != nil {
-				return err
+			var next *time.Time
+			if err == nil {
+				next, err = nextExecutionTime(schedule.Config, now)
 			}
-			next, err := nextExecutionTime(schedule.Config, now)
 			if err != nil {
-				return err
+				// Remove malformed schedules from the due queue so even a full
+				// batch cannot starve healthy rows. Keep their payloads for repair.
+				logging.FromContext(ctx).ErrorContext(ctx, "malformed schedule requires repair before scheduling can resume", "scheduled_run_id", row.ID, "error", err)
+				if err := q.AdvanceScheduledRun(ctx, dbgen.AdvanceScheduledRunParams{ID: row.ID}); err != nil {
+					return err
+				}
+				continue
 			}
 			// ponytail: fixed 30s lateness allowance; configure it if deployments need longer failover tolerance.
 			if now.Sub(*row.NextExecutionTime) <= 30*time.Second {
@@ -401,7 +420,10 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 	for _, row := range rows {
 		execution, err := toScheduledRunExecution(row)
 		if err != nil {
-			return nil, err
+			// The committed lease supplies the retry delay. A bad payload must
+			// not discard healthy leases or invent a terminal runtime state.
+			logging.FromContext(ctx).ErrorContext(ctx, "skipping malformed scheduled execution", "execution_id", row.ID, "error", err)
+			continue
 		}
 		leases = append(leases, LeasedScheduledRunExecution{Execution: execution, Lease: ScheduledRunExecutionLease{ExecutionID: row.ID, Token: token}})
 	}
