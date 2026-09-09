@@ -13,6 +13,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -68,6 +69,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 		a2agrpc.WithGRPCTransport(
 			grpc.WithTransportCredentials(d.transport),
 			grpc.WithAuthority(instance.GetA2AAuthority()),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),
