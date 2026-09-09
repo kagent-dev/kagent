@@ -24,7 +24,7 @@ type Collections struct {
 	ConfigMaps            krt.Collection[*corev1.ConfigMap]
 	Secrets               krt.Collection[*corev1.Secret]
 	WorkerPools           krt.Collection[*atev1alpha1.WorkerPool]
-	ActorTemplates        krt.StaticCollection[ObservedActorTemplate]
+	ActorTemplates        krt.StaticCollection[PairRuntimeObservation]
 	Pairs                 krt.Collection[AgentTemplateHarnessPair]
 	Reconciliations       krt.Collection[PairReconciliation]
 	ModelConfigStatuses   krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
@@ -32,17 +32,17 @@ type Collections struct {
 	AgentTemplateStatuses krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
 }
 
-// ObservedActorTemplate records a pair's preparation. The revision prevents a
+// PairRuntimeObservation records a pair's preparation. The revision prevents a
 // cached observation from making changed inputs ready before reconciliation.
-type ObservedActorTemplate struct {
+type PairRuntimeObservation struct {
 	AgentTemplateName string
 	HarnessName       string
 	RevisionID        v2translator.RevisionID
 	Template          *ateapipb.ActorTemplate
 }
 
-func (t ObservedActorTemplate) ResourceName() string {
-	return t.Template.GetMetadata().GetAtespace() + "/" + t.AgentTemplateName + "/" + t.HarnessName
+func (p PairRuntimeObservation) ResourceName() string {
+	return p.Template.GetMetadata().GetAtespace() + "/" + p.AgentTemplateName + "/" + p.HarnessName
 }
 
 // AgentTemplateHarnessPair is one same-namespace combination selected by a
@@ -67,7 +67,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
-	actorTemplates := krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...)
+	actorTemplates := krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...)
 	pairs := newPairCollection(agentTemplates, harnesses, opts)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := v2translator.Collections{

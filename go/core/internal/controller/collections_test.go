@@ -85,7 +85,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
 		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		ActorTemplates:   krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+		ActorTemplates:   krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...),
 	}
 	collections.ModelConfigStatuses, collections.ResolvedModelConfigs = newModelConfigReconciliations(collections.ModelConfigs, collections.ConfigMaps, collections.Secrets, opts)
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
@@ -226,7 +226,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[ObservedActorTemplate](mock), opts,
+		}, krttest.GetMockCollection[PairRuntimeObservation](mock), opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -282,7 +282,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[ObservedActorTemplate](mock), opts,
+		}, krttest.GetMockCollection[PairRuntimeObservation](mock), opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -335,7 +335,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[ObservedActorTemplate](mock), opts,
+		}, krttest.GetMockCollection[PairRuntimeObservation](mock), opts,
 	)
 	var initial string
 	waitFor(t, func() bool {

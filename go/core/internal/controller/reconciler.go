@@ -54,7 +54,7 @@ type ReconciliationFailure struct {
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
 	collections v2translator.Collections,
-	actorTemplates krt.Collection[ObservedActorTemplate],
+	actorTemplates krt.Collection[PairRuntimeObservation],
 	opts krt.OptionsBuilder,
 ) krt.Collection[PairReconciliation] {
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
@@ -334,7 +334,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 // Observations belong to the pair's current preparation, independently of how
 // long instances or checkpoints keep its old runtime alive in the database.
 func (r *Reconciler) observeActorTemplate(state PairReconciliation, template *ateapipb.ActorTemplate) {
-	r.collections.ActorTemplates.ConditionalUpdateObject(ObservedActorTemplate{
+	r.collections.ActorTemplates.ConditionalUpdateObject(PairRuntimeObservation{
 		AgentTemplateName: state.Pair.AgentTemplate.Name,
 		HarnessName:       state.Pair.Harness.Name,
 		RevisionID:        state.RevisionID,

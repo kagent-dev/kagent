@@ -61,7 +61,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	reconciler := &Reconciler{
 		collections: Collections{
 			AgentTemplates:  krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-			ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+			ActorTemplates:  krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...),
 			Reconciliations: reconciliations, AgentTemplateStatuses: statuses,
 		},
 		templates: templates, store: store, status: statusClient,
@@ -168,7 +168,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			templates := &fakeActorTemplates{}
 			reconciler := &Reconciler{
 				collections: Collections{
-					ActorTemplates:  krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+					ActorTemplates:  krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...),
 					Reconciliations: states,
 				},
 				templates: templates, store: store,
