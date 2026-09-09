@@ -133,6 +133,36 @@ test("extension points: configured components mount where the point promises", a
     expect(order.filter((id) => CORE_NAV_ORDER.includes(id))).toEqual(CORE_NAV_ORDER);
   });
 
+  await test.step("8. a contributed rail entry sits between the application's own", async () => {
+    await loadPage(page, agentChat(instances.ready));
+
+    // Position is the whole claim. The example asks for order 150, between Agent
+    // Details at 100 and New chat at 200, so appending it would pass a mere
+    // "is it there" assertion while getting the feature wrong.
+    const rail = page.getByTestId("chat-sessions-nav");
+    // Both destinations are addresses of this agent, and the chat page derives them
+    // from the instance it is still fetching — so the nav is empty for a moment and
+    // reading it straight away reads nothing.
+    await expect(rail.getByTestId("agent-nav-agent-conversations")).toBeVisible({
+      timeout: 30_000,
+    });
+    const order = await rail
+      .locator("[data-testid]")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-testid") ?? ""));
+
+    expect(order).toEqual([
+      "agent-nav-agent-conversations",
+      "agent-rail-example",
+      "chat-new-session",
+    ]);
+
+    // Handed the conversation it is drawn beside, so an entry can be about it.
+    await expect(rail.getByTestId("agent-rail-example")).toHaveAttribute(
+      "href",
+      new RegExp(`agent=${instances.ready}$`),
+    );
+  });
+
   await test.step("8. a per-message point mounts once per message, with its own context", async () => {
     // The agent with a seeded conversation behind it. There is no session segment:
     // an AgentInstance *is* the conversation.
