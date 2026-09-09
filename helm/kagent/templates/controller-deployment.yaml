@@ -82,6 +82,25 @@ spec:
         - name: controller
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
+          {{- if or .Values.controller.imageDigest .Values.controller.agentImageRegistry .Values.controller.agentImageRepository }}
+          # --image-digest has no build-time equivalent today: scripts/controller-digest-ldflags.sh,
+          # which would stamp AgentImageDigest via ldflags, is never invoked by `make build-controller`
+          # or any CI workflow. Until that's wired in, set this value explicitly (the digest of the
+          # pushed golang-adk image) or SandboxAgent compilation fails with "agent image digest is not set".
+          # agentImageRegistry/agentImageRepository point the golang-adk runtime image (used for
+          # every declarative SandboxAgent) at a different build than the compiled-in default
+          # (ghcr.io/kagent-dev/kagent/golang-adk) — e.g. your own fork's release.
+          args:
+          {{- if .Values.controller.imageDigest }}
+          - --image-digest={{ .Values.controller.imageDigest }}
+          {{- end }}
+          {{- if .Values.controller.agentImageRegistry }}
+          - --image-registry={{ .Values.controller.agentImageRegistry }}
+          {{- end }}
+          {{- if .Values.controller.agentImageRepository }}
+          - --image-repository={{ .Values.controller.agentImageRepository }}
+          {{- end }}
+          {{- end }}
           env:
             - name: KAGENT_NAMESPACE
               valueFrom:
