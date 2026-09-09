@@ -165,7 +165,7 @@ export function ChatComposer({
 
       <Space size={8}>
         {onCheckpoint ? (
-          <Tooltip title="Checkpoint this chat. Only the latest message can be saved as a checkpoint.">
+          <Tooltip title="Checkpoint this chat">
             {/* Icon only: the box beside it is the point of this row, and a second
                 labelled button took enough width from it to wrap the placeholder and
                 grow the whole composer by a line. */}

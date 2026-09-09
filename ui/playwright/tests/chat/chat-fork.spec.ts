@@ -6,7 +6,7 @@ const openMenu = (page: import("@playwright/test").Page) =>
   page.locator(".ant-dropdown:not(.ant-dropdown-hidden)");
 
 const dividers = (page: import("@playwright/test").Page) =>
-  page.locator('[data-testid^="chat-checkpoint-"][role="separator"]');
+  page.locator('[data-testid^="chat-checkpoint-mark-"]');
 
 test("chat: the checkpoint is taken from the composer, and marks where a fork would cut", async ({
   page,

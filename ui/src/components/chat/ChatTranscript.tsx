@@ -19,7 +19,7 @@ const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
  * and the space is what tells the reader, before they read the label, that the two
  * halves are not continuous.
  */
-const CHECKPOINT_GAP = 5;
+const CHECKPOINT_GAP = 4;
 
 /**
  * Turn phases worth naming on screen. The rest are transient enough to skip.
