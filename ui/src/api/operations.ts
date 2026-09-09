@@ -1,3 +1,5 @@
+import type { Client } from "@connectrpc/connect";
+import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * Every call the UI knows how to make, behind a stable id.
  *
@@ -129,7 +131,19 @@ export interface SubstratePageInput<Sort = string> {
  * transform and a fake all see the same named fields as the implementation — a
  * positional signature cannot be inspected by any of them.
  */
+type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
+  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
+  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
+};
+
 export interface OperationMap {
+  "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
+  "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
+  "scheduledRuns.create": ScheduledRunRpc<"createScheduledRun">;
+  "scheduledRuns.update": ScheduledRunRpc<"updateScheduledRun">;
+  "scheduledRuns.delete": ScheduledRunRpc<"deleteScheduledRun">;
+  "scheduledRuns.trigger": ScheduledRunRpc<"triggerScheduledRun">;
+  "scheduledRuns.executions": ScheduledRunRpc<"listScheduledRunExecutions">;
   "models.list": { input: NoInput; output: ModelConfig[] };
   "models.get": { input: ResourceRefInput; output: ModelConfig };
   "models.create": { input: { payload: CreateModelConfigRequest }; output: ModelConfig };

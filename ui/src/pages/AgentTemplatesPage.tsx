@@ -9,6 +9,7 @@ import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, paths } from "@/router/routes";
 import {
   apiClient,
@@ -323,24 +324,16 @@ export function AgentTemplatesTab() {
                   ? "No agent templates match those filters."
                   : " ",
           }}
-          onRow={(row) => ({
-            className: "clickable-table-row",
-            onClick: (event) => {
-              if (
-                (event.target as HTMLElement).closest(
-                  "a, button, input, [role='button'], .ant-popover, .ant-dropdown",
-                )
-              ) {
-                return;
-              }
+          onRow={(row) =>
+            clickableRow(() =>
               void navigate(
                 buildPath(paths.agentTemplateDetail, {
                   namespace: row.namespace,
                   name: row.name,
                 }),
-              );
-            },
-          })}
+              ),
+            )
+          }
         />
     </Space>
   );

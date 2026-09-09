@@ -47,7 +47,7 @@ func (q *Queries) ExtendMemoryTTL(ctx context.Context) error {
 	return err
 }
 
-const incrementMemoryAccessCount = `-- name: IncrementMemoryAccessCount :exec
+const incrementMemoryAccessCountForUpdate = `-- name: IncrementMemoryAccessCountForUpdate :exec
 UPDATE memory
 SET access_count = access_count + 1
 WHERE id IN (
@@ -59,8 +59,8 @@ WHERE id IN (
 `
 
 // Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
-func (q *Queries) IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error {
-	_, err := q.db.Exec(ctx, incrementMemoryAccessCount, dollar_1)
+func (q *Queries) IncrementMemoryAccessCountForUpdate(ctx context.Context, dollar_1 []string) error {
+	_, err := q.db.Exec(ctx, incrementMemoryAccessCountForUpdate, dollar_1)
 	return err
 }
 

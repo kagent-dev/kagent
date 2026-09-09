@@ -8,6 +8,7 @@ import {
   expectSettled,
   instances,
   loadPage,
+  pageTitle,
   rowNamed,
   routes,
 } from "../../helpers/app";
@@ -522,5 +523,92 @@ test("agents: conversations can be picked and deleted together from the table to
     await expect(prompt).toContainText("can be recovered");
     // The reason it matters here rather than only being tidy.
     await expect(prompt).toContainText("workers they hold");
+  });
+});
+
+/**
+ * The schedules that run this agent.
+ *
+ * A `ScheduledRun` names a harness and an agent template, which is the pair this page
+ * is — so the section belongs here rather than on a conversation or on the template.
+ * Two things are worth pinning, and neither is visible in a screenshot:
+ *
+ * - **The narrowing is the browser's, and it narrows on both halves of the pair.**
+ *   `ListScheduledRuns` takes only a page, so the filter is client-side; keyed on the
+ *   template alone it would show one agent's schedules under its twin.
+ * - **A failed read is not an empty list.** The section must not offer "nothing runs
+ *   this agent yet" when the truth is that it could not find out.
+ */
+test("agents: an agent lists the schedules that run it, and offers one when it has none", async ({
+  page,
+}) => {
+  await test.step("1. the schedules targeting this agent are listed", async () => {
+    await loadPage(page, agentPage(agents.k8s));
+    await expect(page.getByTestId("agent-schedules")).toBeVisible();
+    await expectSettled(page);
+
+    const list = page.getByTestId("agent-schedules-list");
+    await expect(list.locator("li")).toHaveCount(3);
+    // Named and dated, not a bare UUID: a row saying only "Daily cluster report" does
+    // not say when, and the id says nothing at all.
+    await expect(list).toContainText("Daily cluster report");
+    await expect(list).toContainText("Every day at 09:00");
+  });
+
+  await test.step("2. each row leads to that schedule's page", async () => {
+    const first = page
+      .getByTestId("agent-schedules-list")
+      .locator('[data-testid^="agent-schedule-link-"]')
+      .first();
+    const id = (await first.getAttribute("data-testid"))?.replace(
+      "agent-schedule-link-",
+      "",
+    );
+    await expect(first).toHaveAttribute("href", `/schedules/${id ?? ""}`);
+
+    await first.click();
+    await expect(page).toHaveURL(new RegExp(`/schedules/${id ?? ""}$`));
+    // The schedule's own page, so the link is navigation rather than a URL that
+    // happens to parse.
+    await expect(pageTitle(page)).toHaveText("Daily cluster report");
+  });
+
+  await test.step("2b. so does the rest of the row, without the link firing twice", async () => {
+    await loadPage(page, agentPage(agents.k8s));
+    const row = page
+      .getByTestId("agent-schedules-list")
+      .locator('[data-testid^="agent-schedule-"]')
+      .filter({ hasText: "Daily cluster report" })
+      .first();
+    // The cadence text, which is as far from the link as the row gets.
+    await row.getByText("Every day at 09:00").click();
+    await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+$/);
+    await expect(pageTitle(page)).toHaveText("Daily cluster report");
+  });
+
+  await test.step("3. an agent nothing schedules offers to create one", async () => {
+    // The same template's twin on another harness has none, which is also the
+    // assertion the client-side filter exists for: keyed on the template alone, the
+    // three above would appear here too.
+    await loadPage(page, agentPage(agents.sharedOnK8s));
+    await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
+    await expect(page.getByTestId("agent-schedules-list")).toHaveCount(0);
+
+    const create = page.getByTestId("agent-schedules-create");
+    await expect(create).toHaveAttribute("href", "/schedules/new");
+    await expect(create).toContainText("Create a schedule");
+  });
+
+  await test.step("4. a failed read says so, and does not claim there are none", async () => {
+    await loadPage(page, agentPage(agents.k8s), { scenario: "error" });
+
+    const alert = page.getByTestId("agent-schedules-error");
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText("Could not load this agent's schedules");
+    // The backend's own account of it, so the reader knows which call broke.
+    await expect(alert).toContainText("asked to fail");
+    // The specific bug this step exists for: a failure reported as an empty state.
+    await expect(page.getByTestId("agent-schedules-empty")).toHaveCount(0);
+    await expect(page.getByTestId("agent-schedules-create")).toHaveCount(0);
   });
 });

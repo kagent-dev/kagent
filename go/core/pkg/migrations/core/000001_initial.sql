@@ -194,8 +194,53 @@ CREATE UNIQUE INDEX agent_instance_task_event_message_idx
     ON agent_instance_task_event (history_id, task_id, message_id)
     WHERE message_id IS NOT NULL;
 
+CREATE TABLE scheduled_run (
+    id UUID PRIMARY KEY,
+    creator TEXT NOT NULL CHECK (creator <> ''),
+    request_id TEXT NOT NULL CHECK (char_length(request_id) BETWEEN 1 AND 128),
+    request_hash BYTEA NOT NULL CHECK (octet_length(request_hash) = 32),
+    data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    next_execution_time TIMESTAMPTZ,
+    deleted_at TIMESTAMPTZ,
+    UNIQUE (creator, request_id),
+    CHECK (deleted_at IS NULL OR next_execution_time IS NULL)
+);
+CREATE INDEX scheduled_run_owner_idx ON scheduled_run (creator, id) WHERE deleted_at IS NULL;
+CREATE INDEX scheduled_run_due_idx ON scheduled_run (next_execution_time, id)
+    WHERE deleted_at IS NULL AND next_execution_time IS NOT NULL;
+
+-- The optional instance ID is historical provenance, without a foreign key.
+CREATE TABLE scheduled_run_execution (
+    id UUID PRIMARY KEY,
+    scheduled_run_id UUID NOT NULL REFERENCES scheduled_run(id) ON DELETE RESTRICT,
+    scheduled_time TIMESTAMPTZ,
+    manual_request_id TEXT CHECK (char_length(manual_request_id) BETWEEN 1 AND 128),
+    data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    deadline TIMESTAMPTZ NOT NULL CHECK (deadline > created_at),
+    agent_instance_id UUID,
+    task_id TEXT,
+    completed_at TIMESTAMPTZ,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    lease_token UUID,
+    state TEXT NOT NULL DEFAULT 'PENDING' CHECK (state IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'TIMED_OUT')),
+    CHECK ((scheduled_time IS NULL) <> (manual_request_id IS NULL)),
+    CHECK (state NOT IN ('RUNNING', 'SUCCEEDED') OR agent_instance_id IS NOT NULL),
+    CHECK (task_id IS NULL OR agent_instance_id IS NOT NULL),
+    CHECK ((completed_at IS NOT NULL) = (state IN ('SUCCEEDED', 'FAILED', 'TIMED_OUT'))),
+    UNIQUE (scheduled_run_id, scheduled_time),
+    UNIQUE (scheduled_run_id, manual_request_id)
+);
+CREATE INDEX scheduled_run_execution_history_idx ON scheduled_run_execution (scheduled_run_id, id);
+CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (next_attempt_at, id)
+    WHERE state IN ('PENDING', 'RUNNING');
+
 -- +goose Down
 
+DROP TABLE scheduled_run_execution;
+DROP TABLE scheduled_run;
 DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;

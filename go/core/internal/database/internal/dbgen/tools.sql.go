@@ -89,50 +89,18 @@ func (q *Queries) ListToolServers(ctx context.Context) ([]Toolserver, error) {
 const listTools = `-- name: ListTools :many
 SELECT id, server_name, group_kind, created_at, updated_at, deleted_at, description FROM tool
 WHERE deleted_at IS NULL
+  AND ($1::text IS NULL OR server_name = $1)
+  AND ($2::text IS NULL OR group_kind = $2)
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListTools(ctx context.Context) ([]Tool, error) {
-	rows, err := q.db.Query(ctx, listTools)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Tool
-	for rows.Next() {
-		var i Tool
-		if err := rows.Scan(
-			&i.ID,
-			&i.ServerName,
-			&i.GroupKind,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.Description,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type ListToolsParams struct {
+	ServerName *string
+	GroupKind  *string
 }
 
-const listToolsForServer = `-- name: ListToolsForServer :many
-SELECT id, server_name, group_kind, created_at, updated_at, deleted_at, description FROM tool
-WHERE server_name = $1 AND group_kind = $2 AND deleted_at IS NULL
-ORDER BY created_at ASC
-`
-
-type ListToolsForServerParams struct {
-	ServerName string
-	GroupKind  string
-}
-
-func (q *Queries) ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error) {
-	rows, err := q.db.Query(ctx, listToolsForServer, arg.ServerName, arg.GroupKind)
+func (q *Queries) ListTools(ctx context.Context, arg ListToolsParams) ([]Tool, error) {
+	rows, err := q.db.Query(ctx, listTools, arg.ServerName, arg.GroupKind)
 	if err != nil {
 		return nil, err
 	}

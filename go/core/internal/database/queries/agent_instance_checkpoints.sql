@@ -53,12 +53,9 @@ RETURNING *;
 
 -- name: GetAgentInstanceCheckpoint :one
 SELECT * FROM agent_instance_checkpoint
-WHERE id = $1 AND user_id = $2 AND state = 'READY';
-
--- name: GetAgentInstanceCheckpointSnapshot :one
--- Lifecycle work also needs the immutable reference while creating or deleting.
-SELECT * FROM agent_instance_checkpoint
-WHERE id = $1 AND user_id = $2;
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
+  -- Lifecycle work also reads creating and deleting checkpoints.
+  AND (sqlc.narg(state)::text IS NULL OR state = sqlc.narg(state));
 
 -- name: ListAgentInstanceCheckpoints :many
 SELECT * FROM agent_instance_checkpoint
@@ -83,10 +80,10 @@ RETURNING *;
 DELETE FROM agent_instance_checkpoint
 WHERE id = $1 AND user_id = $2 AND state = 'DELETING';
 
--- name: LockReadyAgentInstanceCheckpoint :one
+-- name: GetAgentInstanceCheckpointForUpdate :one
 SELECT * FROM agent_instance_checkpoint
-WHERE id = $1 AND user_id = $2 AND state = 'READY'
+WHERE id = sqlc.arg(id)
+  -- Only internal finalization explicitly opts out of owner filtering.
+  AND (sqlc.arg(all_users)::boolean OR user_id = sqlc.arg(user_id))
+  AND (sqlc.narg(state)::text IS NULL OR state = sqlc.narg(state))
 FOR UPDATE;
-
--- name: LockAgentInstanceCheckpoint :one
-SELECT * FROM agent_instance_checkpoint WHERE id = $1 FOR UPDATE;

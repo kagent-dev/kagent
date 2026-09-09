@@ -105,6 +105,38 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 	}
 }
 
+func TestListToolsFiltersServerAndExcludesDeleted(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	for _, tool := range []struct{ name, server, kind string }{
+		{"target", "shared-name", "RemoteMCPServer"},
+		{"other-kind", "shared-name", "MCPServer"},
+		{"other-server", "another-name", "RemoteMCPServer"},
+		{"deleted", "deleted-server", "RemoteMCPServer"},
+	} {
+		require.NoError(t, client.RefreshToolsForServer(ctx, tool.server, tool.kind, &v1alpha3.MCPTool{Name: tool.name}))
+	}
+	require.NoError(t, client.DeleteToolsForServer(ctx, "deleted-server", "RemoteMCPServer"))
+
+	all, err := client.ListTools(ctx)
+	require.NoError(t, err)
+	ids := make([]string, len(all))
+	for i, tool := range all {
+		ids[i] = tool.ID
+	}
+	require.ElementsMatch(t, []string{"target", "other-kind", "other-server"}, ids)
+
+	filtered, err := client.ListToolsForServer(ctx, "shared-name", "RemoteMCPServer")
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	require.Equal(t, "target", filtered[0].ID)
+	for _, server := range []string{"deleted-server", "missing-server", ""} {
+		filtered, err := client.ListToolsForServer(ctx, server, "RemoteMCPServer")
+		require.NoError(t, err)
+		require.Empty(t, filtered)
+	}
+}
+
 // TestStoreToolServerIdempotence verifies that StoreToolServer is idempotent.
 func TestStoreToolServerIdempotence(t *testing.T) {
 	db := setupTestDB(t)
@@ -148,6 +180,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	// changes type OIDs and breaks existing pool connections.
 	_, err := sharedDB.Exec(context.Background(), `
 		TRUNCATE TABLE
+			scheduled_run,
 			tool, toolserver, memory,
 			agent_instance_share,
 			agent_instance, a2a_context, agent_template_harness_pair, runtime_revision

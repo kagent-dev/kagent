@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -58,6 +60,13 @@ type gatewayTestStore struct {
 	snapshot        *database.AgentInstanceTaskSnapshot
 	onStore         func()
 	id, userID      string
+	unscoped        bool
+}
+
+func (s *gatewayTestStore) GetAgentInstanceByID(_ context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	s.id, s.userID = id, ""
+	s.unscoped = true
+	return s.instance, s.err
 }
 
 func (s *gatewayTestStore) GetAgentInstance(_ context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
@@ -134,13 +143,15 @@ func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, strin
 }
 
 type gatewayTestAuthorizer struct {
-	verb     auth.Verb
-	resource auth.Resource
+	principal auth.Principal
+	err       error
+	verb      auth.Verb
+	resource  auth.Resource
 }
 
-func (a *gatewayTestAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
-	a.verb, a.resource = verb, resource
-	return nil
+func (a *gatewayTestAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.principal, a.verb, a.resource = principal, verb, resource
+	return a.err
 }
 
 type gatewayTestDialer struct {
@@ -584,26 +595,39 @@ func TestRuntimeDialerRequiresAuthority(t *testing.T) {
 }
 
 func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
-	task := &a2atype.Task{
-		ID: gatewayTestID, ContextID: gatewayTestContextID,
-		History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
-		Artifacts: []*a2atype.Artifact{{Name: "result"}},
-	}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
-	dialer := &gatewayTestDialer{}
-	gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
-	historyLength := 1
+	for _, state := range []a2atype.TaskState{
+		a2atype.TaskStateSubmitted, a2atype.TaskStateWorking,
+		a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired,
+		a2atype.TaskStateCompleted, a2atype.TaskStateFailed,
+		a2atype.TaskStateCanceled, a2atype.TaskStateRejected,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			task := &a2atype.Task{
+				ID: gatewayTestID, ContextID: gatewayTestContextID,
+				Status:    a2atype.TaskStatus{State: state},
+				History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
+				Artifacts: []*a2atype.Artifact{{Name: "result"}},
+			}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
+			dialer := &gatewayTestDialer{}
+			gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
+			historyLength := 1
 
-	got, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID, HistoryLength: &historyLength})
-	if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
-		t.Fatalf("GetTask() = %#v, %v", got, err)
-	}
-	listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
-	if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
-		t.Fatalf("ListTasks() = %#v, %v", listed, err)
-	}
-	if dialer.instance != nil {
-		t.Fatal("task reads dialed the private runtime")
+			got, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID, HistoryLength: &historyLength})
+			if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
+				t.Fatalf("GetTask() = %#v, %v", got, err)
+			}
+			listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
+			if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
+				t.Fatalf("ListTasks() = %#v, %v", listed, err)
+			}
+			if dialer.instance != nil {
+				t.Fatal("task reads dialed the private runtime")
+			}
+			if len(store.stored) != 0 {
+				t.Fatal("task reads persisted runtime state")
+			}
+		})
 	}
 }
 
@@ -843,6 +867,58 @@ func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
 	}
 	if workflow.quiesceCalls != 1 || len(store.stored) != 2 {
 		t.Fatalf("quiescence calls = %d, stored events = %d; want 1 and 2", workflow.quiesceCalls, len(store.stored))
+	}
+}
+
+// Like grpc.ClientConn, this transport rejects closing an already closed connection.
+type singleCloseGatewayRuntime struct {
+	gatewayTestRuntime
+	closes atomic.Int32
+}
+
+func (r *singleCloseGatewayRuntime) Destroy() error {
+	if r.closes.Add(1) > 1 {
+		return errors.New("grpc: the client connection is closing")
+	}
+	return nil
+}
+
+func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T) {
+	runtime := &singleCloseGatewayRuntime{}
+	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	workflow := &gatewayTestWorkflow{}
+	gateway := &Gateway{store: store, workflow: workflow, events: eventqueue.NewInMemoryManager(), coordinator: &memoryRuntimeCoordinator{}}
+	task := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	release := make(chan struct{})
+	events := func(yield func(a2atype.Event, error) bool) {
+		<-release
+		yield(a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, nil), nil)
+	}
+	run, reader, err := gateway.startTaskRun(gatewayTestContext(), store.instance, task, gatewayTestClient(t, runtime), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Cancellation closes ingress while a terminal event is already in flight.
+	closeErr := run.closeRuntime()
+	close(release)
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	terminal := a2atype.TaskStateUnspecified
+	for event, err := range run.observeReader(t.Context(), nil, reader) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok {
+			terminal = update.Status.State
+		}
+	}
+	<-run.done
+	if terminal != a2atype.TaskStateCanceled || len(store.stored) != 1 || workflow.quiesceCalls != 1 {
+		t.Fatalf("terminal=%s, writes=%d, quiescence=%d", terminal, len(store.stored), workflow.quiesceCalls)
+	}
+	if got := runtime.closes.Load(); got != 1 {
+		t.Fatalf("runtime closed %d times, want once", got)
 	}
 }
 

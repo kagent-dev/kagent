@@ -203,7 +203,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
-	checkpointRow, err := q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice"})
+	checkpointRow, err := q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice", State: new("READY")})
 	require.NoError(t, err)
 	storedCheckpoint := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, storedCheckpoint))
@@ -237,7 +237,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, client.DeleteAgentInstance(ctx, fork.Id))
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
-	checkpointRow, err = q.GetAgentInstanceCheckpointSnapshot(ctx, dbgen.GetAgentInstanceCheckpointSnapshotParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice"})
+	checkpointRow, err = q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(checkpoint.Id), UserID: "alice"})
 	require.NoError(t, err)
 	deleting := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, deleting))

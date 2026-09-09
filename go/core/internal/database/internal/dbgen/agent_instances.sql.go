@@ -141,6 +141,29 @@ func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentIns
 	return i, err
 }
 
+const getAgentInstanceForUpdate = `-- name: GetAgentInstanceForUpdate :one
+SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetAgentInstanceForUpdate(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
+	row := q.db.QueryRow(ctx, getAgentInstanceForUpdate, id)
+	var i AgentInstance
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.RequestID,
+		&i.PreparedRevision,
+		&i.State,
+		&i.Labels,
+		&i.Data,
+		&i.Operation,
+		&i.ContextID,
+		&i.SourceCheckpointID,
+		&i.HistoryID,
+	)
+	return i, err
+}
+
 const getAgentInstanceForUser = `-- name: GetAgentInstanceForUser :one
 SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 AND user_id = $2
 `
@@ -206,7 +229,7 @@ func (q *Queries) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHas
 }
 
 const getLatestRuntimeRevisionForInstance = `-- name: GetLatestRuntimeRevisionForInstance :one
-SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.harness_name, r.harness_uid, r.source_snapshot, r.egress_destinations, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, p.agent_template_labels
+SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.harness_name, r.harness_uid, r.source_snapshot, r.egress_destinations, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, p.agent_template_labels, clock_timestamp()::timestamptz AS db_time
 FROM agent_template_harness_pair p
 JOIN runtime_revision r ON r.revision = p.latest_successful_revision
 WHERE p.namespace = $1
@@ -239,6 +262,7 @@ type GetLatestRuntimeRevisionForInstanceRow struct {
 	UpdatedAt             time.Time
 	AgentCard             []byte
 	AgentTemplateLabels   []byte
+	DbTime                time.Time
 }
 
 func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error) {
@@ -265,6 +289,7 @@ func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg G
 		&i.UpdatedAt,
 		&i.AgentCard,
 		&i.AgentTemplateLabels,
+		&i.DbTime,
 	)
 	return i, err
 }
@@ -285,20 +310,21 @@ func (q *Queries) InsertA2AContext(ctx context.Context, arg InsertA2AContextPara
 }
 
 const insertAgentInstance = `-- name: InsertAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, 'CREATING', 'CREATE', $7, $8)
+INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $9::uuid, 'CREATING', 'CREATE', $7, $8)
 ON CONFLICT (user_id, request_id) DO NOTHING
 RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id
 `
 
 type InsertAgentInstanceParams struct {
-	ID               uuid.UUID
-	UserID           string
-	RequestID        string
-	ContextID        uuid.UUID
-	HistoryID        uuid.UUID
-	PreparedRevision *string
-	Labels           []byte
-	Data             []byte
+	ID                 uuid.UUID
+	UserID             string
+	RequestID          string
+	ContextID          uuid.UUID
+	HistoryID          uuid.UUID
+	PreparedRevision   *string
+	Labels             []byte
+	Data               []byte
+	SourceCheckpointID *uuid.UUID
 }
 
 func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error) {
@@ -311,53 +337,7 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 		arg.PreparedRevision,
 		arg.Labels,
 		arg.Data,
-	)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-		&i.Operation,
-		&i.ContextID,
-		&i.SourceCheckpointID,
-		&i.HistoryID,
-	)
-	return i, err
-}
-
-const insertForkedAgentInstance = `-- name: InsertForkedAgentInstance :one
-INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision, source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $7, 'CREATING', 'CREATE', $8, $9)
-ON CONFLICT (user_id, request_id) DO NOTHING
-RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id
-`
-
-type InsertForkedAgentInstanceParams struct {
-	ID                 uuid.UUID
-	UserID             string
-	RequestID          string
-	ContextID          uuid.UUID
-	HistoryID          uuid.UUID
-	PreparedRevision   *string
-	SourceCheckpointID *uuid.UUID
-	Labels             []byte
-	Data               []byte
-}
-
-func (q *Queries) InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, insertForkedAgentInstance,
-		arg.ID,
-		arg.UserID,
-		arg.RequestID,
-		arg.ContextID,
-		arg.HistoryID,
-		arg.PreparedRevision,
 		arg.SourceCheckpointID,
-		arg.Labels,
-		arg.Data,
 	)
 	var i AgentInstance
 	err := row.Scan(
@@ -495,29 +475,6 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 		return nil, err
 	}
 	return items, nil
-}
-
-const lockAgentInstance = `-- name: LockAgentInstance :one
-SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
-`
-
-func (q *Queries) LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, lockAgentInstance, id)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-		&i.Operation,
-		&i.ContextID,
-		&i.SourceCheckpointID,
-		&i.HistoryID,
-	)
-	return i, err
 }
 
 const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one

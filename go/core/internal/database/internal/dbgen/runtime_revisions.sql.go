@@ -181,22 +181,6 @@ func (q *Queries) RetireAgentTemplateHarnessPair(ctx context.Context, arg Retire
 	return err
 }
 
-const retireAgentTemplateHarnessPairs = `-- name: RetireAgentTemplateHarnessPairs :exec
-UPDATE agent_template_harness_pair
-SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-WHERE namespace = $1 AND agent_template_name = $2
-`
-
-type RetireAgentTemplateHarnessPairsParams struct {
-	Namespace         string
-	AgentTemplateName string
-}
-
-func (q *Queries) RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error {
-	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateName)
-	return err
-}
-
 const retireOtherAgentTemplateHarnessPairs = `-- name: RetireOtherAgentTemplateHarnessPairs :exec
 UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()

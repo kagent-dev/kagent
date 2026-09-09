@@ -120,6 +120,34 @@ type RuntimeRevision struct {
 	AgentCard             []byte
 }
 
+type ScheduledRun struct {
+	ID                uuid.UUID
+	Creator           string
+	RequestID         string
+	RequestHash       []byte
+	Data              []byte
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	NextExecutionTime *time.Time
+	DeletedAt         *time.Time
+}
+
+type ScheduledRunExecution struct {
+	ID              uuid.UUID
+	ScheduledRunID  uuid.UUID
+	ScheduledTime   *time.Time
+	ManualRequestID *string
+	Data            []byte
+	CreatedAt       time.Time
+	Deadline        time.Time
+	AgentInstanceID *uuid.UUID
+	TaskID          *string
+	CompletedAt     *time.Time
+	NextAttemptAt   time.Time
+	LeaseToken      *uuid.UUID
+	State           string
+}
+
 type Tool struct {
 	ID          string
 	ServerName  string

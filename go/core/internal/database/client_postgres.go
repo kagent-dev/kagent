@@ -148,10 +148,6 @@ func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTe
 	})
 }
 
-func (c *Client) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
-	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
-}
-
 func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
 	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
 }
@@ -246,44 +242,9 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 		return nil, false, fmt.Errorf("get AgentInstance request: %w", err)
 	}
 
-	revision, err := c.q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
-		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
-	}
-	labels := map[string]string{}
-	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
-		return nil, false, fmt.Errorf("decode AgentTemplate labels: %w", err)
-	}
-
-	now := timestamppb.Now()
-	instance := proto.Clone(request).(*apiv1alpha1.AgentInstance)
-	contextID, historyID := uuid.New(), uuid.New()
-	instance.ContextId = contextID.String()
-	instance.PreparedRevision = revision.Revision
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
-	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
-	instance.Labels = labels
-	instance.CreatedAt = now
-	instance.UpdatedAt = now
-	data, err := marshalAgentInstance(instance)
-	if err != nil {
-		return nil, false, err
-	}
-	instanceID := uuid.MustParse(request.GetId())
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
-			ID: historyID, UserID: request.GetCreator(), ContextID: contextID,
-		}); err != nil {
-			return fmt.Errorf("insert A2A context: %w", err)
-		}
-		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
-			ID: instanceID, UserID: request.GetCreator(), RequestID: requestID,
-			ContextID: contextID, HistoryID: historyID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
-			Data: data,
-		})
+		row, err = insertAgentInstance(ctx, q, request, requestID)
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -291,7 +252,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 		if err != nil {
 			return nil, false, fmt.Errorf("get concurrent AgentInstance request: %w", err)
 		}
-		instance, err = toAgentInstance(existing)
+		instance, err := toAgentInstance(existing)
 		if err == nil && !sameAgentInstanceRequest(instance, request) {
 			return nil, false, ErrIdempotencyConflict
 		}
@@ -300,8 +261,48 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 	if err != nil {
 		return nil, false, fmt.Errorf("insert AgentInstance: %w", err)
 	}
-	instance, err = toAgentInstance(row)
+	instance, err := toAgentInstance(row)
 	return instance, err == nil, err
+}
+
+// insertAgentInstance reserves the conversation and pins its prepared revision.
+// Callers own the transaction so execution linkage can commit with creation.
+func insertAgentInstance(ctx context.Context, q *dbgen.Queries, request *apiv1alpha1.AgentInstance, requestID string) (dbgen.AgentInstance, error) {
+	revision, err := q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
+		HarnessNamespace: request.GetHarness().GetNamespace(), AgentTemplateNamespace: request.GetAgentTemplate().GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
+	})
+	if err != nil {
+		return dbgen.AgentInstance{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+	}
+	labels := map[string]string{}
+	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
+		return dbgen.AgentInstance{}, fmt.Errorf("decode AgentTemplate labels: %w", err)
+	}
+	instance := proto.CloneOf(request)
+	contextID, historyID := uuid.New(), uuid.New()
+	instance.ContextId = contextID.String()
+	instance.PreparedRevision = revision.Revision
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
+	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
+	instance.Labels = labels
+	instance.CreatedAt = timestamppb.New(revision.DbTime)
+	instance.UpdatedAt = timestamppb.New(revision.DbTime)
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return dbgen.AgentInstance{}, err
+	}
+	instanceID := uuid.MustParse(request.GetId())
+	params := dbgen.InsertAgentInstanceParams{
+		ID: instanceID, UserID: instance.Creator, RequestID: requestID,
+		ContextID: contextID, HistoryID: historyID, PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels,
+		Data: data,
+	}
+	if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{
+		ID: historyID, UserID: instance.Creator, ContextID: contextID,
+	}); err != nil {
+		return dbgen.AgentInstance{}, fmt.Errorf("insert A2A context: %w", err)
+	}
+	return q.InsertAgentInstance(ctx, params)
 }
 
 func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -322,8 +323,8 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 	instanceUUID := uuid.MustParse(instanceID)
 	var row dbgen.AgentInstance
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		checkpoint, err := q.LockReadyAgentInstanceCheckpoint(ctx, dbgen.LockReadyAgentInstanceCheckpointParams{
-			ID: checkpointUUID, UserID: userID,
+		checkpoint, err := q.GetAgentInstanceCheckpointForUpdate(ctx, dbgen.GetAgentInstanceCheckpointForUpdateParams{
+			ID: checkpointUUID, UserID: userID, State: new("READY"),
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
@@ -373,7 +374,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err := q.InsertA2AContext(ctx, dbgen.InsertA2AContextParams{ID: historyID, UserID: userID, ContextID: sourceContext.ContextID}); err != nil {
 			return fmt.Errorf("insert fork A2A context: %w", err)
 		}
-		row, err = q.InsertForkedAgentInstance(ctx, dbgen.InsertForkedAgentInstanceParams{
+		row, err = q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
 			ID: instanceUUID, UserID: userID, RequestID: requestID,
 			ContextID: sourceContext.ContextID, HistoryID: historyID, PreparedRevision: checkpoint.PreparedRevision,
 			SourceCheckpointID: &checkpoint.ID, Labels: encodedLabels, Data: data,
@@ -448,6 +449,18 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 	return instance, err == nil, err
 }
 
+func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid AgentInstance ID: %w", err)
+	}
+	row, err := c.q.GetAgentInstanceByID(ctx, uid)
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
+	}
+	return toAgentInstance(row)
+}
+
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
@@ -489,7 +502,7 @@ func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuer
 func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -522,7 +535,7 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(id))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -556,7 +569,7 @@ func (c *Client) TransitionAgentInstance(
 ) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstance(ctx, uuid.MustParse(instance.GetId()))
+		row, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(instance.GetId()))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -714,7 +727,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 	created := false
 	var historyID uuid.UUID
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(instanceID))
+		instance, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(instanceID))
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
@@ -808,7 +821,7 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 		return false, err
 	}
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockActiveAgentInstanceTask(ctx, historyID)
+		row, err := q.GetActiveAgentInstanceTaskForUpdate(ctx, historyID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -881,7 +894,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		// Serialize task transitions with checkpoint reservation, without holding
 		// a transaction across runtime or snapshot network calls.
-		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(instanceID))
+		instance, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(instanceID))
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -903,7 +916,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		var taskRow dbgen.AgentInstanceTask
 		newTask := false
 		if task != nil {
-			if row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{HistoryID: historyID, ID: string(task.ID)}); err == nil {
+			if row, err := q.GetAgentInstanceTaskForUpdate(ctx, dbgen.GetAgentInstanceTaskForUpdateParams{HistoryID: historyID, ID: string(task.ID)}); err == nil {
 				stored = &a2apb.Task{}
 				if err := proto.Unmarshal(row.Data, stored); err != nil {
 					return fmt.Errorf("decode stored task: %w", err)
@@ -1083,7 +1096,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			return fmt.Errorf("get AgentInstance checkpoint by request: %w", err)
 		}
 
-		instance, err := q.LockAgentInstance(ctx, uuid.MustParse(checkpoint.GetAgentInstanceId()))
+		instance, err := q.GetAgentInstanceForUpdate(ctx, uuid.MustParse(checkpoint.GetAgentInstanceId()))
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.UserID != userID)) {
 			return ErrNotFound
 		}
@@ -1164,7 +1177,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 	}
 	var result *apiv1alpha1.Checkpoint
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, dbgen.GetAgentInstanceCheckpointForUpdateParams{ID: uuid.MustParse(id), AllUsers: true})
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -1202,7 +1215,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 }
 
 func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*apiv1alpha1.Checkpoint, error) {
-	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID, State: new("READY")})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance checkpoint: %w", notFoundOr(err))
 	}
@@ -1213,7 +1226,7 @@ func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID stri
 // tag UID for lifecycle workflows. Finalization replaces the source URI with the
 // retained Tag copy; ready references are immutable.
 func (c *Client) GetAgentInstanceCheckpointSnapshot(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
-	row, err := c.q.GetAgentInstanceCheckpointSnapshot(ctx, dbgen.GetAgentInstanceCheckpointSnapshotParams{ID: uuid.MustParse(id), UserID: userID})
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{ID: uuid.MustParse(id), UserID: userID})
 	if err != nil {
 		return nil, "", fmt.Errorf("get checkpoint snapshot: %w", notFoundOr(err))
 	}
@@ -1253,12 +1266,9 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 	var snapshot *AgentInstanceTaskSnapshot
 	var tagUID string
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		row, err := q.LockAgentInstanceCheckpoint(ctx, uuid.MustParse(id))
+		row, err := q.GetAgentInstanceCheckpointForUpdate(ctx, dbgen.GetAgentInstanceCheckpointForUpdateParams{ID: uuid.MustParse(id), UserID: userID})
 		if err != nil {
 			return notFoundOr(err)
-		}
-		if row.UserID != userID {
-			return ErrNotFound
 		}
 		checkpoint, err := toAgentInstanceCheckpoint(row)
 		if err != nil {
@@ -1422,21 +1432,17 @@ func (c *Client) GetTool(ctx context.Context, name string) (*Tool, error) {
 }
 
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
-	rows, err := c.q.ListTools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
-	}
-	tools := make([]Tool, len(rows))
-	for i, r := range rows {
-		tools[i] = *toTool(r)
-	}
-	return tools, nil
+	return c.listTools(ctx, dbgen.ListToolsParams{})
 }
 
 func (c *Client) ListToolsForServer(ctx context.Context, serverName, groupKind string) ([]Tool, error) {
-	rows, err := c.q.ListToolsForServer(ctx, dbgen.ListToolsForServerParams{ServerName: serverName, GroupKind: groupKind})
+	return c.listTools(ctx, dbgen.ListToolsParams{ServerName: &serverName, GroupKind: &groupKind})
+}
+
+func (c *Client) listTools(ctx context.Context, params dbgen.ListToolsParams) ([]Tool, error) {
+	rows, err := c.q.ListTools(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools for server: %w", err)
+		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 	tools := make([]Tool, len(rows))
 	for i, r := range rows {
@@ -1585,7 +1591,7 @@ func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string
 		for i, r := range results {
 			ids[i] = r.ID
 		}
-		if err := c.q.IncrementMemoryAccessCount(ctx, ids); err != nil {
+		if err := c.q.IncrementMemoryAccessCountForUpdate(ctx, ids); err != nil {
 			logging.FromContext(ctx).WarnContext(ctx, "failed to increment memory access count", "error", err)
 		}
 	}

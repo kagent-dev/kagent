@@ -5,6 +5,7 @@ import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { AgentRail } from "@/components/agent/AgentRail";
+import { AgentSchedules } from "@/components/agent/AgentSchedules";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
@@ -36,6 +37,7 @@ import { RenameConversationButton } from "@/components/agent-instances/RenameCon
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
+import { clickableRow } from "@/components/table/rowClick";
 import {
   byText,
   listTableChange,
@@ -661,24 +663,18 @@ export function AgentPage() {
                   ? "No conversations with this agent yet. Start one with “New chat”."
                   : " ",
           }}
-          onRow={(row) => ({
-            className:
-              openableIds === undefined || openableIds.has(row.id)
-                ? "clickable-table-row"
-                : undefined,
-            onClick: (event) => {
-              if (openableIds !== undefined && !openableIds.has(row.id)) return;
-              if (
-                (event.target as HTMLElement).closest(
-                  "a, button, input, [role='button'], .ant-popover, .ant-dropdown",
-                )
-              ) {
-                return;
-              }
-              void navigate(chatPath(row));
-            },
-          })}
+          onRow={(row) =>
+            clickableRow(() => void navigate(chatPath(row)), {
+              enabled: openableIds === undefined || openableIds.has(row.id),
+            })
+          }
         />
+
+        {/* Below the conversations, because a conversation is what a reader came here
+            for and a schedule is how some of them got started. */}
+        {namespace && agentTemplate && harness ? (
+          <AgentSchedules pair={{ namespace, agentTemplate, harness }} />
+        ) : null}
       </Space>
 
       {/*

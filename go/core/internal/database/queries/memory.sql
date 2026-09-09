@@ -12,7 +12,7 @@ WHERE (agent_name = $2 OR agent_name = $3) AND user_id = $4
 ORDER BY embedding <=> $1 ASC
 LIMIT $5;
 
--- name: IncrementMemoryAccessCount :exec
+-- name: IncrementMemoryAccessCountForUpdate :exec
 -- Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 UPDATE memory
 SET access_count = access_count + 1

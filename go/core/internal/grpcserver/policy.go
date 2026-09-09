@@ -84,5 +84,13 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[a2apb.A2AService_ListTaskPushNotificationConfigs_FullMethodName] = auth.AccessRead
 	policies[a2apb.A2AService_DeleteTaskPushNotificationConfig_FullMethodName] = auth.AccessDelete
 	policies[a2apb.A2AService_GetExtendedAgentCard_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.ScheduledRunService_CreateScheduledRun_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.ScheduledRunService_GetScheduledRun_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.ScheduledRunService_UpdateScheduledRun_FullMethodName] = auth.AccessUpdate
+	policies[apiv1alpha1.ScheduledRunService_DeleteScheduledRun_FullMethodName] = auth.AccessDelete
+	policies[apiv1alpha1.ScheduledRunService_TriggerScheduledRun_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.ScheduledRunService_ListScheduledRuns_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.ScheduledRunService_GetScheduledRunExecution_FullMethodName] = auth.AccessRead
+	policies[apiv1alpha1.ScheduledRunService_ListScheduledRunExecutions_FullMethodName] = auth.AccessRead
 	return policies
 }
