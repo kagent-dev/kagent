@@ -83,7 +83,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
 	assertReplay()
 	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "hitl-checkpoint")
-	require.ErrorIs(t, err, ErrAgentInstanceNotQuiescent)
+	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	// Both a user reply and an immediate message result must persist their status.
 	for _, state := range []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateCompleted} {

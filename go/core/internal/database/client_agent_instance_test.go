@@ -448,7 +448,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.GetId()}, "alice", "hitl-checkpoint-request")
-	require.ErrorIs(t, err, ErrAgentInstanceNotQuiescent)
+	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	first.Status.State = a2a.TaskStateCompleted
 	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
