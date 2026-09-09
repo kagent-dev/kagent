@@ -20,7 +20,8 @@ Common labels
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{ include "kagent.selectorLabels" . }}
 {{- if .Chart.Version }}
-app.kubernetes.io/version: {{ .Chart.Version | quote }}
+{{- /* helm-controller installs OCI charts under `<version>+<digest>`; a `+` is not valid in a label value, so the build metadata is sanitised the way helm.sh/chart is. */}}
+app.kubernetes.io/version: {{ .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: kagent
