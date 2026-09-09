@@ -1494,22 +1494,6 @@ function ChatEntry({
         and nowhere else. The rail owns the delete now, so the row behaves the same on
         every surface that mounts it.
       */}
-      {/* Its own button rather than a third menu item: duplicating is the one thing
-          here a reader does repeatedly — a copy per branch of an idea — and each one
-          behind a menu is two clicks instead of one. It is revealed on hover like the
-          menu beside it, so a row still reads as a name. */}
-      <Tooltip title="Duplicate chat">
-        <Button
-          type="text"
-          size="small"
-          loading={isDuplicating}
-          data-testid={`chat-session-duplicate-${instance.id}`}
-          aria-label={`Duplicate ${conversationLabel(instance, autoTitle)}`}
-          onClick={() => onDuplicate(instance)}
-          icon={<Copy size={14} color={theme.color.textMuted} />}
-          css={rowActionStyles}
-        />
-      </Tooltip>
       <Dropdown
         trigger={["click"]}
         menu={{
@@ -1519,6 +1503,12 @@ function ChatEntry({
               icon: <Pencil size={13} />,
               label: "Rename chat",
               onClick: () => setRenaming(true),
+            },
+            {
+              key: "duplicate",
+              icon: <Copy size={13} />,
+              label: "Duplicate chat",
+              onClick: () => onDuplicate(instance),
             },
             {
               key: "delete",
@@ -1533,7 +1523,7 @@ function ChatEntry({
         <Button
           type="text"
           size="small"
-          loading={isDeleting}
+          loading={isDeleting || isDuplicating}
           data-testid={`chat-session-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
           icon={<MoreVertical size={14} color={theme.color.textMuted} />}

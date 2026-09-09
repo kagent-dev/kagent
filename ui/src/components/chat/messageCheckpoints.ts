@@ -1,12 +1,12 @@
 import type { Checkpoint, ChatMessage } from "@/api";
 
 /**
- * Which of the reader's messages a saved boundary sits at.
+ * Which messages a saved boundary covers.
  *
  * A checkpoint names a *turn*, not a message: `headTaskId` is the task the boundary
- * was taken at, and every message of that turn carries it. The mark belongs on the
- * reader's message in that turn, because that is where the controls are — so the
- * last one of theirs in the turn wins, which for a conversation is the only one.
+ * was taken at, and both the question and the answer carry it. So the whole turn is
+ * marked — what the reader saved is the exchange, and marking half of it would say
+ * the agent's reply is on the other side of a boundary it is not.
  *
  * Two sources, merged, and both are needed:
  *
@@ -26,26 +26,54 @@ export function checkpointsByMessage(
 
   for (const checkpoint of checkpoints ?? []) {
     if (checkpoint.state !== "ready" || !checkpoint.headTaskId) continue;
-    const anchor = lastReaderMessageOfTask(messages, checkpoint.headTaskId);
-    if (anchor) byMessage.set(anchor, checkpoint.id);
+    for (const message of messages) {
+      if (message.taskId === checkpoint.headTaskId) byMessage.set(message.id, checkpoint.id);
+    }
   }
 
   for (const [messageId, checkpointId] of savedHere) {
-    if (messages.some((message) => message.id === messageId)) {
-      byMessage.set(messageId, checkpointId);
+    const from = messages.findIndex((message) => message.id === messageId);
+    if (from === -1) continue;
+    // Forward to the next thing the reader says: everything between is the reply to
+    // the message they saved, and belongs inside the same boundary.
+    for (let at = from; at < messages.length; at += 1) {
+      if (at > from && messages[at].role === "user") break;
+      byMessage.set(messages[at].id, checkpointId);
     }
   }
 
   return byMessage;
 }
 
-function lastReaderMessageOfTask(
+/** A run of messages the transcript draws as one thing. */
+export interface TranscriptGroup {
+  /** The boundary these messages sit inside, when they sit inside one. */
+  checkpointId?: string;
+  messages: ChatMessage[];
+}
+
+/**
+ * The transcript split into what is drawn boxed and what is not.
+ *
+ * Consecutive messages under the same checkpoint become one group, so the panel is
+ * drawn once around the turn rather than once around each half of it. Everything else
+ * is its own group of one.
+ */
+export function groupByCheckpoint(
   messages: readonly ChatMessage[],
-  taskId: string,
-): string | undefined {
-  let found: string | undefined;
+  byMessage: ReadonlyMap<string, string>,
+): TranscriptGroup[] {
+  const groups: TranscriptGroup[] = [];
+
   for (const message of messages) {
-    if (message.role === "user" && message.taskId === taskId) found = message.id;
+    const checkpointId = byMessage.get(message.id);
+    const last = groups[groups.length - 1];
+    if (checkpointId && last?.checkpointId === checkpointId) {
+      last.messages.push(message);
+      continue;
+    }
+    groups.push({ checkpointId, messages: [message] });
   }
-  return found;
+
+  return groups;
 }

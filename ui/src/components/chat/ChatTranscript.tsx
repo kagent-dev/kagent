@@ -1,10 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import type { ChatController, ChatMessage, ChatTurnPhase } from "@/api";
+import type { ChatController, ChatTurnPhase } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
+import { CheckpointDivider } from "./CheckpointDivider";
+import { groupByCheckpoint } from "./messageCheckpoints";
+
+/** Stable, so a transcript with no boundaries does not regroup on every render. */
+const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * The room a checkpoint's line takes, on top of the gap between two messages.
+ *
+ * A line drawn at the transcript's own rhythm reads as one more thing said. Pushing
+ * the conversation apart around it is what makes it a division rather than an entry —
+ * and the space is what tells the reader, before they read the label, that the two
+ * halves are not continuous.
+ */
+const CHECKPOINT_GAP = 5;
 
 /**
  * Turn phases worth naming on screen. The rest are transient enough to skip.
@@ -31,25 +46,14 @@ export function ChatTranscript({
   chat,
   sessionId,
   onAnswered,
-  onCheckpoint,
   onFork,
-  checkpointedMessageIds,
-  checkpointingMessageId,
+  checkpointByMessage,
 }: {
   chat: ChatController;
-  /**
-   * Saves a turn boundary at one of the reader's messages. Absent when read-only.
-   *
-   * Only the latest of them can be saved — see `ChatMessageItem` — but the handler is
-   * given the message either way so the caller need not re-derive which one it was.
-   */
-  onCheckpoint?: (message: ChatMessage) => void;
-  /** Forks from a message's saved boundary. Absent when read-only. */
-  onFork?: (message: ChatMessage) => void;
-  /** The reader's messages a boundary is already saved at. */
-  checkpointedMessageIds?: ReadonlySet<string>;
-  /** The message whose checkpoint is being saved right now, if any. */
-  checkpointingMessageId?: string;
+  /** Forks a saved boundary. Absent when read-only. */
+  onFork?: (checkpointId: string) => void;
+  /** Which boundary each message sits inside, for the messages that sit inside one. */
+  checkpointByMessage?: ReadonlyMap<string, string>;
   /**
    * An `ask_user` answer has just gone.
    *
@@ -67,9 +71,12 @@ export function ChatTranscript({
   sessionId?: string;
 }) {
   const theme = useTheme();
-  const latestFromReader = [...chat.messages]
-    .reverse()
-    .find((message) => message.role === "user")?.id;
+  /* A boundary falls after the last message of the turn it was taken at, so the
+     messages are grouped by turn before they are drawn and the line goes between. */
+  const groups = useMemo(
+    () => groupByCheckpoint(chat.messages, checkpointByMessage ?? EMPTY_CHECKPOINTS),
+    [chat.messages, checkpointByMessage],
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -295,26 +302,40 @@ export function ChatTranscript({
         minHeight: "100%",
       }}
     >
-      {/* Which message a checkpoint may be taken at: the reader's latest, because that
-          is the conversation's current turn boundary. Computed here rather than in the
-          message, which cannot see its siblings. */}
       {chat.messages.length === 0 ? (
         <Empty
           data-testid="chat-empty"
           description="No messages yet. Ask the agent something."
         />
       ) : (
-        chat.messages.map((message) => (
-          <ChatMessageItem
-            key={message.id}
-            message={message}
-            sessionId={sessionId}
-            onCheckpoint={onCheckpoint && (() => onCheckpoint(message))}
-            canCheckpoint={message.id === latestFromReader}
-            isCheckpointed={checkpointedMessageIds?.has(message.id) ?? false}
-            isCheckpointing={checkpointingMessageId === message.id}
-            onFork={onFork && (() => onFork(message))}
-          />
+        groups.map((group, index) => (
+          <Fragment key={group.messages[0].id}>
+            {group.messages.map((message) => (
+              <ChatMessageItem
+                key={message.id}
+                message={message}
+                sessionId={sessionId}
+                isCheckpointed={Boolean(group.checkpointId)}
+              />
+            ))}
+            {group.checkpointId ? (
+              <div
+                css={{
+                  // The extra room the line needs, split either side of it. Not on the
+                  // last group: a line against the composer would be dividing the
+                  // conversation from the box used to continue it.
+                  marginBlockStart: theme.space(CHECKPOINT_GAP),
+                  marginBlockEnd:
+                    index === groups.length - 1 ? 0 : theme.space(CHECKPOINT_GAP),
+                }}
+              >
+                <CheckpointDivider
+                  checkpointId={group.checkpointId}
+                  onFork={onFork && (() => onFork(group.checkpointId!))}
+                />
+              </div>
+            ) : null}
+          </Fragment>
         ))
       )}
 

@@ -21,7 +21,6 @@ import {
   useChat,
   type AgentInstanceOperation,
   type AgentInstanceState,
-  type ChatMessage,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
@@ -182,52 +181,53 @@ export function AgentChatPage() {
    * message the reader has just sent does not know its turn yet.
    */
   const [savedHere, setSavedHere] = useState<ReadonlyMap<string, string>>(new Map());
-  const [checkpointingMessageId, setCheckpointing] = useState<string>();
+  const [isCheckpointing, setCheckpointing] = useState(false);
 
   const checkpointByMessage = useMemo(
     () => checkpointsByMessage(chat.messages, checkpoints.data, savedHere),
     [chat.messages, checkpoints.data, savedHere],
   );
-  const checkpointedMessageIds = useMemo(
-    () => new Set(checkpointByMessage.keys()),
-    [checkpointByMessage],
-  );
+  /*
+   * Whether there is a boundary to save.
+   *
+   * Something has to have been said, and the latest turn must not already be saved —
+   * a second checkpoint at the same boundary is a second row that forks identically,
+   * which is a way of filling the list rather than a thing anyone wants.
+   */
+  const latest = chat.messages[chat.messages.length - 1];
+  const canCheckpoint = Boolean(latest) && !checkpointByMessage.has(latest.id);
 
   /*
-   * Saves the conversation's current turn boundary, marked against the message the
-   * reader asked from.
+   * Saves the conversation's current turn boundary.
    *
-   * The controller takes no cutoff, so this is only offered on their latest message —
-   * and the boundary it saves is the one that message ends.
+   * Recorded against the reader's latest message as well as read back from the
+   * controller, because the boundary has to show before the next read lands — see
+   * `checkpointsByMessage` for why the message alone cannot say which turn it is in.
    */
-  const checkpointMessage = useCallback(
-    async (message: ChatMessage) => {
-      if (!id) return;
-      setCheckpointing(message.id);
-      try {
-        const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
-        setSavedHere((current) => new Map(current).set(message.id, checkpoint.id));
-        await checkpoints.refresh();
-        toast.success("Checkpoint saved");
-      } catch (cause: unknown) {
-        const reason = cause instanceof Error ? cause.message : String(cause);
-        console.error("Could not checkpoint the conversation:", cause);
-        toast.error(`Could not checkpoint: ${reason}`);
-      } finally {
-        setCheckpointing(undefined);
-      }
-    },
-    [id, checkpoints],
-  );
+  const checkpointChat = useCallback(async () => {
+    if (!id) return;
+    const anchor = [...chat.messages].reverse().find((m) => m.role === "user")?.id;
+    setCheckpointing(true);
+    try {
+      const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
+      if (anchor) setSavedHere((current) => new Map(current).set(anchor, checkpoint.id));
+      await checkpoints.refresh();
+      toast.success("Checkpoint saved");
+    } catch (cause: unknown) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      console.error("Could not checkpoint the conversation:", cause);
+      toast.error(`Could not checkpoint: ${reason}`);
+    } finally {
+      setCheckpointing(false);
+    }
+  }, [id, chat.messages, checkpoints]);
 
   /*
    * A new conversation holding the transcript up to a saved boundary, which is then
    * opened. Forking the same boundary again is allowed and makes another one.
    */
-  const forkFromMessage = useCallback(
-    async (message: ChatMessage) => {
-      const checkpointId = checkpointByMessage.get(message.id);
-      if (!checkpointId) return;
+  const forkCheckpoint = useCallback(
+    async (checkpointId: string) => {
       const title = instance.data?.name || autoTitle;
       try {
         const forked = await apiClient.agentInstances.checkpoints.fork(
@@ -244,7 +244,6 @@ export function AgentChatPage() {
       }
     },
     [
-      checkpointByMessage,
       instance.data?.name,
       autoTitle,
       invalidateConversations,
@@ -634,10 +633,8 @@ export function AgentChatPage() {
           <ChatTranscript
             chat={chat}
             sessionId={id}
-            onCheckpoint={checkpointMessage}
-            onFork={forkFromMessage}
-            checkpointedMessageIds={checkpointedMessageIds}
-            checkpointingMessageId={checkpointingMessageId}
+            onFork={forkCheckpoint}
+            checkpointByMessage={checkpointByMessage}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
             // has no business knowing the composer exists, so the page it belongs to
@@ -668,6 +665,9 @@ export function AgentChatPage() {
               send={chat.send}
               isStreaming={chat.phase === "streaming"}
               onCancel={chat.cancel}
+              onCheckpoint={checkpointChat}
+              canCheckpoint={canCheckpoint}
+              isCheckpointing={isCheckpointing}
               // Disabled rather than hidden: a missing composer reads as a rendering
               // fault, where a disabled one with the state named above it explains
               // itself. A conversation holding a question keeps its composer, because

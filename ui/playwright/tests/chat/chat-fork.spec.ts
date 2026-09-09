@@ -5,73 +5,49 @@ import { agentChat, instances } from "../../helpers/app";
 const openMenu = (page: import("@playwright/test").Page) =>
   page.locator(".ant-dropdown:not(.ant-dropdown-hidden)");
 
-test("chat: a checkpoint is offered on the reader's latest message only", async ({
+const dividers = (page: import("@playwright/test").Page) =>
+  page.locator('[data-testid^="chat-checkpoint-"][role="separator"]');
+
+test("chat: the checkpoint is taken from the composer, and marks where a fork would cut", async ({
   page,
 }) => {
   await page.goto(agentChat(instances.ready));
   const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
   await expect(mine.first()).toBeVisible({ timeout: 30_000 });
 
-  await test.step("1. not on the agent's messages", async () => {
+  await test.step("1. the seeded boundary is a line under the turn it was taken at", async () => {
+    await expect(dividers(page)).toHaveCount(1);
+    await expect(page.getByTestId("chat-checkpoint-label")).toBeVisible();
+    // Both halves of that turn are above the line: what a fork carries is the
+    // exchange, not the question on its own.
     await expect(
-      page
-        .locator('[data-testid="chat-message"]:not([data-role="user"])')
-        .locator('[data-testid^="chat-message-checkpoint-"]'),
-    ).toHaveCount(0);
+      page.locator('[data-testid="chat-message"][data-checkpointed="true"]'),
+    ).toHaveCount(4);
   });
 
-  await test.step("2. the seeded conversation opens with its boundary marked, and no button to save it again", async () => {
-    await expect(mine.first()).toHaveAttribute("data-checkpointed", "true");
-    await expect(
-      mine.first().locator('[data-testid^="chat-message-checkpointed-"]'),
-    ).toBeVisible();
-    await expect(
-      mine.first().locator('[data-testid^="chat-message-checkpoint-"]'),
-    ).toHaveCount(0);
+  await test.step("2. no message carries a control of its own", async () => {
+    await mine.first().hover();
+    await expect(page.locator('[data-testid^="chat-message-checkpoint-"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid^="chat-message-menu-"]')).toHaveCount(0);
   });
 
-  await test.step("3. the newest message can be checkpointed, an earlier one cannot", async () => {
-    await page.getByTestId("chat-input").fill("Another question, so the first is not last.");
+  await test.step("3. the composer refuses a second checkpoint at the same boundary", async () => {
+    await expect(page.getByTestId("chat-checkpoint")).toBeDisabled();
+  });
+
+  await test.step("4. and offers one as soon as there is a newer turn", async () => {
+    await page.getByTestId("chat-input").fill("Another question, so the boundary moves.");
     await page.getByTestId("chat-send").click();
     await expect(mine).toHaveCount(2, { timeout: 30_000 });
-    await page.getByTestId("chat-input").fill("A third, leaving the second in the middle.");
-    await page.getByTestId("chat-send").click();
-    await expect(mine).toHaveCount(3, { timeout: 30_000 });
 
-    await expect(mine.last().locator('[data-testid^="chat-message-checkpoint-"]')).toBeEnabled();
-    // A checkpoint is taken at the conversation's current boundary and nowhere else,
-    // so an earlier message is shown the control disabled rather than not at all.
-    await expect(
-      mine.nth(1).locator('[data-testid^="chat-message-checkpoint-"]'),
-    ).toBeDisabled();
+    await expect(page.getByTestId("chat-checkpoint")).toBeEnabled();
+    await page.getByTestId("chat-checkpoint").click();
+    await expect(dividers(page)).toHaveCount(2);
+    await expect(page.getByTestId("chat-checkpoint")).toBeDisabled();
   });
 });
 
-test("chat: the fork menu is only on a message a boundary is saved at", async ({ page }) => {
-  await page.goto(agentChat(instances.ready));
-  const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
-  await expect(mine.first()).toBeVisible({ timeout: 30_000 });
-
-  await page.getByTestId("chat-input").fill("A turn with no checkpoint against it.");
-  await page.getByTestId("chat-send").click();
-  await expect(mine).toHaveCount(2, { timeout: 30_000 });
-
-  const latest = mine.last();
-  await latest.hover();
-  await expect(latest.locator('[data-testid^="chat-message-menu-"]')).toHaveCount(0);
-
-  await test.step("checkpointing it brings the menu", async () => {
-    await latest.locator('[data-testid^="chat-message-checkpoint-"]').click();
-    await expect(latest).toHaveAttribute("data-checkpointed", "true");
-
-    await latest.locator('[data-testid^="chat-message-menu-"]').click();
-    await expect(
-      openMenu(page).getByRole("menuitem", { name: "Fork chat from here" }),
-    ).toBeVisible();
-  });
-});
-
-test("chat: a fork of an earlier checkpoint opens holding only what came before it", async ({
+test("chat: a fork of an earlier checkpoint opens holding only what was above its line", async ({
   page,
 }) => {
   await page.goto(agentChat(instances.ready));
@@ -81,17 +57,13 @@ test("chat: a fork of an earlier checkpoint opens holding only what came before 
   const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
   await expect(mine).toHaveCount(1, { timeout: 30_000 });
 
-  // A second turn, so the seeded checkpoint is no longer the conversation's latest
-  // boundary and forking it has something to leave behind.
+  // A second turn, so the seeded boundary is no longer the conversation's latest and
+  // forking it has something to leave behind.
   await page.getByTestId("chat-input").fill("A second turn, after the saved boundary.");
   await page.getByTestId("chat-send").click();
   await expect(mine).toHaveCount(2, { timeout: 30_000 });
 
-  const checkpointed = mine.first();
-  await checkpointed.hover();
-  await checkpointed.locator('[data-testid^="chat-message-menu-"]').click();
-  await page.waitForTimeout(400);
-  await openMenu(page).getByRole("menuitem", { name: "Fork chat from here" }).click();
+  await dividers(page).first().locator('[data-testid^="chat-checkpoint-fork-"]').click();
 
   await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/);
   await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {
@@ -100,14 +72,11 @@ test("chat: a fork of an earlier checkpoint opens holding only what came before 
   await expect(rows).toHaveCount(before + 1);
   await expect(page.getByTestId("chat-sessions")).toContainText("(fork)");
   // The whole point of forking a boundary rather than the conversation: the second
-  // turn is not in the copy.
-  await expect(page.locator('[data-testid="chat-message"][data-role="user"]')).toHaveCount(
-    1,
-    { timeout: 30_000 },
-  );
+  // turn is below the line, so it is not in the copy.
+  await expect(mine).toHaveCount(1, { timeout: 30_000 });
 });
 
-test("chat: a conversation is duplicated from the rail, and the copy opens", async ({
+test("chat: a conversation is duplicated from the rail menu, and the copy opens", async ({
   page,
 }) => {
   await page.goto(agentChat(instances.ready));
@@ -119,7 +88,8 @@ test("chat: a conversation is duplicated from the rail, and the copy opens", asy
     has: page.getByTestId(`chat-session-${instances.ready}`),
   });
   await row.hover();
-  await row.getByTestId(`chat-session-duplicate-${instances.ready}`).click();
+  await row.getByTestId(`chat-session-menu-${instances.ready}`).click();
+  await openMenu(page).getByRole("menuitem", { name: "Duplicate chat" }).click();
 
   await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {
     timeout: 30_000,
