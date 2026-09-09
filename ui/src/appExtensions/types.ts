@@ -138,10 +138,17 @@ export interface ExtensionAgentRailItemContribution {
   key: string;
   order: number;
   /**
-   * Used for active-state matching only. The component renders its own link, so
-   * this is optional for entries that do not navigate.
+   * Where this entry leads, as a route pattern, for active-state matching only.
+   * Resolved with `matchPath`, so `/agents/:id/analytics` is active on whichever
+   * agent is open. A pattern with no parameters matches the one path, as before.
    */
   path?: string;
+  /**
+   * Active state this pattern cannot express — several routes, or a search
+   * parameter. Applied in addition to `path`: either matching makes the entry
+   * active, so an entry can declare where it leads and still widen it.
+   */
+  isActive?: (location: { pathname: string; search: string }) => boolean;
   /** What this entry is called, for anything that has to name it rather than draw it. */
   label?: string;
   Component: ComponentType<ExtensionAgentRailItemProps>;
