@@ -65,7 +65,7 @@ func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Agen
 	if w.quiesces.Add(1) == 1 && w.failCleanup {
 		return nil, errors.New("temporary Substrate outage")
 	}
-	return &database.AgentInstanceTaskSnapshot{Atespace: "team", Name: "snapshot", UID: "snapshot-uid", ContentScope: "FULL"}, nil
+	return &database.AgentInstanceTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
 }
 
 type scheduledControllerAuth struct {

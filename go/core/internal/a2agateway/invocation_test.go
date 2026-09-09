@@ -86,7 +86,7 @@ func TestTaskInvocationRecoversWithoutRepeatingSend(t *testing.T) {
 			}
 			require.Equal(t, taskID, task.ID)
 			require.Equal(t, "message-1", store.created.History[0].ID)
-			require.Equal(t, store.instance.Id, store.created.ContextID)
+			require.Equal(t, store.instance.ContextId, store.created.ContextID)
 			// Replace the gateway to simulate restart with only durable state.
 			completed := *runtime.task
 			completed.Status.State = a2atype.TaskStateCompleted
@@ -111,7 +111,7 @@ func TestTaskInvocationRecoversWithoutRepeatingSend(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, task.ID, visible.ID)
 			require.Equal(t, a2atype.TaskStateCompleted, visible.Status.State)
-			require.Equal(t, store.instance.Id, visible.ContextID)
+			require.Equal(t, store.instance.ContextId, visible.ContextID)
 			_, err = newGateway().GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: taskID})
 			require.NoError(t, err)
 			require.Equal(t, 1, runtime.sendCalls)
