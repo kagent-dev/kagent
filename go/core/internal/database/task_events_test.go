@@ -80,16 +80,11 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	}
 	question := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart("Which database?"))
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question}
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "paused", ContentScope: "DATA"}))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task, nil))
 	assertReplay()
-	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "checkpoint")
-	require.NoError(t, err)
-	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
-	require.NoError(t, err)
-	boundaryEvents, err := readCheckpointEvents(ctx, q, uuid.MustParse(checkpoint.Id))
-	require.NoError(t, err)
-	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task", nil)
-	require.NoError(t, err)
+	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "hitl-checkpoint")
+	require.ErrorIs(t, err, ErrAgentInstanceNotQuiescent)
+
 	// Both a user reply and an immediate message result must persist their status.
 	for _, state := range []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateCompleted} {
 		message := a2a.NewMessageForTask(a2a.MessageRoleUser, task, a2a.NewTextPart("PostgreSQL"))
@@ -98,9 +93,26 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		}
 		now := time.Now()
 		task.Status = a2a.TaskStatus{State: state, Timestamp: &now}
-		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, message, nil))
+		var snapshot *AgentInstanceTaskSnapshot
+		if state == a2a.TaskStateCompleted {
+			snapshot = &AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "completed", ContentScope: "DATA"}
+		}
+		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, message, snapshot))
 		assertReplay()
 	}
+	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", "checkpoint")
+	require.NoError(t, err)
+	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
+	require.NoError(t, err)
+	boundaryEvents, err := readCheckpointEvents(ctx, q, uuid.MustParse(checkpoint.Id))
+	require.NoError(t, err)
+	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task", nil)
+	require.NoError(t, err)
+
+	advanced := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart("Additional result"))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, advanced,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "advanced", ContentScope: "DATA"}))
+	assertReplay()
 	// A source task changing or even losing its view must not affect an old fork.
 	events, err := queryMany(ctx, q, `
 		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,

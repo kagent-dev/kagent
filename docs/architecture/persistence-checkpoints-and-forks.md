@@ -53,8 +53,10 @@ flowchart TD
 
 ## Checkpoint creation
 
-A checkpoint names a quiescent boundary already recorded by the gateway. Creating
-one does not suspend the Actor again:
+A checkpoint names a durable terminal boundary already recorded by the gateway.
+Input-required and auth-required tasks are paused on their current node and are
+not checkpointable or forkable; callers must resolve the interaction first.
+Creating a checkpoint does not suspend the Actor again:
 
 1. Reserve the checkpoint in PostgreSQL.
 2. Verify that the suspended Actor still holds the external snapshot URI and scope recorded on the boundary.

@@ -447,6 +447,14 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
+	_, _, err = client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: source.GetId()}, "alice", "hitl-checkpoint-request")
+	require.ErrorIs(t, err, ErrAgentInstanceNotQuiescent)
+
+	first.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
+		t.Fatal(err)
+	}
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", AgentInstanceId: source.GetId()}, "alice", "checkpoint-request-1")
 	if err != nil {
 		t.Fatal(err)
@@ -457,8 +465,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	_, err = client.UpdateAgentInstanceName(ctx, source.GetId(), "alice", "Renamed after checkpoint")
 	require.NoError(t, err)
 
-	// Advancing the same paused task must not mutate the saved checkpoint projection.
-	first.Status.State = a2a.TaskStateCompleted
+	// Advancing the same task must not mutate the saved checkpoint projection.
 	first.Status.Message = a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("source advanced"))
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), first, first,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/resumed", ContentScope: "DATA"}))
@@ -498,7 +505,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatalf("fork tasks = %+v, total %d, error %v", tasks, total, err)
 	}
 	copied := tasks[0]
-	require.Equal(t, a2a.TaskStateInputRequired, copied.Status.State)
+	require.Equal(t, a2a.TaskStateCompleted, copied.Status.State)
 	if copied.ID != first.ID || copied.ContextID != source.GetContextId() || len(copied.History) != 1 ||
 		copied.History[0].ID != first.History[0].ID || copied.History[0].ContextID != source.GetContextId() ||
 		copied.History[0].TaskID != copied.ID || copied.History[0].ReferenceTasks[0] != copied.ID ||
@@ -924,7 +931,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		task.Status.Timestamp = &stamp
 		_, _, err := client.CreateAgentInstanceTask(ctx, source.GetId(), []byte(id), task)
 		require.NoError(t, err)
-		task.Status.State = a2a.TaskStateInputRequired
+		task.Status.State = a2a.TaskStateCompleted
 		require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, source.GetId(), task, task,
 			&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
 	}
@@ -969,32 +976,12 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	_, _, err = client.CreateAgentInstanceTask(ctx, fork.GetId(), []byte("different request"), retry)
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 
-	// Resume and cancel the inherited task in the fork. The source stays paused.
-	waiting.Status.State = a2a.TaskStateSubmitted
-	reply := a2a.NewMessageForTask(a2a.MessageRoleUser, waiting, a2a.NewTextPart("fork reply"))
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, fork.GetId(), waiting, reply, nil))
-	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, source.GetId(), string(waiting.ID))
-	require.NoError(t, err)
-	require.False(t, interrupted)
-	waiting.Status.State = a2a.TaskStateCanceled
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, fork.GetId(), waiting, waiting,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "fork-resumed", ContentScope: "DATA"}))
-	unchanged, err := client.GetAgentInstanceTask(ctx, source.GetId(), string(waiting.ID), nil)
-	require.NoError(t, err)
-	require.Equal(t, a2a.TaskStateInputRequired, unchanged.Status.State)
-	require.Len(t, unchanged.History, 1)
-	changed, err := client.GetAgentInstanceTask(ctx, fork.GetId(), string(waiting.ID), nil)
-	require.NoError(t, err)
-	require.Equal(t, a2a.TaskStateCanceled, changed.Status.State)
-	require.Len(t, changed.History, 2)
-
-	// Resuming an older task produces the newest runtime snapshot without moving
-	// that task in the transcript or losing the tasks created after it.
+	// A fork can itself be checkpointed without losing task chronology.
 	nested, snapshot, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{
 		Id: uuid.NewString(), AgentInstanceId: fork.GetId(),
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
-	require.Equal(t, "fork-resumed", snapshot.URI)
+	require.Equal(t, "tag-snapshot", snapshot.URI)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, nested.GetId(), "nested-tag", "nested-snapshot", "")
 	require.NoError(t, err)
 	fork2, _, err := client.ForkAgentInstance(ctx, nested.GetId(), "alice", uuid.NewString(), uuid.NewString())
@@ -1003,7 +990,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tasks, 2)
 	require.Equal(t, a2a.TaskID("z-first"), tasks[0].ID)
-	require.Equal(t, a2a.TaskStateCanceled, tasks[0].Status.State)
+	require.Equal(t, a2a.TaskStateCompleted, tasks[0].Status.State)
 	require.Equal(t, a2a.TaskID("a-second"), tasks[1].ID)
 	wrong := *waiting
 	wrong.ContextID = fork.GetId()
