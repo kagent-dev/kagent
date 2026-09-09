@@ -1864,19 +1864,35 @@ export function SubstratePage() {
             }}
           />
 
-          <PageScopeNote
-            testId="substrate-actors-order"
-            computedAt={actors.data?.computedAt}
-          />
+          {/* One row, the way antd lays out a paged table: what the page is on the
+              left, the controls to turn it on the right. `PageControls` carries its
+              own top margin for the stacked layout it was written for, which here
+              would drop it below the sentence it sits beside — so the row owns the
+              spacing and the control's own is cleared. */}
+          <div
+            css={{
+              alignItems: "center",
+              display: "flex",
+              gap: theme.space(4),
+              justifyContent: "space-between",
+              marginTop: theme.space(3),
+              "& > [data-testid$='-pages']": { marginTop: 0 },
+            }}
+          >
+            <PageScopeNote
+              testId="substrate-actors-order"
+              computedAt={actors.data?.computedAt}
+            />
 
-          <PageControls
-            testId="substrate-actors-pages"
-            page={actorPage}
-            hasNext={Boolean(actors.data?.nextPageToken)}
-            onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
-            onBack={actorPage.back}
-            isLoading={actors.isLoading}
-          />
+            <PageControls
+              testId="substrate-actors-pages"
+              page={actorPage}
+              hasNext={Boolean(actors.data?.nextPageToken)}
+              onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
+              onBack={actorPage.back}
+              isLoading={actors.isLoading}
+            />
+          </div>
         </Card>
 
         <Card
@@ -1948,19 +1964,35 @@ export function SubstratePage() {
             }}
           />
 
-          <PageScopeNote
-            testId="substrate-workers-order"
-            computedAt={workers.data?.computedAt}
-          />
+          {/* One row, the way antd lays out a paged table: what the page is on the
+              left, the controls to turn it on the right. `PageControls` carries its
+              own top margin for the stacked layout it was written for, which here
+              would drop it below the sentence it sits beside — so the row owns the
+              spacing and the control's own is cleared. */}
+          <div
+            css={{
+              alignItems: "center",
+              display: "flex",
+              gap: theme.space(4),
+              justifyContent: "space-between",
+              marginTop: theme.space(3),
+              "& > [data-testid$='-pages']": { marginTop: 0 },
+            }}
+          >
+            <PageScopeNote
+              testId="substrate-workers-order"
+              computedAt={workers.data?.computedAt}
+            />
 
-          <PageControls
-            testId="substrate-workers-pages"
-            page={workerPage}
-            hasNext={Boolean(workers.data?.nextPageToken)}
-            onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
-            onBack={workerPage.back}
-            isLoading={workers.isLoading}
-          />
+            <PageControls
+              testId="substrate-workers-pages"
+              page={workerPage}
+              hasNext={Boolean(workers.data?.nextPageToken)}
+              onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
+              onBack={workerPage.back}
+              isLoading={workers.isLoading}
+            />
+          </div>
         </Card>
       </Space>
     </PageFrame>
