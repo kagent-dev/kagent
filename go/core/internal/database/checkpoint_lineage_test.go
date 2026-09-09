@@ -63,6 +63,7 @@ func TestCheckpointLineage(t *testing.T) {
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, deleting.Id, "alice")
 	require.NoError(t, err)
 	branch := fork(c2)
+	assertListed(branch.Id, c1, c2)
 	// A fork created after deletion begins must not prevent its cleanup from retrying.
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, deleting.Id, "alice")
 	require.NoError(t, err)
@@ -75,20 +76,38 @@ func TestCheckpointLineage(t *testing.T) {
 	assertListed(branch.Id, c1, c2, c4, c5)
 	assertListed(nested.Id, c1, c2, c4)
 
-	// Paging uses checkpoint IDs across every ancestor, without duplicates.
-	wantIDs := []string{c1.Id, c2.Id, c4.Id}
-	slices.Sort(wantIDs)
-	var afterID string
-	for _, id := range wantIDs {
-		page, err := client.ListAgentInstanceCheckpoints(ctx, nested.Id, "alice", afterID, 1)
-		require.NoError(t, err)
-		require.Len(t, page, 1)
-		require.Equal(t, id, page[0].Id)
-		afterID = id
+	// Paging merges local and inherited checkpoints without repeating local candidates.
+	for _, tt := range []struct {
+		name       string
+		instanceID string
+		wantIDs    []string
+	}{
+		{"root", source.Id, []string{c1.Id, c2.Id, c3.Id}},
+		{"mixed", branch.Id, []string{c1.Id, c2.Id, c4.Id, c5.Id}},
+		{"inherited", nested.Id, []string{c1.Id, c2.Id, c4.Id}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			slices.Sort(tt.wantIDs)
+			for _, pageSize := range []int{1, 2, 10} {
+				var afterID string
+				var gotIDs []string
+				for {
+					page, err := client.ListAgentInstanceCheckpoints(ctx, tt.instanceID, "alice", afterID, pageSize)
+					require.NoError(t, err)
+					require.LessOrEqual(t, len(page), pageSize)
+					if len(page) == 0 {
+						break
+					}
+					for _, checkpoint := range page {
+						require.Greater(t, checkpoint.Id, afterID)
+						gotIDs = append(gotIDs, checkpoint.Id)
+						afterID = checkpoint.Id
+					}
+				}
+				require.Equal(t, tt.wantIDs, gotIDs)
+			}
+		})
 	}
-	page, err := client.ListAgentInstanceCheckpoints(ctx, nested.Id, "alice", afterID, 1)
-	require.NoError(t, err)
-	require.Empty(t, page)
 	unauthorized, err := client.ListAgentInstanceCheckpoints(ctx, nested.Id, "mallory", "", 100)
 	require.NoError(t, err)
 	require.Empty(t, unauthorized)
@@ -97,6 +116,8 @@ func TestCheckpointLineage(t *testing.T) {
 	require.NoError(t, client.DeleteAgentInstance(ctx, source.Id))
 	require.NoError(t, client.DeleteAgentInstance(ctx, branch.Id))
 	assertListed(nested.Id, c1, c2, c4)
+	assertListed(source.Id, c1, c2, c3)
+	assertListed(branch.Id, c4, c5)
 	// No fork starts at c1 yet; it is retained because it precedes c2 in the inherited history.
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, c1.Id, "alice")
 	require.ErrorIs(t, err, ErrNotFound)

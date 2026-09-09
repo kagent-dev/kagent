@@ -405,14 +405,24 @@ func readAgentInstance(ctx context.Context, db dbExecutor, id string) (agentInst
 // insertAgentInstanceRecords stores a new instance and its independent history together.
 // Callers supply a transaction and a prepared CREATING/CREATE instance; a duplicate
 // creator/requestID returns pgx.ErrNoRows so the caller can roll back and resolve it.
-func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *apiv1alpha1.AgentInstance, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (agentInstanceRow, error) {
+// A fork records immutable parent history/cutoff metadata separately from the instance's
+// source checkpoint, so ancestry does not depend on checkpoint rows or instance lifetime.
+func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *apiv1alpha1.AgentInstance, requestID string, historyID uuid.UUID, source *agentInstanceCheckpointRow) (agentInstanceRow, error) {
 	data, err := marshalAgentInstance(instance)
 	if err != nil {
 		return agentInstanceRow{}, err
 	}
+	var sourceCheckpointID, parentHistoryID *uuid.UUID
+	var parentHistorySequence *int64
+	if source != nil {
+		sourceCheckpointID = &source.ID
+		parentHistoryID = &source.SourceHistoryID
+		parentHistorySequence = &source.HistorySequence
+	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id, source_checkpoint_id) VALUES ($1, $2, $3, $4)
-	`, historyID, instance.Creator, instance.ContextId, sourceCheckpointID); err != nil {
+		INSERT INTO a2a_context (id, user_id, context_id, parent_history_id, parent_history_sequence)
+		VALUES ($1, $2, $3, $4, $5)
+	`, historyID, instance.Creator, instance.ContextId, parentHistoryID, parentHistorySequence); err != nil {
 		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
 	}
 	return queryOne(ctx, db, `

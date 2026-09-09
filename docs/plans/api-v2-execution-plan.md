@@ -444,7 +444,7 @@ Implement `ForkAgentInstance`:
 - Create a new Actor identity from the checkpoint's retained snapshot tag.
 - Create a new AgentInstance, A2A authority, and creator ownership.
 - Keep source instance, history, and snapshots immutable.
-- Represent inherited history through copy-on-write projections: deterministic fork-local Task IDs and the new context ID reference immutable source payloads and lineage without duplicating content.
+- Copy events through the checkpoint cutoff and rebuild private task projections, preserving wire context and task IDs for paused-runtime continuity. Record ancestry with a direct parent history and cutoff; sharing event storage is a separate future optimization.
 - New Tasks append only to the fork.
 - Return ready only after the cloned Actor resumes and passes health.
 
