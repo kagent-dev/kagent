@@ -118,8 +118,17 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
     // The dialog animates out, and a click while it is still there lands on its mask.
     await expect(page.locator(".ant-modal:visible")).toHaveCount(0);
     await page.locator(sibling).click({ force: true });
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: "Delete chat" }).click();
+    /*
+     * Waited for, not slept through.
+     *
+     * A fixed pause is long enough on an idle machine and not on a loaded one, so this
+     * step failed about a third of the time under a full parallel run — reaching for a
+     * menu item whose dropdown had not opened yet. Playwright already waits for the
+     * item to stop animating before it clicks; the only thing missing was waiting for
+     * it to be there at all, which step 1 above does and this did not.
+     */
+    await expect(item).toBeVisible();
+    await item.click();
     await page.locator(".ant-modal:visible").getByRole("button", { name: "Delete" }).click();
     await expect(rows).toHaveCount(before - 1, { timeout: 20_000 });
     await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
@@ -509,8 +518,9 @@ test("agent rail: several conversations can be picked and deleted together", asy
     await rows.nth(1).hover();
     await boxes.nth(1).click();
     await page.getByTestId("chat-bulk-menu").click();
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: /Delete all selected/ }).click();
+    const deleteSelected = page.getByRole("menuitem", { name: /Delete all selected/ });
+    await expect(deleteSelected).toBeVisible();
+    await deleteSelected.click();
 
     const confirm = page.getByTestId("chat-bulk-confirm");
     // One question for the set, naming how many — not one per conversation, which is
@@ -580,10 +590,9 @@ test("agent rail: a conversation can be renamed from inside it, two ways", async
     await page.locator(`[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`).click({
       force: true,
     });
-    // The dropdown animates in, and a click landing mid-transition is refused as
-    // unstable rather than missing the element.
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: "Rename chat" }).click();
+    const rename = page.getByRole("menuitem", { name: "Rename chat" });
+    await expect(rename).toBeVisible();
+    await rename.click();
 
     const field = page.getByTestId("conversation-rename-input").locator("input");
     // Empty for an unnamed conversation rather than pre-filled with the placeholder,
