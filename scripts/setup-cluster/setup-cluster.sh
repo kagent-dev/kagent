@@ -58,8 +58,10 @@ actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpat
   | openssl x509 -inform der -outform pem)"
 kubectl create secret generic actor-id-ca-certs -n ate-system \
   --from-literal=ca.crt="${actor_id_ca_root}" --dry-run=client -o yaml | kubectl apply -f -
+
+k8s_issuer="$(kubectl get --raw /.well-known/openid-configuration | jq -r '.issuer')"
 kubectl create configmap ate-api-authentication -n ate-system \
-  --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n' \
+  --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: '"${k8s_issuer}"$'\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n' \
   --dry-run=client -o yaml | kubectl apply -f -
 
 helm upgrade substrate "oci://ghcr.io/kagent-dev/substrate/helm/substrate" \

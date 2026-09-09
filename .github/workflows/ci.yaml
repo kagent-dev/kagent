@@ -101,7 +101,8 @@ jobs:
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
           actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
           kubectl create secret generic actor-id-ca-certs -n ate-system --from-literal=ca.crt="${actor_id_ca_root}"
-          kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
+          k8s_issuer="$(kubectl get --raw /.well-known/openid-configuration | jq -r '.issuer')"
+          kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: '"${k8s_issuer}"$'\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
           helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values --wait --timeout 5m
 
       - name: Install Kagent
