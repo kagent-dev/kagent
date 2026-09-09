@@ -78,14 +78,14 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	})
 
 	collections := Collections{
-		AgentTemplates:   krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-		Harnesses:        krttest.GetMockCollection[*kagentv1alpha3.Harness](mock),
-		ModelConfigs:     modelConfigs,
-		RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
-		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
-		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
-		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		ActorTemplates:   krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...),
+		AgentTemplates:          krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+		Harnesses:               krttest.GetMockCollection[*kagentv1alpha3.Harness](mock),
+		ModelConfigs:            modelConfigs,
+		RemoteMCPServers:        krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
+		ConfigMaps:              krttest.GetMockCollection[*corev1.ConfigMap](mock),
+		Secrets:                 krttest.GetMockCollection[*corev1.Secret](mock),
+		WorkerPools:             krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+		PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
 	}
 	collections.ModelConfigStatuses, collections.ResolvedModelConfigs = newModelConfigReconciliations(collections.ModelConfigs, collections.ConfigMaps, collections.Secrets, opts)
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
@@ -94,7 +94,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 			AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 			RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 			Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-		}, collections.ActorTemplates, opts,
+		}, collections.PairRuntimeObservations, opts,
 	)
 	collections.AgentTemplateStatuses = newAgentTemplateStatuses(collections.AgentTemplates, collections.Reconciliations, opts)
 

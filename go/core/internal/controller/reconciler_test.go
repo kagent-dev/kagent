@@ -60,9 +60,9 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
 	reconciler := &Reconciler{
 		collections: Collections{
-			AgentTemplates:  krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-			ActorTemplates:  krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...),
-			Reconciliations: reconciliations, AgentTemplateStatuses: statuses,
+			AgentTemplates:          krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+			PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
+			Reconciliations:         reconciliations, AgentTemplateStatuses: statuses,
 		},
 		templates: templates, store: store, status: statusClient,
 	}
@@ -88,7 +88,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	writeErr := errors.New("database unavailable")
 	store.revisionErr = writeErr
 	require.ErrorIs(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), writeErr)
-	pending := reconciler.collections.ActorTemplates.GetKey(state.ResourceName())
+	pending := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
 	require.NotNil(t, pending)
 	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot(),
 		"Ready must not be published before the database write succeeds")
@@ -100,7 +100,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 		t.Fatal("ready revision was not stored and marked successful")
 	}
 	require.Empty(t, store.retired, "active pairs must be replaced atomically by the store")
-	observed := reconciler.collections.ActorTemplates.GetKey(state.ResourceName())
+	observed := reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName())
 	require.NotNil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot())
 
 	if err := reconciler.reconcileAgentTemplateStatus(context.Background(), "team-a/assistant"); err != nil {
@@ -121,14 +121,14 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	templates.template = nil
 	reconciliations.UpdateObject(state)
 	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
-	require.Equal(t, state.RevisionID, reconciler.collections.ActorTemplates.GetKey(state.ResourceName()).RevisionID, "a new revision must replace the previous observation without waiting for GC")
-	require.Len(t, reconciler.collections.ActorTemplates.List(), 1)
+	require.Equal(t, state.RevisionID, reconciler.collections.PairRuntimeObservations.GetKey(state.ResourceName()).RevisionID, "a new revision must replace the previous observation without waiting for GC")
+	require.Len(t, reconciler.collections.PairRuntimeObservations.List(), 1)
 
 	reconciliations.DeleteObject(state.ResourceName())
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
-	require.Empty(t, reconciler.collections.ActorTemplates.List(), "pair retirement must release its observation without waiting for GC")
+	require.Empty(t, reconciler.collections.PairRuntimeObservations.List(), "pair retirement must release its observation without waiting for GC")
 	if store.retired != state.ResourceName() {
 		t.Fatalf("retired pair = %q, want %q", store.retired, state.ResourceName())
 	}
@@ -160,8 +160,8 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			templates := &fakeActorTemplates{}
 			reconciler := &Reconciler{
 				collections: Collections{
-					ActorTemplates:  krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...),
-					Reconciliations: states,
+					PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
+					Reconciliations:         states,
 				},
 				templates: templates, store: store,
 			}
@@ -191,7 +191,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			state.Revision = nil
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()))
-			require.Empty(t, reconciler.collections.ActorTemplates.List(), "invalid preparation must release its observation before GC")
+			require.Empty(t, reconciler.collections.PairRuntimeObservations.List(), "invalid preparation must release its observation before GC")
 			request := &apiv1alpha1.AgentInstance{
 				Id: uuid.NewString(), Creator: "alice",
 				AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
@@ -232,7 +232,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)
 			restarted.sweep(ctx)
 			require.Nil(t, templates.template)
-			require.Empty(t, reconciler.collections.ActorTemplates.List())
+			require.Empty(t, reconciler.collections.PairRuntimeObservations.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())
 			require.ErrorIs(t, err, database.ErrNotFound)
 			restarted.sweep(ctx)

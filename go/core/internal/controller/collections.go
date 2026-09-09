@@ -17,19 +17,19 @@ import (
 // Collections contains the Kubernetes inputs used to resolve an AgentTemplate
 // and the template/harness pairs derived from Harness admission selectors.
 type Collections struct {
-	AgentTemplates        krt.Collection[*kagentv1alpha3.AgentTemplate]
-	Harnesses             krt.Collection[*kagentv1alpha3.Harness]
-	ModelConfigs          krt.Collection[*kagentv1alpha3.ModelConfig]
-	RemoteMCPServers      krt.Collection[*kagentv1alpha3.RemoteMCPServer]
-	ConfigMaps            krt.Collection[*corev1.ConfigMap]
-	Secrets               krt.Collection[*corev1.Secret]
-	WorkerPools           krt.Collection[*atev1alpha1.WorkerPool]
-	ActorTemplates        krt.StaticCollection[PairRuntimeObservation]
-	Pairs                 krt.Collection[AgentTemplateHarnessPair]
-	Reconciliations       krt.Collection[PairReconciliation]
-	ModelConfigStatuses   krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
-	ResolvedModelConfigs  krt.Collection[v2translator.ResolvedModelConfig]
-	AgentTemplateStatuses krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
+	AgentTemplates          krt.Collection[*kagentv1alpha3.AgentTemplate]
+	Harnesses               krt.Collection[*kagentv1alpha3.Harness]
+	ModelConfigs            krt.Collection[*kagentv1alpha3.ModelConfig]
+	RemoteMCPServers        krt.Collection[*kagentv1alpha3.RemoteMCPServer]
+	ConfigMaps              krt.Collection[*corev1.ConfigMap]
+	Secrets                 krt.Collection[*corev1.Secret]
+	WorkerPools             krt.Collection[*atev1alpha1.WorkerPool]
+	PairRuntimeObservations krt.StaticCollection[PairRuntimeObservation]
+	Pairs                   krt.Collection[AgentTemplateHarnessPair]
+	Reconciliations         krt.Collection[PairReconciliation]
+	ModelConfigStatuses     krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
+	ResolvedModelConfigs    krt.Collection[v2translator.ResolvedModelConfig]
+	AgentTemplateStatuses   krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
 }
 
 // PairRuntimeObservation records a pair's preparation. The revision prevents a
@@ -67,30 +67,30 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
-	actorTemplates := krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("ActorTemplates")...)
+	pairRuntimeObservations := krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...)
 	pairs := newPairCollection(agentTemplates, harnesses, opts)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := v2translator.Collections{
 		AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
-	reconciliations := newPairReconciliations(pairs, compilerCollections, actorTemplates, opts)
+	reconciliations := newPairReconciliations(pairs, compilerCollections, pairRuntimeObservations, opts)
 	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
 
 	return Collections{
-		AgentTemplates:        agentTemplates,
-		Harnesses:             harnesses,
-		ModelConfigs:          modelConfigs,
-		RemoteMCPServers:      remoteMCPServers,
-		ConfigMaps:            configMaps,
-		Secrets:               secrets,
-		WorkerPools:           workerPools,
-		ActorTemplates:        actorTemplates,
-		Pairs:                 pairs,
-		Reconciliations:       reconciliations,
-		ModelConfigStatuses:   modelConfigStatuses,
-		ResolvedModelConfigs:  resolvedModelConfigs,
-		AgentTemplateStatuses: statuses,
+		AgentTemplates:          agentTemplates,
+		Harnesses:               harnesses,
+		ModelConfigs:            modelConfigs,
+		RemoteMCPServers:        remoteMCPServers,
+		ConfigMaps:              configMaps,
+		Secrets:                 secrets,
+		WorkerPools:             workerPools,
+		PairRuntimeObservations: pairRuntimeObservations,
+		Pairs:                   pairs,
+		Reconciliations:         reconciliations,
+		ModelConfigStatuses:     modelConfigStatuses,
+		ResolvedModelConfigs:    resolvedModelConfigs,
+		AgentTemplateStatuses:   statuses,
 	}
 }
 

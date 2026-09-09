@@ -54,7 +54,7 @@ type ReconciliationFailure struct {
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
 	collections v2translator.Collections,
-	actorTemplates krt.Collection[PairRuntimeObservation],
+	pairRuntimeObservations krt.Collection[PairRuntimeObservation],
 	opts krt.OptionsBuilder,
 ) krt.Collection[PairReconciliation] {
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
@@ -94,7 +94,7 @@ func newPairReconciliations(
 			return state
 		}
 
-		observed := krt.FetchOne(ctx, actorTemplates, krt.FilterKey(pair.ResourceName()))
+		observed := krt.FetchOne(ctx, pairRuntimeObservations, krt.FilterKey(pair.ResourceName()))
 		if observed == nil || observed.RevisionID != state.RevisionID {
 			return state
 		}
@@ -247,9 +247,9 @@ func (r *Reconciler) NeedLeaderElection() bool { return true }
 
 func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	state := r.collections.Reconciliations.GetKey(key)
-	if observation := r.collections.ActorTemplates.GetKey(key); observation != nil &&
+	if observation := r.collections.PairRuntimeObservations.GetKey(key); observation != nil &&
 		(state == nil || state.Revision == nil || observation.RevisionID != state.RevisionID) {
-		r.collections.ActorTemplates.DeleteObject(key)
+		r.collections.PairRuntimeObservations.DeleteObject(key)
 	}
 	if state == nil {
 		parts := strings.Split(key, "/")
@@ -281,7 +281,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 			// A desired digest may be awaiting cleanup from an earlier identity.
 			// Clearing the observation makes KRT derive a pending pair, which
 			// the pending-template poll retries until GC finishes.
-			r.collections.ActorTemplates.DeleteObject(key)
+			r.collections.PairRuntimeObservations.DeleteObject(key)
 			return nil
 		}
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
@@ -328,7 +328,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 // Observations belong to the pair's current preparation, independently of how
 // long instances or checkpoints keep its old runtime alive in the database.
 func (r *Reconciler) observeActorTemplate(state PairReconciliation, template *ateapipb.ActorTemplate) {
-	r.collections.ActorTemplates.ConditionalUpdateObject(PairRuntimeObservation{
+	r.collections.PairRuntimeObservations.ConditionalUpdateObject(PairRuntimeObservation{
 		AgentTemplateName: state.Pair.AgentTemplate.Name,
 		HarnessName:       state.Pair.Harness.Name,
 		RevisionID:        state.RevisionID,
