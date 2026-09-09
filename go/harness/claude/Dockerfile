@@ -27,7 +27,7 @@ ARG TARGETARCH
 ARG VERSION
 
 ENV USE_BUILTIN_RIPGREP=0
-RUN apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
+RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
     && case "${TARGETARCH}" in \
         amd64) platform="linux-x64-musl"; checksum="${CLAUDE_CODE_AMD64_SHA256}" ;; \
         arm64) platform="linux-arm64-musl"; checksum="${CLAUDE_CODE_ARM64_SHA256}" ;; \
