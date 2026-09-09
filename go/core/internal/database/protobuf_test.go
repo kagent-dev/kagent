@@ -9,7 +9,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -80,28 +79,10 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 			require.NoError(t, err)
 			data, err := proto.Marshal(original)
 			require.NoError(t, err)
-			_, err = queryOne(ctx, q, `
-				INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
-				VALUES ($1, $2, $3, $4, $5)
-				ON CONFLICT (history_id, id) DO UPDATE SET
-				    state = EXCLUDED.state,
-				    status_timestamp = EXCLUDED.status_timestamp,
-				    data = EXCLUDED.data,
-				    updated_at = NOW()
-				RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
-			`,
-				pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id, string(a2a.TaskStateWorking), nil,
-				data,
-			)
+			_, err = saveTaskProjection(ctx, q, contextID, original.Id, string(a2a.TaskStateWorking), nil, data)
 			require.NoError(t, err)
 			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, next, test.event, nil))
-			row, err := queryOne(ctx, q, `
-				SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-				    agent_instance_task
-				WHERE history_id = $1 AND id = $2
-			`, pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id)
+			row, err := readAgentInstanceTask(ctx, q, contextID, original.Id)
 			require.NoError(t, err)
 			require.Equal(t, string(next.Status.State), row.State)
 			got := &a2apb.Task{}
@@ -125,29 +106,12 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	}
 	data, err := proto.Marshal(original)
 	require.NoError(t, err)
-	_, err = queryOne(ctx, q, `
-		INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (history_id, id) DO UPDATE SET
-		    state = EXCLUDED.state,
-		    status_timestamp = EXCLUDED.status_timestamp,
-		    data = EXCLUDED.data,
-		    updated_at = NOW()
-		RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
-	`,
-		pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id, string(a2a.TaskStateWorking), nil, data,
-	)
+	_, err = saveTaskProjection(ctx, q, contextID, original.Id, string(a2a.TaskStateWorking), nil, data)
 	require.NoError(t, err)
 	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, original.Id)
 	require.NoError(t, err)
 	require.True(t, interrupted)
-	row, err := queryOne(ctx, q, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-		    agent_instance_task
-		WHERE history_id = $1 AND id = $2
-	`, pgx.RowToStructByName[agentInstanceTaskRow], contextID, original.Id)
+	row, err := readAgentInstanceTask(ctx, q, contextID, original.Id)
 	require.NoError(t, err)
 	got := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(row.Data, got))
@@ -188,17 +152,13 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	_, err = client.UpdateAgentInstanceName(ctx, instance.Id, "alice", "renamed again")
 	require.NoError(t, err)
 	stale.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
-	stale.Creator, stale.PreparedRevision, stale.Labels = "mallory", "invalid", map[string]string{"invalid": "value"}
+	stale.Creator, stale.PreparedRevision = "mallory", "invalid"
 	instance, err = client.TransitionAgentInstance(ctx, stale, instance.State, instance.Operation)
 	require.NoError(t, err)
 	require.Equal(t, "renamed again", instance.Name)
 	require.Equal(t, "alice", instance.Creator)
 	require.Equal(t, "revision", instance.PreparedRevision)
-	require.Empty(t, instance.Labels)
-	row, err := queryOne(ctx, q, `
-		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
-		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
-	`, pgx.RowToStructByName[agentInstanceRow], uuid.MustParse(instance.Id))
+	row, err := readAgentInstance(ctx, q, instance.Id)
 	require.NoError(t, err)
 	stored := &apiv1alpha1.AgentInstance{}
 	require.NoError(t, proto.Unmarshal(row.Data, stored))
@@ -215,12 +175,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	_, _, err = client.CreateAgentInstanceTask(ctx, instance.Id, []byte("request hash"), task)
 	require.NoError(t, err)
 	// Simulate a newer writer using the same binary SQL boundary.
-	taskRow, err := queryOne(ctx, q, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-		    agent_instance_task
-		WHERE history_id = $1 AND id = $2
-	`, pgx.RowToStructByName[agentInstanceTaskRow], row.HistoryID, string(task.ID))
+	taskRow, err := readAgentInstanceTask(ctx, q, row.HistoryID, string(task.ID))
 	require.NoError(t, err)
 	futureTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(taskRow.Data, futureTask))
@@ -232,20 +187,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	addUnknown(futureTask.Status.Message.Parts[0])
 	futureData, err := proto.Marshal(futureTask)
 	require.NoError(t, err)
-	_, err = queryOne(ctx, q, `
-		INSERT INTO agent_instance_task (history_id, id, state, status_timestamp, data)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (history_id, id) DO UPDATE SET
-		    state = EXCLUDED.state,
-		    status_timestamp = EXCLUDED.status_timestamp,
-		    data = EXCLUDED.data,
-		    updated_at = NOW()
-		RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
-	`,
-		pgx.RowToStructByName[agentInstanceTaskRow], taskRow.HistoryID, taskRow.ID, taskRow.State,
-		taskRow.StatusTimestamp, futureData,
-	)
+	_, err = saveTaskProjection(ctx, q, taskRow.HistoryID, taskRow.ID, taskRow.State, taskRow.StatusTimestamp, futureData)
 	require.NoError(t, err)
 	futureEvent, err := proto.Marshal(&a2apb.StreamResponse{Payload: &a2apb.StreamResponse_Task{Task: futureTask}})
 	require.NoError(t, err)
@@ -263,16 +205,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag-uid", "s3://tags/checkpoint", "")
 	require.NoError(t, err)
-	checkpointRow, err := queryOne(ctx, q, `
-		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_labels, source_name FROM agent_instance_checkpoint
-		WHERE id = $1 AND user_id = $2
-		  -- Lifecycle work also reads creating and deleting checkpoints.
-		  AND ($3::text IS NULL OR state = $3)
-	`,
-		pgx.RowToStructByName[agentInstanceCheckpointRow], uuid.MustParse(checkpoint.Id), "alice", new("READY"),
-	)
+	checkpointRow, err := readCheckpoint(ctx, q, checkpoint.Id, "alice", new("READY"))
 	require.NoError(t, err)
 	storedCheckpoint := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, storedCheckpoint))
@@ -289,26 +222,14 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Len(t, tasks[0].History, 2)
 	forkHistoryID, err := client.agentInstanceHistoryID(ctx, fork.Id)
 	require.NoError(t, err)
-	forkHistory, err := queryMany(ctx, q, `
-		SELECT task_id, data
-		FROM agent_instance_task_event
-		WHERE history_id = $1
-		  AND task_id = ANY($2::text[])
-		  AND message_id IS NOT NULL
-		ORDER BY sequence
-	`, pgx.RowToStructByName[taskHistoryRow], forkHistoryID, []string{string(tasks[0].ID)})
+	forkHistory, err := readTaskMessages(ctx, q, forkHistoryID, []string{string(tasks[0].ID)})
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
 	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
 	require.Equal(t, task.ID, tasks[0].ID)
-	forkTaskRow, err := queryOne(ctx, q, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-		    agent_instance_task
-		WHERE history_id = $1 AND id = $2
-	`, pgx.RowToStructByName[agentInstanceTaskRow], forkHistoryID, string(tasks[0].ID))
+	forkTaskRow, err := readAgentInstanceTask(ctx, q, forkHistoryID, string(tasks[0].ID))
 	require.NoError(t, err)
 	forkTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(forkTaskRow.Data, forkTask))
@@ -318,14 +239,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, client.DeleteAgentInstance(ctx, fork.Id))
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
-	checkpointRow, err = queryOne(ctx, q, `
-		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_labels, source_name FROM agent_instance_checkpoint
-		WHERE id = $1 AND user_id = $2
-		  -- Lifecycle work also reads creating and deleting checkpoints.
-		  AND ($3::text IS NULL OR state = $3)
-	`, pgx.RowToStructByName[agentInstanceCheckpointRow], uuid.MustParse(checkpoint.Id), "alice", nil)
+	checkpointRow, err = readCheckpoint(ctx, q, checkpoint.Id, "alice", nil)
 	require.NoError(t, err)
 	deleting := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, deleting))

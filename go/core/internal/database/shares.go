@@ -43,8 +43,8 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, instance_id, permission, token_hash, data
 	`,
-		pgx.RowToStructByNameLax[agentInstanceShareRow], uuid.MustParse(value.Id),
-		uuid.MustParse(value.AgentInstanceId),
+		pgx.RowToStructByNameLax[agentInstanceShareRow], value.Id,
+		value.AgentInstanceId,
 		strings.TrimPrefix(value.Permission.String(), "AGENT_INSTANCE_SHARE_PERMISSION_"), tokenHash, data,
 	)
 	if err != nil {
@@ -84,7 +84,7 @@ func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID
 		ORDER BY s.id
 		LIMIT $4
 	`,
-		pgx.RowToStructByNameLax[agentInstanceShareRow], uuid.MustParse(instanceID), userID, afterID, int32(limit),
+		pgx.RowToStructByNameLax[agentInstanceShareRow], instanceID, userID, afterID, int32(limit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance shares: %w", err)
@@ -108,7 +108,7 @@ func (c *Client) DeleteAgentInstanceShare(ctx context.Context, id, userID string
 		USING agent_instance i
 		WHERE s.id = $1
 		  AND i.id = s.instance_id AND i.user_id = $2
-	`, uuid.MustParse(id), userID)
+	`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance share %s: %w", id, err)
 	}

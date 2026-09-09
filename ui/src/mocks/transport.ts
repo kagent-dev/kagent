@@ -624,7 +624,6 @@ function agentInstanceMessage(
       : undefined,
     createdAt: stamp(row.createdAt),
     updatedAt: stamp(row.updatedAt),
-    labels: row.labels,
   };
 }
 
@@ -827,9 +826,7 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
       return false;
     }
     if (harnessFilter && row.harness !== harnessFilter) return false;
-    return Object.entries(input.matchLabels ?? {}).every(
-      ([key, value]) => row.labels[key] === value,
-    );
+    return true;
   });
 
   // The token is the id to resume after — opaque to the client, which only ever
@@ -916,7 +913,6 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     operation: "unspecified" as const,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    labels: {},
   };
   saveAgentInstance(created);
   return { agentInstance: agentInstanceMessage(created) };

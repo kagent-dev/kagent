@@ -223,10 +223,3 @@ export function conversationTitle(
 export function hasConversationName(instance: AgentInstance): boolean {
   return instance.name.trim() !== "";
 }
-
-/** Labels as `key=value`, sorted, so the same set always reads the same way. */
-export function labelPairs(instance: AgentInstance): string[] {
-  return Object.entries(instance.labels)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`);
-}

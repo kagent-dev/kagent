@@ -169,10 +169,7 @@ test("agent templates: a row opens a page that reads, with editing behind a butt
     // "which harnesses run this" and "is anything using this" are different questions,
     // and only the second one stops a reader deleting something in use.
     //
-    // This was a seam until `ListAgentInstances` gained `agent_template`/`harness`
-    // filters. It could not be closed with `match_labels`, even though instances do
-    // carry labels: admission labels are shared by construction, so filtering on one
-    // returns every template that harness admits.
+    // ListAgentInstances filters by the exact agent_template/harness pair.
     await expect(page.getByTestId("template-pair-conversations").first()).toContainText(
       /\d+ conversations?/,
     );

@@ -593,9 +593,6 @@ function toAgentInstance(instance: PbAgentInstance): AgentInstance {
       : undefined,
     createdAt: isoFrom(instance.createdAt),
     updatedAt: isoFrom(instance.updatedAt),
-    // `map<string, string>` is never absent in the generated type, but a
-    // hand-written fake can still omit it.
-    labels: instance.labels ?? {},
   };
 }
 

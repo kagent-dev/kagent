@@ -40,12 +40,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, rows)
 		for _, rebuilt := range rows {
-			stored, err := queryOne(ctx, q, `
-				SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-				    agent_instance_task
-				WHERE history_id = $1 AND id = $2
-			`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, rebuilt.ID)
+			stored, err := readAgentInstanceTask(ctx, q, historyID, rebuilt.ID)
 			require.NoError(t, err)
 			want, got := &a2apb.Task{}, &a2apb.Task{}
 			require.NoError(t, proto.Unmarshal(stored.Data, want))
@@ -91,16 +86,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
 	require.NoError(t, err)
-	boundaryEvents, err := queryMany(ctx, q, `
-		SELECT e.sequence, e.history_id, e.task_id, e.data, e.created_at, e.message_id, e.task_position,
-		    e.initial_message_id, e.request_hash, e.snapshot_atespace, e.snapshot_uri, e.snapshot_content_scope
-		FROM agent_instance_checkpoint c
-		JOIN agent_instance_task_event e
-		  ON e.history_id = c.source_history_id
-		 AND e.sequence <= c.history_sequence
-		WHERE c.id = $1
-		ORDER BY e.sequence
-	`, pgx.RowToStructByName[agentInstanceTaskEventRow], uuid.MustParse(checkpoint.Id))
+	boundaryEvents, err := readCheckpointEvents(ctx, q, uuid.MustParse(checkpoint.Id))
 	require.NoError(t, err)
 	before, err := client.GetAgentInstanceTask(ctx, instance.Id, "task")
 	require.NoError(t, err)
@@ -133,17 +119,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.Equal(t, before, forked)
 	for _, row := range rows {
 		row.HistoryID = historyID
-		require.NoError(t, execSQL(ctx, q, `
-			INSERT INTO agent_instance_task (
-			    history_id, id, state, status_timestamp, data, created_at, updated_at,
-			    initial_message_id, request_hash, snapshot_atespace, snapshot_uri,
-			    snapshot_content_scope, history_sequence, position
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		`,
-			row.HistoryID, row.ID, row.State, row.StatusTimestamp, row.Data, row.CreatedAt, row.UpdatedAt,
-			row.InitialMessageID, row.RequestHash, row.SnapshotAtespace, row.SnapshotURI, row.SnapshotContentScope,
-			row.HistorySequence, row.Position,
-		))
+		require.NoError(t, insertReplayedTask(ctx, q, row))
 	}
 	assertReplay()
 	retry := newAgentInstanceTask("ignored", "initial-message")

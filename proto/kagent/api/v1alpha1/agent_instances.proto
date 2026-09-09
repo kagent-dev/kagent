@@ -64,7 +64,8 @@ message AgentInstance {
   Failure failure = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
-  map<string, string> labels = 12;
+  reserved 12;
+  reserved "labels";
   // Reader-supplied display name for the conversation. Empty means unnamed,
   // which is the state every instance created before this field existed is in.
   string name = 13;
@@ -97,7 +98,7 @@ message CreateAgentInstanceResponse {
 }
 
 message GetAgentInstanceRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message GetAgentInstanceResponse {
@@ -105,7 +106,8 @@ message GetAgentInstanceResponse {
 }
 
 message ListAgentInstancesRequest {
-  map<string, string> match_labels = 1;
+  reserved 1;
+  reserved "match_labels";
   // Includes instances created by other users when authorized.
   bool all_creators = 2;
   PageRequest page = 3;
@@ -137,7 +139,7 @@ message UpdateAgentInstanceNameResponse {
 }
 
 message SuspendAgentInstanceRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message SuspendAgentInstanceResponse {
@@ -145,7 +147,7 @@ message SuspendAgentInstanceResponse {
 }
 
 message ResumeAgentInstanceRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message ResumeAgentInstanceResponse {
@@ -153,7 +155,7 @@ message ResumeAgentInstanceResponse {
 }
 
 message DeleteAgentInstanceRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message DeleteAgentInstanceResponse {
@@ -168,7 +170,7 @@ message AgentInstanceShare {
 }
 
 message CreateAgentInstanceShareRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   AgentInstanceSharePermission permission = 2 [(buf.validate.field).enum = {
     defined_only: true
     not_in: 0
@@ -182,7 +184,7 @@ message CreateAgentInstanceShareResponse {
 }
 
 message ListAgentInstanceSharesRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   PageRequest page = 2;
 }
 
@@ -192,7 +194,7 @@ message ListAgentInstanceSharesResponse {
 }
 
 message RevokeAgentInstanceShareRequest {
-  string share_id = 1 [(buf.validate.field).string.min_len = 1];
+  string share_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message RevokeAgentInstanceShareResponse {}

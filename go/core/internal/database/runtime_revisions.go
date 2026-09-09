@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,32 +10,24 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// UpsertAgentTemplateHarnessPair records the desired runtime revision and current labels
-// for a template/harness identity. Updating an existing pair revives it if retired and
+// UpsertAgentTemplateHarnessPair records the desired runtime revision for a
+// template/harness identity. Updating an existing pair revives it if retired and
 // preserves its latest successful revision.
 func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentTemplateHarnessPair) error {
-	if pair.AgentTemplateLabels == nil {
-		pair.AgentTemplateLabels = map[string]string{}
-	}
-	labels, err := json.Marshal(pair.AgentTemplateLabels)
-	if err != nil {
-		return fmt.Errorf("marshal AgentTemplate labels: %w", err)
-	}
 	return execSQL(ctx, c.db, `
 		INSERT INTO agent_template_harness_pair (
 		    namespace, agent_template_name, agent_template_uid,
-		    harness_name, harness_uid, desired_revision, agent_template_labels, retired_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+		    harness_name, harness_uid, desired_revision, retired_at
+		) VALUES ($1, $2, $3, $4, $5, $6, NULL)
 		ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
 		    agent_template_name = EXCLUDED.agent_template_name,
 		    harness_name = EXCLUDED.harness_name,
 		    desired_revision = EXCLUDED.desired_revision,
-		    agent_template_labels = EXCLUDED.agent_template_labels,
 		    retired_at = NULL,
 		    updated_at = NOW()
 	`,
 		pair.Namespace, pair.AgentTemplateName, pair.AgentTemplateUID, pair.HarnessName, pair.HarnessUID,
-		pair.DesiredRevision, labels,
+		pair.DesiredRevision,
 	)
 }
 
@@ -208,8 +199,7 @@ func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision
 
 type instanceRuntimeRevisionRow struct {
 	runtimeRevisionRow
-	AgentTemplateLabels []byte
-	DBTime              time.Time
+	DBTime time.Time
 }
 
 type runtimeRevisionRow struct {

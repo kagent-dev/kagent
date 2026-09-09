@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,7 +14,7 @@ import (
 )
 
 // toAgentInstance decodes an instance and uses indexed columns for its identity, owner,
-// labels, revision, and lifecycle. Malformed payloads or unknown lifecycle values return
+// revision, and lifecycle. Malformed payloads or unknown lifecycle values return
 // an error.
 func toAgentInstance(row agentInstanceRow) (*apiv1alpha1.AgentInstance, error) {
 	instance := &apiv1alpha1.AgentInstance{}
@@ -30,7 +29,7 @@ func toAgentInstance(row agentInstanceRow) (*apiv1alpha1.AgentInstance, error) {
 	if !ok {
 		return nil, fmt.Errorf("decode AgentInstance %s operation %q", row.ID, row.Operation)
 	}
-	// Columns own identity, authorization, revision retention, query labels and lifecycle.
+	// Columns own identity, authorization, revision retention and lifecycle.
 	// Store updates write the same values to the payload in the same transaction.
 	instance.State = apiv1alpha1.AgentInstanceState(state)
 	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
@@ -38,12 +37,6 @@ func toAgentInstance(row agentInstanceRow) (*apiv1alpha1.AgentInstance, error) {
 	instance.ContextId = row.ContextID.String()
 	instance.Creator = row.UserID
 	instance.PreparedRevision = derefStr(row.PreparedRevision)
-	instance.Labels = nil
-	if len(row.Labels) > 0 {
-		if err := json.Unmarshal(row.Labels, &instance.Labels); err != nil {
-			return nil, fmt.Errorf("decode AgentInstance labels: %w", err)
-		}
-	}
 	return instance, nil
 }
 
@@ -112,8 +105,7 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 	revision, err := queryOne(ctx, db, `
 		SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.harness_name, r.harness_uid,
 		    r.source_snapshot, r.egress_destinations, r.actor_template_atespace, r.actor_template_name,
-		    r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, p.agent_template_labels,
-		    clock_timestamp()::timestamptz AS db_time
+		    r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, clock_timestamp()::timestamptz AS db_time
 		FROM agent_template_harness_pair p
 		JOIN runtime_revision r ON r.revision = p.latest_successful_revision
 		WHERE p.namespace = $1
@@ -129,24 +121,19 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 	if err != nil {
 		return agentInstanceRow{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
 	}
-	labels := map[string]string{}
-	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
-		return agentInstanceRow{}, fmt.Errorf("decode AgentTemplate labels: %w", err)
-	}
 	instance := proto.CloneOf(request)
 	contextID, historyID := uuid.New(), uuid.New()
 	instance.ContextId = contextID.String()
 	instance.PreparedRevision = revision.Revision
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
 	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
-	instance.Labels = labels
 	instance.CreatedAt = timestamppb.New(revision.DBTime)
 	instance.UpdatedAt = timestamppb.New(revision.DBTime)
 	data, err := marshalAgentInstance(instance)
 	if err != nil {
 		return agentInstanceRow{}, err
 	}
-	instanceID := uuid.MustParse(request.GetId())
+	instanceID := request.GetId()
 
 	if err := execSQL(ctx, db, `
 		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3)
@@ -155,14 +142,14 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 	}
 	return queryOne(ctx, db, `
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,
-		    source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $9::uuid,
-		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $7, $8)
+		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $8::uuid,
+		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $7)
 		ON CONFLICT (user_id, request_id) DO NOTHING
-		RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+		RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id
 	`,
 		pgx.RowToStructByName[agentInstanceRow], instanceID, instance.Creator, requestID, contextID, historyID,
-		&revision.Revision, revision.AgentTemplateLabels, data, nil,
+		&revision.Revision, data, nil,
 	)
 }
 
@@ -173,10 +160,7 @@ func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alp
 	if err != nil {
 		return nil, fmt.Errorf("invalid AgentInstance ID: %w", err)
 	}
-	row, err := queryOne(ctx, c.db, `
-		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
-		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
-	`, pgx.RowToStructByName[agentInstanceRow], uid)
+	row, err := readAgentInstance(ctx, c.db, uid.String())
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
 	}
@@ -187,9 +171,9 @@ func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alp
 // and instances owned by another user return ErrNotFound.
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 AND user_id = $2
-	`, pgx.RowToStructByName[agentInstanceRow], uuid.MustParse(id), userID)
+	`, pgx.RowToStructByName[agentInstanceRow], id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
 	}
@@ -197,30 +181,21 @@ func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv
 }
 
 // ListAgentInstances returns up to Limit instances in ascending ID order after AfterID,
-// filtered by labels and optional template/harness references. It restricts results to
+// filtered by optional template/harness references. It restricts results to
 // UserID unless AllUsers is set; callers must authorize that broader access.
 func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
-	matchLabels := query.MatchLabels
-	if matchLabels == nil {
-		matchLabels = map[string]string{}
-	}
-	labels, err := json.Marshal(matchLabels)
-	if err != nil {
-		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
-	}
 	rows, err := queryMany(ctx, c.db, `
-		SELECT i.id, i.user_id, i.request_id, i.prepared_revision, i.state, i.labels, i.data, i.operation,
+		SELECT i.id, i.user_id, i.request_id, i.prepared_revision, i.state, i.data, i.operation,
 		    i.context_id, i.source_checkpoint_id, i.history_id FROM agent_instance i
 		LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 		WHERE ($1::boolean OR i.user_id = $2)
 		  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
-		  AND i.labels @> $4::jsonb
-		  AND ($5::text = '' OR (r.agent_template_name = $5 AND r.namespace = $6))
-		  AND ($7::text = '' OR (r.harness_name = $7 AND r.namespace = $8))
+		  AND ($4::text = '' OR (r.agent_template_name = $4 AND r.namespace = $5))
+		  AND ($6::text = '' OR (r.harness_name = $6 AND r.namespace = $7))
 		ORDER BY i.id
-		LIMIT $9
+		LIMIT $8
 	`,
-		pgx.RowToStructByName[agentInstanceRow], query.AllUsers, query.UserID, query.AfterID, labels,
+		pgx.RowToStructByName[agentInstanceRow], query.AllUsers, query.UserID, query.AfterID,
 		query.AgentTemplate.GetName(), query.AgentTemplate.GetNamespace(), query.Harness.GetName(),
 		query.Harness.GetNamespace(), int32(query.Limit),
 	)
@@ -243,7 +218,7 @@ func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuer
 func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockAgentInstance(ctx, tx, uuid.MustParse(id))
+		row, err := lockAgentInstance(ctx, tx, id)
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -264,7 +239,7 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 			UPDATE agent_instance
 			SET data = $1
 			WHERE id = $2 AND user_id = $3
-			RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+			RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 			    source_checkpoint_id, history_id
 		`, pgx.RowToStructByName[agentInstanceRow], data, row.ID, userID)
 		if err != nil {
@@ -286,7 +261,7 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockAgentInstance(ctx, tx, uuid.MustParse(id))
+		row, err := lockAgentInstance(ctx, tx, id)
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -307,7 +282,7 @@ func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority strin
 			UPDATE agent_instance
 			SET state = 'AGENT_INSTANCE_STATE_READY', operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED', data = $2
 			WHERE id = $1 AND state = 'AGENT_INSTANCE_STATE_CREATING' AND operation = 'AGENT_INSTANCE_OPERATION_CREATE'
-			RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+			RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 			    source_checkpoint_id, history_id
 		`, pgx.RowToStructByName[agentInstanceRow], row.ID, data)
 		return err
@@ -330,7 +305,7 @@ func (c *Client) TransitionAgentInstance(
 ) (*apiv1alpha1.AgentInstance, error) {
 	var result *apiv1alpha1.AgentInstance
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockAgentInstance(ctx, tx, uuid.MustParse(instance.GetId()))
+		row, err := lockAgentInstance(ctx, tx, instance.GetId())
 		if err != nil {
 			return notFoundOr(err)
 		}
@@ -365,7 +340,7 @@ func (c *Client) TransitionAgentInstance(
 			      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
 			    )
 			  )
-			RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+			RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 			    source_checkpoint_id, history_id
 		`,
 			pgx.RowToStructByName[agentInstanceRow], next.State.String(),
@@ -393,7 +368,7 @@ func (c *Client) TransitionAgentInstance(
 func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
 	if err := execSQL(ctx, c.db, `
 		DELETE FROM agent_instance WHERE id = $1
-	`, uuid.MustParse(id)); err != nil {
+	`, id); err != nil {
 		return fmt.Errorf("delete AgentInstance %s: %w", id, err)
 	}
 	return nil
@@ -412,7 +387,6 @@ type agentInstanceRow struct {
 	RequestID          string
 	PreparedRevision   *string
 	State              string
-	Labels             []byte
 	Data               []byte
 	Operation          string
 	ContextID          uuid.UUID
@@ -423,9 +397,9 @@ type agentInstanceRow struct {
 // lockAgentInstance returns an instance locked against concurrent updates until the
 // caller's transaction ends. It does not filter by owner and returns pgx.ErrNoRows if
 // absent.
-func lockAgentInstance(ctx context.Context, db pgx.Tx, id uuid.UUID) (agentInstanceRow, error) {
+func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
@@ -435,8 +409,17 @@ func lockAgentInstance(ctx context.Context, db pgx.Tx, id uuid.UUID) (agentInsta
 // idempotent retry.
 func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, requestID string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
+		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance
 		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], userID, requestID)
+}
+
+// readAgentInstance reads an instance without checking ownership or locking it. Missing
+// instances return pgx.ErrNoRows; callers authorize access.
+func readAgentInstance(ctx context.Context, db dbExecutor, id string) (agentInstanceRow, error) {
+	return queryOne(ctx, db, `
+		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
+	`, pgx.RowToStructByName[agentInstanceRow], id)
 }

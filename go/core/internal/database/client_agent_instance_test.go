@@ -15,6 +15,38 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	for _, test := range []struct {
+		name string
+		call func() error
+	}{
+		{"get instance", func() error { _, err := client.GetAgentInstance(ctx, "invalid", "alice"); return err }},
+		{"rename instance", func() error { _, err := client.UpdateAgentInstanceName(ctx, "invalid", "alice", "name"); return err }},
+		{"delete instance", func() error { return client.DeleteAgentInstance(ctx, "invalid") }},
+		{"get checkpoint", func() error { _, err := client.GetAgentInstanceCheckpoint(ctx, "invalid", "alice"); return err }},
+		{"reserve checkpoint", func() error {
+			_, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{AgentInstanceId: "invalid"}, "alice", "request")
+			return err
+		}},
+		{"fork", func() error {
+			_, _, err := client.ForkAgentInstance(ctx, "invalid", "alice", "request", uuid.NewString())
+			return err
+		}},
+		{"create share", func() error {
+			_, err := client.CreateAgentInstanceShare(ctx, &apiv1alpha1.AgentInstanceShare{Id: uuid.NewString(), AgentInstanceId: "invalid", Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY}, []byte("token"))
+			return err
+		}},
+		{"create task", func() error {
+			_, _, err := client.CreateAgentInstanceTask(ctx, "invalid", []byte("hash"), newAgentInstanceTask("task", "message"))
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) { require.Error(t, test.call()) })
+	}
+}
+
 func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
 		Id: "11111111-1111-4111-8111-111111111111", Name: "Renamed later",
@@ -383,7 +415,6 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	pair := AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
-		AgentTemplateLabels: map[string]string{"app": "assistant"},
 	}
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
@@ -454,8 +485,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
 		fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING ||
-		fork.GetHarness().GetName() != "kagent" || fork.GetAgentTemplate().GetName() != "assistant" ||
-		fork.GetLabels()["app"] != "assistant" {
+		fork.GetHarness().GetName() != "kagent" || fork.GetAgentTemplate().GetName() != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
 	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{
@@ -567,9 +597,6 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	}
 	if replayed.GetId() != created.GetId() || replayed.GetPreparedRevision() != revision.Revision {
 		t.Fatalf("replayed instance = %+v, want id %q revision %q", replayed, created.GetId(), revision.Revision)
-	}
-	if len(replayed.GetLabels()) != 0 {
-		t.Fatalf("labels = %v", replayed.GetLabels())
 	}
 	instances, err := client.ListAgentInstances(ctx, AgentInstanceQuery{
 		UserID: "alice", Limit: 10,
@@ -809,9 +836,7 @@ func TestAgentInstanceNameRoundTripsAndRenames(t *testing.T) {
 
 // TestListAgentInstancesFiltersByAgentPair covers the server-side filter behind
 // "this agent's conversations". The pair is resolved through the instance's
-// prepared revision rather than its labels, because the labels an instance
-// carries are the *template's* own Kubernetes labels and are identical for two
-// harnesses admitting one template.
+// prepared revision, distinguishing harnesses that admit the same template.
 func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := context.Background()
@@ -845,8 +870,6 @@ func TestListAgentInstancesFiltersByAgentPair(t *testing.T) {
 			want:  []string{"11111111-1111-4111-8111-111111111111"},
 		},
 		{
-			// The case labels could never serve: one template, two harnesses, two
-			// agents, and identical labels on both instances.
 			name:  "the same template on a different harness is a different agent",
 			query: AgentInstanceQuery{AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, Harness: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "claude"}},
 			want:  []string{"22222222-2222-4222-8222-222222222222"},

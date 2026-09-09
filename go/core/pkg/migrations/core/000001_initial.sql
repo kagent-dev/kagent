@@ -57,7 +57,6 @@ CREATE TABLE agent_template_harness_pair (
     retired_at                   TIMESTAMPTZ,
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    agent_template_labels        JSONB       NOT NULL DEFAULT '{}',
     PRIMARY KEY (namespace, agent_template_uid, harness_uid)
 );
 CREATE INDEX agent_template_harness_pair_name_idx
@@ -86,8 +85,6 @@ CREATE TABLE agent_instance_checkpoint (
     data                   BYTEA       NOT NULL,
     source_history_id      UUID        NOT NULL REFERENCES a2a_context(id) ON DELETE RESTRICT,
     prepared_revision      TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
-    source_labels          JSONB       NOT NULL DEFAULT '{}'
-        CHECK (jsonb_typeof(source_labels) = 'object'),
     source_name            TEXT        NOT NULL DEFAULT '',
     CHECK (snapshot_content_scope IN ('FULL', 'DATA')),
     CHECK (state IN ('CREATING', 'READY', 'FAILED', 'DELETING')),
@@ -105,7 +102,6 @@ CREATE TABLE agent_instance (
     request_id           TEXT        NOT NULL,
     prepared_revision    TEXT        REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     state                TEXT        NOT NULL,
-    labels               JSONB       NOT NULL DEFAULT '{}',
     data                 BYTEA       NOT NULL,
     operation            TEXT        NOT NULL DEFAULT 'AGENT_INSTANCE_OPERATION_UNSPECIFIED',
     context_id           UUID        NOT NULL,

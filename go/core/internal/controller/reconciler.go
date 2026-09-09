@@ -263,7 +263,6 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
 		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
-		AgentTemplateLabels: state.Pair.AgentTemplate.Labels,
 	}
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state.

@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Skeleton, Space, Typography } from "antd";
 import type { DescriptionsProps } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useParams } from "react-router-dom";
@@ -11,7 +11,6 @@ import {
 } from "@/components/agent-instances/InstanceTags";
 import { LifecycleButton } from "@/components/agent-instances/LifecycleButton";
 import {
-  labelPairs,
   relativeAge,
   stateAppearance,
 } from "@/components/agent-instances/instanceLabels";
@@ -184,28 +183,6 @@ export function AgentDetailsPage() {
           ) : (
             <NotReported />
           ),
-        },
-        {
-          key: "labels",
-          label: "Labels",
-          span: 2,
-          children:
-            labelPairs(data).length > 0 ? (
-              <Space size={4} wrap data-testid="instance-labels">
-                {labelPairs(data).map((pair) => (
-                  <Tag key={pair} css={{ fontFamily: theme.font.mono }}>
-                    {pair}
-                  </Tag>
-                ))}
-              </Space>
-            ) : (
-              // Distinct from "not reported": an instance with no labels is
-              // ordinary, and saying the controller failed to mention them would
-              // be wrong.
-              <Text css={{ color: theme.color.textMuted }} data-testid="instance-no-labels">
-                None set
-              </Text>
-            ),
         },
       ]
     : [];

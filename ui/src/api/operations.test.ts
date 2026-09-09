@@ -507,7 +507,6 @@ describe("agent instances", () => {
       operation: PbAgentInstanceOperation.UNSPECIFIED,
       createdAt: { seconds: 1767225600n, nanos: 0 },
       updatedAt: { seconds: 1767225600n, nanos: 0 },
-      labels: { team: "platform" },
       ...overrides,
     };
   }
@@ -540,7 +539,6 @@ describe("agent instances", () => {
     expect(ready?.harness).toBe("kagent/k8s-agent");
     expect(ready?.agentTemplate).toBe("kagent/k8s-agent-7f3a91c");
     expect(ready?.createdAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(ready?.labels).toEqual({ team: "platform" });
 
     expect(suspended?.state).toBe("suspended");
     expect(suspended?.operation).toBe("resume");
