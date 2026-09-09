@@ -440,7 +440,7 @@ Implement `ForkAgentInstance`:
 
 - Require checkpoint ownership; retain the checkpoint's prepared target references.
 - Create a new Actor identity from the checkpoint's retained snapshot tag.
-- Create a new AgentInstance, A2A authority, creator ownership, and labels.
+- Create a new AgentInstance, A2A authority, and creator ownership.
 - Keep source instance, history, and snapshots immutable.
 - Represent inherited history through copy-on-write projections: deterministic fork-local Task IDs and the new context ID reference immutable source payloads and lineage without duplicating content.
 - New Tasks append only to the fork.
@@ -501,7 +501,7 @@ After K0:
 High-conflict integration files should have one owner at a time:
 
 - Protobuf/Buf configuration: K2, then K10/K17.
-- Database migrations/sqlc: K3, then K5/K10/K17.
+- Database migrations/store: K3, then K5/K10/K17.
 - Controller application wiring: K5, K10, then K19.
 - Generated CRDs/RBAC: K1, then K19.
 

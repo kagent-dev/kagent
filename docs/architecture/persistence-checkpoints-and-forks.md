@@ -26,6 +26,16 @@ The core PostgreSQL records are:
 Identity columns use PostgreSQL's native UUID type. Other framework-specific
 tables are runtime implementation details, not part of this ownership model.
 
+Instance, checkpoint, and share request IDs are validated as UUIDs by the gRPC
+Protovalidate interceptor before handlers run. Services also validate IDs from
+MCP and direct callers. The store passes SQL parameters safely and returns errors
+for malformed IDs rather than panicking.
+
+Parameterized SQL lives beside its owning store operation. When production code
+and tests need the same query, they share a private helper accepting the existing
+pool/transaction executor. Tests can inspect stored payloads through those helpers
+without duplicating SQL. Transaction boundaries remain with the owning operation.
+
 ```mermaid
 flowchart TD
     PAIR[Harness + AgentTemplate pair] --> REV[runtime revision]
@@ -59,7 +69,7 @@ The gateway records boundaries without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
 
 The checkpoint retains source-instance provenance, source history, prepared
-revision, labels, name, head task, and history sequence. Reservation saves an event
+revision, name, head task, and history sequence. Reservation saves an event
 cutoff in the same transaction as the runtime boundary reference. Later replies
 append events beyond that cutoff and cannot change the saved task state.
 The head identifies the task whose snapshot

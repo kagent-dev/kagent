@@ -397,7 +397,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-18T09:12:00Z",
     updatedAt: "2026-08-20T14:03:00Z",
-    labels: { team: "platform", tier: "interactive" },
   },
   {
     id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
@@ -422,7 +421,6 @@ export const mockAgentInstances: AgentInstance[] = [
      */
     createdAt: "2026-08-11T16:40:00Z",
     updatedAt: "2026-08-19T08:22:00Z",
-    labels: { team: "platform" },
   },
   {
     id: "0a7d6c58-9e21-4b3c-a05d-4e8f1b6d2277",
@@ -440,7 +438,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "create",
     createdAt: "2026-08-21T07:55:00Z",
     updatedAt: "2026-08-21T07:55:00Z",
-    labels: {},
   },
   {
     id: "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332",
@@ -460,7 +457,6 @@ export const mockAgentInstances: AgentInstance[] = [
     },
     createdAt: "2026-08-15T11:30:00Z",
     updatedAt: "2026-08-20T22:41:00Z",
-    labels: { team: "support" },
   },
   {
     id: "3c9a1e64-8d47-4f22-b71a-05e2d8c96b18",
@@ -475,7 +471,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "delete",
     createdAt: "2026-08-09T13:05:00Z",
     updatedAt: "2026-08-21T06:10:00Z",
-    labels: {},
   },
   {
     id: "8e5f2b09-6c14-4a7d-83b0-9d1c7e40f5a6",
@@ -492,7 +487,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-20T10:00:00Z",
     updatedAt: "2026-08-20T10:00:00Z",
-    labels: { team: "search" },
   },
   {
     /*
@@ -515,7 +509,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "",
     updatedAt: "",
-    labels: {},
   },
   {
     id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
@@ -533,7 +526,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-17T18:20:00Z",
     updatedAt: "2026-08-21T05:15:00Z",
-    labels: { team: "analytics" },
   },
   /*
    * One conversation with each of the two agents `shared-brain` is.
@@ -557,7 +549,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-19T09:00:00Z",
     updatedAt: "2026-08-21T11:12:00Z",
-    labels: {},
   },
   {
     /*
@@ -582,7 +573,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-16T12:00:00Z",
     updatedAt: "2026-08-16T12:00:00Z",
-    labels: {},
   },
   {
     id: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
@@ -597,7 +587,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-20T15:30:00Z",
     updatedAt: "2026-08-20T15:44:00Z",
-    labels: {},
   },
 ];
 

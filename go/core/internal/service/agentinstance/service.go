@@ -40,7 +40,6 @@ type instanceWorkflow interface {
 }
 
 type ListRequest struct {
-	MatchLabels map[string]string
 	AllCreators bool
 	// AgentTemplate and Harness narrow the page to one agent's conversations.
 	// Either may be given alone.
@@ -165,7 +164,6 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 	instances, err := s.store.ListAgentInstances(ctx, database.AgentInstanceQuery{
 		UserID: userID, AllUsers: request.AllCreators,
-		MatchLabels:   request.MatchLabels,
 		AgentTemplate: request.AgentTemplate, Harness: request.Harness,
 		AfterID: afterID, Limit: pageSize + 1,
 	})

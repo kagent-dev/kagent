@@ -30,7 +30,7 @@ proto/                           protobuf and Buf inputs
 go/api/gen/                      generated Go protobuf code
 go/core/internal/grpcserver/     gRPC transport and policy
 go/core/internal/service/        transport-independent services
-go/core/internal/database/       sqlc queries and generated accessors
+go/core/internal/database/       Inline pgx SQL and private typed rows
 go/core/pkg/migrations/          PostgreSQL migrations
 go/core/internal/controller/     CRD reconciliation and preparation
 go/adk/                          Go runtime
@@ -58,7 +58,7 @@ make -C go lint
 make -C python lint
 ```
 
-After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit the query, migration, and generated accessors together.
+After SQL changes, run `go test ./core/internal/database ./core/pkg/migrations` from `go/`. Keep parameterized SQL beside its owning store operation and use private typed rows with pgx. The store tests prepare every inline statement against the migrated PostgreSQL schema; do not skip this check with `-short`.
 
 ## CRD changes
 
@@ -101,7 +101,7 @@ After SQL changes, run `sqlc generate` in `go/core/internal/database` and commit
 - Do not add a golang-migrate bridge for the cutover.
 - Keep `schema_migrations` for the core source.
 - Keep `vector_schema_migrations` for the vector source.
-- Run `make -C go sqlc-generate` after a migration change.
+- Run the PostgreSQL store tests after a migration change to validate every inline statement against the new schema.
 - Test the Up and Down sections against PostgreSQL.
 - Use PostgreSQL constraints for invariants that the database can enforce atomically.
 

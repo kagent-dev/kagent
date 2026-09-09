@@ -30,7 +30,7 @@ func (s *agentInstanceServer) GetAgentInstance(ctx context.Context, request *api
 
 func (s *agentInstanceServer) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
 	result, err := s.service.List(ctx, agentinstance.ListRequest{
-		MatchLabels: request.GetMatchLabels(), AllCreators: request.GetAllCreators(),
+		AllCreators:   request.GetAllCreators(),
 		AgentTemplate: request.GetAgentTemplate(), Harness: request.GetHarness(),
 		PageSize: int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
 	})

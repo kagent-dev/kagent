@@ -649,33 +649,33 @@ const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\x05state\x18\x05 \x01(\x0e2$.kagent.api.v1alpha1.CheckpointStateR\x05state\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x126\n" +
-	"\afailure\x18\a \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\"y\n" +
-	"\x17CreateCheckpointRequest\x123\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x12)\n" +
+	"\afailure\x18\a \x01(\v2\x1c.kagent.api.v1alpha1.FailureR\afailure\"z\n" +
+	"\x17CreateCheckpointRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12)\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"[\n" +
 	"\x18CreateCheckpointResponse\x12?\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.CheckpointR\n" +
-	"checkpoint\"D\n" +
-	"\x14GetCheckpointRequest\x12,\n" +
-	"\rcheckpoint_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\"X\n" +
+	"checkpoint\"E\n" +
+	"\x14GetCheckpointRequest\x12-\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\fcheckpointId\"X\n" +
 	"\x15GetCheckpointResponse\x12?\n" +
 	"\n" +
 	"checkpoint\x18\x01 \x01(\v2\x1f.kagent.api.v1alpha1.CheckpointR\n" +
-	"checkpoint\"\x83\x01\n" +
-	"\x16ListCheckpointsRequest\x123\n" +
-	"\x11agent_instance_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x124\n" +
+	"checkpoint\"\x84\x01\n" +
+	"\x16ListCheckpointsRequest\x124\n" +
+	"\x11agent_instance_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x124\n" +
 	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\x93\x01\n" +
 	"\x17ListCheckpointsResponse\x12A\n" +
 	"\vcheckpoints\x18\x01 \x03(\v2\x1f.kagent.api.v1alpha1.CheckpointR\vcheckpoints\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"G\n" +
-	"\x17DeleteCheckpointRequest\x12,\n" +
-	"\rcheckpoint_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\"\x1a\n" +
-	"\x18DeleteCheckpointResponse\"s\n" +
-	"\x18ForkAgentInstanceRequest\x12,\n" +
-	"\rcheckpoint_id\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\fcheckpointId\x12)\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"H\n" +
+	"\x17DeleteCheckpointRequest\x12-\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\fcheckpointId\"\x1a\n" +
+	"\x18DeleteCheckpointResponse\"t\n" +
+	"\x18ForkAgentInstanceRequest\x12-\n" +
+	"\rcheckpoint_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\fcheckpointId\x12)\n" +
 	"\n" +
 	"request_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"f\n" +

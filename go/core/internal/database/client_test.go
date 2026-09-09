@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
@@ -166,6 +167,92 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	retrieved, err := client.GetToolServer(ctx, server.Name)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated description", retrieved.Description)
+}
+
+// TestDirectModelScans covers database defaults, required catalog fields, and nullable
+// memory fields when rows are scanned directly into application models.
+func TestDirectModelScans(t *testing.T) {
+	ctx := t.Context()
+	db := setupTestDB(t)
+	client := NewClient(db)
+	_, err := db.Exec(ctx, `INSERT INTO tool (id, server_name, group_kind) VALUES ('defaulted', 'server', 'kind')`)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `INSERT INTO toolserver (name, group_kind) VALUES ('defaulted', 'kind')`)
+	require.NoError(t, err)
+
+	t.Run("tools", func(t *testing.T) {
+		tool, err := client.GetTool(ctx, "defaulted")
+		require.NoError(t, err)
+		assert.Empty(t, tool.Description)
+		assert.False(t, tool.CreatedAt.IsZero())
+		assert.Equal(t, tool.CreatedAt, tool.UpdatedAt)
+		assert.Nil(t, tool.DeletedAt)
+		all, err := client.ListTools(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, []Tool{*tool}, all)
+		filtered, err := client.ListToolsForServer(ctx, "server", "kind")
+		require.NoError(t, err)
+		assert.Equal(t, []Tool{*tool}, filtered)
+	})
+
+	t.Run("servers", func(t *testing.T) {
+		server, err := client.GetToolServer(ctx, "defaulted")
+		require.NoError(t, err)
+		assert.Empty(t, server.Description)
+		assert.False(t, server.CreatedAt.IsZero())
+		assert.Equal(t, server.CreatedAt, server.UpdatedAt)
+		assert.Nil(t, server.DeletedAt)
+		assert.Nil(t, server.LastConnected)
+		all, err := client.ListToolServers(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, []ToolServer{*server}, all)
+		updated, err := client.StoreToolServer(ctx, &ToolServer{Name: "defaulted", GroupKind: "kind", Description: "updated"})
+		require.NoError(t, err)
+		assert.Equal(t, server.CreatedAt, updated.CreatedAt)
+		assert.False(t, updated.UpdatedAt.Before(server.UpdatedAt))
+		assert.Equal(t, "updated", updated.Description)
+	})
+
+	for _, query := range []string{
+		`UPDATE tool SET created_at = NULL`,
+		`UPDATE tool SET updated_at = NULL`,
+		`UPDATE tool SET description = NULL`,
+		`UPDATE toolserver SET created_at = NULL`,
+		`UPDATE toolserver SET updated_at = NULL`,
+		`UPDATE toolserver SET description = NULL`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			_, err := db.Exec(ctx, query)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			assert.Equal(t, "23502", pgErr.Code) // not_null_violation
+		})
+	}
+
+	t.Run("memory", func(t *testing.T) {
+		embedding := make([]float32, 768)
+		embedding[0] = 1
+		_, err := db.Exec(ctx, `INSERT INTO memory (id, agent_name, user_id, embedding, access_count) VALUES ('nullable', 'agent', 'user', $1, NULL)`, pgvector.NewVector(embedding))
+		require.NoError(t, err)
+		memory := &Memory{AgentName: "agent", UserID: "user", Embedding: makeEmbedding(0.5), AccessCount: 1}
+		require.NoError(t, client.StoreAgentMemory(ctx, memory))
+		all, err := client.ListAgentMemories(ctx, "agent", "user")
+		require.NoError(t, err)
+		require.Len(t, all, 2)
+		assert.Equal(t, "nullable", all[0].ID) // SQL NULL counts still sort first descending.
+		assert.Empty(t, all[0].Content)
+		assert.Empty(t, all[0].Metadata)
+		assert.Equal(t, embedding, all[0].Embedding.Slice())
+		assert.True(t, all[0].CreatedAt.IsZero())
+		assert.Nil(t, all[0].ExpiresAt)
+		assert.Zero(t, all[0].AccessCount)
+		results, err := client.SearchAgentMemory(ctx, "agent", "user", makeEmbedding(0.5), 2)
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, memory.ID, results[0].ID)
+		assert.Equal(t, all[0], results[1].Memory)
+		assert.Greater(t, results[1].Score, 0.0)
+	})
 }
 
 // setupTestDB resets the shared Postgres database's tables for test isolation.

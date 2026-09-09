@@ -77,7 +77,7 @@ Do not add new work to legacy API versions unless the change is explicitly a com
 1. Trace the existing behavior and all callers before editing.
 2. Change the narrowest source of truth that fixes the behavior for every caller.
 3. Add focused unit coverage for semantic logic and E2E coverage for API, persistence, lifecycle, or runtime behavior.
-4. Regenerate affected artifacts. SQL changes require `sqlc generate`; API and protobuf changes require their repository generation targets.
+4. Regenerate affected artifacts. API and protobuf changes require their repository generation targets. SQL changes require the PostgreSQL store tests, including the inline-statement prepare check.
 5. Run the smallest relevant checks first, then the broader lint and test targets appropriate to the change.
 
 Preserve unrelated work in a dirty tree. Do not hand-edit generated outputs, add dependencies without need, or introduce compatibility behavior speculatively.

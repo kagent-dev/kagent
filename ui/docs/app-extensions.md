@@ -317,12 +317,12 @@ This is how a product whose domain is wider than this application's shows that
 extra dimension on a page the application still owns. Nothing replaces the page.
 
 ```ts
-export const clusterColumn = defineExtensionTableColumn<AgentInstance>({
-  id: "cluster",
+export const creatorColumn = defineExtensionTableColumn<AgentInstance>({
+  id: "creator",
   tableId: "app_agents_agentsList_table",
-  title: "Cluster",
+  title: "Creator",
   after: "namespace",          // positioned after that core column's key
-  render: (row) => row.labels?.["cluster"] ?? "—",
+  render: (row) => row.creator ?? "—",
 });
 ```
 

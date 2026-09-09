@@ -343,13 +343,8 @@ export function AgentTemplateDetailsPage() {
         /*
          * Counted, and only because the server can narrow it.
          *
-         * This was a seam, on the reasoning that `ListAgentInstances` could not answer
-         * "conversations with *this* template". Two corrections since. An instance does
-         * carry labels — its template's, copied at create — but `match_labels` still
-         * cannot answer it: admission labels are shared by construction, so filtering on
-         * one returns every template that harness admits. What closed the seam is the
-         * `agent_template` / `harness` filter that landed, which resolves through the
-         * prepared revision.
+         * The agent_template / harness filters resolve through the prepared revision
+         * to count conversations for this exact pair.
          *
          * One read per row is affordable *here* and nowhere else: a template has a
          * handful of pairs. The same per-row read on the agents list would be one

@@ -36,7 +36,7 @@ message Checkpoint {
 }
 
 message CreateCheckpointRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   string request_id = 2 [(buf.validate.field).string = {
     min_len: 1
     max_len: 128
@@ -48,7 +48,7 @@ message CreateCheckpointResponse {
 }
 
 message GetCheckpointRequest {
-  string checkpoint_id = 1 [(buf.validate.field).string.min_len = 1];
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message GetCheckpointResponse {
@@ -56,7 +56,7 @@ message GetCheckpointResponse {
 }
 
 message ListCheckpointsRequest {
-  string agent_instance_id = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   PageRequest page = 2;
 }
 
@@ -66,13 +66,13 @@ message ListCheckpointsResponse {
 }
 
 message DeleteCheckpointRequest {
-  string checkpoint_id = 1 [(buf.validate.field).string.min_len = 1];
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
 }
 
 message DeleteCheckpointResponse {}
 
 message ForkAgentInstanceRequest {
-  string checkpoint_id = 1 [(buf.validate.field).string.min_len = 1];
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
   string request_id = 2 [(buf.validate.field).string = {
     min_len: 1
     max_len: 128
