@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -137,7 +136,6 @@ type Reconciler struct {
 	templates              actorTemplateClient
 	store                  runtimeRevisionStore
 	status                 kagentclient.ApiV1alpha3Interface
-	waitingForDeletion     sync.Map          // Pair keys retried by the pending-template poll, outside the error budget.
 	observedActorTemplates map[string]string // Pair key to observation key; owned by the pair queue.
 
 	pairs                      controllers.Queue
@@ -224,10 +222,6 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			r.waitingForDeletion.Range(func(key, _ any) bool {
-				r.pairs.Add(key)
-				return true
-			})
 			for _, state := range r.collections.Reconciliations.List() {
 				golden := state.ObservedActorTemplate.GetStatus().GetGoldenSnapshotStatus()
 				if state.Failure == nil && golden.GetGoldenSnapshot() == nil {
@@ -246,7 +240,6 @@ func (r *Reconciler) Start(ctx context.Context) error {
 func (r *Reconciler) NeedLeaderElection() bool { return true }
 
 func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
-	r.waitingForDeletion.Delete(key)
 	state := r.collections.Reconciliations.GetKey(key)
 	var desiredObservation string
 	if state != nil && state.Revision != nil && !state.RevisionID.IsZero() && state.DesiredActorTemplate != nil {
@@ -283,9 +276,9 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if err := r.store.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		if errors.Is(err, database.ErrObjectDeleting) {
 			// A desired digest may be awaiting cleanup from an earlier identity.
-			// Let GC finish, then retry even if the cached template looked ready.
+			// Clearing the observation makes KRT derive a pending pair, which
+			// the pending-template poll retries until GC finishes.
 			r.forgetActorTemplate(key)
-			r.waitingForDeletion.Store(key, struct{}{})
 			return nil
 		}
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)

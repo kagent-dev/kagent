@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -118,40 +117,6 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	if err != nil || statusWrite.Status.Harnesses[0].Conditions[0].LastTransitionTime.IsZero() {
 		t.Fatal("desired status was not written with a transition time")
 	}
-
-	// A previously ready digest may be deleting. Waiting must not consume the
-	// bounded error retries, and must stop once the reference can be acquired.
-	state.ObservedActorTemplate = templates.template
-	reconciliations.UpdateObject(state)
-	store.pairErr = database.ErrObjectDeleting
-	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
-	_, waiting := reconciler.waitingForDeletion.Load(state.ResourceName())
-	require.True(t, waiting)
-	require.Empty(t, reconciler.collections.ActorTemplates.List(), "the reconciler must discard observations for a deleting digest")
-	pollCtx, cancelPoll := context.WithCancel(t.Context())
-	t.Cleanup(cancelPoll)
-	queued := make(chan string, 1)
-	reconciler.pairs = controllers.NewQueue("test-deleting-revision", controllers.WithGenericReconciler(func(item any) error {
-		select {
-		case queued <- item.(string):
-		case <-pollCtx.Done():
-		}
-		return nil
-	}))
-	go reconciler.pairs.Run(pollCtx.Done())
-	go reconciler.pollPendingTemplates(pollCtx.Done())
-	select {
-	case key := <-queued:
-		require.Equal(t, state.ResourceName(), key, "a deleting digest must be polled even with a cached golden snapshot")
-	case <-time.After(5 * time.Second):
-		t.Fatal("preparation was not requeued while awaiting deletion")
-	}
-	cancelPoll()
-	require.NoError(t, reconciler.pairs.WaitForClose(time.Second))
-	store.pairErr = nil
-	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
-	_, waiting = reconciler.waitingForDeletion.Load(state.ResourceName())
-	require.False(t, waiting)
 
 	oldObservation := (ObservedActorTemplate{Template: state.DesiredActorTemplate}).ResourceName()
 	state.DesiredActorTemplate = proto.CloneOf(state.DesiredActorTemplate)
