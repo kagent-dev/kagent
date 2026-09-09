@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -39,24 +40,36 @@ func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
 	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
 }
 
-// ForceFlush exports any spans still buffered in the tracer provider's batch
-// processor. Call it before an A2A response completes when the process may be
-// suspended right afterwards: Agent Substrate checkpoints the actor as soon as
-// the response body closes, so unexported spans stay frozen in the snapshot
-// until the session's next resume (or forever, for a session's last message).
+// ForceFlush exports any telemetry still buffered in the tracer and logger
+// providers' batch processors. Call it before an A2A response completes when
+// the process may be suspended right afterwards: Agent Substrate checkpoints
+// the actor as soon as the response body closes, so unexported telemetry stays
+// frozen in the snapshot until the session's next resume (or forever, for a
+// session's last message).
 // Uses its own detached timeout because the request context is typically
 // already canceled by the time deferred cleanup runs. The timeout defaults to
 // 3s and is configurable via KAGENT_TRACE_FLUSH_TIMEOUT_MS.
 func ForceFlush(ctx context.Context) {
 	type flusher interface{ ForceFlush(context.Context) error }
-	fp, ok := otel.GetTracerProvider().(flusher)
-	if !ok {
+
+	tracerProvider, tracerOK := otel.GetTracerProvider().(flusher)
+	loggerProvider, loggerOK := logglobal.GetLoggerProvider().(flusher)
+	if !tracerOK && !loggerOK {
 		return
 	}
+
 	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
 	defer cancel()
-	if err := fp.ForceFlush(flushCtx); err != nil {
-		otel.Handle(err)
+
+	if tracerOK {
+		if err := tracerProvider.ForceFlush(flushCtx); err != nil {
+			otel.Handle(err)
+		}
+	}
+	if loggerOK {
+		if err := loggerProvider.ForceFlush(flushCtx); err != nil {
+			otel.Handle(err)
+		}
 	}
 }
 

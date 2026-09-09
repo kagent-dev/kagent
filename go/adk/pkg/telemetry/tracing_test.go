@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	logapi "go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -40,6 +43,60 @@ func TestForceFlush(t *testing.T) {
 
 	otel.SetTracerProvider(noop.NewTracerProvider())
 	ForceFlush(context.Background()) // must not panic
+}
+
+// TestForceFlushFlushesLogs verifies that ForceFlush drains records queued by
+// the batch log processor even when the tracer provider is not flushable.
+func TestForceFlushFlushesLogs(t *testing.T) {
+	exporter := &testLogExporter{}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
+	)
+	prev := logglobal.GetLoggerProvider()
+	logglobal.SetLoggerProvider(lp)
+	t.Cleanup(func() {
+		logglobal.SetLoggerProvider(prev)
+		_ = lp.Shutdown(context.Background())
+	})
+
+	logger := logglobal.GetLoggerProvider().Logger("test")
+	var record logapi.Record
+	record.SetEventName("buffered")
+	logger.Emit(context.Background(), record)
+
+	if got := exporter.count(); got != 0 {
+		t.Fatalf("log exported before flush: %d", got)
+	}
+
+	// A canceled request context must not prevent the flush.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ForceFlush(ctx)
+
+	if got := exporter.count(); got != 1 {
+		t.Fatalf("expected 1 log after flush, got %d", got)
+	}
+}
+
+type testLogExporter struct {
+	records []sdklog.Record
+}
+
+func (e *testLogExporter) Export(_ context.Context, records []sdklog.Record) error {
+	e.records = append(e.records, records...)
+	return nil
+}
+
+func (e *testLogExporter) Shutdown(context.Context) error {
+	return nil
+}
+
+func (e *testLogExporter) ForceFlush(context.Context) error {
+	return nil
+}
+
+func (e *testLogExporter) count() int {
+	return len(e.records)
 }
 
 // flushTimeout reads KAGENT_TRACE_FLUSH_TIMEOUT_MS and falls back to 3s on
