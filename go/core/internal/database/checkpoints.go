@@ -15,6 +15,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// ForkAgentInstance atomically creates an instance and independent history from an owned
+// READY checkpoint, replaying only events through its saved boundary. The fork retains the
+// source context ID, revision, and snapshot reference. A repeated owner/requestID returns
+// the existing fork for the same checkpoint, or ErrIdempotencyConflict otherwise. The
+// boolean reports creation; callers provision the runtime separately.
 func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	checkpointUUID := uuid.MustParse(checkpointID)
 
@@ -93,7 +98,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		row, err = queryOne(ctx, tx, `
 			INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,
 			    source_checkpoint_id, state, operation, labels, data) VALUES ($1, $2, $3, $4, $5, $6, $9::uuid,
-			    'CREATING', 'CREATE', $7, $8)
+			    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $7, $8)
 			ON CONFLICT (user_id, request_id) DO NOTHING
 			RETURNING id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
 			    source_checkpoint_id, history_id
@@ -197,8 +202,12 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 	return instance, err == nil, err
 }
 
-// ReserveAgentInstanceCheckpoint returns the checkpoint and its immutable snapshot
-// reference from the same transaction, including on idempotent retries.
+// ReserveAgentInstanceCheckpoint reserves an owned instance's latest quiescent task
+// boundary and returns its snapshot reference atomically. The instance must be READY with
+// no lifecycle operation and a usable snapshot boundary. A repeated owner/requestID
+// returns the same reservation for the same source, or ErrIdempotencyConflict otherwise. A
+// CREATING reservation blocks new task writes and lifecycle operations while the caller
+// retains the external snapshot.
 func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, userID, requestID string) (*apiv1alpha1.Checkpoint, *AgentInstanceTaskSnapshot, error) {
 	if checkpoint == nil {
 		return nil, nil, fmt.Errorf("missing checkpoint")
@@ -231,7 +240,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", uuid.MustParse(checkpoint.GetAgentInstanceId()), err)
 		}
-		if instance.State != "READY" || instance.Operation != "NONE" {
+		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return ErrAgentInstanceConflict
 		}
 		source, err := toAgentInstance(instance)
@@ -331,6 +340,10 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 	return result, snapshot, nil
 }
 
+// FinalizeAgentInstanceCheckpoint records either a retained tag UID and snapshot URI as
+// READY, or a failure as FAILED. An identical terminal retry returns the existing
+// checkpoint; a different terminal result returns ErrNotFound. This internal operation
+// does not check ownership or create the external snapshot.
 func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID, snapshotURI, failure string) (*apiv1alpha1.Checkpoint, error) {
 	if (tagUID == "") == (failure == "") || (tagUID == "") != (snapshotURI == "") {
 		return nil, fmt.Errorf("finalize AgentInstance checkpoint requires tag UID and snapshot URI, or failure")
@@ -385,6 +398,8 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 	return result, nil
 }
 
+// GetAgentInstanceCheckpoint returns an owned READY checkpoint. Missing checkpoints, other
+// owners, and other lifecycle states return ErrNotFound.
 func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*apiv1alpha1.Checkpoint, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
@@ -400,9 +415,10 @@ func (c *Client) GetAgentInstanceCheckpoint(ctx context.Context, id, userID stri
 	return toAgentInstanceCheckpoint(row)
 }
 
-// GetAgentInstanceCheckpointSnapshot returns the private snapshot reference and
-// tag UID for lifecycle workflows. Finalization replaces the source URI with the
-// retained Tag copy; ready references are immutable.
+// GetAgentInstanceCheckpointSnapshot returns an owned checkpoint's snapshot reference and
+// tag UID in any lifecycle state. Before finalization the URI refers to the source
+// snapshot; afterward it refers to the retained copy. Missing checkpoints and other owners
+// return ErrNotFound.
 func (c *Client) GetAgentInstanceCheckpointSnapshot(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
@@ -421,12 +437,17 @@ func (c *Client) GetAgentInstanceCheckpointSnapshot(ctx context.Context, id, use
 	return checkpointSnapshot(row), row.TagUID, nil
 }
 
+// checkpointSnapshot extracts the external snapshot reference without reading or
+// validating the external snapshot.
 func checkpointSnapshot(row agentInstanceCheckpointRow) *AgentInstanceTaskSnapshot {
 	return &AgentInstanceTaskSnapshot{
 		Atespace: row.SnapshotAtespace, URI: row.SnapshotURI, ContentScope: row.SnapshotContentScope,
 	}
 }
 
+// ListAgentInstanceCheckpoints returns an owner's READY checkpoints for the source
+// instance in ascending ID order after afterID, up to limit. Retained checkpoints remain
+// listable after the source instance is deleted.
 func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
@@ -455,8 +476,10 @@ func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, u
 	return result, nil
 }
 
-// BeginDeleteAgentInstanceCheckpoint hides the checkpoint and returns the snapshot
-// and tag identity needed for cleanup after the transaction commits.
+// BeginDeleteAgentInstanceCheckpoint marks an owned READY checkpoint DELETING and returns
+// the snapshot and tag identity for external cleanup. Retrying a DELETING checkpoint is
+// allowed. A fork reference, another lifecycle state, or a missing/unowned checkpoint
+// returns ErrNotFound.
 func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
 	var snapshot *AgentInstanceTaskSnapshot
 	var tagUID string
@@ -499,6 +522,8 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 	return snapshot, tagUID, nil
 }
 
+// DeleteAgentInstanceCheckpoint removes an owned DELETING checkpoint after the caller
+// cleans up its external tag. No matching row is a successful no-op.
 func (c *Client) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) error {
 	_, err := c.db.Exec(ctx, `
 		DELETE FROM agent_instance_checkpoint
@@ -510,6 +535,8 @@ func (c *Client) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID s
 	return nil
 }
 
+// toAgentInstanceCheckpoint decodes a checkpoint and rejects disagreement between its
+// payload and indexed identity, history boundary, or lifecycle state.
 func toAgentInstanceCheckpoint(row agentInstanceCheckpointRow) (*apiv1alpha1.Checkpoint, error) {
 	checkpoint := &apiv1alpha1.Checkpoint{}
 	if err := proto.Unmarshal(row.Data, checkpoint); err != nil {
@@ -542,6 +569,9 @@ type agentInstanceCheckpointRow struct {
 	SourceName           string
 }
 
+// lockCheckpoint locks a checkpoint until the caller's transaction ends, optionally
+// filtering by state. Ownership is required unless internal finalization explicitly sets
+// allUsers; no match returns pgx.ErrNoRows.
 func lockCheckpoint(ctx context.Context, db pgx.Tx, id uuid.UUID, allUsers bool, userID string, state *string) (agentInstanceCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,

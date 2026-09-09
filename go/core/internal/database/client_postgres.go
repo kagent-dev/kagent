@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,10 +15,15 @@ type Client struct {
 	db *pgxpool.Pool
 }
 
+// NewClient wraps an existing PostgreSQL pool without connecting or migrating. The caller
+// owns the pool and must close it.
 func NewClient(db *pgxpool.Pool) *Client {
 	return &Client{db: db}
 }
 
+// withTx commits all callback writes together on success and rolls them back on failure,
+// returning callback or transaction errors. The callback must keep external network work
+// outside the transaction.
 func (c *Client) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	tx, err := c.db.Begin(ctx)
 	if err != nil {
@@ -32,8 +36,8 @@ func (c *Client) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	return tx.Commit(ctx)
 }
 
-// notFoundOr maps the driver's no-rows error to ErrNotFound so callers
-// outside this package match on the exported sentinel, never on pgx.
+// notFoundOr maps pgx.ErrNoRows to ErrNotFound and leaves all other errors, including nil,
+// unchanged.
 func notFoundOr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -41,6 +45,7 @@ func notFoundOr(err error) error {
 	return err
 }
 
+// strPtrIfNotEmpty returns nil for an empty string and a pointer to a copy otherwise.
 func strPtrIfNotEmpty(s string) *string {
 	if s == "" {
 		return nil
@@ -48,23 +53,10 @@ func strPtrIfNotEmpty(s string) *string {
 	return &s
 }
 
+// derefStr returns the pointed-to string, or an empty string for nil.
 func derefStr(s *string) string {
 	if s != nil {
 		return *s
 	}
 	return ""
-}
-
-func derefInt64(n *int64) int64 {
-	if n != nil {
-		return *n
-	}
-	return 0
-}
-
-func derefTime(t *time.Time) time.Time {
-	if t != nil {
-		return *t
-	}
-	return time.Time{}
 }

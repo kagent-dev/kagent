@@ -19,6 +19,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// FindScheduledRunRequest returns the schedule created by the creator/requestID pair,
+// including later edits or deletion. A different request hash returns
+// ErrIdempotencyConflict; an unknown request returns ErrNotFound.
 func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID string, hash []byte) (*apiv1alpha1.ScheduledRun, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
@@ -33,6 +36,10 @@ func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID
 	return toScheduledRun(row)
 }
 
+// CreateScheduledRun atomically stores a schedule with a new ID, etag, and initial due
+// time. Reusing a creator/requestID returns the existing schedule if the request hash
+// matches, or ErrIdempotencyConflict otherwise. Paused schedules have no due time;
+// execution is left to the scheduler.
 func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.ScheduledRun, requestID string, hash []byte) (*apiv1alpha1.ScheduledRun, error) {
 	schedule := proto.CloneOf(request)
 	id := uuid.New()
@@ -69,6 +76,8 @@ func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.Sc
 	return toScheduledRun(row)
 }
 
+// GetScheduledRun returns a creator's schedule, including a deletion tombstone. Missing
+// schedules and other owners return ErrNotFound.
 func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRun, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
@@ -80,6 +89,8 @@ func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator stri
 	return toScheduledRun(row)
 }
 
+// ListScheduledRuns returns the creator's undeleted schedules in ascending ID order after
+// AfterID, up to Limit.
 func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery) ([]*apiv1alpha1.ScheduledRun, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
@@ -101,6 +112,10 @@ func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery)
 	return result, nil
 }
 
+// UpdateScheduledRun replaces an owned schedule's config and etag only if the supplied
+// etag matches; stale edits return ErrScheduledRunConflict and deleted schedules return
+// ErrScheduledRunDeleted. The next occurrence changes only when the schedule, time zone,
+// or pause setting changes, so unrelated edits cannot skip an already-due occurrence.
 func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, etag string, config *apiv1alpha1.ScheduledRunConfig) (*apiv1alpha1.ScheduledRun, error) {
 	var result scheduledRunRow
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -144,6 +159,10 @@ func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, 
 	return toScheduledRun(result)
 }
 
+// DeleteScheduledRun stops future scheduling and returns an owned deletion tombstone while
+// retaining execution history and request deduplication. Repeated deletion succeeds.
+// Malformed payloads are retained for repair and return only authoritative tombstone
+// metadata.
 func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRun, error) {
 	var result scheduledRunRow
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -185,6 +204,10 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator s
 	return schedule, nil
 }
 
+// TriggerScheduledRun reserves a manual execution for an owned schedule, including when
+// paused, without starting runtime work or changing the next scheduled occurrence. Reusing
+// requestID for that schedule returns the same execution, even after deletion; new
+// triggers on a deleted schedule return ErrScheduledRunDeleted.
 func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator, requestID string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	var result scheduledRunExecutionRow
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -215,8 +238,11 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator,
 	return toScheduledRunExecution(result)
 }
 
-// ReserveDueScheduledRuns commits each due occurrence and advances its schedule
-// in the same transaction. Row locks serialize this with manual triggers/edits.
+// ReserveDueScheduledRuns atomically reserves due occurrences and advances their
+// schedules, skipping rows held by other workers. Limit must be between 1 and 100.
+// Occurrences over thirty seconds late are skipped; malformed schedules are removed from
+// the due queue with their payloads retained for repair. Callers execute the returned
+// reservations separately.
 func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*apiv1alpha1.ScheduledRunExecution, error) {
 	if limit < 1 || limit > 100 {
 		return nil, fmt.Errorf("reservation limit must be between 1 and 100")
@@ -273,6 +299,9 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 	return result, nil
 }
 
+// getScheduledRunForUpdate locks an owned schedule, including tombstones, until the
+// caller's transaction ends. A missing or unowned schedule returns ErrNotFound; callers
+// must supply a transaction to retain the lock.
 func getScheduledRunForUpdate(ctx context.Context, db dbExecutor, id uuid.UUID, creator string) (scheduledRunRow, error) {
 	row, err := queryOne(ctx, db, `
 		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
@@ -281,6 +310,10 @@ func getScheduledRunForUpdate(ctx context.Context, db dbExecutor, id uuid.UUID, 
 	return row, notFoundOr(err)
 }
 
+// reserveScheduledRunExecution records a pending execution with the current prompt and
+// timeout, using either a scheduled time or manual request ID. Callers hold the schedule
+// lock and handle deduplication in the same transaction; this function does not launch
+// runtime work.
 func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, row scheduledRunRow, due *time.Time, manualRequestID *string) (scheduledRunExecutionRow, error) {
 	schedule, err := toScheduledRun(row)
 	if err != nil {
@@ -316,6 +349,8 @@ func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, row schedu
 	)
 }
 
+// GetScheduledRunExecution returns an execution only for its schedule's creator, including
+// after schedule deletion. Missing executions and other owners return ErrNotFound.
 func (c *Client) GetScheduledRunExecution(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
@@ -329,6 +364,9 @@ func (c *Client) GetScheduledRunExecution(ctx context.Context, id uuid.UUID, cre
 	return toScheduledRunExecution(row)
 }
 
+// ListScheduledRunExecutions returns a creator's execution history for one schedule in
+// descending ID order after AfterID, up to Limit. History remains available after schedule
+// deletion.
 func (c *Client) ListScheduledRunExecutions(ctx context.Context, query ScheduledRunExecutionQuery) ([]*apiv1alpha1.ScheduledRunExecution, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
@@ -355,8 +393,11 @@ func (c *Client) ListScheduledRunExecutions(ctx context.Context, query Scheduled
 	return result, nil
 }
 
-// ReserveScheduledRunExecutionInstance keeps instance creation and the historical
-// link in one transaction. A deleted conversation never becomes a new firing.
+// ReserveScheduledRunExecutionInstance atomically reserves an owned execution's instance
+// and saves its historical link. Existing links and non-pending executions are returned
+// unchanged, even if the linked instance was deleted. An elapsed deadline marks the
+// execution timed out; an unprepared target returns ErrScheduledRunTargetNotReady for
+// retry. Callers provision the runtime separately.
 func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	var result scheduledRunExecutionRow
 	var err error
@@ -430,6 +471,8 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 	return toScheduledRunExecution(result)
 }
 
+// toScheduledRunExecution decodes an execution and validates its payload, state, and
+// trigger. Indexed columns supply identity, timestamps, state, and instance/task links.
 func toScheduledRunExecution(row scheduledRunExecutionRow) (*apiv1alpha1.ScheduledRunExecution, error) {
 	execution := &apiv1alpha1.ScheduledRunExecution{}
 	if err := proto.Unmarshal(row.Data, execution); err != nil {
@@ -464,6 +507,10 @@ func toScheduledRunExecution(row scheduledRunExecutionRow) (*apiv1alpha1.Schedul
 	return execution, nil
 }
 
+// LeaseScheduledRunExecutions claims up to limit pending or running executions due for
+// retry, excluding rows held by other workers. Each claim lasts thirty seconds and must be
+// supplied when recording progress. Malformed executions are logged and omitted, retaining
+// their lease delay before retry.
 func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]LeasedScheduledRunExecution, error) {
 	token := uuid.New()
 	rows, err := queryMany(ctx, c.db, `
@@ -493,6 +540,10 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 	return leases, nil
 }
 
+// UpdateScheduledRunExecution records progress only under a matching, unexpired lease on a
+// pending or running execution. It preserves an existing task ID, records terminal
+// completion time, and releases the lease with a one-second retry delay. A lost lease or
+// conflicting task ID returns ErrScheduledRunConflict.
 func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease ScheduledRunExecutionLease, progress ScheduledRunExecutionProgress) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
@@ -542,6 +593,8 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 	})
 }
 
+// nextExecutionTime computes the next occurrence after now, returning nil for a paused
+// schedule. Invalid configuration returns an error even when paused.
 func nextExecutionTime(config *apiv1alpha1.ScheduledRunConfig, now time.Time) (*time.Time, error) {
 	next, err := scheduledrun.Next(config, now)
 	if err != nil {
@@ -553,6 +606,8 @@ func nextExecutionTime(config *apiv1alpha1.ScheduledRunConfig, now time.Time) (*
 	return &next, nil
 }
 
+// toScheduledRun decodes and validates a schedule's payload and config, taking identity,
+// ownership, timestamps, next occurrence, and deletion status from indexed columns.
 func toScheduledRun(row scheduledRunRow) (*apiv1alpha1.ScheduledRun, error) {
 	schedule := &apiv1alpha1.ScheduledRun{}
 	if err := proto.Unmarshal(row.Data, schedule); err != nil {
@@ -573,6 +628,7 @@ func toScheduledRun(row scheduledRunRow) (*apiv1alpha1.ScheduledRun, error) {
 	return schedule, nil
 }
 
+// optionalTimestamp converts a present time to a protobuf timestamp and preserves nil.
 func optionalTimestamp(value *time.Time) *timestamppb.Timestamp {
 	if value == nil {
 		return nil
@@ -613,12 +669,18 @@ type scheduledRunExecutionRow struct {
 	State           string
 }
 
+// advanceScheduledRun sets the next due time, or removes the schedule from the due queue
+// when next is nil. It does not change the etag or authorize access; callers coordinate
+// the surrounding transaction.
 func advanceScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, next *time.Time) error {
 	return execSQL(ctx, db, `
 		UPDATE scheduled_run SET next_execution_time = $2 WHERE id = $1
 	`, id, next)
 }
 
+// saveScheduledRun replaces a schedule's payload, next occurrence, and deletion status and
+// refreshes its update time. Callers lock the row and enforce ownership and etag checks in
+// their transaction.
 func saveScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, data []byte, next *time.Time, deleted bool) (scheduledRunRow, error) {
 	return queryOne(ctx, db, `
 		UPDATE scheduled_run SET data = $2, next_execution_time = $3,

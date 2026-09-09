@@ -17,7 +17,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// CreateAgentInstanceTask reserves the instance's single active-task slot.
+// CreateAgentInstanceTask atomically stores a task, its creation event, and initial
+// messages for a READY instance with no lifecycle operation. It requires an initial
+// message and matching context. Reusing the initial message ID returns the stored task if
+// the request hash matches, or ErrIdempotencyConflict otherwise. An occupied active-task
+// slot or checkpoint creation blocks new tasks with ErrAgentInstanceTaskConflict. The
+// boolean reports a new reservation; callers authorize access and invoke the runtime
+// separately.
 func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
 	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
@@ -44,7 +50,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
-		if instance.State != "READY" || instance.Operation != "NONE" {
+		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return ErrAgentInstanceTaskConflict
 		}
 		historyID = instance.HistoryID
@@ -122,6 +128,8 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 // longer has an active execution for it.
 const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
 
+// agentInstanceHistoryID resolves an instance to its retained conversation history, or
+// returns ErrNotFound if absent. It does not check ownership.
 func (c *Client) agentInstanceHistoryID(ctx context.Context, instanceID string) (uuid.UUID, error) {
 	instance, err := queryOne(ctx, c.db, `
 		SELECT id, user_id, request_id, prepared_revision, state, labels, data, operation, context_id,
@@ -133,6 +141,9 @@ func (c *Client) agentInstanceHistoryID(ctx context.Context, instanceID string) 
 	return instance.HistoryID, nil
 }
 
+// GetActiveAgentInstanceTask returns the instance's current active task, or ErrNotFound if
+// none exists. Completed, canceled, failed, rejected, input-required, and auth-required
+// tasks are not active. Callers authorize instance access.
 func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
 	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
 	if err != nil {
@@ -162,8 +173,10 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 	return task, err
 }
 
-// InterruptActiveAgentInstanceTask atomically fails taskID only if it is still the
-// instance's active task.
+// InterruptActiveAgentInstanceTask atomically marks taskID failed and records its
+// interruption message and event, only if it is still the instance's active task. It
+// returns false if no active task matches. Callers authorize access and stop runtime work
+// separately.
 func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
 	interruptedTask := false
 	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
@@ -262,6 +275,10 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 	return interruptedTask, nil
 }
 
+// StoreAgentInstanceTaskEvent atomically saves the task state, archived messages, replay
+// event, and optional snapshot boundary. It rejects inconsistent task/context identities
+// and updates blocked by checkpoint creation. Snapshot references must already exist;
+// callers authorize access and perform external snapshot work.
 func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
 	if task == nil || event == nil {
 		return fmt.Errorf("task and event are required")
@@ -422,6 +439,8 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 	return nil
 }
 
+// GetAgentInstanceTask returns a task with its archived message history, or ErrNotFound if
+// the instance or task is absent. Callers authorize instance access.
 func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
 	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
 	if err != nil {
@@ -443,6 +462,10 @@ func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID st
 	return task, err
 }
 
+// ListAgentInstanceTasks returns tasks with archived messages in immutable creation order
+// after afterID, with optional state and exclusive status-timestamp filters. The total
+// counts all matching tasks before pagination; it is read separately and can differ under
+// concurrent writes. Callers authorize instance access.
 func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
 	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
 	if err != nil {
@@ -494,6 +517,8 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 	return tasks, int(total), nil
 }
 
+// unmarshalAgentInstanceTaskEvent decodes a stored A2A event, returning an error for
+// malformed or unsupported payloads.
 func unmarshalAgentInstanceTaskEvent(data []byte) (a2a.Event, error) {
 	var pb a2apb.StreamResponse
 	if err := proto.Unmarshal(data, &pb); err != nil {
@@ -506,6 +531,9 @@ func unmarshalAgentInstanceTaskEvent(data []byte) (a2a.Event, error) {
 	return event, nil
 }
 
+// agentInstanceTaskEventMessages selects the messages contributed by an event: the message
+// itself, a task's history, or the latest history message for a status update. Other
+// events contribute no messages.
 func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Message {
 	switch event := event.(type) {
 	case *a2a.Message:
@@ -520,6 +548,9 @@ func agentInstanceTaskEventMessages(task *a2a.Task, event a2a.Event) []*a2a.Mess
 	return nil
 }
 
+// storeAgentInstanceTaskMessages converts and archives messages with valid IDs, returning
+// the last message's event sequence or zero for an empty list. The caller supplies a
+// transaction when these writes must commit atomically with task state.
 func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2a.Message) (int64, error) {
 	converted := make([]*a2apb.Message, 0, len(messages))
 	for _, message := range messages {
@@ -535,6 +566,10 @@ func storeAgentInstanceTaskMessages(ctx context.Context, db dbExecutor, historyI
 	return storeProtoTaskMessages(ctx, db, historyID, taskID, contextID, converted)
 }
 
+// storeProtoTaskMessages archives messages without changing the inputs or dropping unknown
+// protobuf fields. It fills missing task/context IDs and rejects conflicting identities.
+// Duplicate message IDs retain their original event sequence; an empty list returns zero.
+// Callers own the transaction.
 func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID, contextID string, messages []*a2apb.Message) (int64, error) {
 	var sequence int64
 	for _, message := range messages {
@@ -563,6 +598,9 @@ func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.U
 	return sequence, nil
 }
 
+// loadAgentInstanceTaskHistories attaches archived messages to the supplied tasks in event
+// order. It leaves tasks with no archived messages unchanged and rejects malformed message
+// payloads.
 func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task) error {
 	if len(tasks) == 0 {
 		return nil
@@ -607,11 +645,15 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 	return nil
 }
 
+// isActiveTaskConflict reports whether a PostgreSQL error identifies the constraint
+// enforcing one active task per conversation.
 func isActiveTaskConflict(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.ConstraintName == "agent_instance_one_active_task_idx"
 }
 
+// unmarshalAgentInstanceTask decodes a stored A2A task, returning an error for malformed
+// or unsupported payloads.
 func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
 	var pb a2apb.Task
 	if err := proto.Unmarshal(data, &pb); err != nil {
@@ -675,7 +717,11 @@ type taskHistoryRow struct {
 	Data   []byte
 }
 
-// insertTaskEvent preserves the event's idempotent sequence across live ingestion and fork replay.
+// insertTaskEvent appends an event and returns its sequence. Repeated message identities
+// within the same history and task return the original sequence without replacing content;
+// events without a message ID append independently. CreatedAt defaults to database time.
+// Callers serialize writes within a history and supply the transaction when persisting
+// related task changes.
 func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (int64, error) {
 	return queryOne(ctx, db, `
 		WITH inserted AS (

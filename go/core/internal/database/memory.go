@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
+// StoreAgentMemory inserts a memory and assigns its generated ID to the input on success.
+// Creation time comes from the database; the supplied owner, agent, expiration, and access
+// count are stored as given.
 func (c *Client) StoreAgentMemory(ctx context.Context, memory *Memory) error {
 	id, err := queryOne(ctx, c.db, `
 		INSERT INTO memory (agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count)
@@ -27,6 +29,9 @@ func (c *Client) StoreAgentMemory(ctx context.Context, memory *Memory) error {
 	return nil
 }
 
+// StoreAgentMemories inserts all memories in one transaction and assigns their generated
+// IDs to the inputs. On failure no inserts commit, but inputs already processed can retain
+// IDs from the rolled-back transaction.
 func (c *Client) StoreAgentMemories(ctx context.Context, memories []*Memory) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		for _, m := range memories {
@@ -47,26 +52,25 @@ func (c *Client) StoreAgentMemories(ctx context.Context, memories []*Memory) err
 	})
 }
 
+// SearchAgentMemory returns up to limit memories for the user and agent, ranked by cosine
+// similarity. It also matches the legacy agent spelling with hyphens replaced by
+// underscores. Expired rows remain searchable until pruned; access-count updates are
+// best-effort and cannot fail a successful search.
 func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]AgentMemorySearchResult, error) {
 	normalized := strings.ReplaceAll(agentName, "-", "_")
-	rows, err := queryMany(ctx, c.db, `
-		SELECT id, agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count,
+	results, err := queryMany(ctx, c.db, `
+		SELECT id, COALESCE(agent_name, '') AS agent_name, COALESCE(user_id, '') AS user_id,
+		    COALESCE(content, '') AS content, embedding, COALESCE(metadata, '') AS metadata,
+		    COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
+		    expires_at, COALESCE(access_count, 0) AS access_count,
 		    COALESCE(1 - (embedding <=> $1), 0) AS score
 		FROM memory
 		WHERE (agent_name = $2 OR agent_name = $3) AND user_id = $4
 		ORDER BY embedding <=> $1 ASC
 		LIMIT $5
-	`, pgx.RowToStructByName[memorySearchRow], embedding, &agentName, &normalized, &userID, int32(limit))
+	`, pgx.RowToStructByName[AgentMemorySearchResult], embedding, &agentName, &normalized, &userID, int32(limit))
 	if err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
-	}
-
-	results := make([]AgentMemorySearchResult, len(rows))
-	for i, r := range rows {
-		results[i] = AgentMemorySearchResult{
-			Memory: *toMemory(r.memoryRow),
-			Score:  r.Score,
-		}
 	}
 
 	// Access-count bookkeeping is best-effort: a failure must not fail the search.
@@ -93,23 +97,27 @@ func (c *Client) SearchAgentMemory(ctx context.Context, agentName, userID string
 	return results, nil
 }
 
+// ListAgentMemories returns a user's memories for the agent and its legacy underscore
+// spelling, ordered by descending access count. Expired rows remain visible until pruned.
 func (c *Client) ListAgentMemories(ctx context.Context, agentName, userID string) ([]Memory, error) {
 	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := queryMany(ctx, c.db, `
-		SELECT id, agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count FROM memory
+		SELECT id, COALESCE(agent_name, '') AS agent_name, COALESCE(user_id, '') AS user_id,
+		    COALESCE(content, '') AS content, embedding, COALESCE(metadata, '') AS metadata,
+		    COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
+		    expires_at, COALESCE(access_count, 0) AS access_count FROM memory
 		WHERE (agent_name = $1 OR agent_name = $2) AND user_id = $3
-		ORDER BY access_count DESC
-	`, pgx.RowToStructByName[memoryRow], &agentName, &normalized, &userID)
+		ORDER BY memory.access_count DESC
+	`, pgx.RowToStructByName[Memory], &agentName, &normalized, &userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agent memories: %w", err)
 	}
-	memories := make([]Memory, len(rows))
-	for i, r := range rows {
-		memories[i] = *toMemory(r)
-	}
-	return memories, nil
+	return rows, nil
 }
 
+// DeleteAgentMemory deletes a user's memories for the agent and its legacy underscore
+// spelling. Missing rows are a no-op. The two spellings are deleted in separate
+// statements, so a failure can leave the second deletion pending.
 func (c *Client) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
 	if err := execSQL(ctx, c.db, `
 		DELETE FROM memory WHERE agent_name = $1 AND user_id = $2
@@ -127,6 +135,9 @@ func (c *Client) DeleteAgentMemory(ctx context.Context, agentName, userID string
 	return nil
 }
 
+// PruneExpiredMemories atomically extends expired memories with at least ten accesses by
+// fifteen days and resets their access count, then deletes expired memories with fewer
+// than ten accesses. Memories without an expiration remain untouched.
 func (c *Client) PruneExpiredMemories(ctx context.Context) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		if err := execSQL(ctx, tx, `
@@ -144,35 +155,4 @@ func (c *Client) PruneExpiredMemories(ctx context.Context) error {
 		}
 		return nil
 	})
-}
-
-func toMemory(r memoryRow) *Memory {
-	return &Memory{
-		ID:          r.ID,
-		AgentName:   derefStr(r.AgentName),
-		UserID:      derefStr(r.UserID),
-		Content:     derefStr(r.Content),
-		Embedding:   r.Embedding,
-		Metadata:    derefStr(r.Metadata),
-		CreatedAt:   derefTime(r.CreatedAt),
-		ExpiresAt:   r.ExpiresAt,
-		AccessCount: derefInt64(r.AccessCount),
-	}
-}
-
-type memoryRow struct {
-	ID          string
-	AgentName   *string
-	UserID      *string
-	Content     *string
-	Embedding   pgvector.Vector
-	Metadata    *string
-	CreatedAt   *time.Time
-	ExpiresAt   *time.Time
-	AccessCount *int64
-}
-
-type memorySearchRow struct {
-	memoryRow
-	Score float64
 }

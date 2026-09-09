@@ -168,6 +168,83 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	assert.Equal(t, "Updated description", retrieved.Description)
 }
 
+// TestDirectModelScansPreserveNullDefaults covers nullable columns and their
+// original SQL ordering when rows are scanned directly into application models.
+func TestDirectModelScansPreserveNullDefaults(t *testing.T) {
+	ctx := t.Context()
+	db := setupTestDB(t)
+	client := NewClient(db)
+
+	t.Run("tools", func(t *testing.T) {
+		_, err := db.Exec(ctx, `INSERT INTO tool (id, server_name, group_kind) VALUES ('nullable', 'server', 'kind')`)
+		require.NoError(t, err)
+		require.NoError(t, client.RefreshToolsForServer(ctx, "other", "kind", &v1alpha3.MCPTool{Name: "dated"}))
+		tool, err := client.GetTool(ctx, "nullable")
+		require.NoError(t, err)
+		assert.Empty(t, tool.Description)
+		assert.True(t, tool.CreatedAt.IsZero())
+		assert.True(t, tool.UpdatedAt.IsZero())
+		assert.Nil(t, tool.DeletedAt)
+		all, err := client.ListTools(ctx)
+		require.NoError(t, err)
+		require.Len(t, all, 2)
+		assert.Equal(t, "dated", all[0].ID) // SQL NULL timestamps still sort last.
+		assert.Equal(t, *tool, all[1])
+		filtered, err := client.ListToolsForServer(ctx, "server", "kind")
+		require.NoError(t, err)
+		assert.Equal(t, []Tool{*tool}, filtered)
+	})
+
+	t.Run("servers", func(t *testing.T) {
+		_, err := db.Exec(ctx, `INSERT INTO toolserver (name, group_kind) VALUES ('nullable', 'kind')`)
+		require.NoError(t, err)
+		_, err = client.StoreToolServer(ctx, &ToolServer{Name: "dated", GroupKind: "kind"})
+		require.NoError(t, err)
+		server, err := client.GetToolServer(ctx, "nullable")
+		require.NoError(t, err)
+		assert.Empty(t, server.Description)
+		assert.True(t, server.CreatedAt.IsZero())
+		assert.True(t, server.UpdatedAt.IsZero())
+		assert.Nil(t, server.DeletedAt)
+		assert.Nil(t, server.LastConnected)
+		all, err := client.ListToolServers(ctx)
+		require.NoError(t, err)
+		require.Len(t, all, 2)
+		assert.Equal(t, "dated", all[0].Name)
+		assert.Equal(t, *server, all[1])
+		updated, err := client.StoreToolServer(ctx, &ToolServer{Name: "nullable", GroupKind: "kind", Description: "updated"})
+		require.NoError(t, err)
+		assert.True(t, updated.CreatedAt.IsZero())
+		assert.False(t, updated.UpdatedAt.IsZero())
+		assert.Equal(t, "updated", updated.Description)
+	})
+
+	t.Run("memory", func(t *testing.T) {
+		embedding := make([]float32, 768)
+		embedding[0] = 1
+		_, err := db.Exec(ctx, `INSERT INTO memory (id, agent_name, user_id, embedding, access_count) VALUES ('nullable', 'agent', 'user', $1, NULL)`, pgvector.NewVector(embedding))
+		require.NoError(t, err)
+		memory := &Memory{AgentName: "agent", UserID: "user", Embedding: makeEmbedding(0.5), AccessCount: 1}
+		require.NoError(t, client.StoreAgentMemory(ctx, memory))
+		all, err := client.ListAgentMemories(ctx, "agent", "user")
+		require.NoError(t, err)
+		require.Len(t, all, 2)
+		assert.Equal(t, "nullable", all[0].ID) // SQL NULL counts still sort first descending.
+		assert.Empty(t, all[0].Content)
+		assert.Empty(t, all[0].Metadata)
+		assert.Equal(t, embedding, all[0].Embedding.Slice())
+		assert.True(t, all[0].CreatedAt.IsZero())
+		assert.Nil(t, all[0].ExpiresAt)
+		assert.Zero(t, all[0].AccessCount)
+		results, err := client.SearchAgentMemory(ctx, "agent", "user", makeEmbedding(0.5), 2)
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, memory.ID, results[0].ID)
+		assert.Equal(t, all[0], results[1].Memory)
+		assert.Greater(t, results[1].Score, 0.0)
+	})
+}
+
 // setupTestDB resets the shared Postgres database's tables for test isolation.
 func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()

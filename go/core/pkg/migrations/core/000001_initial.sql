@@ -107,7 +107,7 @@ CREATE TABLE agent_instance (
     state                TEXT        NOT NULL,
     labels               JSONB       NOT NULL DEFAULT '{}',
     data                 BYTEA       NOT NULL,
-    operation            TEXT        NOT NULL DEFAULT 'NONE',
+    operation            TEXT        NOT NULL DEFAULT 'AGENT_INSTANCE_OPERATION_UNSPECIFIED',
     context_id           UUID        NOT NULL,
     source_checkpoint_id UUID        REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
     history_id           UUID        NOT NULL,
@@ -115,8 +115,10 @@ CREATE TABLE agent_instance (
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
     CONSTRAINT agent_instance_history_key UNIQUE (history_id),
     CONSTRAINT agent_instance_operation_check
-        CHECK (operation IN ('NONE', 'CREATE', 'SUSPEND', 'RESUME', 'DELETE')),
-    CHECK (state IN ('CREATING', 'READY', 'SUSPENDED', 'FAILED')),
+        CHECK (operation IN ('AGENT_INSTANCE_OPERATION_UNSPECIFIED', 'AGENT_INSTANCE_OPERATION_CREATE',
+            'AGENT_INSTANCE_OPERATION_SUSPEND', 'AGENT_INSTANCE_OPERATION_RESUME', 'AGENT_INSTANCE_OPERATION_DELETE')),
+    CHECK (state IN ('AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_STATE_READY',
+        'AGENT_INSTANCE_STATE_SUSPENDED', 'AGENT_INSTANCE_STATE_FAILED')),
     UNIQUE (user_id, request_id)
 );
 CREATE INDEX agent_instance_user_id_id_idx

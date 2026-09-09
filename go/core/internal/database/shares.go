@@ -12,6 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// toAgentInstanceShare decodes a share and rejects disagreement between its payload and
+// indexed identity, instance, or permission.
 func toAgentInstanceShare(row agentInstanceShareRow) (*apiv1alpha1.AgentInstanceShare, error) {
 	share := &apiv1alpha1.AgentInstanceShare{}
 	if err := proto.Unmarshal(row.Data, share); err != nil {
@@ -24,6 +26,9 @@ func toAgentInstanceShare(row agentInstanceShareRow) (*apiv1alpha1.AgentInstance
 	return share, nil
 }
 
+// CreateAgentInstanceShare stores a share with the supplied ID, permission, and token hash
+// and sets its creation time. Callers authorize sharing and generate the token; the
+// plaintext token is never stored.
 func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
 	if share == nil {
 		return nil, fmt.Errorf("missing AgentInstance share")
@@ -38,7 +43,7 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, instance_id, permission, token_hash, data
 	`,
-		pgx.RowToStructByName[agentInstanceShareRow], uuid.MustParse(value.Id),
+		pgx.RowToStructByNameLax[agentInstanceShareRow], uuid.MustParse(value.Id),
 		uuid.MustParse(value.AgentInstanceId),
 		strings.TrimPrefix(value.Permission.String(), "AGENT_INSTANCE_SHARE_PERMISSION_"), tokenHash, data,
 	)
@@ -48,25 +53,28 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 	return toAgentInstanceShare(row)
 }
 
-// GetAgentInstanceShareByTokenHash returns the share and its instance's owner ID.
-// Only the digest is stored; the plaintext token is returned once by the service.
+// GetAgentInstanceShareByTokenHash resolves a token digest to its share and the instance
+// owner's ID, or ErrNotFound. Callers apply the share's permission when granting access.
 func (c *Client) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, string, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data, i.user_id AS owner_user_id
 		FROM agent_instance_share s
 		JOIN agent_instance i ON i.id = s.instance_id
 		WHERE s.token_hash = $1
-	`, pgx.RowToStructByName[shareWithOwnerRow], tokenHash)
+	`, pgx.RowToStructByName[agentInstanceShareRow], tokenHash)
 	if err != nil {
 		return nil, "", fmt.Errorf("get AgentInstance share by token: %w", notFoundOr(err))
 	}
-	share, err := toAgentInstanceShare(row.agentInstanceShareRow)
+	share, err := toAgentInstanceShare(row)
 	if err != nil {
 		return nil, "", err
 	}
-	return share, row.OwnerUserID, nil
+	return share, *row.OwnerUserID, nil
 }
 
+// ListAgentInstanceShares returns shares only for an instance owned by userID, in
+// ascending ID order after afterID, up to limit. A missing or unowned instance yields an
+// empty page.
 func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data FROM agent_instance_share s
@@ -76,7 +84,7 @@ func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID
 		ORDER BY s.id
 		LIMIT $4
 	`,
-		pgx.RowToStructByName[agentInstanceShareRow], uuid.MustParse(instanceID), userID, afterID, int32(limit),
+		pgx.RowToStructByNameLax[agentInstanceShareRow], uuid.MustParse(instanceID), userID, afterID, int32(limit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance shares: %w", err)
@@ -92,6 +100,8 @@ func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID
 	return result, nil
 }
 
+// DeleteAgentInstanceShare revokes a share only when its instance belongs to userID. A
+// missing or unowned share returns ErrNotFound.
 func (c *Client) DeleteAgentInstanceShare(ctx context.Context, id, userID string) error {
 	count, err := c.db.Exec(ctx, `
 		DELETE FROM agent_instance_share s
@@ -114,9 +124,6 @@ type agentInstanceShareRow struct {
 	Permission string
 	TokenHash  []byte
 	Data       []byte
-}
-
-type shareWithOwnerRow struct {
-	agentInstanceShareRow
-	OwnerUserID string
+	// Only token resolution joins the owner; other queries omit this column.
+	OwnerUserID *string
 }

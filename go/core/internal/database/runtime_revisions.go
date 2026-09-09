@@ -11,6 +11,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// UpsertAgentTemplateHarnessPair records the desired runtime revision and current labels
+// for a template/harness identity. Updating an existing pair revives it if retired and
+// preserves its latest successful revision.
 func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	if pair.AgentTemplateLabels == nil {
 		pair.AgentTemplateLabels = map[string]string{}
@@ -37,7 +40,9 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 	)
 }
 
-// UpsertRuntimeRevision refreshes runtime identity; the revision digest pins the card.
+// UpsertRuntimeRevision stores a prepared revision's configuration and agent card. An
+// existing revision retains those immutable inputs; only its actor-template UID and update
+// time are refreshed.
 func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
 	if revision.AgentCard == nil {
 		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
@@ -68,6 +73,8 @@ func (c *Client) UpsertRuntimeRevision(ctx context.Context, revision RuntimeRevi
 	return nil
 }
 
+// GetRuntimeRevision returns a prepared revision and its decoded agent card, or
+// ErrNotFound if absent.
 func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
@@ -80,6 +87,8 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 	return toRuntimeRevision(row)
 }
 
+// toRuntimeRevision converts a prepared revision and decodes its agent card, returning an
+// error for malformed protobuf data.
 func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	card := &a2apb.AgentCard{}
 	if err := proto.Unmarshal(row.AgentCard, card); err != nil {
@@ -96,24 +105,21 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	}, nil
 }
 
+// ListActorTemplateHarnesses returns actor-template and harness identities from all stored
+// revisions. Results can contain duplicates and have no guaranteed order.
 func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplateHarness, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT actor_template_atespace, actor_template_name, actor_template_uid, harness_name
+		SELECT actor_template_atespace AS atespace, actor_template_name AS name, actor_template_uid AS uid, harness_name
 		FROM runtime_revision
-	`, pgx.RowToStructByName[actorTemplateHarnessRow])
+	`, pgx.RowToStructByName[ActorTemplateHarness])
 	if err != nil {
 		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
 	}
-	result := make([]ActorTemplateHarness, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, ActorTemplateHarness{
-			Atespace: row.ActorTemplateAtespace, Name: row.ActorTemplateName,
-			UID: row.ActorTemplateUID, HarnessName: row.HarnessName,
-		})
-	}
-	return result, nil
+	return rows, nil
 }
 
+// MarkRuntimeRevisionSuccessful promotes a revision only if its pair is still active and
+// still desires that revision. Stale reconciliation results are a successful no-op.
 func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
 	return execSQL(ctx, c.db, `
@@ -127,6 +133,9 @@ func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTe
 	`, &revision, pair.Namespace, pair.AgentTemplateUID, pair.HarnessUID)
 }
 
+// RetireAgentTemplateHarnessPair excludes matching namespace/template/harness pairs from
+// new instance creation. Existing instances retain their pinned revisions; missing pairs
+// are a no-op.
 func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
 	return execSQL(ctx, c.db, `
 		UPDATE agent_template_harness_pair
@@ -135,6 +144,9 @@ func (c *Client) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, 
 	`, namespace, template, harness)
 }
 
+// RetireOtherAgentTemplateHarnessPairs retires a template's pairs whose harness names are
+// absent from harnesses. An empty non-nil slice retires every pair for that template;
+// a nil slice matches no pairs. Existing instances retain their pinned revisions.
 func (c *Client) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
 	return execSQL(ctx, c.db, `
 		UPDATE agent_template_harness_pair
@@ -145,6 +157,9 @@ func (c *Client) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, names
 	`, namespace, templateUID, harnesses)
 }
 
+// ListUnreferencedRuntimeRevisions lists revisions unused by instances or active pairs'
+// desired/latest-successful pointers. Checkpoint references are not excluded and can still
+// prevent deletion.
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
@@ -173,6 +188,9 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 	return result, nil
 }
 
+// DeleteUnreferencedRuntimeRevision deletes a revision only if no instance or active pair
+// uses it. Missing or still-used revisions are a no-op; checkpoint foreign keys can also
+// reject deletion.
 func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
 	return execSQL(ctx, c.db, `
 		DELETE FROM runtime_revision r
@@ -192,13 +210,6 @@ type instanceRuntimeRevisionRow struct {
 	runtimeRevisionRow
 	AgentTemplateLabels []byte
 	DBTime              time.Time
-}
-
-type actorTemplateHarnessRow struct {
-	ActorTemplateAtespace string
-	ActorTemplateName     string
-	ActorTemplateUID      string
-	HarnessName           string
 }
 
 type runtimeRevisionRow struct {

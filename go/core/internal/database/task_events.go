@@ -12,8 +12,10 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// taskTransition makes implicit message transitions explicit and retains opaque
-// fields in unchanged subtrees before validating with the same reducer as replay.
+// taskTransition computes a canonical task and replayable event without writing either. It
+// makes implicit message status changes explicit, retains unknown fields in unchanged
+// protobuf subtrees, and rejects inconsistent task identities or projections using the
+// same reducer as replay.
 func taskTransition(stored *a2apb.Task, task *a2a.Task, event a2a.Event) (*a2apb.Task, *a2apb.StreamResponse, error) {
 	projection := *task
 	projection.History = nil
@@ -95,8 +97,10 @@ func taskTransition(stored *a2apb.Task, task *a2a.Task, event a2a.Event) (*a2apb
 	return result, update, nil
 }
 
-// applyTaskEvent is shared by live persistence and historical reconstruction.
-// Messages contribute to history; only explicit task events change the view.
+// applyTaskEvent computes the next task state without mutating the stored task. Messages
+// contribute to history but do not change this projection; explicit task events do. It
+// rejects identity changes, missing prerequisites, and task snapshots containing
+// unarchived history.
 func applyTaskEvent(stored *a2apb.Task, event *a2apb.StreamResponse) (*a2apb.Task, error) {
 	decoded, err := pbconv.FromProtoStreamResponse(event)
 	if err != nil {
@@ -157,8 +161,10 @@ func applyTaskEvent(stored *a2apb.Task, event *a2apb.StreamResponse) (*a2apb.Tas
 	return next, nil
 }
 
-// replayTaskEvents rebuilds only from immutable events, including creation order
-// and idempotency metadata. It never reads the source's current task rows.
+// replayTaskEvents rebuilds tasks solely from ordered immutable events through a
+// caller-selected boundary. It validates event identities and creation records and
+// restores creation order, retry metadata, and snapshot references. It does not read the
+// source's current task rows.
 func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]agentInstanceTaskRow, error) {
 	tasks := make(map[string]*a2apb.Task)
 	indexes := make(map[string]int)
