@@ -20,6 +20,7 @@ export function ChatMessageItem({
   message,
   sessionId,
   onFork,
+  isForkable = false,
 }: {
   message: ChatMessage;
   /** The conversation this message belongs to, for the per-message extension point. */
@@ -29,6 +30,13 @@ export function ChatMessageItem({
    * surface provides this — so a read-only view has no control that would be refused.
    */
   onFork?: () => void;
+  /**
+   * Whether a fork can actually start from this message.
+   *
+   * True for the reader's latest message only, because a checkpoint is taken at the
+   * conversation's latest turn boundary and nowhere else.
+   */
+  isForkable?: boolean;
 }) {
   const theme = useTheme();
   const isUser = message.role === "user";
@@ -71,9 +79,15 @@ export function ChatMessageItem({
             sessionId,
           }}
         />
-        {/* The reader's own messages only. Forking reads as "rewind to this prompt and
-            take a different path", so the anchor is always a question they asked — and
-            a transcript of tool calls would otherwise carry a menu per row. */}
+        {/*
+          On the reader's own messages, and enabled only on the latest of them.
+
+          `CreateCheckpoint` takes no cutoff, so a fork can only start from the
+          conversation's latest turn boundary. The menu is still drawn on the earlier
+          ones, disabled: that is where forking belongs once a boundary can be chosen,
+          and a control that silently forked the whole conversation from a message
+          halfway up would be worse than one that says it cannot.
+        */}
         {onFork && isUser ? (
           <Dropdown
             trigger={["click"]}
@@ -83,7 +97,11 @@ export function ChatMessageItem({
                   key: "fork",
                   icon: <GitFork size={13} />,
                   label: "Fork chat",
-                  onClick: onFork,
+                  disabled: !isForkable,
+                  title: isForkable
+                    ? undefined
+                    : "Only the latest message can be forked from for now.",
+                  onClick: isForkable ? onFork : undefined,
                 },
               ],
             }}

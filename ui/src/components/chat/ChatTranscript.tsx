@@ -53,6 +53,9 @@ export function ChatTranscript({
   sessionId?: string;
 }) {
   const theme = useTheme();
+  const latestFromReader = [...chat.messages]
+    .reverse()
+    .find((message) => message.role === "user")?.id;
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -278,6 +281,9 @@ export function ChatTranscript({
         minHeight: "100%",
       }}
     >
+      {/* Which message a fork may start from: the reader's latest, because that is the
+          conversation's latest turn boundary. Computed here rather than in the message,
+          which cannot see its siblings. */}
       {chat.messages.length === 0 ? (
         <Empty
           data-testid="chat-empty"
@@ -285,7 +291,13 @@ export function ChatTranscript({
         />
       ) : (
         chat.messages.map((message) => (
-          <ChatMessageItem key={message.id} message={message} sessionId={sessionId} onFork={onFork} />
+          <ChatMessageItem
+            key={message.id}
+            message={message}
+            sessionId={sessionId}
+            onFork={onFork}
+            isForkable={message.id === latestFromReader}
+          />
         ))
       )}
 
