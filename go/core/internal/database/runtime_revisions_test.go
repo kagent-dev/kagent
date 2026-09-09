@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,40 +18,31 @@ import (
 )
 
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
-	for _, scope := range []string{"pair", "removed harness"} {
-		t.Run(scope, func(t *testing.T) {
-			client := NewClient(setupTestDB(t))
-			ctx := t.Context()
-			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 
-			// The successful pair must protect both the listing and deletion paths.
-			revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
-			require.NoError(t, err)
-			require.Empty(t, revisions)
-			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
-			_, err = client.GetRuntimeRevision(ctx, "revision")
-			require.NoError(t, err)
+	// The successful pair must protect both the listing and deletion paths.
+	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Empty(t, revisions)
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+	_, err = client.GetRuntimeRevision(ctx, "revision")
+	require.NoError(t, err)
 
-			switch scope {
-			case "pair":
-				err = client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent")
-			case "removed harness":
-				err = client.RetireOtherAgentTemplateHarnessPairs(ctx, "team-a", "assistant-uid", []string{})
-			}
-			require.NoError(t, err)
-			revisions, err = client.ListUnreferencedRuntimeRevisions(ctx)
-			require.NoError(t, err)
-			require.Len(t, revisions, 1)
-			require.Equal(t, "revision", revisions[0].Revision)
-			claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
-			require.NoError(t, err)
-			require.NotNil(t, claimed)
-			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
-			_, err = client.GetRuntimeRevision(ctx, "revision")
-			require.ErrorIs(t, err, ErrNotFound)
-			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
-		})
-	}
+	err = client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent")
+	require.NoError(t, err)
+	revisions, err = client.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	require.Equal(t, "revision", revisions[0].Revision)
+	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+	_, err = client.GetRuntimeRevision(ctx, "revision")
+	require.ErrorIs(t, err, ErrNotFound)
+	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 }
 
 func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
@@ -59,7 +51,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
 	require.NoError(t, err)
-	_, err = client.MarkAgentInstanceReady(ctx, instance.GetId(), "runtime")
+	_, err = markAgentInstanceReady(ctx, client, instance.GetId(), "runtime")
 	require.NoError(t, err)
 	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 
@@ -119,7 +111,7 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	revision.Revision = "new"
 	revision.AgentTemplateUID = "replacement-uid"
 	revision.ActorTemplateName = "new-actor-template"
-	require.NoError(t, client.UpsertRuntimeRevision(ctx, *revision))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, false))
 	pair := AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: revision.AgentTemplateUID,
 		HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "new",
@@ -128,7 +120,7 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "")
 	_, _, err = client.CreateAgentInstance(ctx, request, "instance")
 	require.ErrorIs(t, err, ErrNotFound, "a replacement must not select the previous template UID")
-	require.NoError(t, client.MarkRuntimeRevisionSuccessful(ctx, pair))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, true))
 
 	// Reconciliation of the same identity must preserve its last success while
 	// a new desired revision is still preparing.
@@ -283,7 +275,8 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	pair.AgentTemplateUID = "replacement-uid"
 	pair.DesiredRevision = "revision"
 	require.ErrorIs(t, client.UpsertAgentTemplateHarnessPair(ctx, pair), ErrObjectDeleting)
-	require.ErrorIs(t, client.UpsertRuntimeRevision(ctx, *claimed), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *claimed, false), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *claimed, true), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
 	restarted := NewClient(pool)
 	revisions, err := restarted.ListUnreferencedRuntimeRevisions(ctx)
@@ -299,7 +292,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.ErrorIs(t, err, ErrNotFound)
 	// The same digest can be prepared again once cleanup has completed.
 	claimed.ActorTemplateUID = "recreated-actor-uid"
-	require.NoError(t, restarted.UpsertRuntimeRevision(ctx, *claimed))
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *claimed, false))
 	newClaim, err := restarted.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, newClaim)
@@ -307,77 +300,148 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err, "a delayed collector must not finalize the new runtime")
 	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
-	require.NoError(t, restarted.UpsertRuntimeRevision(ctx, *claimed))
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *claimed, false))
 	require.NoError(t, restarted.UpsertAgentTemplateHarnessPair(ctx, pair))
 }
 
-func TestRuntimeRevisionFinalizationSerializesWithPairReactivation(t *testing.T) {
-	for _, finalizeFirst := range []bool{false, true} {
-		t.Run(fmt.Sprintf("finalize_first=%t", finalizeFirst), func(t *testing.T) {
-			pool := setupTestDB(t)
-			client := NewClient(pool)
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-			require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
-			claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
-			require.NoError(t, err)
-			require.NotNil(t, claimed)
+func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
+	for _, operation := range []string{"reactivate", "record"} {
+		for _, finalizeFirst := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/finalize_first=%t", operation, finalizeFirst), func(t *testing.T) {
+				pool := setupTestDB(t)
+				client := NewClient(pool)
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+				require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+				claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+				require.NoError(t, err)
+				require.NotNil(t, claimed)
 
-			barrier := &runtimeReferenceBarrier{
-				query: "FOR UPDATE OF r", reached: make(chan struct{}), resume: make(chan struct{}),
-			}
-			waitingQuery := "ORDER BY namespace, agent_template_uid, harness_uid"
-			if finalizeFirst {
-				barrier.query, barrier.afterQuery = "FROM runtime_revision WHERE revision = $1 FOR UPDATE", true
-				waitingQuery = "INSERT INTO agent_template_harness_pair"
-			}
-			var resume sync.Once
-			defer resume.Do(func() { close(barrier.resume) })
-			config := pool.Config()
-			config.ConnConfig.Tracer = barrier
-			blockedPool, err := pgxpool.NewWithConfig(ctx, config)
-			require.NoError(t, err)
-			t.Cleanup(blockedPool.Close)
-			creating, deleting := NewClient(blockedPool), client
-			if finalizeFirst {
-				creating, deleting = client, creating
-			}
-			pair := AgentTemplateHarnessPair{
-				Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
-				HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "revision",
-			}
-			created, deleted := make(chan error, 1), make(chan error, 1)
-			create := func() { created <- creating.UpsertAgentTemplateHarnessPair(ctx, pair) }
-			finalize := func() { deleted <- deleting.DeleteRuntimeRevision(ctx, "revision", claimed.ActorTemplateUID) }
-			if finalizeFirst {
-				go finalize()
-			} else {
-				go create()
-			}
-			select {
-			case <-barrier.reached:
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
-			}
-			if finalizeFirst {
-				go create()
-			} else {
-				go finalize()
-			}
-			require.Eventually(t, func() bool {
-				var waiting bool
-				err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE $1 AND cardinality(pg_blocking_pids(pid)) > 0)", "%"+waitingQuery+"%").Scan(&waiting)
-				return err == nil && waiting
-			}, 5*time.Second, 10*time.Millisecond)
-			resume.Do(func() { close(barrier.resume) })
-			if finalizeFirst {
-				require.NoError(t, <-created)
-			} else {
-				require.ErrorIs(t, <-created, ErrObjectDeleting)
-			}
-			require.NoError(t, <-deleted, "finalization and reactivation must not deadlock")
-			require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
-		})
+				barrier := &runtimeReferenceBarrier{
+					query: "FOR UPDATE OF r", reached: make(chan struct{}), resume: make(chan struct{}),
+				}
+				if operation == "record" {
+					barrier.query = "INSERT INTO runtime_revision"
+				}
+				waitingQuery := "ORDER BY namespace, agent_template_uid, harness_uid"
+				if finalizeFirst {
+					barrier.query, barrier.afterQuery = "FROM runtime_revision WHERE revision = $1 FOR UPDATE", true
+					waitingQuery = "INSERT INTO agent_template_harness_pair"
+					if operation == "record" {
+						waitingQuery = "FOR UPDATE OF p"
+					}
+				}
+				var resume sync.Once
+				defer resume.Do(func() { close(barrier.resume) })
+				config := pool.Config()
+				config.ConnConfig.Tracer = barrier
+				blockedPool, err := pgxpool.NewWithConfig(ctx, config)
+				require.NoError(t, err)
+				t.Cleanup(blockedPool.Close)
+				creating, deleting := NewClient(blockedPool), client
+				if finalizeFirst {
+					creating, deleting = client, creating
+				}
+				pair := AgentTemplateHarnessPair{
+					Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
+					HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "revision",
+				}
+				created, deleted := make(chan error, 1), make(chan error, 1)
+				create := func() {
+					if operation == "record" {
+						created <- creating.RecordRuntimeRevision(ctx, *claimed, true)
+						return
+					}
+					created <- creating.UpsertAgentTemplateHarnessPair(ctx, pair)
+				}
+				finalize := func() { deleted <- deleting.DeleteRuntimeRevision(ctx, "revision", claimed.ActorTemplateUID) }
+				if finalizeFirst {
+					go finalize()
+				} else {
+					go create()
+				}
+				select {
+				case <-barrier.reached:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+				if finalizeFirst {
+					go create()
+				} else {
+					go finalize()
+				}
+				require.Eventually(t, func() bool {
+					var waiting bool
+					err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE $1 AND cardinality(pg_blocking_pids(pid)) > 0)", "%"+waitingQuery+"%").Scan(&waiting)
+					return err == nil && waiting
+				}, 5*time.Second, 10*time.Millisecond)
+				resume.Do(func() { close(barrier.resume) })
+				if finalizeFirst {
+					require.NoError(t, <-created)
+				} else {
+					require.ErrorIs(t, <-created, ErrObjectDeleting)
+				}
+				require.NoError(t, <-deleted, "finalization and pair writes must not deadlock")
+				require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
+			})
+		}
 	}
+}
+
+func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
+	pool := setupTestDB(t)
+	c := NewClient(pool)
+	ctx := t.Context()
+	revision := RuntimeRevision{
+		Revision: "first", Namespace: "team", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
+		HarnessName: "runtime", HarnessUID: "harness-uid", AgentCard: &a2apb.AgentCard{Name: "original"},
+		SourceSnapshot: []byte("{}"), EgressDestinations: []string{},
+		ActorTemplateAtespace: "team", ActorTemplateName: "first", ActorTemplateUID: "actor-uid",
+	}
+	pair := AgentTemplateHarnessPair{
+		Namespace: revision.Namespace, AgentTemplateName: revision.AgentTemplateName, AgentTemplateUID: revision.AgentTemplateUID,
+		HarnessName: revision.HarnessName, HarnessUID: revision.HarnessUID, DesiredRevision: revision.Revision,
+	}
+	assertAvailableRevision := func(want string) {
+		t.Helper()
+		instance, _, err := c.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+			Id: uuid.NewString(), Creator: "alice",
+			Harness:       &apiv1alpha1.ResourceReference{Namespace: pair.Namespace, Name: pair.HarnessName},
+			AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentTemplateName},
+		}, uuid.NewString())
+		if want == "" {
+			require.ErrorIs(t, err, ErrNotFound)
+			return
+		}
+		require.NoError(t, err)
+		require.Equal(t, want, instance.PreparedRevision)
+	}
+	require.NoError(t, c.UpsertAgentTemplateHarnessPair(ctx, pair))
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, false))
+	assertAvailableRevision("")
+	stored, err := c.GetRuntimeRevision(ctx, revision.Revision)
+	require.NoError(t, err)
+	require.Equal(t, "original", stored.AgentCard.Name)
+
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, true))
+	assertAvailableRevision("first")
+	pair.DesiredRevision = "second"
+	require.NoError(t, c.UpsertAgentTemplateHarnessPair(ctx, pair))
+	revision.Revision, revision.ActorTemplateName = "second", "second"
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, true))
+	assertAvailableRevision("second")
+	// A delayed report for the old revision must not replace the newer ready revision.
+	revision.Revision, revision.ActorTemplateName = "first", "first"
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, true))
+	assertAvailableRevision("second")
+	pair.DesiredRevision = "third"
+	require.NoError(t, c.UpsertAgentTemplateHarnessPair(ctx, pair))
+	require.NoError(t, c.RetireAllPairIdentities(ctx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName))
+	revision.Revision, revision.ActorTemplateName = "third", "third"
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, true))
+	assertAvailableRevision("")
+	// Reviving the pair must retain the last success, not a report made while retired.
+	require.NoError(t, c.UpsertAgentTemplateHarnessPair(ctx, pair))
+	assertAvailableRevision("second")
 }

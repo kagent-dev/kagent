@@ -86,21 +86,13 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	templates.template = proto.CloneOf(created)
 	templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
 	writeErr := errors.New("database unavailable")
-	for _, stage := range []string{"revision", "success"} {
-		t.Run(stage, func(t *testing.T) {
-			t.Cleanup(func() { store.revisionErr, store.markErr = nil, nil })
-			if stage == "revision" {
-				store.revisionErr = writeErr
-			} else {
-				store.markErr = writeErr
-			}
-			require.ErrorIs(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), writeErr)
-			observed := reconciler.collections.ActorTemplates.GetKey(state.ResourceName())
-			require.NotNil(t, observed)
-			require.Nil(t, observed.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot(),
-				"Ready must not be published before its database writes succeed")
-		})
-	}
+	store.revisionErr = writeErr
+	require.ErrorIs(t, reconciler.reconcilePair(t.Context(), state.ResourceName()), writeErr)
+	pending := reconciler.collections.ActorTemplates.GetKey(state.ResourceName())
+	require.NotNil(t, pending)
+	require.Nil(t, pending.Template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot(),
+		"Ready must not be published before the database write succeeds")
+	store.revisionErr = nil
 	if err := reconciler.reconcilePair(context.Background(), state.ResourceName()); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +290,6 @@ type fakeRuntimeRevisionStore struct {
 	markedSuccessful bool
 	retired          string
 	revisionErr      error
-	markErr          error
 	pairErr          error
 }
 
@@ -307,19 +298,12 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentTemplateHarnessPair(_ context.Cont
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, ready bool) error {
 	if s.revisionErr != nil {
 		return s.revisionErr
 	}
 	s.revision = &revision
-	return nil
-}
-
-func (s *fakeRuntimeRevisionStore) MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error {
-	if s.markErr != nil {
-		return s.markErr
-	}
-	s.markedSuccessful = true
+	s.markedSuccessful = ready
 	return nil
 }
 
