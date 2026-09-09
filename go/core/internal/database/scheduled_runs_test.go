@@ -392,7 +392,7 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
 	schedule, _ := createTestSchedule(t, c)
-	require.NoError(t, c.RetireAllPairIdentities(t.Context(), "team-a", "report", "runtime"))
+	require.NoError(t, c.RetirePairIdentities(t.Context(), "team-a", "report", "runtime", nil))
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
 	_, err = c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")

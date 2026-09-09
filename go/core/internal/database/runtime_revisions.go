@@ -17,7 +17,7 @@ import (
 // at the same names and rejects revisions whose deletion has started.
 func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		if err := retirePairIdentitiesExcept(ctx, tx, pair); err != nil {
+		if err := retirePairIdentities(ctx, tx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName, &pair); err != nil {
 			return fmt.Errorf("retire replaced AgentTemplate/Harness pair: %w", err)
 		}
 		if err := execSQL(ctx, tx, `
@@ -173,34 +173,27 @@ func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplat
 	return rows, nil
 }
 
-// RetireAllPairIdentities excludes matching namespace/template/harness pairs from
-// new instance creation. Existing instances retain their pinned revisions; missing pairs
-// are a no-op.
-func (c *Client) RetireAllPairIdentities(ctx context.Context, namespace, template, harness string) error {
-	return execSQL(ctx, c.db, `
-		UPDATE agent_template_harness_pair
-		SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-		WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
-	`, namespace, template, harness)
+// RetirePairIdentities retires identities at the given namespace/template/harness
+// names, except the supplied UID pair when non-nil. Existing instances retain
+// their pinned revisions. Missing and already-retired identities are a no-op.
+func (c *Client) RetirePairIdentities(ctx context.Context, namespace, template, harness string, except *AgentTemplateHarnessPair) error {
+	return retirePairIdentities(ctx, c.db, namespace, template, harness, except)
 }
 
-// RetirePairIdentitiesExcept retires older identities at keep's template/harness
-// names, preserving the current UID pair and its last-good revision. Missing or
-// already-retired identities are a no-op.
-func (c *Client) RetirePairIdentitiesExcept(ctx context.Context, keep AgentTemplateHarnessPair) error {
-	return retirePairIdentitiesExcept(ctx, c.db, keep)
-}
-
-// retirePairIdentitiesExcept uses the caller's executor so retirement can commit
-// atomically with pair preparation. It never retires the supplied UID pair.
-func retirePairIdentitiesExcept(ctx context.Context, db dbExecutor, keep AgentTemplateHarnessPair) error {
+// retirePairIdentities uses the caller's executor so retirement can commit
+// atomically with pair preparation. A nil exception retires every matching identity.
+func retirePairIdentities(ctx context.Context, db dbExecutor, namespace, template, harness string, except *AgentTemplateHarnessPair) error {
+	var templateUID, harnessUID *string
+	if except != nil {
+		templateUID, harnessUID = &except.AgentTemplateUID, &except.HarnessUID
+	}
 	return execSQL(ctx, db, `
 		UPDATE agent_template_harness_pair
 		SET retired_at = NOW(), updated_at = NOW()
 		WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
 		  AND retired_at IS NULL
 		  AND (agent_template_uid, harness_uid) IS DISTINCT FROM ($4::text, $5::text)
-	`, keep.Namespace, keep.AgentTemplateName, keep.HarnessName, keep.AgentTemplateUID, keep.HarnessUID)
+	`, namespace, template, harness, templateUID, harnessUID)
 }
 
 // ListUnreferencedRuntimeRevisions lists revisions unused by active pairs,

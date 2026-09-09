@@ -118,8 +118,7 @@ func newPairReconciliations(
 type runtimeRevisionStore interface {
 	UpsertAgentTemplateHarnessPair(context.Context, database.AgentTemplateHarnessPair) error
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
-	RetireAllPairIdentities(ctx context.Context, namespace, templateName, harnessName string) error
-	RetirePairIdentitiesExcept(ctx context.Context, keep database.AgentTemplateHarnessPair) error
+	RetirePairIdentities(ctx context.Context, namespace, templateName, harnessName string, except *database.AgentTemplateHarnessPair) error
 }
 
 type actorTemplateClient interface {
@@ -256,7 +255,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if len(parts) != 3 {
 			return fmt.Errorf("invalid AgentTemplate/Harness pair key %q", key)
 		}
-		if err := r.store.RetireAllPairIdentities(ctx, parts[0], parts[1], parts[2]); err != nil {
+		if err := r.store.RetirePairIdentities(ctx, parts[0], parts[1], parts[2], nil); err != nil {
 			return fmt.Errorf("retire AgentTemplate/Harness pair %s: %w", key, err)
 		}
 		return nil
@@ -269,7 +268,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if state.Revision == nil || state.RevisionID.IsZero() {
 		// Bad inputs must not destroy the current identity's last-good runtime.
 		// A recreated object at this name must still retire the previous UID.
-		if err := r.store.RetirePairIdentitiesExcept(ctx, pair); err != nil {
+		if err := r.store.RetirePairIdentities(ctx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName, &pair); err != nil {
 			return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
 		}
 		return nil

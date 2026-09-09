@@ -17,6 +17,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRetirePairIdentities(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		except *AgentTemplateHarnessPair
+		keep   bool
+	}{
+		{name: "all"},
+		{name: "except current", except: &AgentTemplateHarnessPair{AgentTemplateUID: "assistant-uid", HarnessUID: "kagent-uid"}, keep: true},
+		{name: "replacement template", except: &AgentTemplateHarnessPair{AgentTemplateUID: "replacement-uid", HarnessUID: "kagent-uid"}},
+		{name: "replacement harness", except: &AgentTemplateHarnessPair{AgentTemplateUID: "assistant-uid", HarnessUID: "replacement-uid"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := NewClient(setupTestDB(t))
+			ctx := t.Context()
+			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			agentInstanceFixture(t, client, ctx, "team-b", "other-namespace", "assistant", "kagent")
+			agentInstanceFixture(t, client, ctx, "team-a", "other-template", "other", "kagent")
+			agentInstanceFixture(t, client, ctx, "team-a", "other-harness", "assistant", "other")
+			for range 2 {
+				require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", test.except))
+			}
+			revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+			require.NoError(t, err)
+			if test.keep {
+				require.Empty(t, revisions)
+				instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), "instance")
+				require.NoError(t, err)
+				require.Equal(t, "revision", instance.GetPreparedRevision(), "the exception retains its last-good revision")
+			} else {
+				require.Len(t, revisions, 1, "retirement must stay within the requested namespace and names")
+				require.Equal(t, "revision", revisions[0].Revision)
+			}
+		})
+	}
+}
+
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
@@ -30,7 +66,7 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 	_, err = client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 
-	err = client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent")
+	err = client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil)
 	require.NoError(t, err)
 	revisions, err = client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
@@ -53,7 +89,7 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	require.NoError(t, err)
 	_, err = markAgentInstanceReady(ctx, client, instance.GetId(), "runtime")
 	require.NoError(t, err)
-	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 
 	assertRetained := func() {
 		t.Helper()
@@ -178,7 +214,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				query := "FROM runtime_revision WHERE revision = $1 FOR UPDATE"
 				if source != "instance" {
 					query = "FOR UPDATE OF r"
-					require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+					require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 				}
 				barrier := &runtimeReferenceBarrier{query: query, afterQuery: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
 				var resume sync.Once
@@ -212,7 +248,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					t.Fatal(ctx.Err())
 				}
 				if source == "instance" {
-					require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+					require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 				}
 				type claimResult struct {
 					revision *RuntimeRevision
@@ -257,7 +293,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
 		HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "pending",
 	}
-	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 	// A skipped finalization must leave last-good intact for reactivation.
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 	require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
@@ -265,7 +301,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, "revision", instance.GetPreparedRevision())
 	require.NoError(t, client.DeleteAgentInstance(ctx, instance.GetId()))
-	require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
@@ -313,7 +349,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-				require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
+				require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
 				claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
 				require.NoError(t, err)
 				require.NotNil(t, claimed)
@@ -437,7 +473,7 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	assertAvailableRevision("second")
 	pair.DesiredRevision = "third"
 	require.NoError(t, c.UpsertAgentTemplateHarnessPair(ctx, pair))
-	require.NoError(t, c.RetireAllPairIdentities(ctx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName))
+	require.NoError(t, c.RetirePairIdentities(ctx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName, nil))
 	revision.Revision, revision.ActorTemplateName = "third", "third"
 	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, true))
 	assertAvailableRevision("")

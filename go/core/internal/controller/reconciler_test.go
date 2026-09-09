@@ -307,12 +307,10 @@ func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revi
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RetireAllPairIdentities(_ context.Context, namespace, template, harness string) error {
-	s.retired = namespace + "/" + template + "/" + harness
-	return nil
-}
-
-func (s *fakeRuntimeRevisionStore) RetirePairIdentitiesExcept(context.Context, database.AgentTemplateHarnessPair) error {
+func (s *fakeRuntimeRevisionStore) RetirePairIdentities(_ context.Context, namespace, template, harness string, except *database.AgentTemplateHarnessPair) error {
+	if except == nil {
+		s.retired = namespace + "/" + template + "/" + harness
+	}
 	return nil
 }
 
