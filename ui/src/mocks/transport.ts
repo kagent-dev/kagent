@@ -1441,15 +1441,19 @@ because that state has no fixture yet. See `playwright/DEFERRED.md`.
 */
 function substratePageResponse<Row, Message>(
   rows: readonly Row[],
-  input: { namespace: string; pageSize: number; pageToken: string },
+  input: { namespace: string; page?: { limit: number; pageToken: string } },
   inScope: (row: Row) => boolean,
   message: (row: Row) => Message,
 ) {
-  const page = substratePage(rows.filter(inScope), input.pageSize, input.pageToken);
+  const page = substratePage(
+    rows.filter(inScope),
+    input.page?.limit ?? 0,
+    input.page?.pageToken ?? "",
+  );
   return {
     enabled: mockSubstrateStatus.enabled,
     rows: page.rows.map(message),
-    nextPageToken: page.nextPageToken,
+    page: { nextPageToken: page.nextPageToken },
     computedAt: timestampFromDate(new Date()),
   };
 }

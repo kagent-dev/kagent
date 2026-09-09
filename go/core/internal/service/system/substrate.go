@@ -68,8 +68,9 @@ const maxATEPagesPerWalk = 10_000
 type SubstrateListInput struct {
 	// Empty means every namespace the controller observes.
 	Namespace string
-	// Zero means defaultSubstratePageSize.
-	PageSize int32
+	// Zero means defaultSubstratePageSize. An `int` as the other paged services take
+	// it; ate-api's own request is what wants the int32.
+	PageSize int
 	// Empty for the first page; otherwise the previous answer's NextPageToken.
 	PageToken string
 }
@@ -490,18 +491,18 @@ func allowedWorkerNamespace(namespace string, allowAll bool, allowed map[string]
 	return ok
 }
 
-func substratePageSize(requested int32) (int32, error) {
+func substratePageSize(requested int) (int32, error) {
 	switch {
 	case requested < 0:
 		return 0, serviceerrors.NewInvalidArgument(fmt.Sprintf("invalid page size %d: must not be negative", requested), nil)
 	case requested == 0:
 		return defaultSubstratePageSize, nil
-	case requested > maxSubstratePageSize:
+	case requested > int(maxSubstratePageSize):
 		return 0, serviceerrors.NewInvalidArgument(
 			fmt.Sprintf("invalid page size %d: the maximum is %d", requested, maxSubstratePageSize),
 			nil,
 		)
 	default:
-		return requested, nil
+		return int32(requested), nil
 	}
 }

@@ -1121,17 +1121,17 @@ async function substrateStatus(
 function substratePageRequest(input: SubstratePageInput) {
   return {
     namespace: input.namespace ?? "",
-    // Zero is "the controller's own default", which is a better answer than a number
-    // invented here — and it refuses anything over 100 outright.
-    pageSize: input.limit ?? 0,
-    pageToken: input.pageToken ?? "",
+    // `PageRequest`, as every other paged read on this API sends it. Zero is "the
+    // controller's own default", which is a better answer than a number invented here
+    // — and the schema refuses anything over 100 outright.
+    page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" },
   };
 }
 
 function substratePageResult(response: {
   enabled: boolean;
   ateApiError: string;
-  nextPageToken: string;
+  page?: { nextPageToken: string };
   computedAt?: Timestamp;
 }) {
   return {
@@ -1139,7 +1139,7 @@ function substratePageResult(response: {
     ateApiError: orUndefined(response.ateApiError),
     // Absent rather than empty: a caller testing presence must not be handed `""`,
     // which would send it back to page one for ever.
-    nextPageToken: orUndefined(response.nextPageToken),
+    nextPageToken: orUndefined(response.page?.nextPageToken ?? ""),
     computedAt: orUndefined(isoFrom(response.computedAt)),
   };
 }

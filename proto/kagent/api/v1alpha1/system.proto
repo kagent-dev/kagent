@@ -2,9 +2,9 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
-import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
@@ -170,14 +170,11 @@ message GetSubstrateSummaryResponse {
 message ListSubstrateActorsRequest {
   // Empty means every namespace the controller observes.
   string namespace = 1;
-  // The most rows to answer with. Zero means the server's default. Above 100 is
-  // refused rather than clamped, so a caller learns its page size was not honoured.
-  int32 page_size = 2 [(buf.validate.field).int32 = {
-    gte: 0
-    lte: 100
-  }];
-  // Empty for the first page; otherwise the previous response's next_page_token.
-  string page_token = 3;
+  // The shared page request, as every other paged read on this API takes it: `limit`
+  // is the most rows to answer with, capped at 100 there rather than here, and zero
+  // means the server's default. Above the cap is refused rather than clamped, so a
+  // caller learns its page size was not honoured.
+  PageRequest page = 2;
 }
 
 message ListSubstrateActorsResponse {
@@ -187,30 +184,26 @@ message ListSubstrateActorsResponse {
   // page: rows outside the requested namespace are dropped after ate-api has counted
   // them into its page. next_page_token, not the row count, is what says there is more.
   repeated SubstrateActor actors = 3;
-  // Empty on the last page.
+  // Empty next_page_token on the last page.
   //
-  // When ate_api_error is set partway through a page, this is the token of the page
+  // When ate_api_error is set partway through a page, it holds the token of the page
   // that failed, so retrying resumes there rather than losing the rest of the list.
-  // It is empty when no rows were read at all: there is then no page to continue
-  // after, and offering one would point back at the page just asked for.
-  string next_page_token = 4;
+  // It is empty when no page was read at all: there is then nothing to continue after,
+  // and offering a token would point back at the page just asked for.
+  PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
 }
 
 // One page of worker assignments. The mirror of ListSubstrateActors.
 message ListSubstrateWorkersRequest {
   string namespace = 1;
-  int32 page_size = 2 [(buf.validate.field).int32 = {
-    gte: 0
-    lte: 100
-  }];
-  string page_token = 3;
+  PageRequest page = 2;
 }
 
 message ListSubstrateWorkersResponse {
   bool enabled = 1;
   string ate_api_error = 2;
   repeated SubstrateWorker workers = 3;
-  string next_page_token = 4;
+  PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
 }

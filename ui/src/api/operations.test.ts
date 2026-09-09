@@ -454,20 +454,21 @@ describe("the cluster", () => {
     expect(summary.computedAt).toBe("2026-09-04T12:00:00.000Z");
   });
 
+  // `PageRequest`/`PageResponse`, the shape every other paged read on this API uses.
   it("sends the page size and token, and reads the next token back", async () => {
-    const asked: { namespace: string; pageSize: number; pageToken: string }[] = [];
+    const asked: { namespace: string; limit: number; pageToken: string }[] = [];
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateActors: (request) => {
           asked.push({
             namespace: request.namespace,
-            pageSize: request.pageSize,
-            pageToken: request.pageToken,
+            limit: request.page?.limit ?? 0,
+            pageToken: request.page?.pageToken ?? "",
           });
           return {
             enabled: true,
             actors: [{ actorId: "a1", status: "Running", version: 3n }],
-            nextPageToken: "cursor-2",
+            page: { nextPageToken: "cursor-2" },
           };
         },
       });
@@ -478,9 +479,7 @@ describe("the cluster", () => {
       limit: 100,
       pageToken: "cursor-1",
     });
-    expect(asked).toEqual([
-      { namespace: "kagent", pageSize: 100, pageToken: "cursor-1" },
-    ]);
+    expect(asked).toEqual([{ namespace: "kagent", limit: 100, pageToken: "cursor-1" }]);
     expect(page.actors[0].version).toBe(3);
     expect(page.nextPageToken).toBe("cursor-2");
   });
@@ -493,7 +492,7 @@ describe("the cluster", () => {
         listSubstrateWorkers: () => ({
           enabled: true,
           workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
-          nextPageToken: "",
+          page: { nextPageToken: "" },
         }),
       });
     });
