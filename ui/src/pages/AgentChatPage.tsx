@@ -73,6 +73,15 @@ const CONTEXT_OPEN = "kagent.chat.agentPanel.open";
  */
 const CONTEXT_COLLAPSES_BELOW = 1440;
 
+/** Boundaries saved on this page, and the conversation they were saved in. */
+interface SavedMarks {
+  conversation?: string;
+  marks: ReadonlyMap<string, string>;
+}
+
+/** Stable, so a page with nothing saved does not re-derive its marks every render. */
+const NO_MARKS: SavedMarks = { marks: new Map() };
+
 export function AgentChatPage() {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -190,24 +199,24 @@ export function AgentChatPage() {
    * See `checkpointsByMessage`: the controller ties a checkpoint to a *turn*, and the
    * message the reader has just sent does not know its turn yet.
    */
-  const [savedHere, setSavedHere] = useState<ReadonlyMap<string, string>>(new Map());
   /*
-   * Dropped the moment the conversation changes.
+   * Held against the conversation it belongs to, and read only for that one.
    *
-   * These are keyed by message id, and a fork is given copies of its source's messages
-   * under the same ids — so a fork opened from this page inherited the marks of
-   * boundaries it does not have, until something reloaded it. The controller's list is
-   * the truth about a conversation's boundaries; this map only ever covers the gap
-   * before the first read of it lands.
+   * The marks are keyed by message id, and a fork is given copies of its source's
+   * messages under the same ids — so a fork opened from this page inherited marks for
+   * boundaries it does not have. Carrying the conversation with them is what drops
+   * them: a different `id` reads as no marks, with no effect to clear anything and no
+   * render in between where the old ones still apply. The same shape `useChat` gives
+   * its transcript, and for the same reason. The controller's list is the truth; this
+   * only ever covers the gap before the first read of it lands.
    */
-  useEffect(() => {
-    setSavedHere(new Map());
-  }, [id]);
+  const [savedHere, setSavedHere] = useState<SavedMarks>(NO_MARKS);
+  const marksHere = savedHere.conversation === id ? savedHere.marks : NO_MARKS.marks;
   const [isCheckpointing, setCheckpointing] = useState(false);
 
   const checkpointByMessage = useMemo(
-    () => checkpointsByMessage(chat.messages, checkpoints.data, savedHere),
-    [chat.messages, checkpoints.data, savedHere],
+    () => checkpointsByMessage(chat.messages, checkpoints.data, marksHere),
+    [chat.messages, checkpoints.data, marksHere],
   );
   /*
    * Whether there is a boundary to save.
@@ -240,7 +249,13 @@ export function AgentChatPage() {
     setCheckpointing(true);
     try {
       const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
-      if (anchor) setSavedHere((current) => new Map(current).set(anchor, checkpoint.id));
+      if (anchor) {
+        setSavedHere((current) => {
+          const marks = new Map(current.conversation === id ? current.marks : []);
+          marks.set(anchor, checkpoint.id);
+          return { conversation: id, marks };
+        });
+      }
       toast.success("Checkpoint saved");
     } catch (cause: unknown) {
       const reason = cause instanceof Error ? cause.message : String(cause);
