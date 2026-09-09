@@ -71,6 +71,28 @@ def _enrich_cancelled_error(error: BaseException) -> asyncio.CancelledError:
     return asyncio.CancelledError(message)
 
 
+def _extract_http_status(error: BaseException) -> Optional[int]:
+    """Return the HTTP status code carried by an httpx.HTTPStatusError found
+    anywhere in the exception's chain or group, without stringifying the error
+    (which could leak Authorization headers). Returns None if absent."""
+    seen: set[int] = set()
+    stack: list[BaseException] = [error]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, httpx.HTTPStatusError):
+            return current.response.status_code
+        if isinstance(current, BaseExceptionGroup):
+            stack.extend(current.exceptions)
+        if current.__cause__ is not None:
+            stack.append(current.__cause__)
+        if current.__context__ is not None:
+            stack.append(current.__context__)
+    return None
+
+
 class ConnectionSafeMcpTool(McpTool):
     """McpTool wrapper that catches connection errors and returns them as
     error text to the LLM instead of raising.
@@ -96,14 +118,30 @@ class ConnectionSafeMcpTool(McpTool):
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner_tool, name)
 
-    def _connection_error_response(self, error: Exception) -> dict[str, Any]:
+    def _connection_error_response(self, error: BaseException) -> dict[str, Any]:
         error_message = (
-            f"MCP tool '{self.name}' failed due to a connection error: "
-            f"{type(error).__name__}: {error}. "
+            f"MCP tool '{self.name}' failed due to a connection error "
+            f"({type(error).__name__}). "
             "The MCP server may be unreachable. "
             "Do not retry this tool — inform the user about the failure."
         )
-        logger.error(error_message, exc_info=error)
+        logger.error(
+            "MCP tool '%s' failed due to a connection error (%s)",
+            self.name,
+            type(error).__name__,
+        )
+        return {"error": error_message}
+
+    def _http_status_error_response(self, status_code: int) -> dict[str, Any]:
+        error_message = (
+            f"MCP tool '{self.name}' failed because the upstream returned HTTP "
+            f"{status_code}. Do not retry this tool — inform the user about the failure."
+        )
+        logger.warning(
+            "MCP tool '%s' received upstream HTTP status %s",
+            self.name,
+            status_code,
+        )
         return {"error": error_message}
 
     async def run_async(
@@ -116,10 +154,20 @@ class ConnectionSafeMcpTool(McpTool):
             return await self._inner_tool.run_async(args=args, tool_context=tool_context)
         except _CONNECTION_ERROR_TYPES as error:
             return self._connection_error_response(error)
+        except httpx.HTTPStatusError as error:
+            return self._http_status_error_response(error.response.status_code)
         except McpError as error:
+            status_code = _extract_http_status(error)
+            if status_code is not None:
+                return self._http_status_error_response(status_code)
             if not _is_transport_mcp_error(error):
                 raise
             return self._connection_error_response(error)
+        except BaseExceptionGroup as error:
+            status_code = _extract_http_status(error)
+            if status_code is not None:
+                return self._http_status_error_response(status_code)
+            raise
 
 
 class KAgentMcpToolset(McpToolset):
