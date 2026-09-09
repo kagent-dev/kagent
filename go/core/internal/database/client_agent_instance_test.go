@@ -917,10 +917,10 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	_, err = client.MarkAgentInstanceReady(ctx, source.GetId(), "source.example")
 	require.NoError(t, err)
 	require.NotEqual(t, source.GetId(), source.GetContextId())
-	historyID, err := client.agentInstanceHistoryID(ctx, source.GetId())
+	sourceRow, err := readAgentInstance(ctx, client.db, source.GetId())
 	require.NoError(t, err)
-	require.NotEqual(t, source.GetId(), historyID.String())
-	require.NotEqual(t, source.GetContextId(), historyID.String())
+	require.NotEqual(t, source.GetId(), sourceRow.HistoryID.String())
+	require.NotEqual(t, source.GetContextId(), sourceRow.HistoryID.String())
 
 	// Reverse lexical order and identical timestamps must not determine chronology.
 	stamp := time.Now()
@@ -950,9 +950,9 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	_, err = client.MarkAgentInstanceReady(ctx, fork.GetId(), "fork.example")
 	require.NoError(t, err)
 	require.Equal(t, source.GetContextId(), fork.GetContextId())
-	forkHistoryID, err := client.agentInstanceHistoryID(ctx, fork.GetId())
+	forkRow, err := readAgentInstance(ctx, client.db, fork.GetId())
 	require.NoError(t, err)
-	require.NotEqual(t, historyID, forkHistoryID)
+	require.NotEqual(t, sourceRow.HistoryID, forkRow.HistoryID)
 
 	for _, instance := range []*apiv1alpha1.AgentInstance{source, fork} {
 		page, total, err := client.ListAgentInstanceTasks(ctx, instance.GetId(), "", a2a.TaskStateUnspecified, nil, 1)

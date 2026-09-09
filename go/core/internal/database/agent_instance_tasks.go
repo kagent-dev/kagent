@@ -128,23 +128,13 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 // longer has an active execution for it.
 const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
 
-// agentInstanceHistoryID resolves an instance to its retained conversation history, or
-// returns ErrNotFound if absent. It does not check ownership.
-func (c *Client) agentInstanceHistoryID(ctx context.Context, instanceID string) (uuid.UUID, error) {
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
-	}
-	return instance.HistoryID, nil
-}
-
 // GetActiveAgentInstanceTask returns the instance's current active task, or ErrNotFound if
 // none exists. Completed, canceled, failed, rejected, input-required, and auth-required
 // tasks are not active. Callers authorize instance access.
 func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
-	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	instance, err := readAgentInstance(ctx, c.db, instanceID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
 	}
 	row, err := queryOne(ctx, c.db, `
 		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
@@ -159,13 +149,13 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 		      'TASK_STATE_INPUT_REQUIRED',
 		      'TASK_STATE_AUTH_REQUIRED'
 		  )
-	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID)
+	`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
 	if err != nil {
 		return nil, fmt.Errorf("get active AgentInstance task: %w", notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, historyID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, []*a2a.Task{task})
 	}
 	return task, err
 }
@@ -176,9 +166,9 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 // separately.
 func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
 	interruptedTask := false
-	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	instance, err := readAgentInstance(ctx, c.db, instanceID)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
 	}
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
@@ -195,7 +185,7 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 			      'TASK_STATE_AUTH_REQUIRED'
 			  )
 			FOR UPDATE
-		`, pgx.RowToStructByName[agentInstanceTaskRow], historyID)
+		`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -234,10 +224,10 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 		if err != nil {
 			return err
 		}
-		if _, err := saveTaskProjection(ctx, tx, historyID, task.Id, string(a2a.TaskStateFailed), &now, data); err != nil {
+		if _, err := saveTaskProjection(ctx, tx, instance.HistoryID, task.Id, string(a2a.TaskStateFailed), &now, data); err != nil {
 			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.Id, err)
 		}
-		if _, err := storeProtoTaskMessages(ctx, tx, historyID, task.Id, task.ContextId, messages); err != nil {
+		if _, err := storeProtoTaskMessages(ctx, tx, instance.HistoryID, task.Id, task.ContextId, messages); err != nil {
 			return fmt.Errorf("record AgentInstance task interruption: %w", err)
 		}
 		eventData, err := proto.Marshal(event)
@@ -245,7 +235,7 @@ func (c *Client) InterruptActiveAgentInstanceTask(ctx context.Context, instanceI
 			return err
 		}
 		if _, err := insertTaskEvent(ctx, tx, taskEventWrite{
-			HistoryID: historyID,
+			HistoryID: instance.HistoryID,
 			TaskID:    &task.Id,
 			Data:      eventData,
 		}); err != nil {
@@ -414,17 +404,17 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 // GetAgentInstanceTask returns a task with its archived message history, or ErrNotFound if
 // the instance or task is absent. Callers authorize instance access.
 func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
-	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	instance, err := readAgentInstance(ctx, c.db, instanceID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
 	}
-	row, err := readAgentInstanceTask(ctx, c.db, historyID, taskID)
+	row, err := readAgentInstanceTask(ctx, c.db, instance.HistoryID, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, historyID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, []*a2a.Task{task})
 	}
 	return task, err
 }
@@ -434,9 +424,9 @@ func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID st
 // counts all matching tasks before pagination; it is read separately and can differ under
 // concurrent writes. Callers authorize instance access.
 func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
-	historyID, err := c.agentInstanceHistoryID(ctx, instanceID)
+	instance, err := readAgentInstance(ctx, c.db, instanceID)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
 	}
 
 	total, err := queryOne(ctx, c.db, `
@@ -445,7 +435,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		  AND ($2::text = '' OR state = $2)
 		  AND ($3::timestamptz IS NULL
 		       OR status_timestamp > $3)
-	`, pgx.RowTo[int64], historyID, string(state), statusTimestampAfter)
+	`, pgx.RowTo[int64], instance.HistoryID, string(state), statusTimestampAfter)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
 	}
@@ -464,7 +454,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		ORDER BY t.position
 		LIMIT $5
 	`,
-		pgx.RowToStructByName[agentInstanceTaskRow], historyID, afterID, string(state), statusTimestampAfter,
+		pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID, afterID, string(state), statusTimestampAfter,
 		int32(limit),
 	)
 	if err != nil {
@@ -478,7 +468,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		}
 		tasks = append(tasks, task)
 	}
-	if err := loadAgentInstanceTaskHistories(ctx, c.db, historyID, tasks); err != nil {
+	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks); err != nil {
 		return nil, 0, err
 	}
 	return tasks, int(total), nil

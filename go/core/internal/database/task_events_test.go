@@ -22,7 +22,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.MarkAgentInstanceReady(ctx, instance.Id, "source.example")
 	require.NoError(t, err)
-	historyID, err := client.agentInstanceHistoryID(ctx, instance.Id)
+	instanceRow, err := readAgentInstance(ctx, q, instance.Id)
 	require.NoError(t, err)
 	task := newAgentInstanceTask("task", "initial-message")
 	task.ContextID = instance.ContextId
@@ -34,13 +34,13 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 			SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
 			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
 			    history_id = $1 ORDER BY sequence
-		`, pgx.RowToStructByName[agentInstanceTaskEventRow], historyID)
+		`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
 		require.NoError(t, err)
 		rows, err := replayTaskEvents(events, instance.ContextId)
 		require.NoError(t, err)
 		require.NotEmpty(t, rows)
 		for _, rebuilt := range rows {
-			stored, err := readAgentInstanceTask(ctx, q, historyID, rebuilt.ID)
+			stored, err := readAgentInstanceTask(ctx, q, instanceRow.HistoryID, rebuilt.ID)
 			require.NoError(t, err)
 			want, got := &a2apb.Task{}, &a2apb.Task{}
 			require.NoError(t, proto.Unmarshal(stored.Data, want))
@@ -106,11 +106,11 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		SELECT sequence, history_id, task_id, data, created_at, message_id, task_position, initial_message_id,
 		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope FROM agent_instance_task_event WHERE
 		    history_id = $1 ORDER BY sequence
-	`, pgx.RowToStructByName[agentInstanceTaskEventRow], historyID)
+	`, pgx.RowToStructByName[agentInstanceTaskEventRow], instanceRow.HistoryID)
 	require.NoError(t, err)
 	rows, err := replayTaskEvents(events, instance.ContextId)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, "DELETE FROM agent_instance_task WHERE history_id = $1", historyID)
+	_, err = pool.Exec(ctx, "DELETE FROM agent_instance_task WHERE history_id = $1", instanceRow.HistoryID)
 	require.NoError(t, err)
 	fork, _, err := client.ForkAgentInstance(ctx, checkpoint.Id, "alice", "fork", uuid.NewString())
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before, forked)
 	for _, row := range rows {
-		row.HistoryID = historyID
+		row.HistoryID = instanceRow.HistoryID
 		require.NoError(t, insertReplayedTask(ctx, q, row))
 	}
 	assertReplay()

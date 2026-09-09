@@ -50,7 +50,7 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "original"), "create")
 	require.NoError(t, err)
-	contextID, err := client.agentInstanceHistoryID(ctx, instance.Id)
+	instanceRow, err := readAgentInstance(ctx, q, instance.Id)
 	require.NoError(t, err)
 	original := &a2apb.Task{Id: "task", ContextId: instance.GetContextId(), Status: &a2apb.TaskStatus{State: a2apb.TaskState_TASK_STATE_WORKING},
 		Artifacts: []*a2apb.Artifact{{ArtifactId: "one", Parts: []*a2apb.Part{{Content: &a2apb.Part_Text{Text: "first"}}, {Content: &a2apb.Part_Text{Text: "second"}}}}, {ArtifactId: "two"}},
@@ -79,10 +79,10 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 			require.NoError(t, err)
 			data, err := proto.Marshal(original)
 			require.NoError(t, err)
-			_, err = saveTaskProjection(ctx, q, contextID, original.Id, string(a2a.TaskStateWorking), nil, data)
+			_, err = saveTaskProjection(ctx, q, instanceRow.HistoryID, original.Id, string(a2a.TaskStateWorking), nil, data)
 			require.NoError(t, err)
 			require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, next, test.event, nil))
-			row, err := readAgentInstanceTask(ctx, q, contextID, original.Id)
+			row, err := readAgentInstanceTask(ctx, q, instanceRow.HistoryID, original.Id)
 			require.NoError(t, err)
 			require.Equal(t, string(next.Status.State), row.State)
 			got := &a2apb.Task{}
@@ -106,12 +106,12 @@ func TestA2AProtobufTaskEventScope(t *testing.T) {
 	}
 	data, err := proto.Marshal(original)
 	require.NoError(t, err)
-	_, err = saveTaskProjection(ctx, q, contextID, original.Id, string(a2a.TaskStateWorking), nil, data)
+	_, err = saveTaskProjection(ctx, q, instanceRow.HistoryID, original.Id, string(a2a.TaskStateWorking), nil, data)
 	require.NoError(t, err)
 	interrupted, err := client.InterruptActiveAgentInstanceTask(ctx, instance.Id, original.Id)
 	require.NoError(t, err)
 	require.True(t, interrupted)
-	row, err := readAgentInstanceTask(ctx, q, contextID, original.Id)
+	row, err := readAgentInstanceTask(ctx, q, instanceRow.HistoryID, original.Id)
 	require.NoError(t, err)
 	got := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(row.Data, got))
@@ -220,16 +220,16 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, tasks[0].History, 2)
-	forkHistoryID, err := client.agentInstanceHistoryID(ctx, fork.Id)
+	forkRow, err := readAgentInstance(ctx, q, fork.Id)
 	require.NoError(t, err)
-	forkHistory, err := readTaskMessages(ctx, q, forkHistoryID, []string{string(tasks[0].ID)})
+	forkHistory, err := readTaskMessages(ctx, q, forkRow.HistoryID, []string{string(tasks[0].ID)})
 	require.NoError(t, err)
 	question := &a2apb.StreamResponse{}
 	require.NoError(t, proto.Unmarshal(forkHistory[1].Data, question))
 	require.Equal(t, futureTask.Status.Message.ProtoReflect().GetUnknown(), question.GetMessage().ProtoReflect().GetUnknown())
 	require.Equal(t, futureTask.Status.Message.Parts[0].ProtoReflect().GetUnknown(), question.GetMessage().Parts[0].ProtoReflect().GetUnknown())
 	require.Equal(t, task.ID, tasks[0].ID)
-	forkTaskRow, err := readAgentInstanceTask(ctx, q, forkHistoryID, string(tasks[0].ID))
+	forkTaskRow, err := readAgentInstanceTask(ctx, q, forkRow.HistoryID, string(tasks[0].ID))
 	require.NoError(t, err)
 	forkTask := &a2apb.Task{}
 	require.NoError(t, proto.Unmarshal(forkTaskRow.Data, forkTask))
