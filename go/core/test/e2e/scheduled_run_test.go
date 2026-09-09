@@ -245,7 +245,10 @@ func (f *scheduledFixture) task(t *testing.T, execution *apiv1alpha1.ScheduledRu
 	require.NoError(t, err)
 	task, err := pbconv.FromProtoTask(result)
 	require.NoError(t, err)
-	require.Equal(t, execution.GetAgentInstanceId(), task.ContextID)
+	instance, err := f.instances.GetAgentInstance(f.ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: execution.GetAgentInstanceId()})
+	require.NoError(t, err)
+	require.NotEmpty(t, instance.GetAgentInstance().GetContextId())
+	require.Equal(t, instance.GetAgentInstance().GetContextId(), task.ContextID)
 	return task
 }
 
