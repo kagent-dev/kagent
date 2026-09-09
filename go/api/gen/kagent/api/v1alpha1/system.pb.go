@@ -978,8 +978,11 @@ func (x *SubstrateActorStatusCount) GetCount() int64 {
 
 type GetSubstrateSummaryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// False when the controller has no ate-api endpoint configured. A deployment
-	// choice, not a failure: the Kubernetes-derived fields are still answered.
+	// False when the controller has no ate-api endpoint configured.
+	//
+	// A deployment choice rather than a failure, and the answer stops there: every other
+	// field is left empty, because all of them describe a substrate that is not running.
+	// Show it as a configuration note, not as an error and not as an empty cluster.
 	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	// Set when one of the three ate-api reads behind this answer failed.
 	//

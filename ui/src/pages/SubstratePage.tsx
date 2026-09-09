@@ -867,17 +867,22 @@ function useDataAge(computedAt: string | undefined): string {
 /**
  * An ate-api failure that reached one page and not the whole read.
  *
- * `ListSubstrateActors` answers with an empty page and this string rather than failing,
- * for the same reason the summary does: the call succeeded, and only the runtime half
- * of it is missing. Without a sentence here that page is an empty table beside a tile
+ * `ListSubstrateActors` answers with this string rather than failing, for the same
+ * reason the summary does: the call succeeded, and only the runtime half of it is
+ * missing. Without a sentence here that page is a short or empty table beside a tile
  * reporting four hundred thousand actors, which reads as a bug in the tile.
+ *
+ * The rows below it may be there or may not. A page is filled from several ate-api
+ * pages when a namespace narrows it, so a failure part-way keeps what it had already
+ * collected — which is why this says the read did not finish rather than that it
+ * failed outright.
  */
 function PageWarning({ message, testId }: { message: string; testId: string }) {
   return (
     <Alert
       type="warning"
       showIcon
-      title="This page could not be read from ate-api"
+      title="ate-api could not finish reading this page"
       description={message}
       data-testid={testId}
     />
@@ -1416,7 +1421,7 @@ export function SubstratePage() {
         key: "pod",
         sorter: {
           compare: byText((worker) => `${worker.workerNamespace}/${worker.workerPod}`),
-          multiple: 1,
+          multiple: 2,
         },
         width: 420,
         render: (_, worker) => qualified(worker.workerNamespace, worker.workerPod),
@@ -1424,14 +1429,14 @@ export function SubstratePage() {
       {
         title: "Pool",
         key: "pool",
-        sorter: { compare: byText((worker) => worker.workerPool), multiple: 2 },
+        sorter: { compare: byText((worker) => worker.workerPool), multiple: 3 },
         width: 260,
         render: (_, worker) => worker.workerPool,
       },
       {
         title: "IP",
         key: "ip",
-        sorter: { compare: byText((worker) => worker.ip ?? ""), multiple: 3 },
+        sorter: { compare: byText((worker) => worker.ip ?? ""), multiple: 1 },
         width: 200,
         render: (_, worker) =>
           worker.ip ? (
@@ -1602,7 +1607,7 @@ export function SubstratePage() {
             type="warning"
             showIcon
             title="Runtime actor state is incomplete"
-            description={`Worker pools and actor templates come from Kubernetes and are complete. The actors and workers below come from ate-api, which answered with an error: ${inventory.ateApiError}`}
+            description={`Worker pools come from Kubernetes and are complete. Everything else on this page — the actor templates as well as the actors and workers below — comes from ate-api, which answered with an error, so those may be short: ${inventory.ateApiError}`}
             data-testid="substrate-partial"
           />
         ) : null}
@@ -1822,8 +1827,10 @@ export function SubstratePage() {
                 ? " "
                 : actorQuery.trim()
                   ? "No actors on this page match your search. Other pages are not searched."
-                  : ateApiEnabled
-                    ? "ate-api reported no actors in this scope."
+                  : actors.data?.nextPageToken
+                    ? "No actors in this scope on this page. There are more pages — use Next to keep looking."
+                    : ateApiEnabled
+                      ? "ate-api reported no actors in this scope."
                     : "ate-api is not configured on this controller. Set substrate-ate-api-endpoint to see live actors.",
             }}
           />

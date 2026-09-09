@@ -285,6 +285,13 @@ before designing another paged read.
   the way `GetSubstrateStatus` does, but it is the read to poll least often and the page
   shows its age for that reason.
 
+**A page carrying rows *and* an ate-api error has no fixture.** Filling one page can take
+several ate-api pages when a namespace narrows the result, so a failure part-way keeps
+what it had already collected: the response then has rows, `ate_api_error`, and the failed
+page's token. `SubstratePage` renders it — the warning says the read did not finish rather
+than that it failed — but the mock backend produces only the two clean states, so nothing
+exercises the middle one. It needs a scenario where a later ate-api page fails.
+
 **Which actor is on a worker is not deferred; it is not available.** ate-api's `Worker`
 carries capacity and allocation and no actor reference — the binding lives on the actor —
 so the workers table has no Actor column. `busyWorkerCount` on the summary is that join,

@@ -584,6 +584,30 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		assert.Equal(t, int64(1), result.BusyWorkerCount)
 	})
 
+	t.Run("busy workers are counted on the same footing as the workers themselves", func(t *testing.T) {
+		/*
+		 * An actor's scope is its template's atespace; a worker's is its pod's
+		 * Kubernetes namespace, and the two need not agree. Counting the actor here and
+		 * not the pod it sits on renders the tile as "1/0" — more workers busy than
+		 * exist.
+		 */
+		ateClient := &fakeATEClient{
+			actors: []*ateapipb.Actor{
+				substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "kagent", "worker-0"),
+			},
+			workers: []*ateapipb.Worker{
+				{WorkerNamespace: "kagent", WorkerPool: "pool", WorkerPod: "worker-0"},
+			},
+		}
+		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+		result, err := service.GetSubstrateSummary(ctx, "team")
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), result.ActorCount)
+		assert.Equal(t, int64(0), result.WorkerCount)
+		assert.Equal(t, int64(0), result.BusyWorkerCount, "the pod is out of scope, so it is not one of this scope's busy workers")
+	})
+
 	t.Run("a database failure is an internal error, not a warning about ate-api", func(t *testing.T) {
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, &fakeATEClient{actors: actors, workers: workers}, &fakeRuntimeRevisionStore{err: errors.New("connection refused")})
 

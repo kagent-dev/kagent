@@ -1431,11 +1431,13 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
 /*
 The envelope both paged reads answer with, around the rows each one holds.
 
-No `ateApiError`, unlike the summary above, and that pairing is the fixture's point.
-The controller answers a *failed* page with no rows, so a page carrying both rows and
-an error is a state it cannot produce. The fixture's error belongs to the summary's
-walk — the read that visits every ate-api page to count, and the one that times out —
+No `ateApiError`, unlike the summary above, and that pairing is the fixture's point:
+the summary's walk visits every ate-api page to count and is the read that times out,
 while a single page still comes back.
+
+Not because a page cannot carry both rows and an error — it can, when a namespace makes
+the controller read several ate-api pages to fill one and a later one fails — but
+because that state has no fixture yet. See `playwright/DEFERRED.md`.
 */
 function substratePageResponse<Row, Message>(
   rows: readonly Row[],

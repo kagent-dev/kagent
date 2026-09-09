@@ -138,9 +138,14 @@ interface SubstratePage extends Timed {
   /**
    * Set when the ate-api read failed on an otherwise successful call.
    *
-   * The page is then empty and the token unchanged, so retrying asks for the same
-   * page rather than skipping it. A warning to show beside the table, not an error
-   * to throw.
+   * The rows may be absent or merely short. Filling one page can take several ate-api
+   * pages when a namespace narrows it, and a failure part-way keeps what was already
+   * collected — so this can arrive beside rows, and what it means is "there was more
+   * behind these", not "there are none".
+   *
+   * `nextPageToken` is then the token of the page that failed, so continuing retries
+   * that page rather than skipping it; it is empty only when nothing was collected at
+   * all. A warning to show beside the table, not an error to throw.
    */
   ateApiError?: string;
   /**

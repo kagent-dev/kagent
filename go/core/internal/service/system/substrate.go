@@ -213,10 +213,18 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 		if strings.EqualFold(entry.Status, "Running") {
 			result.RunningActorCount++
 		}
-		// A worker is busy when an actor is placed on it. The binding is on the
-		// actor, not the worker: ate-api's Worker carries capacity and allocation
-		// but no actor reference, so this walk is the only place it can be counted.
-		if entry.AteomPodName != "" {
+		/*
+		 * A worker is busy when an actor is placed on it. The binding is on the actor,
+		 * not the worker: ate-api's Worker carries capacity and allocation but no actor
+		 * reference, so this walk is the only place it can be counted.
+		 *
+		 * Scoped by the pod's namespace rather than by the actor's atespace, because
+		 * that is what WorkerCount below is scoped by and the two are shown as one
+		 * fraction. An actor in atespace `team` can sit on a pod in namespace `kagent`;
+		 * counting it here and not there renders the tile as "1/0".
+		 */
+		if entry.AteomPodName != "" &&
+			allowedWorkerNamespace(entry.AteomPodNamespace, allowAll, allowed) {
 			busyWorkers[entry.AteomPodNamespace+"/"+entry.AteomPodName] = struct{}{}
 		}
 	}); err != nil {
