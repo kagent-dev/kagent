@@ -335,7 +335,10 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 // long instances or checkpoints keep its old runtime alive in the database.
 func (r *Reconciler) observeActorTemplate(state PairReconciliation, template *ateapipb.ActorTemplate) {
 	r.collections.ActorTemplates.ConditionalUpdateObject(ObservedActorTemplate{
-		PairKey: state.ResourceName(), RevisionID: state.RevisionID, Template: template,
+		AgentTemplateName: state.Pair.AgentTemplate.Name,
+		HarnessName:       state.Pair.Harness.Name,
+		RevisionID:        state.RevisionID,
+		Template:          template,
 	})
 }
 

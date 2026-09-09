@@ -35,13 +35,14 @@ type Collections struct {
 // ObservedActorTemplate records a pair's preparation. The revision prevents a
 // cached observation from making changed inputs ready before reconciliation.
 type ObservedActorTemplate struct {
-	PairKey    string
-	RevisionID v2translator.RevisionID
-	Template   *ateapipb.ActorTemplate
+	AgentTemplateName string
+	HarnessName       string
+	RevisionID        v2translator.RevisionID
+	Template          *ateapipb.ActorTemplate
 }
 
 func (t ObservedActorTemplate) ResourceName() string {
-	return t.PairKey
+	return t.Template.GetMetadata().GetAtespace() + "/" + t.AgentTemplateName + "/" + t.HarnessName
 }
 
 // AgentTemplateHarnessPair is one same-namespace combination selected by a
