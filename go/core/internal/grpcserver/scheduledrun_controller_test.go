@@ -74,8 +74,8 @@ func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Agen
 	return &database.AgentInstanceTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
 }
 
-func (w *scheduledControllerWorkflow) PauseForInput(ctx context.Context, _ *apiv1alpha1.AgentInstance, commit func(context.Context) error) error {
-	return commit(ctx)
+func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error {
+	return nil
 }
 
 type scheduledControllerAuth struct {

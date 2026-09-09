@@ -171,15 +171,12 @@ type gatewayTestWorkflow struct {
 	onQuiesce    func()
 }
 
-func (w *gatewayTestWorkflow) PauseForInput(ctx context.Context, _ *apiv1alpha1.AgentInstance, commit func(context.Context) error) error {
+func (w *gatewayTestWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error {
 	w.pauseCalls++
 	if w.onQuiesce != nil {
 		w.onQuiesce()
 	}
-	if w.err != nil {
-		return w.err
-	}
-	return commit(ctx)
+	return w.err
 }
 
 func (w *gatewayTestWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
