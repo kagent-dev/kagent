@@ -10,7 +10,6 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { iconControlStyles } from "@/components/agent/controlStyles";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
-import { ResizableAside } from "@/components/chat/ResizableAside";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
@@ -26,6 +25,7 @@ import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
+import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentUrl } from "@/components/agent/agentUrl";
@@ -62,6 +62,15 @@ const LIFECYCLE_POLL_MS = 1_000;
  */
 /** Where the agent panel's open state is remembered, per reader. */
 const CONTEXT_OPEN = "kagent.chat.agentPanel.open";
+
+/**
+ * The widths at which the transcript stops having room for its neighbours.
+ *
+ * This one goes first, because it is reference you open when you want it. Then the
+ * application sidebar, at antd's `lg`. Then the rail, last, because it is the only way
+ * to the other conversations with this agent — its width lives in `AgentRail`.
+ */
+const CONTEXT_COLLAPSES_BELOW = 1440;
 
 export function AgentChatPage() {
   const theme = useTheme();
@@ -310,15 +319,27 @@ export function AgentChatPage() {
    * Absent means open: a reader who has never touched it gets the context, which is
    * the more useful default for somebody meeting an agent for the first time.
    */
-  const [isContextOpen, setContextOpen] = useState(
+  const [isNarrowForContext, setNarrowForContext] = useCollapsedBelow(
+    CONTEXT_COLLAPSES_BELOW,
+  );
+  const [wantsContext, setWantsContext] = useState(
     () => window.localStorage.getItem(CONTEXT_OPEN) !== "false",
   );
+  const isContextOpen = wantsContext && !isNarrowForContext;
 
+  /*
+   * The reader's choice and the window's, kept apart.
+   *
+   * Only the stored preference is written: a panel closed because the window shrank is
+   * not a reader saying they do not want it, and remembering it that way would leave it
+   * shut on the next wide session. Opening it on a narrow window clears the width's
+   * veto until the next crossing — the same bargain antd's sidebar makes.
+   */
   function toggleContext() {
-    setContextOpen((open) => {
-      window.localStorage.setItem(CONTEXT_OPEN, String(!open));
-      return !open;
-    });
+    const open = !isContextOpen;
+    window.localStorage.setItem(CONTEXT_OPEN, String(open));
+    setWantsContext(open);
+    if (open) setNarrowForContext(false);
   }
 
   /** The message box, so the caret can be handed back to it after a question. */
@@ -476,7 +497,10 @@ export function AgentChatPage() {
     <div data-testid="agent-surface">
       <div css={{
           display: "flex",
-          gap: theme.space(6),
+          // The columns are a rail, two one-icon gutters and the conversation between
+          // them. At `space(6)` the gutters sat in more air than they are wide, which
+          // read as three separated panels rather than one page.
+          gap: theme.space(4),
           /*
            * `flex-start`, not `stretch`.
            *
@@ -701,7 +725,7 @@ export function AgentChatPage() {
                 position: "sticky",
                 top: theme.layout.headerHeight + 24,
                 alignSelf: "start",
-                marginInlineEnd: isContextOpen ? -theme.space(3) : 0,
+                marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
                 transition: "margin-inline-end 180ms ease",
               }}
             >
@@ -748,14 +772,16 @@ export function AgentChatPage() {
               }}
               aria-hidden={!isContextOpen}
             >
-              <ResizableAside
-                testId="chat-context-aside"
-                handleTestId="chat-context-handle"
-                label="Resize the agent panel"
-                defaultWidth={248}
+              {/* No drag handle. The panel had one, and the wrapper above clips to a
+                  fixed 248 with `overflow: hidden` — so dragging widened the aside
+                  inside a box that never grew, and the only visible effect was a grab
+                  cursor on an edge that did nothing. */}
+              <div
+                data-testid="chat-context-aside"
+                css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
               >
                 <AgentContextPanel agent={instance.data} />
-              </ResizableAside>
+              </div>
             </div>
           </>
         ) : null}

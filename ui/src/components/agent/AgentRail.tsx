@@ -14,11 +14,14 @@ import {
 import { useTheme, type Theme } from "@emotion/react";
 import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
+import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
+import { ShareDialog } from "@/components/chat/ShareDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
   ChevronsUpDown,
   Copy,
+  FileText,
   Folder,
   MoreVertical,
   PanelLeftClose,
@@ -26,6 +29,7 @@ import {
   Search,
   SquarePen,
   Pencil,
+  Share2,
   Trash,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -43,6 +47,7 @@ import {
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { useThemeMode } from "@/theme/themeMode";
+import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
   useExtensionAgentRailItems,
@@ -52,12 +57,28 @@ import { applyAgentRailOverrides, isRailEntryHidden } from "@/appExtensions";
 import { coreRailItems, mergeRailEntries, type RailItem } from "./railItems";
 import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
 import { AgentSwitcher } from "./AgentSwitcher";
-import { iconControlStyles, rowStyles, searchInputStyles } from "./controlStyles";
+import {
+  checkboxStyles,
+  iconControlStyles,
+  rowStyles,
+  scrollbarStyles,
+  searchInputStyles,
+} from "./controlStyles";
 
 const { Text } = Typography;
 
 /** Where the rail's collapsed state is remembered, per reader. */
 const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
+
+/**
+ * The width below which the rail gets out of the transcript's way.
+ *
+ * Last of the three columns to fold, and below the `lg` breakpoint antd folds the
+ * application sidebar at: the agent panel is reference, the application sidebar is
+ * navigation you can reach from anywhere, and this rail is the only way to the other
+ * conversations with *this* agent. So it goes when there is nothing else left to give.
+ */
+const RAIL_COLLAPSES_BELOW = 1040;
 
 /**
  * The navigation for when you are inside one agent.
@@ -534,16 +555,22 @@ export function AgentRail({
     }
   }
 
-  const [isCollapsed, setCollapsed] = useState(
+  const [isNarrow, setNarrow] = useCollapsedBelow(RAIL_COLLAPSES_BELOW);
+  const [wantsCollapsed, setWantsCollapsed] = useState(
     () => window.localStorage.getItem(RAIL_COLLAPSED) === "true",
   );
+  const isCollapsed = wantsCollapsed || isNarrow;
 
-
+  /*
+   * The reader's choice and the window's, kept apart — see the same pair on the chat
+   * page's agent panel. Only the choice is stored, so a rail folded away by a narrow
+   * window is open again in the next wide one.
+   */
   function toggleCollapsed() {
-    setCollapsed((collapsed) => {
-      window.localStorage.setItem(RAIL_COLLAPSED, String(!collapsed));
-      return !collapsed;
-    });
+    const collapsed = !isCollapsed;
+    window.localStorage.setItem(RAIL_COLLAPSED, String(collapsed));
+    setWantsCollapsed(collapsed);
+    if (!collapsed) setNarrow(false);
   }
 
   return (
@@ -605,6 +632,10 @@ export function AgentRail({
         display: "flex",
         flexDirection: "column",
         gap: theme.space(3),
+        /* Nothing here is text to take away: every row is a place to go or a thing to
+           press, and a drag across them is somebody aiming at a row, not selecting its
+           name. Shift-picking a run of conversations otherwise highlighted the lot. */
+        userSelect: "none",
         /*
          * Sticky, because this is navigation. The page is what scrolls, so a rail in
          * normal flow would be gone by the third exchange of a conversation — and the
@@ -935,7 +966,7 @@ export function AgentRail({
                * the list still shifted — a smaller jump than the whole bar appearing,
                * but the same jump, at the same moment.
                */
-              minHeight: 24,
+              minHeight: 38,
             }}
             data-testid="chat-bulk-bar"
           >
@@ -944,6 +975,7 @@ export function AgentRail({
               indeterminate={selected.size > 0 && !allVisibleSelected}
               onChange={toggleAllVisible}
               data-testid="chat-select-all"
+              css={checkboxStyles(theme)}
             >
               <Text
                 data-testid="chat-selection-count"
@@ -980,7 +1012,14 @@ export function AgentRail({
                 icon={<MoreVertical size={14} color={theme.color.textMuted} />}
                 aria-label="Actions for the selected conversations"
                 data-testid="chat-bulk-menu"
-                css={{ marginInlineStart: "auto" }}
+                // The same square as the menu on each row below it.
+                css={{
+                  marginInlineStart: "auto",
+                  width: 38,
+                  minWidth: 38,
+                  height: 38,
+                  padding: 0,
+                }}
               />
             </Dropdown>
             ) : null}
@@ -1083,6 +1122,15 @@ export function AgentRail({
               flex: "1 1 auto",
               minHeight: 0,
               overflowY: "auto",
+              /* Room on the right for what the rows hang outside themselves, pulled
+                 back by the same amount so they stay where they were. Nothing is given
+                 on the left: the rail clips there, so a row cannot reach past it. */
+              paddingInlineEnd: theme.space(3),
+              marginInlineEnd: `-${theme.space(3)}`,
+              paddingBlock: 2,
+              // The conversation's scrollbar, a few hundred pixels away: two that do
+              // not match read as two applications.
+              ...scrollbarStyles(theme),
             }}
           >
             {chats.map((candidate) => (
@@ -1155,7 +1203,7 @@ export function AgentRail({
         position: "sticky",
         top: theme.layout.headerHeight + 24,
         alignSelf: "start",
-        marginInlineStart: -theme.space(3),
+        marginInlineStart: -theme.space(2),
         display: "grid",
         gap: theme.space(1),
         justifyItems: "center",
@@ -1387,6 +1435,8 @@ function ChatEntry({
    */
   const [isConfirming, setConfirming] = useState(false);
   const [isRenaming, setRenaming] = useState(false);
+  const [isShowingDetails, setShowingDetails] = useState(false);
+  const [isSharing, setSharing] = useState(false);
 
   return (
     <li css={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
@@ -1422,7 +1472,10 @@ function ChatEntry({
         css={{
           display: "grid",
           placeItems: "center",
-          width: 22,
+          /* As wide as the box in it, so this checkbox's left edge is the select-all's
+             left edge above the list. A wider cell centred the 16px box inside it and
+             left the column three pixels out of true. */
+          width: 16,
           height: 22,
           flexShrink: 0,
           // Both children occupy the same cell; only one is painted.
@@ -1453,17 +1506,12 @@ function ChatEntry({
             transition: "opacity 100ms ease",
             "li:hover &, &:focus-within": { opacity: 1 },
             /*
-             * A target bigger than the tick drawn in it.
-             *
-             * This box replaces the folder icon in a single grid cell, so it was sized
-             * to the icon — about as small as a pointer target gets, and shift-picking
-             * a run means hitting several of them in a row. The padding grows the
-             * clickable area with negative margin cancelling it, so the cell it shares
-             * with the icon does not change size and nothing in the row moves.
+             * A target bigger than the tick drawn in it, shared with the select-all box
+             * above the list: this one replaces the folder icon in a single grid cell,
+             * so it was sized to the icon — about as small as a pointer target gets, and
+             * shift-picking a run means hitting several in succession.
              */
-            padding: theme.space(2),
-            margin: `-${theme.space(2)}`,
-            "& .ant-checkbox .ant-checkbox-inner": { width: 18, height: 18 },
+            ...checkboxStyles(theme),
           }}
         />
       </span>
@@ -1498,6 +1546,21 @@ function ChatEntry({
         trigger={["click"]}
         menu={{
           items: [
+            /* Details and Share are the gutter controls from the chat page, offered here
+               for the rows the reader is not in. Both take an instance id, so neither
+               needs the conversation open. */
+            {
+              key: "details",
+              icon: <FileText size={13} />,
+              label: "Chat details",
+              onClick: () => setShowingDetails(true),
+            },
+            {
+              key: "share",
+              icon: <Share2 size={13} />,
+              label: "Share chat",
+              onClick: () => setSharing(true),
+            },
             {
               key: "rename",
               icon: <Pencil size={13} />,
@@ -1527,7 +1590,15 @@ function ChatEntry({
           data-testid={`chat-session-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
           icon={<MoreVertical size={14} color={theme.color.textMuted} />}
-          css={rowActionStyles}
+          // Square, and as tall as the row beside it: at antd's own size it was a
+          // 24px control against a 38px row and sat visibly short of both edges.
+          css={{
+            ...rowActionStyles,
+            width: 38,
+            minWidth: 38,
+            height: 38,
+            padding: 0,
+          }}
         />
       </Dropdown>
 
@@ -1539,6 +1610,19 @@ function ChatEntry({
           instance={instance}
           onClose={() => setRenaming(false)}
         />
+      ) : null}
+
+      {/* The row already holds the record the details modal renders, so opening one
+          costs no read. Mounted only while open, like the rename dialog above it. */}
+      {isShowingDetails ? (
+        <ConversationDetailsModal
+          instance={{ data: instance }}
+          open
+          onClose={() => setShowingDetails(false)}
+        />
+      ) : null}
+      {isSharing ? (
+        <ShareDialog conversation={instance} open onClose={() => setSharing(false)} />
       ) : null}
     </li>
   );
@@ -1560,18 +1644,14 @@ function ChatEntry({
  */
 
 /**
- * The controls that live on a conversation row.
+ * The menu that lives on a conversation row.
  *
- * Hidden until the row is hovered or the button itself has focus, so the list reads as
- * names rather than as a column of controls. Focus matters as much as hover: a
- * keyboard reader has no pointer to reveal it with.
+ * On screen on every row, not revealed on hover. Hidden, it read as a list of names
+ * with nothing you could do to them, and finding the control meant discovering that
+ * pointing at a row changed it — the actions are the reason most people open this rail
+ * on a conversation that is not the one they are in.
  */
-const rowActionStyles = {
-  flexShrink: 0,
-  opacity: 0,
-  transition: "opacity 100ms ease",
-  "li:hover &, &:focus-visible, &[aria-expanded='true']": { opacity: 1 },
-} as const;
+const rowActionStyles = { flexShrink: 0 } as const;
 
 function reportActionFailure(
   /** What was attempted, lower case — it is read in the middle of a sentence. */

@@ -7,6 +7,7 @@ import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
+import { scrollbarStyles } from "@/components/agent/controlStyles";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
 const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
@@ -267,17 +268,7 @@ export function ChatTranscript({
         // Clear of the messages, which run to the right edge — the reader's own align
         // that way, so an unpadded bar sits on top of them.
         paddingInlineEnd: theme.space(3),
-        scrollbarWidth: "thin",
-        scrollbarColor: `${theme.color.border} transparent`,
-        "&::-webkit-scrollbar": { width: 10 },
-        "&::-webkit-scrollbar-track": { background: "transparent" },
-        "&::-webkit-scrollbar-thumb": {
-          background: theme.color.border,
-          borderRadius: 999,
-          border: "3px solid transparent",
-          backgroundClip: "content-box",
-        },
-        "&:hover::-webkit-scrollbar-thumb": { background: theme.color.textMuted },
+        ...scrollbarStyles(theme),
       }}
     >
     <div
@@ -467,26 +458,36 @@ export function ChatTranscript({
                  * rather than sitting in a row of controls, so its edge is the only
                  * thing separating it from whatever is behind it.
                  *
+                 * The edge is a diluted brand purple, not the whole of it: at full
+                 * strength it read as a control demanding to be used, over a
+                 * conversation somebody is trying to read. There is no token between
+                 * `primaryText` and the surface, so it is mixed here — the same purple,
+                 * a fraction of it.
+                 *
                  * Through `&.ant-btn`, because antd's own default-variant rule is more
                  * specific than the emitted class and wins a plain declaration.
                  */
                 "&.ant-btn": {
                   color: theme.color.primaryText,
-                  borderColor: theme.color.primaryText,
+                  borderColor: `color-mix(in srgb, ${theme.color.primaryText} 45%, transparent)`,
+                  // Quicker than antd's 200ms: three steps that each take a fifth of a
+                  // second read as the button catching up rather than responding.
+                  transition:
+                    "background 80ms ease, border-color 80ms ease, color 80ms ease",
                 },
                 /*
-                 * Filled on hover rather than tinted: `accentBg` is a near-white on the
-                 * light theme, so a tint under a white button was no answer at all to
-                 * "did I hit it?". Pressing takes the darker fill.
+                 * Three steps, not two: a wash under the pointer, the full fill under
+                 * the press. Hovering used to land on the fill, which was as loud as a
+                 * click and left the click with nowhere further to go.
                  *
                  * The variant class is in the selector to outrank antd's own hover rule,
                  * which carries three classes of its own and otherwise wins.
                  */
                 "&.ant-btn.ant-btn-variant-outlined:not(:disabled):hover, &.ant-btn.ant-btn-variant-outlined:not(:disabled):focus-visible":
                   {
-                    color: theme.color.textOnPrimary,
-                    borderColor: theme.color.primary,
-                    background: theme.color.primary,
+                    color: theme.color.primaryText,
+                    borderColor: theme.color.primaryText,
+                    background: `color-mix(in srgb, ${theme.color.primary} 14%, ${theme.color.bgElevated})`,
                   },
                 "&.ant-btn.ant-btn-variant-outlined:not(:disabled):active": {
                   color: theme.color.textOnPrimary,

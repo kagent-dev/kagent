@@ -100,3 +100,86 @@ export function searchInputStyles(theme: Theme) {
     "& input::placeholder": { color: theme.color.textMuted },
   } as const;
 }
+
+/**
+ * A checkbox big enough to hit, and one that answers when you touch it.
+ *
+ * antd 6 draws the box on `.ant-checkbox` itself and the tick as its `::after` — there
+ * is no `.ant-checkbox-inner` any more, which is what an override written against
+ * antd 5 targets, and it silently styles nothing.
+ *
+ * The box stays antd's 16px, because the tick is positioned against that size; what
+ * grows is the target around it. The padding does that and a negative margin of the
+ * same size cancels it, so nothing beside the box moves.
+ *
+ * Hover tints the box and strengthens its edge, and pressing takes the darker brand
+ * purple, so a press is distinct from the hover that preceded it. Both are stated for
+ * the checked box too, which antd fills and otherwise leaves inert under the pointer.
+ */
+export function checkboxStyles(theme: Theme) {
+  const pressed = {
+    background: theme.color.primaryHover,
+    borderColor: theme.color.primaryHover,
+  };
+  return {
+    /* Grown up, down and right, never left: the rail clips at exactly the column these
+       sit in — it has `overflow: hidden` for its collapse animation — so anything
+       reaching past that edge is sliced off rather than drawn. */
+    padding: `${theme.space(3)} ${theme.space(2)} ${theme.space(3)} 0`,
+    margin: `-${theme.space(3)} -${theme.space(2)} -${theme.space(3)} 0`,
+    // Quiet at rest — a list of them down the side of a conversation should read as
+    // a list of names — and unmistakable under the pointer.
+    "& .ant-checkbox:not(.ant-checkbox-disabled)": {
+      borderColor: theme.color.border,
+      transition: "background 80ms ease, border-color 80ms ease",
+    },
+    "&:hover .ant-checkbox:not(.ant-checkbox-disabled)": {
+      borderColor: theme.color.primary,
+      background: `color-mix(in srgb, ${theme.color.primary} 22%, ${theme.color.bgElevated})`,
+    },
+    "&:hover .ant-checkbox-checked:not(.ant-checkbox-disabled), &:hover .ant-checkbox-indeterminate:not(.ant-checkbox-disabled)":
+      pressed,
+    // A deeper fill for the press, not a louder edge: the ring is already saying
+    // "this one", and darkening it too made the press read as an error state.
+    "&:active .ant-checkbox:not(.ant-checkbox-disabled)": {
+      borderColor: theme.color.primary,
+      background: `color-mix(in srgb, ${theme.color.primary} 40%, ${theme.color.bgElevated})`,
+    },
+    "&:active .ant-checkbox-checked:not(.ant-checkbox-disabled), &:active .ant-checkbox-indeterminate:not(.ant-checkbox-disabled)":
+      pressed,
+    /*
+     * A ring rather than antd's faint shadow: a keyboard reader has no hover to fall
+     * back on, and this is the only thing telling them where they are.
+     *
+     * Drawn *inside* the box. Outside it, at any offset, it crossed the rail's left
+     * edge — which clips — and came back with its left side sliced flat.
+     */
+    "&:focus-within .ant-checkbox": {
+      outline: `2px solid ${theme.color.primaryText}`,
+      outlineOffset: -2,
+    },
+  };
+}
+
+/**
+ * The scrollbar the conversation uses, for the lists beside it.
+ *
+ * A thin thumb in the border colour that darkens when the box it is in is hovered.
+ * Here rather than in each scrolling box, because two scrollbars a few hundred pixels
+ * apart that do not match read as two applications.
+ */
+export function scrollbarStyles(theme: Theme) {
+  return {
+    scrollbarWidth: "thin" as const,
+    scrollbarColor: `${theme.color.border} transparent`,
+    "&::-webkit-scrollbar": { width: 10 },
+    "&::-webkit-scrollbar-track": { background: "transparent" },
+    "&::-webkit-scrollbar-thumb": {
+      background: theme.color.border,
+      borderRadius: 999,
+      border: "3px solid transparent",
+      backgroundClip: "content-box" as const,
+    },
+    "&:hover::-webkit-scrollbar-thumb": { background: theme.color.textMuted },
+  };
+}

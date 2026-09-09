@@ -4,7 +4,7 @@ import { useTheme } from "@emotion/react";
 import { instanceFields } from "@/components/agent-instances/instanceFields";
 import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
 import { agentPageUrl } from "@/components/agent/agentUrl";
-import { bareName, type AgentInstance, type ApiResource } from "@/api";
+import { bareName, type AgentInstance, type ApiError } from "@/api";
 
 /**
  * One conversation's record, over the conversation.
@@ -25,7 +25,15 @@ export function ConversationDetailsModal({
   open,
   onClose,
 }: {
-  instance: ApiResource<AgentInstance>;
+  /**
+   * The record, and whatever went wrong reading it.
+   *
+   * Not the whole `ApiResource`, which is what this took and more than it reads: a
+   * caller holding the row already — the rail lists them — would otherwise have to
+   * fake a resource around it, or read the same record a second time to open a modal
+   * over it. An `ApiResource` still satisfies this.
+   */
+  instance: { data?: AgentInstance; error?: ApiError };
   open: boolean;
   onClose: () => void;
 }) {

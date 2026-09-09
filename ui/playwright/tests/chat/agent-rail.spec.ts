@@ -95,8 +95,9 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
 
   await test.step("1. the menu offers it, and the row is otherwise quiet", async () => {
     const menu = rail.locator(sibling);
-    // Present for a pointer to find, but not drawn until the row is hovered.
-    await expect(menu).toHaveCSS("opacity", "0");
+    // Drawn on every row, not revealed on hover: these actions are most of the reason
+    // to open the rail on a conversation you are not in.
+    await expect(menu).toBeVisible();
     await menu.click({ force: true });
     await expect(item).toBeVisible();
     // The dropdown animates in, and a click landing mid-transition is refused as
@@ -342,6 +343,12 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
    * live on the `AgentTemplate` it was cut from. So this panel reads the template,
    * which is also a thing the reader can open and change.
    */
+  /*
+   * Wider than the project's 1280, because the panel folds itself away below 1440 —
+   * see `CONTEXT_COLLAPSES_BELOW`. At the default width this asserts the responsive
+   * behaviour rather than the panel's content, which is what it is about.
+   */
+  await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto(AGENT_CHAT);
   const panel = page.getByTestId("chat-agent-context");
   await expect(panel).toBeVisible({ timeout: 30_000 });
