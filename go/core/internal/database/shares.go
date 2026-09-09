@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -20,7 +19,7 @@ func toAgentInstanceShare(row agentInstanceShareRow) (*apiv1alpha1.AgentInstance
 		return nil, fmt.Errorf("decode AgentInstance share %s: %w", row.ID, err)
 	}
 	if share.GetId() != row.ID.String() || share.GetAgentInstanceId() != row.InstanceID.String() ||
-		strings.TrimPrefix(share.GetPermission().String(), "AGENT_INSTANCE_SHARE_PERMISSION_") != row.Permission {
+		share.GetPermission().String() != row.Permission {
 		return nil, fmt.Errorf("AgentInstance share %s payload disagrees with indexed columns", row.ID)
 	}
 	return share, nil
@@ -41,11 +40,11 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 	}
 	row, err := queryOne(ctx, c.db, `
 		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, instance_id, permission, token_hash, data
+		RETURNING id, instance_id, permission, data
 	`,
 		pgx.RowToStructByNameLax[agentInstanceShareRow], value.Id,
 		value.AgentInstanceId,
-		strings.TrimPrefix(value.Permission.String(), "AGENT_INSTANCE_SHARE_PERMISSION_"), tokenHash, data,
+		value.Permission.String(), tokenHash, data,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create AgentInstance share: %w", err)
@@ -57,7 +56,7 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 // owner's ID, or ErrNotFound. Callers apply the share's permission when granting access.
 func (c *Client) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, string, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data, i.user_id AS owner_user_id
+		SELECT s.id, s.instance_id, s.permission, s.data, i.user_id AS owner_user_id
 		FROM agent_instance_share s
 		JOIN agent_instance i ON i.id = s.instance_id
 		WHERE s.token_hash = $1
@@ -77,7 +76,7 @@ func (c *Client) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHash
 // empty page.
 func (c *Client) ListAgentInstanceShares(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT s.id, s.instance_id, s.permission, s.token_hash, s.data FROM agent_instance_share s
+		SELECT s.id, s.instance_id, s.permission, s.data FROM agent_instance_share s
 		JOIN agent_instance i ON i.id = s.instance_id
 		WHERE s.instance_id = $1 AND i.user_id = $2
 		  AND (NULLIF($3::text, '') IS NULL OR s.id > NULLIF($3::text, '')::uuid)
@@ -122,7 +121,6 @@ type agentInstanceShareRow struct {
 	ID         uuid.UUID
 	InstanceID uuid.UUID
 	Permission string
-	TokenHash  []byte
 	Data       []byte
 	// Only token resolution joins the owner; other queries omit this column.
 	OwnerUserID *string

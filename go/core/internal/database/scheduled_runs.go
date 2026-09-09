@@ -24,7 +24,7 @@ import (
 // ErrIdempotencyConflict; an unknown request returns ErrNotFound.
 func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID string, hash []byte) (*apiv1alpha1.ScheduledRun, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 		    FROM scheduled_run WHERE creator = $1 AND request_id = $2
 	`, pgx.RowToStructByName[scheduledRunRow], creator, requestID)
 	if err != nil {
@@ -55,7 +55,7 @@ func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.Sc
 		row, err = queryOne(ctx, tx, `
 			INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+			ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 		`, pgx.RowToStructByName[scheduledRunRow], id, schedule.Creator, requestID, hash, data)
 		if err != nil {
 			return err
@@ -90,7 +90,7 @@ func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator stri
 // AfterID, up to Limit.
 func (c *Client) ListScheduledRuns(ctx context.Context, query ScheduledRunQuery) ([]*apiv1alpha1.ScheduledRun, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 		    FROM scheduled_run WHERE creator = $1 AND deleted_at IS NULL
 		  AND ($3::uuid IS NULL OR id > $3::uuid)
 		ORDER BY id LIMIT $2
@@ -214,7 +214,7 @@ func (c *Client) TriggerScheduledRun(ctx context.Context, id uuid.UUID, creator,
 		}
 		result, err = queryOne(ctx, tx, `
 			SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id,
-			    task_id, completed_at, next_attempt_at, lease_token, state FROM scheduled_run_execution WHERE
+			    task_id, completed_at, state FROM scheduled_run_execution WHERE
 			    scheduled_run_id = $1 AND manual_request_id = $2
 		`, pgx.RowToStructByName[scheduledRunExecutionRow], row.ID, &requestID)
 		if err == nil {
@@ -247,7 +247,7 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 	result := []*apiv1alpha1.ScheduledRunExecution{}
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		rows, err := queryMany(ctx, tx, `
-			SELECT scheduled_run.id, scheduled_run.creator, scheduled_run.request_id, scheduled_run.request_hash,
+			SELECT scheduled_run.id, scheduled_run.creator, scheduled_run.request_hash,
 			    scheduled_run.data, scheduled_run.created_at, scheduled_run.updated_at, scheduled_run.next_execution_time,
 			    scheduled_run.deleted_at, statement_timestamp()::timestamptz AS db_time FROM scheduled_run
 			WHERE deleted_at IS NULL AND next_execution_time <= statement_timestamp()
@@ -301,7 +301,7 @@ func (c *Client) ReserveDueScheduledRuns(ctx context.Context, limit int) ([]*api
 // must supply a transaction to retain the lock.
 func getScheduledRunForUpdate(ctx context.Context, db dbExecutor, id uuid.UUID, creator string) (scheduledRunRow, error) {
 	row, err := queryOne(ctx, db, `
-		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 		    FROM scheduled_run WHERE creator = $1 AND id = $2 FOR UPDATE
 	`, pgx.RowToStructByName[scheduledRunRow], creator, id)
 	return row, notFoundOr(err)
@@ -339,7 +339,7 @@ func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, row schedu
 	return queryOne(ctx, db, `
 		INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline)
 		VALUES ($1, $2, $3, $4, $5,
-		    statement_timestamp() + $6::interval) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
+		    statement_timestamp() + $6::interval) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, state
 	`,
 		pgx.RowToStructByName[scheduledRunExecutionRow], id, row.ID, due, manualRequestID, data,
 		pgtype.Interval{Microseconds: int64(timeout), Valid: true},
@@ -351,7 +351,7 @@ func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, row schedu
 func (c *Client) GetScheduledRunExecution(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRunExecution, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
-		    e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM
+		    e.agent_instance_id, e.task_id, e.completed_at, e.state FROM
 		    scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 		WHERE s.creator = $1 AND e.id = $2
 	`, pgx.RowToStructByName[scheduledRunExecutionRow], creator, id)
@@ -367,7 +367,7 @@ func (c *Client) GetScheduledRunExecution(ctx context.Context, id uuid.UUID, cre
 func (c *Client) ListScheduledRunExecutions(ctx context.Context, query ScheduledRunExecutionQuery) ([]*apiv1alpha1.ScheduledRunExecution, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
-		    e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM
+		    e.agent_instance_id, e.task_id, e.completed_at, e.state FROM
 		    scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 		WHERE s.creator = $1 AND e.scheduled_run_id = $2
 		  AND ($4::uuid IS NULL OR e.id < $4::uuid)
@@ -401,14 +401,14 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		result, err = queryOne(ctx, tx, `
 			SELECT e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline,
-			    e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state FROM
+			    e.agent_instance_id, e.task_id, e.completed_at, e.state FROM
 			    scheduled_run_execution e JOIN scheduled_run s ON s.id = e.scheduled_run_id
 			WHERE s.creator = $1 AND e.id = $2 FOR UPDATE OF e
 		`, pgx.RowToStructByName[scheduledRunExecutionRow], creator, id)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if result.AgentInstanceID != nil || result.State != "PENDING" {
+		if result.AgentInstanceID != nil || result.State != "SCHEDULED_RUN_EXECUTION_STATE_PENDING" {
 			return nil
 		}
 		execution, err := toScheduledRunExecution(result)
@@ -421,8 +421,8 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 			return err
 		}
 		expired, err := queryOne(ctx, tx, `
-			UPDATE scheduled_run_execution SET state = 'TIMED_OUT', completed_at = clock_timestamp(), data = $2
-			WHERE id = $1 AND deadline <= clock_timestamp() RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
+			UPDATE scheduled_run_execution SET state = 'SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT', completed_at = clock_timestamp(), data = $2
+			WHERE id = $1 AND deadline <= clock_timestamp() RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, state
 		`, pgx.RowToStructByName[scheduledRunExecutionRow], id, data)
 		if err == nil {
 			result = expired
@@ -455,7 +455,7 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 			return err
 		}
 		result, err = queryOne(ctx, tx, `
-			UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, next_attempt_at, lease_token, state
+			UPDATE scheduled_run_execution SET agent_instance_id = $2 WHERE id = $1 RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id, task_id, completed_at, state
 		`, pgx.RowToStructByName[scheduledRunExecutionRow], id, &instance.ID)
 		return err
 	})
@@ -478,7 +478,7 @@ func toScheduledRunExecution(row scheduledRunExecutionRow) (*apiv1alpha1.Schedul
 		!execution.Deadline.AsTime().After(execution.CreatedAt.AsTime()) {
 		return nil, fmt.Errorf("invalid execution payload %s", row.ID)
 	}
-	state, ok := apiv1alpha1.ScheduledRunExecutionState_value["SCHEDULED_RUN_EXECUTION_STATE_"+row.State]
+	state, ok := apiv1alpha1.ScheduledRunExecutionState_value[row.State]
 	if !ok {
 		return nil, fmt.Errorf("invalid execution state %q", row.State)
 	}
@@ -510,12 +510,13 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 	rows, err := queryMany(ctx, c.db, `
 		WITH candidates AS (
 		    SELECT id FROM scheduled_run_execution
-		    WHERE state IN ('PENDING', 'RUNNING') AND next_attempt_at <= statement_timestamp()
+		    WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING')
+		      AND next_attempt_at <= statement_timestamp()
 		    ORDER BY next_attempt_at, id LIMIT $1 FOR UPDATE SKIP LOCKED
 		)
 		UPDATE scheduled_run_execution e
 		SET lease_token = $2::uuid, next_attempt_at = clock_timestamp() + interval '30 seconds'
-		FROM candidates c WHERE e.id = c.id RETURNING e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.next_attempt_at, e.lease_token, e.state
+		FROM candidates c WHERE e.id = c.id RETURNING e.id, e.scheduled_run_id, e.scheduled_time, e.manual_request_id, e.data, e.created_at, e.deadline, e.agent_instance_id, e.task_id, e.completed_at, e.state
 	`, pgx.RowToStructByName[scheduledRunExecutionRow], int32(limit), token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lease scheduled executions: %w", err)
@@ -542,9 +543,9 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := queryOne(ctx, tx, `
 			SELECT id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, agent_instance_id,
-			    task_id, completed_at, next_attempt_at, lease_token, state FROM scheduled_run_execution
+			    task_id, completed_at, state FROM scheduled_run_execution
 			WHERE id = $1 AND lease_token = $2 AND next_attempt_at > clock_timestamp()
-			  AND state IN ('PENDING', 'RUNNING') FOR UPDATE
+			  AND state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING') FOR UPDATE
 		`, pgx.RowToStructByName[scheduledRunExecutionRow], lease.ExecutionID, &lease.Token)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrScheduledRunConflict
@@ -568,13 +569,16 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 		rows, err := tx.Exec(ctx, `
 			UPDATE scheduled_run_execution
 			SET state = $2, task_id = COALESCE(task_id, $3), data = $4,
-			    completed_at = CASE WHEN $2::text IN ('SUCCEEDED', 'FAILED', 'TIMED_OUT') THEN clock_timestamp() END,
+			    completed_at = CASE WHEN $2::text IN (
+			        'SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED', 'SCHEDULED_RUN_EXECUTION_STATE_FAILED',
+			        'SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT'
+			    ) THEN clock_timestamp() END,
 			    next_attempt_at = clock_timestamp() + interval '1 second', lease_token = NULL
 			WHERE id = $1 AND lease_token = $5::uuid AND next_attempt_at > clock_timestamp()
-			    AND state IN ('PENDING', 'RUNNING')
+			    AND state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING')
 			    AND (task_id IS NULL OR $3::text IS NULL OR task_id = $3)
 		`,
-			lease.ExecutionID, strings.TrimPrefix(progress.State.String(), "SCHEDULED_RUN_EXECUTION_STATE_"), taskID,
+			lease.ExecutionID, progress.State.String(), taskID,
 			data, lease.Token,
 		)
 		if err != nil {
@@ -638,7 +642,6 @@ type dueScheduledRunRow struct {
 type scheduledRunRow struct {
 	ID                uuid.UUID
 	Creator           string
-	RequestID         string
 	RequestHash       []byte
 	Data              []byte
 	CreatedAt         time.Time
@@ -658,8 +661,6 @@ type scheduledRunExecutionRow struct {
 	AgentInstanceID *uuid.UUID
 	TaskID          *string
 	CompletedAt     *time.Time
-	NextAttemptAt   time.Time
-	LeaseToken      *uuid.UUID
 	State           string
 }
 
@@ -680,7 +681,7 @@ func saveScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, data []b
 		UPDATE scheduled_run SET data = $2, next_execution_time = $3,
 		    updated_at = statement_timestamp(),
 		    deleted_at = CASE WHEN $4::boolean THEN statement_timestamp() END
-		WHERE id = $1 RETURNING id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		WHERE id = $1 RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 	`, pgx.RowToStructByName[scheduledRunRow], id, data, next, deleted)
 }
 
@@ -688,7 +689,7 @@ func saveScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, data []b
 // locking it. Missing schedules and other owners return pgx.ErrNoRows.
 func readScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, creator string) (scheduledRunRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 		    FROM scheduled_run WHERE creator = $1 AND id = $2
 	`, pgx.RowToStructByName[scheduledRunRow], creator, id)
 }

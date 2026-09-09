@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"fmt"
-	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/jackc/pgx/v5"
@@ -70,7 +69,7 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
 		    source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid,
-		    created_at, updated_at, agent_card FROM runtime_revision WHERE revision = $1
+		    agent_card FROM runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
@@ -155,7 +154,7 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 	rows, err := queryMany(ctx, c.db, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
 		    source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid,
-		    created_at, updated_at, agent_card FROM runtime_revision r
+		    agent_card FROM runtime_revision r
 		WHERE NOT EXISTS (
 		    SELECT 1 FROM agent_template_harness_pair p
 		    WHERE p.retired_at IS NULL
@@ -209,7 +208,5 @@ type runtimeRevisionRow struct {
 	ActorTemplateAtespace string
 	ActorTemplateName     string
 	ActorTemplateUID      string
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
 	AgentCard             []byte
 }

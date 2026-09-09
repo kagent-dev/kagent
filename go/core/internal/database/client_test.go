@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
@@ -168,56 +169,65 @@ func TestStoreToolServerIdempotence(t *testing.T) {
 	assert.Equal(t, "Updated description", retrieved.Description)
 }
 
-// TestDirectModelScansPreserveNullDefaults covers nullable columns and their
-// original SQL ordering when rows are scanned directly into application models.
-func TestDirectModelScansPreserveNullDefaults(t *testing.T) {
+// TestDirectModelScans covers database defaults, required catalog fields, and nullable
+// memory fields when rows are scanned directly into application models.
+func TestDirectModelScans(t *testing.T) {
 	ctx := t.Context()
 	db := setupTestDB(t)
 	client := NewClient(db)
+	_, err := db.Exec(ctx, `INSERT INTO tool (id, server_name, group_kind) VALUES ('defaulted', 'server', 'kind')`)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `INSERT INTO toolserver (name, group_kind) VALUES ('defaulted', 'kind')`)
+	require.NoError(t, err)
 
 	t.Run("tools", func(t *testing.T) {
-		_, err := db.Exec(ctx, `INSERT INTO tool (id, server_name, group_kind) VALUES ('nullable', 'server', 'kind')`)
-		require.NoError(t, err)
-		require.NoError(t, client.RefreshToolsForServer(ctx, "other", "kind", &v1alpha3.MCPTool{Name: "dated"}))
-		tool, err := client.GetTool(ctx, "nullable")
+		tool, err := client.GetTool(ctx, "defaulted")
 		require.NoError(t, err)
 		assert.Empty(t, tool.Description)
-		assert.True(t, tool.CreatedAt.IsZero())
-		assert.True(t, tool.UpdatedAt.IsZero())
+		assert.False(t, tool.CreatedAt.IsZero())
+		assert.Equal(t, tool.CreatedAt, tool.UpdatedAt)
 		assert.Nil(t, tool.DeletedAt)
 		all, err := client.ListTools(ctx)
 		require.NoError(t, err)
-		require.Len(t, all, 2)
-		assert.Equal(t, "dated", all[0].ID) // SQL NULL timestamps still sort last.
-		assert.Equal(t, *tool, all[1])
+		assert.Equal(t, []Tool{*tool}, all)
 		filtered, err := client.ListToolsForServer(ctx, "server", "kind")
 		require.NoError(t, err)
 		assert.Equal(t, []Tool{*tool}, filtered)
 	})
 
 	t.Run("servers", func(t *testing.T) {
-		_, err := db.Exec(ctx, `INSERT INTO toolserver (name, group_kind) VALUES ('nullable', 'kind')`)
-		require.NoError(t, err)
-		_, err = client.StoreToolServer(ctx, &ToolServer{Name: "dated", GroupKind: "kind"})
-		require.NoError(t, err)
-		server, err := client.GetToolServer(ctx, "nullable")
+		server, err := client.GetToolServer(ctx, "defaulted")
 		require.NoError(t, err)
 		assert.Empty(t, server.Description)
-		assert.True(t, server.CreatedAt.IsZero())
-		assert.True(t, server.UpdatedAt.IsZero())
+		assert.False(t, server.CreatedAt.IsZero())
+		assert.Equal(t, server.CreatedAt, server.UpdatedAt)
 		assert.Nil(t, server.DeletedAt)
 		assert.Nil(t, server.LastConnected)
 		all, err := client.ListToolServers(ctx)
 		require.NoError(t, err)
-		require.Len(t, all, 2)
-		assert.Equal(t, "dated", all[0].Name)
-		assert.Equal(t, *server, all[1])
-		updated, err := client.StoreToolServer(ctx, &ToolServer{Name: "nullable", GroupKind: "kind", Description: "updated"})
+		assert.Equal(t, []ToolServer{*server}, all)
+		updated, err := client.StoreToolServer(ctx, &ToolServer{Name: "defaulted", GroupKind: "kind", Description: "updated"})
 		require.NoError(t, err)
-		assert.True(t, updated.CreatedAt.IsZero())
-		assert.False(t, updated.UpdatedAt.IsZero())
+		assert.Equal(t, server.CreatedAt, updated.CreatedAt)
+		assert.False(t, updated.UpdatedAt.Before(server.UpdatedAt))
 		assert.Equal(t, "updated", updated.Description)
 	})
+
+	for _, query := range []string{
+		`UPDATE tool SET created_at = NULL`,
+		`UPDATE tool SET updated_at = NULL`,
+		`UPDATE tool SET description = NULL`,
+		`UPDATE toolserver SET created_at = NULL`,
+		`UPDATE toolserver SET updated_at = NULL`,
+		`UPDATE toolserver SET description = NULL`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			_, err := db.Exec(ctx, query)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			assert.Equal(t, "23502", pgErr.Code) // not_null_violation
+		})
+	}
 
 	t.Run("memory", func(t *testing.T) {
 		embedding := make([]float32, 768)

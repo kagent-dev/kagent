@@ -6,6 +6,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
 func TestGetActiveAgentInstanceTaskUsesInstanceHistory(t *testing.T) {
@@ -57,4 +59,39 @@ func TestStoreAgentInstanceTaskEventRequiresTaskAndEvent(t *testing.T) {
 			require.ErrorContains(t, client.StoreAgentInstanceTaskEvent(t.Context(), uuid.NewString(), test.task, test.event, nil), "task and event are required")
 		})
 	}
+}
+
+func TestCheckpointCreationBlocksInstanceTaskWrites(t *testing.T) {
+	client := NewClient(setupTestDB(t))
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	instance, _, err := client.CreateAgentInstance(ctx, newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	require.NoError(t, err)
+	_, err = client.MarkAgentInstanceReady(ctx, instance.GetId(), "agent.example")
+	require.NoError(t, err)
+
+	task := newAgentInstanceTask("completed", "initial-message")
+	task.ContextID = instance.GetContextId()
+	task.Status.State = a2a.TaskStateCompleted
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(ctx,
+		&apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.GetId()}, "alice", uuid.NewString())
+	require.NoError(t, err)
+
+	next := newAgentInstanceTask("next", "next-message")
+	next.ContextID = instance.GetContextId()
+	_, _, err = client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("next-request"), next)
+	require.ErrorIs(t, err, ErrAgentInstanceTaskConflict)
+	require.ErrorIs(t, client.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, task, nil), ErrAgentInstanceConflict)
+	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "", "", "snapshot failed")
+	require.NoError(t, err)
+	_, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "tag", "retained", "")
+	require.ErrorIs(t, err, ErrNotFound)
+	_, created, err := client.CreateAgentInstanceTask(ctx, instance.GetId(), []byte("next-request"), next)
+	require.NoError(t, err)
+	require.True(t, created)
 }

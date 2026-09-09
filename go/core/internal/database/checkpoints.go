@@ -326,7 +326,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
-		row, err = queryOne(ctx, tx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance_checkpoint
 			SET state = CASE WHEN $2::text <> '' THEN 'READY' ELSE 'FAILED' END,
 			    tag_uid = $2,
@@ -334,15 +334,14 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 			    data = $4
 			WHERE id = $1
 			  AND state = 'CREATING'
-			RETURNING id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-			    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-			    source_name
-		`, pgx.RowToStructByName[agentInstanceCheckpointRow], row.ID, tagUID, snapshotURI, data)
+		`, row.ID, tagUID, snapshotURI, data)
 		if err != nil {
-			return notFoundOr(err)
+			return err
 		}
-		result, err = toAgentInstanceCheckpoint(row)
-		return err
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finalize AgentInstance checkpoint: %w", err)
@@ -435,7 +434,7 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
-		row, err = queryOne(ctx, tx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance_checkpoint
 			SET state = 'DELETING', data = $3
 			WHERE agent_instance_checkpoint.id = $1 AND agent_instance_checkpoint.user_id = $2
@@ -443,16 +442,15 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 			  AND NOT EXISTS (
 			      SELECT 1 FROM agent_instance i WHERE i.source_checkpoint_id = agent_instance_checkpoint.id
 			  )
-			RETURNING id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-			    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-			    source_name
-		`, pgx.RowToStructByName[agentInstanceCheckpointRow], row.ID, userID, data)
+		`, row.ID, userID, data)
 		if err != nil {
-			return notFoundOr(err)
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
 		}
 		snapshot, tagUID = checkpointSnapshot(row), row.TagUID
-		_, err = toAgentInstanceCheckpoint(row)
-		return err
+		return nil
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("begin delete AgentInstance checkpoint: %w", err)

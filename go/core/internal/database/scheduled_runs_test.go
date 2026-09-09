@@ -321,7 +321,7 @@ func TestScheduledRunExecutionConstraints(t *testing.T) {
 	require.NoError(t, err)
 	for _, update := range []string{
 		"manual_request_id = NULL",
-		"scheduled_time = clock_timestamp()", "state = 'UNKNOWN'", "state = 'RUNNING'",
+		"scheduled_time = clock_timestamp()", "state = 'UNKNOWN'", "state = 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING'",
 	} {
 		_, err := db.Exec(t.Context(), "UPDATE scheduled_run_execution SET "+update+" WHERE id = $1", execution.Id)
 		require.Error(t, err, update)

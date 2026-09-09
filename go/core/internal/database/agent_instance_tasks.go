@@ -64,7 +64,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			SELECT $1, $2, $3, $4, $5, $6, $7
 			WHERE NOT EXISTS (
 			    SELECT 1 FROM agent_instance_checkpoint
-			    WHERE source_history_id = $1 AND state = 'CREATING'
+			    WHERE source_instance_id = $8 AND state = 'CREATING'
 			)
 			ON CONFLICT (history_id, initial_message_id)
 			    WHERE initial_message_id IS NOT NULL
@@ -73,7 +73,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
 		`,
 			pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID), string(task.Status.State),
-			task.Status.Timestamp, taskData, &message.ID, requestHash,
+			task.Status.Timestamp, taskData, &message.ID, requestHash, instance.ID,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			row, err := queryOne(ctx, tx, `
@@ -270,8 +270,8 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 			return fmt.Errorf("task event context does not match AgentInstance")
 		}
 		creating, err := queryOne(ctx, tx, `
-			SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_history_id = $1 AND state = 'CREATING')
-		`, pgx.RowTo[bool], historyID)
+			SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $1 AND state = 'CREATING')
+		`, pgx.RowTo[bool], instance.ID)
 		if err != nil {
 			return err
 		}
@@ -567,9 +567,6 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 	}
 	histories := make(map[string][]*a2a.Message, len(tasks))
 	for _, row := range rows {
-		if row.TaskID == nil {
-			continue
-		}
 		event, err := unmarshalAgentInstanceTaskEvent(row.Data)
 		if err != nil {
 			return err
@@ -578,7 +575,7 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 		if !ok {
 			return fmt.Errorf("AgentInstance task history event is %T, not a message", event)
 		}
-		histories[*row.TaskID] = append(histories[*row.TaskID], message)
+		histories[row.TaskID] = append(histories[row.TaskID], message)
 	}
 	for taskID, history := range histories {
 		if task := byID[taskID]; task != nil {
@@ -656,7 +653,7 @@ type taskEventWrite struct {
 }
 
 type taskHistoryRow struct {
-	TaskID *string
+	TaskID string
 	Data   []byte
 }
 

@@ -152,7 +152,7 @@ func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alp
 // and instances owned by another user return ErrNotFound.
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 AND user_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], id, userID)
 	if err != nil {
@@ -166,7 +166,7 @@ func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv
 // UserID unless AllUsers is set; callers must authorize that broader access.
 func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT i.id, i.user_id, i.request_id, i.prepared_revision, i.state, i.data, i.operation,
+		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation,
 		    i.context_id, i.source_checkpoint_id, i.history_id FROM agent_instance i
 		LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 		WHERE ($1::boolean OR i.user_id = $2)
@@ -220,7 +220,7 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 			UPDATE agent_instance
 			SET data = $1
 			WHERE id = $2 AND user_id = $3
-			RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+			RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
 			    source_checkpoint_id, history_id
 		`, pgx.RowToStructByName[agentInstanceRow], data, row.ID, userID)
 		if err != nil {
@@ -263,7 +263,7 @@ func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority strin
 			UPDATE agent_instance
 			SET state = 'AGENT_INSTANCE_STATE_READY', operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED', data = $2
 			WHERE id = $1 AND state = 'AGENT_INSTANCE_STATE_CREATING' AND operation = 'AGENT_INSTANCE_OPERATION_CREATE'
-			RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+			RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
 			    source_checkpoint_id, history_id
 		`, pgx.RowToStructByName[agentInstanceRow], row.ID, data)
 		return err
@@ -321,7 +321,7 @@ func (c *Client) TransitionAgentInstance(
 			      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
 			    )
 			  )
-			RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+			RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
 			    source_checkpoint_id, history_id
 		`,
 			pgx.RowToStructByName[agentInstanceRow], next.State.String(),
@@ -358,7 +358,6 @@ func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
 type agentInstanceRow struct {
 	ID                 uuid.UUID
 	UserID             string
-	RequestID          string
 	PreparedRevision   *string
 	State              string
 	Data               []byte
@@ -373,7 +372,7 @@ type agentInstanceRow struct {
 // absent.
 func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
@@ -383,7 +382,7 @@ func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstance
 // idempotent retry.
 func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, requestID string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance
 		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], userID, requestID)
@@ -393,7 +392,7 @@ func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, reques
 // instances return pgx.ErrNoRows; callers authorize access.
 func readAgentInstance(ctx context.Context, db dbExecutor, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
@@ -416,7 +415,7 @@ func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *ap
 		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid,
 		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $8)
 		ON CONFLICT (user_id, request_id) DO NOTHING
-		RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id
 	`,
 		pgx.RowToStructByName[agentInstanceRow], instance.Id, instance.Creator, requestID, instance.ContextId,

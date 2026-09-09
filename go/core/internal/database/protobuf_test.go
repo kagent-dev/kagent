@@ -315,6 +315,6 @@ func TestProtobufRowsRejectInconsistentIndexes(t *testing.T) {
 	share := &apiv1alpha1.AgentInstanceShare{Id: id.String(), AgentInstanceId: id.String(), Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE}
 	data, err = proto.Marshal(share)
 	require.NoError(t, err)
-	_, err = toAgentInstanceShare(agentInstanceShareRow{ID: id, InstanceID: id, Permission: "READ_ONLY", Data: data})
+	_, err = toAgentInstanceShare(agentInstanceShareRow{ID: id, InstanceID: id, Permission: "AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
 }

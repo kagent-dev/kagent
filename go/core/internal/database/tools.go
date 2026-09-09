@@ -12,9 +12,7 @@ import (
 // on multiple servers; this lookup does not choose a particular server or group kind.
 func (c *Client) GetTool(ctx context.Context, name string) (*Tool, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT id, server_name, group_kind, COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
-		    COALESCE(updated_at, '0001-01-01 00:00:00+00'::timestamptz) AS updated_at,
-		    deleted_at, COALESCE(description, '') AS description FROM tool
+		SELECT id, server_name, group_kind, created_at, updated_at, deleted_at, description FROM tool
 		WHERE id = $1 AND deleted_at IS NULL
 		LIMIT 1
 	`, pgx.RowToStructByName[Tool], name)
@@ -36,13 +34,10 @@ func (c *Client) ListToolsForServer(ctx context.Context, serverName, groupKind s
 }
 
 // listTools returns undeleted tools in ascending creation-time order, applying each server
-// filter only when its pointer is non-nil. Nullable descriptions and timestamps become Go
-// zero values.
+// filter only when its pointer is non-nil.
 func (c *Client) listTools(ctx context.Context, serverName, groupKind *string) ([]Tool, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT id, server_name, group_kind, COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
-		    COALESCE(updated_at, '0001-01-01 00:00:00+00'::timestamptz) AS updated_at,
-		    deleted_at, COALESCE(description, '') AS description FROM tool
+		SELECT id, server_name, group_kind, created_at, updated_at, deleted_at, description FROM tool
 		WHERE deleted_at IS NULL
 		  AND ($1::text IS NULL OR server_name = $1)
 		  AND ($2::text IS NULL OR group_kind = $2)
@@ -97,9 +92,7 @@ func (c *Client) RefreshToolsForServer(ctx context.Context, serverName, groupKin
 // name occurs in multiple group kinds, this lookup does not select a particular kind.
 func (c *Client) GetToolServer(ctx context.Context, name string) (*ToolServer, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT name, group_kind, COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
-		    COALESCE(updated_at, '0001-01-01 00:00:00+00'::timestamptz) AS updated_at,
-		    deleted_at, COALESCE(description, '') AS description, last_connected FROM toolserver
+		SELECT name, group_kind, created_at, updated_at, deleted_at, description, last_connected FROM toolserver
 		WHERE name = $1 AND deleted_at IS NULL
 		LIMIT 1
 	`, pgx.RowToStructByName[ToolServer], name)
@@ -112,9 +105,7 @@ func (c *Client) GetToolServer(ctx context.Context, name string) (*ToolServer, e
 // ListToolServers returns all undeleted servers in ascending creation-time order.
 func (c *Client) ListToolServers(ctx context.Context) ([]ToolServer, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT name, group_kind, COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
-		    COALESCE(updated_at, '0001-01-01 00:00:00+00'::timestamptz) AS updated_at,
-		    deleted_at, COALESCE(description, '') AS description, last_connected FROM toolserver
+		SELECT name, group_kind, created_at, updated_at, deleted_at, description, last_connected FROM toolserver
 		WHERE deleted_at IS NULL
 		ORDER BY toolserver.created_at ASC
 	`, pgx.RowToStructByName[ToolServer])
@@ -136,9 +127,7 @@ func (c *Client) StoreToolServer(ctx context.Context, ts *ToolServer) (*ToolServ
 		    last_connected = EXCLUDED.last_connected,
 		    updated_at     = NOW(),
 		    deleted_at     = NULL
-		RETURNING name, group_kind, COALESCE(created_at, '0001-01-01 00:00:00+00'::timestamptz) AS created_at,
-		    COALESCE(updated_at, '0001-01-01 00:00:00+00'::timestamptz) AS updated_at,
-		    deleted_at, COALESCE(description, '') AS description, last_connected
+		RETURNING name, group_kind, created_at, updated_at, deleted_at, description, last_connected
 	`, pgx.RowToStructByName[ToolServer], ts.Name, ts.GroupKind, &ts.Description, ts.LastConnected)
 	if err != nil {
 		return nil, fmt.Errorf("failed to store tool server: %w", err)
