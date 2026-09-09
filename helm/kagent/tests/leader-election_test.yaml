@@ -1,17 +1,12 @@
 suite: controller leader election
 templates:
-  - controller-configmap.yaml
   - rbac/leader-election-role.yaml
   - rbac/leader-election-rolebinding.yaml
 tests:
-  - it: elects a leader during single-replica rolling updates
+  - it: grants lease permissions even with a single replica
     set:
       controller.replicas: 1
     asserts:
-      - equal:
-          path: data.LEADER_ELECT
-          value: "true"
-        template: controller-configmap.yaml
       - contains:
           path: rules
           content:

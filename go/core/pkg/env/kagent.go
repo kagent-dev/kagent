@@ -2,6 +2,13 @@ package env
 
 // Core kagent environment variables used by the controller and agent runtime.
 var (
+	LeaderElect = RegisterBoolVar(
+		"LEADER_ELECT",
+		true,
+		"Enable controller leader election, including during single-replica rolling updates. Set false for local testing.",
+		ComponentController,
+	)
+
 	KagentNamespace = RegisterStringVar(
 		"KAGENT_NAMESPACE",
 		"kagent",
