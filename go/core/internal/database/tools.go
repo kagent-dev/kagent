@@ -57,7 +57,13 @@ func (c *Client) listTools(ctx context.Context, serverName, groupKind *string) (
 // DeleteToolsForServer hides all currently visible tools for the server name and group
 // kind. Missing tools are a successful no-op.
 func (c *Client) DeleteToolsForServer(ctx context.Context, serverName, groupKind string) error {
-	return execSQL(ctx, c.db, `
+	return deleteToolsForServer(ctx, c.db, serverName, groupKind)
+}
+
+// deleteToolsForServer hides the server's visible tools using the caller's connection or
+// transaction. Missing tools are a successful no-op.
+func deleteToolsForServer(ctx context.Context, db dbExecutor, serverName, groupKind string) error {
+	return execSQL(ctx, db, `
 		UPDATE tool SET deleted_at = NOW()
 		WHERE server_name = $1 AND group_kind = $2 AND deleted_at IS NULL
 	`, serverName, groupKind)
@@ -68,10 +74,7 @@ func (c *Client) DeleteToolsForServer(ctx context.Context, serverName, groupKind
 // hides every tool for that server.
 func (c *Client) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha3.MCPTool) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		if err := execSQL(ctx, tx, `
-			UPDATE tool SET deleted_at = NOW()
-			WHERE server_name = $1 AND group_kind = $2 AND deleted_at IS NULL
-		`, serverName, groupKind); err != nil {
+		if err := deleteToolsForServer(ctx, tx, serverName, groupKind); err != nil {
 			return fmt.Errorf("failed to delete existing tools: %w", err)
 		}
 		for _, tool := range tools {

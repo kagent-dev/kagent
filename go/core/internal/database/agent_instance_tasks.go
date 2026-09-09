@@ -132,16 +132,16 @@ const taskInterruptedMessage = "The turn was interrupted before it completed, an
 // none exists. Completed, canceled, failed, rejected, input-required, and auth-required
 // tasks are not active. Callers authorize instance access.
 func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
-	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
+	type activeTaskRow struct {
+		HistoryID uuid.UUID
+		Data      []byte
 	}
 	row, err := queryOne(ctx, c.db, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-		    agent_instance_task
-		WHERE history_id = $1
-		  AND state NOT IN (
+		SELECT t.history_id, t.data
+		FROM agent_instance_task t
+		JOIN agent_instance i ON i.history_id = t.history_id
+		WHERE i.id = $1
+		  AND t.state NOT IN (
 		      'TASK_STATE_COMPLETED',
 		      'TASK_STATE_CANCELED',
 		      'TASK_STATE_FAILED',
@@ -149,13 +149,13 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 		      'TASK_STATE_INPUT_REQUIRED',
 		      'TASK_STATE_AUTH_REQUIRED'
 		  )
-	`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
+	`, pgx.RowToStructByName[activeTaskRow], instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("get active AgentInstance task: %w", notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task})
 	}
 	return task, err
 }
@@ -266,8 +266,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 			return notFoundOr(err)
 		}
 		historyID := instance.HistoryID
-		if event == nil || event.TaskInfo().ContextID != instance.ContextID.String() ||
-			(task != nil && task.ContextID != instance.ContextID.String()) {
+		if event.TaskInfo().ContextID != instance.ContextID.String() || task.ContextID != instance.ContextID.String() {
 			return fmt.Errorf("task event context does not match AgentInstance")
 		}
 		creating, err := queryOne(ctx, tx, `
@@ -281,58 +280,52 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		}
 		var sequence int64
 		var stored *a2apb.Task
-		var durable *a2apb.StreamResponse
-		var taskRow agentInstanceTaskRow
-		newTask := false
-		if task != nil {
-			if row, err := queryOne(ctx, tx, `
-				SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-				    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
-			`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
-				stored = &a2apb.Task{}
-				if err := proto.Unmarshal(row.Data, stored); err != nil {
-					return fmt.Errorf("decode stored task: %w", err)
-				}
-				if _, err := pbconv.FromProtoTask(stored); err != nil {
-					return err
-				}
-				messages := stored.History
-				// Replies and status updates archive the old status message before replacing it.
-				// Use the stored protobuf so its nested fields survive in history too.
-				switch event.(type) {
-				case *a2a.Message, *a2a.TaskStatusUpdateEvent:
-					if message := stored.Status.Message; message != nil {
-						message.TaskId, message.ContextId = string(task.ID), task.ContextID
-						messages = append(messages, message)
-					}
-				}
-				if len(messages) > 0 {
-					sequence, err = storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages)
-					if err != nil {
-						return fmt.Errorf("archive AgentInstance task history: %w", err)
-					}
-				}
-			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
+		if row, err := queryOne(ctx, tx, `
+			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+			    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
+		`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
+			stored = &a2apb.Task{}
+			if err := proto.Unmarshal(row.Data, stored); err != nil {
+				return fmt.Errorf("decode stored task: %w", err)
 			}
-			newTask = stored == nil
-			var err error
-			stored, durable, err = taskTransition(stored, task, event)
-			if err != nil {
+			if _, err := pbconv.FromProtoTask(stored); err != nil {
 				return err
 			}
-			data, err := proto.Marshal(stored)
-			if err != nil {
-				return err
-			}
-			taskRow, err = saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
-			if err != nil {
-				if isActiveTaskConflict(err) {
-					return ErrAgentInstanceTaskConflict
+			messages := stored.History
+			// Replies and status updates archive the old status message before replacing it.
+			// Use the stored protobuf so its nested fields survive in history too.
+			switch event.(type) {
+			case *a2a.Message, *a2a.TaskStatusUpdateEvent:
+				if message := stored.Status.Message; message != nil {
+					message.TaskId, message.ContextId = string(task.ID), task.ContextID
+					messages = append(messages, message)
 				}
-				return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 			}
+			if len(messages) > 0 {
+				sequence, err = storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages)
+				if err != nil {
+					return fmt.Errorf("archive AgentInstance task history: %w", err)
+				}
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
+		}
+		newTask := stored == nil
+		stored, durable, err := taskTransition(stored, task, event)
+		if err != nil {
+			return err
+		}
+		data, err := proto.Marshal(stored)
+		if err != nil {
+			return err
+		}
+		taskRow, err := saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
+		if err != nil {
+			if isActiveTaskConflict(err) {
+				return ErrAgentInstanceTaskConflict
+			}
+			return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 		}
 		if newTask {
 			data, err := proto.Marshal(durable)
@@ -361,7 +354,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 				return fmt.Errorf("store AgentInstance task history: %w", err)
 			}
 		}
-		if durable != nil && (!newTask || snapshot != nil) {
+		if !newTask || snapshot != nil {
 			eventData, err := proto.Marshal(durable)
 			if err != nil {
 				return err

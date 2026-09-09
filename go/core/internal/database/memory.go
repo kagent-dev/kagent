@@ -14,14 +14,7 @@ import (
 // Creation time comes from the database; the supplied owner, agent, expiration, and access
 // count are stored as given.
 func (c *Client) StoreAgentMemory(ctx context.Context, memory *Memory) error {
-	id, err := queryOne(ctx, c.db, `
-		INSERT INTO memory (agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count)
-		VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)
-		RETURNING id
-	`,
-		pgx.RowTo[string], &memory.AgentName, &memory.UserID, &memory.Content, memory.Embedding, &memory.Metadata,
-		memory.ExpiresAt, &memory.AccessCount,
-	)
+	id, err := insertAgentMemory(ctx, c.db, memory)
 	if err != nil {
 		return err
 	}
@@ -35,14 +28,7 @@ func (c *Client) StoreAgentMemory(ctx context.Context, memory *Memory) error {
 func (c *Client) StoreAgentMemories(ctx context.Context, memories []*Memory) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		for _, m := range memories {
-			id, err := queryOne(ctx, tx, `
-				INSERT INTO memory (agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count)
-				VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)
-				RETURNING id
-			`,
-				pgx.RowTo[string], &m.AgentName, &m.UserID, &m.Content, m.Embedding, &m.Metadata, m.ExpiresAt,
-				&m.AccessCount,
-			)
+			id, err := insertAgentMemory(ctx, tx, m)
 			if err != nil {
 				return fmt.Errorf("failed to store memory: %w", err)
 			}
@@ -115,22 +101,15 @@ func (c *Client) ListAgentMemories(ctx context.Context, agentName, userID string
 	return rows, nil
 }
 
-// DeleteAgentMemory deletes a user's memories for the agent and its legacy underscore
-// spelling. Missing rows are a no-op. The two spellings are deleted in separate
-// statements, so a failure can leave the second deletion pending.
+// DeleteAgentMemory atomically deletes a user's memories for the agent and its legacy
+// underscore spelling. Missing rows are a no-op.
 func (c *Client) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
-	if err := execSQL(ctx, c.db, `
-		DELETE FROM memory WHERE agent_name = $1 AND user_id = $2
-	`, &agentName, &userID); err != nil {
-		return fmt.Errorf("failed to delete agent memory: %w", err)
-	}
 	normalized := strings.ReplaceAll(agentName, "-", "_")
-	if normalized != agentName {
-		if err := execSQL(ctx, c.db, `
-			DELETE FROM memory WHERE agent_name = $1 AND user_id = $2
-		`, &normalized, &userID); err != nil {
-			return fmt.Errorf("failed to delete normalized agent memory: %w", err)
-		}
+	if err := execSQL(ctx, c.db, `
+		DELETE FROM memory
+		WHERE (agent_name = $1 OR agent_name = $3) AND user_id = $2
+	`, agentName, userID, normalized); err != nil {
+		return fmt.Errorf("failed to delete agent memory: %w", err)
 	}
 	return nil
 }
@@ -155,4 +134,17 @@ func (c *Client) PruneExpiredMemories(ctx context.Context) error {
 		}
 		return nil
 	})
+}
+
+// insertAgentMemory inserts the supplied memory using the database creation time and
+// returns its generated ID. It uses the caller's connection or transaction.
+func insertAgentMemory(ctx context.Context, db dbExecutor, memory *Memory) (string, error) {
+	return queryOne(ctx, db, `
+		INSERT INTO memory (agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count)
+		VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)
+		RETURNING id
+	`,
+		pgx.RowTo[string], &memory.AgentName, &memory.UserID, &memory.Content, memory.Embedding, &memory.Metadata,
+		memory.ExpiresAt, &memory.AccessCount,
+	)
 }

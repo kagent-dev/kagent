@@ -102,10 +102,12 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 // the history and instance commit together. A missing prepared target returns ErrNotFound;
 // a duplicate creator/requestID returns pgx.ErrNoRows for the caller to resolve.
 func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha1.AgentInstance, requestID string) (agentInstanceRow, error) {
+	type preparedRevision struct {
+		Revision string
+		DBTime   time.Time
+	}
 	revision, err := queryOne(ctx, db, `
-		SELECT r.revision, r.namespace, r.agent_template_name, r.agent_template_uid, r.harness_name, r.harness_uid,
-		    r.source_snapshot, r.egress_destinations, r.actor_template_atespace, r.actor_template_name,
-		    r.actor_template_uid, r.created_at, r.updated_at, r.agent_card, clock_timestamp()::timestamptz AS db_time
+		SELECT r.revision, clock_timestamp() AS db_time
 		FROM agent_template_harness_pair p
 		JOIN runtime_revision r ON r.revision = p.latest_successful_revision
 		WHERE p.namespace = $1
@@ -114,7 +116,7 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 		  AND p.harness_name = $4
 		  AND p.retired_at IS NULL
 	`,
-		pgx.RowToStructByName[instanceRuntimeRevisionRow], request.GetHarness().GetNamespace(),
+		pgx.RowToStructByName[preparedRevision], request.GetHarness().GetNamespace(),
 		request.GetAgentTemplate().GetNamespace(), request.GetAgentTemplate().GetName(),
 		request.GetHarness().GetName(),
 	)
@@ -129,28 +131,7 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
 	instance.CreatedAt = timestamppb.New(revision.DBTime)
 	instance.UpdatedAt = timestamppb.New(revision.DBTime)
-	data, err := marshalAgentInstance(instance)
-	if err != nil {
-		return agentInstanceRow{}, err
-	}
-	instanceID := request.GetId()
-
-	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3)
-	`, historyID, instance.Creator, contextID); err != nil {
-		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
-	}
-	return queryOne(ctx, db, `
-		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,
-		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $8::uuid,
-		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $7)
-		ON CONFLICT (user_id, request_id) DO NOTHING
-		RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
-		    source_checkpoint_id, history_id
-	`,
-		pgx.RowToStructByName[agentInstanceRow], instanceID, instance.Creator, requestID, contextID, historyID,
-		&revision.Revision, data, nil,
-	)
+	return insertAgentInstanceRecords(ctx, db, instance, requestID, historyID, nil)
 }
 
 // GetAgentInstanceByID returns an instance without filtering by owner, or ErrNotFound if
@@ -374,13 +355,6 @@ func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
 	return nil
 }
 
-type a2aContextRow struct {
-	ID        uuid.UUID
-	UserID    string
-	CreatedAt time.Time
-	ContextID uuid.UUID
-}
-
 type agentInstanceRow struct {
 	ID                 uuid.UUID
 	UserID             string
@@ -422,4 +396,30 @@ func readAgentInstance(ctx context.Context, db dbExecutor, id string) (agentInst
 		SELECT id, user_id, request_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
 	`, pgx.RowToStructByName[agentInstanceRow], id)
+}
+
+// insertAgentInstanceRecords stores a new instance and its independent history together.
+// Callers supply a transaction and a prepared CREATING/CREATE instance; a duplicate
+// creator/requestID returns pgx.ErrNoRows so the caller can roll back and resolve it.
+func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *apiv1alpha1.AgentInstance, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (agentInstanceRow, error) {
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return agentInstanceRow{}, err
+	}
+	if err := execSQL(ctx, db, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, $2, $3)
+	`, historyID, instance.Creator, instance.ContextId); err != nil {
+		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
+	}
+	return queryOne(ctx, db, `
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,
+		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid,
+		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $8)
+		ON CONFLICT (user_id, request_id) DO NOTHING
+		RETURNING id, user_id, request_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id
+	`,
+		pgx.RowToStructByName[agentInstanceRow], instance.Id, instance.Creator, requestID, instance.ContextId,
+		historyID, instance.PreparedRevision, sourceCheckpointID, data,
+	)
 }

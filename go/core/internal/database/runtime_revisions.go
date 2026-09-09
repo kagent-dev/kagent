@@ -197,11 +197,6 @@ func (c *Client) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision
 	`, revision)
 }
 
-type instanceRuntimeRevisionRow struct {
-	runtimeRevisionRow
-	DBTime time.Time
-}
-
 type runtimeRevisionRow struct {
 	Revision              string
 	Namespace             string

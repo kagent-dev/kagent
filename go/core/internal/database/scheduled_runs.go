@@ -79,10 +79,7 @@ func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1alpha1.Sc
 // GetScheduledRun returns a creator's schedule, including a deletion tombstone. Missing
 // schedules and other owners return ErrNotFound.
 func (c *Client) GetScheduledRun(ctx context.Context, id uuid.UUID, creator string) (*apiv1alpha1.ScheduledRun, error) {
-	row, err := queryOne(ctx, c.db, `
-		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		    FROM scheduled_run WHERE creator = $1 AND id = $2
-	`, pgx.RowToStructByName[scheduledRunRow], creator, id)
+	row, err := readScheduledRun(ctx, c.db, id, creator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get schedule: %w", notFoundOr(err))
 	}
@@ -434,10 +431,7 @@ func (c *Client) ReserveScheduledRunExecutionInstance(ctx context.Context, id uu
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		scheduleRow, err := queryOne(ctx, tx, `
-			SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-			    FROM scheduled_run WHERE creator = $1 AND id = $2
-		`, pgx.RowToStructByName[scheduledRunRow], creator, result.ScheduledRunID)
+		scheduleRow, err := readScheduledRun(ctx, tx, result.ScheduledRunID, creator)
 		if err != nil {
 			return err
 		}
@@ -516,7 +510,7 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 	rows, err := queryMany(ctx, c.db, `
 		WITH candidates AS (
 		    SELECT id FROM scheduled_run_execution
-		    WHERE state IN ('PENDING', 'RUNNING') AND next_attempt_at <= clock_timestamp()
+		    WHERE state IN ('PENDING', 'RUNNING') AND next_attempt_at <= statement_timestamp()
 		    ORDER BY next_attempt_at, id LIMIT $1 FOR UPDATE SKIP LOCKED
 		)
 		UPDATE scheduled_run_execution e
@@ -688,4 +682,13 @@ func saveScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, data []b
 		    deleted_at = CASE WHEN $4::boolean THEN statement_timestamp() END
 		WHERE id = $1 RETURNING id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
 	`, pgx.RowToStructByName[scheduledRunRow], id, data, next, deleted)
+}
+
+// readScheduledRun reads an owned schedule, including a deletion tombstone, without
+// locking it. Missing schedules and other owners return pgx.ErrNoRows.
+func readScheduledRun(ctx context.Context, db dbExecutor, id uuid.UUID, creator string) (scheduledRunRow, error) {
+	return queryOne(ctx, db, `
+		SELECT id, creator, request_id, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		    FROM scheduled_run WHERE creator = $1 AND id = $2
+	`, pgx.RowToStructByName[scheduledRunRow], creator, id)
 }
