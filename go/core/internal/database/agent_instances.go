@@ -155,9 +155,8 @@ func (c *Client) GetAgentInstanceByID(ctx context.Context, id string) (*apiv1alp
 // and instances owned by another user return ErrNotFound.
 func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
-		    h.source_checkpoint_id, i.history_id FROM agent_instance i
-		JOIN a2a_context h ON h.id = i.history_id WHERE i.id = $1 AND i.user_id = $2
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 AND user_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance %s: %w", id, notFoundOr(err))
@@ -171,8 +170,7 @@ func (c *Client) GetAgentInstance(ctx context.Context, id, userID string) (*apiv
 func (c *Client) ListAgentInstances(ctx context.Context, query AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation,
-		    i.context_id, h.source_checkpoint_id, i.history_id FROM agent_instance i
-		JOIN a2a_context h ON h.id = i.history_id
+		    i.context_id, i.source_checkpoint_id, i.history_id FROM agent_instance i
 		LEFT JOIN runtime_revision r ON r.revision = i.prepared_revision
 		WHERE ($1::boolean OR i.user_id = $2)
 		  AND (NULLIF($3::text, '') IS NULL OR i.id > NULLIF($3::text, '')::uuid)
@@ -337,9 +335,8 @@ type agentInstanceRow struct {
 // absent.
 func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
-		    h.source_checkpoint_id, i.history_id FROM agent_instance i
-		JOIN a2a_context h ON h.id = i.history_id WHERE i.id = $1 FOR UPDATE OF i
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1 FOR UPDATE
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
 
@@ -348,10 +345,9 @@ func lockAgentInstance(ctx context.Context, db pgx.Tx, id string) (agentInstance
 // idempotent retry.
 func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, requestID string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
-		    h.source_checkpoint_id, i.history_id FROM agent_instance i
-		JOIN a2a_context h ON h.id = i.history_id
-		WHERE i.user_id = $1 AND i.request_id = $2
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id FROM agent_instance
+		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[agentInstanceRow], userID, requestID)
 }
 
@@ -359,32 +355,41 @@ func readAgentInstanceRequest(ctx context.Context, db dbExecutor, userID, reques
 // instances return pgx.ErrNoRows; callers authorize access.
 func readAgentInstance(ctx context.Context, db dbExecutor, id string) (agentInstanceRow, error) {
 	return queryOne(ctx, db, `
-		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation, i.context_id,
-		    h.source_checkpoint_id, i.history_id FROM agent_instance i
-		JOIN a2a_context h ON h.id = i.history_id WHERE i.id = $1
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id FROM agent_instance WHERE id = $1
 	`, pgx.RowToStructByName[agentInstanceRow], id)
 }
 
 // insertAgentInstanceRecords stores a new instance and its independent history together.
 // Callers supply a transaction and a prepared CREATING/CREATE instance; a duplicate
 // creator/requestID returns pgx.ErrNoRows so the caller can roll back and resolve it.
-func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *apiv1alpha1.AgentInstance, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (agentInstanceRow, error) {
+// A fork records immutable parent history/cutoff metadata separately from the instance's
+// source checkpoint, so ancestry does not depend on checkpoint rows or instance lifetime.
+func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *apiv1alpha1.AgentInstance, requestID string, historyID uuid.UUID, source *agentInstanceCheckpointRow) (agentInstanceRow, error) {
 	data, err := marshalAgentInstance(instance)
 	if err != nil {
 		return agentInstanceRow{}, err
 	}
+	var sourceCheckpointID, parentHistoryID *uuid.UUID
+	var parentHistorySequence *int64
+	if source != nil {
+		sourceCheckpointID = &source.ID
+		parentHistoryID = &source.SourceHistoryID
+		parentHistorySequence = &source.HistorySequence
+	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id, source_checkpoint_id) VALUES ($1, $2, $3, $4)
-	`, historyID, instance.Creator, instance.ContextId, sourceCheckpointID); err != nil {
+		INSERT INTO a2a_context (id, user_id, context_id, parent_history_id, parent_history_sequence)
+		VALUES ($1, $2, $3, $4, $5)
+	`, historyID, instance.Creator, instance.ContextId, parentHistoryID, parentHistorySequence); err != nil {
 		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
 	}
 	return queryOne(ctx, db, `
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,
-		    state, operation, data) VALUES ($1, $2, $3, $4, $5, $6,
+		    source_checkpoint_id, state, operation, data) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid,
 		    'AGENT_INSTANCE_STATE_CREATING', 'AGENT_INSTANCE_OPERATION_CREATE', $8)
 		ON CONFLICT (user_id, request_id) DO NOTHING
 		RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
-		    $7::uuid AS source_checkpoint_id, history_id
+		    source_checkpoint_id, history_id
 	`,
 		pgx.RowToStructByName[agentInstanceRow], instance.Id, instance.Creator, requestID, instance.ContextId,
 		historyID, instance.PreparedRevision, sourceCheckpointID, data,

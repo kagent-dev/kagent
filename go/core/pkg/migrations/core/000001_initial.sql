@@ -65,15 +65,19 @@ CREATE INDEX agent_template_harness_pair_name_idx
     ON agent_template_harness_pair (namespace, agent_template_name, harness_name);
 
 CREATE TABLE a2a_context (
-    id                   UUID        PRIMARY KEY,
-    user_id              TEXT        NOT NULL CHECK (user_id <> ''),
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    context_id           UUID        NOT NULL,
-    source_checkpoint_id UUID,
-    CONSTRAINT a2a_context_binding_key UNIQUE (id, context_id)
+    id                      UUID        PRIMARY KEY,
+    user_id                 TEXT        NOT NULL CHECK (user_id <> ''),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    context_id              UUID        NOT NULL,
+    parent_history_id       UUID        REFERENCES a2a_context(id) ON DELETE RESTRICT,
+    parent_history_sequence BIGINT,
+    CONSTRAINT a2a_context_binding_key UNIQUE (id, context_id),
+    CHECK ((parent_history_id IS NULL) = (parent_history_sequence IS NULL)),
+    CHECK (parent_history_id <> id),
+    CHECK (parent_history_sequence > 0)
 );
-CREATE INDEX a2a_context_source_checkpoint_idx ON a2a_context (source_checkpoint_id)
-    WHERE source_checkpoint_id IS NOT NULL;
+CREATE INDEX a2a_context_parent_history_idx ON a2a_context (parent_history_id, parent_history_sequence)
+    WHERE parent_history_id IS NOT NULL;
 
 CREATE TABLE agent_instance_checkpoint (
     id                     UUID        PRIMARY KEY,
@@ -103,10 +107,6 @@ CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';
 
--- History and checkpoints reference each other, so this foreign key follows both tables.
-ALTER TABLE a2a_context ADD CONSTRAINT a2a_context_source_checkpoint_id_fkey
-    FOREIGN KEY (source_checkpoint_id) REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT;
-
 CREATE TABLE agent_instance (
     id                   UUID        PRIMARY KEY,
     user_id              TEXT        NOT NULL CHECK (user_id <> ''),
@@ -116,6 +116,7 @@ CREATE TABLE agent_instance (
     data                 BYTEA       NOT NULL,
     operation            TEXT        NOT NULL DEFAULT 'AGENT_INSTANCE_OPERATION_UNSPECIFIED',
     context_id           UUID        NOT NULL,
+    source_checkpoint_id UUID        REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT,
     history_id           UUID        NOT NULL,
     CONSTRAINT agent_instance_context_binding_fkey
         FOREIGN KEY (history_id, context_id) REFERENCES a2a_context(id, context_id) ON DELETE RESTRICT,
@@ -275,7 +276,6 @@ DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
 DROP TABLE agent_instance;
-ALTER TABLE a2a_context DROP CONSTRAINT a2a_context_source_checkpoint_id_fkey;
 DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
 DROP TABLE agent_template_harness_pair;

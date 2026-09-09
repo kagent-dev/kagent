@@ -18,7 +18,7 @@ The core PostgreSQL records are:
 | `agent_template_harness_pair` | Pair status and latest successful revision |
 | `agent_instance` | Compute identity, pinned revision, lifecycle phase, and Actor identity |
 | `agent_instance_share` | Instance authorization grants |
-| `a2a_context` | Durable history scope and its wire A2A context binding |
+| `a2a_context` | Durable history scope, wire A2A context binding, and parent history/cutoff |
 | `agent_instance_task` | Rebuildable current A2A task state and query indexes |
 | `agent_instance_task_event` | Authoritative append-only task and message events, with creation and runtime-boundary metadata |
 | `agent_instance_checkpoint` | Named immutable snapshot/history boundary |
@@ -48,6 +48,7 @@ flowchart TD
     CHECKPOINT --> TAG[Substrate snapshot tag]
     CHECKPOINT --> FORK[forked AgentInstance]
     FORK --> NEWCTX[new history scope, same wire context]
+    NEWCTX -->|parent history + cutoff| CONTEXT
     EVENT -->|copy through checkpoint cutoff| NEWCTX
 ```
 
@@ -79,9 +80,28 @@ covers the latest history event, including when an older paused task resumes. Th
 deleted while its context and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
-the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
+the row. A checkpoint inside any retained fork history's inherited prefix cannot
+start deletion. Deleting instances keeps those histories, so inherited checkpoints
+and their Tags remain protected even after all related instances are removed.
+There is currently no history garbage collection. A deletion already in progress
+can finish or retry if a later fork inherits its boundary. Substrate deletes the
+Tag's copied snapshot with the Tag.
 
 ## Forking
+
+History ancestry is recorded directly on `a2a_context`: `parent_history_id` and
+`parent_history_sequence` identify the source history and the cutoff copied from
+it. Roots have neither field. Fork creation sets both fields atomically with the
+new instance and never changes them. Each new history points to an existing
+parent; ancestry traversal needs no checkpoint rows. `agent_instance.source_checkpoint_id`
+separately retains fork-request identity and runtime provenance while the instance exists.
+
+Checkpoint listing follows parent histories and their cutoffs, returning owned
+ready checkpoints with their original source provenance. Membership depends on the
+history boundary, so a checkpoint created later at an already inherited boundary
+also appears. Listing uses checkpoint-ID pagination across local and inherited
+results. After an instance is deleted, listing by its former ID returns only its
+locally created checkpoints; surviving descendants still follow retained ancestry.
 
 Forking creates a new AgentInstance authority and durable history scope. It
 preserves wire context, task, message, artifact IDs, and request deduplication
