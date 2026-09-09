@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"log/slog"
@@ -303,6 +304,15 @@ type headerRoundTripper struct {
 	headerProvider DynamicHeaderProvider
 }
 
+// applyRequestHeader sets an outbound header. Host must also be copied onto
+// req.Host because net/http ignores a Host key in the header map on the wire.
+func applyRequestHeader(req *http.Request, key, value string) {
+	if strings.EqualFold(key, "Host") {
+		req.Host = value
+	}
+	req.Header.Set(key, value)
+}
+
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 
@@ -312,7 +322,7 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		if callCtx, ok := a2asrv.CallContextFrom(req.Context()); ok {
 			if meta := callCtx.ServiceParams(); meta != nil {
 				if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
-					req.Header.Set(constants.AuthorizationHeader, vals[0])
+					applyRequestHeader(req, constants.AuthorizationHeader, vals[0])
 				}
 			}
 		}
@@ -320,19 +330,19 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 
 	// Forward explicitly allowed headers from the incoming A2A request.
 	for k, v := range allowedRequestHeaders(req.Context(), rt.allowedHeaders) {
-		req.Header.Set(k, v)
+		applyRequestHeader(req, k, v)
 	}
 
 	// Dynamic headers (e.g., STS access tokens) override propagated/allowed headers.
 	if rt.headerProvider != nil {
 		for key, value := range rt.headerProvider(req.Context()) {
-			req.Header.Set(key, value)
+			applyRequestHeader(req, key, value)
 		}
 	}
 
 	// Apply static headers last — they take precedence over all dynamic sources.
 	for key, value := range rt.headers {
-		req.Header.Set(key, value)
+		applyRequestHeader(req, key, value)
 	}
 
 	return rt.base.RoundTrip(req)
