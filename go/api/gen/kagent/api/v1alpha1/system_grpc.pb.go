@@ -35,10 +35,14 @@ type SystemServiceClient interface {
 	GetVersion(ctx context.Context, in *GetVersionRequest, opts ...grpc.CallOption) (*GetVersionResponse, error)
 	GetCurrentUser(ctx context.Context, in *GetCurrentUserRequest, opts ...grpc.CallOption) (*GetCurrentUserResponse, error)
 	ListNamespaces(ctx context.Context, in *ListNamespacesRequest, opts ...grpc.CallOption) (*ListNamespacesResponse, error)
-	// Deprecated in favour of GetSubstrateSummary and the two list calls below.
-	// It answers with every actor and worker in one message, which a large cluster
-	// cannot fit: at 410,110 actors the response is roughly 43MB against gRPC's 16MB
-	// ceiling, so the call fails outright rather than returning a truncated inventory.
+	// Every actor and worker in one message, which a large cluster cannot fit: at
+	// 410,110 actors the response is roughly 43MB against gRPC's 16MB ceiling, so the
+	// call fails outright rather than returning a truncated inventory. Anything that
+	// renders the inventory wants GetSubstrateSummary and the two list calls below.
+	//
+	// Deliberately not marked deprecated. It is still the only way to ask for the whole
+	// inventory in one answer, which is what a caller looking one actor up by id has to
+	// do — paging to find a row it can already name would be the slower way round.
 	GetSubstrateStatus(ctx context.Context, in *GetSubstrateStatusRequest, opts ...grpc.CallOption) (*GetSubstrateStatusResponse, error)
 	GetSubstrateSummary(ctx context.Context, in *GetSubstrateSummaryRequest, opts ...grpc.CallOption) (*GetSubstrateSummaryResponse, error)
 	ListSubstrateActors(ctx context.Context, in *ListSubstrateActorsRequest, opts ...grpc.CallOption) (*ListSubstrateActorsResponse, error)
@@ -130,10 +134,14 @@ type SystemServiceServer interface {
 	GetVersion(context.Context, *GetVersionRequest) (*GetVersionResponse, error)
 	GetCurrentUser(context.Context, *GetCurrentUserRequest) (*GetCurrentUserResponse, error)
 	ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error)
-	// Deprecated in favour of GetSubstrateSummary and the two list calls below.
-	// It answers with every actor and worker in one message, which a large cluster
-	// cannot fit: at 410,110 actors the response is roughly 43MB against gRPC's 16MB
-	// ceiling, so the call fails outright rather than returning a truncated inventory.
+	// Every actor and worker in one message, which a large cluster cannot fit: at
+	// 410,110 actors the response is roughly 43MB against gRPC's 16MB ceiling, so the
+	// call fails outright rather than returning a truncated inventory. Anything that
+	// renders the inventory wants GetSubstrateSummary and the two list calls below.
+	//
+	// Deliberately not marked deprecated. It is still the only way to ask for the whole
+	// inventory in one answer, which is what a caller looking one actor up by id has to
+	// do — paging to find a row it can already name would be the slower way round.
 	GetSubstrateStatus(context.Context, *GetSubstrateStatusRequest) (*GetSubstrateStatusResponse, error)
 	GetSubstrateSummary(context.Context, *GetSubstrateSummaryRequest) (*GetSubstrateSummaryResponse, error)
 	ListSubstrateActors(context.Context, *ListSubstrateActorsRequest) (*ListSubstrateActorsResponse, error)

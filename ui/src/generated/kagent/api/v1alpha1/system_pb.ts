@@ -724,10 +724,14 @@ export const SystemService: GenService<{
     output: typeof ListNamespacesResponseSchema;
   },
   /**
-   * Deprecated in favour of GetSubstrateSummary and the two list calls below.
-   * It answers with every actor and worker in one message, which a large cluster
-   * cannot fit: at 410,110 actors the response is roughly 43MB against gRPC's 16MB
-   * ceiling, so the call fails outright rather than returning a truncated inventory.
+   * Every actor and worker in one message, which a large cluster cannot fit: at
+   * 410,110 actors the response is roughly 43MB against gRPC's 16MB ceiling, so the
+   * call fails outright rather than returning a truncated inventory. Anything that
+   * renders the inventory wants GetSubstrateSummary and the two list calls below.
+   *
+   * Deliberately not marked deprecated. It is still the only way to ask for the whole
+   * inventory in one answer, which is what a caller looking one actor up by id has to
+   * do — paging to find a row it can already name would be the slower way round.
    *
    * @generated from rpc kagent.api.v1alpha1.SystemService.GetSubstrateStatus
    */
