@@ -48,7 +48,12 @@ import {
   useExtensionAgentRailOverrides,
 } from "@/appExtensions/hooks";
 import { applyAgentRailOverrides, isRailEntryHidden } from "@/appExtensions";
-import { coreRailItems, mergeRailEntries, type RailItem } from "./railItems";
+import {
+  coreRailItems,
+  mergeRailEntries,
+  railItemIsActive,
+  type RailItem,
+} from "./railItems";
 import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { iconControlStyles, rowStyles, searchInputStyles } from "./controlStyles";
@@ -787,11 +792,7 @@ export function AgentRail({
           ) : (
             <entry.contribution.Component
               key={entry.contribution.key}
-              isActive={
-                entry.contribution.path
-                  ? location.pathname === entry.contribution.path
-                  : false
-              }
+              isActive={railItemIsActive(entry.contribution, location)}
               agent={ref.id ? { id: ref.id } : undefined}
             />
           ),
