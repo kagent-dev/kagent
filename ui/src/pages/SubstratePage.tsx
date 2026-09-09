@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Alert,
@@ -283,6 +290,56 @@ const ACTOR_STATES = [
 const ACTORS_DRAWN_INDIVIDUALLY = 80;
 
 /**
+ * A segment's floor, and the space between two of them.
+ *
+ * Constants rather than literals in the CSS, because the capacity below is arithmetic
+ * over exactly these two numbers: a floor changed in one place and not the other gives
+ * a bar that computes room it does not have.
+ */
+const SEGMENT_MIN_WIDTH = 6;
+const SEGMENT_GAP = 3;
+
+/**
+ * How many segments the bar has room for, side by side, at its current width.
+ *
+ * The per-actor drawing has a floor per segment and does not wrap, so eighty actors
+ * need 717px whatever the window is: at 1024 the sidebar expands and leaves the track
+ * 686px, and the bar pushed the whole page into horizontal scroll — which this app
+ * forbids, and which was reachable with eighty actors on an ordinary laptop.
+ *
+ * Measured in a layout effect so the answer is in before the browser paints, rather
+ * than after a frame of the overflow this exists to prevent. Zero means not measured —
+ * jsdom has no layout and its ResizeObserver is a no-op — and the caller reads that as
+ * "no width to cap by" rather than as "no room".
+ */
+function useSegmentCapacity() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [capacity, setCapacity] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const width = element.clientWidth;
+      /*
+       * A width of zero is the element on its way out — React replacing the node, or
+       * the observer's last word as it detaches — not a track with no room in it.
+       * Taken at face value it overwrote a good measurement with nothing, and the bar
+       * went back to drawing every actor on a track that could not hold them.
+       */
+      if (width <= 0) return;
+      setCapacity(Math.floor((width + SEGMENT_GAP) / (SEGMENT_MIN_WIDTH + SEGMENT_GAP)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, capacity] as const;
+}
+
+/**
  * The whole actor inventory as one bar, coloured by what each actor is doing.
  *
  * Two running of ten with the rest suspended is two green segments and eight grey. The
@@ -327,6 +384,7 @@ function StatusBar({
   const { mode } = useThemeMode();
   const dark = mode === "dark";
   const palette = statusPalette(theme);
+  const [trackRef, capacity] = useSegmentCapacity();
   // Short in the legend, where the swatch and the column already say what is counted.
   const read = (entry: SubstrateStatusCount) =>
     `${entry.status || "not reported"}: ${atAGlance(entry.count)}`;
@@ -364,7 +422,16 @@ function StatusBar({
   const entries = [...merged].map(([status, count]) => ({ status, count }));
   const present = order(entries.filter((entry) => entry.count > 0));
   const total = present.reduce((sum, entry) => sum + entry.count, 0);
-  const perActor = total > 0 && total <= ACTORS_DRAWN_INDIVIDUALLY;
+  /*
+   * One segment per actor only while there is room for them all.
+   *
+   * The count is the first limit and the width is the second: below either, the bar
+   * falls back to a segment per status sized by its share, which is what it does for a
+   * cluster of hundreds of thousands anyway.
+   */
+  const drawableSegments =
+    capacity > 0 ? Math.min(ACTORS_DRAWN_INDIVIDUALLY, capacity) : ACTORS_DRAWN_INDIVIDUALLY;
+  const perActor = total > 0 && total <= drawableSegments;
   const summary = [caption, present.map(readFull).join(", ")].filter(Boolean).join(". ");
 
   // The one place a tone becomes two colours, so a legend key and the segment it explains
@@ -400,7 +467,7 @@ function StatusBar({
         /* One crashed actor in 410,110 is 0.0002% of the width: without a floor it is not
            a pixel, let alone something to point at — and it is the most important thing
            on the bar. */
-        minWidth: 6,
+        minWidth: SEGMENT_MIN_WIDTH,
         height: 18,
         // Only the two ends are rounded, so the row reads as one bar rather than as a
         // line of separate lozenges.
@@ -413,6 +480,7 @@ function StatusBar({
 
   const track = (
     <div
+      ref={trackRef}
       data-testid={testId}
       /* The tooltip needs a pointer, which a screen reader has not got and a keyboard
          cannot produce. So the same summary is the bar's own name — colour and hover are
@@ -421,7 +489,7 @@ function StatusBar({
       aria-label={total === 0 ? emptyText : `${title}. ${summary}`}
       css={{
         display: "flex",
-        gap: 3,
+        gap: SEGMENT_GAP,
         minHeight: 18,
         /* Hover only: pointing at the bar reveals the breakdown, but nothing happens on
            press, and an active state would promise that it does.

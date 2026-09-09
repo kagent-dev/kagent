@@ -303,6 +303,39 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
   );
 });
 
+/*
+ * The bar draws a segment per actor with a 6px floor and does not wrap, so its width is
+ * set by the cluster rather than by the window: eight actors want 69px and eighty want
+ * 717px, which is more than the track has at 1024 — where the sidebar expands and leaves
+ * it 686px. Unbounded, the bar forced its own container wider and took the page with it.
+ *
+ * The track rather than the page, deliberately. These tables carry a horizontal minimum
+ * of their own (`scroll.x`), so the page scrolls sideways below about 1100px whether or
+ * not there is a single actor on it — asserting on the page would be asserting on that
+ * instead, and would pass or fail for reasons this bar has no say in.
+ */
+test("substrate: the status bar stays inside its track, whatever the window", async ({
+  page,
+}) => {
+  for (const width of [375, 768, 1024, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await loadPage(page, routes.substrate, { title: "Substrate" });
+    await expectSettled(page);
+
+    const bar = page.getByTestId("substrate-actor-status-counts");
+    await expect(bar).toBeVisible();
+
+    const track = await bar.evaluate((el) => ({
+      client: el.clientWidth,
+      scroll: el.scrollWidth,
+    }));
+    expect(
+      track.scroll,
+      `at ${width}px the bar wants ${track.scroll}px in a ${track.client}px track`,
+    ).toBeLessThanOrEqual(track.client);
+  }
+});
+
 /**
  * The actor list is the one thing on this page whose length the cluster chooses.
  *
