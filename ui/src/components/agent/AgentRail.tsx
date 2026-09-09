@@ -1054,7 +1054,10 @@ export function AgentRail({
               overflowY: "auto",
             }}
           >
-            {chats.map((candidate) => (
+            {chats.map((candidate) => {
+              const href = url.chat({ id: candidate.id });
+
+              return (
               <ChatEntry
                 key={candidate.id}
                 instance={candidate}
@@ -1090,15 +1093,30 @@ export function AgentRail({
                     ? pendingOperation ?? instance?.operation
                     : undefined) ?? candidate.operation
                 }
-                href={url.chat({ id: candidate.id })}
-                isActive={candidate.id === ref.id}
+                href={href}
+                /*
+                 * Lit only where the reader actually is, not wherever the id appears.
+                 *
+                 * This was `candidate.id === ref.id`, which is true on every surface
+                 * that mounts the rail for an instance -- the agent's own details page
+                 * included. So a conversation row was highlighted as the page you were
+                 * on while you were on a different page from the one it links to, and
+                 * two entries in the rail could look current at once.
+                 *
+                 * Compared against the row's own href, which is how the entries above
+                 * decide the same thing. The reads that follow keep matching on the id
+                 * on purpose: which conversation's live state to prefer is a question
+                 * about the instance, not about the route.
+                 */
+                isActive={location.pathname === href}
                 onDelete={deleteConversation}
                 isDeleting={deletingId === candidate.id}
                 isSelected={selected.has(candidate.id)}
                 onToggleSelected={toggleSelected}
                 isSelecting={selected.size > 0}
               />
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
@@ -1434,6 +1452,10 @@ function ChatEntry({
         to={href}
         data-testid={`chat-session-${instance.id}`}
         data-active={isActive}
+        // As `RailEntry` does for the entries above. The row is a link to a page, so
+        // when it is that page a screen reader should be told -- the highlight is the
+        // only other thing that says so.
+        aria-current={isActive ? "page" : undefined}
         css={{ ...rowStyles(theme, isActive), flex: 1, fontSize: 13, minWidth: 0 }}
       >
         <Text ellipsis css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}>
