@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -174,7 +175,8 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 }
 
 func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
-	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: database.ErrAgentInstanceConflict})
+	conflict := fmt.Errorf("AgentInstance is already suspending: %w", database.ErrConflict)
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
 	for _, test := range []struct {
 		name string
 		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
@@ -187,6 +189,9 @@ func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
 			_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
 			if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
 				t.Fatalf("error = %v, want code %s", err, serviceerrors.CodeAborted)
+			}
+			if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, database.ErrConflict) {
+				t.Fatalf("error = %v, want preserved conflict reason", err)
 			}
 		})
 	}

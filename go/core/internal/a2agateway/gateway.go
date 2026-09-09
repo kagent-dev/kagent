@@ -534,7 +534,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	submitted.Metadata[TaskCreatedAtMetadataKey] = createdAt.Format(time.RFC3339Nano)
 	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
-	if errors.Is(err, database.ErrAgentInstanceTaskConflict) {
+	if errors.Is(err, database.ErrConflict) {
 		if err = g.reconcileActiveTask(ctx, instance); err == nil {
 			stored, created, err = g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
 		}
@@ -597,10 +597,11 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	if err != nil {
 		return err
 	}
+	conflict := fmt.Errorf("AgentInstance %s already has an active task: %w", instance.GetId(), database.ErrConflict)
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to reconcile active agent instance task", "error", err, "task_id", active.ID)
-		return database.ErrAgentInstanceTaskConflict
+		return conflict
 	}
 	defer client.Destroy()
 
@@ -610,11 +611,11 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 		if errors.Is(eventErr, a2atype.ErrTaskNotFound) {
 			latest, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
 			if err != nil || latest == nil {
-				return database.ErrAgentInstanceTaskConflict
+				return conflict
 			}
 			if err := validateTaskInfo(latest, active); err != nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "runtime returned invalid active task", "error", err, "task_id", active.ID)
-				return database.ErrAgentInstanceTaskConflict
+				return conflict
 			}
 			if isQuiescent(latest.Status.State) {
 				return g.storeEvent(ctx, instance, latest, latest)
@@ -623,18 +624,18 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 		}
 		if eventErr != nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to query active runtime execution", "error", eventErr, "task_id", active.ID)
-			return database.ErrAgentInstanceTaskConflict
+			return conflict
 		}
 		if event == nil {
-			return database.ErrAgentInstanceTaskConflict
+			return conflict
 		}
 		if err := validateTaskInfo(event, active); err != nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "runtime returned invalid active task event", "error", err, "task_id", active.ID)
-			return database.ErrAgentInstanceTaskConflict
+			return conflict
 		}
-		return database.ErrAgentInstanceTaskConflict
+		return conflict
 	}
-	return database.ErrAgentInstanceTaskConflict
+	return conflict
 }
 
 func (g *Gateway) interruptTask(ctx context.Context, instanceID string, taskID a2atype.TaskID) error {
@@ -643,7 +644,7 @@ func (g *Gateway) interruptTask(ctx context.Context, instanceID string, taskID a
 		return err
 	}
 	if !interrupted {
-		return database.ErrAgentInstanceTaskConflict
+		return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, database.ErrConflict)
 	}
 	return nil
 }
@@ -763,8 +764,8 @@ func (g *Gateway) storeError(ctx context.Context, err error) error {
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
 	}
-	if errors.Is(err, database.ErrAgentInstanceTaskConflict) {
-		return a2atype.NewError(a2atype.ErrUnsupportedOperation, "AgentInstance already has an active task")
+	if errors.Is(err, database.ErrConflict) {
+		return a2atype.NewError(a2atype.ErrUnsupportedOperation, err.Error())
 	}
 	logging.FromContext(ctx).ErrorContext(ctx, "failed to persist agent instance task", "error", err)
 	return a2atype.NewError(a2atype.ErrInternalError, "failed to persist task")

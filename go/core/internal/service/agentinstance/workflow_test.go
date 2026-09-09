@@ -125,7 +125,7 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*datab
 
 func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, expectedState apiv1alpha1.AgentInstanceState, expectedOperation apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
 	if s.instance.GetState() != expectedState || s.instance.GetOperation() != expectedOperation {
-		return s.instance, database.ErrAgentInstanceConflict
+		return s.instance, database.ErrConflict
 	}
 	s.instance = proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	return s.instance, nil

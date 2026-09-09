@@ -174,7 +174,7 @@ func (w *ActorWorkflow) finishCreate(ctx context.Context, instance *apiv1alpha1.
 	current, err := w.store.TransitionAgentInstance(ctx, next,
 		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
 		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
-	if errors.Is(err, database.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrConflict) {
 		return current, nil
 	}
 	return current, err
@@ -277,19 +277,19 @@ func (w *ActorWorkflow) claim(
 	// returned bool reports whether this call installed the marker; a retry
 	// which finds the same operation joins it but must not later clear it.
 	if instance.GetState() != expectedState {
-		return nil, false, database.ErrAgentInstanceConflict
+		return nil, false, fmt.Errorf("AgentInstance %s requires state %s for %s; current state is %s: %w", instance.GetId(), expectedState, operation, instance.GetState(), database.ErrConflict)
 	}
 	if instance.GetOperation() == operation {
 		return instance, false, nil
 	}
 	if instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
-		return nil, false, database.ErrAgentInstanceConflict
+		return nil, false, fmt.Errorf("AgentInstance %s cannot perform %s while %s is in progress: %w", instance.GetId(), operation, instance.GetOperation(), database.ErrConflict)
 	}
 	next := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	next.Operation = operation
 	next.UpdatedAt = timestamppb.Now()
 	claimed, err := w.store.TransitionAgentInstance(ctx, next, expectedState, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED)
-	if errors.Is(err, database.ErrAgentInstanceConflict) && claimed.GetState() == expectedState && claimed.GetOperation() == operation {
+	if errors.Is(err, database.ErrConflict) && claimed.GetState() == expectedState && claimed.GetOperation() == operation {
 		return claimed, false, nil
 	}
 	return claimed, err == nil, err
@@ -308,7 +308,7 @@ func (w *ActorWorkflow) finish(
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	next.UpdatedAt = timestamppb.Now()
 	current, err := w.store.TransitionAgentInstance(ctx, next, expectedState, instance.GetOperation())
-	if errors.Is(err, database.ErrAgentInstanceConflict) && current.GetState() == nextState && current.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+	if errors.Is(err, database.ErrConflict) && current.GetState() == nextState && current.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		return current, nil
 	}
 	return current, err
@@ -326,7 +326,7 @@ func (w *ActorWorkflow) release(ctx context.Context, instance *apiv1alpha1.Agent
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	next.UpdatedAt = timestamppb.Now()
 	_, err := w.store.TransitionAgentInstance(ctx, next, state, instance.GetOperation())
-	if errors.Is(err, database.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrConflict) {
 		return operationErr
 	}
 	return errors.Join(operationErr, err)

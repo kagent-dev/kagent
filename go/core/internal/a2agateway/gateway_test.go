@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"net"
 	"strings"
@@ -103,7 +104,7 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 		return s.replay, false, nil
 	}
 	if s.active != nil {
-		return nil, false, database.ErrAgentInstanceTaskConflict
+		return nil, false, database.ErrConflict
 	}
 	s.task = task
 	s.created = task
@@ -1003,6 +1004,23 @@ func TestQuiescentTaskStates(t *testing.T) {
 	}
 	if isQuiescent(a2atype.TaskStateWorking) {
 		t.Error("working task is quiescent")
+	}
+}
+
+func TestGatewayPreservesStoreConflictReason(t *testing.T) {
+	for _, reason := range []string{"checkpoint is being created", "instance is suspended", "task is already active"} {
+		t.Run(reason, func(t *testing.T) {
+			store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: fmt.Errorf("%s: %w", reason, database.ErrConflict)}
+			dialer := &gatewayTestDialer{}
+			gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			if !errors.Is(err, a2atype.ErrUnsupportedOperation) || !strings.Contains(err.Error(), reason) {
+				t.Fatalf("SendMessage() = %v, want unsupported operation with reason %q", err, reason)
+			}
+			if dialer.instance != nil {
+				t.Fatal("conflicting request dialed the runtime")
+			}
+		})
 	}
 }
 

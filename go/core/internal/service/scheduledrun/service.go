@@ -296,12 +296,10 @@ func storeError(err error) error {
 		return serviceerrors.NewNotFound("Scheduled run not found", err)
 	case errors.Is(err, database.ErrIdempotencyConflict):
 		return serviceerrors.NewAlreadyExists("Request ID was already used for different inputs", err)
-	case errors.Is(err, database.ErrScheduledRunConflict):
-		return serviceerrors.NewAborted("Scheduled run changed; reload before updating", err)
-	case errors.Is(err, database.ErrScheduledRunTargetNotReady):
-		return serviceerrors.NewFailedPrecondition("Target pair has no ready prepared revision", err)
-	case errors.Is(err, database.ErrScheduledRunDeleted):
-		return serviceerrors.NewFailedPrecondition("Scheduled run was deleted", err)
+	case errors.Is(err, database.ErrConflict):
+		return serviceerrors.NewAborted(err.Error(), err)
+	case errors.Is(err, database.ErrFailedPrecondition):
+		return serviceerrors.NewFailedPrecondition(err.Error(), err)
 	default:
 		return serviceerrors.NewInternal("Scheduled run operation failed", err)
 	}

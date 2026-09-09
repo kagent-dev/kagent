@@ -21,7 +21,7 @@ import (
 // messages for a READY instance with no lifecycle operation. It requires an initial
 // message and matching context. Reusing the initial message ID returns the stored task if
 // the request hash matches, or ErrIdempotencyConflict otherwise. An occupied active-task
-// slot or checkpoint creation blocks new tasks with ErrAgentInstanceTaskConflict. The
+// slot or checkpoint creation blocks new tasks with ErrConflict. The
 // boolean reports a new reservation; callers authorize access and invoke the runtime
 // separately.
 func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
@@ -51,7 +51,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
-			return ErrAgentInstanceTaskConflict
+			return fmt.Errorf("AgentInstance %s cannot accept a task in state %s with operation %s: %w", instanceID, instance.State, instance.Operation, ErrConflict)
 		}
 		historyID = instance.HistoryID
 		if task.ContextID != instance.ContextID.String() {
@@ -83,7 +83,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 				WHERE history_id = $1 AND initial_message_id = $2
 			`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, &message.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrAgentInstanceTaskConflict
+				return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
 			}
 			if err != nil {
 				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
@@ -99,7 +99,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		}
 		if err != nil {
 			if isActiveTaskConflict(err) {
-				return ErrAgentInstanceTaskConflict
+				return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, ErrConflict)
 			}
 			return fmt.Errorf("create AgentInstance task %s: %w", task.ID, err)
 		}
@@ -276,7 +276,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 			return err
 		}
 		if creating {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
 		}
 		var sequence int64
 		var stored *a2apb.Task
@@ -323,7 +323,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		taskRow, err := saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
 		if err != nil {
 			if isActiveTaskConflict(err) {
-				return ErrAgentInstanceTaskConflict
+				return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, ErrConflict)
 			}
 			return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 		}
