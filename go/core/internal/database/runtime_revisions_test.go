@@ -157,7 +157,7 @@ type runtimeReferenceBarrier struct {
 }
 
 func (b *runtimeReferenceBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(data.SQL, "-- name: "+b.query+" :") {
+	if strings.Contains(data.SQL, b.query) {
 		if !b.afterQuery {
 			close(b.reached)
 			<-b.resume
@@ -183,9 +183,9 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-				query := "GetRuntimeRevisionForUpdate"
+				query := "FROM runtime_revision WHERE revision = $1 FOR UPDATE"
 				if source != "instance" {
-					query = "GetPairRuntimeRevisionsForUpdate"
+					query = "FOR UPDATE OF r"
 					require.NoError(t, client.RetireAllPairIdentities(ctx, "team-a", "assistant", "kagent"))
 				}
 				barrier := &runtimeReferenceBarrier{query: query, afterQuery: referenceFirst, reached: make(chan struct{}), resume: make(chan struct{})}
@@ -236,7 +236,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					// must see the reference committed after the wait ends.
 					require.Eventually(t, func() bool {
 						var waiting bool
-						err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '-- name: GetRuntimeRevisionForUpdate%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
+						err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%FROM runtime_revision WHERE revision = $1 FOR UPDATE%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
 						return err == nil && waiting
 					}, 5*time.Second, 10*time.Millisecond)
 					resume.Do(func() { close(barrier.resume) })
@@ -325,12 +325,12 @@ func TestRuntimeRevisionFinalizationSerializesWithPairReactivation(t *testing.T)
 			require.NotNil(t, claimed)
 
 			barrier := &runtimeReferenceBarrier{
-				query: "GetPairRuntimeRevisionsForUpdate", reached: make(chan struct{}), resume: make(chan struct{}),
+				query: "FOR UPDATE OF r", reached: make(chan struct{}), resume: make(chan struct{}),
 			}
-			waitingQuery := "GetRetiredRuntimeRevisionPairsForUpdate"
+			waitingQuery := "ORDER BY namespace, agent_template_uid, harness_uid"
 			if finalizeFirst {
-				barrier.query, barrier.afterQuery = "GetRuntimeRevisionForUpdate", true
-				waitingQuery = "UpsertAgentTemplateHarnessPair"
+				barrier.query, barrier.afterQuery = "FROM runtime_revision WHERE revision = $1 FOR UPDATE", true
+				waitingQuery = "INSERT INTO agent_template_harness_pair"
 			}
 			var resume sync.Once
 			defer resume.Do(func() { close(barrier.resume) })
@@ -367,7 +367,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairReactivation(t *testing.T)
 			}
 			require.Eventually(t, func() bool {
 				var waiting bool
-				err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE $1 AND cardinality(pg_blocking_pids(pid)) > 0)", "-- name: "+waitingQuery+"%").Scan(&waiting)
+				err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE $1 AND cardinality(pg_blocking_pids(pid)) > 0)", "%"+waitingQuery+"%").Scan(&waiting)
 				return err == nil && waiting
 			}, 5*time.Second, 10*time.Millisecond)
 			resume.Do(func() { close(barrier.resume) })

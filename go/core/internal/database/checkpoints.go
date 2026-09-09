@@ -53,14 +53,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			return fmt.Errorf("checkpoint %s has no fork source", checkpointID)
 		}
 
-		type revisionTarget struct {
-			Namespace         string
-			AgentTemplateName string
-			HarnessName       string
-		}
-		revision, err := queryOne(ctx, tx, `
-			SELECT namespace, agent_template_name, harness_name FROM runtime_revision WHERE revision = $1
-		`, pgx.RowToStructByName[revisionTarget], *checkpoint.PreparedRevision)
+		revision, err := getAvailableRuntimeRevisionForUpdate(ctx, tx, *checkpoint.PreparedRevision)
 		if err != nil {
 			return fmt.Errorf("get checkpoint runtime revision: %w", err)
 		}
@@ -203,6 +196,11 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		source, err := toAgentInstance(instance)
 		if err != nil {
 			return err
+		}
+		if instance.PreparedRevision != nil {
+			if _, err := getAvailableRuntimeRevisionForUpdate(ctx, tx, *instance.PreparedRevision); err != nil {
+				return err
+			}
 		}
 		boundary, err := queryOne(ctx, tx, `
 			SELECT latest.history_id, latest.id, latest.state, latest.status_timestamp, latest.data, latest.created_at,
