@@ -38,8 +38,3 @@ export interface Checkpoint {
   /** Why it failed, when it did. */
   failure?: string;
 }
-
-/** Whether a fork can start from this checkpoint. */
-export function canForkFrom(checkpoint: Checkpoint): boolean {
-  return checkpoint.state === "ready";
-}

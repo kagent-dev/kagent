@@ -33,8 +33,8 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_r
  *
  * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
  * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
- * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
- * the chat reads boundaries from the list and nothing removes one yet.
+ * as it stands, then a fork of it. `GetCheckpoint` has no id: the chat and the
+ * snapshots page both read boundaries from the list.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
@@ -680,6 +680,7 @@ const agentInstances: Pick<
   | "agentInstances.checkpoints.create"
   | "agentInstances.checkpoints.list"
   | "agentInstances.checkpoints.fork"
+  | "agentInstances.checkpoints.delete"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -807,21 +808,62 @@ const agentInstances: Pick<
   },
 
   /*
-   * Newest first, because that is the order the chat needs them in and the controller
-   * does not promise one. One page: a conversation's boundaries are counted in
-   * handfuls, and paging a list this short would be machinery with nothing to do.
+   * Every page of them, newest first.
+   *
+   * Paged like `agentInstances.list` and for the same reason: the controller answers
+   * 50 at a time by default, so reading one page and calling it the list quietly loses
+   * the oldest boundaries — the chat would stop drawing their lines and the snapshots
+   * page would stop offering to release them, both without saying so. Newest first is
+   * this client's ordering; the controller promises none.
    */
   "agentInstances.checkpoints.list": async (input, options) => {
     const name = "CheckpointService/ListCheckpoints";
-    const response = await rpc(name, options.signal, () =>
-      serviceClient(CheckpointService).listCheckpoints(
-        { agentInstanceId: input.id },
-        call("agentInstances.checkpoints.list", options),
+    const rows: Checkpoint[] = [];
+    let pageToken = "";
+
+    for (let page = 0; page < INSTANCE_PAGE_LIMIT; page += 1) {
+      const response = await rpc(name, options.signal, () =>
+        serviceClient(CheckpointService).listCheckpoints(
+          { agentInstanceId: input.id, page: { pageToken } },
+          call("agentInstances.checkpoints.list", options),
+        ),
+      );
+      rows.push(...list(response.checkpoints).map(toCheckpoint));
+
+      const next = response.page?.nextPageToken ?? "";
+      if (!next) {
+        return rows.sort((left, right) =>
+          (right.createdAt ?? "").localeCompare(left.createdAt ?? ""),
+        );
+      }
+      // A token that has not moved is a server that is not advancing; left alone this
+      // re-reads one page until the cap. Caught here, where the reason is still plain.
+      if (next === pageToken) {
+        throw new ApiError(
+          "The API repeated the same page of checkpoints instead of advancing.",
+          { kind: "parse", url: name },
+        );
+      }
+      pageToken = next;
+    }
+
+    throw new ApiError(
+      `The API offered more than ${INSTANCE_PAGE_LIMIT} pages of checkpoints; the list was not read to the end.`,
+      { kind: "parse", url: name },
+    );
+  },
+
+  /*
+   * Removing a boundary releases the snapshot it retained. The response carries
+   * nothing, and there is nothing left to show.
+   */
+  "agentInstances.checkpoints.delete": async (input, options) => {
+    await rpc("CheckpointService/DeleteCheckpoint", options.signal, () =>
+      serviceClient(CheckpointService).deleteCheckpoint(
+        { checkpointId: input.checkpointId },
+        call("agentInstances.checkpoints.delete", options),
       ),
     );
-    return list(response.checkpoints)
-      .map(toCheckpoint)
-      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
   },
 
   /*

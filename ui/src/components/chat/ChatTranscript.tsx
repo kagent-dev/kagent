@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -299,18 +300,31 @@ export function ChatTranscript({
           description="No messages yet. Ask the agent something."
         />
       ) : (
-        groups.map((group, index) => (
-          <Fragment key={group.messages[0].id}>
-            {group.messages.map((message) => (
-              <ChatMessageItem
-                key={message.id}
-                message={message}
-                sessionId={sessionId}
-                isCheckpointed={Boolean(group.checkpointId)}
-              />
-            ))}
-            {group.checkpointId ? (
+        /*
+         * One flat run of children, each keyed by what it *is* — a message by its id, a
+         * line by its checkpoint's.
+         *
+         * Not a fragment per group keyed by its first message: the grouping changes
+         * when the saved boundaries land, so two groups becoming one retired a key and
+         * React unmounted and remounted the messages under it. Every rendered mermaid
+         * diagram flashed back to its loading state each time the checkpoint list
+         * resolved or the reader saved a boundary, because that component holds its
+         * render in local state.
+         */
+        groups.flatMap((group, index) => {
+          const drawn: ReactNode[] = group.messages.map((message) => (
+            <ChatMessageItem
+              key={message.id}
+              message={message}
+              sessionId={sessionId}
+              isCheckpointed={Boolean(group.checkpointId)}
+            />
+          ));
+          const checkpointId = group.checkpointId;
+          if (checkpointId) {
+            drawn.push(
               <div
+                key={`checkpoint-${checkpointId}`}
                 css={{
                   // The extra room the line needs, split either side of it. Not on the
                   // last group: a line against the composer would be dividing the
@@ -321,13 +335,14 @@ export function ChatTranscript({
                 }}
               >
                 <CheckpointDivider
-                  checkpointId={group.checkpointId}
-                  onFork={onFork && (() => onFork(group.checkpointId!))}
+                  checkpointId={checkpointId}
+                  onFork={onFork && (() => onFork(checkpointId))}
                 />
-              </div>
-            ) : null}
-          </Fragment>
-        ))
+              </div>,
+            );
+          }
+          return drawn;
+        })
       )}
 
       {statusLabel ? (

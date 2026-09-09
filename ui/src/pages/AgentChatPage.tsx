@@ -25,6 +25,7 @@ import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
+import { isActive } from "@/api/chat/turnMachine";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
@@ -216,7 +217,15 @@ export function AgentChatPage() {
    * which is a way of filling the list rather than a thing anyone wants.
    */
   const latest = chat.messages[chat.messages.length - 1];
-  const canCheckpoint = Boolean(latest) && !checkpointByMessage.has(latest.id);
+  /*
+   * `isActive`, not "is streaming": a turn that has been sent and is still working has
+   * no boundary either, and `CreateCheckpoint` refuses it with `FailedPrecondition`.
+   * Gated on the streaming phase alone, the button was live in the gap between pressing
+   * Send and the first token, and pressing it there produced a refusal the reader had
+   * done nothing to deserve.
+   */
+  const canCheckpoint =
+    Boolean(latest) && !isActive(chat.phase) && !checkpointByMessage.has(latest.id);
 
   /*
    * Saves the conversation's current turn boundary.
@@ -232,14 +241,24 @@ export function AgentChatPage() {
     try {
       const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
       if (anchor) setSavedHere((current) => new Map(current).set(anchor, checkpoint.id));
-      await checkpoints.refresh();
       toast.success("Checkpoint saved");
     } catch (cause: unknown) {
       const reason = cause instanceof Error ? cause.message : String(cause);
       console.error("Could not checkpoint the conversation:", cause);
       toast.error(`Could not checkpoint: ${reason}`);
+      return;
     } finally {
       setCheckpointing(false);
+    }
+    /*
+     * Outside the try, because a boundary that was saved was saved. Inside it, a
+     * failed re-read reported "Could not checkpoint" over a line already on screen
+     * from `savedHere` — the one thing the reader could see said otherwise.
+     */
+    try {
+      await checkpoints.refresh();
+    } catch (cause: unknown) {
+      console.error("Could not re-read the saved boundaries:", cause);
     }
   }, [id, chat.messages, checkpoints]);
 

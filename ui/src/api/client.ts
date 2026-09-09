@@ -251,6 +251,8 @@ export interface AgentInstancesApi {
     list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
     create(id: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+    /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
+    remove(checkpointId: string): Promise<void>;
   };
 
   /**
@@ -384,6 +386,8 @@ export function createApiClient(): KagentApiClient {
             requestId: crypto.randomUUID(),
             name,
           }),
+        remove: (checkpointId) =>
+          invoke("agentInstances.checkpoints.delete", { checkpointId }),
       },
       shares: {
         list: (id, options) =>

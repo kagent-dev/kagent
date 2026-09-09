@@ -209,21 +209,10 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     // after the reload — the inner-text comparison below would otherwise catch
     // it mid-render, showing the raw source where the SVG will be.
     await expect(page.getByTestId("chat-mermaid").locator("svg")).toBeVisible();
-    /*
-     * Polled, because a reload finishes in pieces.
-     *
-     * The messages arrive, then the diagram renders into one of them, then the saved
-     * boundaries come back from their own read and the line is drawn. Reading the text
-     * once catches whichever of those has not happened yet — most often the diagram,
-     * whose source sits in the block until the render replaces it. What the assertion
-     * is about is where the reload *lands*.
-     */
-    await expect
-      .poll(() => messages.allInnerTexts(), {
-        timeout: 20_000,
-        message: "the reloaded conversation should be the one that was on screen",
-      })
-      .toEqual(before);
+    expect(
+      await messages.allInnerTexts(),
+      "the reloaded conversation should be the one that was on screen",
+    ).toEqual(before);
 
     // And the reader's own words are among them — which before this fix was the
     // only moment they ever appeared.
