@@ -46,8 +46,8 @@ export function ChatMessageItem({
   isCheckpointed?: boolean;
   isCheckpointing?: boolean;
   /**
-   * Forks the conversation from this message's checkpoint. Offered on the reader's
-   * own messages and enabled only once one is saved here.
+   * Forks the conversation from this message's checkpoint. Drawn on the reader's own
+   * messages, and only on one a boundary is saved at.
    */
   onFork?: () => void;
 }) {
@@ -133,40 +133,35 @@ export function ChatMessageItem({
           them. Shown disabled on the earlier ones rather than hidden, so the limit is
           where somebody looks for the feature instead of being invisible.
 
-          A message already checkpointed keeps the button, disabled: the pill above
-          says what it would do, and removing the control would make the row jump
-          between two widths as the reader saves one.
+          Gone once the message is checkpointed: the label above already carries the
+          save icon and says what happened, and a second one beside it read as two
+          different things to press.
         */}
-        {onCheckpoint && isUser ? (
+        {onCheckpoint && isUser && !isCheckpointed ? (
           <Tooltip
             title={
-              isCheckpointed
-                ? "Saved. Fork from here in the message menu."
-                : canCheckpoint
-                  ? "Checkpoint this message"
-                  : "Only the latest message can be checkpointed."
+              canCheckpoint
+                ? "Checkpoint this message"
+                : "Only the latest message can be checkpointed."
             }
           >
             <Button
               type="text"
               size="small"
               loading={isCheckpointing}
-              disabled={isCheckpointed || !canCheckpoint}
+              disabled={!canCheckpoint}
               data-testid={`chat-message-checkpoint-${message.id}`}
-              aria-label={isCheckpointed ? "Checkpointed" : "Checkpoint this message"}
-              aria-pressed={isCheckpointed}
+              aria-label="Checkpoint this message"
               onClick={onCheckpoint}
-              icon={
-                <Save
-                  size={14}
-                  color={isCheckpointed ? theme.color.primaryText : theme.color.textMuted}
-                />
-              }
-              css={actionButtonStyles(isCheckpointed)}
+              icon={<Save size={14} color={theme.color.textMuted} />}
+              css={actionButtonStyles(false)}
             />
           </Tooltip>
         ) : null}
-        {onFork && isUser ? (
+        {/* Forking is the only thing in this menu and it needs a boundary to start
+            from, so an uncheckpointed message has no menu at all rather than one
+            holding a single item that refuses. */}
+        {onFork && isUser && isCheckpointed ? (
           <Dropdown
             trigger={["click"]}
             menu={{
@@ -175,11 +170,7 @@ export function ChatMessageItem({
                   key: "fork",
                   icon: <GitFork size={13} />,
                   label: "Fork chat from here",
-                  disabled: !isCheckpointed,
-                  title: isCheckpointed
-                    ? undefined
-                    : "Checkpoint this message first, then fork from it.",
-                  onClick: isCheckpointed ? onFork : undefined,
+                  onClick: onFork,
                 },
               ],
             }}
@@ -189,8 +180,8 @@ export function ChatMessageItem({
               size="small"
               data-testid={`chat-message-menu-${message.id}`}
               aria-label="Message actions"
-              icon={<MoreVertical size={14} color={theme.color.textMuted} />}
-              css={actionButtonStyles(false)}
+              icon={<MoreVertical size={14} color={theme.color.primaryText} />}
+              css={actionButtonStyles(true)}
             />
           </Dropdown>
         ) : null}
@@ -252,16 +243,18 @@ export function ChatMessageItem({
 
 /**
  * Hidden until the message is hovered or the button has focus, so a transcript reads
- * as a conversation rather than a column of controls. A checkpointed message keeps
- * its button on screen: the state it reports is worth more than the quiet.
+ * as a conversation rather than a column of controls. Focus matters as much as hover:
+ * a keyboard reader has no pointer to reveal it with.
+ *
+ * A checkpointed message keeps its menu on screen instead. The panel around it is
+ * already announcing itself, and a control that appears only under the pointer inside
+ * a block that does not is the one thing on the row nobody would look for.
  */
 function actionButtonStyles(isAlwaysShown: boolean) {
+  if (isAlwaysShown) return { opacity: 1 } as const;
   return {
-    opacity: isAlwaysShown ? 1 : 0,
+    opacity: 0,
     transition: "opacity 100ms ease",
     "article:hover &, &:focus-visible, &[aria-expanded='true']": { opacity: 1 },
-    // antd dims a disabled text button to the point of vanishing; the checkpointed
-    // one is an indicator as much as a control, so it keeps its colour.
-    "&.ant-btn:disabled": { opacity: isAlwaysShown ? 1 : undefined },
-  };
+  } as const;
 }

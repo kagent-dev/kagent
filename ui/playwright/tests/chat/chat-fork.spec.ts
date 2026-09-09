@@ -20,28 +20,34 @@ test("chat: a checkpoint is offered on the reader's latest message only", async 
     ).toHaveCount(0);
   });
 
-  await test.step("2. the seeded conversation opens with its boundary marked", async () => {
+  await test.step("2. the seeded conversation opens with its boundary marked, and no button to save it again", async () => {
     await expect(mine.first()).toHaveAttribute("data-checkpointed", "true");
     await expect(
       mine.first().locator('[data-testid^="chat-message-checkpointed-"]'),
     ).toBeVisible();
+    await expect(
+      mine.first().locator('[data-testid^="chat-message-checkpoint-"]'),
+    ).toHaveCount(0);
   });
 
-  await test.step("3. a newer message can be checkpointed, an older one cannot", async () => {
+  await test.step("3. the newest message can be checkpointed, an earlier one cannot", async () => {
     await page.getByTestId("chat-input").fill("Another question, so the first is not last.");
     await page.getByTestId("chat-send").click();
     await expect(mine).toHaveCount(2, { timeout: 30_000 });
+    await page.getByTestId("chat-input").fill("A third, leaving the second in the middle.");
+    await page.getByTestId("chat-send").click();
+    await expect(mine).toHaveCount(3, { timeout: 30_000 });
 
     await expect(mine.last().locator('[data-testid^="chat-message-checkpoint-"]')).toBeEnabled();
     // A checkpoint is taken at the conversation's current boundary and nowhere else,
     // so an earlier message is shown the control disabled rather than not at all.
     await expect(
-      mine.first().locator('[data-testid^="chat-message-checkpoint-"]'),
+      mine.nth(1).locator('[data-testid^="chat-message-checkpoint-"]'),
     ).toBeDisabled();
   });
 });
 
-test("chat: forking is refused until the message is checkpointed", async ({ page }) => {
+test("chat: the fork menu is only on a message a boundary is saved at", async ({ page }) => {
   await page.goto(agentChat(instances.ready));
   const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
   await expect(mine.first()).toBeVisible({ timeout: 30_000 });
@@ -52,20 +58,16 @@ test("chat: forking is refused until the message is checkpointed", async ({ page
 
   const latest = mine.last();
   await latest.hover();
-  await latest.locator('[data-testid^="chat-message-menu-"]').click();
-  await expect(
-    openMenu(page).getByRole("menuitem", { name: "Fork chat from here" }),
-  ).toHaveClass(/ant-dropdown-menu-item-disabled/);
-  await page.keyboard.press("Escape");
+  await expect(latest.locator('[data-testid^="chat-message-menu-"]')).toHaveCount(0);
 
-  await test.step("checkpointing it enables the fork", async () => {
+  await test.step("checkpointing it brings the menu", async () => {
     await latest.locator('[data-testid^="chat-message-checkpoint-"]').click();
     await expect(latest).toHaveAttribute("data-checkpointed", "true");
 
     await latest.locator('[data-testid^="chat-message-menu-"]').click();
     await expect(
       openMenu(page).getByRole("menuitem", { name: "Fork chat from here" }),
-    ).not.toHaveClass(/ant-dropdown-menu-item-disabled/);
+    ).toBeVisible();
   });
 });
 
