@@ -510,6 +510,41 @@ func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
 	}
 }
 
+func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
+	request := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approve child tools?"))
+	if err := apia2a.AttachHITL(request, apia2a.ToolApprovalRequest{
+		Type:  apia2a.HITLTypeToolApprovalRequest,
+		Tools: []apia2a.HITLTool{{ID: "parent"}},
+		Nested: &apia2a.NestedHITLRequest{Tools: []apia2a.HITLTool{
+			{ID: "child-read"},
+			{ID: "child-write"},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestContextID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: request},
+	}
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+	response := a2atype.NewMessage(a2atype.MessageRoleUser)
+	response.TaskID = waiting.ID
+	if err := apia2a.AttachHITL(response, apia2a.ToolApprovalResponse{
+		Type: apia2a.HITLTypeToolApprovalResponse,
+		Approvals: []apia2a.ToolApproval{
+			{ID: "child-read", Approved: true},
+			{ID: "child-write", Approved: false},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: response}); err != nil {
+		t.Fatalf("prepareReply() rejected nested tool decisions: %v", err)
+	}
+}
+
 func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}

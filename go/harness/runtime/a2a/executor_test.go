@@ -325,14 +325,16 @@ func TestBusyAndCancellation(t *testing.T) {
 
 func TestCancellationWinsPendingTurnRace(t *testing.T) {
 	started := make(chan struct{})
-	pendingCanceled := make(chan struct{})
+	pendingCancelStarted := make(chan struct{})
+	releasePendingCancel := make(chan struct{})
 	executor, err := New(fakeRunner{run: func(ctx context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
 		close(started)
 		<-ctx.Done()
 		return runtime.Outcome{Pending: &fakePendingTurn{
 			request: &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write"},
 			cancel: func(context.Context) error {
-				close(pendingCanceled)
+				close(pendingCancelStarted)
+				<-releasePendingCancel
 				return nil
 			},
 		}}, nil
@@ -352,18 +354,29 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 	}()
 	<-started
 
-	cancelEvents, cancelErrs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
+	cancellationDone := make(chan executionResult, 1)
+	go func() {
+		events, errs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
+		cancellationDone <- executionResult{events: events, errs: errs}
+	}()
+	<-pendingCancelStarted
+	select {
+	case result := <-cancellationDone:
+		t.Fatalf("Cancel() returned before pending cleanup: %#v/%v", result.events, result.errs)
+	default:
+	}
+	_, busyErrs := collect(executor.Execute(t.Context(), requestContext("task-2", "new")))
+	if len(busyErrs) != 1 || !errors.Is(busyErrs[0], errBusy) {
+		t.Fatalf("execution during pending cleanup errors = %v, want errBusy", busyErrs)
+	}
+	close(releasePendingCancel)
+	cancellation := <-cancellationDone
 	result := <-executionDone
-	if len(cancelErrs) != 0 || len(cancelEvents) != 1 {
-		t.Fatalf("Cancel() events/errors = %#v/%v", cancelEvents, cancelErrs)
+	if len(cancellation.errs) != 0 || len(cancellation.events) != 1 {
+		t.Fatalf("Cancel() events/errors = %#v/%v", cancellation.events, cancellation.errs)
 	}
 	if len(result.errs) != 0 || len(result.events) != 1 {
 		t.Fatalf("Execute() events/errors = %#v/%v, want only WORKING", result.events, result.errs)
-	}
-	select {
-	case <-pendingCanceled:
-	default:
-		t.Fatal("pending turn was not canceled")
 	}
 	executor.mu.Lock()
 	state := executor.state

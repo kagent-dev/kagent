@@ -272,6 +272,7 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	var params struct {
 		Meta struct {
 			Kind       string         `json:"codex_approval_kind"`
+			ToolName   string         `json:"tool_name"`
 			ToolParams map[string]any `json:"tool_params"`
 		} `json:"_meta"`
 		Message    string `json:"message"`
@@ -287,7 +288,7 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	if _, protected := d.config.ApprovalServers[params.ServerName]; !protected {
 		return nil, false, client.respond(message.ID, map[string]any{"action": "accept", "content": map[string]any{}})
 	}
-	callID, name, err := translator.approvalTool(params.ServerName)
+	callID, name, err := translator.approvalTool(params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
 	if err != nil {
 		return nil, false, err
 	}

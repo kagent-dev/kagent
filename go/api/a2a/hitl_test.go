@@ -39,6 +39,21 @@ func TestValidateToolApprovalResponseRejectsReasonOnApproval(t *testing.T) {
 	}
 }
 
+func TestValidateToolApprovalResponseUsesNestedToolIDs(t *testing.T) {
+	request := &ToolApprovalRequest{
+		Tools:  []HITLTool{{ID: "parent"}},
+		Nested: &NestedHITLRequest{Tools: []HITLTool{{ID: "child-one"}, {ID: "child-two"}}},
+	}
+	response := &ToolApprovalResponse{Approvals: []ToolApproval{
+		{ID: "child-one", Approved: true},
+		{ID: "child-two", Approved: false},
+	}}
+
+	if err := ValidateToolApprovalResponse(request, response); err != nil {
+		t.Fatalf("ValidateToolApprovalResponse() rejected nested decisions: %v", err)
+	}
+}
+
 func TestParseAndValidateAskUserResponse(t *testing.T) {
 	requestMessage := &a2atype.Message{}
 	if err := AttachHITL(requestMessage, AskUserRequest{

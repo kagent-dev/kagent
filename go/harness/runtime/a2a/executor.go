@@ -141,6 +141,10 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			finishOnce.Do(func() {
 				cancel()
 				parked = e.park(active, pending)
+				if !parked {
+					_ = pending.Cancel(context.Background())
+					e.deactivate(active)
+				}
 				close(active.done)
 			})
 			return parked
@@ -196,7 +200,6 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			// Transfer the live native turn into executor state before telling the
 			// caller that it can submit a response or cancellation.
 			if !park(outcome.Pending) {
-				_ = outcome.Pending.Cancel(context.Background())
 				return
 			}
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
@@ -481,8 +484,7 @@ func (e *Executor) park(task *activeTask, pending runtime.PendingTurn) bool {
 	}
 	if task.cancelRequested {
 		// Cancellation won while the runtime was producing its input request.
-		// The caller must cancel the newly returned handle instead of parking it.
-		e.state = nil
+		// Keep the task active until the caller cancels the newly returned handle.
 		return false
 	}
 	e.state = &parkedTask{taskRef: task.taskRef, pending: pending}

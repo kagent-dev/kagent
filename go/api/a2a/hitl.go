@@ -196,11 +196,18 @@ func ParseAskUserRequest(message *a2atype.Message) (*AskUserRequest, error) {
 
 // ValidateToolApprovalResponse verifies that every request ID is decided exactly once.
 func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolApprovalResponse) error {
-	if request == nil || response == nil || len(request.Tools) != len(response.Approvals) {
+	if request == nil || response == nil {
 		return fmt.Errorf("tool approval response must decide every requested tool")
 	}
-	want := make(map[string]struct{}, len(request.Tools))
-	for _, tool := range request.Tools {
+	tools := request.Tools
+	if request.Nested != nil {
+		tools = request.Nested.Tools
+	}
+	if len(tools) != len(response.Approvals) {
+		return fmt.Errorf("tool approval response must decide every requested tool")
+	}
+	want := make(map[string]struct{}, len(tools))
+	for _, tool := range tools {
 		if tool.ID == "" {
 			return fmt.Errorf("tool approval request contains an empty ID")
 		}
