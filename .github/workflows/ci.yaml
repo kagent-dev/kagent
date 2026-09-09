@@ -124,6 +124,10 @@ jobs:
             --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
+          # Once, before the fan-out below. Every `build-*` target depends on
+          # `buildx-create`, so four of them starting at the same instant on a runner
+          # with no builder yet all try to create it and all but one fail.
+          make buildx-create
           printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a | xargs -P4 -n1 bash -c '
             image="$1"
             DOCKER_BUILD_ARGS="--cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-${image} --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e-${image} --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-${image},mode=max --platform=linux/amd64 --push" \
