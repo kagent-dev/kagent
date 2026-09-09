@@ -841,18 +841,7 @@ function PageScopeNote({
   return (
     <Text
       data-testid={testId}
-      /* Block, because antd's Text is a span and the page controls below are an
-         inline-flex Space: left inline the two sit on one line, the buttons starting
-         exactly where this sentence ends, and the margin the controls carry for the
-         gap goes to nothing.
-         Closer to the table above than to the controls below, because it describes
-         that table — the page controls are their own thing. */
-      css={{
-        color: theme.color.textMuted,
-        display: "block",
-        fontSize: 12,
-        marginTop: theme.space(2),
-      }}
+      css={{ color: theme.color.textMuted, fontSize: 12 }}
     >
       Sorting and search apply to this page only
       {age ? ` · ${age}` : ""}
