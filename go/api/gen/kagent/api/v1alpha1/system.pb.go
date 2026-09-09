@@ -879,7 +879,8 @@ func (x *SubstrateWorker) GetVersion() int64 {
 // Producing these counts costs a walk of every ate-api page, because ate-api
 // reports no totals of its own — ListActorsResponse is a page plus a token. The
 // walk stays on the server and only the counts cross the wire, so this call has no
-// message-size ceiling; it is not free, and it is the read to poll least often.
+// message-size ceiling. It is not free, though: a caller polling it at the rate it
+// polls a page will spend most of its time here.
 type GetSubstrateSummaryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`

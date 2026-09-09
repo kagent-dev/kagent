@@ -115,21 +115,28 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
   });
 
   await test.step("3. and Delete removes exactly one", async () => {
-    // The dialog animates out, and a click while it is still there lands on its mask.
-    await expect(page.locator(".ant-modal:visible")).toHaveCount(0);
-    await page.locator(sibling).click({ force: true });
     /*
-     * Waited for, not slept through.
+     * Every precondition this step assumes, waited for rather than slept past.
      *
-     * A fixed pause is long enough on an idle machine and not on a loaded one, so this
-     * step failed about a third of the time under a full parallel run — reaching for a
-     * menu item whose dropdown had not opened yet. Playwright already waits for the
-     * item to stop animating before it clicks; the only thing missing was waiting for
-     * it to be there at all, which step 1 above does and this did not.
+     * A fixed pause is long enough on an idle machine and not on a loaded one, and this
+     * step assumes three things it never checked: that the dialog has gone, that the
+     * menu step 1 opened has gone with it, and that the click reopened a menu rather
+     * than closing one. The middle one is the expensive miss — the trigger toggles, so
+     * clicking it while the old menu is still animating out shuts it instead, and the
+     * Delete that follows lands on a menu already leaving.
      */
+    await expect(page.locator(".ant-modal:visible")).toHaveCount(0);
+    await expect(item).toBeHidden();
+
+    await page.locator(sibling).click({ force: true });
     await expect(item).toBeVisible();
     await item.click();
-    await page.locator(".ant-modal:visible").getByRole("button", { name: "Delete" }).click();
+
+    // The dialog this opened, not the one step 2 dismissed: its own words are what say
+    // which, and clicking Delete on a dialog that is fading out does nothing at all.
+    const confirm = page.locator(".ant-modal:visible");
+    await expect(confirm).toContainText("cannot be recovered");
+    await confirm.getByRole("button", { name: "Delete" }).click();
     await expect(rows).toHaveCount(before - 1, { timeout: 20_000 });
     await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
   });

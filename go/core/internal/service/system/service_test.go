@@ -505,7 +505,33 @@ func TestListSubstrateActorsKeepsRowsWhenAPageFailsMidway(t *testing.T) {
 	assert.Equal(t, "1", page.NextPageToken)
 }
 
-// With nothing collected there is no page to continue after: the token names the page
+// A page can be advanced past without keeping any of it — every row out of scope — and
+// the progress still has to survive a later failure, or the rest of the list is
+// unreachable behind a control that has hidden itself.
+func TestListSubstrateActorsResumesFromTheTokenItReached(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ateClient := &fakeATEClient{
+		pageSize:     1,
+		err:          errors.New("ate-api unreachable"),
+		failFromRead: 2,
+		actors: []*ateapipb.Actor{
+			// The whole of page one, and none of it in scope.
+			substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-0"),
+			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-1"),
+		},
+	}
+	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Actors)
+	assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
+	// Page one was read and dropped, so page two is where a retry belongs. Empty here
+	// would strand "actor-1" behind a Next button that never rendered.
+	assert.Equal(t, "1", page.NextPageToken)
+}
+
+// With nothing read at all there is no page to continue after: the token names the page
 // the caller already asked for, and offering it as "next" is a control that goes nowhere.
 func TestListSubstrateActorsOffersNoNextPageWhenTheFirstReadFails(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})

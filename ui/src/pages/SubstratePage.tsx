@@ -1046,6 +1046,18 @@ export function SubstratePage() {
    * would either capture a stale one or list dependencies that change every render,
    * which is the memoisation doing nothing while claiming to.
    */
+  /*
+   * All three together, including the expensive one.
+   *
+   * The summary is documented as the read to poll least often, and this ticks it at
+   * the reader's chosen interval alongside the two cheap ones. That is deliberate: the
+   * tiles and the rows are one picture, and totals that held still while the table
+   * beneath them moved would be two moments shown as one. `isTickInFlight` drops a
+   * tick that lands while the last is still running, so on a cluster where the walk
+   * takes seconds the whole page settles to the summary's cadence rather than queueing
+   * — which is the honest cost of keeping them in step, and the reason the floor on
+   * the interval exists.
+   */
   const refreshInventory = async () => {
     await Promise.all([summary.refresh(), actors.refresh(), workers.refresh()]);
   };
@@ -1337,10 +1349,17 @@ export function SubstratePage() {
    * a slice of the ordering. That read cannot survive a large cluster, so a comparator
    * over the rows in hand is what is left — and what the note beneath the table says.
    *
-   * `multiple` for the same reason as the inline tables: it makes shift-clicking two
-   * headers sort by both, with the number fixing the priority rather than the click
-   * order. Status first on the actors, pool first on the workers, because those are
+   * `multiple` for the same reason as the inline tables, though not by the mechanism
+   * "multi-sort" suggests: antd reads no modifier key. `triggerSorter` appends to the
+   * active sorters whenever the clicked column and the current head both carry a
+   * number, so *any* second header click adds to the sort rather than replacing it,
+   * and the rows stay grouped by the higher number — sorters run in descending
+   * `multiple`. Status leads on the actors and pool on the workers, because those are
    * the columns worth grouping by.
+   *
+   * The cost is that there is no single click that sorts by one of the other columns
+   * alone; the leading column has to be cycled off first. All four tables on this page
+   * behave that way, which is the only reason it is left as it is.
    */
   const actorColumns: ColumnsType<SubstrateActorEntry> = useMemo(
     () => [
@@ -1449,7 +1468,17 @@ export function SubstratePage() {
     [mono, muted, qualified],
   );
 
-  const ateApiEnabled = inventory?.enabled ?? false;
+  /*
+   * Whether ate-api is configured, from whichever read answered.
+   *
+   * Not the summary alone: it is the expensive read of the three — a walk of every
+   * ate-api page — so it is the one most likely to fail, and `inventory` is undefined
+   * whenever it does. Deciding from it alone told a reader whose summary timed out that
+   * their controller had no ate-api endpoint, which is a different problem with a
+   * different fix. The two page reads carry the same flag and are cheap.
+   */
+  const ateApiEnabled =
+    actors.data?.enabled ?? workers.data?.enabled ?? inventory?.enabled ?? false;
 
   return (
     <PageFrame
@@ -1909,9 +1938,13 @@ export function SubstratePage() {
                 ? " "
                 : workerQuery.trim()
                   ? "No workers on this page match your search. Other pages are not searched."
-                  : ateApiEnabled
-                    ? "ate-api reported no worker assignments."
-                    : "Worker assignments come from ate-api, which is not configured on this controller.",
+                  : workers.data?.ateApiError
+                    ? "This page could not be read from ate-api, so there may be workers it did not reach."
+                    : workers.data?.nextPageToken
+                      ? "No workers in this scope on this page. There are more pages — use Next to keep looking."
+                      : ateApiEnabled
+                        ? "ate-api reported no worker assignments."
+                        : "Worker assignments come from ate-api, which is not configured on this controller.",
             }}
           />
 

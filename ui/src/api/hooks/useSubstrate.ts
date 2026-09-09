@@ -36,8 +36,9 @@ export function useSubstrateStatus(
  *
  * It is also the expensive read on this page. ate-api reports no totals, so the
  * controller walks every one of its pages to count — seconds on a large cluster,
- * against milliseconds for a page. Poll it least often; `computedAt` says how old
- * the answer is.
+ * against milliseconds for a page. Poll it no faster than the counts need to be
+ * right: a caller that does not show them beside a live table wants it far less often
+ * than the pages, and `computedAt` says how old the answer it got is.
  */
 export function useSubstrateSummary(namespace?: string): ApiResource<SubstrateSummary> {
   return useApiResource(["substrate.summary", namespace ?? ""], () =>

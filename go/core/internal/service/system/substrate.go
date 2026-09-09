@@ -363,7 +363,17 @@ func collectSubstratePage[Row any, Entry any](
 	for range maxATEPagesPerRequest {
 		rows, next, err := read(ctx, pageSize-int32(len(entries)), token)
 		if err != nil {
-			if len(entries) == 0 {
+			/*
+			 * Resume wherever this got to, which is not the same as "wherever it
+			 * collected a row".
+			 *
+			 * A read can advance past a page and keep nothing from it — every row out
+			 * of scope, or a page ate-api answered empty while still holding a token,
+			 * which it says it may do. Testing the row count instead of the token threw
+			 * that progress away: the caller got an empty page with no next token, the
+			 * controls hid themselves, and the rest of the list was unreachable.
+			 */
+			if token == pageToken {
 				return entries, "", err
 			}
 			return entries, token, err
