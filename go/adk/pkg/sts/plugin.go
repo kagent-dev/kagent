@@ -246,6 +246,8 @@ func (p *TokenPropagationPlugin) AfterRunCallback(ctx agent.InvocationContext) {
 
 // HeaderProvider returns a map of headers to inject into MCP tool HTTP requests.
 // It is called by the dynamicHeaderRoundTripper on every MCP HTTP request.
+// Requests with no user in context, such as startup toolset discovery, get no
+// header rather than the pod's own identity.
 func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]string {
 	if ctx == nil {
 		return nil
@@ -269,16 +271,26 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 	}
 }
 
-// Extract session ID from ADK tool / invocation context, which implements SessionID().
+// sessionIDFromContext recovers the ADK session ID from ctx.
+//
+// The value lookup comes first because it is the one that works on the outbound
+// MCP path: createTransport always sets a non-zero Timeout, and http.Client then
+// re-wraps the request context in a deadline (net/http.setRequestCancel), so by
+// the time this runs the context is no longer ADK's ToolContext. Value lookups
+// traverse the parent chain; a type assertion does not. The assertion is kept as
+// a fallback for callers still holding the ToolContext directly.
 func sessionIDFromContext(ctx context.Context) string {
+	if sessionID, ok := ctx.Value(models.SessionIDKey).(string); ok && sessionID != "" {
+		return sessionID
+	}
+
 	type sessionContext interface {
 		SessionID() string
 	}
-	sessionCtx, ok := ctx.(sessionContext)
-	if !ok {
-		return ""
+	if sessionCtx, ok := ctx.(sessionContext); ok {
+		return sessionCtx.SessionID()
 	}
-	return sessionCtx.SessionID()
+	return ""
 }
 
 // GetTokenForSession retrieves the cached token for a specific session.
