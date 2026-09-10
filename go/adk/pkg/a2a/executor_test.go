@@ -10,6 +10,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
@@ -382,5 +383,51 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	}
 	if resumedText != "resumed" || invocations != 2 {
 		t.Fatalf("resumed text = %q, invocations = %d", resumedText, invocations)
+	}
+}
+
+// TestWithSessionID covers the executor half of STS token injection: the session
+// ID must be readable as a context value, not just via ADK's SessionID() method.
+func TestWithSessionID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sessionID string
+		want      any
+	}{
+		{name: "stores the session ID", sessionID: "01a01e53-cfc7-7c25", want: "01a01e53-cfc7-7c25"},
+		{name: "empty session ID is not stored", sessionID: "", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := withSessionID(context.Background(), tt.sessionID)
+			if got := ctx.Value(models.SessionIDKey); got != tt.want {
+				t.Fatalf("session ID in context = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWithSessionIDAndBearerTokenAreDistinct guards against the two keys
+// colliding: pointers to zero-size structs may share an address.
+func TestWithSessionIDAndBearerTokenAreDistinct(t *testing.T) {
+	t.Parallel()
+
+	const (
+		sessionID = "session-abc"
+		bearer    = "token-xyz"
+	)
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, bearer)
+	ctx = withSessionID(ctx, sessionID)
+
+	if got := ctx.Value(models.BearerTokenKey); got != bearer {
+		t.Fatalf("bearer token = %v, want %q: it must survive the session stamp", got, bearer)
+	}
+	if got := ctx.Value(models.SessionIDKey); got != sessionID {
+		t.Fatalf("session ID = %v, want %q: it must be stored under its own key", got, sessionID)
 	}
 }
