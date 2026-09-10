@@ -96,7 +96,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		}),
 		otelhttp.WithFilter(isA2ARequest),
 	)
-	// Pre-response span flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH
+	// Pre-response telemetry flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH
 	// (the controller sets it on Agent Substrate actors): a checkpoint/suspend
 	// runtime freezes as soon as the response body closes, making this the only
 	// reliable export window. Everywhere else the batch exporter's timer
