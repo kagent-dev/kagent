@@ -686,7 +686,6 @@ function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
 const CHECKPOINT_SORT_TO_PB: Record<CheckpointSort["field"], PbCheckpointSortField> = {
   createdAt: PbCheckpointSortField.CREATED_AT,
   conversation: PbCheckpointSortField.CONVERSATION,
-  state: PbCheckpointSortField.STATE,
 };
 
 const agentInstances: Pick<
@@ -833,12 +832,10 @@ const agentInstances: Pick<
         {
           agentInstanceId: input.id ?? "",
           filter: input.filter ?? "",
-          sortBy: (input.sort ?? []).map((by) => ({
-            field: CHECKPOINT_SORT_TO_PB[by.field],
-            direction: by.descending
-              ? PbSortDirection.DESC
-              : PbSortDirection.ASC,
-          })),
+          sortBy: input.sort && {
+            field: CHECKPOINT_SORT_TO_PB[input.sort.field],
+            direction: input.sort.descending ? PbSortDirection.DESC : PbSortDirection.ASC,
+          },
           page: { limit: input.limit ?? 0, offset: input.offset ?? 0 },
         },
         call("agentInstances.checkpoints.list", options),

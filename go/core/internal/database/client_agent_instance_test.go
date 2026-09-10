@@ -1067,20 +1067,30 @@ func TestListAgentInstanceCheckpointsFiltersSortsAndPages(t *testing.T) {
 	require.Equal(t, []string{"Otters again", "Otters"}, listed, "the filter matches the recorded name")
 	require.Equal(t, 2, total, "and narrows the count, not just the page")
 
-	// Every row is READY, so a second column is the whole of this ordering.
-	listed, _ = names(CheckpointQuery{Sort: []CheckpointSort{{Field: "state"}, {Field: "conversation"}}})
-	require.Equal(t, []string{"Otters", "Otters again", "Ramen"}, listed)
+	// A wildcard is a character to search for, not a pattern.
+	_, total = names(CheckpointQuery{Filter: "%"})
+	require.Zero(t, total, "%% matched every row instead of none")
 
-	first, _ := names(CheckpointQuery{Limit: 2, Sort: []CheckpointSort{{Field: "conversation"}}})
-	second, _ := names(CheckpointQuery{Limit: 2, Offset: 2, Sort: []CheckpointSort{{Field: "conversation"}}})
+	listed, _ = names(CheckpointQuery{SortField: "conversation"})
+	require.Equal(t, []string{"Otters", "Otters again", "Ramen"}, listed)
+	listed, _ = names(CheckpointQuery{SortField: "conversation", Descending: true})
+	require.Equal(t, []string{"Ramen", "Otters again", "Otters"}, listed)
+
+	first, _ := names(CheckpointQuery{Limit: 2, SortField: "conversation"})
+	second, _ := names(CheckpointQuery{Limit: 2, Offset: 2, SortField: "conversation"})
 	require.Equal(t, []string{"Otters", "Otters again", "Ramen"}, append(first, second...),
 		"an offset page neither repeats nor skips")
 
 	_, total = names(CheckpointQuery{UserID: "mallory"})
 	require.Zero(t, total, "another caller sees none of them")
 
+	// Past the end reports no total, which is the caller's cue to ask for page one.
+	listed, total = names(CheckpointQuery{Offset: 99})
+	require.Empty(t, listed)
+	require.Zero(t, total)
+
 	_, _, err := client.ListAgentInstanceCheckpoints(ctx, CheckpointQuery{
-		UserID: "alice", Limit: 10, Sort: []CheckpointSort{{Field: "id; DROP TABLE agent_instance_checkpoint"}},
+		UserID: "alice", Limit: 10, SortField: "id; DROP TABLE agent_instance_checkpoint",
 	})
 	require.ErrorIs(t, err, ErrCheckpointQuery, "an unknown column is refused, not interpolated")
 }

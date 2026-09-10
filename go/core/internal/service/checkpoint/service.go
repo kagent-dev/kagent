@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -64,7 +65,8 @@ type ListRequest struct {
 	PageToken  string
 	Offset     int
 	Filter     string
-	Sort       []database.CheckpointSort
+	SortField  string
+	Descending bool
 }
 
 type ListResult struct {
@@ -237,15 +239,18 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 		offset = decoded
 	}
-	if offset < 0 {
-		return ListResult{}, serviceerrors.NewInvalidArgument("page offset cannot be negative", nil)
+	// Bounded as well as non-negative: the store sends it as an int32, and a token
+	// carrying more than that would wrap into a negative OFFSET.
+	if offset < 0 || offset > math.MaxInt32 {
+		return ListResult{}, serviceerrors.NewInvalidArgument("page offset is out of range", nil)
 	}
 
 	rows, total, err := s.store.ListAgentInstanceCheckpoints(ctx, database.CheckpointQuery{
 		InstanceID: request.InstanceID,
 		UserID:     userID,
 		Filter:     request.Filter,
-		Sort:       request.Sort,
+		SortField:  request.SortField,
+		Descending: request.Descending,
 		Offset:     offset,
 		Limit:      pageSize,
 	})

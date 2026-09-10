@@ -94,6 +94,9 @@ CREATE TABLE agent_instance_checkpoint (
 );
 CREATE INDEX agent_instance_checkpoint_list_idx
     ON agent_instance_checkpoint (source_instance_id, id);
+-- Listing an owner's checkpoints across their conversations, newest first.
+CREATE INDEX agent_instance_checkpoint_owner_idx
+    ON agent_instance_checkpoint (user_id, state, id DESC);
 CREATE UNIQUE INDEX agent_instance_checkpoint_one_creating_idx
     ON agent_instance_checkpoint (source_instance_id)
     WHERE state = 'CREATING';

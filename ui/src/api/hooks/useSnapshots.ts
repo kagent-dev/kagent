@@ -23,7 +23,7 @@ export interface SnapshotPage {
 
 export interface SnapshotQuery {
   filter: string;
-  sort: readonly CheckpointSort[];
+  sort?: CheckpointSort;
   page: number;
   pageSize: number;
 }
@@ -37,7 +37,7 @@ export interface SnapshotQuery {
  * depend on the query, and failing to read them costs the links, not the page.
  */
 export function useSnapshots(query: SnapshotQuery): ApiResource<SnapshotPage> {
-  const sortKey = query.sort.map((by) => `${by.field}:${by.descending ? "d" : "a"}`).join(",");
+  const sortKey = query.sort ? `${query.sort.field}:${query.sort.descending ? "d" : "a"}` : "";
   const page = useApiResource(
     ["snapshots.list", query.filter, sortKey, query.page, query.pageSize],
     () =>

@@ -36,7 +36,7 @@ export interface CheckpointPage {
 
 /** A column a listing can be ordered by, and which way. */
 export interface CheckpointSort {
-  field: "createdAt" | "conversation" | "state";
+  field: "createdAt" | "conversation";
   descending?: boolean;
 }
 

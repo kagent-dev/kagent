@@ -993,39 +993,36 @@ on(CheckpointService.method.listCheckpoints, (input, call) => {
     ? readCheckpoints(instanceFor(requireInstanceId(input.agentInstanceId), call).id)
     : readCheckpoints();
 
+  // A plain substring, as the controller matches it — not a pattern.
   const filter = input.filter.trim().toLowerCase();
   const matched = filter
     ? scoped.filter((row) =>
-        [row.conversationName, row.id, row.agentInstanceId, row.headTaskId].some((field) =>
-          field.toLowerCase().includes(filter),
-        ),
+        [row.conversationName, row.id].some((field) => field.toLowerCase().includes(filter)),
       )
     : scoped;
 
+  const sortBy = input.sortBy;
+  const key = (row: MockCheckpoint) =>
+    sortBy?.field === PbCheckpointSortField.CONVERSATION
+      ? row.conversationName.toLowerCase()
+      : row.createdAt;
   const ordered = [...matched].sort((left, right) => {
-    for (const by of input.sortBy) {
-      const of = (row: MockCheckpoint) => {
-        if (by.field === PbCheckpointSortField.CONVERSATION) return row.conversationName.toLowerCase();
-        if (by.field === PbCheckpointSortField.STATE) return "ready";
-        return row.createdAt;
-      };
-      const compared = of(left).localeCompare(of(right));
-      if (compared !== 0) return by.direction === PbSortDirection.DESC ? -compared : compared;
+    if (sortBy) {
+      const compared = key(left).localeCompare(key(right));
+      if (compared !== 0) return sortBy.direction === PbSortDirection.DESC ? -compared : compared;
     }
-    // Newest first by default, and the id last so equal rows keep one order.
-    if (input.sortBy.length === 0) {
-      const byAge = right.createdAt.localeCompare(left.createdAt);
-      if (byAge !== 0) return byAge;
-    }
-    return left.id.localeCompare(right.id);
+    // Newest first, which is also the tiebreak when a column was asked for.
+    return right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id);
   });
 
   const offset = input.page?.offset ?? 0;
   const limit = input.page?.limit || ordered.length;
+  const page = ordered.slice(offset, offset + limit);
   return {
-    checkpoints: ordered.slice(offset, offset + limit).map(checkpointMessage),
+    checkpoints: page.map(checkpointMessage),
     page: {},
-    totalSize: ordered.length,
+    // No total over an empty window, as the controller's count(*) OVER () reports it.
+    totalSize: page.length === 0 ? 0 : ordered.length,
   };
 });
 

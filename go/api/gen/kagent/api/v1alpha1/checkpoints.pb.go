@@ -79,14 +79,14 @@ func (CheckpointState) EnumDescriptor() ([]byte, []int) {
 }
 
 // Sortable columns. `CONVERSATION` orders by `Checkpoint.conversation_name`, the name
-// the conversation had when the checkpoint was taken.
+// the conversation had when the checkpoint was taken. There is no sort by state: a
+// listing is READY checkpoints only, so every row would carry the same value.
 type CheckpointSortField int32
 
 const (
 	CheckpointSortField_CHECKPOINT_SORT_FIELD_UNSPECIFIED  CheckpointSortField = 0
 	CheckpointSortField_CHECKPOINT_SORT_FIELD_CREATED_AT   CheckpointSortField = 1
 	CheckpointSortField_CHECKPOINT_SORT_FIELD_CONVERSATION CheckpointSortField = 2
-	CheckpointSortField_CHECKPOINT_SORT_FIELD_STATE        CheckpointSortField = 3
 )
 
 // Enum value maps for CheckpointSortField.
@@ -95,13 +95,11 @@ var (
 		0: "CHECKPOINT_SORT_FIELD_UNSPECIFIED",
 		1: "CHECKPOINT_SORT_FIELD_CREATED_AT",
 		2: "CHECKPOINT_SORT_FIELD_CONVERSATION",
-		3: "CHECKPOINT_SORT_FIELD_STATE",
 	}
 	CheckpointSortField_value = map[string]int32{
 		"CHECKPOINT_SORT_FIELD_UNSPECIFIED":  0,
 		"CHECKPOINT_SORT_FIELD_CREATED_AT":   1,
 		"CHECKPOINT_SORT_FIELD_CONVERSATION": 2,
-		"CHECKPOINT_SORT_FIELD_STATE":        3,
 	}
 )
 
@@ -476,12 +474,11 @@ type ListCheckpointsRequest struct {
 	// Optional. Empty lists every checkpoint the caller owns, across their conversations.
 	AgentInstanceId string       `protobuf:"bytes,1,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
 	Page            *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
-	// Matched, case-insensitively, against `Checkpoint.conversation_name` and the
-	// checkpoint's own identifiers. Empty matches everything.
+	// A plain substring, matched case-insensitively against
+	// `Checkpoint.conversation_name` and the checkpoint id. Empty matches everything.
 	Filter string `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
-	// Applied in order, so ["state", "created_at desc"] groups by state and puts the
-	// newest first within each group. Empty is newest first.
-	SortBy        []*CheckpointSortBy `protobuf:"bytes,4,rep,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
+	// Unset is newest first.
+	SortBy        *CheckpointSortBy `protobuf:"bytes,4,opt,name=sort_by,json=sortBy,proto3" json:"sort_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -537,7 +534,7 @@ func (x *ListCheckpointsRequest) GetFilter() string {
 	return ""
 }
 
-func (x *ListCheckpointsRequest) GetSortBy() []*CheckpointSortBy {
+func (x *ListCheckpointsRequest) GetSortBy() *CheckpointSortBy {
 	if x != nil {
 		return x.SortBy
 	}
@@ -549,7 +546,8 @@ type ListCheckpointsResponse struct {
 	Checkpoints []*Checkpoint          `protobuf:"bytes,1,rep,name=checkpoints,proto3" json:"checkpoints,omitempty"`
 	Page        *PageResponse          `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
 	// Every checkpoint the filter matches, not just this page — what a page control
-	// needs to say "1-25 of 137" without reading them all.
+	// needs to say "1-25 of 137" without reading them all. Zero when the offset is past
+	// the end, which is the caller's cue to ask for the first page.
 	TotalSize     int32 `protobuf:"varint,3,opt,name=total_size,json=totalSize,proto3" json:"total_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -817,12 +815,12 @@ const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\x10CheckpointSortBy\x12J\n" +
 	"\x05field\x18\x01 \x01(\x0e2(.kagent.api.v1alpha1.CheckpointSortFieldB\n" +
 	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\x05field\x12J\n" +
-	"\tdirection\x18\x02 \x01(\x0e2\".kagent.api.v1alpha1.SortDirectionB\b\xbaH\x05\x82\x01\x02\x10\x01R\tdirection\"\xf3\x01\n" +
+	"\tdirection\x18\x02 \x01(\x0e2\".kagent.api.v1alpha1.SortDirectionB\b\xbaH\x05\x82\x01\x02\x10\x01R\tdirection\"\xe9\x01\n" +
 	"\x16ListCheckpointsRequest\x127\n" +
 	"\x11agent_instance_id\x18\x01 \x01(\tB\v\xbaH\b\xd8\x01\x01r\x03\xb0\x01\x01R\x0fagentInstanceId\x124\n" +
 	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12 \n" +
-	"\x06filter\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x02R\x06filter\x12H\n" +
-	"\asort_by\x18\x04 \x03(\v2%.kagent.api.v1alpha1.CheckpointSortByB\b\xbaH\x05\x92\x01\x02\x10\x04R\x06sortBy\"\xb2\x01\n" +
+	"\x06filter\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x02R\x06filter\x12>\n" +
+	"\asort_by\x18\x04 \x01(\v2%.kagent.api.v1alpha1.CheckpointSortByR\x06sortBy\"\xb2\x01\n" +
 	"\x17ListCheckpointsResponse\x12A\n" +
 	"\vcheckpoints\x18\x01 \x03(\v2\x1f.kagent.api.v1alpha1.CheckpointR\vcheckpoints\x125\n" +
 	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\x12\x1d\n" +
@@ -843,12 +841,11 @@ const file_kagent_api_v1alpha1_checkpoints_proto_rawDesc = "" +
 	"\x19CHECKPOINT_STATE_CREATING\x10\x01\x12\x1a\n" +
 	"\x16CHECKPOINT_STATE_READY\x10\x02\x12\x1b\n" +
 	"\x17CHECKPOINT_STATE_FAILED\x10\x03\x12\x1d\n" +
-	"\x19CHECKPOINT_STATE_DELETING\x10\x04*\xab\x01\n" +
+	"\x19CHECKPOINT_STATE_DELETING\x10\x04*\x8a\x01\n" +
 	"\x13CheckpointSortField\x12%\n" +
 	"!CHECKPOINT_SORT_FIELD_UNSPECIFIED\x10\x00\x12$\n" +
 	" CHECKPOINT_SORT_FIELD_CREATED_AT\x10\x01\x12&\n" +
-	"\"CHECKPOINT_SORT_FIELD_CONVERSATION\x10\x02\x12\x1f\n" +
-	"\x1bCHECKPOINT_SORT_FIELD_STATE\x10\x032\xbf\x04\n" +
+	"\"CHECKPOINT_SORT_FIELD_CONVERSATION\x10\x022\xbf\x04\n" +
 	"\x11CheckpointService\x12o\n" +
 	"\x10CreateCheckpoint\x12,.kagent.api.v1alpha1.CreateCheckpointRequest\x1a-.kagent.api.v1alpha1.CreateCheckpointResponse\x12f\n" +
 	"\rGetCheckpoint\x12).kagent.api.v1alpha1.GetCheckpointRequest\x1a*.kagent.api.v1alpha1.GetCheckpointResponse\x12l\n" +

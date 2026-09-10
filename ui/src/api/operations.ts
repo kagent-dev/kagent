@@ -252,14 +252,14 @@ export interface OperationMap {
 
   /**
    * Saved boundaries, narrowed, ordered and paged by the controller. Without an `id`,
-   * every boundary the caller owns; `filter` matches the recorded conversation name and
-   * the checkpoint's identifiers, and `sort` applies in the order given.
+   * every boundary the caller owns; `filter` is a plain substring of the recorded
+   * conversation name or the checkpoint id. Unsorted is newest first.
    */
   "agentInstances.checkpoints.list": {
     input: {
       id?: string;
       filter?: string;
-      sort?: readonly CheckpointSort[];
+      sort?: CheckpointSort;
       limit?: number;
       offset?: number;
     };

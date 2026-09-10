@@ -60,12 +60,12 @@ message GetCheckpointResponse {
 }
 
 // Sortable columns. `CONVERSATION` orders by `Checkpoint.conversation_name`, the name
-// the conversation had when the checkpoint was taken.
+// the conversation had when the checkpoint was taken. There is no sort by state: a
+// listing is READY checkpoints only, so every row would carry the same value.
 enum CheckpointSortField {
   CHECKPOINT_SORT_FIELD_UNSPECIFIED = 0;
   CHECKPOINT_SORT_FIELD_CREATED_AT = 1;
   CHECKPOINT_SORT_FIELD_CONVERSATION = 2;
-  CHECKPOINT_SORT_FIELD_STATE = 3;
 }
 
 message CheckpointSortBy {
@@ -83,19 +83,19 @@ message ListCheckpointsRequest {
     (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE
   ];
   PageRequest page = 2;
-  // Matched, case-insensitively, against `Checkpoint.conversation_name` and the
-  // checkpoint's own identifiers. Empty matches everything.
+  // A plain substring, matched case-insensitively against
+  // `Checkpoint.conversation_name` and the checkpoint id. Empty matches everything.
   string filter = 3 [(buf.validate.field).string.max_len = 256];
-  // Applied in order, so ["state", "created_at desc"] groups by state and puts the
-  // newest first within each group. Empty is newest first.
-  repeated CheckpointSortBy sort_by = 4 [(buf.validate.field).repeated.max_items = 4];
+  // Unset is newest first.
+  CheckpointSortBy sort_by = 4;
 }
 
 message ListCheckpointsResponse {
   repeated Checkpoint checkpoints = 1;
   PageResponse page = 2;
   // Every checkpoint the filter matches, not just this page — what a page control
-  // needs to say "1-25 of 137" without reading them all.
+  // needs to say "1-25 of 137" without reading them all. Zero when the offset is past
+  // the end, which is the caller's cue to ask for the first page.
   int32 total_size = 3;
 }
 

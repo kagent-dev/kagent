@@ -256,7 +256,7 @@ export interface AgentInstancesApi {
       input?: {
         id?: string;
         filter?: string;
-        sort?: readonly CheckpointSort[];
+        sort?: CheckpointSort;
         limit?: number;
         offset?: number;
       },

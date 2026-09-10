@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -36,7 +36,6 @@ function conversationLabel(row: Snapshot): string {
 const SORT_FIELDS: Record<string, CheckpointSort["field"]> = {
   conversation: "conversation",
   createdAt: "createdAt",
-  state: "state",
 };
 
 /**
@@ -69,12 +68,10 @@ export function SnapshotsPage() {
   const [picked, setPicked] = useState<readonly string[]>([]);
   const [isDeleting, setDeleting] = useState(false);
 
-  // One column at a time is all a table header offers; the request takes several and
-  // applies them in order, so multi-sort would need no change here.
-  const sort = useMemo<CheckpointSort[]>(() => {
+  const sort = useMemo<CheckpointSort | undefined>(() => {
     const field = view.sort ? SORT_FIELDS[view.sort.column] : undefined;
-    if (!field) return [];
-    return [{ field, descending: view.sort?.direction === "desc" }];
+    if (!field) return undefined;
+    return { field, descending: view.sort?.direction === "desc" };
   }, [view.sort]);
 
   // Debounced, because the filter travels to the controller: a five-letter search
@@ -90,6 +87,17 @@ export function SnapshotsPage() {
 
   const snapshots = useMemo(() => data?.snapshots ?? [], [data]);
   const total = data?.total ?? 0;
+
+  /*
+   * A page that is no longer there sends the reader to the first one.
+   *
+   * The controller answers an offset past the end with no rows and no total, which is
+   * what deleting the last row of page two leaves behind — and a page control told
+   * "0 of 0" while page one is full would strand them there.
+   */
+  useEffect(() => {
+    if (view.page > 1 && total === 0 && !isLoading && !error) view.setPage(1);
+  }, [view, total, isLoading, error]);
 
   /*
    * One request each, wrapped in one toast.
@@ -163,11 +171,11 @@ export function SnapshotsPage() {
           ),
       },
       {
+        // Not sortable: a listing is READY snapshots only, so an order over this
+        // column would be an order over one value.
         title: "State",
         key: "state",
         width: 120,
-        sorter: true,
-        sortOrder: sortOrderFor(view, "state"),
         render: (_, row) => (
           <Tag color={row.state === "ready" ? "success" : row.state === "failed" ? "error" : "default"}>
             {row.state}

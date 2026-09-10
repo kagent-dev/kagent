@@ -384,20 +384,15 @@ func checkpointSnapshot(row agentInstanceCheckpointRow) *AgentInstanceTaskSnapsh
 	}
 }
 
-// CheckpointSort orders a listing by one column: "created_at", "conversation" or
-// "state". Anything else is refused.
-type CheckpointSort struct {
-	Field      string
-	Descending bool
-}
-
 // CheckpointQuery narrows and orders a caller's checkpoints. An empty InstanceID spans
-// every conversation they own; an empty Filter matches everything.
+// every conversation they own; an empty Filter matches everything; an empty SortField
+// is newest first.
 type CheckpointQuery struct {
 	InstanceID string
 	UserID     string
 	Filter     string
-	Sort       []CheckpointSort
+	SortField  string
+	Descending bool
 	Offset     int
 	Limit      int
 }
@@ -407,84 +402,54 @@ var ErrCheckpointQuery = errors.New("invalid checkpoint query")
 
 // The sortable columns, which are the indexed ones: a checkpoint's timestamp and a
 // conversation's current name both live inside encoded payloads. "created_at" orders by
-// id, which is UUIDv7 and so already chronological.
-var checkpointSortFields = map[string]bool{"created_at": true, "conversation": true, "state": true}
+// id, which is UUIDv7 and so already chronological. Not state — a listing is READY
+// checkpoints only, so it would order every row by the same value.
+var checkpointSortFields = map[string]bool{"created_at": true, "conversation": true}
 
-const checkpointSortLevels = 3
-
-// One (field, descending) pair per ordering slot in the statement below; an unfilled
-// slot orders by nothing.
-func checkpointSortArgs(sort []CheckpointSort) ([]any, error) {
-	if len(sort) > checkpointSortLevels {
-		return nil, fmt.Errorf("%w: at most %d sort columns", ErrCheckpointQuery, checkpointSortLevels)
-	}
-	args := make([]any, 0, checkpointSortLevels*2)
-	for i := range checkpointSortLevels {
-		if i >= len(sort) {
-			args = append(args, "", false)
-			continue
-		}
-		if !checkpointSortFields[sort[i].Field] {
-			return nil, fmt.Errorf("%w: unsortable column %q", ErrCheckpointQuery, sort[i].Field)
-		}
-		args = append(args, sort[i].Field, sort[i].Descending)
-	}
-	return args, nil
+// The page, and the count the filter matched, in one read.
+type checkpointPageRow struct {
+	agentInstanceCheckpointRow
+	TotalSize int
 }
 
 // ListAgentInstanceCheckpoints reads one page of a caller's READY checkpoints and the
 // count the filter matched. Retained checkpoints stay listable after their conversation
-// is deleted.
+// is deleted. A total of zero over an empty page means the offset is past the end.
 //
 // The ordering is passed as parameters rather than concatenated in, so the statement
 // stays preparable by TestInlineSQLPrepares and there is no ORDER BY to inject into.
 func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, query CheckpointQuery) ([]*apiv1alpha1.Checkpoint, int, error) {
-	sortArgs, err := checkpointSortArgs(query.Sort)
-	if err != nil {
-		return nil, 0, err
+	if query.SortField != "" && !checkpointSortFields[query.SortField] {
+		return nil, 0, fmt.Errorf("%w: unsortable column %q", ErrCheckpointQuery, query.SortField)
 	}
-
-	total, err := queryOne(ctx, c.db, `
-		SELECT count(*)::int FROM agent_instance_checkpoint
-		WHERE user_id = $1 AND state = 'READY'
-		  AND (NULLIF($2::text, '') IS NULL OR source_instance_id = NULLIF($2::text, '')::uuid)
-		  AND ($3::text = '' OR source_name ILIKE '%' || $3 || '%' OR id::text ILIKE '%' || $3 || '%')
-	`, pgx.RowTo[int], query.UserID, query.InstanceID, query.Filter)
-	if err != nil {
-		return nil, 0, fmt.Errorf("count AgentInstance checkpoints: %w", err)
-	}
-
-	args := append([]any{
-		query.UserID, query.InstanceID, query.Filter, int32(query.Limit), int32(query.Offset),
-	}, sortArgs...)
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence,
 		    snapshot_atespace, snapshot_uri, snapshot_content_scope, tag_uid, state, data,
-		    source_history_id, prepared_revision, source_name
+		    source_history_id, prepared_revision, source_name,
+		    (count(*) OVER ())::int AS total_size
 		FROM agent_instance_checkpoint
 		WHERE user_id = $1 AND state = 'READY'
 		  AND (NULLIF($2::text, '') IS NULL OR source_instance_id = NULLIF($2::text, '')::uuid)
-		  AND ($3::text = '' OR source_name ILIKE '%' || $3 || '%' OR id::text ILIKE '%' || $3 || '%')
+		  AND ($3::text = '' OR position(lower($3) IN lower(source_name)) > 0
+		                     OR position(lower($3) IN id::text) > 0)
 		ORDER BY
-		    (CASE WHEN $7::bool THEN NULL WHEN $6::text = 'conversation' THEN lower(source_name) WHEN $6::text = 'state' THEN state WHEN $6::text = 'created_at' THEN id::text END) ASC NULLS LAST,
-		    (CASE WHEN NOT $7::bool THEN NULL WHEN $6::text = 'conversation' THEN lower(source_name) WHEN $6::text = 'state' THEN state WHEN $6::text = 'created_at' THEN id::text END) DESC NULLS LAST,
-		    (CASE WHEN $9::bool THEN NULL WHEN $8::text = 'conversation' THEN lower(source_name) WHEN $8::text = 'state' THEN state WHEN $8::text = 'created_at' THEN id::text END) ASC NULLS LAST,
-		    (CASE WHEN NOT $9::bool THEN NULL WHEN $8::text = 'conversation' THEN lower(source_name) WHEN $8::text = 'state' THEN state WHEN $8::text = 'created_at' THEN id::text END) DESC NULLS LAST,
-		    (CASE WHEN $11::bool THEN NULL WHEN $10::text = 'conversation' THEN lower(source_name) WHEN $10::text = 'state' THEN state WHEN $10::text = 'created_at' THEN id::text END) ASC NULLS LAST,
-		    (CASE WHEN NOT $11::bool THEN NULL WHEN $10::text = 'conversation' THEN lower(source_name) WHEN $10::text = 'state' THEN state WHEN $10::text = 'created_at' THEN id::text END) DESC NULLS LAST,
-		    -- Newest first when nothing was asked for, then the id so equal rows keep
-		    -- one order between pages.
-		    (CASE WHEN $6::text = '' THEN id::text END) DESC NULLS LAST,
-		    id
+		    (CASE WHEN $6::text = 'conversation' AND NOT $7::bool THEN lower(source_name) END) ASC,
+		    (CASE WHEN $6::text = 'conversation' AND $7::bool THEN lower(source_name) END) DESC,
+		    (CASE WHEN $6::text = 'created_at' AND NOT $7::bool THEN id END) ASC,
+		    (CASE WHEN $6::text = 'created_at' AND $7::bool THEN id END) DESC,
+		    -- Newest first when nothing was asked for, and the tiebreak when it was.
+		    id DESC
 		LIMIT $4 OFFSET $5
-	`, pgx.RowToStructByName[agentInstanceCheckpointRow], args...)
+	`, pgx.RowToStructByName[checkpointPageRow],
+		query.UserID, query.InstanceID, query.Filter,
+		int32(query.Limit), int32(query.Offset), query.SortField, query.Descending)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list AgentInstance checkpoints: %w", err)
 	}
 
 	result := make([]*apiv1alpha1.Checkpoint, len(rows))
 	for i := range rows {
-		checkpoint, err := toAgentInstanceCheckpoint(rows[i])
+		checkpoint, err := toAgentInstanceCheckpoint(rows[i].agentInstanceCheckpointRow)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -492,7 +457,10 @@ func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, query Checkpo
 		checkpoint.ConversationName = rows[i].SourceName
 		result[i] = checkpoint
 	}
-	return result, total, nil
+	if len(rows) == 0 {
+		return result, 0, nil
+	}
+	return result, rows[0].TotalSize, nil
 }
 
 // BeginDeleteAgentInstanceCheckpoint marks an owned READY checkpoint DELETING and returns

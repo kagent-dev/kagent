@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"runtime"
 	"testing"
 
@@ -400,6 +401,12 @@ func TestListPagesByOffsetAndRefusesUnknownSortFields(t *testing.T) {
 	last, err := service.List(ctx, ListRequest{PageSize: 2, Offset: 2})
 	require.NoError(t, err)
 	require.Empty(t, last.NextPageToken)
+
+	// A token that would wrap the store's int32 offset is the caller's fault.
+	_, err = service.List(ctx, ListRequest{PageSize: 2, PageToken: encodePageToken(math.MaxInt32 + 1)})
+	var tooFar *serviceerrors.Error
+	require.ErrorAs(t, err, &tooFar)
+	require.Equal(t, serviceerrors.CodeInvalidArgument, tooFar.Code())
 
 	store.listErr = fmt.Errorf("%w: unsortable column", database.ErrCheckpointQuery)
 	_, err = service.List(ctx, ListRequest{PageSize: 2})
