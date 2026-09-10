@@ -393,12 +393,5 @@ func decodePageToken(token string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	offset, err := strconv.Atoi(string(value))
-	if err != nil {
-		return 0, err
-	}
-	if offset < 0 {
-		return 0, fmt.Errorf("page offset %d is negative", offset)
-	}
-	return offset, nil
+	return strconv.Atoi(string(value))
 }

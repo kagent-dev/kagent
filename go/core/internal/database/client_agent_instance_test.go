@@ -1014,14 +1014,9 @@ func TestListAgentInstanceCheckpointsFiltersSortsAndPages(t *testing.T) {
 	// Ids ascend, as UUIDv7 ids do in production, so ascending id is ascending time.
 	seed := func(instance, name, id string) {
 		t.Helper()
-		data, err := proto.Marshal(&apiv1alpha1.AgentInstance{Id: instance, Creator: "alice", Name: name})
-		require.NoError(t, err)
-		_, err = db.Exec(ctx, `INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)`, instance)
-		require.NoError(t, err)
-		_, err = db.Exec(ctx, `
-			INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data)
-			VALUES ($1::uuid, 'alice', $1, $1::uuid, $1::uuid, 'AGENT_INSTANCE_STATE_READY', $2)
-		`, instance, data)
+		// Only the checkpoint row and the history it points at: nothing in the listing
+		// reads agent_instance, and the conversation may well be deleted by then.
+		_, err := db.Exec(ctx, `INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)`, instance)
 		require.NoError(t, err)
 		payload, err := proto.Marshal(&apiv1alpha1.Checkpoint{
 			Id: id, AgentInstanceId: instance, HeadTaskId: "task-" + id, HistorySequence: 1,
