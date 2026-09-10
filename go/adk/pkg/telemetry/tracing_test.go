@@ -99,7 +99,7 @@ func (e *testLogExporter) count() int {
 	return len(e.records)
 }
 
-// flushTimeout reads KAGENT_TRACE_FLUSH_TIMEOUT_MS and falls back to 3s on
+// flushTimeout reads KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS and falls back to 3s on
 // unset, non-numeric, or non-positive values.
 func TestFlushTimeout(t *testing.T) {
 	tests := []struct {
@@ -115,7 +115,7 @@ func TestFlushTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", tt.env)
+			t.Setenv("KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS", tt.env)
 			if got := flushTimeout(); got != tt.want {
 				t.Errorf("flushTimeout() = %v, want %v", got, tt.want)
 			}

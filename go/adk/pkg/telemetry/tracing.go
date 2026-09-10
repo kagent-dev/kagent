@@ -48,35 +48,35 @@ func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
 // session's last message).
 // Uses its own detached timeout because the request context is typically
 // already canceled by the time deferred cleanup runs. The timeout defaults to
-// 3s and is configurable via KAGENT_TRACE_FLUSH_TIMEOUT_MS.
+// 3s and is configurable via KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS.
 func ForceFlush(ctx context.Context) {
-	type flusher interface{ ForceFlush(context.Context) error }
+        type flusher interface{ ForceFlush(context.Context) error }
 
-	tracerProvider, tracerOK := otel.GetTracerProvider().(flusher)
-	loggerProvider, loggerOK := logglobal.GetLoggerProvider().(flusher)
-	if !tracerOK && !loggerOK {
-		return
-	}
+        tracerProvider, tracerOK := otel.GetTracerProvider().(flusher)
+        loggerProvider, loggerOK := logglobal.GetLoggerProvider().(flusher)
+        if !tracerOK && !loggerOK {
+                return
+        }
 
-	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
-	defer cancel()
+        flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
+        defer cancel()
 
-	if tracerOK {
-		if err := tracerProvider.ForceFlush(flushCtx); err != nil {
-			otel.Handle(err)
-		}
-	}
-	if loggerOK {
-		if err := loggerProvider.ForceFlush(flushCtx); err != nil {
-			otel.Handle(err)
-		}
-	}
+        if loggerOK {
+                if err := loggerProvider.ForceFlush(flushCtx); err != nil {
+                        otel.Handle(err)
+                }
+        }
+        if tracerOK {
+                if err := tracerProvider.ForceFlush(flushCtx); err != nil {
+                        otel.Handle(err)
+                }
+        }
 }
 
-// flushTimeout returns KAGENT_TRACE_FLUSH_TIMEOUT_MS as a duration, or 3s
+// flushTimeout returns KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS as a duration, or 3s
 // when unset or invalid.
 func flushTimeout() time.Duration {
-	if v := strings.TrimSpace(os.Getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS")); v != "" {
 		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
 			return time.Duration(ms) * time.Millisecond
 		}
