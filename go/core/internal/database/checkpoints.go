@@ -60,7 +60,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		// Serialize new lineage with deletion of any checkpoint in its inherited prefix.
 		// NO KEY UPDATE leaves foreign-key checks free to read the history.
 		sourceContextID, err := queryOne(ctx, tx, `
-			SELECT context_id FROM a2a_context WHERE id = $1 FOR NO KEY UPDATE
+			SELECT context_id FROM agent_history WHERE id = $1 FOR NO KEY UPDATE
 		`, pgx.RowTo[uuid.UUID], checkpoint.SourceHistoryID)
 		if err != nil {
 			return fmt.Errorf("get checkpoint context: %w", err)
@@ -399,7 +399,7 @@ func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, u
 		    UNION
 		    SELECT h.parent_history_id, h.parent_history_sequence
 		    FROM lineage l
-		    JOIN a2a_context h ON h.id = l.history_id
+		    JOIN agent_history h ON h.id = l.history_id
 		    WHERE h.user_id = $2 AND h.parent_history_id IS NOT NULL
 		), page AS MATERIALIZED (
 		    (SELECT id FROM agent_instance_checkpoint
@@ -454,7 +454,7 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 		}
 		// Take the same history lock as ForkAgentInstance before checking its descendants.
 		if _, err := queryOne(ctx, tx, `
-			SELECT id FROM a2a_context WHERE id = $1 FOR NO KEY UPDATE
+			SELECT id FROM agent_history WHERE id = $1 FOR NO KEY UPDATE
 		`, pgx.RowTo[uuid.UUID], row.SourceHistoryID); err != nil {
 			return fmt.Errorf("lock checkpoint history: %w", err)
 		}
@@ -473,7 +473,7 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 			WHERE agent_instance_checkpoint.id = $1 AND agent_instance_checkpoint.user_id = $2
 			  AND agent_instance_checkpoint.state IN ('READY', 'DELETING')
 			  AND (agent_instance_checkpoint.state = 'DELETING' OR NOT EXISTS (
-			      SELECT 1 FROM a2a_context h
+			      SELECT 1 FROM agent_history h
 			      WHERE h.parent_history_id = agent_instance_checkpoint.source_history_id
 			        AND h.parent_history_sequence >= agent_instance_checkpoint.history_sequence
 			  ))

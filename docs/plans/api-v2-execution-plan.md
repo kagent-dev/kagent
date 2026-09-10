@@ -15,8 +15,8 @@ Public invariants:
 
 - `Harness` and `AgentTemplate` are `kagent.dev/v1alpha3` CRDs.
 - `AgentInstance` is a PostgreSQL-backed gRPC resource.
-- One AgentInstance owns one rooted template tree and one A2A context.
-- `A2A context_id == AgentInstance.id`.
+- One AgentInstance owns one rooted template tree and one private history branch in `agent_history`.
+- `AgentInstance.context_id` is the public A2A context ID; forks preserve it while using distinct instance and history IDs.
 - A2A owns interaction and history; AgentInstanceService owns catalog, lifecycle, metadata, and sharing.
 - Every quiescent A2A turn is durably suspended to an exact snapshot before its
   final state is published; physical Actor suspension does not change a ready
