@@ -42,7 +42,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CONSUMED: poc/agent-platform
+  CONSUMED: giantswarm
   UPSTREAM_REPO: kagent-dev/kagent
   UPSTREAM_REF: ${{ inputs.upstream_ref || 'main' }}
   DRY_RUN: ${{ inputs.dry_run == true }}

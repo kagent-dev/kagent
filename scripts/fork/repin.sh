@@ -4,7 +4,7 @@
 # Pushing, testing and landing the candidate belong to the sync workflow — or
 # to the operator running the same steps by hand.
 #
-#   CONSUMED=poc/agent-platform UPSTREAM_REMOTE=upstream UPSTREAM_REF=main \
+#   CONSUMED=giantswarm UPSTREAM_REMOTE=upstream UPSTREAM_REF=main \
 #   CANDIDATE=sync/upstream-<date>-<sha7> scripts/fork/repin.sh
 #
 # Exit 0: the candidate branch exists locally (status=rebased) or nothing is to
@@ -13,7 +13,7 @@
 # The report is written to $REPORT (markdown) and $REPORT_ENV (key=value).
 set -euo pipefail
 
-CONSUMED=${CONSUMED:-poc/agent-platform}
+CONSUMED=${CONSUMED:-giantswarm}
 UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-upstream}
 UPSTREAM_REF=${UPSTREAM_REF:-main}
 REPORT=${REPORT:-repin-report.md}

@@ -9,16 +9,16 @@ switches to that release and this line ends.
 
 | | |
 |---|---|
-| Consumed branch (and default branch) | `poc/agent-platform` — what the platform's dev channel, agentlab and the release tags follow |
+| Consumed branch (and default branch) | `giantswarm` (the same name as the Substrate line's) — what the release tags are cut from, and what the platform's dev channel and agentlab follow between releases |
 | Mirror | `main`, every `release/v*.x` branch and every tag — read-only mirrors of upstream, fast-forwarded by the sync workflow, never edited (upstream's CI reads release branches and tags to pick the upgrade-test baseline) |
 | Automation branches | `sync/**` (re-pin candidates), `ledger` (machine-written records) — never commit to them by hand |
-| Upstream pin | `git merge-base poc/agent-platform main` — the newest row of [`re-pins.md`](../../blob/ledger/re-pins.md) on the `ledger` branch gives the commit and date |
+| Upstream pin | `git merge-base giantswarm main` — the newest row of [`re-pins.md`](../../blob/ledger/re-pins.md) on the `ledger` branch gives the commit and date |
 | Substrate version the pin runs with | `0.0.27-dev.giantswarm.2026-09-10.19-33-37.h734ec53` of the Giant Swarm line [giantswarm/substrate](https://github.com/giantswarm/substrate) (upstream kagent-dev/substrate v0.0.26 — the `go/go.mod` replace, the ate-api contract — plus kagent-dev/substrate#33; `SUBSTRATE_VERSION` / `SUBSTRATE_REPO` in the `Makefile`, read by `ci.yaml` through `make substrate-pin`; `kubectl-ate` for the e2e bootstrap still from upstream's v0.0.26 release) |
 | Tracking | giantswarm/giantswarm#37010 (the line), giantswarm/giantswarm#37742 (the upstream exit of every patch) |
 
 ## Which kagent are we running
 
-Carried commits, in the order they sit on top of the pin (`git log --oneline main..poc/agent-platform`).
+Carried commits, in the order they sit on top of the pin (`git log --oneline main..giantswarm`).
 Their SHAs change at every re-pin; the ledger records the SHAs of each rebase.
 
 | Carried commit (subject) | Why the platform needs it | Upstream |
@@ -47,7 +47,7 @@ charts, not here.
 |---|---|
 | Images (multi-arch, amd64 + arm64) | `ghcr.io/giantswarm/kagent/{controller,ui,golang-adk,claude-harness}:<version>` |
 | Charts | `oci://ghcr.io/giantswarm/kagent/helm/kagent:<version>`, `oci://ghcr.io/giantswarm/kagent/helm/kagent-crds:<version>` (the chart's image defaults are stamped with the same version) |
-| Dev version of a branch push | `0.11.0-dev.poc-agent-platform.<YYYY-MM-DD>.<HH-MM-SS>.h<sha7>` — base `0.11.0` (upstream `main`'s next release), the branch lowercased to `[a-z0-9-]`, the committer date in UTC, the short commit. Consumers select the channel with a Flux `semverFilter` of `.*-dev\.poc-agent-platform\..*` on the range `>=0.11.0-0 <0.12.0-0` |
+| Dev version of a branch push | `0.11.0-dev.giantswarm.<YYYY-MM-DD>.<HH-MM-SS>.h<sha7>` — base `0.11.0` (upstream `main`'s next release), the branch lowercased to `[a-z0-9-]`, the committer date in UTC, the short commit. Consumers select the channel with a Flux `semverFilter` of `.*-dev\.giantswarm\..*` on the range `>=0.11.0-0 <0.12.0-0` |
 | Release version of a tag | the tag without `v` |
 | Digests | every build's image and chart digests (multi-arch index digests, what a `Harness` pins) are a row of [`builds.md`](../../blob/ledger/builds.md) on the `ledger` branch and in the run summary of the workflow run |
 
@@ -68,8 +68,8 @@ Actions tab, never a reason to pull a build that was green on the same tree.
 `ci.yaml` (upstream's suite: Go unit tests and lint, Helm unit tests, protobuf contract check, manifests check,
 UI typecheck/lint/unit/browser tests, Python tests and lint, multi-arch image builds, the e2e against kind +
 Substrate, the upgrade legs) and `image-scan.yaml` (Trivy on every published image at CRITICAL/HIGH,
-`govulncheck` over the Go module graph) run on every push to `poc/agent-platform` and `sync/**`, on every pull
-request to `poc/agent-platform`, and — the scan — weekly. Fork differences from upstream's files: the triggers,
+`govulncheck` over the Go module graph) run on every push to `giantswarm` and `sync/**`, on every pull
+request to `giantswarm`, and — the scan — weekly. Fork differences from upstream's files: the triggers,
 GitHub-hosted runners with a `docker/setup-buildx-action` builder instead of Blacksmith runners and their
 builder, the image matrices trimmed to the published set, no `paths-ignore` (a docs-only pull request must still
 report the required checks), and one aggregate job per workflow — `ci-ok`, `scan-ok` — which the ruleset requires.
@@ -104,11 +104,11 @@ also on demand (`gh workflow run sync-upstream.yaml`, inputs `upstream_ref`, `dr
 3. pushes the candidate (as the org's `heraldbot` GitHub App, whose token the run mints — a push by an App
    triggers workflows, a push with the workflow's own token would not); `ci.yaml` and `image-scan.yaml` run on it;
    the workflow waits for `ci-ok` and `scan-ok`;
-4. green: force-pushes the candidate onto `poc/agent-platform` (`--force-with-lease` on the head it started
+4. green: force-pushes the candidate onto `giantswarm` (`--force-with-lease` on the head it started
    from), deletes the candidate, appends the row to `re-pins.md`; `tag.yaml` publishes the dev build and
    appends its row to `builds.md`;
 5. a conflict or a red check: nothing is pushed to the consumed branch; a pull request against
-   `poc/agent-platform` names the conflicting carried commit (with the files) or the failed checks, and the
+   `giantswarm` names the conflicting carried commit (with the files) or the failed checks, and the
    candidate branch stays for the fix. Finish by hand, then close that pull request — never merge it (a merge
    would keep the old base).
 
@@ -123,9 +123,9 @@ The same steps by hand, for when the workflow is broken or a conflict needs a hu
 git clone https://github.com/giantswarm/kagent-upstream && cd kagent-upstream
 git remote add upstream https://github.com/kagent-dev/kagent.git
 CANDIDATE=sync/upstream-$(date -u +%Y%m%d)-manual scripts/fork/repin.sh   # exit 2 = conflict, report in repin-report.md
-# on a conflict: git rebase --onto upstream/main "$(git merge-base origin/poc/agent-platform upstream/main)" ; fix ; git rebase --continue
+# on a conflict: git rebase --onto upstream/main "$(git merge-base origin/giantswarm upstream/main)" ; fix ; git rebase --continue
 git push origin "$CANDIDATE"                      # ci.yaml + image-scan.yaml run on sync/** ; wait for ci-ok and scan-ok
-git push --force-with-lease=refs/heads/poc/agent-platform origin "$CANDIDATE":poc/agent-platform
+git push --force-with-lease=refs/heads/giantswarm origin "$CANDIDATE":giantswarm
 git push origin --delete "$CANDIDATE"
 scripts/fork/mirror.sh "$(gh auth token)" && scripts/fork/mirror-quiet.sh "<ISO time before the push>" mirror-pushed.txt   # or: gh workflow run sync-upstream.yaml -f mirror_only=true
 scripts/fork/ledger-append.sh re-pins.md '| <date> | <old pin> | <new pin> | <old head> → <new head> | <replayed> | <dropped> | manual |'
@@ -168,7 +168,7 @@ write access.
 - **Every patch is an upstream pull request first** (kagent-dev/kagent, DCO sign-off on every commit; a
   workflow run on a pull request from a fork waits for a maintainer's approval). The fork commit and the
   upstream pull request are the same change and reference each other. Work on a branch of this repository
-  (`fix/…`, `feat/…`) and open the pull request here against `poc/agent-platform` with the upstream link; the
+  (`fix/…`, `feat/…`) and open the pull request here against `giantswarm` with the upstream link; the
   upstream pull request is opened from this repository's branch too, so the same commit serves both.
 - **A personal fork** is for exploration that may never be proposed; the moment a change is meant for the
   platform it moves here.

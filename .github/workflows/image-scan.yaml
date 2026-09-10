@@ -11,9 +11,9 @@ on:
   - cron: '0 0 * * 0' # Every Monday at midnight UTC
 
   push:
-    branches: [main, "release/**", poc/agent-platform, "sync/**"]
+    branches: [main, "release/**", giantswarm, "sync/**"]
   pull_request:
-    branches: [poc/agent-platform]
+    branches: [giantswarm]
 
   workflow_dispatch:
 

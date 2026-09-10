@@ -1,7 +1,7 @@
 > **Giant Swarm fork.** This repository is the kagent line the [Giant Swarm Agent Platform](https://github.com/giantswarm/agent-platform)
 > runs: upstream [kagent-dev/kagent](https://github.com/kagent-dev/kagent) `main` at a pinned commit plus the patches the platform
 > carries until they are merged upstream. Which kagent is running, how the line is re-pinned, what is published, how to
-> contribute: **[FORK.md](FORK.md)**. `main` here is a read-only mirror of upstream `main`; the consumed branch is `poc/agent-platform`.
+> contribute: **[FORK.md](FORK.md)**. `main` here is a read-only mirror of upstream `main`; the consumed branch is `giantswarm`.
 
 <div align="center">
   <picture>
