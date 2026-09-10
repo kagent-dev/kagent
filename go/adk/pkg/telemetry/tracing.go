@@ -2,23 +2,18 @@ package telemetry
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 	"go.opentelemetry.io/otel/trace"
 	adktelemetry "google.golang.org/adk/v2/telemetry"
 )
@@ -50,46 +45,13 @@ func PreResponseFlushEnabled() bool {
 }
 
 // ForceFlush exports any spans still buffered in the tracer provider's batch
-// processor. Call it before an A2A response completes when the process may be
-// suspended right afterwards: Agent Substrate checkpoints the actor as soon as
-// the response body closes, so unexported spans stay frozen in the snapshot
-// until the session's next resume (or forever, for a session's last message).
-// Uses its own detached timeout because the request context is typically
-// already canceled by the time deferred cleanup runs. The timeout defaults to
-// 3s and is configurable via KAGENT_TRACE_FLUSH_TIMEOUT_MS.
+// processor. The implementation lives in the shared tracing package so the
+// non-ADK harnesses can use the same export boundary. Keep this wrapper for the
+// ADK executor, which owns the pre-response invocation flush.
 func ForceFlush(ctx context.Context) {
-	type flusher interface{ ForceFlush(context.Context) error }
-	fp, ok := otel.GetTracerProvider().(flusher)
-	if !ok {
-		return
-	}
-	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
-	defer cancel()
-	if err := fp.ForceFlush(flushCtx); err != nil {
+	if err := tracing.ForceFlush(ctx); err != nil {
 		otel.Handle(err)
 	}
-}
-
-// flushTimeout returns KAGENT_TRACE_FLUSH_TIMEOUT_MS as a duration, or 3s
-// when unset or invalid.
-func flushTimeout() time.Duration {
-	if v := strings.TrimSpace(os.Getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")); v != "" {
-		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
-			return time.Duration(ms) * time.Millisecond
-		}
-	}
-	return 3 * time.Second
-}
-
-// newTelemetryResource builds the resource describing this service.
-func newTelemetryResource(ctx context.Context, serviceName string, serviceNamespace string) (*resource.Resource, error) {
-	return resource.New(ctx,
-		resource.WithFromEnv(),
-		resource.WithTelemetrySDK(),
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String(serviceName),
-			semconv.ServiceNamespaceKey.String(serviceNamespace),
-		))
 }
 
 // Init initializes OpenTelemetry providers for Go ADK, sets global providers and
@@ -99,39 +61,40 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 		return func(context.Context) error { return nil }, false, nil
 	}
 
-	telemetryResource, err := newTelemetryResource(ctx, serviceName, serviceNamespace)
+	telemetryResource, err := tracing.NewResource(ctx, serviceName, serviceNamespace)
 	if err != nil {
 		return nil, true, err
 	}
 
 	tracingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true")
 	loggingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
-	otelOpts := []adktelemetry.Option{adktelemetry.WithResource(telemetryResource)}
+	// Construct only explicitly enabled providers. adktelemetry.New creates
+	// defaults for omitted providers, including signals disabled by our flags.
+	telemetryProviders := &adktelemetry.Providers{}
+	defer func() {
+		if err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			err = errors.Join(err, telemetryProviders.Shutdown(cleanupCtx))
+		}
+	}()
 	if tracingEnabled {
-		tracerProvider, tpErr := newTracerProvider(ctx, telemetryResource)
+		tracerProvider, tpErr := tracing.NewTracerProvider(ctx, telemetryResource, kagentAttributesSpanProcessor{})
 		if tpErr != nil {
 			return nil, true, tpErr
 		}
-		otelOpts = append(otelOpts, adktelemetry.WithTracerProvider(tracerProvider))
+		telemetryProviders.TracerProvider = tracerProvider
 	}
 	if loggingEnabled {
 		loggerProvider, lpErr := newLoggerProvider(ctx, telemetryResource)
 		if lpErr != nil {
 			return nil, true, lpErr
 		}
-		otelOpts = append(otelOpts, adktelemetry.WithLoggerProvider(loggerProvider))
-	}
-
-	telemetryProviders, telErr := adktelemetry.New(ctx, otelOpts...)
-	if telErr != nil {
-		return nil, true, telErr
+		telemetryProviders.LoggerProvider = loggerProvider
 	}
 
 	telemetryProviders.SetGlobalOtelProviders()
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
+	tracing.SetPropagator()
 
 	return telemetryProviders.Shutdown, true, nil
 }
@@ -141,80 +104,9 @@ func isTelemetryEnabled() bool {
 		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
 }
 
-// resolveOTLPProtocol returns the OTLP protocol for the given signal,
-// following OTel spec precedence: signal-specific > general > default (grpc).
-func resolveOTLPProtocol(signal string) string {
-	if v := strings.TrimSpace(os.Getenv(fmt.Sprintf("OTEL_EXPORTER_OTLP_%s_PROTOCOL", signal))); v != "" {
-		return strings.ToLower(v)
-	}
-	if v := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")); v != "" {
-		return strings.ToLower(v)
-	}
-	return "grpc"
-}
-
-func resolveEndpoint(signalEnvSuffix string) string {
-	endpoint := strings.TrimSpace(os.Getenv(fmt.Sprintf("OTEL_EXPORTER_OTLP_%s_ENDPOINT", signalEnvSuffix)))
-	if endpoint == "" {
-		endpoint = strings.TrimSpace(os.Getenv(fmt.Sprintf("OTEL_%s_EXPORTER_OTLP_ENDPOINT", signalEnvSuffix)))
-	}
-	if endpoint == "" {
-		endpoint = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
-	}
-	return endpoint
-}
-
-func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.TracerProvider, error) {
-	protocol := resolveOTLPProtocol("TRACES")
-	traceEndpoint := resolveEndpoint("TRACES")
-
-	var exporter sdktrace.SpanExporter
-	var err error
-
-	switch protocol {
-	case "http/protobuf":
-		var opts []otlptracehttp.Option
-		if traceEndpoint != "" {
-			opts = append(opts, otlptracehttp.WithEndpointURL(traceEndpoint))
-		}
-		opts = append(opts, otlptracehttp.WithRetry(otlptracehttp.RetryConfig{
-			Enabled:         true,
-			InitialInterval: 1 * time.Second,
-			MaxInterval:     5 * time.Second,
-			MaxElapsedTime:  30 * time.Second,
-		}))
-		exporter, err = otlptracehttp.New(ctx, opts...)
-	default:
-		var opts []otlptracegrpc.Option
-		opts = append(opts, otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
-			Enabled:         true,
-			InitialInterval: 1 * time.Second,
-			MaxInterval:     5 * time.Second,
-			MaxElapsedTime:  30 * time.Second,
-		}))
-		if traceEndpoint != "" {
-			if u, parseErr := url.Parse(traceEndpoint); parseErr == nil && u.Scheme != "" && u.Host != "" {
-				opts = append(opts, otlptracegrpc.WithEndpointURL(u.String()))
-			} else {
-				opts = append(opts, otlptracegrpc.WithEndpoint(traceEndpoint))
-			}
-		}
-		exporter, err = otlptracegrpc.New(ctx, opts...)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(kagentAttributesSpanProcessor{}),
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	), nil
-}
-
 func newLoggerProvider(ctx context.Context, res *resource.Resource) (*sdklog.LoggerProvider, error) {
-	protocol := resolveOTLPProtocol("LOGS")
-	logEndpoint := resolveEndpoint("LOGS")
+	protocol := tracing.OTLPProtocol("LOGS")
+	logEndpoint := tracing.OTLPEndpoint("LOGS")
 
 	var exporter sdklog.Exporter
 	var err error
