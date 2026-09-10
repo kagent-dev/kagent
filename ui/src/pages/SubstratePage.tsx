@@ -59,11 +59,12 @@ const DEFAULT_POLL_SECONDS = 0.5;
 /**
  * The fastest this page will ask, in seconds.
  *
- * Below this the reader is not watching a cluster, they are load-testing one. The two
- * list reads are pages now and are cheap, but the summary is not: ate-api reports no
- * totals, so the controller walks every one of its pages to count, and on a cluster
- * holding 410,110 actors that walk is seconds. Enforced on the field rather than only
- * in the timer, so the number on screen is the number being used.
+ * Below this the reader is not watching a cluster, they are load-testing one. All three
+ * reads walk every ate-api page: it reports no totals, no order and no filter, so
+ * counting, ordering and narrowing are each a walk, and on a cluster holding 410,110
+ * actors a walk is seconds. What crosses the wire is small; what is read to produce it
+ * is not. Enforced on the field rather than only in the timer, so the number on screen
+ * is the number being used.
  */
 const MIN_POLL_SECONDS = 0.5;
 
@@ -90,9 +91,10 @@ const NAMESPACE_PARAM = "namespace";
 /**
  * The scope that means "everything the controller watches".
  *
- * `GetSubstrateStatusRequest.namespace` is empty for it — `substrateNamespaces("")` in
- * the controller expands that to its observed namespaces — so the absence of the URL
- * param and the absence of the field are the same fact, and neither needs a sentinel.
+ * Every request this page sends carries an empty `namespace` for it —
+ * `substrateNamespaces("")` in the controller expands that to its observed namespaces —
+ * so the absence of the URL param and the absence of the field are the same fact, and
+ * neither needs a sentinel.
  */
 const ALL_NAMESPACES = "";
 
@@ -639,8 +641,9 @@ function StatusBar({
  * hundred thousand, and with the lists paged that is now the *default* case rather
  * than an edge one.
  *
- * The total is the server's, never `rows.length`. That is the whole reason the
- * summary RPC exists: a page cannot count what it did not fetch.
+ * The total is always the server's, never `rows.length` — the summary's own length
+ * for the two inline lists, the list response's `totalSize` for the two paged ones. A
+ * page cannot count what it did not fetch.
  */
 function SectionTitle({
   title,
@@ -673,6 +676,10 @@ function SectionTitle({
  * different questions: narrowing the actors to one template should not also empty the
  * table that says what that template is.
  *
+ * Two of the four reach this. The worker pools and the actor templates arrive whole in
+ * the summary, so narrowing them here narrows all of them; the actors and the workers
+ * are narrowed by the read instead, over rows this page never receives.
+ *
  * Matching is a substring of everything the row shows, case-insensitively. A row's own
  * text is built by the caller so the search covers what is on screen — including the
  * parts a column composes, like a pod and its IP — rather than a field list that drifts
@@ -692,9 +699,12 @@ function filterRows<T>(
  * A column comparator over whatever string the column shows.
  *
  * `localeCompare` rather than `<`, so a list of names sorts the way the reader reads
- * them. Every column gets one and every one carries a `multiple`, which is what makes
- * the tables multi-sortable: antd sorts by each active column in `multiple` order, so
- * shift-clicking Status then Template groups by status and orders within each group.
+ * them. For the worker pool and actor template tables only — the paged two declare
+ * `sorter: true` and are ordered by the read.
+ *
+ * Every column of those two carries a `multiple`, which is what makes them
+ * multi-sortable: antd sorts by each active column in `multiple` order, so a second
+ * header click groups by the higher number and orders within each group.
  */
 function byText<T>(of: (row: T) => string) {
   return (a: T, b: T) => of(a).localeCompare(of(b));
@@ -803,7 +813,7 @@ type PagedSort<Field extends string> = {
  *
  * The columns declare `sorter: true`, the form that gives a column antd's header and
  * leaves the table no comparator to run — because the ordering is the read's, over
- * every row, and a comparator would re-sort the hundred on screen. One page out of
+ * every row, and a comparator would re-sort the twenty-five on screen. One page out of
  * 410,110 reordered is not the cluster sorted, and the first row of the sorted set is
  * almost certainly not on it.
  */
@@ -851,7 +861,7 @@ function pagedSortChange<Row, Field extends string>(
  *
  * "Across the whole inventory" is the claim worth making, and it is the true one: the
  * controller reads every ate-api page and orders all of them before this page is cut,
- * so the order holds over the cluster rather than over the hundred rows in front of the
+ * so the order holds over the cluster rather than over the page in front of the
  * reader.
  *
  * The order comes back on the response rather than being assumed from the control, so
@@ -908,10 +918,11 @@ function useDataAge(computedAt: string | undefined): string {
  * missing. Without a sentence here that page is a short or empty table beside a tile
  * reporting four hundred thousand actors, which reads as a bug in the tile.
  *
- * The rows below it may be there or may not. A page is filled from several ate-api
- * pages when a namespace narrows it, so a failure part-way keeps what it had already
- * collected — which is why this says the read did not finish rather than that it
- * failed outright.
+ * There are no rows below it. Every request walks all of ate-api's pages — that is
+ * what lets the order and the filter mean the cluster — and a walk that fails part-way
+ * has an inventory it cannot order or count, so the page comes back empty with this
+ * string on it. The title says the read did not finish rather than that ate-api is
+ * down, because the other three reads on this page may well have succeeded.
  */
 function PageWarning({ message, testId }: { message: string; testId: string }) {
   return (
@@ -950,11 +961,16 @@ function PageWarning({ message, testId }: { message: string; testId: string }) {
  * - **the summary** (`GetSubstrateSummary`), for the tiles and for the two lists that
  *   are inherently small — worker pools and actor templates ride inline;
  * - **a page of actors** (`ListSubstrateActors`) and **a page of workers**
- *   (`ListSubstrateWorkers`), each passing a token through to ate-api's own paging.
+ *   (`ListSubstrateWorkers`), each answering with one page and a token to ask for the
+ *   next.
  *
- * The split was cosmetic until the API caught up: all three used to call
- * `GetSubstrateStatus`, so a page of a hundred rows still cost the whole inventory and
- * still failed at the same size. Three reads that page are what makes it real.
+ * The token is the controller's own, not ate-api's. ate-api's cursors are drained
+ * inside a single request — see below — and a cursor into an ordering the controller
+ * rebuilds per request would name nothing on the next one.
+ *
+ * What this fixes is the size of the answer, not the cost of producing it: the reads
+ * still walk the inventory, but a page and some integers is a message gRPC will carry
+ * and the whole inventory is not.
  *
  * ## Where the counts come from, and why it matters
  *
@@ -998,12 +1014,14 @@ export function SubstratePage() {
   /*
    * One search per section, and all four of them are applied here.
    *
-   * What each one reaches is not the same, which is why the two paged tables say so
-   * beside them. Worker pools and actor templates arrive whole in the summary, so a
-   * search over them is a search over all of them. Actors and workers arrive one page
-   * at a time — ate-api has no filter to push a search into, and pushing one into the
-   * controller would mean reading every actor to apply it — so those two searches
-   * narrow the page, and nothing here pretends otherwise.
+   * All four reach every row they could match, by two different routes. Worker pools
+   * and actor templates arrive whole in the summary, so narrowing them here narrows all
+   * of them. Actors and workers arrive a page at a time, so their boxes are sent to the
+   * controller, which walks every ate-api page and applies the term before cutting the
+   * page it answers with — which is what makes a match on the ninth page findable.
+   *
+   * That is a walk of the inventory per keystroke, which is why these two are debounced
+   * and the other two are not.
    */
   const [poolQuery, setPoolQuery] = useState("");
   const [templateQuery, setTemplateQuery] = useState("");
@@ -1109,10 +1127,11 @@ export function SubstratePage() {
   /*
    * All three together, including the expensive one.
    *
-   * The summary is documented as the read to poll least often, and this ticks it at
-   * the reader's chosen interval alongside the two cheap ones. That is deliberate: the
-   * tiles and the rows are one picture, and totals that held still while the table
-   * beneath them moved would be two moments shown as one. `isTickInFlight` drops a
+   * The summary is the dearest of the three — it walks ate-api for the actors, the
+   * workers and the templates, where a list read walks it once — and this ticks all
+   * three at the reader's chosen interval anyway. That is deliberate: the tiles and the
+   * rows are one picture, and totals that held still while the table beneath them moved
+   * would be two moments shown as one. `isTickInFlight` drops a
    * tick that lands while the last is still running, so on a cluster where the walk
    * takes seconds the whole page settles to the summary's cadence rather than queueing
    * — which is the honest cost of keeping them in step, and the reason the floor on
@@ -1370,27 +1389,6 @@ export function SubstratePage() {
     [mono, muted, qualified],
   );
 
-  /*
-   * The paged tables sort the same way the two inline ones do, and reach less by it.
-   *
-   * A comparator rather than `sorter: true`. The `true` form gives a column antd's
-   * header while leaving the table nothing to reorder, which was right while a header
-   * click was a new read: the read ordered every actor in the cluster and handed back
-   * a slice of the ordering. That read cannot survive a large cluster, so a comparator
-   * over the rows in hand is what is left — and what the note beneath the table says.
-   *
-   * `multiple` for the same reason as the inline tables, though not by the mechanism
-   * "multi-sort" suggests: antd reads no modifier key. `triggerSorter` appends to the
-   * active sorters whenever the clicked column and the current head both carry a
-   * number, so *any* second header click adds to the sort rather than replacing it,
-   * and the rows stay grouped by the higher number — sorters run in descending
-   * `multiple`. Status leads on the actors and pool on the workers, because those are
-   * the columns worth grouping by.
-   *
-   * The cost is that there is no single click that sorts by one of the other columns
-   * alone; the leading column has to be cycled off first. All four tables on this page
-   * behave that way, which is the only reason it is left as it is.
-   */
   /*
    * Every column orders the whole inventory, and none of them sorts the page locally.
    *
