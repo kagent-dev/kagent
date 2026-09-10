@@ -241,8 +241,8 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 
 // TransitionAgentInstance changes lifecycle fields only if the stored state and operation
 // match the expected values. A mismatch, or a creating checkpoint when starting a new
-// operation, returns ErrConflict. It preserves other instance fields; callers
-// choose a valid transition and authorize it.
+// operation, returns ErrConflict. Starting explicit Suspend also requires no active task.
+// It preserves other instance fields; callers choose a valid transition and authorize it.
 func (c *Client) TransitionAgentInstance(
 	ctx context.Context,
 	instance *apiv1alpha1.AgentInstance,
@@ -286,6 +286,17 @@ func (c *Client) TransitionAgentInstance(
 			      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
 			    )
 			  )
+			  AND (
+			    $2::text <> 'AGENT_INSTANCE_OPERATION_SUSPEND'
+			    OR $6::text <> 'AGENT_INSTANCE_OPERATION_UNSPECIFIED'
+			    OR NOT EXISTS (
+			      SELECT 1 FROM agent_instance_task t
+			      WHERE t.history_id = agent_instance.history_id
+			        AND t.state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED',
+			            'TASK_STATE_FAILED', 'TASK_STATE_REJECTED',
+			            'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED')
+			    )
+			  )
 		`,
 			next.State.String(),
 			next.Operation.String(), data, row.ID, expectedState.String(),
@@ -295,7 +306,7 @@ func (c *Client) TransitionAgentInstance(
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instance.GetId(), ErrConflict)
+			return fmt.Errorf("AgentInstance %s has an active task or checkpoint being created: %w", instance.GetId(), ErrConflict)
 		}
 		result = next
 		return nil

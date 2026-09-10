@@ -40,6 +40,7 @@ type instanceStore interface {
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
+	ContinueAgentInstanceTask(context.Context, string, []byte, *a2atype.Message) (*database.TaskContinuation, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event, *database.AgentInstanceTaskSnapshot) error
@@ -498,7 +499,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req != nil && req.Message != nil && req.Message.TaskID != "" {
 		verb = auth.VerbUpdate
 	}
-	instance, err := g.instance(ctx, verb)
+	instance, err := g.storedInstance(ctx, verb)
 	if err != nil {
 		return nil, err
 	}
@@ -534,7 +535,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	submitted.Metadata[TaskCreatedAtMetadataKey] = createdAt.Format(time.RFC3339Nano)
 	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
-	if errors.Is(err, database.ErrConflict) {
+	if errors.Is(err, database.ErrConflict) && instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY && instance.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		if err = g.reconcileActiveTask(ctx, instance); err == nil {
 			stored, created, err = g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
 		}
@@ -548,65 +549,30 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 
 func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentInstance, req *a2atype.SendMessageRequest) (*preparedSend, error) {
 	message := req.Message
-	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID), nil)
+	message.ContextID = instance.GetContextId()
+	requestHash, err := hashSendRequest(req)
+	if err != nil {
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
+	}
+	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
+	continuation, err := g.store.ContinueAgentInstanceTask(ctx, instance.GetId(), requestHash, message)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
-	if stored.ContextID != instance.GetContextId() {
-		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task context does not match AgentInstance")
-	}
-	if stored.Status.State != a2atype.TaskStateInputRequired && stored.Status.State != a2atype.TaskStateAuthRequired {
-		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "task is not waiting for input")
-	}
-	if pending, parseErr := apia2a.ParseToolApprovalRequest(stored.Status.Message); parseErr != nil {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, "stored tool approval request is invalid")
-	} else if pending != nil {
-		response, responseErr := apia2a.ParseToolApprovalResponse(message)
-		if responseErr != nil || apia2a.ValidateToolApprovalResponse(pending, response) != nil {
-			return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "tool approval response does not match the pending request")
+	if continuation.Previous != nil {
+		runtimeMessage := *message
+		runtimeMessage.Metadata = maps.Clone(message.Metadata)
+		if err := apia2a.AttachStoredTask(&runtimeMessage, continuation.Previous); err != nil {
+			return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to prepare task continuation")
 		}
-	} else if pending, parseErr := apia2a.ParseAskUserRequest(stored.Status.Message); parseErr != nil {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, "stored ask-user request is invalid")
-	} else if pending != nil && pending.Nested == nil {
-		// Nested ask-user correlation remains owned by the ADK adapter. Native
-		// Harness requests use the top-level ID and can be rejected before the
-		// paused Actor is resumed.
-		response, responseErr := apia2a.ParseAskUserResponse(message)
-		if responseErr != nil || apia2a.ValidateAskUserResponse(pending, response) != nil {
-			return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "ask-user response does not match the pending request")
-		}
+		req.Message = &runtimeMessage
 	}
-	message.ContextID = stored.ContextID
-	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
-	attempt := *stored
-	attempt.History = append([]*a2atype.Message{}, stored.History...)
-	if question := stored.Status.Message; question != nil {
-		if question.ID == "" {
-			return nil, a2atype.NewError(a2atype.ErrInternalError, "stored task status message has no ID")
-		}
-		question.TaskID, question.ContextID = stored.ID, stored.ContextID
-		attempt.History = append(attempt.History, question)
-	}
-	attempt.History = append(attempt.History, message)
-	now := time.Now()
-	attempt.Status = a2atype.TaskStatus{State: a2atype.TaskStateSubmitted, Timestamp: &now}
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), &attempt, message, nil); err != nil {
-		return nil, g.storeError(ctx, err)
-	}
-	runtimeMessage := *message
-	runtimeMessage.Metadata = maps.Clone(message.Metadata)
-	if err := apia2a.AttachStoredTask(&runtimeMessage, stored); err != nil {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to prepare task continuation")
-	}
-	req.Message = &runtimeMessage
-	return &preparedSend{instance: instance, task: &attempt, dispatch: true}, nil
+	return &preparedSend{instance: instance, task: continuation.Current, dispatch: continuation.Previous != nil}, nil
 }
 
-// reconcileActiveTask frees the task slot only when the runtime authoritatively
-// reports that the exact active task has no execution, or reports it terminal.
 func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1.AgentInstance) error {
 	active, err := g.store.GetActiveAgentInstanceTask(ctx, instance.GetId())
 	if errors.Is(err, database.ErrNotFound) {
@@ -787,6 +753,9 @@ func isQuiescent(state a2atype.TaskState) bool {
 }
 
 func (g *Gateway) storeError(ctx context.Context, err error) error {
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return a2atype.NewError(a2atype.ErrInvalidRequest, "reply does not match the pending input request")
+	}
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
 	}

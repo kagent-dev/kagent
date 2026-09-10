@@ -103,6 +103,9 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 	if s.replay != nil {
 		return s.replay, false, nil
 	}
+	if s.instance != nil && (s.instance.State != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || s.instance.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED) {
+		return nil, false, database.ErrConflict
+	}
 	if s.active != nil {
 		return nil, false, database.ErrConflict
 	}
@@ -112,6 +115,42 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 	s.createdTasks++
 	s.stored = append(s.stored, task.History[0])
 	return task, true, nil
+}
+
+func (s *gatewayTestStore) ContinueAgentInstanceTask(ctx context.Context, id string, _ []byte, message *a2atype.Message) (*database.TaskContinuation, error) {
+	if s.taskErr != nil {
+		return nil, s.taskErr
+	}
+	if s.replay != nil {
+		return &database.TaskContinuation{Current: s.replay}, nil
+	}
+	if s.instance != nil && (s.instance.State != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || s.instance.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED) {
+		return nil, database.ErrConflict
+	}
+	waiting := s.task
+	if waiting == nil || waiting.ID != message.TaskID {
+		return nil, database.ErrNotFound
+	}
+	if waiting.Status.State != a2atype.TaskStateInputRequired && waiting.Status.State != a2atype.TaskStateAuthRequired {
+		return nil, database.ErrConflict
+	}
+	submitted := *waiting
+	submitted.History = append([]*a2atype.Message{}, waiting.History...)
+	if question := waiting.Status.Message; question != nil {
+		if question.ID == "" {
+			return nil, errors.New("stored task status message has no ID")
+		}
+		archived := *question
+		archived.TaskID, archived.ContextID = waiting.ID, waiting.ContextID
+		waiting.Status.Message = &archived
+		submitted.History = append(submitted.History, &archived)
+	}
+	submitted.History = append(submitted.History, message)
+	submitted.Status = a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}
+	if err := s.StoreAgentInstanceTaskEvent(ctx, id, &submitted, message, nil); err != nil {
+		return nil, err
+	}
+	return &database.TaskContinuation{Current: &submitted, Previous: waiting}, nil
 }
 
 func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error) {
@@ -447,14 +486,15 @@ func TestGatewayMovesInputRequiredMessageBeforeReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prepared.task.History) != 2 || prepared.task.History[0] != question || prepared.task.History[1] != reply {
+	if len(prepared.task.History) != 2 || prepared.task.History[0].ID != question.ID || prepared.task.History[1] != reply {
 		t.Fatalf("history = %#v, want question followed by reply", prepared.task.History)
 	}
 	if len(store.stored) != 1 || store.stored[0] != reply {
 		t.Fatalf("stored events = %#v, want one atomic reply update", store.stored)
 	}
-	if question.TaskID != waiting.ID || question.ContextID != waiting.ContextID {
-		t.Fatalf("archived question = task %q context %q, want the task it was asked in", question.TaskID, question.ContextID)
+	archived := prepared.task.History[0]
+	if archived.TaskID != waiting.ID || archived.ContextID != waiting.ContextID {
+		t.Fatalf("archived question = task %q context %q, want the task it was asked in", archived.TaskID, archived.ContextID)
 	}
 }
 
@@ -477,6 +517,7 @@ func TestGatewayRejectsInputRequiredMessageWithoutID(t *testing.T) {
 }
 
 func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
+	store, instance := gatewayPostgresFixture(t)
 	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which namespace?"))
 	if err := apia2a.AttachHITL(question, apia2a.AskUserRequest{
 		Type: apia2a.HITLTypeAskUserRequest, ID: "ask-1",
@@ -485,10 +526,12 @@ func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	waiting := &a2atype.Task{
-		ID: "task-1", ContextID: gatewayTestID,
+		ID: "task-1", ContextID: instance.ContextId,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
 	}
-	store := &gatewayTestStore{task: waiting}
+	if err := store.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, waiting, waiting, nil); err != nil {
+		t.Fatal(err)
+	}
 	gateway := &Gateway{store: store}
 	answer := a2atype.NewMessage(a2atype.MessageRoleUser)
 	answer.TaskID = waiting.ID
@@ -499,15 +542,20 @@ func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: answer}); err == nil {
-		t.Fatal("prepareReply() accepted a mismatched ask-user response")
+	if _, err := gateway.prepareReply(t.Context(), instance, &a2atype.SendMessageRequest{Message: answer}); !errors.Is(err, a2atype.ErrInvalidRequest) {
+		t.Fatalf("prepareReply() = %v, want invalid request for mismatched ask-user response", err)
 	}
-	if len(store.stored) != 0 {
-		t.Fatalf("stored events = %#v, want no partial write", store.stored)
+	stored, err := store.GetAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status.State != a2atype.TaskStateInputRequired || stored.Status.Message.ID != question.ID || len(stored.History) != 0 {
+		t.Fatalf("stored task = %#v, want unchanged pending question and no reply", stored)
 	}
 }
 
 func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
+	store, instance := gatewayPostgresFixture(t)
 	request := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approve child tools?"))
 	if err := apia2a.AttachHITL(request, apia2a.ToolApprovalRequest{
 		Type:  apia2a.HITLTypeToolApprovalRequest,
@@ -520,10 +568,12 @@ func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	waiting := &a2atype.Task{
-		ID: "task-1", ContextID: gatewayTestContextID,
+		ID: "task-1", ContextID: instance.ContextId,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: request},
 	}
-	store := &gatewayTestStore{task: waiting}
+	if err := store.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, waiting, waiting, nil); err != nil {
+		t.Fatal(err)
+	}
 	gateway := &Gateway{store: store}
 	response := a2atype.NewMessage(a2atype.MessageRoleUser)
 	response.TaskID = waiting.ID
@@ -537,7 +587,7 @@ func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: response}); err != nil {
+	if _, err := gateway.prepareReply(t.Context(), instance, &a2atype.SendMessageRequest{Message: response}); err != nil {
 		t.Fatalf("prepareReply() rejected nested tool decisions: %v", err)
 	}
 }
@@ -1434,5 +1484,34 @@ func TestGatewayUsesBoundContextWithinInstanceAuthority(t *testing.T) {
 	}
 	if prepared.task.ContextID != instance.GetContextId() || request.Message.ContextID != instance.GetContextId() {
 		t.Fatalf("send did not resolve the bound context: %+v", prepared.task)
+	}
+}
+
+func TestGatewayReplaysAcceptedMessagesWhileSuspended(t *testing.T) {
+	for _, continuation := range []bool{false, true} {
+		name := "initial"
+		if continuation {
+			name = "continuation"
+		}
+		t.Run(name, func(t *testing.T) {
+			instance := gatewayTestInstance()
+			instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
+			completed := &a2atype.Task{ID: "accepted", ContextID: instance.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+			store := &gatewayTestStore{instance: instance, replay: completed}
+			dialer := &gatewayTestDialer{}
+			gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
+			request := gatewayTestRequest()
+			if continuation {
+				request.Message.TaskID = completed.ID
+			}
+			result, err := gateway.SendMessage(gatewayTestContext(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task, ok := result.(*a2atype.Task)
+			if !ok || task.ID != completed.ID || task.Status.State != completed.Status.State || dialer.instance != nil {
+				t.Fatalf("retry = %#v, dialed = %v; want stored completion without runtime connection", result, dialer.instance != nil)
+			}
+		})
 	}
 }
