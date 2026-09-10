@@ -1164,11 +1164,13 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 
 	tsp, err := a.createMcpTransport(tCtx, remoteMcpServer)
 	if err != nil {
+		a.ensureToolServerRow(ctx, toolServer)
 		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tools, err := a.listTools(tCtx, tsp, toolServer)
 	if err != nil {
+		a.ensureToolServerRow(ctx, toolServer)
 		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
@@ -1199,7 +1201,10 @@ func toolSnapshotKey(name, groupKind string) string {
 func mcpToolSnapshot(ts *database.ToolServer, tools []*v1alpha2.MCPTool) string {
 	sorted := slices.Clone(tools)
 	slices.SortFunc(sorted, func(a, b *v1alpha2.MCPTool) int {
-		return strings.Compare(a.Name, b.Name)
+		if n := strings.Compare(a.Name, b.Name); n != 0 {
+			return n
+		}
+		return strings.Compare(a.Description, b.Description)
 	})
 	b, _ := json.Marshal([]any{ts.Description, sorted})
 	sum := sha256.Sum256(b)
@@ -1217,6 +1222,19 @@ func (a *kagentReconciler) rememberToolSnapshot(ts *database.ToolServer, tools [
 
 func (a *kagentReconciler) evictToolSnapshot(name, groupKind string) {
 	a.toolSnapshots.Delete(toolSnapshotKey(name, groupKind))
+}
+
+// ensureToolServerRow writes the ToolServer once so a discovery failure still
+// shows up in DB-backed APIs. Later failures skip the write.
+func (a *kagentReconciler) ensureToolServerRow(ctx context.Context, ts *database.ToolServer) {
+	if _, ok := a.toolSnapshots.Load(toolSnapshotKey(ts.Name, ts.GroupKind)); ok {
+		return
+	}
+	if _, err := a.dbClient.StoreToolServer(ctx, ts); err != nil {
+		reconcileLog.Error(err, "failed to store toolServer after discovery error", "toolServer", ts.Name)
+		return
+	}
+	a.rememberToolSnapshot(ts, nil)
 }
 
 func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {

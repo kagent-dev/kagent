@@ -1380,6 +1380,10 @@ func TestMcpToolSnapshot_IgnoresOrder(t *testing.T) {
 	a := []*v1alpha2.MCPTool{{Name: "a", Description: "1"}, {Name: "b", Description: "2"}}
 	b := []*v1alpha2.MCPTool{{Name: "b", Description: "2"}, {Name: "a", Description: "1"}}
 	assert.Equal(t, mcpToolSnapshot(ts, a), mcpToolSnapshot(ts, b))
+
+	dupA := []*v1alpha2.MCPTool{{Name: "t", Description: "z"}, {Name: "t", Description: "a"}}
+	dupB := []*v1alpha2.MCPTool{{Name: "t", Description: "a"}, {Name: "t", Description: "z"}}
+	assert.Equal(t, mcpToolSnapshot(ts, dupA), mcpToolSnapshot(ts, dupB))
 }
 
 func TestMcpToolSnapshot_ChangesOnToolOrDescription(t *testing.T) {
@@ -1401,4 +1405,11 @@ func TestToolSnapshotCache_SkipUnchangedAndEvict(t *testing.T) {
 	assert.False(t, r.toolSnapshotUnchanged(ts, []*v1alpha2.MCPTool{{Name: "other", Description: "td"}}))
 	r.evictToolSnapshot(ts.Name, ts.GroupKind)
 	assert.False(t, r.toolSnapshotUnchanged(ts, tools))
+}
+
+func TestEnsureToolServerRow_SkipsWhenCached(t *testing.T) {
+	r := &kagentReconciler{}
+	ts := &database.ToolServer{Name: "ns/s", GroupKind: "kagent.dev/RemoteMCPServer", Description: "d"}
+	r.rememberToolSnapshot(ts, nil)
+	r.ensureToolServerRow(context.Background(), ts)
 }
