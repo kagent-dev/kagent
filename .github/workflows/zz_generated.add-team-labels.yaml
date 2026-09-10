@@ -1,0 +1,58 @@
+name: Add appropriate labels to issue
+
+on:
+  issues:
+    types: [assigned]
+
+jobs:
+  build_user_list:
+    name: Get yaml config of GS users
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Get user-mapping
+      env:
+        GH_TOKEN: ${{ secrets.ISSUE_AUTOMATION }}
+      run: |
+        mkdir -p artifacts
+        gh api -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+          /repos/giantswarm/github/contents/tools/issue-automation/user-mapping.yaml \
+          | jq -r '.content' \
+          | base64 -d > artifacts/users.yaml
+    - name: Upload Artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: users
+        path: artifacts/users.yaml
+        retention-days: 1
+
+  add_label:
+    name: Add team label when assigned
+    runs-on: ubuntu-latest
+    needs: build_user_list
+    steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      id: download-users
+      with:
+        name: users
+    - name: Find team label based on user names
+      run: |
+        event_assignee=$(cat $GITHUB_EVENT_PATH | jq -r .assignee.login | tr '[:upper:]' '[:lower:]')
+        echo "Issue assigned to: ${event_assignee}"
+
+        TEAMS=$(cat ${{steps.download-users.outputs.download-path}}/users.yaml | tr '[:upper:]' '[:lower:]' | yq ".${event_assignee}.teams" -o csv | tr ',' ' ')
+
+        echo "LABEL<<EOF" >> $GITHUB_ENV
+        for team in ${TEAMS}; do
+          echo "Team: ${team} | Label: team/${team}"
+          echo "team/${team}" >> $GITHUB_ENV
+        done
+        echo "EOF" >> $GITHUB_ENV
+    - name: Apply label to issue
+      if: ${{ env.LABEL != '' && env.LABEL != 'null' && env.LABEL != null }}
+      uses: actions-ecosystem/action-add-labels@18f1af5e3544586314bbe15c0273249c770b2daf  # v1.1.3
+      with:
+        github_token: ${{ secrets.ISSUE_AUTOMATION }}
+        labels: |
+          ${{ env.LABEL }}
