@@ -32,9 +32,8 @@ type ATEClient interface {
 	ListActors(context.Context, string) ([]*ateapipb.Actor, error)
 	ListWorkers(context.Context) ([]*ateapipb.Worker, error)
 	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
-	// The paged reads the substrate page is served from. Separate from the draining
-	// ones above rather than replacing them, because the two have different callers:
-	// a page is what an answer is built from, and a drain is what a count is.
+	// The paged reads. Kept alongside the draining ones above, not replacing them: an
+	// answer is built from a page, a count from a drain.
 	ListActorsPage(ctx context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error)
 	ListWorkersPage(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error)
 }
@@ -417,14 +416,10 @@ func labelSelectorString(ctx context.Context, selector *metav1.LabelSelector) st
 substrateActorTemplates lists the ActorTemplates in scope, with the harness each one
 was compiled from.
 
-ate-api pages templates as it pages actors, and this drains that pagination — unlike
-the actor and worker reads. Templates are configuration: their count is set by what
-operators have declared rather than by what the cluster is running, so the list is
-small enough to answer with whole and small enough to send.
-
-The harnesses are passed in rather than read here, so that a caller can tell an ate-api
-failure from a database one. Both used to come back as the same error, and the summary
-reported a Postgres outage to the reader as "ate-api answered with an error".
+Drains ate-api's pagination where the actor and worker reads page it: templates are
+configuration, so the list is small enough to answer with whole. The harnesses are
+passed in rather than read here, so a caller can tell an ate-api failure from a
+database one.
 */
 func (s *Service) substrateActorTemplates(
 	ctx context.Context,
@@ -468,11 +463,11 @@ func (s *Service) substrateActorTemplates(
 	return templates, nil
 }
 
-// actorTemplateKey identifies one ActorTemplate revision: a name in an atespace at a
-// particular UID, which is what the harness a template was compiled from is keyed by.
+// actorTemplateKey identifies one ActorTemplate revision, which is what a compiled
+// harness is keyed by.
 type actorTemplateKey struct{ atespace, name, uid string }
 
-// actorTemplateHarnesses reads, from the control-plane database, which harness each
+// actorTemplateHarnesses reads from the control-plane database which harness each
 // ActorTemplate revision was compiled from. Nothing here touches ate-api.
 func (s *Service) actorTemplateHarnesses(ctx context.Context) (map[actorTemplateKey]string, error) {
 	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)

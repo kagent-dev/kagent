@@ -415,16 +415,9 @@ export const SubstrateWorkerSchema: GenMessage<SubstrateWorker> = /*@__PURE__*/
  * The inventory as counts, plus the two lists whose length is set by configuration
  * rather than by the cluster.
  *
- * This is the only place a *total* comes from. The actor and worker calls below
- * answer with a page, and a page's length is not a total: counting the rows on
- * screen and labelling the result "Actors" reports 100 for a cluster running four
- * hundred thousand.
- *
- * Producing these counts costs a walk of every ate-api page, because ate-api
- * reports no totals of its own — ListActorsResponse is a page plus a token. The
- * walk stays on the server and only the counts cross the wire, so this call has no
- * message-size ceiling. It is not free, though: a caller polling it at the rate it
- * polls a page will spend most of its time here.
+ * ate-api reports no totals, so these cost a walk of every one of its pages. Only the
+ * counts cross the wire, so there is no message-size ceiling — but a caller polling
+ * this as often as it pages will spend most of its time here.
  *
  * @generated from message kagent.api.v1alpha1.GetSubstrateSummaryRequest
  */
@@ -469,27 +462,19 @@ export const SubstrateActorStatusCountSchema: GenMessage<SubstrateActorStatusCou
  */
 export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstrateSummaryResponse"> & {
   /**
-   * False when the controller has no ate-api endpoint configured.
-   *
-   * A deployment choice rather than a failure, and the answer stops there: every other
-   * field is left empty, because all of them describe a substrate that is not running.
-   * Show it as a configuration note, not as an error and not as an empty cluster.
+   * False when the controller has no ate-api endpoint configured: a deployment choice,
+   * not a failure. Every other field is then empty — a configuration note to show, not
+   * an error and not an empty cluster.
    *
    * @generated from field: bool enabled = 1;
    */
   enabled: boolean;
 
   /**
-   * Set when one of the three ate-api reads behind this answer failed.
-   *
-   * They do not gate each other: a failed template listing still leaves the actors and
-   * the workers counted, and a walk that dies partway keeps what it had tallied. So the
-   * figures here may be short while the Kubernetes-derived lists are complete — a
-   * warning to show beside the data rather than an error to fail the call with.
-   *
-   * Never a database failure. Those are internal errors, because reporting a
-   * control-plane outage as "ate-api answered with an error" sends an operator to fix
-   * a healthy component.
+   * Set when one of the three ate-api reads behind this answer failed. They do not gate
+   * each other, so the counts here may be short while the Kubernetes-derived lists are
+   * complete: a warning to show beside the data rather than a failed call. Never a
+   * database failure — those are internal errors.
    *
    * @generated from field: string ate_api_error = 2;
    */
@@ -528,9 +513,8 @@ export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstr
   busyWorkerCount: bigint;
 
   /**
-   * Every actor status present, with how many hold it. The whole distribution
-   * rather than the running count alone: knowing 12 of 410,110 are running says
-   * nothing about the other 410,098.
+   * Every actor status present, with how many hold it: knowing 12 of 410,110 are
+   * running says nothing about the other 410,098.
    *
    * @generated from field: repeated kagent.api.v1alpha1.SubstrateActorStatusCount actor_status_counts = 9;
    */
@@ -554,11 +538,10 @@ export const GetSubstrateSummaryResponseSchema: GenMessage<GetSubstrateSummaryRe
 /**
  * One page of actors, ordered and narrowed across the whole inventory.
  *
- * ate-api offers paging and nothing else, so the controller reads every one of its
- * pages, applies the filter and the order, and answers with the slice asked for. That
- * costs a walk of the inventory per request — seconds on a large cluster — and it is
- * what makes the order and the filter mean the cluster rather than the hundred rows a
- * reader happens to be looking at.
+ * ate-api offers paging and nothing else, so the controller reads all of its pages and
+ * applies the filter and the order before cutting this one. That is a walk of the
+ * inventory per request — seconds on a large cluster — and it is what makes both mean
+ * the cluster rather than the page.
  *
  * @generated from message kagent.api.v1alpha1.ListSubstrateActorsRequest
  */
@@ -571,19 +554,16 @@ export type ListSubstrateActorsRequest = Message<"kagent.api.v1alpha1.ListSubstr
   namespace: string;
 
   /**
-   * The shared page request, as every other paged read on this API takes it: `limit`
-   * is the most rows to answer with, capped at 100 there rather than here, and zero
-   * means the server's default. Above the cap is refused rather than clamped, so a
-   * caller learns its page size was not honoured.
+   * `limit` is capped at 100 in common.proto and zero means the server's default;
+   * above the cap is refused rather than clamped.
    *
    * @generated from field: kagent.api.v1alpha1.PageRequest page = 2;
    */
   page?: PageRequest | undefined;
 
   /**
-   * Matched case-insensitively, as a substring, against the fields a row shows: id,
-   * status, template and worker pod. Empty matches everything. Applied before the page
-   * is cut, so a match on the ninth page is still found.
+   * Matched case-insensitively as a substring of the id, status, template and worker
+   * pod a row shows. Empty matches everything.
    *
    * @generated from field: string filter = 3;
    */
@@ -622,10 +602,6 @@ export type ListSubstrateActorsResponse = Message<"kagent.api.v1alpha1.ListSubst
   ateApiError: string;
 
   /**
-   * Never more than page_size, and possibly fewer while still not being the last
-   * page: rows outside the requested namespace are dropped after ate-api has counted
-   * them into its page. next_page_token, not the row count, is what says there is more.
-   *
    * @generated from field: repeated kagent.api.v1alpha1.SubstrateActor actors = 3;
    */
   actors: SubstrateActor[];
@@ -643,20 +619,15 @@ export type ListSubstrateActorsResponse = Message<"kagent.api.v1alpha1.ListSubst
   computedAt?: Timestamp | undefined;
 
   /**
-   * How many actors match the filter across every page.
-   *
-   * What makes "20 of 4,312" sayable. Without it a page can only report its own
-   * length, which reads as the whole result.
+   * How many actors match the filter in total. Without it a page can only report its
+   * own length, which reads as the whole result.
    *
    * @generated from field: int64 total_size = 6;
    */
   totalSize: bigint;
 
   /**
-   * The order actually applied, reported rather than assumed.
-   *
-   * A client that drew its own control's state would still claim "sorted by status"
-   * after sending an order the server did not honour.
+   * The order actually applied, so a client does not claim one the server ignored.
    *
    * @generated from field: kagent.api.v1alpha1.SubstrateActorSortField applied_sort_field = 7;
    */
@@ -797,11 +768,9 @@ export const SubstrateSortOrderSchema: GenEnum<SubstrateSortOrder> = /*@__PURE__
   enumDesc(file_kagent_api_v1alpha1_system, 0);
 
 /**
- * The columns ListSubstrateActors can order by.
- *
- * Every one of them ends in the actor id, which is unique. An order whose last key
- * repeats gives a page boundary that names more than one row, and paging across it
- * drops or repeats whatever shares the key.
+ * The columns ListSubstrateActors can order by, each ending in the unique actor id:
+ * an order whose last key repeats gives a page boundary naming more than one row, and
+ * paging across it drops or repeats them.
  *
  * @generated from enum kagent.api.v1alpha1.SubstrateActorSortField
  */
@@ -905,14 +874,10 @@ export const SystemService: GenService<{
     output: typeof ListNamespacesResponseSchema;
   },
   /**
-   * Every actor and worker in one message, which a large cluster cannot fit: at
-   * 410,110 actors the response is roughly 43MB against gRPC's 16MB ceiling, so the
-   * call fails outright rather than returning a truncated inventory. Anything that
-   * renders the inventory wants GetSubstrateSummary and the two list calls below.
-   *
-   * Deliberately not marked deprecated. It is still the only way to ask for the whole
-   * inventory in one answer, which is what a caller looking one actor up by id has to
-   * do — paging to find a row it can already name would be the slower way round.
+   * Every actor and worker in one message, which a large cluster cannot fit: 410,110
+   * actors is roughly 43MB against gRPC's 16MB ceiling, and the call fails outright.
+   * Anything rendering the inventory wants the three calls below. Not deprecated: it
+   * is still the only way to look one actor up by id without paging to find it.
    *
    * @generated from rpc kagent.api.v1alpha1.SystemService.GetSubstrateStatus
    */

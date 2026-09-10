@@ -74,11 +74,9 @@ func (SubstrateSortOrder) EnumDescriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{0}
 }
 
-// The columns ListSubstrateActors can order by.
-//
-// Every one of them ends in the actor id, which is unique. An order whose last key
-// repeats gives a page boundary that names more than one row, and paging across it
-// drops or repeats whatever shares the key.
+// The columns ListSubstrateActors can order by, each ending in the unique actor id:
+// an order whose last key repeats gives a page boundary naming more than one row, and
+// paging across it drops or repeats them.
 type SubstrateActorSortField int32
 
 const (
@@ -1037,16 +1035,9 @@ func (x *SubstrateWorker) GetVersion() int64 {
 // The inventory as counts, plus the two lists whose length is set by configuration
 // rather than by the cluster.
 //
-// This is the only place a *total* comes from. The actor and worker calls below
-// answer with a page, and a page's length is not a total: counting the rows on
-// screen and labelling the result "Actors" reports 100 for a cluster running four
-// hundred thousand.
-//
-// Producing these counts costs a walk of every ate-api page, because ate-api
-// reports no totals of its own — ListActorsResponse is a page plus a token. The
-// walk stays on the server and only the counts cross the wire, so this call has no
-// message-size ceiling. It is not free, though: a caller polling it at the rate it
-// polls a page will spend most of its time here.
+// ate-api reports no totals, so these cost a walk of every one of its pages. Only the
+// counts cross the wire, so there is no message-size ceiling — but a caller polling
+// this as often as it pages will spend most of its time here.
 type GetSubstrateSummaryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -1145,22 +1136,14 @@ func (x *SubstrateActorStatusCount) GetCount() int64 {
 
 type GetSubstrateSummaryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// False when the controller has no ate-api endpoint configured.
-	//
-	// A deployment choice rather than a failure, and the answer stops there: every other
-	// field is left empty, because all of them describe a substrate that is not running.
-	// Show it as a configuration note, not as an error and not as an empty cluster.
+	// False when the controller has no ate-api endpoint configured: a deployment choice,
+	// not a failure. Every other field is then empty — a configuration note to show, not
+	// an error and not an empty cluster.
 	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// Set when one of the three ate-api reads behind this answer failed.
-	//
-	// They do not gate each other: a failed template listing still leaves the actors and
-	// the workers counted, and a walk that dies partway keeps what it had tallied. So the
-	// figures here may be short while the Kubernetes-derived lists are complete — a
-	// warning to show beside the data rather than an error to fail the call with.
-	//
-	// Never a database failure. Those are internal errors, because reporting a
-	// control-plane outage as "ate-api answered with an error" sends an operator to fix
-	// a healthy component.
+	// Set when one of the three ate-api reads behind this answer failed. They do not gate
+	// each other, so the counts here may be short while the Kubernetes-derived lists are
+	// complete: a warning to show beside the data rather than a failed call. Never a
+	// database failure — those are internal errors.
 	AteApiError       string                    `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
 	WorkerPools       []*SubstrateWorkerPool    `protobuf:"bytes,3,rep,name=worker_pools,json=workerPools,proto3" json:"worker_pools,omitempty"`
 	ActorTemplates    []*SubstrateActorTemplate `protobuf:"bytes,4,rep,name=actor_templates,json=actorTemplates,proto3" json:"actor_templates,omitempty"`
@@ -1169,9 +1152,8 @@ type GetSubstrateSummaryResponse struct {
 	RunningActorCount int64                     `protobuf:"varint,7,opt,name=running_actor_count,json=runningActorCount,proto3" json:"running_actor_count,omitempty"`
 	// A worker is busy when an actor is bound to it.
 	BusyWorkerCount int64 `protobuf:"varint,8,opt,name=busy_worker_count,json=busyWorkerCount,proto3" json:"busy_worker_count,omitempty"`
-	// Every actor status present, with how many hold it. The whole distribution
-	// rather than the running count alone: knowing 12 of 410,110 are running says
-	// nothing about the other 410,098.
+	// Every actor status present, with how many hold it: knowing 12 of 410,110 are
+	// running says nothing about the other 410,098.
 	ActorStatusCounts []*SubstrateActorStatusCount `protobuf:"bytes,9,rep,name=actor_status_counts,json=actorStatusCounts,proto3" json:"actor_status_counts,omitempty"`
 	// When this answer was computed, which is not when it was received.
 	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
@@ -1281,23 +1263,19 @@ func (x *GetSubstrateSummaryResponse) GetComputedAt() *timestamppb.Timestamp {
 
 // One page of actors, ordered and narrowed across the whole inventory.
 //
-// ate-api offers paging and nothing else, so the controller reads every one of its
-// pages, applies the filter and the order, and answers with the slice asked for. That
-// costs a walk of the inventory per request — seconds on a large cluster — and it is
-// what makes the order and the filter mean the cluster rather than the hundred rows a
-// reader happens to be looking at.
+// ate-api offers paging and nothing else, so the controller reads all of its pages and
+// applies the filter and the order before cutting this one. That is a walk of the
+// inventory per request — seconds on a large cluster — and it is what makes both mean
+// the cluster rather than the page.
 type ListSubstrateActorsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Empty means every namespace the controller observes.
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// The shared page request, as every other paged read on this API takes it: `limit`
-	// is the most rows to answer with, capped at 100 there rather than here, and zero
-	// means the server's default. Above the cap is refused rather than clamped, so a
-	// caller learns its page size was not honoured.
+	// `limit` is capped at 100 in common.proto and zero means the server's default;
+	// above the cap is refused rather than clamped.
 	Page *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
-	// Matched case-insensitively, as a substring, against the fields a row shows: id,
-	// status, template and worker pod. Empty matches everything. Applied before the page
-	// is cut, so a match on the ninth page is still found.
+	// Matched case-insensitively as a substring of the id, status, template and worker
+	// pod a row shows. Empty matches everything.
 	Filter        string                  `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
 	SortField     SubstrateActorSortField `protobuf:"varint,4,opt,name=sort_field,json=sortField,proto3,enum=kagent.api.v1alpha1.SubstrateActorSortField" json:"sort_field,omitempty"`
 	SortOrder     SubstrateSortOrder      `protobuf:"varint,5,opt,name=sort_order,json=sortOrder,proto3,enum=kagent.api.v1alpha1.SubstrateSortOrder" json:"sort_order,omitempty"`
@@ -1374,22 +1352,14 @@ type ListSubstrateActorsResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	Enabled     bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
-	// Never more than page_size, and possibly fewer while still not being the last
-	// page: rows outside the requested namespace are dropped after ate-api has counted
-	// them into its page. next_page_token, not the row count, is what says there is more.
-	Actors []*SubstrateActor `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
+	Actors      []*SubstrateActor      `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
 	// Empty next_page_token on the last page.
 	Page       *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	ComputedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
-	// How many actors match the filter across every page.
-	//
-	// What makes "20 of 4,312" sayable. Without it a page can only report its own
-	// length, which reads as the whole result.
+	// How many actors match the filter in total. Without it a page can only report its
+	// own length, which reads as the whole result.
 	TotalSize int64 `protobuf:"varint,6,opt,name=total_size,json=totalSize,proto3" json:"total_size,omitempty"`
-	// The order actually applied, reported rather than assumed.
-	//
-	// A client that drew its own control's state would still claim "sorted by status"
-	// after sending an order the server did not honour.
+	// The order actually applied, so a client does not claim one the server ignored.
 	AppliedSortField SubstrateActorSortField `protobuf:"varint,7,opt,name=applied_sort_field,json=appliedSortField,proto3,enum=kagent.api.v1alpha1.SubstrateActorSortField" json:"applied_sort_field,omitempty"`
 	AppliedSortOrder SubstrateSortOrder      `protobuf:"varint,8,opt,name=applied_sort_order,json=appliedSortOrder,proto3,enum=kagent.api.v1alpha1.SubstrateSortOrder" json:"applied_sort_order,omitempty"`
 	unknownFields    protoimpl.UnknownFields

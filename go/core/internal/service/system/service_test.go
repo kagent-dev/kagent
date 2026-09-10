@@ -104,15 +104,8 @@ func (client *fakeATEClient) readError(read int) error {
 	return nil
 }
 
-/*
-fakePage slices rows the way ate-api pages them: an opaque token, and an empty one on
-the last page. The token here is an offset, which ate-api's is not — nothing under test
-reads it, which is the property that matters.
-
-It answers with the smaller of what was asked for and its own ceiling, as ate-api does:
-a fake that always filled the request would hide a caller asking for a whole page when
-it needs only the rest of one.
-*/
+// fakePage slices rows the way ate-api pages them: an opaque token, empty on the last
+// page, and never more rows than its own ceiling however many were asked for.
 func fakePage[T any](rows []T, ceiling int, requested int32, pageToken string) ([]T, string, error) {
 	pageSize := ceiling
 	if requested > 0 && (ceiling <= 0 || int(requested) < ceiling) {
@@ -492,15 +485,8 @@ func TestGetSubstrateSummary(t *testing.T) {
 	})
 }
 
-/*
-The summary's three ate-api reads are independent, and a database failure is not one
-of them.
-
-Both halves of this were wrong together: the harnesses were read inside the template
-listing, so a PostgreSQL outage reached the reader as "ate-api answered with an error";
-and every count was gated on that same field, so one failed read reported a cluster of
-410,110 actors as running none.
-*/
+// The summary's three ate-api reads are independent, and a database failure is not one
+// of them: one failed read must not zero the other counts or be reported as ate-api's.
 func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -574,14 +560,8 @@ func (client *failingTemplatesATEClient) ListActorTemplates(context.Context, str
 	return nil, errors.New("templates unavailable")
 }
 
-/*
-The point of the whole exercise: an order and a filter that mean the cluster, not the
-page in front of the reader.
-
-ate-api offers neither, so the controller walks its pages and applies both before
-cutting. What that buys is exactly what these assert — a row that sorts first arrives on
-page one however late ate-api mentioned it, and a match nine pages deep is still found.
-*/
+// The point of the exercise: a row that sorts first arrives on page one however late
+// ate-api mentioned it, and a match nine pages deep is still found.
 func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 	newService := func(client system.ATEClient) *system.Service {

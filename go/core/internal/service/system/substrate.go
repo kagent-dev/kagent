@@ -22,54 +22,36 @@ import (
 /*
 Paged substrate reads.
 
-ate-api pages and does nothing else: ListActors and ListWorkers take a page size and
-a token, and answer with a page and a token. No ordering, no filter, no total. So the
-calls here page and do nothing else either — ordering a page is the caller's, over the
-rows it was handed, and a caller that presents that as ordering the cluster is lying
-to its reader.
-
-The counts live on GetSubstrateSummary instead, which walks every ate-api page and
-keeps only the tallies. That walk is the expensive read on this page and the one to
-poll least often, but it crosses the wire as a handful of integers, so it has no
-message-size ceiling — which is the whole difference from GetSubstrateStatus.
+ate-api pages and does nothing else — no order, no filter, no total — so every read
+here walks all of its pages and does those three itself. The walks cost time, but
+they answer with a page or a tally rather than the inventory, which is the whole
+difference from GetSubstrateStatus and its message-size ceiling.
 */
 
 // How many rows a list call asks ate-api for when the caller names no page size.
 const defaultSubstratePageSize int32 = 50
 
-// The largest page a caller may ask for. Refused rather than clamped, so a caller
-// learns its page size was not honoured; also declared on the request in system.proto,
-// which is what actually rejects an oversized one before this code runs.
+// The largest page a caller may ask for. Refused rather than clamped; system.proto
+// declares the same cap and rejects an oversized request before this runs.
 const maxSubstratePageSize int32 = 100
 
-/*
-How many ate-api pages a counting walk will read before giving up.
-
-A drain used to be bounded by a deadline: the client wrapped the whole loop in one
-call timeout, so a token that never drained ran out of time. Each page now carries its
-own timeout, which is right — a page should not be charged for the pages before it —
-and it leaves the loop itself unbounded. A cyclic or non-advancing `next_page_token`
-would then spin against ate-api until the inbound request was cancelled.
-
-At ate-api's own ceiling of 1,000 rows a page this allows ten million actors, which is
-far above any cluster this has to count and far below forever.
-*/
+// How many ate-api pages a walk will read before giving up. Each page carries its own
+// timeout, so nothing else bounds the loop against a cyclic next_page_token. At
+// ate-api's 1,000 rows a page this allows ten million.
 const maxATEPagesPerWalk = 10_000
 
 // SubstrateListInput is what both paged substrate reads take.
 type SubstrateListInput struct {
 	// Empty means every namespace the controller observes.
 	Namespace string
-	// Zero means defaultSubstratePageSize. An `int` as the other paged services take
-	// it; ate-api's own request is what wants the int32.
+	// Zero means defaultSubstratePageSize.
 	PageSize int
 	// Empty for the first page; otherwise the previous answer's NextPageToken.
 	PageToken string
 	// Matched case-insensitively as a substring of what the row shows. Empty matches
 	// everything.
 	Filter string
-	// Which column to order by, and which way. Zero values are the read's default
-	// order, which is the one every column ends in.
+	// Zero values are the read's default order.
 	SortField int32
 	SortOrder int32
 }
@@ -114,14 +96,8 @@ type SubstrateSummary struct {
 	ComputedAt        time.Time
 }
 
-/*
-recordATEError keeps the first ate-api failure of the summary's three reads.
-
-The first rather than the last, because the reads run in a fixed order and the earliest
-failure is the one most likely to explain the others — a controller that has lost
-ate-api fails all three, and reporting the last would name the worker walk for an
-outage the template listing already found.
-*/
+// recordATEError keeps the first of the summary's three ate-api failures: when all
+// three fail together, the earliest is the one that explains the others.
 func (summary *SubstrateSummary) recordATEError(ctx context.Context, err error) {
 	logging.FromContext(ctx).ErrorContext(ctx, "failed to summarise ate-api state", "error", err)
 	if summary.ATEAPIError == "" {
@@ -137,10 +113,8 @@ type SubstrateActorStatusCount struct {
 
 // GetSubstrateSummary counts the inventory without sending it.
 //
-// Every count here costs a walk of every ate-api page, because ate-api reports no
-// totals of its own. The walk holds one page at a time and keeps only tallies, so its
-// cost is time rather than memory, and its answer is small enough to send whatever the
-// cluster's size.
+// ate-api reports no totals, so every count costs a walk of its pages. The walk holds
+// one page at a time and keeps only tallies.
 func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace string) (SubstrateSummary, error) {
 	namespaces, err := s.substrateScope(ctx, requestedNamespace)
 	if err != nil {
@@ -177,31 +151,15 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
-	/*
-	 * The harnesses come from PostgreSQL, and a failure there is an internal error
-	 * rather than a warning about ate-api.
-	 *
-	 * These used to be read inside the template listing, so a database outage arrived
-	 * here indistinguishable from an ate-api one: the page told the reader that ate-api
-	 * had answered with an error while ate-api was healthy, and — because the counts
-	 * were gated on that same field — reported a cluster of 410,110 actors as running
-	 * none.
-	 */
+	// Read here rather than inside the template listing below, so a PostgreSQL outage
+	// is an internal error instead of being reported as an ate-api one.
 	harnesses, err := s.actorTemplateHarnesses(ctx)
 	if err != nil {
 		return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", err)
 	}
 
-	/*
-	 * Three independent ate-api reads, each contributing whatever it can.
-	 *
-	 * None of them gates the others. They are separate calls against separate
-	 * collections, so a template listing that fails says nothing about whether the
-	 * actors can be counted, and skipping the walks because of it would turn one
-	 * failed read into a page reporting zero of everything. What each one reached is
-	 * kept; the first failure is reported beside it, and the reader is told the figures
-	 * may be short rather than shown a blank page.
-	 */
+	// Three independent reads: none gates the others, so one failure leaves the rest
+	// counted rather than zeroing the whole summary.
 	if templates, err := s.substrateActorTemplates(ctx, harnesses, allowAll, allowed); err != nil {
 		result.recordATEError(ctx, err)
 	} else {
@@ -221,14 +179,10 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 			result.RunningActorCount++
 		}
 		/*
-		 * A worker is busy when an actor is placed on it. The binding is on the actor,
-		 * not the worker: ate-api's Worker carries capacity and allocation but no actor
-		 * reference, so this walk is the only place it can be counted.
-		 *
-		 * Scoped by the pod's namespace rather than by the actor's atespace, because
-		 * that is what WorkerCount below is scoped by and the two are shown as one
-		 * fraction. An actor in atespace `team` can sit on a pod in namespace `kagent`;
-		 * counting it here and not there renders the tile as "1/0".
+		 * Counted here because ate-api's Worker carries no actor reference: the binding
+		 * is on the actor. Scoped by the pod's namespace, not the actor's atespace, so
+		 * that it matches WorkerCount below — the two are shown as one fraction, and an
+		 * actor in atespace `team` on a pod in namespace `kagent` would render "1/0".
 		 */
 		if entry.AteomPodName != "" &&
 			allowedWorkerNamespace(entry.AteomPodNamespace, allowAll, allowed) {
@@ -387,13 +341,8 @@ func (s *Service) walkWorkers(ctx context.Context, visit func(*ateapipb.Worker))
 	return walkSubstrate(ctx, s.ateClient.ListWorkersPage, visit)
 }
 
-/*
-walkSubstrate calls visit for every row ate-api holds, one page at a time.
-
-One page in memory at a time, whatever the cluster's size: the callers reduce these
-rows to counts, so what they cost is the time to read them and not the space to hold
-them. Bounded by maxATEPagesPerWalk — see there for what that is defending against.
-*/
+// walkSubstrate calls visit for every row ate-api holds, holding one page at a time
+// whatever the cluster's size.
 func walkSubstrate[Row any](
 	ctx context.Context,
 	read func(ctx context.Context, pageSize int32, pageToken string) ([]Row, string, error),
@@ -418,13 +367,8 @@ func walkSubstrate[Row any](
 	return fmt.Errorf("ate-api did not finish paging after %d pages", maxATEPagesPerWalk)
 }
 
-/*
-substrateScope authorizes the caller and resolves the namespaces a substrate read
-covers.
-
-Shared by all four substrate reads so that a new one cannot arrive without the check:
-the authorization and the namespace validation are the same for every one of them.
-*/
+// substrateScope authorizes the caller and resolves the namespaces a read covers.
+// Shared by all four, so a new read cannot arrive without the check.
 func (s *Service) substrateScope(ctx context.Context, requestedNamespace string) ([]string, error) {
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return nil, err
@@ -482,24 +426,15 @@ func substratePageSize(requested int) (int32, error) {
 	}
 }
 
-/*
-The order, the filter and the slice — the three things the controller now does because
-ate-api does none of them.
+// The order, the filter and the slice, which ate-api offers none of.
 
-Each of these costs a walk of the whole inventory, which is the price of an order that
-means the cluster rather than the hundred rows in front of the reader. The walk holds
-only the rows that match, so a narrow filter on a wide cluster costs time rather than
-memory.
-*/
-
-// matchesFilter reports whether a row's own text contains the needle. An empty needle
-// matches everything, so an unfiltered read pays nothing for the check.
+// matchesFilter reports whether a row's own text contains the needle.
 func matchesFilter(needle, text string) bool {
 	return needle == "" || strings.Contains(strings.ToLower(text), needle)
 }
 
-// actorSearchText is everything an actor row shows, which is what a reader searching it
-// expects to match — including the parts a column composes, like a pod and its IP.
+// actorSearchText is everything an actor row shows, including what a column composes
+// out of several fields, so a search matches what the reader can see.
 func actorSearchText(actor SubstrateActor) string {
 	return strings.Join([]string{
 		actor.ActorID,
@@ -521,13 +456,9 @@ func workerSearchText(worker SubstrateWorker) string {
 	}, " ")
 }
 
-/*
-actorSortKey turns a column into the string a row is ordered by.
-
-Every key ends in the actor id, which is unique. An order whose last key repeats gives a
-page boundary that names more than one row, and paging across it drops or repeats
-whatever shares the key — the defect worth designing out rather than testing for.
-*/
+// actorSortKey turns a column into the string a row is ordered by. Every key ends in
+// the unique actor id: an order whose last key repeats gives a page boundary naming
+// more than one row, and paging across it drops or repeats them.
 func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(SubstrateActor) string {
 	switch field {
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID:
@@ -541,9 +472,8 @@ func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(SubstrateActor
 			return a.AteomPodNamespace + "/" + a.AteomPodName + "\x00" + a.ActorID
 		}
 	default:
-		// Status and the default are one ordering, because the default *is* status then
-		// id. So the Status header changes nothing ascending and reverses the grouping
-		// descending, which is correct and not obvious.
+		// Status and the default are one ordering, so the Status header changes nothing
+		// ascending and reverses descending. Correct, and not obvious.
 		return func(a SubstrateActor) string { return a.Status + "\x00" + a.ActorID }
 	}
 }
@@ -573,8 +503,7 @@ func substrateOrder[Row any](key func(Row) string, order int32) func(Row, Row) i
 	}
 }
 
-// substrateSortOrder reads an unset or unknown order as ascending, which is what a
-// caller that did not ask means.
+// substrateSortOrder reads an unset or unknown order as ascending.
 func substrateSortOrder(order int32) apiv1alpha1.SubstrateSortOrder {
 	if apiv1alpha1.SubstrateSortOrder(order) == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC {
 		return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC
@@ -583,13 +512,11 @@ func substrateSortOrder(order int32) apiv1alpha1.SubstrateSortOrder {
 }
 
 /*
-sliceSubstratePage cuts the page a caller asked for out of the ordered result.
+sliceSubstratePage cuts the requested page out of the ordered result.
 
-An offset rather than a cursor into the rows, because the order is the controller's and
-is rebuilt on every request: a key-based token would name a row's position in an ordering
-that the next request may not produce. An offset past the end is an empty last page
-rather than an error — a reader whose cluster shrank under them should see the end of the
-list, not a failure.
+An offset rather than a key-based cursor: the order is the controller's and is rebuilt
+per request, so a key would name a position the next request may not produce. An offset
+past the end is an empty last page, not an error — the cluster may have shrunk.
 */
 func sliceSubstratePage[Row any](rows []Row, offset int, pageSize int32) ([]Row, string) {
 	if offset >= len(rows) {
@@ -603,8 +530,7 @@ func sliceSubstratePage[Row any](rows []Row, offset int, pageSize int32) ([]Row,
 	return page, encodeSubstrateOffset(end)
 }
 
-// The page token is an offset, encoded so it reads as opaque and a caller is not tempted
-// to do arithmetic on it — the same shape the other paged reads on this API use.
+// Encoded so the token reads as opaque, the same shape the other paged reads use.
 func encodeSubstrateOffset(offset int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
