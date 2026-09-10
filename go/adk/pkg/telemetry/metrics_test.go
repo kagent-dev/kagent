@@ -4,9 +4,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRecordTokenUsage_RecordsHistogram verifies input/output token counts are
@@ -37,6 +41,7 @@ func TestRecordTokenUsage_SkipsZero(t *testing.T) {
 }
 
 func TestRecordTokenUsage_Disabled(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "false")
 	tokenUsage.Reset()
 
 	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100})
@@ -101,10 +106,94 @@ func TestSemconvProviderName(t *testing.T) {
 		"sap_ai_core":      "sap_ai_core",
 		"some-custom":      "some-custom",
 	}
-	for in, want := range cases {
-		if got := SemconvProviderName(in); got != want {
-			t.Errorf("SemconvProviderName(%q) = %q, want %q", in, got, want)
-		}
+	for input, want := range cases {
+		t.Run(input, func(t *testing.T) {
+			require.Equal(t, want, SemconvProviderName(input))
+		})
+	}
+}
+
+func TestRecordTokenUsageValues(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input TokenUsage
+		want  map[string]float64
+	}{
+		{name: "input and output", input: TokenUsage{InputTokens: 100, OutputTokens: 42}, want: map[string]float64{"input": 100, "output": 42}},
+		{name: "input only", input: TokenUsage{InputTokens: 100}, want: map[string]float64{"input": 100}},
+		{name: "output only", input: TokenUsage{OutputTokens: 42}, want: map[string]float64{"output": 42}},
+		{name: "zero", input: TokenUsage{}},
+		{name: "negative", input: TokenUsage{InputTokens: -1, OutputTokens: -2}},
+		{name: "negative input", input: TokenUsage{InputTokens: -1, OutputTokens: 42}, want: map[string]float64{"output": 42}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(metricsEnabledEnvVar, "true")
+			tokenUsage.Reset()
+			t.Cleanup(tokenUsage.Reset)
+			RecordTokenUsage(test.input)
+			RecordTokenUsage(test.input)
+			require.Equal(t, len(test.want), testutil.CollectAndCount(tokenUsage))
+			for tokenType, want := range test.want {
+				metric := &dto.Metric{}
+				histogram := tokenUsage.WithLabelValues(tokenType, operationChat, "", "", "", "", "")
+				require.NoError(t, histogram.(prometheus.Metric).Write(metric))
+				require.Equal(t, uint64(2), metric.Histogram.GetSampleCount())
+				require.Equal(t, 2*want, metric.Histogram.GetSampleSum())
+				require.Len(t, metric.Histogram.Bucket, len(tokenUsageBuckets))
+				for index, bucket := range metric.Histogram.Bucket {
+					require.Equal(t, tokenUsageBuckets[index], bucket.GetUpperBound())
+					var count uint64
+					if want <= bucket.GetUpperBound() {
+						count = 2
+					}
+					require.Equal(t, count, bucket.GetCumulativeCount())
+				}
+			}
+		})
+	}
+}
+
+func TestRecordTokenUsageConcurrent(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "true")
+	tokenUsage.Reset()
+	t.Cleanup(tokenUsage.Reset)
+	var workers sync.WaitGroup
+	for range 16 {
+		workers.Go(func() {
+			for range 64 {
+				RecordTokenUsage(TokenUsage{InputTokens: 3, OutputTokens: 7})
+			}
+		})
+	}
+	for range 16 {
+		require.NotEmpty(t, serveMetrics(t))
+	}
+	workers.Wait()
+	for tokenType, want := range map[string]float64{"input": 3, "output": 7} {
+		metric := &dto.Metric{}
+		histogram := tokenUsage.WithLabelValues(tokenType, operationChat, "", "", "", "", "")
+		require.NoError(t, histogram.(prometheus.Metric).Write(metric))
+		require.Equal(t, uint64(16*64), metric.Histogram.GetSampleCount())
+		require.Equal(t, 16*64*want, metric.Histogram.GetSampleSum())
+	}
+}
+
+func TestMetricsEnabled(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "unset"},
+		{name: "enabled", input: "true", want: true},
+		{name: "case and whitespace", input: " TRUE ", want: true},
+		{name: "disabled", input: "false"},
+		{name: "invalid", input: "1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(metricsEnabledEnvVar, test.input)
+			require.Equal(t, test.want, MetricsEnabled())
+		})
 	}
 }
 
