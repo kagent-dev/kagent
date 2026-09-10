@@ -1,4 +1,5 @@
 import logging
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -28,6 +29,7 @@ from kagent.adk.models._openai import (
     _convert_content_to_responses_input,
     _convert_responses_output_to_llm_response,
     _convert_tools_to_responses,
+    _responses_usage_to_genai,
 )
 from kagent.adk.types import OpenAI as OpenAIModelConfig
 from kagent.adk.types import _create_llm_from_model_config
@@ -220,7 +222,7 @@ def test_convert_responses_output_to_llm_response_text():
         ],
         usage=ResponseUsage(
             input_tokens=10,
-            input_tokens_details={"cache_write_tokens": 0, "cached_tokens": 0},
+            input_tokens_details={"cache_write_tokens": 3, "cached_tokens": 8},
             output_tokens=5,
             output_tokens_details={"reasoning_tokens": 0},
             total_tokens=15,
@@ -233,6 +235,28 @@ def test_convert_responses_output_to_llm_response_text():
     assert llm_response.finish_reason == types.FinishReason.STOP
     assert llm_response.usage_metadata.prompt_token_count == 10
     assert llm_response.usage_metadata.candidates_token_count == 5
+    assert llm_response.usage_metadata.cached_content_token_count == 8
+
+
+@pytest.mark.parametrize(
+    "details,want",
+    [
+        (None, 0),
+        (SimpleNamespace(), 0),
+        (SimpleNamespace(cached_tokens=None), 0),
+        (SimpleNamespace(cached_tokens=8), 8),
+        (SimpleNamespace(cached_tokens=-1), 0),
+        (SimpleNamespace(cached_tokens=1 << 31), (1 << 31) - 1),
+    ],
+)
+def test_responses_cached_tokens(details, want):
+    usage = ResponseUsage.model_construct(input_tokens=10, output_tokens=5, total_tokens=15)
+    usage.input_tokens_details = details
+    assert _responses_usage_to_genai(usage).cached_content_token_count == want
+
+
+def test_responses_cached_tokens_without_usage():
+    assert _responses_usage_to_genai(None) is None
 
 
 def test_convert_responses_output_to_llm_response_function_call():
@@ -442,7 +466,7 @@ async def test_generate_content_async_responses_streaming(responses_llm, llm_req
                 output=[],
                 usage=ResponseUsage(
                     input_tokens=1,
-                    input_tokens_details={"cache_write_tokens": 0, "cached_tokens": 0},
+                    input_tokens_details={"cache_write_tokens": 3, "cached_tokens": 1},
                     output_tokens=2,
                     output_tokens_details={"reasoning_tokens": 0},
                     total_tokens=3,
@@ -477,6 +501,7 @@ async def test_generate_content_async_responses_streaming(responses_llm, llm_req
     assert fc.args == {"location": "NYC"}
     assert final.usage_metadata.prompt_token_count == 1
     assert final.usage_metadata.candidates_token_count == 2
+    assert final.usage_metadata.cached_content_token_count == 1
 
 
 async def _stream_results(llm, llm_request, events):

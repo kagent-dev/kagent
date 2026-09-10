@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -536,7 +537,8 @@ async def test_streaming_includes_stream_options_for_usage(
 
 
 @pytest.mark.asyncio
-async def test_streaming_usage_metadata_propagation(openai_llm, llm_request):
+@pytest.mark.parametrize("cached,want", [(8, 8), (None, 0), (-1, 0), (1 << 31, (1 << 31) - 1)])
+async def test_streaming_usage_metadata_propagation(openai_llm, llm_request, cached, want):
     """Test that usage metadata from streaming response is properly propagated."""
 
     class MockDelta:
@@ -554,6 +556,7 @@ async def test_streaming_usage_metadata_propagation(openai_llm, llm_request):
         prompt_tokens = 10
         completion_tokens = 5
         total_tokens = 15
+        prompt_tokens_details = SimpleNamespace(cached_tokens=cached)
 
     class MockChunk:
         id = "chatcmpl-test"
@@ -590,6 +593,7 @@ async def test_streaming_usage_metadata_propagation(openai_llm, llm_request):
         assert final_response.usage_metadata.prompt_token_count == 10
         assert final_response.usage_metadata.candidates_token_count == 5
         assert final_response.usage_metadata.total_token_count == 15
+        assert final_response.usage_metadata.cached_content_token_count == want
 
 
 # ============================================================================
@@ -1062,25 +1066,29 @@ class TestConvertOpenAIResponseToLlmResponse:
         assert len(tool_messages) == 1
         assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
 
-
-    def test_usage_metadata_populates_cached_content_token_count(self):
-        # Openai reports prompt-cache hits via usage.prompt_tokens_details.cached_tokens.
-        class _MockPromptTokensDetails:
-            cached_tokens = 12
-
+    @pytest.mark.parametrize(
+        "details,want",
+        [
+            (None, 0),
+            (SimpleNamespace(), 0),
+            (SimpleNamespace(cached_tokens=None), 0),
+            (SimpleNamespace(cached_tokens=2), 2),
+            (SimpleNamespace(cached_tokens=-1), 0),
+            (SimpleNamespace(cached_tokens=(1 << 31) - 1), (1 << 31) - 1),
+            (SimpleNamespace(cached_tokens=1 << 31), (1 << 31) - 1),
+        ],
+    )
+    def test_usage_metadata_populates_cached_content_token_count(self, details, want):
         response = self._MockResponse(self._MockMessage(content="hi"))
-        response.usage.prompt_tokens_details = _MockPromptTokensDetails()
+        response.usage.prompt_tokens_details = details
 
         llm_response = _convert_openai_response_to_llm_response(response)
 
         assert llm_response.usage_metadata is not None, "usage metadata should be populated"
-        assert llm_response.usage_metadata.cached_content_token_count == 12, (
-            "cached_content_token_count should equal cached prompt tokens",
-            llm_response.usage_metadata
-        )
+        assert llm_response.usage_metadata.cached_content_token_count == want
 
-    def test_opens_metadata_cached_content_token_zero_when_absent(self):
-        response = self._MockResponse(self._MockMessage("hi"))
+    def test_usage_metadata_cached_content_token_zero_when_absent(self):
+        response = self._MockResponse(self._MockMessage(content="hi"))
 
         llm_response = _convert_openai_response_to_llm_response(response)
 
