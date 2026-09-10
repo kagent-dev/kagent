@@ -427,6 +427,64 @@ func Test_AdkApiTranslator_OllamaOptions(t *testing.T) {
 	assert.Equal(t, "0.7", ollamaModel.Options["temperature"])
 }
 
+func Test_AdkApiTranslator_AnthropicPromptCaching(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	tests := []struct {
+		name        string
+		config      *v1alpha2.AnthropicConfig
+		wantCaching bool
+		wantTTL     string
+	}{
+		{name: "no provider block", config: nil},
+		// cacheTTL is passed through as configured; the runtime only reads it when caching is on.
+		{name: "disabled", config: &v1alpha2.AnthropicConfig{CacheTTL: "5m"}, wantTTL: "5m"},
+		{name: "enabled with the default TTL", config: &v1alpha2.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}, wantCaching: true, wantTTL: "5m"},
+		{name: "enabled with the 1h TTL", config: &v1alpha2.AnthropicConfig{PromptCaching: true, CacheTTL: "1h"}, wantCaching: true, wantTTL: "1h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			namespace := "test-ns"
+			modelName := "anthropic-model"
+			modelConfig := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: modelName, Namespace: namespace},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:     "claude-sonnet-4-6",
+					Provider:  v1alpha2.ModelProviderAnthropic,
+					Anthropic: tt.config,
+				},
+			}
+			agent := &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: namespace},
+				Spec: v1alpha2.AgentSpec{
+					Type:        v1alpha2.AgentType_Declarative,
+					Description: "Test Agent",
+					Declarative: &v1alpha2.DeclarativeAgentSpec{
+						SystemMessage: "System message",
+						ModelConfig:   modelName,
+					},
+				},
+			}
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}, modelConfig, agent).
+				Build()
+			trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: namespace, Name: modelName}, nil, "", nil)
+
+			outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+			require.NoError(t, err)
+			require.NotNil(t, outputs)
+			require.NotNil(t, outputs.Config)
+
+			anthropicModel, ok := outputs.Config.Model.(*adk.Anthropic)
+			require.True(t, ok, "Expected model to be of type Anthropic, got %T", outputs.Config.Model)
+			assert.Equal(t, tt.wantCaching, anthropicModel.PromptCaching)
+			assert.Equal(t, tt.wantTTL, anthropicModel.CacheTTL)
+		})
+	}
+}
+
 func Test_AdkApiTranslator_AzureOpenAIParams(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))

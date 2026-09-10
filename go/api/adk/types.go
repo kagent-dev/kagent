@@ -159,6 +159,15 @@ type Anthropic struct {
 	TopP        *float64 `json:"top_p,omitempty"`
 	TopK        *int     `json:"top_k,omitempty"`
 	Timeout     *int     `json:"timeout,omitempty"`
+	// PromptCaching enables Anthropic prompt caching by marking the last tool
+	// definition, the last system prompt block and the last block of the latest
+	// conversation turn with a cache_control breakpoint. See the
+	// v1alpha2.AnthropicConfig CRD doc for context.
+	PromptCaching bool `json:"prompt_caching,omitempty"`
+	// CacheTTL selects the cache retention window when PromptCaching is on:
+	// "5m" (default) or "1h". See the v1alpha2.AnthropicConfig CRD doc for the
+	// cost trade-offs of "1h".
+	CacheTTL string `json:"cache_ttl,omitempty"`
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
