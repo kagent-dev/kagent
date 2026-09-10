@@ -1,101 +1,95 @@
 package a2a
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/require"
 	adkmodel "google.golang.org/adk/v2/model"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
-// tokenUsageSeriesCount returns how many label series currently exist on the
-// gen_ai_client_token_usage histogram across the default registry.
-func tokenUsageSeriesCount(t *testing.T) int {
-	t.Helper()
-	mfs, err := prometheus.DefaultGatherer.Gather()
-	if err != nil {
-		t.Fatalf("gather: %v", err)
-	}
-	for _, mf := range mfs {
-		if mf.GetName() != "gen_ai_client_token_usage" {
-			continue
-		}
-		return len(mf.GetMetric())
-	}
-	return 0
+type tokenUsageObservation struct {
+	count uint64
+	sum   float64
 }
 
-// tokenUsageSumForType returns the observed _sum for the given gen_ai_token_type
-// series on the gen_ai_client_token_usage histogram across the default registry.
-// It returns 0 when no series with that token type has been recorded.
-func tokenUsageSumForType(t *testing.T, tokenType string) float64 {
+func tokenUsageForAgent(t *testing.T, agentName string) map[string]tokenUsageObservation {
 	t.Helper()
-	mfs, err := prometheus.DefaultGatherer.Gather()
-	if err != nil {
-		t.Fatalf("gather: %v", err)
-	}
-	for _, mf := range mfs {
-		if mf.GetName() != "gen_ai_client_token_usage" {
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	observations := make(map[string]tokenUsageObservation)
+	for _, family := range families {
+		if family.GetName() != "gen_ai_client_token_usage" {
 			continue
 		}
-		for _, m := range mf.GetMetric() {
-			for _, lp := range m.GetLabel() {
-				if lp.GetName() == "gen_ai_token_type" && lp.GetValue() == tokenType {
-					return m.GetHistogram().GetSampleSum()
-				}
+		for _, series := range family.GetMetric() {
+			labels := make(map[string]string)
+			for _, label := range series.GetLabel() {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["gen_ai_agent_name"] != agentName {
+				continue
+			}
+			tokenType := labels["gen_ai_token_type"]
+			require.Equal(t, map[string]string{
+				"gen_ai_token_type": tokenType, "gen_ai_operation_name": "chat",
+				"gen_ai_provider_name": "openai", "gen_ai_request_model": "gpt-4o",
+				"gen_ai_response_model": "gpt-4o-2024-11-20", "gen_ai_agent_name": agentName,
+				"error_type": "",
+			}, labels)
+			require.NotContains(t, observations, tokenType)
+			require.NotNil(t, series.Histogram)
+			observations[tokenType] = tokenUsageObservation{
+				count: series.GetHistogram().GetSampleCount(),
+				sum:   series.GetHistogram().GetSampleSum(),
 			}
 		}
 	}
-	return 0
+	return observations
 }
 
 func TestRecordTokenUsage_RecordsPerLLMCall(t *testing.T) {
 	t.Setenv("OTEL_METRICS_ENABLED", "true")
-	series := 0
+	agentName := t.Name()
+	before := tokenUsageForAgent(t, agentName)
 
-	// Partial (streaming) events must be skipped: a streamed call emits many
-	// partial chunks but usage is reported once on the final non-partial event.
-	recordTokenUsage("gpt-4o", "openai", "my-agent", &adksession.Event{
+	recordTokenUsage("gpt-4o", "openai", agentName, nil)
+	recordTokenUsage("gpt-4o", "openai", agentName, &adksession.Event{})
+	recordTokenUsage("gpt-4o", "openai", agentName, &adksession.Event{
 		LLMResponse: adkmodel.LLMResponse{
-			Partial:       true,
-			ModelVersion:  "gpt-4o-2024-11-20",
-			UsageMetadata: &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 100, CandidatesTokenCount: 42},
+			Partial:      true,
+			ModelVersion: "gpt-4o-2024-11-20",
+			UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
+				PromptTokenCount: 100, CandidatesTokenCount: 40, ThoughtsTokenCount: 2, CachedContentTokenCount: 30,
+			},
 		},
 	})
-	if got := tokenUsageSeriesCount(t); got != series {
-		t.Fatalf("partial event must not record tokens, got %d series", got)
-	}
+	require.Equal(t, before, tokenUsageForAgent(t, agentName))
 
-	// The aggregated non-partial event records one input and one output series.
-	// It carries no cached token count, so no gen_ai_token_type="cached" series
-	// must be emitted.
-	recordTokenUsage("gpt-4o", "openai", "my-agent", &adksession.Event{
+	recordTokenUsage("gpt-4o", "openai", agentName, &adksession.Event{
 		LLMResponse: adkmodel.LLMResponse{
-			ModelVersion:  "gpt-4o-2023-11-20",
+			ModelVersion:  "gpt-4o-2024-11-20",
 			UsageMetadata: &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 100, CandidatesTokenCount: 40, ThoughtsTokenCount: 2},
 		},
 	})
-	got := tokenUsageSeriesCount(t)
-	if got != 2 {
-		t.Fatalf("expected input+output series after one LLM call, got %d", got)
-	}
-	if sum := tokenUsageSumForType(t, "cached"); sum != 0 {
-		t.Fatalf("expected no cached series when CachedContentTokenCount is absent, got sum %v", sum)
-	}
+	want := maps.Clone(before)
+	want["input"] = tokenUsageObservation{count: before["input"].count + 1, sum: before["input"].sum + 100}
+	want["output"] = tokenUsageObservation{count: before["output"].count + 1, sum: before["output"].sum + 42}
+	require.Equal(t, want, tokenUsageForAgent(t, agentName))
 
-	// A non-partial event with cached prompt tokens emits a cached series valued
-	// at CachedContentTokenCount, in addition to input and output.
-	recordTokenUsage("gpt-4o", "openai", "my-agent", &adksession.Event{
+	recordTokenUsage("gpt-4o", "openai", agentName, &adksession.Event{
 		LLMResponse: adkmodel.LLMResponse{
-			ModelVersion:  "gpt-4o-2023-11-20",
-			UsageMetadata: &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 100, CandidatesTokenCount: 40, CachedContentTokenCount: 30},
+			ModelVersion: "gpt-4o-2024-11-20",
+			UsageMetadata: &genai.GenerateContentResponseUsageMetadata{
+				PromptTokenCount: 100, CandidatesTokenCount: 40, CachedContentTokenCount: 30,
+			},
 		},
 	})
-	if got := tokenUsageSeriesCount(t); got != 3 {
-		t.Fatalf("expected input+output+cached series after cached LLM call, got %d", got)
-	}
-	if sum := tokenUsageSumForType(t, "cached"); sum != 30 {
-		t.Fatalf("expected cached series value 30, got %v", sum)
-	}
+	want["input"] = tokenUsageObservation{count: before["input"].count + 2, sum: before["input"].sum + 200}
+	want["output"] = tokenUsageObservation{count: before["output"].count + 2, sum: before["output"].sum + 82}
+	want["cached"] = tokenUsageObservation{count: before["cached"].count + 1, sum: before["cached"].sum + 30}
+	require.Equal(t, want, tokenUsageForAgent(t, agentName))
 }

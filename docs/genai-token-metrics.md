@@ -18,7 +18,7 @@ runtime emits for the same instrument so a single dashboard works across both ru
 
 | Label | Values |
 | --- | --- |
-| `gen_ai_token_type` | `input`, `output` (output = candidate + reasoning tokens) |
+| `gen_ai_token_type` | `input`, `output` (output = candidate + reasoning tokens), `cached` (kagent extension) |
 | `gen_ai_operation_name` | `chat` |
 | `gen_ai_provider_name` | well-known value, e.g. `openai`, `anthropic`, `gcp.vertex_ai`, `aws.bedrock`, `azure.ai.openai` |
 | `gen_ai_request_model` | configured model, e.g. `gpt-4o` |
@@ -26,7 +26,16 @@ runtime emits for the same instrument so a single dashboard works across both ru
 | `gen_ai_agent_name` | agent that produced the tokens (the kagent app name) |
 | `error_type` | set on failed requests; empty otherwise |
 
-One observation is recorded per LLM call (streaming partial chunks are not double-counted).
+One observation is recorded per LLM call for each token type with a positive count
+(streaming partial chunks are not double-counted). Zero or negative counts emit no observation.
+
+The `cached` series records `CachedContentTokenCount`, the prompt tokens served from
+cache, using the same model, provider, agent, operation, and error labels as the input
+and output series. It is a separate observation on the existing histogram, not a new
+counter. Input remains `PromptTokenCount` without adding or subtracting cached tokens;
+output remains candidate plus reasoning tokens. Cached tokens are a breakdown of input
+usage, not additional token spend, so do not sum `cached` with `input` and `output` when
+calculating total usage. The cached `_count` counts only calls with positive cached usage.
 
 ## Configuration
 
@@ -87,12 +96,14 @@ chunks, and the semconv labels including `gen_ai.agent.name`, response model, an
 `error.type`):
 
 ```text
-# HELP gen_ai_client_token_usage Measures the number of input and output tokens used by GenAI requests.
+# HELP gen_ai_client_token_usage Measures the number of input, output, and cached tokens used by GenAI requests.
 # TYPE gen_ai_client_token_usage histogram
 gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 137
 gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 2
 gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 91
 gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 2
+gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="cached"} 30
+gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="cached"} 1
 ```
 
 ## Follow-ups

@@ -4,25 +4,98 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/require"
 )
 
-// TestRecordTokenUsage_RecordsCachedSeries verifies that a positive cached
-// token count is recorded as a gen_ai_token_type="cached" series when the
-// metric pipeline is enabled.
 func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
+	cases := []struct {
+		name              string
+		input             TokenUsage
+		wantResponseModel string
+	}{
+		{
+			name: "response model fallback",
+			input: TokenUsage{
+				RequestModel: "gpt-4o", Provider: "openai", AgentName: "openai-agent",
+				InputTokens: 100, OutputTokens: 42, CachedTokens: 30,
+			},
+			wantResponseModel: "gpt-4o",
+		},
+		{
+			name: "explicit response model and error",
+			input: TokenUsage{
+				RequestModel: "claude-sonnet-4", ResponseModel: "claude-sonnet-4-20250514",
+				Provider: "anthropic", AgentName: "anthropic-agent", ErrorType: "overloaded_error",
+				InputTokens: 200, OutputTokens: 12, CachedTokens: 75,
+			},
+			wantResponseModel: "claude-sonnet-4-20250514",
+		},
+		{
+			name: "cached only",
+			input: TokenUsage{
+				RequestModel: "gemini-2.5-flash", Provider: "gcp.vertex_ai", AgentName: "gemini-agent",
+				CachedTokens: 10,
+			},
+			wantResponseModel: "gemini-2.5-flash",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tokenUsage.Reset()
+			t.Cleanup(tokenUsage.Reset)
+			registry := prometheus.NewPedanticRegistry()
+			registry.MustRegister(tokenUsage)
 
-	RecordTokenUsage(TokenUsage{
-		RequestModel: "gpt-4o", Provider: "openai", CachedTokens: 30,
-	})
+			const workers = 8
+			const callsPerWorker = 10
+			var workersDone sync.WaitGroup
+			for range workers {
+				workersDone.Go(func() {
+					for range callsPerWorker {
+						RecordTokenUsage(testCase.input)
+					}
+				})
+			}
+			workersDone.Wait()
 
-	body := serveMetrics(t)
-	if !strings.Contains(body, "gen_ai_token_type=\"cached\"") {
-		t.Fatalf("expected a cached series when CachedTokens > 0")
+			families, err := registry.Gather()
+			require.NoError(t, err)
+			require.Len(t, families, 1)
+			require.Equal(t, metricGenAIClientTokenUsage, families[0].GetName())
+			wantTokens := map[string]int64{tokenTypeCached: testCase.input.CachedTokens}
+			if testCase.input.InputTokens > 0 {
+				wantTokens[tokenTypeInput] = testCase.input.InputTokens
+			}
+			if testCase.input.OutputTokens > 0 {
+				wantTokens[tokenTypeOutput] = testCase.input.OutputTokens
+			}
+			require.Len(t, families[0].GetMetric(), len(wantTokens))
+			for _, series := range families[0].GetMetric() {
+				labels := make(map[string]string)
+				for _, label := range series.GetLabel() {
+					labels[label.GetName()] = label.GetValue()
+				}
+				tokenType := labels[labelGenAITokenType]
+				require.Contains(t, wantTokens, tokenType)
+				require.Equal(t, map[string]string{
+					labelGenAITokenType: tokenType, labelGenAIOperationName: operationChat,
+					labelGenAIProviderName: testCase.input.Provider, labelGenAIRequestModel: testCase.input.RequestModel,
+					labelGenAIResponseModel: testCase.wantResponseModel, labelGenAIAgentName: testCase.input.AgentName,
+					labelErrorType: testCase.input.ErrorType,
+				}, labels)
+				require.NotNil(t, series.Histogram)
+				require.Equal(t, uint64(workers*callsPerWorker), series.GetHistogram().GetSampleCount())
+				require.Equal(t, float64(workers*callsPerWorker*wantTokens[tokenType]), series.GetHistogram().GetSampleSum())
+				delete(wantTokens, tokenType)
+			}
+			require.Empty(t, wantTokens)
+		})
 	}
 }
 
@@ -67,9 +140,10 @@ func TestRecordTokenUsage_SkipsZero(t *testing.T) {
 }
 
 func TestRecordTokenUsage_Disabled(t *testing.T) {
+	t.Setenv(metricsEnabledEnvVar, "false")
 	tokenUsage.Reset()
 
-	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100})
+	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, OutputTokens: 42, CachedTokens: 30})
 
 	if got := testutil.CollectAndCount(tokenUsage); got != 0 {
 		t.Fatalf("expected no series when metrics are disabled, got %d", got)
