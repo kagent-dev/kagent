@@ -319,6 +319,8 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 			if spec.TopK > 0 {
 				anthropic.TopK = &spec.TopK
 			}
+			anthropic.PromptCaching = spec.PromptCaching
+			anthropic.CacheTTL = spec.CacheTTL
 		}
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAzureOpenAI:
