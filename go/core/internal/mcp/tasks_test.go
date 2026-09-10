@@ -146,6 +146,43 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateRejectsMismatchedInputResponsesKey(t *testing.T) {
+	message := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?"))
+	gateway := &fakeGateway{task: &a2atype.Task{
+		ID: testTaskID, ContextID: testInstanceID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: message},
+	}}
+	h := &Handler{gateway: gateway}
+	ref, err := encodeTaskReference(taskReference{
+		InstanceID: testInstanceID, TaskID: testTaskID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.updateTask(authContext(), nil, &updateTaskParams{
+		ParamsBase: taskParamsBase(),
+		TaskID:     ref,
+		InputResponses: mcp.InputResponseMap{"not-a-real-key": &mcp.ElicitResult{
+			Action: "accept", Content: map[string]any{"response": "PostgreSQL"},
+		}},
+	})
+	if err == nil {
+		t.Fatal("updateTask() succeeded with mismatched inputResponses key")
+	}
+	rpcErr, ok := err.(*jsonrpc.Error)
+	if !ok || rpcErr.Code != jsonrpc.CodeInvalidParams {
+		t.Fatalf("updateTask() error = %#v, want invalidParams", err)
+	}
+	if !strings.Contains(rpcErr.Message, message.ID) {
+		t.Fatalf("updateTask() error = %q, want it to name %q", rpcErr.Message, message.ID)
+	}
+	gateway.mu.Lock()
+	defer gateway.mu.Unlock()
+	if gateway.reply != nil {
+		t.Fatalf("continued message = %#v, want no dispatch", gateway.reply)
+	}
+}
+
 func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	status := adka2a.AttachHitlExtension(
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),

@@ -171,7 +171,7 @@ func (h *Handler) updateTask(ctx context.Context, _ *mcp.ServerSession, params *
 	key := inputRequestKey(task)
 	inputResponse := params.InputResponses[key]
 	if inputResponse == nil {
-		return &completeTaskResult{ResultType: "complete"}, nil
+		return nil, invalidParams(fmt.Errorf("inputResponses has no entry for the current input request %q", key))
 	}
 	response, ok := inputResponse.(*mcp.ElicitResult)
 	if !ok || response == nil {
