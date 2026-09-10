@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	Version            = 1
+	Version            = 2
 	PinnedCodexVersion = "0.148.0"
 )
 
@@ -35,9 +35,17 @@ type Config struct {
 	Agents               map[string]Agent       `json:"agents,omitempty"`
 	SkillResources       *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers           map[string]MCPServer   `json:"mcp_servers,omitempty"`
+	Telemetry            *Telemetry             `json:"telemetry,omitempty"`
 	MaxFrameBytes        int                    `json:"max_frame_bytes"`
 	MaxStderrBytes       int                    `json:"max_stderr_bytes"`
 	InterruptGraceMillis int                    `json:"interrupt_grace_millis"`
+}
+
+// Telemetry contains the compiler-owned native trace exporter settings.
+type Telemetry struct {
+	Endpoint       string `json:"endpoint"`
+	Protocol       string `json:"protocol"`
+	CaptureContent bool   `json:"capture_content"`
 }
 
 type Provider struct {
@@ -97,6 +105,16 @@ func (c Config) Validate() error {
 	}
 	if c.Provider.Name != "openai" && c.Provider.Name != "amazon-bedrock" {
 		return fmt.Errorf("unsupported Codex provider %q", c.Provider.Name)
+	}
+	if c.Telemetry != nil {
+		if err := validateURL(c.Telemetry.Endpoint); err != nil {
+			return fmt.Errorf("invalid telemetry endpoint: %w", err)
+		}
+		switch c.Telemetry.Protocol {
+		case "grpc", "http/protobuf":
+		default:
+			return fmt.Errorf("unsupported telemetry protocol %q", c.Telemetry.Protocol)
+		}
 	}
 	if c.Provider.BaseURL != "" {
 		if c.Provider.Name != "openai" {

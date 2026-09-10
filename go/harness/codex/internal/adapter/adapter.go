@@ -89,6 +89,7 @@ type nativeConfig struct {
 	WebSearch      string                         `toml:"web_search"`
 	Features       nativeFeatures                 `toml:"features"`
 	Analytics      nativeAnalytics                `toml:"analytics"`
+	Otel           *nativeOtel                    `toml:"otel,omitempty"`
 	ModelProviders map[string]nativeModelProvider `toml:"model_providers,omitempty"`
 	Agents         map[string]nativeAgent         `toml:"agents,omitempty"`
 	MCPServers     map[string]nativeMCPServer     `toml:"mcp_servers,omitempty"`
@@ -112,6 +113,26 @@ type nativeFeatures struct {
 
 type nativeAnalytics struct {
 	Enabled bool `toml:"enabled"`
+}
+
+type nativeOtel struct {
+	LogUserPrompt bool               `toml:"log_user_prompt"`
+	Environment   string             `toml:"environment"`
+	TraceExporter nativeOtelExporter `toml:"trace_exporter"`
+}
+
+type nativeOtelExporter struct {
+	OTLPGRPC *nativeOTLPGRPC `toml:"otlp-grpc,omitempty"`
+	OTLPHTTP *nativeOTLPHTTP `toml:"otlp-http,omitempty"`
+}
+
+type nativeOTLPGRPC struct {
+	Endpoint string `toml:"endpoint"`
+}
+
+type nativeOTLPHTTP struct {
+	Endpoint string `toml:"endpoint"`
+	Protocol string `toml:"protocol"`
 }
 
 type nativeModelProvider struct {
@@ -156,6 +177,20 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 			"kagent-openai": {
 				Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
 			},
+		}
+	}
+	if cfg.Telemetry != nil {
+		exporter := nativeOtelExporter{}
+		switch cfg.Telemetry.Protocol {
+		case "grpc":
+			exporter.OTLPGRPC = &nativeOTLPGRPC{Endpoint: cfg.Telemetry.Endpoint}
+		case "http/protobuf":
+			exporter.OTLPHTTP = &nativeOTLPHTTP{Endpoint: cfg.Telemetry.Endpoint, Protocol: "binary"}
+		}
+		native.Otel = &nativeOtel{
+			LogUserPrompt: cfg.Telemetry.CaptureContent,
+			Environment:   "kagent",
+			TraceExporter: exporter,
 		}
 	}
 	for name, agent := range cfg.Agents {

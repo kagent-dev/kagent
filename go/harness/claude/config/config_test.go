@@ -13,6 +13,9 @@ func TestOwnsEnvironment(t *testing.T) {
 		AnthropicAPIKeyEnvName,
 		ClaudeConfigDirEnvName,
 		PreResponseTraceFlushEnvName,
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+		"OTEL_TRACES_EXPORT_INTERVAL",
+		"TRACEPARENT",
 		MCPCredentialEnvPrefix + "ABC123",
 	} {
 		if !OwnsEnvironment(name) {

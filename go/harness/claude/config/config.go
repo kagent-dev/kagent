@@ -41,7 +41,7 @@ const (
 // OwnsEnvironment reports whether the compiler or adapter reserves name for
 // Claude runtime configuration. Harness authors cannot override these values.
 func OwnsEnvironment(name string) bool {
-	if strings.HasPrefix(name, MCPCredentialEnvPrefix) {
+	if strings.HasPrefix(name, MCPCredentialEnvPrefix) || strings.HasPrefix(name, "OTEL_") {
 		return true
 	}
 	switch name {
@@ -49,7 +49,9 @@ func OwnsEnvironment(name string) bool {
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
-		SandboxEnvName, PreResponseTraceFlushEnvName:
+		SandboxEnvName, PreResponseTraceFlushEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "TRACEPARENT", "TRACESTATE",
+		"KAGENT_NAME", "KAGENT_NAMESPACE":
 		return true
 	default:
 		return false
