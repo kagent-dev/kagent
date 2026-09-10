@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type recordingSink struct {
@@ -46,6 +48,63 @@ func TestResumedEventSinkDropsOnlyInterruptedResponseWarning(t *testing.T) {
 	}
 	if underlying.text.String() != "continued"+interruptedResponseWarning {
 		t.Fatalf("ordinary text = %q, want the vendor warning preserved", underlying.text.String())
+	}
+}
+
+func TestTraceEnvironment(t *testing.T) {
+	traceID, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spanID, err := trace.SpanIDFromHex("0102030405060708")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := trace.ParseTraceState("vendor=value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctxWithTraceState := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID, SpanID: spanID, TraceFlags: trace.FlagsSampled, TraceState: state,
+	}))
+	ctxWithoutTraceState := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID, SpanID: spanID, TraceFlags: trace.FlagsSampled,
+	}))
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		want []string
+	}{
+		{
+			name: "replace stale trace context",
+			ctx:  ctxWithTraceState,
+			want: []string{
+				"PATH=/bin",
+				"TRACEPARENT=00-0102030405060708090a0b0c0d0e0f10-0102030405060708-01",
+				"TRACESTATE=vendor=value",
+			},
+		},
+		{
+			name: "remove stale trace state",
+			ctx:  ctxWithoutTraceState,
+			want: []string{
+				"PATH=/bin",
+				"TRACEPARENT=00-0102030405060708090a0b0c0d0e0f10-0102030405060708-01",
+			},
+		},
+		{name: "remove stale trace context", ctx: t.Context(), want: []string{"PATH=/bin"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			environment := []string{"PATH=/bin", "TRACEPARENT=stale", "TRACESTATE=stale"}
+			got := traceEnvironment(test.ctx, environment)
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("trace environment = %q, want %q", got, test.want)
+			}
+			wantInput := []string{"PATH=/bin", "TRACEPARENT=stale", "TRACESTATE=stale"}
+			if !slices.Equal(environment, wantInput) {
+				t.Fatalf("input environment mutated to %q", environment)
+			}
+		})
 	}
 }
 

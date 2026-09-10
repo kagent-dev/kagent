@@ -23,6 +23,7 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {
 		URL: "https://mcp.example.com/mcp", Headers: map[string]string{"X-Tenant": "test", "Authorization": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}, EnabledTools: []string{"read"}, RequireApproval: true,
 	}}
+	cfg.Telemetry = &config.Telemetry{Endpoint: "http://collector:4318/v1/traces", Protocol: "http/protobuf", CaptureContent: true}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +59,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
+	}
+	if native.Otel == nil || !native.Otel.LogUserPrompt || native.Otel.Environment != "kagent" || native.Otel.TraceExporter.OTLPHTTP == nil || native.Otel.TraceExporter.OTLPHTTP.Endpoint != cfg.Telemetry.Endpoint || native.Otel.TraceExporter.OTLPHTTP.Protocol != "binary" {
+		t.Fatalf("generated OTEL configuration = %#v", native.Otel)
 	}
 	if native.ApprovalPolicy.Granular != (nativeGranularApprovalPolicy{MCPElicitations: true}) {
 		t.Fatalf("generated approval policy = %#v", native.ApprovalPolicy)
@@ -119,6 +123,7 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	durable := filepath.Join(t.TempDir(), "data")
 	cfg := config.Production("gpt-5.2-codex", "work carefully")
 	cfg.Provider = provider
+	cfg.Telemetry = &config.Telemetry{Endpoint: "http://collector:4318/v1/traces", Protocol: "http/protobuf", CaptureContent: true}
 	cfg.Agents = map[string]config.Agent{"reviewer": {Description: "Reviews", Instruction: "Review", Model: "gpt-5.2-codex"}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {URL: "https://mcp.example.com/mcp", EnabledTools: []string{"read"}}}
 	raw, err := json.Marshal(cfg)

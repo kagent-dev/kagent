@@ -11,6 +11,7 @@ func TestProductionRoundTrip(t *testing.T) {
 	cfg.Provider = Provider{Name: "openai", BaseURL: "https://gateway.example.com/v1"}
 	cfg.Agents = map[string]Agent{"reviewer": {Description: "Reviews", Instruction: "Review", Model: "gpt-5.2-codex"}}
 	cfg.MCPServers = map[string]MCPServer{"tools": {URL: "https://mcp.example.com/mcp", EnabledTools: []string{"read"}}}
+	cfg.Telemetry = &Telemetry{Endpoint: "http://collector:4317", Protocol: "grpc", CaptureContent: true}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -19,7 +20,7 @@ func TestProductionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.ExpectedCodexVersion != PinnedCodexVersion || parsed.Provider.Name != "openai" {
+	if parsed.ExpectedCodexVersion != PinnedCodexVersion || parsed.Provider.Name != "openai" || parsed.Telemetry == nil || parsed.Telemetry.Protocol != "grpc" {
 		t.Fatalf("parsed config = %#v", parsed)
 	}
 }
@@ -41,6 +42,12 @@ func TestParseRejectsUnsafeConfiguration(t *testing.T) {
 		{"duplicate tool", func(c *Config) {
 			c.MCPServers = map[string]MCPServer{"mcp": {URL: "https://example.com", EnabledTools: []string{"x", "x"}}}
 		}, "duplicate enabled tool"},
+		{"telemetry endpoint", func(c *Config) {
+			c.Telemetry = &Telemetry{Endpoint: "collector:4317", Protocol: "grpc"}
+		}, "invalid telemetry endpoint"},
+		{"telemetry protocol", func(c *Config) {
+			c.Telemetry = &Telemetry{Endpoint: "http://collector:4317", Protocol: "zipkin"}
+		}, "unsupported telemetry protocol"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

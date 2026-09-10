@@ -442,6 +442,12 @@ func codexInputResponse(request runtime.InputRequest, response runtime.InputResp
 
 func (d *ProcessDriver) stopSession(session *processSession) {
 	_ = session.stdin.Close()
+	select {
+	case <-session.wait:
+		return
+	case <-time.After(d.config.InterruptGrace):
+	}
+
 	_ = utils.TerminateProcessGroup(session.command.Process)
 	select {
 	case <-session.wait:

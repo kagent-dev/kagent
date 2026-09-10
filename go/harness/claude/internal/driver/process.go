@@ -12,6 +12,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // bareBuiltinTools is the intentionally small built-in surface available in
@@ -166,7 +167,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
 	cmd.Dir = d.config.Workspace
-	cmd.Env = append([]string(nil), d.config.Environment...)
+	cmd.Env = traceEnvironment(ctx, d.config.Environment)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Claude stdout: %w", err)
@@ -217,6 +218,27 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
+}
+
+// traceEnvironment injects the trace context into the environment variables.
+func traceEnvironment(ctx context.Context, environment []string) []string {
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	result := make([]string, 0, len(environment)+2)
+	// First remove the trace context variables from the environment.
+	for _, variable := range environment {
+		if strings.HasPrefix(variable, "TRACEPARENT=") || strings.HasPrefix(variable, "TRACESTATE=") {
+			continue
+		}
+		result = append(result, variable)
+	}
+	if traceparent := carrier.Get("traceparent"); traceparent != "" {
+		result = append(result, "TRACEPARENT="+traceparent)
+	}
+	if tracestate := carrier.Get("tracestate"); tracestate != "" {
+		result = append(result, "TRACESTATE="+tracestate)
+	}
+	return result
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
