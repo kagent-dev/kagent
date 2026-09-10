@@ -193,11 +193,53 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				}
 				update.Status.Message.SetMeta(apia2a.TimelinePositionMetadataKey, position.Format(time.RFC3339Nano))
 			}
+			if endsTurn(event, err) {
+				flushTurnSpans(ctx, invocationSpan)
+			}
 			if !yield(event, err) {
 				return
 			}
 		}
 	}
+}
+
+// endsTurn reports whether an event is the last one a turn produces: a terminal
+// or waiting task state, or an error, after which the caller ends the stream.
+func endsTurn(event a2atype.Event, err error) bool {
+	if err != nil {
+		return true
+	}
+	var state a2atype.TaskState
+	switch e := event.(type) {
+	case *a2atype.TaskStatusUpdateEvent:
+		state = e.Status.State
+	case *a2atype.Task:
+		state = e.Status.State
+	default:
+		return false
+	}
+	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+}
+
+// flushTurnSpans exports the turn's spans before the event that ends the turn
+// leaves the process, when the runtime asked for pre-response flushing.
+//
+// The server-level flush runs once the handler returns. For a unary request that
+// is before the response is written, so it is early enough. For a streaming
+// request the terminal event has already been sent by then, and the gateway
+// closes its stream to this runtime the moment it arrives; on Agent Substrate the
+// actor is checkpointed right after, with the spans of every streamed turn still
+// buffered and the flush's deadline expiring while the process is frozen. The
+// only window that exists for a streamed turn is before that event is yielded.
+//
+// The invocation span is ended first so it travels in the same export; the
+// deferred End in Execute becomes a no-op.
+func flushTurnSpans(ctx context.Context, invocationSpan trace.Span) {
+	if !telemetry.PreResponseFlushEnabled() {
+		return
+	}
+	invocationSpan.End()
+	telemetry.ForceFlush(ctx)
 }
 
 // ensureSession ensures that a session exists for the given user and session ID.

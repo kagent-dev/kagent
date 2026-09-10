@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"iter"
+	"slices"
 	"testing"
 
 	"log/slog"
@@ -11,6 +12,9 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
@@ -382,5 +386,89 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	}
 	if resumedText != "resumed" || invocations != 2 {
 		t.Fatalf("resumed text = %q, invocations = %d", resumedText, invocations)
+	}
+}
+
+// installRecordingTracer routes the global tracer through a batch processor into
+// an in-memory exporter, so a test can tell "buffered" from "exported": only a
+// flush moves spans from the one to the other within the test's lifetime.
+func installRecordingTracer(t *testing.T) *tracetest.InMemoryExporter {
+	t.Helper()
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(prev)
+		_ = tp.Shutdown(context.Background())
+	})
+	return exporter
+}
+
+// exportedByState runs one two-event turn and records how many spans the
+// exporter held at the moment each event reached the consumer.
+func exportedByState(t *testing.T, exporter *tracetest.InMemoryExporter) map[a2atype.TaskState]int {
+	t.Helper()
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "ctx-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
+	}
+	builtin := &recordingExecutor{events: []a2atype.Event{
+		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil),
+		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil),
+	}}
+	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
+
+	seen := map[a2atype.TaskState]int{}
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		update, ok := event.(*a2atype.TaskStatusUpdateEvent)
+		if !ok {
+			t.Fatalf("event = %T, want *TaskStatusUpdateEvent", event)
+		}
+		seen[update.Status.State] = len(exporter.GetSpans())
+	}
+	return seen
+}
+
+// On a checkpoint/suspend runtime the consumer of the terminal event is the
+// gateway, which closes its stream on receipt, and the actor is frozen right
+// after. Whatever is still buffered at that moment never reaches the collector,
+// so the spans must already be exported when the terminal event is yielded, and
+// the invocation span must be among them.
+func TestKAgentExecutor_ExportsSpansBeforeYieldingTheTerminalEvent(t *testing.T) {
+	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
+	exporter := installRecordingTracer(t)
+
+	seen := exportedByState(t, exporter)
+
+	if seen[a2atype.TaskStateWorking] != 0 {
+		t.Fatalf("spans exported before a working update = %d, want 0 (a mid-turn flush is churn)", seen[a2atype.TaskStateWorking])
+	}
+	if seen[a2atype.TaskStateCompleted] == 0 {
+		t.Fatal("no span exported before the terminal event was yielded; a checkpoint at that point freezes them in the snapshot")
+	}
+	var names []string
+	for _, span := range exporter.GetSpans() {
+		names = append(names, span.Name)
+	}
+	if !slices.Contains(names, "invocation") {
+		t.Fatalf("exported spans = %v, want the invocation span among them", names)
+	}
+}
+
+// Without the opt-in the batch exporter's timer is the export path, as it is
+// everywhere the process is not frozen after a response, and a per-turn flush
+// would add export churn and response-tail latency for nothing.
+func TestKAgentExecutor_LeavesSpansToTheBatcherWithoutTheOptIn(t *testing.T) {
+	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "")
+	exporter := installRecordingTracer(t)
+
+	seen := exportedByState(t, exporter)
+
+	if seen[a2atype.TaskStateCompleted] != 0 {
+		t.Fatalf("spans exported before the terminal event = %d, want 0 without KAGENT_PRE_RESPONSE_TRACE_FLUSH", seen[a2atype.TaskStateCompleted])
 	}
 }
