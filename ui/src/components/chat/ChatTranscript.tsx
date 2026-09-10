@@ -137,12 +137,22 @@ export function ChatTranscript({
     if (!box) return;
     const atBottom = () =>
       box.scrollHeight - box.scrollTop - box.clientHeight <= AT_BOTTOM_SLACK;
+    /*
+     * Growth moves the foot away without anybody scrolling. A scroll event arriving
+     * mid-growth read that as the reader having left and unset the pin the observer
+     * below needs to close the gap — so the button came back, and stayed.
+     */
+    let lastTop = box.scrollTop;
     const measure = () => {
       const now = atBottom();
+      const movedUp = box.scrollTop < lastTop;
+      lastTop = box.scrollTop;
       if (returningRef.current) {
         if (!now) return;
         returningRef.current = false;
       }
+      // Short of the foot without having scrolled up is growth, not the reader leaving.
+      if (pinnedRef.current && !now && !movedUp) return;
       pinnedRef.current = now;
       setAtBottom(now);
     };
@@ -360,18 +370,18 @@ export function ChatTranscript({
         /*
          * The conversation is holding a question, and that has to be said.
          *
-         * Rendered as something answerable rather than as a notice, because the
-         * question already appears twice above — as the tool call's JSON and as the
-         * agent's prose — and neither can end the turn. `info` and deliberately not
-         * `error`: nothing went wrong. The agent called a tool that asks the reader
-         * something and its turn parked in `input_required`, a state the controller
-         * keeps non-terminal on purpose. Colouring it red would be a visible lie
-         * about a turn that worked.
+         * Rendered as something answerable rather than as a notice. Raw tool JSON
+         * and fallback prose are removed at the client boundary, leaving this as
+         * the one representation. `info` and deliberately not `error`: nothing
+         * went wrong. The agent called a tool that asks the reader something and
+         * its turn parked in `input_required`, a state the controller keeps
+         * non-terminal on purpose. Colouring it red would be a visible lie.
          */
         <AskUserPrompt
           request={chat.pendingQuestion}
           isBusy={chat.phase === "streaming"}
           onAnswer={(answers) => void chat.answerQuestion(answers)}
+          onToolApproval={(decisions) => void chat.answerToolApproval(decisions)}
           onDismiss={() => void chat.dismissQuestion()}
           onAnswered={onAnswered}
         />

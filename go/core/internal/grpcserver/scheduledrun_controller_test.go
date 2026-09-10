@@ -49,7 +49,13 @@ func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, leas
 }
 
 func (w *scheduledControllerWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return w.store.MarkAgentInstanceReady(ctx, instance.Id, "scheduled-runtime.test")
+	next := proto.CloneOf(instance)
+	next.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	next.A2AAuthority = "scheduled-runtime.test"
+	return w.store.TransitionAgentInstance(ctx, next,
+		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
 }
 
 func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
@@ -66,6 +72,10 @@ func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Agen
 		return nil, errors.New("temporary Substrate outage")
 	}
 	return &database.AgentInstanceTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
+}
+
+func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error {
+	return nil
 }
 
 type scheduledControllerAuth struct {
@@ -251,7 +261,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 					// the original stream can persist this result: no subscription runs.
 					close(release)
 					require.Eventually(t, func() bool {
-						task, err := store.GetAgentInstanceTask(t.Context(), running.AgentInstanceId, running.TaskId)
+						task, err := store.GetAgentInstanceTask(t.Context(), running.AgentInstanceId, running.TaskId, nil)
 						return err == nil && task.Status.State == a2atype.TaskStateCompleted
 					}, 5*time.Second, 20*time.Millisecond)
 					require.Zero(t, runtime.subscriptions.Load())
@@ -281,7 +291,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			instance, err := store.GetAgentInstance(t.Context(), execution.AgentInstanceId, "alice")
 			require.NoError(t, err)
 			require.Equal(t, "alice", instance.Creator)
-			task, err := store.GetAgentInstanceTask(t.Context(), instance.Id, execution.TaskId)
+			task, err := store.GetAgentInstanceTask(t.Context(), instance.Id, execution.TaskId, nil)
 			require.NoError(t, err)
 			wantTaskState := tc.state
 			if tc.state == a2atype.TaskStateWorking {

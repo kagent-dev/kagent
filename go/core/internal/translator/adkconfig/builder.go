@@ -130,7 +130,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, headers); err != nil {
+		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)

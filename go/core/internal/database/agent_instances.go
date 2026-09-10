@@ -101,7 +101,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 // template/harness pair's latest successful revision. Callers must supply a transaction so
 // the history and instance commit together. A missing prepared target returns ErrNotFound;
 // a duplicate creator/requestID returns pgx.ErrNoRows for the caller to resolve.
-func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha1.AgentInstance, requestID string) (agentInstanceRow, error) {
+func insertAgentInstance(ctx context.Context, db pgx.Tx, request *apiv1alpha1.AgentInstance, requestID string) (agentInstanceRow, error) {
 	type preparedRevision struct {
 		Revision string
 		DBTime   time.Time
@@ -122,6 +122,9 @@ func insertAgentInstance(ctx context.Context, db dbExecutor, request *apiv1alpha
 	)
 	if err != nil {
 		return agentInstanceRow{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+	}
+	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revision.Revision); err != nil {
+		return agentInstanceRow{}, err
 	}
 	instance := proto.CloneOf(request)
 	contextID, historyID := uuid.New(), uuid.New()
@@ -216,18 +219,19 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 		if err != nil {
 			return err
 		}
-		row, err = queryOne(ctx, tx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance
 			SET data = $1
 			WHERE id = $2 AND user_id = $3
-			RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
-			    source_checkpoint_id, history_id
-		`, pgx.RowToStructByName[agentInstanceRow], data, row.ID, userID)
+		`, data, row.ID, userID)
 		if err != nil {
 			return err
 		}
-		result, err = toAgentInstance(row)
-		return err
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		result = instance
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rename AgentInstance %s: %w", id, err)
@@ -235,48 +239,9 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 	return result, nil
 }
 
-// MarkAgentInstanceReady records the runtime authority and clears failure when an instance
-// is still CREATING/CREATE. It returns other lifecycle states unchanged, so a delayed
-// completion cannot overwrite a newer operation. Callers authorize this internal lifecycle
-// update.
-func (c *Client) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
-	var result *apiv1alpha1.AgentInstance
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockAgentInstance(ctx, tx, id)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		result, err = toAgentInstance(row)
-		if err != nil || row.State != "AGENT_INSTANCE_STATE_CREATING" || row.Operation != "AGENT_INSTANCE_OPERATION_CREATE" {
-			return err
-		}
-		result.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
-		result.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
-		result.A2AAuthority = authority
-		result.Failure = nil
-		result.UpdatedAt = timestamppb.Now()
-		data, err := marshalAgentInstance(result)
-		if err != nil {
-			return err
-		}
-		_, err = queryOne(ctx, tx, `
-			UPDATE agent_instance
-			SET state = 'AGENT_INSTANCE_STATE_READY', operation = 'AGENT_INSTANCE_OPERATION_UNSPECIFIED', data = $2
-			WHERE id = $1 AND state = 'AGENT_INSTANCE_STATE_CREATING' AND operation = 'AGENT_INSTANCE_OPERATION_CREATE'
-			RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
-			    source_checkpoint_id, history_id
-		`, pgx.RowToStructByName[agentInstanceRow], row.ID, data)
-		return err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("mark AgentInstance %s ready: %w", id, err)
-	}
-	return result, nil
-}
-
 // TransitionAgentInstance changes lifecycle fields only if the stored state and operation
 // match the expected values. A mismatch, or a creating checkpoint when starting a new
-// operation, returns ErrAgentInstanceConflict. It preserves other instance fields; callers
+// operation, returns ErrConflict. It preserves other instance fields; callers
 // choose a valid transition and authorize it.
 func (c *Client) TransitionAgentInstance(
 	ctx context.Context,
@@ -295,7 +260,7 @@ func (c *Client) TransitionAgentInstance(
 			return err
 		}
 		if result.State != expectedState || result.Operation != expectedOperation {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance lifecycle state or operation changed: %w", ErrConflict)
 		}
 		// Only lifecycle fields belong to this operation. Keep concurrent renames,
 		// immutable indexed fields and unknown protobuf fields from the locked row.
@@ -308,7 +273,7 @@ func (c *Client) TransitionAgentInstance(
 		if err != nil {
 			return err
 		}
-		row, err = queryOne(ctx, tx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance
 			SET state = $1, operation = $2, data = $3
 			WHERE agent_instance.id = $4
@@ -321,21 +286,19 @@ func (c *Client) TransitionAgentInstance(
 			      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
 			    )
 			  )
-			RETURNING id, user_id, prepared_revision, state, data, operation, context_id,
-			    source_checkpoint_id, history_id
 		`,
-			pgx.RowToStructByName[agentInstanceRow], next.State.String(),
+			next.State.String(),
 			next.Operation.String(), data, row.ID, expectedState.String(),
 			expectedOperation.String(),
 		)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrAgentInstanceConflict
-		}
 		if err != nil {
 			return err
 		}
-		result, err = toAgentInstance(row)
-		return err
+		if tag.RowsAffected() != 1 {
+			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instance.GetId(), ErrConflict)
+		}
+		result = next
+		return nil
 	})
 	if err != nil {
 		return result, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)

@@ -33,12 +33,12 @@ func (s *blockedExecutionStore) GetAgentInstance(ctx context.Context, _, _ strin
 	return nil, ctx.Err()
 }
 
-func (s *blockedExecutionStore) ReserveDueScheduledRuns(ctx context.Context, _ int) ([]*apiv1alpha1.ScheduledRunExecution, error) {
+func (s *blockedExecutionStore) ReserveDueScheduledRuns(ctx context.Context, _ int) error {
 	select {
 	case s.reservations <- struct{}{}:
 	case <-ctx.Done():
 	}
-	return nil, errors.New("temporary reservation failure")
+	return errors.New("temporary reservation failure")
 }
 
 func TestSchedulerTicksWhileExecutionIsBlocked(t *testing.T) {

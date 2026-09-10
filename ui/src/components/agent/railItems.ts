@@ -1,5 +1,6 @@
 import { Bot, SquarePen } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { matchPath } from "react-router-dom";
 import type { ExtensionAgentRailItemContribution } from "@/appExtensions";
 
 /**
@@ -101,4 +102,22 @@ export function mergeRailEntries(
     if (left.kind === right.kind) return 0;
     return left.kind === "core" ? -1 : 1;
   });
+}
+
+/**
+ * Whether a contributed rail entry is the page the reader is on.
+ *
+ * Either signal is enough: its own `isActive`, or its `path` as a route pattern. An
+ * exact string compare used to be the whole of this and could not work for a
+ * parameterised path — the pattern a contribution declares never equals a filled-in
+ * location, so such an entry stayed unlit on the page it leads to.
+ */
+export function railItemIsActive(
+  contribution: ExtensionAgentRailItemContribution,
+  location: { pathname: string; search: string },
+): boolean {
+  if (contribution.isActive?.(location)) return true;
+  return contribution.path
+    ? matchPath(contribution.path, location.pathname) !== null
+    : false;
 }

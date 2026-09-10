@@ -26,9 +26,10 @@ func toAgentInstanceShare(row agentInstanceShareRow) (*apiv1alpha1.AgentInstance
 }
 
 // CreateAgentInstanceShare stores a share with the supplied ID, permission, and token hash
-// and sets its creation time. Callers authorize sharing and generate the token; the
-// plaintext token is never stored.
-func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+// for an instance owned by userID and sets its creation time. A missing or unowned
+// instance returns ErrNotFound. Callers authorize sharing and generate the token;
+// the plaintext token is never stored.
+func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte, userID string) (*apiv1alpha1.AgentInstanceShare, error) {
 	if share == nil {
 		return nil, fmt.Errorf("missing AgentInstance share")
 	}
@@ -39,15 +40,16 @@ func (c *Client) CreateAgentInstanceShare(ctx context.Context, share *apiv1alpha
 		return nil, fmt.Errorf("encode AgentInstance share: %w", err)
 	}
 	row, err := queryOne(ctx, c.db, `
-		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data) VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO agent_instance_share (id, instance_id, permission, token_hash, data)
+		SELECT $1, id, $3, $4, $5 FROM agent_instance WHERE id = $2 AND user_id = $6
 		RETURNING id, instance_id, permission, data
 	`,
 		pgx.RowToStructByNameLax[agentInstanceShareRow], value.Id,
 		value.AgentInstanceId,
-		value.Permission.String(), tokenHash, data,
+		value.Permission.String(), tokenHash, data, userID,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create AgentInstance share: %w", err)
+		return nil, fmt.Errorf("create AgentInstance share: %w", notFoundOr(err))
 	}
 	return toAgentInstanceShare(row)
 }

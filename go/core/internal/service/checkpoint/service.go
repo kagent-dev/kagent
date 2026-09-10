@@ -108,8 +108,8 @@ func (s *Service) create(ctx context.Context, userID, instanceID, requestID stri
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
-	if errors.Is(err, database.ErrAgentInstanceConflict) || errors.Is(err, database.ErrAgentInstanceNotQuiescent) {
-		return nil, serviceerrors.NewFailedPrecondition("AgentInstance has no quiescent turn boundary", err)
+	if errors.Is(err, database.ErrConflict) || errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve checkpoint", err)

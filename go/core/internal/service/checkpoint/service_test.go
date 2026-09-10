@@ -38,6 +38,7 @@ type testStore struct {
 	failed      string
 	deleted     bool
 	finalizeErr error
+	reserveErr  error
 	listErr     error
 	listed      []*apiv1alpha1.Checkpoint
 	listTotal   int
@@ -45,6 +46,9 @@ type testStore struct {
 }
 
 func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint *apiv1alpha1.Checkpoint, _, _ string) (*apiv1alpha1.Checkpoint, *database.AgentInstanceTaskSnapshot, error) {
+	if s.reserveErr != nil {
+		return nil, nil, s.reserveErr
+	}
 	if s.prepared != nil {
 		return s.prepared, s.snapshot, nil
 	}
@@ -190,6 +194,20 @@ func (t *testTags) DeleteTag(context.Context, string, string) error {
 	}
 	t.created = nil
 	return nil
+}
+
+func TestCreatePreservesStoreConflictReason(t *testing.T) {
+	for _, cause := range []error{database.ErrConflict, database.ErrFailedPrecondition} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			storeErr := fmt.Errorf("AgentInstance cannot checkpoint in its current state: %w", cause)
+			service := NewService(&testStore{reserveErr: storeErr}, testAuthorizer{}, nil, nil)
+			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1")
+			require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(err))
+			require.Equal(t, storeErr.Error(), serviceerrors.MessageOf(err))
+			require.ErrorIs(t, err, cause)
+		})
+	}
 }
 
 func TestCreateTagsRecordedSnapshotBoundary(t *testing.T) {

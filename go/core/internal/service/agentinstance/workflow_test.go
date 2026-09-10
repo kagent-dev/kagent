@@ -17,6 +17,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
 		Id:               "8bd650a8-9775-488f-8bc1-0d52bf7bdcab",
 		PreparedRevision: "revision-1", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
 	}
 	store := &lifecycleTestStore{
 		instance: instance,
@@ -39,6 +40,13 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
+	}
+	actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	if err := workflow.Pause(context.Background(), created); err != nil {
+		t.Fatal(err)
+	}
+	if actor := actors.actors[actorKey("team-a", substrate.ActorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+		t.Fatalf("paused Actor status = %s", actor.GetStatus().GetState())
 	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
@@ -79,7 +87,8 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
 		Id: "fork-1", PreparedRevision: "revision-1",
-		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
 	}
 	store := &lifecycleTestStore{
 		instance: instance,
@@ -121,16 +130,9 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*datab
 	return s.revision, nil
 }
 
-func (s *lifecycleTestStore) MarkAgentInstanceReady(_ context.Context, _ string, authority string) (*apiv1alpha1.AgentInstance, error) {
-	s.instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
-	s.instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
-	s.instance.A2AAuthority = authority
-	return s.instance, nil
-}
-
 func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, expectedState apiv1alpha1.AgentInstanceState, expectedOperation apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
 	if s.instance.GetState() != expectedState || s.instance.GetOperation() != expectedOperation {
-		return s.instance, database.ErrAgentInstanceConflict
+		return s.instance, database.ErrConflict
 	}
 	s.instance = proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	return s.instance, nil
@@ -187,6 +189,12 @@ func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name stri
 	return actor, nil
 }
 
+func (a *lifecycleTestActors) PauseActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor := a.actors[actorKey(atespace, name)]
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
+	return actor, nil
+}
+
 func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
@@ -210,5 +218,39 @@ func TestQuiesceRejectsWrongActorIdentity(t *testing.T) {
 	}}
 	if _, err := NewActorWorkflow(store, actors).Quiesce(t.Context(), instance); err == nil {
 		t.Fatal("Quiesce() accepted the wrong Actor")
+	}
+}
+
+func TestFinishCreatePreservesLaterLifecycle(t *testing.T) {
+	creating := &apiv1alpha1.AgentInstance{
+		Id: "instance", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
+		Failure:   &apiv1alpha1.Failure{Message: "previous failure"},
+	}
+	for name, current := range map[string]*apiv1alpha1.AgentInstance{
+		"creating":          proto.CloneOf(creating),
+		"already ready":     {Id: "instance", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY, A2AAuthority: "original"},
+		"deleting":          {Id: "instance", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETING, Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE},
+		"another operation": {Id: "instance", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING, Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &lifecycleTestStore{instance: current}
+			got, err := NewActorWorkflow(store, nil).finishCreate(t.Context(), creating, "runtime.example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if name == "creating" {
+				if got.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
+					got.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED ||
+					got.GetA2AAuthority() != "runtime.example" || got.GetFailure() != nil {
+					t.Fatalf("creation result = %v", got)
+				}
+			} else if !proto.Equal(current, got) {
+				t.Fatalf("late completion changed current state: got %v, want %v", got, current)
+			}
+		})
+	}
+	if creating.GetFailure() == nil || creating.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
+		t.Fatal("creation changed the caller's instance")
 	}
 }

@@ -67,6 +67,11 @@ type MCPToolBinding struct {
 	// +listType=set
 	// +optional
 	Tools []string `json:"tools,omitempty"`
+	// RequireApproval pauses before each invocation of a tool exposed by this
+	// binding. It applies to the selected tools, or to every server tool when
+	// Tools is omitted or empty.
+	// +optional
+	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
 // AgentToolIsolation controls whether a referenced template shares its parent's runtime boundary.

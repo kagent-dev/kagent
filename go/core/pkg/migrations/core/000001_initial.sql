@@ -42,6 +42,8 @@ CREATE TABLE runtime_revision (
     created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     agent_card               BYTEA       NOT NULL,
+    -- Logical deletion; retain the row until ActorTemplate cleanup completes.
+    deleted_at               TIMESTAMPTZ,
     CONSTRAINT runtime_revision_actor_template_namespace_actor_template_na_key
         UNIQUE (actor_template_atespace, actor_template_name)
 );
@@ -241,10 +243,26 @@ CREATE INDEX scheduled_run_execution_history_idx ON scheduled_run_execution (sch
 CREATE INDEX scheduled_run_execution_pending_idx ON scheduled_run_execution (next_attempt_at, id)
     WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING');
 
+CREATE VIEW unreferenced_runtime_revision AS
+SELECT r.revision FROM runtime_revision r
+WHERE NOT EXISTS (
+    SELECT 1 FROM agent_template_harness_pair p
+    WHERE p.retired_at IS NULL
+      AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
+)
+AND NOT EXISTS (
+    SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
+)
+AND NOT EXISTS (
+    SELECT 1 FROM agent_instance_checkpoint c WHERE c.prepared_revision = r.revision
+);
+
 -- +goose Down
 
 DROP TABLE scheduled_run_execution;
 DROP TABLE scheduled_run;
+DROP VIEW unreferenced_runtime_revision;
+
 DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;

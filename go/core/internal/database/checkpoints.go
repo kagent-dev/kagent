@@ -53,14 +53,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			return fmt.Errorf("checkpoint %s has no fork source", checkpointID)
 		}
 
-		type revisionTarget struct {
-			Namespace         string
-			AgentTemplateName string
-			HarnessName       string
-		}
-		revision, err := queryOne(ctx, tx, `
-			SELECT namespace, agent_template_name, harness_name FROM runtime_revision WHERE revision = $1
-		`, pgx.RowToStructByName[revisionTarget], *checkpoint.PreparedRevision)
+		revision, err := getAvailableRuntimeRevisionForUpdate(ctx, tx, *checkpoint.PreparedRevision)
 		if err != nil {
 			return fmt.Errorf("get checkpoint runtime revision: %w", err)
 		}
@@ -198,11 +191,16 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			return fmt.Errorf("lock AgentInstance %s: %w", checkpoint.GetAgentInstanceId(), err)
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance %s cannot checkpoint in state %s with operation %s: %w", checkpoint.GetAgentInstanceId(), instance.State, instance.Operation, ErrConflict)
 		}
 		source, err := toAgentInstance(instance)
 		if err != nil {
 			return err
+		}
+		if instance.PreparedRevision != nil {
+			if _, err := getAvailableRuntimeRevisionForUpdate(ctx, tx, *instance.PreparedRevision); err != nil {
+				return err
+			}
 		}
 		boundary, err := queryOne(ctx, tx, `
 			SELECT latest.history_id, latest.id, latest.state, latest.status_timestamp, latest.data, latest.created_at,
@@ -215,6 +213,12 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			    LIMIT 1
 			) latest
 			WHERE latest.history_sequence = (SELECT MAX(sequence) FROM agent_instance_task_event WHERE history_id = $1)
+			AND latest.state IN (
+			    'TASK_STATE_COMPLETED',
+			    'TASK_STATE_CANCELED',
+			    'TASK_STATE_FAILED',
+			    'TASK_STATE_REJECTED'
+			)
 			AND NOT EXISTS (
 			    SELECT 1 FROM agent_instance_task active
 			    WHERE active.history_id = $1
@@ -222,21 +226,19 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			          'TASK_STATE_COMPLETED',
 			          'TASK_STATE_CANCELED',
 			          'TASK_STATE_FAILED',
-			          'TASK_STATE_REJECTED',
-			          'TASK_STATE_INPUT_REQUIRED',
-			          'TASK_STATE_AUTH_REQUIRED'
+			          'TASK_STATE_REJECTED'
 			      )
 			)
 		`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrAgentInstanceNotQuiescent
+			return fmt.Errorf("AgentInstance %s has no quiescent turn boundary: %w", checkpoint.GetAgentInstanceId(), ErrFailedPrecondition)
 		}
 		if err != nil {
 			return fmt.Errorf("get latest AgentInstance task boundary: %w", err)
 		}
 		if boundary.SnapshotAtespace == nil || boundary.SnapshotURI == nil ||
 			boundary.SnapshotContentScope == nil || boundary.HistorySequence == nil {
-			return ErrAgentInstanceNotQuiescent
+			return fmt.Errorf("AgentInstance %s has no quiescent turn boundary: %w", checkpoint.GetAgentInstanceId(), ErrFailedPrecondition)
 		}
 
 		value := proto.Clone(checkpoint).(*apiv1alpha1.Checkpoint)
@@ -275,7 +277,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 				return existingErr
 			}
 			if errors.Is(existingErr, pgx.ErrNoRows) {
-				return ErrAgentInstanceConflict
+				return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", checkpoint.GetAgentInstanceId(), ErrConflict)
 			}
 			return fmt.Errorf("get conflicting AgentInstance checkpoint request: %w", existingErr)
 		}

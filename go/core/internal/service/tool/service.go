@@ -37,7 +37,6 @@ var (
 type DiscoveryStore interface {
 	ListTools(context.Context) ([]database.Tool, error)
 	ListToolServers(context.Context) ([]database.ToolServer, error)
-	ListToolsForServer(context.Context, string, string) ([]database.Tool, error)
 }
 
 type MCPClient interface {
@@ -118,24 +117,25 @@ func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to list ToolServers from database", err)
 	}
+	if len(servers) == 0 {
+		return []ToolServer{}, nil
+	}
+	tools, err := s.discoveryStore.ListTools(ctx)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to list tools from database", err)
+	}
+	byServer := make(map[[2]string][]*v1alpha3.MCPTool)
+	for _, tool := range tools {
+		key := [2]string{tool.ServerName, tool.GroupKind}
+		byServer[key] = append(byServer[key], &v1alpha3.MCPTool{Name: tool.ID, Description: tool.Description})
+	}
 	result := make([]ToolServer, 0, len(servers))
 	for _, server := range servers {
-		tools, err := s.discoveryStore.ListToolsForServer(ctx, server.Name, server.GroupKind)
-		if err != nil {
-			return nil, serviceerrors.NewInternal("Failed to list tools for ToolServer from database", err)
+		discovered := byServer[[2]string{server.Name, server.GroupKind}]
+		if discovered == nil {
+			discovered = []*v1alpha3.MCPTool{}
 		}
-		discovered := make([]*v1alpha3.MCPTool, 0, len(tools))
-		for _, discoveredTool := range tools {
-			discovered = append(discovered, &v1alpha3.MCPTool{
-				Name:        discoveredTool.ID,
-				Description: discoveredTool.Description,
-			})
-		}
-		result = append(result, ToolServer{
-			Ref:             server.Name,
-			GroupKind:       server.GroupKind,
-			DiscoveredTools: discovered,
-		})
+		result = append(result, ToolServer{Ref: server.Name, GroupKind: server.GroupKind, DiscoveredTools: discovered})
 	}
 	return result, nil
 }

@@ -31,6 +31,16 @@ func createTestSchedule(t *testing.T, c *Client) (*apiv1alpha1.ScheduledRun, []b
 	return result, hash[:]
 }
 
+func listTestScheduleExecutions(t *testing.T, c *Client, schedule *apiv1alpha1.ScheduledRun) []*apiv1alpha1.ScheduledRunExecution {
+	t.Helper()
+	executions, err := c.ListScheduledRunExecutions(t.Context(), ScheduledRunExecutionQuery{
+		ScheduledRunQuery: ScheduledRunQuery{Creator: schedule.Creator, Limit: 100},
+		ScheduledRunID:    uuid.MustParse(schedule.Id),
+	})
+	require.NoError(t, err)
+	return executions
+}
+
 func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
@@ -61,12 +71,12 @@ func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	_, err = db.Exec(t.Context(), `UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() - interval '1 second' WHERE id = $1`, execution.Id)
 	require.NoError(t, err)
 	oldLease.Execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED
-	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), oldLease.Lease, ScheduledRunExecutionProgress{State: oldLease.Execution.State}), ErrScheduledRunConflict)
+	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), oldLease.Lease, ScheduledRunExecutionProgress{State: oldLease.Execution.State}), ErrConflict)
 	batch, err := c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, batch, 1)
 	require.NotEqual(t, oldLease.Lease.Token, batch[0].Lease.Token)
-	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), oldLease.Lease, ScheduledRunExecutionProgress{State: oldLease.Execution.State}), ErrScheduledRunConflict)
+	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), oldLease.Lease, ScheduledRunExecutionProgress{State: oldLease.Execution.State}), ErrConflict)
 	batch[0].Execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED
 	batch[0].Execution.FailureReason = "Controller denied execution"
 	// A worker snapshot is not a write model: only explicit progress is saved.
@@ -103,7 +113,8 @@ func TestScheduledRunRequestsSurviveEditAndDeletion(t *testing.T) {
 	require.Nil(t, updated.NextExecutionTime)
 	require.NotEqual(t, schedule.Etag, updated.Etag)
 	_, err = c.UpdateScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", schedule.Etag, config)
-	require.ErrorIs(t, err, ErrScheduledRunConflict)
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorContains(t, err, "changed; reload before updating")
 
 	// Pausing stops cron, but does not forbid an explicit manual run.
 	manual, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "while-paused")
@@ -121,9 +132,10 @@ func TestScheduledRunRequestsSurviveEditAndDeletion(t *testing.T) {
 	require.True(t, proto.Equal(execution, replayed))
 	require.Equal(t, "original prompt", replayed.Prompt)
 	_, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "new-request")
-	require.ErrorIs(t, err, ErrScheduledRunDeleted)
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	require.ErrorContains(t, err, "was deleted")
 	_, err = c.UpdateScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", deleted.Etag, config)
-	require.ErrorIs(t, err, ErrScheduledRunDeleted)
+	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	found, err := c.FindScheduledRunRequest(t.Context(), "alice", "create", hash)
 	require.NoError(t, err)
@@ -233,34 +245,23 @@ func TestScheduledRunConcurrentReservation(t *testing.T) {
 
 	_, err := db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '1 second' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
-	due := make(chan *apiv1alpha1.ScheduledRunExecution, 12)
 	for range 12 {
 		wg.Go(func() {
-			runs, err := c.ReserveDueScheduledRuns(t.Context(), 100)
-			if err != nil {
+			if err := c.ReserveDueScheduledRuns(t.Context(), 100); err != nil {
 				t.Error(err)
-				return
-			}
-			for _, run := range runs {
-				due <- run
 			}
 		})
 	}
 	wg.Wait()
-	close(due)
-	var runs []*apiv1alpha1.ScheduledRunExecution
-	for run := range due {
-		runs = append(runs, run)
-	}
-	require.Len(t, runs, 1)
+	runs := listTestScheduleExecutions(t, c, schedule)
+	require.Len(t, runs, 2, "one manual execution and one due occurrence")
 	require.NotNil(t, runs[0].GetScheduledTime())
 	require.False(t, unique[runs[0].Id])
 
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '2 minutes' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
-	skipped, err := c.ReserveDueScheduledRuns(t.Context(), 100)
-	require.NoError(t, err)
-	require.Empty(t, skipped)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 100))
+	require.Len(t, listTestScheduleExecutions(t, c, schedule), 2, "late occurrence must not create an execution")
 	advanced, err := c.GetScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice")
 	require.NoError(t, err)
 	require.True(t, advanced.NextExecutionTime.AsTime().After(time.Now()))
@@ -283,7 +284,7 @@ func TestScheduledRunConcurrentUpdateAndDelete(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			successes++
-		} else if errors.Is(err, ErrScheduledRunConflict) {
+		} else if errors.Is(err, ErrConflict) {
 			conflicts++
 		} else {
 			t.Fatal(err)
@@ -295,7 +296,7 @@ func TestScheduledRunConcurrentUpdateAndDelete(t *testing.T) {
 	wg.Go(func() {
 		var err error
 		accepted, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "racing-delete")
-		if err != nil && !errors.Is(err, ErrScheduledRunDeleted) {
+		if err != nil && !errors.Is(err, ErrFailedPrecondition) {
 			t.Error(err)
 		}
 	})
@@ -391,11 +392,11 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db)
 	schedule, _ := createTestSchedule(t, c)
-	require.NoError(t, c.RetireAgentTemplateHarnessPair(t.Context(), "team-a", "report", "runtime"))
+	require.NoError(t, c.RetirePairIdentities(t.Context(), "team-a", "report", "runtime", nil))
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
 	_, err = c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
-	require.ErrorIs(t, err, ErrScheduledRunTargetNotReady)
+	require.ErrorIs(t, err, ErrFailedPrecondition)
 	loaded, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(execution, loaded))
@@ -405,9 +406,10 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	// Unready targets no longer roll back due reservations or block other schedules.
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run SET next_execution_time = clock_timestamp() - interval '1 second' WHERE id = $1", schedule.Id)
 	require.NoError(t, err)
-	due, err := c.ReserveDueScheduledRuns(t.Context(), 100)
-	require.NoError(t, err)
-	require.Len(t, due, 1)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 100))
+	due := listTestScheduleExecutions(t, c, schedule)
+	require.Len(t, due, 2, "manual and due executions survive unready targets")
+	require.NotNil(t, due[0].GetScheduledTime())
 	require.Empty(t, due[0].AgentInstanceId)
 	agentInstanceFixture(t, c, t.Context(), "team-a", "scheduled-revision-2", "report", "runtime")
 	linked, err := c.ReserveScheduledRunExecutionInstance(t.Context(), uuid.MustParse(execution.Id), "alice")
@@ -474,14 +476,14 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	require.Len(t, leases, 1)
 	progress := ScheduledRunExecutionProgress{State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, TaskID: execution.Id}
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress))
-	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrScheduledRunConflict)
+	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrConflict)
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() WHERE id = $1", execution.Id)
 	require.NoError(t, err)
 	leases, err = c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, leases, 1)
 	progress.TaskID = "another-task"
-	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrScheduledRunConflict)
+	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrConflict)
 	// Omitting the already persisted task preserves its identity.
 	progress.TaskID = ""
 	progress.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED
@@ -517,12 +519,11 @@ func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
 	_, err = db.Exec(t.Context(), `UPDATE scheduled_run SET next_execution_time = created_at - interval '1 second'`)
 	require.NoError(t, err)
 	// A full batch of malformed rows must get out of the way of later rows.
-	executions, err := c.ReserveDueScheduledRuns(t.Context(), 2)
-	require.NoError(t, err)
-	require.Empty(t, executions)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 2))
+	require.Empty(t, listTestScheduleExecutions(t, c, good))
 	// A malformed config must not roll back a healthy row in the same batch.
-	executions, err = c.ReserveDueScheduledRuns(t.Context(), 2)
-	require.NoError(t, err)
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 2))
+	executions := listTestScheduleExecutions(t, c, good)
 	require.Len(t, executions, 1)
 	require.Equal(t, good.Id, executions[0].ScheduledRunId)
 	for i, id := range badIDs {
@@ -532,9 +533,8 @@ func TestMalformedScheduledRunsDoNotBlockReservation(t *testing.T) {
 		require.Equal(t, badData[i], data, "preserve malformed payloads for repair")
 		require.Nil(t, next)
 	}
-	executions, err = c.ReserveDueScheduledRuns(t.Context(), 2)
-	require.NoError(t, err)
-	require.Empty(t, executions, "healthy occurrences must not be duplicated")
+	require.NoError(t, c.ReserveDueScheduledRuns(t.Context(), 2))
+	require.Equal(t, executions, listTestScheduleExecutions(t, c, good), "healthy occurrences must not be duplicated")
 }
 
 func TestMalformedScheduledExecutionsDoNotDiscardHealthyLeases(t *testing.T) {
@@ -600,7 +600,7 @@ func TestDeleteMalformedScheduledRun(t *testing.T) {
 			require.NoError(t, db.QueryRow(t.Context(), `SELECT data FROM scheduled_run WHERE id = $1`, schedule.Id).Scan(&persisted))
 			require.Equal(t, data, persisted)
 			_, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, "after-delete")
-			require.ErrorIs(t, err, ErrScheduledRunDeleted)
+			require.ErrorIs(t, err, ErrFailedPrecondition)
 		})
 	}
 }

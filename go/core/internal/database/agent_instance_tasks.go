@@ -21,7 +21,7 @@ import (
 // messages for a READY instance with no lifecycle operation. It requires an initial
 // message and matching context. Reusing the initial message ID returns the stored task if
 // the request hash matches, or ErrIdempotencyConflict otherwise. An occupied active-task
-// slot or checkpoint creation blocks new tasks with ErrAgentInstanceTaskConflict. The
+// slot or checkpoint creation blocks new tasks with ErrConflict. The
 // boolean reports a new reservation; callers authorize access and invoke the runtime
 // separately.
 func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
@@ -51,7 +51,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
-			return ErrAgentInstanceTaskConflict
+			return fmt.Errorf("AgentInstance %s cannot accept a task in state %s with operation %s: %w", instanceID, instance.State, instance.Operation, ErrConflict)
 		}
 		historyID = instance.HistoryID
 		if task.ContextID != instance.ContextID.String() {
@@ -83,7 +83,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 				WHERE history_id = $1 AND initial_message_id = $2
 			`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, &message.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrAgentInstanceTaskConflict
+				return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
 			}
 			if err != nil {
 				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
@@ -95,11 +95,11 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			if err != nil {
 				return err
 			}
-			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result})
+			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result}, nil)
 		}
 		if err != nil {
 			if isActiveTaskConflict(err) {
-				return ErrAgentInstanceTaskConflict
+				return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, ErrConflict)
 			}
 			return fmt.Errorf("create AgentInstance task %s: %w", task.ID, err)
 		}
@@ -155,7 +155,7 @@ func (c *Client) GetActiveAgentInstanceTask(ctx context.Context, instanceID stri
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task}, nil)
 	}
 	return task, err
 }
@@ -276,7 +276,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 			return err
 		}
 		if creating {
-			return ErrAgentInstanceConflict
+			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
 		}
 		var sequence int64
 		var stored *a2apb.Task
@@ -323,7 +323,7 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		taskRow, err := saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
 		if err != nil {
 			if isActiveTaskConflict(err) {
-				return ErrAgentInstanceTaskConflict
+				return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, ErrConflict)
 			}
 			return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 		}
@@ -394,20 +394,24 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 	return nil
 }
 
-// GetAgentInstanceTask returns a task with its archived message history, or ErrNotFound if
-// the instance or task is absent. Callers authorize instance access.
-func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
-	instance, err := readAgentInstance(ctx, c.db, instanceID)
-	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
-	}
-	row, err := readAgentInstanceTask(ctx, c.db, instance.HistoryID, taskID)
+// GetAgentInstanceTask returns a task with up to historyLength latest archived messages,
+// or ErrNotFound if the instance or task is absent. Nil or negative historyLength loads
+// all history; zero skips it. Callers authorize instance access.
+func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string, historyLength *int) (*a2a.Task, error) {
+	row, err := queryOne(ctx, c.db, `
+		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at,
+		    t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_uri,
+		    t.snapshot_content_scope, t.history_sequence, t.position
+		FROM agent_instance_task t
+		JOIN agent_instance i ON i.history_id = t.history_id
+		WHERE i.id = $1 AND t.id = $2
+	`, pgx.RowToStructByName[agentInstanceTaskRow], instanceID, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
 	}
 	task, err := unmarshalAgentInstanceTask(row.Data)
 	if err == nil {
-		err = loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, []*a2a.Task{task})
+		err = loadAgentInstanceTaskHistories(ctx, c.db, row.HistoryID, []*a2a.Task{task}, historyLength)
 	}
 	return task, err
 }
@@ -415,8 +419,9 @@ func (c *Client) GetAgentInstanceTask(ctx context.Context, instanceID, taskID st
 // ListAgentInstanceTasks returns tasks with archived messages in immutable creation order
 // after afterID, with optional state and exclusive status-timestamp filters. The total
 // counts all matching tasks before pagination; it is read separately and can differ under
-// concurrent writes. Callers authorize instance access.
-func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
+// concurrent writes. History limits have the same semantics as GetAgentInstanceTask.
+// Callers authorize instance access.
+func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int, historyLength *int) ([]*a2a.Task, int, error) {
 	instance, err := readAgentInstance(ctx, c.db, instanceID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("get AgentInstance history: %w", notFoundOr(err))
@@ -461,7 +466,7 @@ func (c *Client) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID
 		}
 		tasks = append(tasks, task)
 	}
-	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks); err != nil {
+	if err := loadAgentInstanceTaskHistories(ctx, c.db, instance.HistoryID, tasks, historyLength); err != nil {
 		return nil, 0, err
 	}
 	return tasks, int(total), nil
@@ -549,10 +554,17 @@ func storeProtoTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.U
 }
 
 // loadAgentInstanceTaskHistories attaches archived messages to the supplied tasks in event
-// order. It leaves tasks with no archived messages unchanged and rejects malformed message
-// payloads.
-func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task) error {
+// order, limited to the latest historyLength per task. Zero clears history without a
+// query; nil or negative loads it all. Tasks without archived messages otherwise retain
+// their inline history, subject to the same limit. Malformed messages return errors.
+func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyID uuid.UUID, tasks []*a2a.Task, historyLength *int) error {
 	if len(tasks) == 0 {
+		return nil
+	}
+	if historyLength != nil && *historyLength == 0 {
+		for _, task := range tasks {
+			task.History = []*a2a.Message{}
+		}
 		return nil
 	}
 	ids := make([]string, len(tasks))
@@ -560,8 +572,11 @@ func loadAgentInstanceTaskHistories(ctx context.Context, db dbExecutor, historyI
 	for index, task := range tasks {
 		ids[index] = string(task.ID)
 		byID[string(task.ID)] = task
+		if historyLength != nil && *historyLength > 0 && *historyLength < len(task.History) {
+			task.History = task.History[len(task.History)-*historyLength:]
+		}
 	}
-	rows, err := readTaskMessages(ctx, db, historyID, ids)
+	rows, err := readTaskMessages(ctx, db, historyID, ids, historyLength)
 	if err != nil {
 		return fmt.Errorf("list AgentInstance task history: %w", err)
 	}
@@ -714,15 +729,23 @@ func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID,
 	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, taskID, state, statusTimestamp, data)
 }
 
-// readTaskMessages returns archived message payloads for the requested tasks in event
-// order. Callers authorize the history and decode the returned payloads.
-func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskIDs []string) ([]taskHistoryRow, error) {
+// readTaskMessages returns the latest historyLength archived messages per requested task
+// in event order. Nil or negative limits load all messages. Callers authorize the history
+// and decode the returned payloads.
+func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskIDs []string, historyLength *int) ([]taskHistoryRow, error) {
+	if historyLength != nil && *historyLength < 0 {
+		historyLength = nil
+	}
 	return queryMany(ctx, db, `
-		SELECT task_id, data
-		FROM agent_instance_task_event
-		WHERE history_id = $1
-		  AND task_id = ANY($2::text[])
-		  AND message_id IS NOT NULL
-		ORDER BY sequence
-	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs)
+		SELECT messages.task_id, messages.data
+		FROM unnest($2::text[]) AS tasks(task_id)
+		CROSS JOIN LATERAL (
+		    SELECT task_id, data, sequence
+		    FROM agent_instance_task_event
+		    WHERE history_id = $1 AND task_id = tasks.task_id AND message_id IS NOT NULL
+		    ORDER BY sequence DESC
+		    LIMIT $3
+		) messages
+		ORDER BY messages.sequence
+	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs, historyLength)
 }

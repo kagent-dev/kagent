@@ -15,6 +15,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -149,9 +150,9 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	status := adka2a.AttachHitlExtension(
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),
-		&adka2a.AskUserRequest{
+		&apia2a.AskUserRequest{
 			Type: adka2a.HITLTypeAskUserRequest, ID: "question-1",
-			Questions: []map[string]any{{"question": "Which database?", "choices": []string{"PostgreSQL", "MySQL"}}},
+			Questions: []apia2a.HITLQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
 		},
 	)
 	gateway := &fakeGateway{task: &a2atype.Task{
@@ -460,7 +461,7 @@ func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, strin
 	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte) (*apiv1alpha1.AgentInstanceShare, error) {
+func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte, string) (*apiv1alpha1.AgentInstanceShare, error) {
 	return nil, database.ErrNotFound
 }
 

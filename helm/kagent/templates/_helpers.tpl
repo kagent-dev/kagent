@@ -164,13 +164,6 @@ app.kubernetes.io/component: engine
 {{- end }}
 
 {{/*
-Check if leader election should be enabled (more than 1 replica)
-*/}}
-{{- define "kagent.leaderElectionEnabled" -}}
-{{- gt (.Values.controller.replicas | int) 1 -}}
-{{- end -}}
-
-{{/*
 Extract the TCP port from controller.metrics.bindAddress.
 
 Anchors the digit run to the end of the string so every Go-style

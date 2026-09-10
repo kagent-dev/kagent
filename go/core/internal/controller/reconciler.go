@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/workqueue"
 )
 
 // PairReconciliation is the complete desired and observed state for one
@@ -53,7 +54,7 @@ type ReconciliationFailure struct {
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
 	collections v2translator.Collections,
-	actorTemplates krt.Collection[ObservedActorTemplate],
+	pairRuntimeObservations krt.Collection[PairRuntimeObservation],
 	opts krt.OptionsBuilder,
 ) krt.Collection[PairReconciliation] {
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
@@ -93,9 +94,8 @@ func newPairReconciliations(
 			return state
 		}
 
-		ref := state.DesiredActorTemplate.GetMetadata()
-		observed := krt.FetchOne(ctx, actorTemplates, krt.FilterKey(ref.GetAtespace()+"/"+ref.GetName()))
-		if observed == nil {
+		observed := krt.FetchOne(ctx, pairRuntimeObservations, krt.FilterKey(pair.ResourceName()))
+		if observed == nil || observed.RevisionID != state.RevisionID {
 			return state
 		}
 		state.ObservedActorTemplate = (*observed).Template
@@ -114,21 +114,17 @@ func newPairReconciliations(
 
 // runtimeRevisionStore is the controller's narrow view of the shared database.
 // Substrate owns ActorTemplates; the database retains revisions while a pair
-// or, later, an AgentInstance or checkpoint references them.
+// or an AgentInstance or checkpoint references them.
 type runtimeRevisionStore interface {
 	UpsertAgentTemplateHarnessPair(context.Context, database.AgentTemplateHarnessPair) error
-	UpsertRuntimeRevision(context.Context, database.RuntimeRevision) error
-	MarkRuntimeRevisionSuccessful(context.Context, database.AgentTemplateHarnessPair) error
-	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
-	ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error)
-	DeleteUnreferencedRuntimeRevision(context.Context, string) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
+	RetirePairIdentities(ctx context.Context, namespace, templateName, harnessName string, except *database.AgentTemplateHarnessPair) error
 }
 
 type actorTemplateClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
-	DeleteActorTemplate(context.Context, string, string, string) error
 }
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
@@ -169,15 +165,15 @@ func newReconciler(
 		store:       store,
 		status:      status,
 	}
-	r.pairs = controllers.NewQueue("v2-agent-template-pairs", controllers.WithGenericReconciler(func(item any) error {
+	r.pairs = newReconciliationQueue("v2-agent-template-pairs", func(item any) error {
 		return r.reconcilePair(context.Background(), item.(string))
-	}), controllers.WithMaxAttempts(5))
-	r.agentTemplateStatuses = controllers.NewQueue("v2-agent-template-status", controllers.WithGenericReconciler(func(item any) error {
+	})
+	r.agentTemplateStatuses = newReconciliationQueue("v2-agent-template-status", func(item any) error {
 		return r.reconcileAgentTemplateStatus(context.Background(), item.(string))
-	}), controllers.WithMaxAttempts(5))
-	r.modelConfigStatuses = controllers.NewQueue("v2-model-config-status", controllers.WithGenericReconciler(func(item any) error {
+	})
+	r.modelConfigStatuses = newReconciliationQueue("v2-model-config-status", func(item any) error {
 		return r.reconcileModelConfigStatus(context.Background(), item.(string))
-	}), controllers.WithMaxAttempts(5))
+	})
 
 	r.pairHandler = collections.Reconciliations.Register(func(event krt.Event[PairReconciliation]) {
 		r.pairs.Add(krt.GetKey(event.Latest()))
@@ -197,6 +193,15 @@ func newReconciler(
 		r.modelConfigStatuses.Add(status.ResourceName())
 	})
 	return r
+}
+
+// Ten attempts span about 2.5 minutes. Each queue owns its backoff state;
+// fresh graph events can enqueue work again after an error budget is exhausted.
+func newReconciliationQueue(name string, reconcile func(any) error) controllers.Queue {
+	return controllers.NewQueue(name, controllers.WithGenericReconciler(reconcile),
+		controllers.WithMaxAttempts(10),
+		controllers.WithRateLimiter(workqueue.NewTypedItemExponentialFailureRateLimiter[any](time.Second, 30*time.Second)),
+	)
 }
 
 // Run waits for the graph boundary to observe initial state, then processes
@@ -241,36 +246,47 @@ func (r *Reconciler) NeedLeaderElection() bool { return true }
 
 func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	state := r.collections.Reconciliations.GetKey(key)
+	if observation := r.collections.PairRuntimeObservations.GetKey(key); observation != nil &&
+		(state == nil || state.Revision == nil || observation.RevisionID != state.RevisionID) {
+		r.collections.PairRuntimeObservations.DeleteObject(key)
+	}
 	if state == nil {
 		parts := strings.Split(key, "/")
 		if len(parts) != 3 {
 			return fmt.Errorf("invalid AgentTemplate/Harness pair key %q", key)
 		}
-		if err := r.store.RetireAgentTemplateHarnessPair(ctx, parts[0], parts[1], parts[2]); err != nil {
+		if err := r.store.RetirePairIdentities(ctx, parts[0], parts[1], parts[2], nil); err != nil {
 			return fmt.Errorf("retire AgentTemplate/Harness pair %s: %w", key, err)
 		}
-		return r.cleanupUnreferencedRevisions(ctx)
-	}
-	// Retire every historical identity at this stable name. The upsert below
-	// immediately reactivates the exact current UID pair.
-	if err := r.store.RetireAgentTemplateHarnessPair(ctx, state.Pair.AgentTemplate.Namespace, state.Pair.AgentTemplate.Name, state.Pair.Harness.Name); err != nil {
-		return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
-	}
-	if state.Revision == nil || state.RevisionID.IsZero() {
-		return r.cleanupUnreferencedRevisions(ctx)
+		return nil
 	}
 	pair := database.AgentTemplateHarnessPair{
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
 		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
 	}
+	if state.Revision == nil || state.RevisionID.IsZero() {
+		// Bad inputs must not destroy the current identity's last-good runtime.
+		// A recreated object at this name must still retire the previous UID.
+		if err := r.store.RetirePairIdentities(ctx, pair.Namespace, pair.AgentTemplateName, pair.HarnessName, &pair); err != nil {
+			return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
+		}
+		return nil
+	}
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state.
 	if err := r.store.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
+		if errors.Is(err, database.ErrObjectDeleting) {
+			// A desired digest may be awaiting cleanup from an earlier identity.
+			// Clearing the observation makes KRT derive a pending pair, which
+			// the pending-template poll retries until GC finishes.
+			r.collections.PairRuntimeObservations.DeleteObject(key)
+			return nil
+		}
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
 	}
 	if state.Failure != nil {
-		return r.cleanupUnreferencedRevisions(ctx)
+		return nil
 	}
 	desiredRef := state.DesiredActorTemplate.GetMetadata()
 	observed, err := r.templates.GetActorTemplate(ctx, desiredRef.GetAtespace(), desiredRef.GetName())
@@ -286,8 +302,8 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if err != nil {
 		return fmt.Errorf("reconcile ActorTemplate %s/%s: %w", desiredRef.GetAtespace(), desiredRef.GetName(), err)
 	}
-	r.collections.ActorTemplates.ConditionalUpdateObject(ObservedActorTemplate{Template: observed})
 	if !substrate.ActorTemplateSpecEqual(observed, state.DesiredActorTemplate) {
+		r.observeActorTemplate(*state, observed)
 		return nil
 	}
 
@@ -298,16 +314,25 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		EgressDestinations:    state.Revision.EgressDestinations,
 		ActorTemplateAtespace: observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
-	if err := r.store.UpsertRuntimeRevision(ctx, revision); err != nil {
+	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() != nil
+	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {
 		return fmt.Errorf("store runtime revision %s: %w", state.RevisionID, err)
 	}
-	if observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot() != nil {
-		if err := r.store.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
-			return fmt.Errorf("mark runtime revision %s successful: %w", state.RevisionID, err)
-		}
-		return r.cleanupUnreferencedRevisions(ctx)
-	}
+	// This observation drives Kubernetes Ready status on a separate queue.
+	// Publish it only after instance creation can select the persisted revision.
+	r.observeActorTemplate(*state, observed)
 	return nil
+}
+
+// Observations belong to the pair's current preparation, independently of how
+// long instances or checkpoints keep its old runtime alive in the database.
+func (r *Reconciler) observeActorTemplate(state PairReconciliation, template *ateapipb.ActorTemplate) {
+	r.collections.PairRuntimeObservations.ConditionalUpdateObject(PairRuntimeObservation{
+		AgentTemplateName: state.Pair.AgentTemplate.Name,
+		HarnessName:       state.Pair.Harness.Name,
+		RevisionID:        state.RevisionID,
+		Template:          template,
+	})
 }
 
 func (r *Reconciler) reconcileAgentTemplateStatus(ctx context.Context, key string) error {
@@ -340,34 +365,6 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 	}
 	if _, err := r.status.ModelConfigs(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update ModelConfig %s status: %w", key, err)
-	}
-	return nil
-}
-
-// cleanupUnreferencedRevisions removes immutable ActorTemplates after their
-// final pair or AgentInstance database reference has been released.
-func (r *Reconciler) cleanupUnreferencedRevisions(ctx context.Context) error {
-	revisions, err := r.store.ListUnreferencedRuntimeRevisions(ctx)
-	if err != nil {
-		return fmt.Errorf("list unreferenced runtime revisions: %w", err)
-	}
-	for _, revision := range revisions {
-		template, err := r.templates.GetActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName)
-		if err != nil && status.Code(err) != codes.NotFound {
-			return fmt.Errorf("get unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
-		}
-		if err == nil {
-			if revision.ActorTemplateUID == "" || template.GetMetadata().GetUid() != revision.ActorTemplateUID {
-				return fmt.Errorf("unreferenced ActorTemplate %s/%s UID changed", revision.ActorTemplateAtespace, revision.ActorTemplateName)
-			}
-		}
-		if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID); err != nil {
-			return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
-		}
-		r.collections.ActorTemplates.DeleteObject(revision.ActorTemplateAtespace + "/" + revision.ActorTemplateName)
-		if err := r.store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision); err != nil {
-			return fmt.Errorf("delete unreferenced runtime revision %s: %w", revision.Revision, err)
-		}
 	}
 	return nil
 }

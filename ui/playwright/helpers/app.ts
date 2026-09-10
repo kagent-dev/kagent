@@ -157,7 +157,17 @@ export function dataRows(page: Page): Locator {
   return page.locator("tbody tr.ant-table-row");
 }
 
-/** Resolves once no loading indicator is left on the page. */
+/** A navigation-sized budget, for the app booting rather than for what it rendered. */
+const APP_BOOT_TIMEOUT = 15_000;
+
+/**
+ * Resolves once the app is on screen and no loading indicator is left on it.
+ *
+ * Waiting for a spinner to be absent is also true of a page that has not started
+ * rendering, so after a `goto` or a `reload` this returned at once and the next
+ * assertion's own five seconds became the app's boot budget.
+ */
 export async function expectSettled(page: Page): Promise<void> {
+  await expect(page.locator("#root")).not.toBeEmpty({ timeout: APP_BOOT_TIMEOUT });
   await expect(page.locator(".ant-spin-spinning")).toHaveCount(0);
 }

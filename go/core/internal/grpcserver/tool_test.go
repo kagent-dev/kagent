@@ -36,9 +36,8 @@ import (
 )
 
 type toolGRPCDiscoveryStore struct {
-	tools       []database.Tool
-	servers     []database.ToolServer
-	serverTools map[string][]database.Tool
+	tools   []database.Tool
+	servers []database.ToolServer
 }
 
 func (s *toolGRPCDiscoveryStore) ListTools(context.Context) ([]database.Tool, error) {
@@ -47,10 +46,6 @@ func (s *toolGRPCDiscoveryStore) ListTools(context.Context) ([]database.Tool, er
 
 func (s *toolGRPCDiscoveryStore) ListToolServers(context.Context) ([]database.ToolServer, error) {
 	return s.servers, nil
-}
-
-func (s *toolGRPCDiscoveryStore) ListToolsForServer(_ context.Context, name, groupKind string) ([]database.Tool, error) {
-	return s.serverTools[name+"|"+groupKind], nil
 }
 
 type toolGRPCMCPClient struct {
@@ -118,9 +113,6 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	store := &toolGRPCDiscoveryStore{
 		tools:   []database.Tool{{ID: "move_task", ServerName: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev", Description: "Move a task"}},
 		servers: []database.ToolServer{{Name: "default/shared", GroupKind: "RemoteMCPServer.kagent.dev"}},
-		serverTools: map[string][]database.Tool{
-			"default/shared|RemoteMCPServer.kagent.dev": {{ID: "move_task", Description: "Move a task"}},
-		},
 	}
 	authorizer := &toolGRPCAuthorizer{}
 	mcpClient := &toolGRPCMCPClient{}

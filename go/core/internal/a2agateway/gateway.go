@@ -43,8 +43,8 @@ type instanceStore interface {
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event, *database.AgentInstanceTaskSnapshot) error
-	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
-	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
+	GetAgentInstanceTask(context.Context, string, string, *int) (*a2atype.Task, error)
+	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int, *int) ([]*a2atype.Task, int, error)
 }
 
 type runtimeDialer interface {
@@ -52,6 +52,7 @@ type runtimeDialer interface {
 }
 
 type instanceWorkflow interface {
+	Pause(context.Context, *apiv1alpha1.AgentInstance) error
 	Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error)
 }
 
@@ -208,7 +209,7 @@ func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2
 	if req == nil || req.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required")
 	}
-	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), req.HistoryLength)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
@@ -241,7 +242,7 @@ func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) 
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "invalid page token")
 	}
-	tasks, total, err := g.store.ListAgentInstanceTasks(ctx, instance.GetId(), afterID, req.Status, req.StatusTimestampAfter, pageSize+1)
+	tasks, total, err := g.store.ListAgentInstanceTasks(ctx, instance.GetId(), afterID, req.Status, req.StatusTimestampAfter, pageSize+1, req.HistoryLength)
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list agent instance tasks", "error", err, "instance_id", instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to list tasks")
@@ -265,7 +266,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if req == nil || req.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required")
 	}
-	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
@@ -275,7 +276,6 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if task.Status.State.Terminal() {
 		return task, nil
 	}
-
 	// A live ingester owns persistence. Release the runtime-call lock before
 	// waiting, so it can drain ingress and quiesce the actor.
 	run, observing := g.taskRun(instance.GetId(), task.ID)
@@ -307,7 +307,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 		}
 		select {
 		case <-run.done:
-			latest, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+			latest, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 			if err != nil {
 				return nil, g.storeError(ctx, err)
 			}
@@ -320,7 +320,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	}
 	release := g.coordinator.Quiesce(instance.GetId())
 	defer release()
-	task, err = g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err = g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
@@ -386,7 +386,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 	if req == nil || req.ID == "" {
 		return errorEvents(a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required"))
 	}
-	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID), nil)
 	if errors.Is(err, database.ErrNotFound) {
 		return errorEvents(a2atype.ErrTaskNotFound)
 	}
@@ -534,7 +534,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	submitted.Metadata[TaskCreatedAtMetadataKey] = createdAt.Format(time.RFC3339Nano)
 	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
-	if errors.Is(err, database.ErrAgentInstanceTaskConflict) {
+	if errors.Is(err, database.ErrConflict) {
 		if err = g.reconcileActiveTask(ctx, instance); err == nil {
 			stored, created, err = g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
 		}
@@ -548,7 +548,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 
 func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentInstance, req *a2atype.SendMessageRequest) (*preparedSend, error) {
 	message := req.Message
-	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID))
+	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID), nil)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
@@ -560,6 +560,24 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	if stored.Status.State != a2atype.TaskStateInputRequired && stored.Status.State != a2atype.TaskStateAuthRequired {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "task is not waiting for input")
+	}
+	if pending, parseErr := apia2a.ParseToolApprovalRequest(stored.Status.Message); parseErr != nil {
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "stored tool approval request is invalid")
+	} else if pending != nil {
+		response, responseErr := apia2a.ParseToolApprovalResponse(message)
+		if responseErr != nil || apia2a.ValidateToolApprovalResponse(pending, response) != nil {
+			return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "tool approval response does not match the pending request")
+		}
+	} else if pending, parseErr := apia2a.ParseAskUserRequest(stored.Status.Message); parseErr != nil {
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "stored ask-user request is invalid")
+	} else if pending != nil && pending.Nested == nil {
+		// Nested ask-user correlation remains owned by the ADK adapter. Native
+		// Harness requests use the top-level ID and can be rejected before the
+		// paused Actor is resumed.
+		response, responseErr := apia2a.ParseAskUserResponse(message)
+		if responseErr != nil || apia2a.ValidateAskUserResponse(pending, response) != nil {
+			return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "ask-user response does not match the pending request")
+		}
 	}
 	message.ContextID = stored.ContextID
 	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
@@ -597,10 +615,11 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	if err != nil {
 		return err
 	}
+	conflict := fmt.Errorf("AgentInstance %s already has an active task: %w", instance.GetId(), database.ErrConflict)
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to reconcile active agent instance task", "error", err, "task_id", active.ID)
-		return database.ErrAgentInstanceTaskConflict
+		return conflict
 	}
 	defer client.Destroy()
 
@@ -610,11 +629,11 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 		if errors.Is(eventErr, a2atype.ErrTaskNotFound) {
 			latest, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
 			if err != nil || latest == nil {
-				return database.ErrAgentInstanceTaskConflict
+				return conflict
 			}
 			if err := validateTaskInfo(latest, active); err != nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "runtime returned invalid active task", "error", err, "task_id", active.ID)
-				return database.ErrAgentInstanceTaskConflict
+				return conflict
 			}
 			if isQuiescent(latest.Status.State) {
 				return g.storeEvent(ctx, instance, latest, latest)
@@ -623,18 +642,18 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 		}
 		if eventErr != nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to query active runtime execution", "error", eventErr, "task_id", active.ID)
-			return database.ErrAgentInstanceTaskConflict
+			return conflict
 		}
 		if event == nil {
-			return database.ErrAgentInstanceTaskConflict
+			return conflict
 		}
 		if err := validateTaskInfo(event, active); err != nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "runtime returned invalid active task event", "error", err, "task_id", active.ID)
-			return database.ErrAgentInstanceTaskConflict
+			return conflict
 		}
-		return database.ErrAgentInstanceTaskConflict
+		return conflict
 	}
-	return database.ErrAgentInstanceTaskConflict
+	return conflict
 }
 
 func (g *Gateway) interruptTask(ctx context.Context, instanceID string, taskID a2atype.TaskID) error {
@@ -643,7 +662,7 @@ func (g *Gateway) interruptTask(ctx context.Context, instanceID string, taskID a
 		return err
 	}
 	if !interrupted {
-		return database.ErrAgentInstanceTaskConflict
+		return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, database.ErrConflict)
 	}
 	return nil
 }
@@ -745,26 +764,34 @@ func validateTaskInfo(value a2atype.TaskInfoProvider, expected *a2atype.Task) er
 
 func (g *Gateway) storeEvent(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, event a2atype.Event) error {
 	var snapshot *database.AgentInstanceTaskSnapshot
-	if task != nil && isQuiescent(task.Status.State) {
+	if task != nil && task.Status.State.Terminal() {
 		var err error
 		snapshot, err = g.workflow.Quiesce(ctx, instance)
 		if err != nil {
 			return fmt.Errorf("quiesce AgentInstance runtime: %w", err)
 		}
+	} else if task != nil && requiresInput(task.Status.State) {
+		if err := g.workflow.Pause(ctx, instance); err != nil {
+			return fmt.Errorf("pause AgentInstance runtime: %w", err)
+		}
 	}
 	return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event, snapshot)
 }
 
+func requiresInput(state a2atype.TaskState) bool {
+	return state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+}
+
 func isQuiescent(state a2atype.TaskState) bool {
-	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+	return state.Terminal() || requiresInput(state)
 }
 
 func (g *Gateway) storeError(ctx context.Context, err error) error {
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
 	}
-	if errors.Is(err, database.ErrAgentInstanceTaskConflict) {
-		return a2atype.NewError(a2atype.ErrUnsupportedOperation, "AgentInstance already has an active task")
+	if errors.Is(err, database.ErrConflict) {
+		return a2atype.NewError(a2atype.ErrUnsupportedOperation, err.Error())
 	}
 	logging.FromContext(ctx).ErrorContext(ctx, "failed to persist agent instance task", "error", err)
 	return a2atype.NewError(a2atype.ErrInternalError, "failed to persist task")

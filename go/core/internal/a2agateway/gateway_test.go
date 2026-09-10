@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"net"
 	"strings"
@@ -50,6 +51,7 @@ type gatewayTestStore struct {
 	created         *a2atype.Task
 	tasks           []*a2atype.Task
 	total           int
+	historyLength   *int
 	taskErr         error
 	replay          *a2atype.Task
 	active          *a2atype.Task
@@ -102,7 +104,7 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 		return s.replay, false, nil
 	}
 	if s.active != nil {
-		return nil, false, database.ErrAgentInstanceTaskConflict
+		return nil, false, database.ErrConflict
 	}
 	s.task = task
 	s.created = task
@@ -128,7 +130,8 @@ func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _
 	return true, nil
 }
 
-func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string) (*a2atype.Task, error) {
+func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, taskID string, historyLength *int) (*a2atype.Task, error) {
+	s.historyLength = historyLength
 	if s.taskErr != nil {
 		return nil, s.taskErr
 	}
@@ -138,7 +141,8 @@ func (s *gatewayTestStore) GetAgentInstanceTask(_ context.Context, _ string, tas
 	return s.task, nil
 }
 
-func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error) {
+func (s *gatewayTestStore) ListAgentInstanceTasks(_ context.Context, _, _ string, _ a2atype.TaskState, _ *time.Time, _ int, historyLength *int) ([]*a2atype.Task, int, error) {
+	s.historyLength = historyLength
 	return s.tasks, s.total, s.taskErr
 }
 
@@ -162,8 +166,17 @@ type gatewayTestDialer struct {
 
 type gatewayTestWorkflow struct {
 	quiesceCalls int
+	pauseCalls   int
 	err          error
 	onQuiesce    func()
+}
+
+func (w *gatewayTestWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error {
+	w.pauseCalls++
+	if w.onQuiesce != nil {
+		w.onQuiesce()
+	}
+	return w.err
 }
 
 func (w *gatewayTestWorkflow) Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*database.AgentInstanceTaskSnapshot, error) {
@@ -188,6 +201,7 @@ type gatewayTestRuntime struct {
 	taskResults    []*a2atype.Task
 	getTaskCalls   int
 	subscribeEvent a2atype.Event
+	streamState    a2atype.TaskState
 	subscribeErr   error
 	privateTask    *a2atype.Task
 	subscribeCalls int
@@ -231,6 +245,11 @@ func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceP
 
 func (r *gatewayTestRuntime) SendStreamingMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
+		if r.streamState != a2atype.TaskStateUnspecified {
+			task := &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID}
+			yield(a2atype.NewStatusUpdateEvent(task, r.streamState, a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("approve?"))), nil)
+			return
+		}
 		yield(&a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil)
 	}
 }
@@ -457,6 +476,72 @@ func TestGatewayRejectsInputRequiredMessageWithoutID(t *testing.T) {
 	}
 }
 
+func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
+	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which namespace?"))
+	if err := apia2a.AttachHITL(question, apia2a.AskUserRequest{
+		Type: apia2a.HITLTypeAskUserRequest, ID: "ask-1",
+		Questions: []apia2a.HITLQuestion{{Question: "Which namespace?"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
+	}
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+	answer := a2atype.NewMessage(a2atype.MessageRoleUser)
+	answer.TaskID = waiting.ID
+	if err := apia2a.AttachHITL(answer, apia2a.AskUserResponse{
+		Type: apia2a.HITLTypeAskUserResponse, ID: "another-request",
+		Answers: []apia2a.AskUserAnswer{{Answer: []string{"default"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: answer}); err == nil {
+		t.Fatal("prepareReply() accepted a mismatched ask-user response")
+	}
+	if len(store.stored) != 0 {
+		t.Fatalf("stored events = %#v, want no partial write", store.stored)
+	}
+}
+
+func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
+	request := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approve child tools?"))
+	if err := apia2a.AttachHITL(request, apia2a.ToolApprovalRequest{
+		Type:  apia2a.HITLTypeToolApprovalRequest,
+		Tools: []apia2a.HITLTool{{ID: "parent"}},
+		Nested: &apia2a.NestedHITLRequest{Tools: []apia2a.HITLTool{
+			{ID: "child-read"},
+			{ID: "child-write"},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestContextID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: request},
+	}
+	store := &gatewayTestStore{task: waiting}
+	gateway := &Gateway{store: store}
+	response := a2atype.NewMessage(a2atype.MessageRoleUser)
+	response.TaskID = waiting.ID
+	if err := apia2a.AttachHITL(response, apia2a.ToolApprovalResponse{
+		Type: apia2a.HITLTypeToolApprovalResponse,
+		Approvals: []apia2a.ToolApproval{
+			{ID: "child-read", Approved: true},
+			{ID: "child-write", Approved: false},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: response}); err != nil {
+		t.Fatalf("prepareReply() rejected nested tool decisions: %v", err)
+	}
+}
+
 func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
@@ -617,9 +702,16 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 			if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
 				t.Fatalf("GetTask() = %#v, %v", got, err)
 			}
+			if store.historyLength == nil || *store.historyLength != historyLength {
+				t.Fatal("GetTask did not pass the history limit to persistence")
+			}
+			store.historyLength = nil
 			listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
 			if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
 				t.Fatalf("ListTasks() = %#v, %v", listed, err)
+			}
+			if store.historyLength == nil || *store.historyLength != historyLength {
+				t.Fatal("ListTasks did not pass the history limit to persistence")
 			}
 			if dialer.instance != nil {
 				t.Fatal("task reads dialed the private runtime")
@@ -779,6 +871,56 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	}
 	if workflow.quiesceCalls != 1 || store.snapshot == nil || store.snapshot.URI != "s3://snapshots/snapshot-1" {
 		t.Fatalf("quiescence calls = %d, stored snapshot = %#v", workflow.quiesceCalls, store.snapshot)
+	}
+}
+
+func TestGatewayPausesInputRequiredBeforeClosingRuntime(t *testing.T) {
+	runtime := &gatewayTestRuntime{streamState: a2atype.TaskStateInputRequired}
+	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	pausedWhileLive := false
+	workflow := &gatewayTestWorkflow{onQuiesce: func() { pausedWhileLive = !runtime.destroyed }}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+
+	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !pausedWhileLive || workflow.pauseCalls != 1 || workflow.quiesceCalls != 0 || !runtime.destroyed {
+		t.Fatalf("paused live = %v, pause calls = %d, suspend calls = %d, destroyed = %v", pausedWhileLive, workflow.pauseCalls, workflow.quiesceCalls, runtime.destroyed)
+	}
+	if store.snapshot != nil {
+		t.Fatalf("input pause persisted durable snapshot %#v", store.snapshot)
+	}
+}
+
+func TestGatewayPersistsCancellationOfInputRequiredTask(t *testing.T) {
+	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("approve?"))
+	waiting := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status:  a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
+		History: []*a2atype.Message{a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("run it"))},
+	}
+	runtime := &gatewayTestRuntime{task: &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled},
+	}}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: waiting, active: waiting}
+	workflow := &gatewayTestWorkflow{}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+
+	canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: waiting.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canceled.Status.State != a2atype.TaskStateCanceled || len(canceled.History) != 1 {
+		t.Fatalf("CancelTask() = %#v", canceled)
+	}
+	if store.task == nil || store.task.Status.State != a2atype.TaskStateCanceled || len(store.stored) != 1 {
+		t.Fatalf("stored task/events = %#v/%d", store.task, len(store.stored))
+	}
+	if workflow.quiesceCalls != 1 || store.snapshot == nil || !runtime.destroyed {
+		t.Fatalf("quiesce calls/snapshot/runtime destroyed = %d/%#v/%v", workflow.quiesceCalls, store.snapshot, runtime.destroyed)
 	}
 }
 
@@ -993,6 +1135,23 @@ func TestQuiescentTaskStates(t *testing.T) {
 	}
 	if isQuiescent(a2atype.TaskStateWorking) {
 		t.Error("working task is quiescent")
+	}
+}
+
+func TestGatewayPreservesStoreConflictReason(t *testing.T) {
+	for _, reason := range []string{"checkpoint is being created", "instance is suspended", "task is already active"} {
+		t.Run(reason, func(t *testing.T) {
+			store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: fmt.Errorf("%s: %w", reason, database.ErrConflict)}
+			dialer := &gatewayTestDialer{}
+			gateway := New(store, &gatewayTestAuthorizer{}, dialer, &gatewayTestWorkflow{}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			if !errors.Is(err, a2atype.ErrUnsupportedOperation) || !strings.Contains(err.Error(), reason) {
+				t.Fatalf("SendMessage() = %v, want unsupported operation with reason %q", err, reason)
+			}
+			if dialer.instance != nil {
+				t.Fatal("conflicting request dialed the runtime")
+			}
+		})
 	}
 }
 
