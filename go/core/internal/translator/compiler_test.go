@@ -294,6 +294,7 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 
 func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
@@ -321,6 +322,9 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 		if variable.Name == "OTEL_TRACING_ENABLED" {
 			if variable.Value != "true" {
 				t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q", variable.Value, "true")
+			}
+			if !slices.Contains(spec.EgressDestinations, "collector") {
+				t.Fatalf("collector missing from egress destinations: %v", spec.EgressDestinations)
 			}
 			return
 		}

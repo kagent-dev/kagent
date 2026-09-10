@@ -88,6 +88,47 @@ func TestCompileSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestCompileTracing(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg codexconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Telemetry == nil || cfg.Telemetry.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Protocol != "http/protobuf" || !cfg.Telemetry.CaptureContent {
+		t.Fatalf("telemetry = %#v", cfg.Telemetry)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf",
+		"KAGENT_NAME":                        "assistant-codex",
+		"KAGENT_NAMESPACE":                   "test", preResponseTraceFlushEnv: "true",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+}
+
 func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	responses, chat := v1alpha3.OpenAIAPIFormatResponses, v1alpha3.OpenAIAPIFormatChatCompletions
 	tests := []v1alpha3.ModelConfigSpec{
