@@ -201,7 +201,9 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 		result.recordATEError(ctx, err)
 	}
 
-	result.BusyWorkerCount = int64(len(busyWorkers))
+	// Clamped because the two counts come from different walks: a failed worker walk
+	// beside a successful actor one would render the tile as "11/0".
+	result.BusyWorkerCount = min(int64(len(busyWorkers)), result.WorkerCount)
 	result.ActorStatusCounts = make([]SubstrateActorStatusCount, 0, len(statusCounts))
 	for _, status := range slices.Sorted(maps.Keys(statusCounts)) {
 		result.ActorStatusCounts = append(result.ActorStatusCounts, SubstrateActorStatusCount{

@@ -728,11 +728,22 @@ function SectionSearch({
   testId,
   value,
   onChange,
+  maxLength,
 }: {
   label: string;
   testId: string;
   value: string;
   onChange: (value: string) => void;
+  /**
+   * The most the box will accept, for the two searches the server runs.
+   *
+   * `filter` is declared `max_len` in system.proto and the Protovalidate interceptor
+   * refuses an oversized request before the handler sees it — so without this a pasted
+   * snapshot URI answers with a red "Actors could not be read", above a Try again
+   * button that re-sends the same rejected request. Stopping the typing is the honest
+   * form: the reader can see the box would take no more.
+   */
+  maxLength?: number;
 }) {
   const theme = useTheme();
   return (
@@ -747,6 +758,7 @@ function SectionSearch({
         onChange={(event) => onChange(event.target.value)}
         onClear={() => onChange("")}
         aria-label={label}
+        maxLength={maxLength}
         placeholder="Search"
         prefix={<Search size={13} color={theme.color.textMuted} aria-hidden />}
         css={{ width: 200 }}
@@ -791,6 +803,15 @@ const PAGE_SIZE = 25;
  * to feel like lag.
  */
 const FILTER_DEBOUNCE_MS = 300;
+
+/**
+ * The longest search term the two paged reads will send.
+ *
+ * `system.proto` declares `max_len = 200` on `filter`, and Protovalidate rejects the
+ * whole request above it rather than truncating — so this is the schema's number, and
+ * changing one without the other turns a search into a failed read.
+ */
+const FILTER_MAX_LENGTH = 200;
 
 /** A value that follows its input, but only once it has stopped changing. */
 function useDebounced<T>(value: T, delayMs: number): T {
@@ -1808,6 +1829,7 @@ export function SubstratePage() {
                 testId="substrate-actors-search"
                 value={actorQuery}
                 onChange={setActorQuery}
+                maxLength={FILTER_MAX_LENGTH}
               />
             </Space>
           }
@@ -1867,7 +1889,7 @@ export function SubstratePage() {
                scrolls the card for it. There is no `y` because a page of rows is short
                enough to read whole — a body that scrolled would put a second way to
                move through the same list right above the one that turns the pages. */
-            scroll={{ x: 930 }}
+            scroll={{ x: 1070 }}
             size="small"
             /* Three different sentences, because they are three different facts and
                only one is something to act on: a controller with no ate-api endpoint
@@ -1942,6 +1964,7 @@ export function SubstratePage() {
                 testId="substrate-workers-search"
                 value={workerQuery}
                 onChange={setWorkerQuery}
+                maxLength={FILTER_MAX_LENGTH}
               />
             </Space>
           }

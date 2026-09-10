@@ -453,6 +453,37 @@ test("substrate: each list narrows on its own, and a match is found wherever it 
   });
 });
 
+/**
+ * The two searches the server runs stop at the length it will accept.
+ *
+ * `filter` is declared `max_len = 200` in `system.proto`, and Protovalidate refuses the
+ * whole request above it rather than truncating — so an over-long term is not a search
+ * that finds nothing, it is a read that fails. Pasting a snapshot URI into the box put a
+ * red "Actors could not be read" over the table, above a Try again button that re-sent
+ * the same rejected request.
+ *
+ * The cap is on the input, so the box simply stops taking characters. Asserted through
+ * what the reader can see — the value, and the absence of the error — rather than
+ * through the attribute, because `maxLength` set on the wrong element still renders.
+ */
+test("substrate: a search too long for the schema is refused by the box, not by the read", async ({
+  page,
+}) => {
+  await loadPage(page, routes.substrate, { title: "Substrate" });
+  await expectSettled(page);
+
+  for (const list of ["actors", "workers"] as const) {
+    const input = page.getByTestId(`substrate-${list}-search`).locator("input");
+    await input.fill("z".repeat(250));
+    expect(
+      (await input.inputValue()).length,
+      `${list}: the box took more than the schema accepts`,
+    ).toBe(200);
+    await expect(page.getByTestId(`substrate-${list}-error`)).toHaveCount(0);
+    await input.clear();
+  }
+});
+
 /** The first cell of every rendered row, which for both paged tables is its identity. */
 async function firstColumn(table: Locator) {
   return table

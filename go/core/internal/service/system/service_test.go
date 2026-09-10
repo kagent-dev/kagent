@@ -47,13 +47,6 @@ type fakeATEClient struct {
 	// was followed rather than that the rows came back.
 	actorReads  int
 	workerReads int
-	// Fail from this page read onwards, counting from one. Zero never fails. A
-	// mid-walk failure is the case worth covering: ate-api going down between pages
-	// is ordinary, and it is what decides whether a caller loses the rest of a list.
-	failFromRead int
-	// The page sizes asked for, so a caller that asks for a whole page when it only
-	// needs the rest of one is visible.
-	actorPageSizes []int32
 }
 
 type fakeRuntimeRevisionStore struct {
@@ -82,7 +75,6 @@ func (client *fakeATEClient) ListActorTemplates(context.Context, string) ([]*ate
 
 func (client *fakeATEClient) ListActorsPage(_ context.Context, _ string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
 	client.actorReads++
-	client.actorPageSizes = append(client.actorPageSizes, pageSize)
 	if err := client.readError(client.actorReads); err != nil {
 		return nil, "", err
 	}
@@ -97,11 +89,8 @@ func (client *fakeATEClient) ListWorkersPage(_ context.Context, pageSize int32, 
 	return fakePage(client.workers, client.pageSize, pageSize, pageToken)
 }
 
-func (client *fakeATEClient) readError(read int) error {
-	if client.err != nil && (client.failFromRead == 0 || read >= client.failFromRead) {
-		return client.err
-	}
-	return nil
+func (client *fakeATEClient) readError(int) error {
+	return client.err
 }
 
 // fakePage slices rows the way ate-api pages them: an opaque token, empty on the last
@@ -362,8 +351,7 @@ func TestListSubstrateActors(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, page.Actors)
 		assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
-		// The token comes back as it went in, so the caller retries this page rather
-		// than skipping it.
+		// No token either: a walk that failed has nothing ordered to resume into.
 		assert.Empty(t, page.NextPageToken)
 	})
 
@@ -519,6 +507,29 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		assert.Equal(t, int64(1), result.BusyWorkerCount)
 	})
 
+	t.Run("a failed worker walk cannot leave more workers busy than there are", func(t *testing.T) {
+		// The two counts come from different walks. Unclamped, an actor walk that placed
+		// two actors on pods beside a worker walk that answered with none renders the
+		// tile as "2/0" — a fraction that says the cluster is impossible rather than
+		// that a read was short.
+		ateClient := &failingWorkersATEClient{
+			fakeATEClient: fakeATEClient{
+				actors: []*ateapipb.Actor{
+					substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
+					substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-1"),
+				},
+			},
+		}
+		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+		result, err := service.GetSubstrateSummary(ctx, "team")
+		require.NoError(t, err)
+		assert.Equal(t, "workers unavailable", result.ATEAPIError)
+		assert.Equal(t, int64(2), result.ActorCount)
+		assert.Equal(t, int64(0), result.WorkerCount)
+		assert.LessOrEqual(t, result.BusyWorkerCount, result.WorkerCount)
+	})
+
 	t.Run("busy workers are counted on the same footing as the workers themselves", func(t *testing.T) {
 		/*
 		 * An actor's scope is its template's atespace; a worker's is its pod's
@@ -549,6 +560,16 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		_, err := service.GetSubstrateSummary(ctx, "team")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal), err)
 	})
+}
+
+// failingWorkersATEClient answers every read but the worker walk, so the actors can be
+// counted while the pods they sit on cannot.
+type failingWorkersATEClient struct {
+	fakeATEClient
+}
+
+func (client *failingWorkersATEClient) ListWorkersPage(context.Context, int32, string) ([]*ateapipb.Worker, string, error) {
+	return nil, "", errors.New("workers unavailable")
 }
 
 // failingTemplatesATEClient answers every read but the template listing.

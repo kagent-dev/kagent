@@ -1466,7 +1466,16 @@ function substratePageResponse<Row, Message>(
     .filter(inScope)
     .filter((row) => !needle || searchText(row).toLowerCase().includes(needle))
     .sort((left, right) => {
-      const compared = sortKey(left).localeCompare(sortKey(right));
+      /*
+       * Byte order, not locale order: the controller sorts with Go's `strings.Compare`,
+       * and `localeCompare` disagrees with it on case and on punctuation — an
+       * underscored wire status like `ACTOR_STATE_CRASHED` lands either side of a
+       * neighbouring word depending which is used. A fixture that orders differently
+       * from the controller is the defect this app has been bitten by before.
+       */
+      const a = sortKey(left);
+      const c = sortKey(right);
+      const compared = a < c ? -1 : a > c ? 1 : 0;
       return descending ? -compared : compared;
     });
 
