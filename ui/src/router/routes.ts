@@ -96,8 +96,6 @@ export const paths = {
   scheduledRun: "/schedules/:id",
   scheduledRunEdit: "/schedules/:id/edit",
 
-  snapshots: "/snapshots",
-
   substrate: "/substrate",
 
   appDetail: "/apps/:appName",

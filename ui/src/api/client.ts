@@ -54,7 +54,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
-import type { Checkpoint, CheckpointPage, CheckpointSort } from "./domain/checkpoints";
+import type { Checkpoint } from "./domain/checkpoints";
 
 /** Options every read method accepts, so callers can cancel in-flight work. */
 export interface ReadOptions {
@@ -248,24 +248,9 @@ export interface AgentInstancesApi {
    * then starts a conversation holding the history up to whichever one is named.
    */
   checkpoints: {
-    /**
-     * One page of saved boundaries, narrowed and ordered by the controller. `id`
-     * narrows to one conversation; without it, every boundary the caller owns.
-     */
-    list(
-      input?: {
-        id?: string;
-        filter?: string;
-        sort?: CheckpointSort;
-        limit?: number;
-        offset?: number;
-      },
-      options?: ReadOptions,
-    ): Promise<CheckpointPage>;
+    list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
     create(id: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
-    /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
-    remove(checkpointId: string): Promise<void>;
   };
 
   /**
@@ -386,8 +371,8 @@ export function createApiClient(): KagentApiClient {
       fork: (id, name) =>
         invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
       checkpoints: {
-        list: (input, options) =>
-          invoke("agentInstances.checkpoints.list", input ?? {}, options),
+        list: (id, options) =>
+          invoke("agentInstances.checkpoints.list", { id }, options),
         create: (id) =>
           invoke("agentInstances.checkpoints.create", {
             id,
@@ -399,8 +384,6 @@ export function createApiClient(): KagentApiClient {
             requestId: crypto.randomUUID(),
             name,
           }),
-        remove: (checkpointId) =>
-          invoke("agentInstances.checkpoints.delete", { checkpointId }),
       },
       shares: {
         list: (id, options) =>

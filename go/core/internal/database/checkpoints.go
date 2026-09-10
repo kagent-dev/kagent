@@ -384,83 +384,35 @@ func checkpointSnapshot(row agentInstanceCheckpointRow) *AgentInstanceTaskSnapsh
 	}
 }
 
-// CheckpointQuery narrows and orders a caller's checkpoints. An empty InstanceID spans
-// every conversation they own; an empty Filter matches everything; an empty SortField
-// is newest first.
-type CheckpointQuery struct {
-	InstanceID string
-	UserID     string
-	Filter     string
-	SortField  string
-	Descending bool
-	Offset     int
-	Limit      int
-}
-
-// ErrCheckpointQuery reports a listing that cannot be run, as opposed to one that failed.
-var ErrCheckpointQuery = errors.New("invalid checkpoint query")
-
-// The sortable columns, which are the indexed ones: a checkpoint's timestamp and a
-// conversation's current name both live inside encoded payloads. "created_at" orders by
-// id, which is UUIDv7 and so already chronological. Not state — a listing is READY
-// checkpoints only, so it would order every row by the same value.
-var checkpointSortFields = map[string]bool{"created_at": true, "conversation": true}
-
-// The page, and the count the filter matched, in one read.
-type checkpointPageRow struct {
-	agentInstanceCheckpointRow
-	TotalSize int
-}
-
-// ListAgentInstanceCheckpoints reads one page of a caller's READY checkpoints and the
-// count the filter matched. Retained checkpoints stay listable after their conversation
-// is deleted. A total of zero over an empty page means the offset is past the end.
-//
-// The ordering is passed as parameters rather than concatenated in, so the statement
-// stays preparable by TestInlineSQLPrepares and there is no ORDER BY to inject into.
-func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, query CheckpointQuery) ([]*apiv1alpha1.Checkpoint, int, error) {
-	if query.SortField != "" && !checkpointSortFields[query.SortField] {
-		return nil, 0, fmt.Errorf("%w: unsortable column %q", ErrCheckpointQuery, query.SortField)
-	}
+// ListAgentInstanceCheckpoints returns an owner's READY checkpoints for the source
+// instance in ascending ID order after afterID, up to limit. Retained checkpoints remain
+// listable after the source instance is deleted.
+func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence,
-		    snapshot_atespace, snapshot_uri, snapshot_content_scope, tag_uid, state, data,
-		    source_history_id, prepared_revision, source_name,
-		    (count(*) OVER ())::int AS total_size
-		FROM agent_instance_checkpoint
-		WHERE user_id = $1 AND state = 'READY'
-		  AND (NULLIF($2::text, '') IS NULL OR source_instance_id = NULLIF($2::text, '')::uuid)
-		  AND ($3::text = '' OR position(lower($3) IN lower(source_name)) > 0
-		                     OR position(lower($3) IN id::text) > 0)
-		ORDER BY
-		    (CASE WHEN $6::text = 'conversation' AND NOT $7::bool THEN lower(source_name) END) ASC,
-		    (CASE WHEN $6::text = 'conversation' AND $7::bool THEN lower(source_name) END) DESC,
-		    (CASE WHEN $6::text = 'created_at' AND NOT $7::bool THEN id END) ASC,
-		    (CASE WHEN $6::text = 'created_at' AND $7::bool THEN id END) DESC,
-		    -- Newest first when nothing was asked for, and the tiebreak when it was.
-		    id DESC
-		LIMIT $4 OFFSET $5
-	`, pgx.RowToStructByName[checkpointPageRow],
-		query.UserID, query.InstanceID, query.Filter,
-		int32(query.Limit), int32(query.Offset), query.SortField, query.Descending)
+		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
+		    source_name FROM agent_instance_checkpoint
+		WHERE source_instance_id = $1
+		  AND user_id = $2
+		  AND state = 'READY'
+		  AND (NULLIF($3::text, '') IS NULL OR id > NULLIF($3::text, '')::uuid)
+		ORDER BY id
+		LIMIT $4
+	`,
+		pgx.RowToStructByName[agentInstanceCheckpointRow], instanceID, userID, afterID, int32(limit),
+	)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list AgentInstance checkpoints: %w", err)
+		return nil, fmt.Errorf("list AgentInstance checkpoints: %w", err)
 	}
-
 	result := make([]*apiv1alpha1.Checkpoint, len(rows))
 	for i := range rows {
-		checkpoint, err := toAgentInstanceCheckpoint(rows[i].agentInstanceCheckpointRow)
+		checkpoint, err := toAgentInstanceCheckpoint(rows[i])
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
-		// Set after decoding: the stored payload predates the field.
-		checkpoint.ConversationName = rows[i].SourceName
 		result[i] = checkpoint
 	}
-	if len(rows) == 0 {
-		return result, 0, nil
-	}
-	return result, rows[0].TotalSize, nil
+	return result, nil
 }
 
 // BeginDeleteAgentInstanceCheckpoint marks an owned READY checkpoint DELETING and returns

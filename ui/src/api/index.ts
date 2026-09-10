@@ -83,8 +83,6 @@ export {
 } from "./hooks/useModels";
 export { usePrompt, usePrompts } from "./hooks/usePrompts";
 export { useNamespaces } from "./hooks/useNamespaces";
-export { useSnapshots } from "./hooks/useSnapshots";
-export type { Snapshot } from "./hooks/useSnapshots";
 export {
   useSubstrateActors,
   useSubstrateStatus,

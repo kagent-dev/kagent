@@ -26,17 +26,9 @@ export function CheckpointDivider({
   const theme = useTheme();
 
   return (
-    /*
-     * A group, not a separator.
-     *
-     * `separator` is on ARIA's presentational-children list, so everything inside one
-     * is pruned from the accessibility tree — which took the label and, worse, the only
-     * control in the application that forks a chat. The rule is drawn by the two
-     * pseudo-elements below and is decoration; this is a labelled group holding it.
-     */
     <div
       data-testid={`chat-checkpoint-mark-${checkpointId}`}
-      role="group"
+      role="separator"
       aria-label="Checkpoint"
       css={{
         display: "flex",

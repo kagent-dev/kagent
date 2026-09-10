@@ -446,8 +446,6 @@ export interface MockCheckpoint {
   id: string;
   agentInstanceId: string;
   headTaskId: string;
-  /** The conversation's name when it was taken, which is what a listing filters on. */
-  conversationName: string;
   createdAt: string;
 }
 
@@ -461,77 +459,21 @@ export const SEEDED_CHECKPOINT: MockCheckpoint = {
   id: "3f5b1c88-91d2-4a0e-b7c6-5d1f0a2e9b34",
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   headTaskId: "seed-task-1",
-  conversationName: "Tuesday cluster review",
   createdAt: "2025-01-04T10:15:00Z",
 };
 
-/**
- * A second seeded boundary, there to be deleted.
- *
- * The fixture suite runs every operation concurrently, so the delete case needs a
- * boundary that nothing else in the suite is reading — removing the one the fork case
- * forks would make the two races of each other.
- */
-export const DISPOSABLE_CHECKPOINT: MockCheckpoint = {
-  id: "8c2d9f14-6b03-4e77-90a5-1c7e3b8d2f60",
-  // A different conversation, and a different turn within it: two boundaries at one
-  // turn draw one line between them, and the fork on it would silently belong to
-  // whichever won. It is also a state the composer's guard exists to prevent.
-  agentInstanceId: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
-  headTaskId: "seed-task-2",
-  conversationName: "Deploy summary",
-  createdAt: "2025-01-04T10:20:00Z",
-};
+const checkpoints: MockCheckpoint[] = [SEEDED_CHECKPOINT];
 
-/**
- * Kept in `sessionStorage`, beside the transcripts.
- *
- * A module array would have made a boundary saved in mock mode disappear on reload
- * while the messages it marked stayed — the fixture contradicting the controller,
- * which is the one thing a fixture must not do. `null` rather than `[]` means "never
- * written", so a tab that has deleted the seeded pair keeps them deleted.
- */
-const CHECKPOINTS_KEY = "kagent.mock.checkpoints";
-
-function readAll(): MockCheckpoint[] {
-  try {
-    const stored = window.sessionStorage.getItem(CHECKPOINTS_KEY);
-    if (stored === null) return [SEEDED_CHECKPOINT, DISPOSABLE_CHECKPOINT];
-    return JSON.parse(stored) as MockCheckpoint[];
-  } catch {
-    return [];
-  }
-}
-
-function writeAll(rows: MockCheckpoint[]): void {
-  try {
-    window.sessionStorage.setItem(CHECKPOINTS_KEY, JSON.stringify(rows));
-  } catch {
-    // Storage can be refused; the list is then whatever this load has seeded, which
-    // is the same answer as a tab that has saved nothing.
-  }
-}
-
-/** Every boundary saved against one conversation, or all of them. */
-export function readCheckpoints(agentInstanceId?: string): MockCheckpoint[] {
-  const all = readAll();
-  return agentInstanceId ? all.filter((row) => row.agentInstanceId === agentInstanceId) : all;
+/** Every boundary saved against one conversation. */
+export function readCheckpoints(agentInstanceId: string): MockCheckpoint[] {
+  return checkpoints.filter((row) => row.agentInstanceId === agentInstanceId);
 }
 
 export function checkpointById(id: string): MockCheckpoint | undefined {
-  return readAll().find((row) => row.id === id);
+  return checkpoints.find((row) => row.id === id);
 }
 
 export function saveCheckpoint(row: MockCheckpoint): MockCheckpoint {
-  writeAll([...readAll(), row]);
+  checkpoints.push(row);
   return row;
-}
-
-/** Removes one, the way `DeleteCheckpoint` releases the snapshot it was holding. */
-export function deleteCheckpoint(id: string): boolean {
-  const rows = readAll();
-  const kept = rows.filter((row) => row.id !== id);
-  if (kept.length === rows.length) return false;
-  writeAll(kept);
-  return true;
 }

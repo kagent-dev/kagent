@@ -54,11 +54,7 @@ export function AppSidebar() {
       // Still collapses itself on a narrow viewport, and the button below drives
       // the same state — so a reader who collapses it by hand does not have it
       // spring open again on the next resize.
-      //
-      // `xl` rather than `lg`: this is the middle of three columns that fold as the
-      // window narrows — the chat's agent panel first, this, then the chat's rail —
-      // and at `lg` it went after both of them.
-      breakpoint="xl"
+      breakpoint="lg"
       collapsed={collapsed}
       onCollapse={setCollapsed}
       collapsedWidth={theme.layout.sidebarCollapsedWidth}

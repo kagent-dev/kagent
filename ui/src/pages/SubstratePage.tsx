@@ -23,7 +23,6 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { PageControls, usePageStack } from "@/components/table/PageControls";
-import { FILTER_DEBOUNCE_MS, useDebounced } from "@/components/table/useDebounced";
 import {
   useNamespaces,
   useSubstrateActors,
@@ -716,6 +715,18 @@ const PAGE_SIZE = 100;
  * request against a cluster with hundreds of thousands of actors. Long enough to
  * coalesce typing, short enough not to feel like lag.
  */
+const FILTER_DEBOUNCE_MS = 300;
+
+/** A value that follows its input, but only once it has stopped changing. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
+}
+
 /** One paged table's order: which column, and which way. */
 type PagedSort<Field extends string> = {
   field: Field | "default";

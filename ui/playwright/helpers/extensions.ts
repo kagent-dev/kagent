@@ -56,7 +56,6 @@ export const CORE_NAV_ORDER = [
   "nav-dashboard",
   "nav-agents",
   "nav-scheduledRuns",
-  "nav-snapshots",
   "nav-models",
   "nav-mcpServers",
   "nav-prompts",

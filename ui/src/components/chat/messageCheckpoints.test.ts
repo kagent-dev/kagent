@@ -14,7 +14,7 @@ const saved = (
   id: string,
   headTaskId: string,
   state: Checkpoint["state"] = "ready",
-): Checkpoint => ({ id, agentInstanceId: "instance", conversationName: "", headTaskId, state });
+): Checkpoint => ({ id, agentInstanceId: "instance", headTaskId, state });
 
 const TRANSCRIPT = [
   said("m1", "user", "task-1"),

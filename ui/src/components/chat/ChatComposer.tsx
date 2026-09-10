@@ -164,9 +164,6 @@ export function ChatComposer({
       />
 
       <Space size={8}>
-        {/* antd renders a real `<button disabled>`, which fires no pointer events —
-            so the disabled button gets its pointer events back below, or the tooltip
-            would be invisible in the one state where it has something to say. */}
         {onCheckpoint ? (
           <Tooltip title="Checkpoint this chat">
             {/* Icon only: the box beside it is the point of this row, and a second
@@ -179,9 +176,7 @@ export function ChatComposer({
               loading={isCheckpointing}
               disabled={disabled || isStreaming || !canCheckpoint}
               onClick={onCheckpoint}
-              css={{
-                "&:disabled": { opacity: 1, pointerEvents: "auto", cursor: "not-allowed" },
-              }}
+              css={{ "&:disabled": { opacity: 1 } }}
             />
           </Tooltip>
         ) : null}

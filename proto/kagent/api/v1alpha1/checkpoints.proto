@@ -33,10 +33,6 @@ message Checkpoint {
   CheckpointState state = 5;
   google.protobuf.Timestamp created_at = 6;
   Failure failure = 7;
-  // What the conversation was called when this was taken, so a list across
-  // conversations can name each row without a read per row. It is also the only name a
-  // listing can filter or order by. Empty for a conversation that never had one.
-  string conversation_name = 8;
 }
 
 message CreateCheckpointRequest {
@@ -59,44 +55,14 @@ message GetCheckpointResponse {
   Checkpoint checkpoint = 1;
 }
 
-// Sortable columns. `CONVERSATION` orders by `Checkpoint.conversation_name`, the name
-// the conversation had when the checkpoint was taken. There is no sort by state: a
-// listing is READY checkpoints only, so every row would carry the same value.
-enum CheckpointSortField {
-  CHECKPOINT_SORT_FIELD_UNSPECIFIED = 0;
-  CHECKPOINT_SORT_FIELD_CREATED_AT = 1;
-  CHECKPOINT_SORT_FIELD_CONVERSATION = 2;
-}
-
-message CheckpointSortBy {
-  CheckpointSortField field = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  SortDirection direction = 2 [(buf.validate.field).enum.defined_only = true];
-}
-
 message ListCheckpointsRequest {
-  // Optional. Empty lists every checkpoint the caller owns, across their conversations.
-  string agent_instance_id = 1 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE
-  ];
+  string agent_instance_id = 1 [(buf.validate.field).string.uuid = true];
   PageRequest page = 2;
-  // A plain substring, matched case-insensitively against
-  // `Checkpoint.conversation_name` and the checkpoint id. Empty matches everything.
-  string filter = 3 [(buf.validate.field).string.max_len = 256];
-  // Unset is newest first.
-  CheckpointSortBy sort_by = 4;
 }
 
 message ListCheckpointsResponse {
   repeated Checkpoint checkpoints = 1;
   PageResponse page = 2;
-  // Every checkpoint the filter matches, not just this page — what a page control
-  // needs to say "1-25 of 137" without reading them all. Zero when the offset is past
-  // the end, which is the caller's cue to ask for the first page.
-  int32 total_size = 3;
 }
 
 message DeleteCheckpointRequest {
