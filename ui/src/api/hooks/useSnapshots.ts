@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { apiClient } from "../client";
 import type { AgentInstance } from "../domain/agentInstances";
 import type { Checkpoint, CheckpointSort } from "../domain/checkpoints";
+import { useAgentInstances } from "./useAgentInstances";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
 /** A saved boundary, with the conversation it was taken of when that still exists. */
@@ -30,31 +32,44 @@ export interface SnapshotQuery {
  * One page of the caller's saved boundaries, narrowed and ordered by the controller.
  *
  * Nothing is re-narrowed here: a client-side filter over a server-side page reports "no
- * matches" about rows it never read. The one extra request, for conversations, is not
- * per row — it only says which names can link somewhere.
+ * matches" about rows it never read. Turning a page is one request, because the
+ * conversations are read under their own key rather than inside this one — they do not
+ * depend on the query, and failing to read them costs the links, not the page.
  */
 export function useSnapshots(query: SnapshotQuery): ApiResource<SnapshotPage> {
   const sortKey = query.sort.map((by) => `${by.field}:${by.descending ? "d" : "a"}`).join(",");
-  return useApiResource(
+  const page = useApiResource(
     ["snapshots.list", query.filter, sortKey, query.page, query.pageSize],
-    async () => {
-      const [page, conversations] = await Promise.all([
-        apiClient.agentInstances.checkpoints.list({
-          filter: query.filter,
-          sort: query.sort,
-          limit: query.pageSize,
-          offset: (query.page - 1) * query.pageSize,
-        }),
-        apiClient.agentInstances.list(),
-      ]);
-      const byId = new Map(conversations.map((row) => [row.id, row]));
-      return {
-        snapshots: page.checkpoints.map((checkpoint) => ({
-          ...checkpoint,
-          conversation: byId.get(checkpoint.agentInstanceId),
-        })),
-        total: page.total,
-      };
-    },
+    () =>
+      apiClient.agentInstances.checkpoints.list({
+        filter: query.filter,
+        sort: query.sort,
+        limit: query.pageSize,
+        offset: (query.page - 1) * query.pageSize,
+      }),
   );
+  const conversations = useAgentInstances();
+
+  const data = useMemo<SnapshotPage | undefined>(() => {
+    if (!page.data) return undefined;
+    const byId = new Map((conversations.data ?? []).map((row) => [row.id, row]));
+    return {
+      snapshots: page.data.checkpoints.map((checkpoint) => ({
+        ...checkpoint,
+        conversation: byId.get(checkpoint.agentInstanceId),
+      })),
+      total: page.data.total,
+    };
+  }, [page.data, conversations.data]);
+
+  return {
+    ...page,
+    data,
+    // Counted here rather than left to the shared rule, which reads a two-key object as
+    // "not empty" and so never lets the page say there is nothing saved.
+    isEmpty: !page.isLoading && !page.error && data?.snapshots.length === 0,
+    refresh: async () => {
+      await Promise.all([page.refresh(), conversations.refresh()]);
+    },
+  };
 }

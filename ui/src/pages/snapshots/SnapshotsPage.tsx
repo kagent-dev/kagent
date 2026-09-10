@@ -14,6 +14,7 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, paginationFor, sortOrderFor } from "@/components/table/listTable";
+import { FILTER_DEBOUNCE_MS, useDebounced } from "@/components/table/useDebounced";
 import { deleteSnapshots, deletedMessage } from "./deleteSnapshots";
 
 const { Text } = Typography;
@@ -76,8 +77,12 @@ export function SnapshotsPage() {
     return [{ field, descending: view.sort?.direction === "desc" }];
   }, [view.sort]);
 
+  // Debounced, because the filter travels to the controller: a five-letter search
+  // undebounced is five reads, four of them stale before they land.
+  const filter = useDebounced(view.query.trim(), FILTER_DEBOUNCE_MS);
+
   const { data, isLoading, error, isEmpty, refresh } = useSnapshots({
-    filter: view.query,
+    filter,
     sort,
     page: view.page,
     pageSize: PAGE_SIZE,
