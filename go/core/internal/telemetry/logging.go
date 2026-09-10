@@ -3,14 +3,15 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
 	otelzap "go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	logglobal "go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
@@ -32,14 +33,14 @@ func InitLoggerProvider(ctx context.Context, serviceVersion string) (func(contex
 		return func(context.Context) error { return nil }, nil
 	}
 
+	res, err := newTelemetryResource(ctx, serviceVersion)
+	if err != nil {
+		return nil, fmt.Errorf("create logging resource: %w", err)
+	}
+
 	exporter, err := autoexport.NewLogExporter(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create log exporter: %w", err)
-	}
-
-	res, err := newTelemetryResource(ctx, serviceVersion)
-	if err != nil {
-		return nil, err
 	}
 
 	lp := sdklog.NewLoggerProvider(
@@ -52,24 +53,37 @@ func InitLoggerProvider(ctx context.Context, serviceVersion string) (func(contex
 	return lp.Shutdown, nil
 }
 
-// ControllerZapOpts returns controller-runtime zap options. When
-// OTEL_LOGGING_ENABLED is set it additively tees the controller's stdout zap
-// core with an otelzap bridge core, routing the controller's own logs through
-// the global OTLP LoggerProvider while preserving stdout logging. When disabled
-// it returns no options, leaving the logger byte-identical to upstream.
-//
-// InitLoggerProvider must be called first so the bridge core binds to the
-// configured global LoggerProvider.
-func ControllerZapOpts() []crzap.Opts {
+// ControllerLogHandler adds an otelzap bridge while preserving the original
+// handler's output and level filtering. The global logger provider delegates
+// to the SDK once InitLoggerProvider runs, including for early startup loggers.
+func ControllerLogHandler(handler slog.Handler) slog.Handler {
 	if !env.OtelLoggingEnabled.Get() {
-		return nil
+		return handler
 	}
 	bridgeCore := otelzap.NewCore(loggerBridgeName,
 		otelzap.WithLoggerProvider(logglobal.GetLoggerProvider()),
 	)
-	return []crzap.Opts{
-		crzap.RawZapOpts(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(core, bridgeCore)
-		})),
+	return &controllerLogHandler{
+		Handler: handler,
+		output:  slog.NewMultiHandler(handler, logr.ToSlogHandler(zapr.NewLogger(zap.New(bridgeCore)))),
 	}
+}
+
+type controllerLogHandler struct {
+	slog.Handler
+	output slog.Handler
+}
+
+var _ slog.Handler = (*controllerLogHandler)(nil)
+
+func (handler *controllerLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	return handler.output.Handle(ctx, record)
+}
+
+func (handler *controllerLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &controllerLogHandler{Handler: handler.Handler.WithAttrs(attrs), output: handler.output.WithAttrs(attrs)}
+}
+
+func (handler *controllerLogHandler) WithGroup(name string) slog.Handler {
+	return &controllerLogHandler{Handler: handler.Handler.WithGroup(name), output: handler.output.WithGroup(name)}
 }

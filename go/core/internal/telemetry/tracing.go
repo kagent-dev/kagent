@@ -33,14 +33,14 @@ func InitTracerProvider(ctx context.Context, serviceVersion string) (func(contex
 		return func(context.Context) error { return nil }, nil
 	}
 
+	res, err := newTelemetryResource(ctx, serviceVersion)
+	if err != nil {
+		return nil, fmt.Errorf("create tracing resource: %w", err)
+	}
+
 	exporter, err := autoexport.NewSpanExporter(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create span exporter: %w", err)
-	}
-
-	res, err := newTelemetryResource(ctx, serviceVersion)
-	if err != nil {
-		return nil, err
 	}
 
 	tp := sdktrace.NewTracerProvider(
