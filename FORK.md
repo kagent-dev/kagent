@@ -86,8 +86,9 @@ may be listed there.
 Upstream automation the fork does not need is off: Dependabot version updates are disabled on this fork (a
 fork's default; dependency updates arrive through the re-pin), `stalebot`, `conventional-label` and
 `label-pull-requests` are disabled workflows (repository setting, not a file edit), `migration-immutability`
-only fires on pull requests to `main`/`release/**`, which do not exist here. The mirror is pushed with the
-workflow's own token, so upstream's workflows never run on `main`.
+only fires on pull requests to `main`/`release/**`, which do not exist here. Upstream's workflow files do start
+when the mirror is pushed (the push has to be made as the App — see "The mirror"); the sync cancels those runs
+within seconds, so a cancelled run per mirrored branch or tag in the Actions tab is expected, not a failure.
 
 ## Re-pin
 
@@ -95,7 +96,8 @@ The line is rebased onto upstream `main` weekly (Monday 05:00 UTC) by `.github/w
 also on demand (`gh workflow run sync-upstream.yaml`, inputs `upstream_ref`, `dry_run`). One run:
 
 1. fast-forwards the mirror — `main`, the `release/v*.x` branches, the tags — to upstream (`scripts/fork/mirror.sh`;
-   refuses if a mirrored branch was edited; never moves or deletes a ref);
+   refuses if a mirrored branch was edited; never moves or deletes a ref) and cancels the runs upstream's own
+   workflow files start at the mirrored refs (`scripts/fork/mirror-quiet.sh`);
 2. rebases the carried commits onto the upstream head into a candidate branch `sync/upstream-<date>-<sha7>`
    (`scripts/fork/repin.sh`; commits upstream merged in the meantime are dropped and named in the report,
    with the upstream commit they landed as);
@@ -125,7 +127,7 @@ CANDIDATE=sync/upstream-$(date -u +%Y%m%d)-manual scripts/fork/repin.sh   # exit
 git push origin "$CANDIDATE"                      # ci.yaml + image-scan.yaml run on sync/** ; wait for ci-ok and scan-ok
 git push --force-with-lease=refs/heads/poc/agent-platform origin "$CANDIDATE":poc/agent-platform
 git push origin --delete "$CANDIDATE"
-scripts/fork/mirror.sh "$(gh auth token)"         # the mirror — a person's push runs upstream's workflows at the mirrored refs once (and Tag and Push for new tags); prefer: gh workflow run sync-upstream.yaml -f mirror_only=true
+scripts/fork/mirror.sh "$(gh auth token)" && scripts/fork/mirror-quiet.sh "<ISO time before the push>" mirror-pushed.txt   # or: gh workflow run sync-upstream.yaml -f mirror_only=true
 scripts/fork/ledger-append.sh re-pins.md '| <date> | <old pin> | <new pin> | <old head> → <new head> | <replayed> | <dropped> | manual |'
 ```
 
@@ -136,8 +138,11 @@ after (the same discipline as lifting `enforce_admins` for a guarded merge). Nev
 
 ### The mirror
 
-`main`, the `release/v*.x` branches and the tags are fast-forwarded by the sync with the workflow token
-(`scripts/fork/mirror.sh`; `protect-mirror-main` ruleset on `main`: no deletion, no force-push). Upstream's CI
+`main`, the `release/v*.x` branches and the tags are fast-forwarded by the sync as the App (`scripts/fork/mirror.sh`;
+`protect-mirror-main` ruleset on `main`: no deletion, no force-push). The workflow's own token cannot be used:
+GitHub refuses any push that creates or updates a file under `.github/workflows` without the `workflows`
+permission, mirrored upstream commits included, and `GITHUB_TOKEN` never has it. An App push starts upstream's
+workflow files at the mirrored refs; `scripts/fork/mirror-quiet.sh` cancels them right after. Upstream's CI
 resolves the upgrade-test baseline from the fork's own release branches and tags, so the mirror must carry them
 (the fork's own release tags, when they come, need a version scheme that cannot collide with upstream's `v*`).
 If a mirrored branch was ever edited, the sync refuses to fast-forward it; restore it with

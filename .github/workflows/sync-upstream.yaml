@@ -8,12 +8,14 @@ name: Sync with upstream
 # commit conflicts or a check fails it opens a pull request against the
 # consumed branch that names the cause, and pushes nothing else.
 #
-# Who pushes matters: the mirror and the ledger are pushed with GITHUB_TOKEN
-# (no workflow reacts to such a push — upstream's CI must not run on the
-# mirror); the candidate and the consumed branch are pushed with a token of
-# the org's heraldbot GitHub App (contents + workflows write; the ruleset's
-# bypass actor), so CI Build, Scan images and Tag and Push do run and commits
-# that touch .github/workflows are accepted.
+# Who pushes matters. The ledger is pushed with GITHUB_TOKEN (no workflow
+# reacts). Everything else — the mirror, the candidate, the consumed branch —
+# is pushed with a token of the org's heraldbot GitHub App (contents +
+# workflows write; the ruleset's bypass actor): GITHUB_TOKEN may not update a
+# workflow file, not even in a mirrored upstream commit, and the App may. An
+# App push starts workflows, wanted on the candidate and the consumed branch
+# (CI Build, Scan images, Tag and Push) and unwanted on the mirrored refs,
+# where upstream's own files would run — the sync cancels those right away.
 on:
   schedule:
     - cron: '0 5 * * 1' # Monday 05:00 UTC
@@ -33,6 +35,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # cancel the runs upstream's workflow files start on freshly mirrored refs
 
 concurrency:
   group: sync-upstream
@@ -74,17 +77,21 @@ jobs:
           git fetch -q origin main "$CONSUMED"
 
       - name: Fast-forward the mirror (main, release branches, tags)
-        # GITHUB_TOKEN on purpose: a push made with it triggers no workflow, so
-        # upstream's CI does not run on the mirrored refs and mirrored tags do
-        # not start Tag and Push.
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          BOT_TOKEN: ${{ steps.app.outputs.token }}
         run: |
+          date -u +%FT%TZ > mirror-started-at
           if [ "$DRY_RUN" = true ]; then
-            scripts/fork/mirror.sh "$GITHUB_TOKEN" --check
+            scripts/fork/mirror.sh "$BOT_TOKEN" --check
           else
-            scripts/fork/mirror.sh "$GITHUB_TOKEN"
+            scripts/fork/mirror.sh "$BOT_TOKEN"
           fi
+
+      - name: Quiet the mirror
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fork/mirror-quiet.sh "$(cat mirror-started-at)" mirror-pushed.txt
 
       - name: Rebase the carried commits
         id: repin
