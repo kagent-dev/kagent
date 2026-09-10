@@ -97,7 +97,7 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_history (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\x')
 	`); err != nil {
 		t.Fatal(err)
@@ -189,7 +189,7 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_history (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\x')
 	`); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestAgentInstanceReplyArchivesStatusMessageAtomically(t *testing.T) {
 	ctx := context.Background()
 	instanceID := "11111111-1111-4111-8111-111111111111"
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_history (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\\x00')
 	`); err != nil {
 		t.Fatal(err)
@@ -289,7 +289,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)
+		INSERT INTO agent_history (id, user_id, context_id) VALUES ($1, 'alice', $1)
 	`, instanceID); err != nil {
 		t.Fatal(err)
 	}
@@ -649,7 +649,7 @@ func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *te
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO a2a_context (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
+		INSERT INTO agent_history (id, user_id, context_id) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', '11111111-1111-4111-8111-111111111111');
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ('11111111-1111-4111-8111-111111111111', 'alice', 'request-1', '11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111', 'AGENT_INSTANCE_STATE_READY', '\x')
 	`); err != nil {
 		t.Fatal(err)

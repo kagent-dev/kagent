@@ -378,10 +378,10 @@ func insertAgentInstanceRecords(ctx context.Context, db dbExecutor, instance *ap
 		parentHistorySequence = &source.HistorySequence
 	}
 	if err := execSQL(ctx, db, `
-		INSERT INTO a2a_context (id, user_id, context_id, parent_history_id, parent_history_sequence)
+		INSERT INTO agent_history (id, user_id, context_id, parent_history_id, parent_history_sequence)
 		VALUES ($1, $2, $3, $4, $5)
 	`, historyID, instance.Creator, instance.ContextId, parentHistoryID, parentHistorySequence); err != nil {
-		return agentInstanceRow{}, fmt.Errorf("insert A2A context: %w", err)
+		return agentInstanceRow{}, fmt.Errorf("insert agent history: %w", err)
 	}
 	return queryOne(ctx, db, `
 		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, prepared_revision,

@@ -2,12 +2,12 @@
 
 ## Durable interaction model
 
-`AgentInstance` represents ephemeral compute. An A2A context durably owns its
+`AgentInstance` represents ephemeral compute. An `agent_history` row durably owns its
 tasks and ordered events, allowing interaction history to remain as an audit trail
 after compute is removed. New instances allocate independent instance, wire A2A
 context, and durable history IDs. `agent_instance.history_id` selects the history;
 `agent_instance.context_id` binds its public context. A composite foreign key
-ensures that binding agrees with `a2a_context`. A history belongs to at most one
+ensures that binding agrees with `agent_history`. A history belongs to at most one
 live instance, while multiple fork authorities may use the same wire context.
 
 The core PostgreSQL records are:
@@ -18,7 +18,7 @@ The core PostgreSQL records are:
 | `agent_template_harness_pair` | Pair status and latest successful revision |
 | `agent_instance` | Compute identity, pinned revision, lifecycle phase, and Actor identity |
 | `agent_instance_share` | Instance authorization grants |
-| `a2a_context` | Durable history scope, wire A2A context binding, and parent history/cutoff |
+| `agent_history` | One durable history branch, its wire A2A context binding, and parent history/cutoff |
 | `agent_instance_task` | Rebuildable current A2A task state and query indexes |
 | `agent_instance_task_event` | Authoritative append-only task and message events, with creation and runtime-boundary metadata |
 | `agent_instance_checkpoint` | Named immutable snapshot/history boundary |
@@ -40,16 +40,16 @@ without duplicating SQL. Transaction boundaries remain with the owning operation
 flowchart TD
     PAIR[Harness + AgentTemplate pair] --> REV[runtime revision]
     REV --> INSTANCE[AgentInstance]
-    INSTANCE --> CONTEXT[history scope + wire context]
-    CONTEXT --> EVENT[immutable ordered task events]
+    INSTANCE -->|history_id| HISTORY[agent_history]
+    HISTORY --> EVENT[immutable ordered task events]
     EVENT -->|replay| TASK[materialized task views]
-    CONTEXT --> CHECKPOINT[checkpoint boundary]
+    HISTORY --> CHECKPOINT[checkpoint boundary]
     REV --> CHECKPOINT
     CHECKPOINT --> TAG[Substrate snapshot tag]
     CHECKPOINT --> FORK[forked AgentInstance]
-    FORK --> NEWCTX[new history scope, same wire context]
-    NEWCTX -->|parent history + cutoff| CONTEXT
-    EVENT -->|copy through checkpoint cutoff| NEWCTX
+    FORK -->|history_id| NEWHISTORY[new agent_history, same wire context]
+    NEWHISTORY -->|parent history + cutoff| HISTORY
+    EVENT -->|copy through checkpoint cutoff| NEWHISTORY
 ```
 
 ## Checkpoint creation
@@ -77,7 +77,7 @@ cutoff in the same transaction as the runtime boundary reference. Later replies
 append events beyond that cutoff and cannot change the saved task state.
 The head identifies the task whose snapshot
 covers the latest history event, including when an older paused task resumes. The source AgentInstance may be
-deleted while its context and checkpoint remain.
+deleted while its history and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint inside any retained fork history's inherited prefix cannot
@@ -89,7 +89,7 @@ Tag's copied snapshot with the Tag.
 
 ## Forking
 
-History ancestry is recorded directly on `a2a_context`: `parent_history_id` and
+History ancestry is recorded directly on `agent_history`: `parent_history_id` and
 `parent_history_sequence` identify the source history and the cutoff copied from
 it. Roots have neither field. Fork creation sets both fields atomically with the
 new instance and never changes them. Each new history points to an existing
