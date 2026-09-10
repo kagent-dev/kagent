@@ -75,9 +75,9 @@ The checkpoint retains source-instance provenance, source history, prepared
 revision, name, head task, and history sequence. Reservation saves an event
 cutoff in the same transaction as the runtime boundary reference. Later replies
 append events beyond that cutoff and cannot change the saved task state.
-The head identifies the task whose snapshot
-covers the latest history event, including when an older paused task resumes. The source AgentInstance may be
-deleted while its history and checkpoint remain.
+The head identifies the task whose snapshot covers the latest history event,
+including when an older paused task resumes and reaches a terminal state. The
+source AgentInstance may be deleted while its history and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint inside any retained fork history's inherited prefix cannot
@@ -107,10 +107,9 @@ Forking creates a new AgentInstance authority and durable history scope. It
 preserves wire context, task, message, artifact IDs, and request deduplication
 metadata while copying events through the saved cutoff and reconstructing task
 views from those events. It never reads the source's current task views. It creates a
-separate Actor from the checkpoint's snapshot tag. Private runtime session IDs and
-opaque paused-tool references therefore remain valid without runtime-specific
-rewriting. New work appends only to the fork's history; source history and the
-checkpoint remain immutable. The copied head boundary
+separate Actor from the checkpoint's snapshot tag. Private runtime session IDs
+remain valid without runtime-specific rewriting. New work appends only to the
+fork's history; it does not mutate the source history or checkpoint. The copied head boundary
 uses the retained Tag URI, allowing a fresh fork to be checkpointed before its
 first turn. Fork creation verifies the Tag UID and URI as well as the Actor's
 source Tag, suspended state, template, and external snapshot.
