@@ -77,7 +77,13 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 }
 
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
-var BearerTokenKey = &contextKey{}
+var BearerTokenKey = &contextKey{name: "bearer-token"}
+
+// SessionIDKey is the context key for storing the ADK session ID. It exists
+// because ADK's ToolContext.SessionID method stops being reachable once
+// http.Client wraps the request context in a deadline; the A2A executor stamps
+// the value here so the outbound MCP path can recover it.
+var SessionIDKey = &contextKey{name: "session-id"}
 
 // PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
 // is enabled, so every model/embedding provider resolves passthrough the same way.
@@ -94,7 +100,12 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 	return token, true
 }
 
-type contextKey struct{}
+// contextKey is named so every key is a distinct, non-zero-size allocation:
+// pointers to zero-size structs may share an address, which would make two keys
+// compare equal and let one value silently overwrite another.
+type contextKey struct{ name string }
+
+func (k *contextKey) String() string { return "kagent context key " + k.name }
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {

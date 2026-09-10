@@ -78,6 +78,108 @@ func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	}
 }
 
+// TestHeaderProvider_RecoversSessionID pins the identity HeaderProvider presents
+// for each shape of context it can be handed on the outbound MCP path. The
+// deadline-wrapped case is the regression: a type assertion stops matching there.
+func TestHeaderProvider_RecoversSessionID(t *testing.T) {
+	t.Parallel()
+
+	const (
+		sessionID      = "01a01e53-cfc7-7c25-9783-d0e5203b6451"
+		exchangedToken = "EXCHANGED-STS-TOKEN"
+	)
+
+	// valueCtx is the context the A2A executor produces: the session ID stored
+	// as a value, not exposed as a method.
+	valueCtx := func() context.Context {
+		return context.WithValue(context.Background(), kagentmodels.SessionIDKey, sessionID)
+	}
+
+	tests := []struct {
+		name  string
+		ctx   func(t *testing.T) context.Context
+		cache bool // seed the exchanged token for sessionID
+		want  string
+	}{
+		{
+			name:  "session as context value",
+			ctx:   func(*testing.T) context.Context { return valueCtx() },
+			cache: true,
+			want:  "Bearer " + exchangedToken,
+		},
+		{
+			name: "session as context value, wrapped in a deadline context",
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithTimeout(valueCtx(), time.Minute)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			cache: true,
+			want:  "Bearer " + exchangedToken,
+		},
+		{
+			// A caller still holding ADK's ToolContext keeps working.
+			name: "session only via SessionID()",
+			ctx: func(*testing.T) context.Context {
+				return fakeSessionContext{Context: context.Background(), sessionID: sessionID}
+			},
+			cache: true,
+			want:  "Bearer " + exchangedToken,
+		},
+		{
+			// Startup toolset discovery: a plain context, no user to act for.
+			name: "no session",
+			ctx:  func(*testing.T) context.Context { return context.Background() },
+			want: "",
+		},
+		{
+			// A user is present but their exchange produced nothing: no header,
+			// so the upstream rejects rather than seeing another identity.
+			name: "session present but no cached token",
+			ctx:  func(*testing.T) context.Context { return valueCtx() },
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+			if tt.cache {
+				plugin.setCachedToken(sessionID, exchangedToken, 0)
+			}
+
+			if got := plugin.HeaderProvider(tt.ctx(t))["Authorization"]; got != tt.want {
+				t.Fatalf("Authorization header = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHeaderProvider_ContextValueBeatsSessionIDMethod: when both mechanisms
+// disagree, the value the executor stamped for this request wins.
+func TestHeaderProvider_ContextValueBeatsSessionIDMethod(t *testing.T) {
+	t.Parallel()
+
+	const (
+		valueSession  = "session-from-value"
+		methodSession = "session-from-method"
+	)
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken(valueSession, "TOKEN-FOR-VALUE", 0)
+	plugin.setCachedToken(methodSession, "TOKEN-FOR-METHOD", 0)
+
+	headers := plugin.HeaderProvider(fakeSessionContext{
+		Context:   context.WithValue(context.Background(), kagentmodels.SessionIDKey, valueSession),
+		sessionID: methodSession,
+	})
+
+	if got := headers["Authorization"]; got != "Bearer TOKEN-FOR-VALUE" {
+		t.Fatalf("Authorization header = %q, want %q", got, "Bearer TOKEN-FOR-VALUE")
+	}
+}
+
 func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T) {
 	t.Parallel()
 
