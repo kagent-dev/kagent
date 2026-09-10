@@ -117,28 +117,28 @@ func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, 
 	return task, true, nil
 }
 
-func (s *gatewayTestStore) ContinueAgentInstanceTask(ctx context.Context, id string, _ []byte, message *a2atype.Message) (*a2atype.Task, *a2atype.Task, error) {
+func (s *gatewayTestStore) ContinueAgentInstanceTask(ctx context.Context, id string, _ []byte, message *a2atype.Message) (*database.TaskContinuation, error) {
 	if s.taskErr != nil {
-		return nil, nil, s.taskErr
+		return nil, s.taskErr
 	}
 	if s.replay != nil {
-		return s.replay, nil, nil
+		return &database.TaskContinuation{Current: s.replay}, nil
 	}
 	if s.instance != nil && (s.instance.State != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || s.instance.Operation != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED) {
-		return nil, nil, database.ErrConflict
+		return nil, database.ErrConflict
 	}
 	waiting := s.task
 	if waiting == nil || waiting.ID != message.TaskID {
-		return nil, nil, database.ErrNotFound
+		return nil, database.ErrNotFound
 	}
 	if waiting.Status.State != a2atype.TaskStateInputRequired && waiting.Status.State != a2atype.TaskStateAuthRequired {
-		return nil, nil, database.ErrConflict
+		return nil, database.ErrConflict
 	}
 	submitted := *waiting
 	submitted.History = append([]*a2atype.Message{}, waiting.History...)
 	if question := waiting.Status.Message; question != nil {
 		if question.ID == "" {
-			return nil, nil, errors.New("stored task status message has no ID")
+			return nil, errors.New("stored task status message has no ID")
 		}
 		archived := *question
 		archived.TaskID, archived.ContextID = waiting.ID, waiting.ContextID
@@ -148,9 +148,9 @@ func (s *gatewayTestStore) ContinueAgentInstanceTask(ctx context.Context, id str
 	submitted.History = append(submitted.History, message)
 	submitted.Status = a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}
 	if err := s.StoreAgentInstanceTaskEvent(ctx, id, &submitted, message, nil); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return &submitted, waiting, nil
+	return &database.TaskContinuation{Current: &submitted, Previous: waiting}, nil
 }
 
 func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error) {

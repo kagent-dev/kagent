@@ -40,7 +40,7 @@ type instanceStore interface {
 	GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
-	ContinueAgentInstanceTask(context.Context, string, []byte, *a2atype.Message) (*a2atype.Task, *a2atype.Task, error)
+	ContinueAgentInstanceTask(context.Context, string, []byte, *a2atype.Message) (*database.TaskContinuation, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event, *database.AgentInstanceTaskSnapshot) error
@@ -555,22 +555,22 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
 	}
 	message.SetMeta(apia2a.TimelinePositionMetadataKey, time.Now().UTC().Format(time.RFC3339Nano))
-	task, waiting, err := g.store.ContinueAgentInstanceTask(ctx, instance.GetId(), requestHash, message)
+	continuation, err := g.store.ContinueAgentInstanceTask(ctx, instance.GetId(), requestHash, message)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, a2atype.ErrTaskNotFound
 	}
 	if err != nil {
 		return nil, g.storeError(ctx, err)
 	}
-	if waiting != nil {
+	if continuation.Previous != nil {
 		runtimeMessage := *message
 		runtimeMessage.Metadata = maps.Clone(message.Metadata)
-		if err := apia2a.AttachStoredTask(&runtimeMessage, waiting); err != nil {
+		if err := apia2a.AttachStoredTask(&runtimeMessage, continuation.Previous); err != nil {
 			return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to prepare task continuation")
 		}
 		req.Message = &runtimeMessage
 	}
-	return &preparedSend{instance: instance, task: task, dispatch: waiting != nil}, nil
+	return &preparedSend{instance: instance, task: continuation.Current, dispatch: continuation.Previous != nil}, nil
 }
 
 func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1.AgentInstance) error {

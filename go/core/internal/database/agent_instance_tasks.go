@@ -121,18 +121,27 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 	return result, created, nil
 }
 
+// TaskContinuation describes the same task before and after reply admission.
+type TaskContinuation struct {
+	// Current is the persisted task after admission, or its latest state on a retry.
+	Current *a2a.Task
+	// Previous is the waiting task before a newly admitted reply. It is nil on
+	// retries, which must not dispatch the reply again.
+	Previous *a2a.Task
+}
+
 // ContinueAgentInstanceTask atomically admits a reply to a waiting task, archives
 // the question and answer, and changes the task to SUBMITTED. The instance must be
 // READY with no lifecycle operation, creating checkpoint, or other active task.
 // Identical message/hash retries return the current task without dispatch, even
 // after its state advances; reused IDs with different content return
 // ErrIdempotencyConflict. Invalid human-input replies return ErrFailedPrecondition.
-// The second result is the prior waiting task, present
-// only for a new admission so the caller can restore runtime continuation state.
+// Previous is present only for a new admission, allowing the caller to restore
+// runtime continuation state. Retries return Current without another dispatch.
 // Missing instances/tasks return ErrNotFound; callers authorize access.
-func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message) (*a2a.Task, *a2a.Task, error) {
+func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message) (*TaskContinuation, error) {
 	if message == nil || message.ID == "" || message.TaskID == "" || len(requestHash) == 0 {
-		return nil, nil, fmt.Errorf("task reply requires message ID, task ID, and request hash")
+		return nil, fmt.Errorf("task reply requires message ID, task ID, and request hash")
 	}
 	var result, waiting *a2a.Task
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -222,9 +231,9 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		return nil
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("continue AgentInstance task: %w", err)
+		return nil, fmt.Errorf("continue AgentInstance task: %w", err)
 	}
-	return result, waiting, nil
+	return &TaskContinuation{Current: result, Previous: waiting}, nil
 }
 
 // taskInterruptedMessage explains a task terminated because its runtime no

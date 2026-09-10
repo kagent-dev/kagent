@@ -37,8 +37,8 @@ func TestContinuationAdmissionIsExclusive(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			instance, task := waitingTaskFixture(t, client)
 			type outcome struct {
-				task, waiting *a2a.Task
-				err           error
+				continuation *TaskContinuation
+				err          error
 			}
 			results := make(chan outcome, 2)
 			start := make(chan struct{})
@@ -50,8 +50,8 @@ func TestContinuationAdmissionIsExclusive(t *testing.T) {
 						reply.ID = "other-reply"
 					}
 					<-start
-					submitted, waiting, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte(reply.ID), reply)
-					results <- outcome{submitted, waiting, err}
+					continuation, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte(reply.ID), reply)
+					results <- outcome{continuation, err}
 				}()
 			}
 			close(start)
@@ -63,11 +63,11 @@ func TestContinuationAdmissionIsExclusive(t *testing.T) {
 					conflicts++
 					continue
 				}
-				require.Equal(t, a2a.TaskStateSubmitted, result.task.Status.State)
-				if result.waiting != nil {
+				require.Equal(t, a2a.TaskStateSubmitted, result.continuation.Current.Status.State)
+				if result.continuation.Previous != nil {
 					admissions++
-					require.Equal(t, a2a.TaskStateInputRequired, result.waiting.Status.State)
-					require.Equal(t, task.Status.Message.ID, result.waiting.Status.Message.ID)
+					require.Equal(t, a2a.TaskStateInputRequired, result.continuation.Previous.Status.State)
+					require.Equal(t, task.Status.Message.ID, result.continuation.Previous.Status.Message.ID)
 				}
 			}
 			require.Equal(t, 1, admissions)
@@ -119,9 +119,9 @@ func TestContinuationAdmissionBarriersAndReplay(t *testing.T) {
 				task.Status.State = a2a.TaskStateCompleted
 				require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, task, task, nil))
 			}
-			_, waiting, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
+			continuation, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
 			require.ErrorIs(t, err, wantErr)
-			require.Nil(t, waiting)
+			require.Nil(t, continuation)
 			stored, err := client.GetAgentInstanceTask(t.Context(), instance.Id, string(task.ID), nil)
 			require.NoError(t, err)
 			require.Equal(t, task.Status.State, stored.Status.State)
@@ -132,28 +132,29 @@ func TestContinuationAdmissionBarriersAndReplay(t *testing.T) {
 		instance, task := waitingTaskFixture(t, client)
 		reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
 		reply.TaskID, reply.ContextID = task.ID, task.ContextID
-		submitted, waiting, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
+		continuation, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
 		require.NoError(t, err)
-		require.NotNil(t, waiting)
+		require.NotNil(t, continuation.Previous)
+		submitted := continuation.Current
 		submitted.Status.State = a2a.TaskStateCompleted
 		require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, submitted, submitted, nil))
 		next := proto.CloneOf(instance)
 		next.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
 		_, err = client.TransitionAgentInstance(t.Context(), next, instance.State, instance.Operation)
 		require.NoError(t, err)
-		replay, waiting, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
+		replay, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
 		require.NoError(t, err)
-		require.Nil(t, waiting)
-		require.Equal(t, a2a.TaskStateCompleted, replay.Status.State)
-		require.Len(t, replay.History, 3)
-		_, _, err = client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("different configuration"), reply)
+		require.Nil(t, replay.Previous)
+		require.Equal(t, a2a.TaskStateCompleted, replay.Current.Status.State)
+		require.Len(t, replay.Current.History, 3)
+		_, err = client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("different configuration"), reply)
 		require.ErrorIs(t, err, ErrIdempotencyConflict)
 		initial := newAgentInstanceTask("ignored-task-ID", "initial")
 		initial.ContextID = instance.ContextId
-		replay, created, err := client.CreateAgentInstanceTask(t.Context(), instance.Id, []byte("initial request"), initial)
+		initialReplay, created, err := client.CreateAgentInstanceTask(t.Context(), instance.Id, []byte("initial request"), initial)
 		require.NoError(t, err)
 		require.False(t, created)
-		require.Equal(t, task.ID, replay.ID)
+		require.Equal(t, task.ID, initialReplay.ID)
 	})
 }
 
@@ -163,8 +164,9 @@ func TestContinuationReceiptSurvivesCheckpointFork(t *testing.T) {
 	instance, task := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
 	reply.TaskID, reply.ContextID = task.ID, task.ContextID
-	submitted, _, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
+	continuation, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
 	require.NoError(t, err)
+	submitted := continuation.Current
 	submitted.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted}
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, submitted, submitted,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "after-reply", ContentScope: "DATA"}))
@@ -178,21 +180,21 @@ func TestContinuationReceiptSurvivesCheckpointFork(t *testing.T) {
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, laterTask, laterTask, nil))
 	later := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("customers"))
 	later.TaskID, later.ContextID = laterTask.ID, laterTask.ContextID
-	_, _, err = client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("later hash"), later)
+	_, err = client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("later hash"), later)
 	require.NoError(t, err)
 	fork, _, err := client.ForkAgentInstance(t.Context(), checkpoint.Id, "alice", uuid.NewString(), uuid.NewString())
 	require.NoError(t, err)
 	fork, err = markAgentInstanceReady(t.Context(), client, fork.Id, "fork.example")
 	require.NoError(t, err)
-	replay, waiting, err := client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("reply hash"), reply)
+	replay, err := client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("reply hash"), reply)
 	require.NoError(t, err)
-	require.Nil(t, waiting, "an inherited reply must not dispatch again")
-	require.Equal(t, a2a.TaskStateCompleted, replay.Status.State)
-	require.Len(t, replay.History, 3)
-	require.Equal(t, reply.ID, replay.History[2].ID)
-	_, _, err = client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("changed request"), reply)
+	require.Nil(t, replay.Previous, "an inherited reply must not dispatch again")
+	require.Equal(t, a2a.TaskStateCompleted, replay.Current.Status.State)
+	require.Len(t, replay.Current.History, 3)
+	require.Equal(t, reply.ID, replay.Current.History[2].ID)
+	_, err = client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("changed request"), reply)
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
-	_, waiting, err = client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("later hash"), later)
+	missing, err := client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("later hash"), later)
 	require.ErrorIs(t, err, ErrNotFound, "a post-checkpoint task and its reply must not be inherited")
-	require.Nil(t, waiting)
+	require.Nil(t, missing)
 }

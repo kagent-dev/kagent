@@ -23,7 +23,7 @@ type replyBarrierStore struct {
 	ready   chan struct{}
 }
 
-func (s *replyBarrierStore) ContinueAgentInstanceTask(ctx context.Context, instanceID string, hash []byte, message *a2atype.Message) (*a2atype.Task, *a2atype.Task, error) {
+func (s *replyBarrierStore) ContinueAgentInstanceTask(ctx context.Context, instanceID string, hash []byte, message *a2atype.Message) (*database.TaskContinuation, error) {
 	if s.readers.Add(1) == 2 {
 		close(s.ready)
 	}
@@ -31,7 +31,7 @@ func (s *replyBarrierStore) ContinueAgentInstanceTask(ctx context.Context, insta
 	case <-s.ready:
 		return s.Client.ContinueAgentInstanceTask(ctx, instanceID, hash, message)
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
