@@ -50,12 +50,30 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
 		}
-		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
-			return fmt.Errorf("AgentInstance %s cannot accept a task in state %s with operation %s: %w", instanceID, instance.State, instance.Operation, ErrConflict)
-		}
 		historyID = instance.HistoryID
 		if task.ContextID != instance.ContextID.String() {
 			return fmt.Errorf("task context does not match AgentInstance")
+		}
+		existing, err := queryOne(ctx, tx, `
+			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+			FROM agent_instance_task WHERE history_id = $1 AND initial_message_id = $2
+		`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, message.ID)
+		if err == nil {
+			if !bytes.Equal(existing.RequestHash, requestHash) {
+				return ErrIdempotencyConflict
+			}
+			result, err = unmarshalAgentInstanceTask(existing.Data)
+			if err != nil {
+				return err
+			}
+			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result}, nil)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
+		}
+		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
+			return fmt.Errorf("AgentInstance %s cannot accept a task in state %s with operation %s: %w", instanceID, instance.State, instance.Operation, ErrConflict)
 		}
 		row, err := queryOne(ctx, tx, `
 			INSERT INTO agent_instance_task (
@@ -66,9 +84,6 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			    SELECT 1 FROM agent_instance_checkpoint
 			    WHERE source_instance_id = $8 AND state = 'CREATING'
 			)
-			ON CONFLICT (history_id, initial_message_id)
-			    WHERE initial_message_id IS NOT NULL
-			DO NOTHING
 			RETURNING history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
 			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
 		`,
@@ -76,26 +91,7 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 			task.Status.Timestamp, taskData, &message.ID, requestHash, instance.ID,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
-			row, err := queryOne(ctx, tx, `
-				SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-				    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-				    agent_instance_task
-				WHERE history_id = $1 AND initial_message_id = $2
-			`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, &message.ID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
-			}
-			if err != nil {
-				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
-			}
-			if !bytes.Equal(row.RequestHash, requestHash) {
-				return ErrIdempotencyConflict
-			}
-			result, err = unmarshalAgentInstanceTask(row.Data)
-			if err != nil {
-				return err
-			}
-			return loadAgentInstanceTaskHistories(ctx, tx, historyID, []*a2a.Task{result}, nil)
+			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
 		}
 		if err != nil {
 			if isActiveTaskConflict(err) {
@@ -259,137 +255,143 @@ func (c *Client) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID str
 		return fmt.Errorf("task and event are required")
 	}
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		// Serialize task transitions with checkpoint reservation, without holding
-		// a transaction across runtime or snapshot network calls.
 		instance, err := lockAgentInstance(ctx, tx, instanceID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		historyID := instance.HistoryID
-		if event.TaskInfo().ContextID != instance.ContextID.String() || task.ContextID != instance.ContextID.String() {
-			return fmt.Errorf("task event context does not match AgentInstance")
-		}
-		creating, err := queryOne(ctx, tx, `
-			SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $1 AND state = 'CREATING')
-		`, pgx.RowTo[bool], instance.ID)
-		if err != nil {
-			return err
-		}
-		if creating {
-			return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instanceID, ErrConflict)
-		}
-		var sequence int64
-		var stored *a2apb.Task
-		if row, err := queryOne(ctx, tx, `
-			SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
-			    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
-			    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
-		`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
-			stored = &a2apb.Task{}
-			if err := proto.Unmarshal(row.Data, stored); err != nil {
-				return fmt.Errorf("decode stored task: %w", err)
-			}
-			if _, err := pbconv.FromProtoTask(stored); err != nil {
-				return err
-			}
-			messages := stored.History
-			// Replies and status updates archive the old status message before replacing it.
-			// Use the stored protobuf so its nested fields survive in history too.
-			switch event.(type) {
-			case *a2a.Message, *a2a.TaskStatusUpdateEvent:
-				if message := stored.Status.Message; message != nil {
-					message.TaskId, message.ContextId = string(task.ID), task.ContextID
-					messages = append(messages, message)
-				}
-			}
-			if len(messages) > 0 {
-				sequence, err = storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages)
-				if err != nil {
-					return fmt.Errorf("archive AgentInstance task history: %w", err)
-				}
-			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
-		}
-		newTask := stored == nil
-		stored, durable, err := taskTransition(stored, task, event)
-		if err != nil {
-			return err
-		}
-		data, err := proto.Marshal(stored)
-		if err != nil {
-			return err
-		}
-		taskRow, err := saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
-		if err != nil {
-			if isActiveTaskConflict(err) {
-				return fmt.Errorf("AgentInstance %s already has an active task: %w", instanceID, ErrConflict)
-			}
-			return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
-		}
-		if newTask {
-			data, err := proto.Marshal(durable)
-			if err != nil {
-				return err
-			}
-			sequence, err = insertTaskEvent(ctx, tx, taskEventWrite{
-				HistoryID:        historyID,
-				TaskID:           &taskRow.ID,
-				Data:             data,
-				TaskPosition:     &taskRow.Position,
-				InitialMessageID: taskRow.InitialMessageID,
-				RequestHash:      taskRow.RequestHash,
-				CreatedAt:        &taskRow.CreatedAt,
-			})
-			if err != nil {
-				return fmt.Errorf("record task creation: %w", err)
-			}
-		}
-
-		messages := agentInstanceTaskEventMessages(task, event)
-		if len(messages) > 0 {
-			var err error
-			sequence, err = storeAgentInstanceTaskMessages(ctx, tx, historyID, string(event.TaskInfo().TaskID), instance.ContextID.String(), messages)
-			if err != nil {
-				return fmt.Errorf("store AgentInstance task history: %w", err)
-			}
-		}
-		if !newTask || snapshot != nil {
-			eventData, err := proto.Marshal(durable)
-			if err != nil {
-				return err
-			}
-			insert := taskEventWrite{
-				HistoryID: historyID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
-			}
-			if snapshot != nil {
-				insert.SnapshotAtespace, insert.SnapshotURI, insert.SnapshotContentScope = &snapshot.Atespace, &snapshot.URI, &snapshot.ContentScope
-			}
-			sequence, err = insertTaskEvent(ctx, tx, insert)
-			if err != nil {
-				return fmt.Errorf("store AgentInstance task event: %w", err)
-			}
-		}
-
-		if snapshot != nil {
-			if sequence == 0 {
-				return fmt.Errorf("snapshot has no history boundary")
-			}
-			if err := execSQL(ctx, tx, `
-				UPDATE agent_instance_task SET
-				    snapshot_atespace = $3,
-				    snapshot_uri = $4,
-				    snapshot_content_scope = $5,
-				    history_sequence = $6
-				WHERE history_id = $1 AND id = $2
-			`, historyID, string(task.ID), &snapshot.Atespace, &snapshot.URI, &snapshot.ContentScope, &sequence); err != nil {
-				return fmt.Errorf("store AgentInstance task snapshot: %w", err)
-			}
-		}
-		return nil
+		return storeAgentInstanceTaskEvent(ctx, tx, instance, task, event, snapshot)
 	})
 	if err != nil {
 		return fmt.Errorf("store AgentInstance task update: %w", err)
+	}
+	return nil
+}
+
+// storeAgentInstanceTaskEvent persists a task transition, its messages, and optional
+// snapshot in the caller's transaction. The caller must hold the instance row lock;
+// checkpoint creation blocks the write. Continuation admission validates the waiting
+// state and retry identity before invoking this shared persistence operation.
+func storeAgentInstanceTaskEvent(ctx context.Context, tx pgx.Tx, instance agentInstanceRow, task *a2a.Task, event a2a.Event, snapshot *AgentInstanceTaskSnapshot) error {
+	historyID := instance.HistoryID
+	if event.TaskInfo().ContextID != instance.ContextID.String() || task.ContextID != instance.ContextID.String() {
+		return fmt.Errorf("task event context does not match AgentInstance")
+	}
+	creating, err := queryOne(ctx, tx, `
+		SELECT EXISTS (SELECT 1 FROM agent_instance_checkpoint WHERE source_instance_id = $1 AND state = 'CREATING')
+	`, pgx.RowTo[bool], instance.ID)
+	if err != nil {
+		return err
+	}
+	if creating {
+		return fmt.Errorf("AgentInstance %s has a checkpoint being created: %w", instance.ID, ErrConflict)
+	}
+	var sequence int64
+	var stored *a2apb.Task
+	if row, err := queryOne(ctx, tx, `
+		SELECT history_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id,
+		    request_hash, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		    agent_instance_task WHERE history_id = $1 AND id = $2 FOR UPDATE
+	`, pgx.RowToStructByName[agentInstanceTaskRow], historyID, string(task.ID)); err == nil {
+		stored = &a2apb.Task{}
+		if err := proto.Unmarshal(row.Data, stored); err != nil {
+			return fmt.Errorf("decode stored task: %w", err)
+		}
+		if _, err := pbconv.FromProtoTask(stored); err != nil {
+			return err
+		}
+		messages := stored.History
+		// Replies and status updates archive the old status message before replacing it.
+		// Use the stored protobuf so its nested fields survive in history too.
+		switch event.(type) {
+		case *a2a.Message, *a2a.TaskStatusUpdateEvent:
+			if message := stored.Status.Message; message != nil {
+				message.TaskId, message.ContextId = string(task.ID), task.ContextID
+				messages = append(messages, message)
+			}
+		}
+		if len(messages) > 0 {
+			sequence, err = storeProtoTaskMessages(ctx, tx, historyID, string(task.ID), task.ContextID, messages)
+			if err != nil {
+				return fmt.Errorf("archive AgentInstance task history: %w", err)
+			}
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("get AgentInstance task %s: %w", task.ID, err)
+	}
+	newTask := stored == nil
+	stored, durable, err := taskTransition(stored, task, event)
+	if err != nil {
+		return err
+	}
+	data, err := proto.Marshal(stored)
+	if err != nil {
+		return err
+	}
+	taskRow, err := saveTaskProjection(ctx, tx, historyID, string(task.ID), string(task.Status.State), task.Status.Timestamp, data)
+	if err != nil {
+		if isActiveTaskConflict(err) {
+			return fmt.Errorf("AgentInstance %s already has an active task: %w", instance.ID, ErrConflict)
+		}
+		return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
+	}
+	if newTask {
+		data, err := proto.Marshal(durable)
+		if err != nil {
+			return err
+		}
+		sequence, err = insertTaskEvent(ctx, tx, taskEventWrite{
+			HistoryID:        historyID,
+			TaskID:           &taskRow.ID,
+			Data:             data,
+			TaskPosition:     &taskRow.Position,
+			InitialMessageID: taskRow.InitialMessageID,
+			RequestHash:      taskRow.RequestHash,
+			CreatedAt:        &taskRow.CreatedAt,
+		})
+		if err != nil {
+			return fmt.Errorf("record task creation: %w", err)
+		}
+	}
+
+	messages := agentInstanceTaskEventMessages(task, event)
+	if len(messages) > 0 {
+		var err error
+		sequence, err = storeAgentInstanceTaskMessages(ctx, tx, historyID, string(event.TaskInfo().TaskID), instance.ContextID.String(), messages)
+		if err != nil {
+			return fmt.Errorf("store AgentInstance task history: %w", err)
+		}
+	}
+	if !newTask || snapshot != nil {
+		eventData, err := proto.Marshal(durable)
+		if err != nil {
+			return err
+		}
+		insert := taskEventWrite{
+			HistoryID: historyID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
+		}
+		if snapshot != nil {
+			insert.SnapshotAtespace, insert.SnapshotURI, insert.SnapshotContentScope = &snapshot.Atespace, &snapshot.URI, &snapshot.ContentScope
+		}
+		sequence, err = insertTaskEvent(ctx, tx, insert)
+		if err != nil {
+			return fmt.Errorf("store AgentInstance task event: %w", err)
+		}
+	}
+
+	if snapshot != nil {
+		if sequence == 0 {
+			return fmt.Errorf("snapshot has no history boundary")
+		}
+		if err := execSQL(ctx, tx, `
+			UPDATE agent_instance_task SET
+			    snapshot_atespace = $3,
+			    snapshot_uri = $4,
+			    snapshot_content_scope = $5,
+			    history_sequence = $6
+			WHERE history_id = $1 AND id = $2
+		`, historyID, string(task.ID), &snapshot.Atespace, &snapshot.URI, &snapshot.ContentScope, &sequence); err != nil {
+			return fmt.Errorf("store AgentInstance task snapshot: %w", err)
+		}
 	}
 	return nil
 }
