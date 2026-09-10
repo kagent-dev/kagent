@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	kagentmcp "github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -61,6 +62,15 @@ func compactMCPAppModelResponse(response map[string]any) map[string]any {
 		// diagnose and recover; only drop the heavy structured payload.
 		result.StructuredContent = nil
 		return encodeCallToolResult(result, response)
+	}
+
+	// Only collapse when the result actually carries an MCP App render payload.
+	// A tool can be App-capable (declared `_meta.ui.resourceUri`) yet return an
+	// ordinary result for a given call — plain text with no `structuredContent`
+	// and no `_meta.ui`. Replacing that with the render notice would hide real
+	// content from the model, so pass it through unchanged.
+	if result.StructuredContent == nil && !kagentmcp.HasUIResource(result.Meta) {
+		return response
 	}
 
 	// On success, collapse the render payload into a terminal directive so the

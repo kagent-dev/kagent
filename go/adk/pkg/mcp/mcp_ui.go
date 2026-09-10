@@ -141,6 +141,14 @@ func parseMCPUIMetadata(meta mcpsdk.Meta) mcpUIMetadata {
 	return ui
 }
 
+// HasUIResource reports whether an MCP result's metadata points at a UI resource
+// (`_meta.ui.resourceUri`). Callers use it to tell a result that actually carries
+// an MCP App render payload from one produced by an App-capable tool whose call
+// returned ordinary content.
+func HasUIResource(meta mcpsdk.Meta) bool {
+	return parseMCPUIMetadata(meta).ResourceURI != ""
+}
+
 // mcpToolKindOf classifies a tool from its MCP metadata. App-internal takes
 // precedence: a tool hidden from the model is never surfaced to the model even
 // if it also declares a UI resource.
