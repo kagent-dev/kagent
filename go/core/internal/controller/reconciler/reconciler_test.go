@@ -1407,9 +1407,28 @@ func TestToolSnapshotCache_SkipUnchangedAndEvict(t *testing.T) {
 	assert.False(t, r.toolSnapshotUnchanged(ts, tools))
 }
 
-func TestEnsureToolServerRow_SkipsWhenCached(t *testing.T) {
+// A failed discovery stores a description-only snapshot. It must not collide
+// with a successful poll that returned zero tools, or the tool rows left over
+// from a previous process would never be cleared.
+func TestMcpToolSnapshot_UndiscoveredDiffersFromEmpty(t *testing.T) {
+	ts := &database.ToolServer{Description: "d"}
+	assert.NotEqual(t, mcpToolSnapshot(ts, nil), mcpToolSnapshot(ts, []*v1alpha2.MCPTool{}))
+}
+
+// ensureToolServerRow uses a nil-tools snapshot, so repeated failures stay
+// write-free but a description edit during an outage still reaches Postgres.
+// dbClient is nil here: reaching it would panic, which is the assertion.
+func TestEnsureToolServerRow_SkipsRepeatsButNotDescriptionChange(t *testing.T) {
 	r := &kagentReconciler{}
 	ts := &database.ToolServer{Name: "ns/s", GroupKind: "kagent.dev/RemoteMCPServer", Description: "d"}
+
 	r.rememberToolSnapshot(ts, nil)
 	r.ensureToolServerRow(context.Background(), ts)
+
+	edited := &database.ToolServer{Name: ts.Name, GroupKind: ts.GroupKind, Description: "edited"}
+	assert.False(t, r.toolSnapshotUnchanged(edited, nil))
+
+	// A successful poll cached tools, so a later failure is a state change.
+	r.rememberToolSnapshot(ts, []*v1alpha2.MCPTool{{Name: "t", Description: "td"}})
+	assert.False(t, r.toolSnapshotUnchanged(ts, nil))
 }

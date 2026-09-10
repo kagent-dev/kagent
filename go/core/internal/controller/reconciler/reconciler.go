@@ -1206,14 +1206,20 @@ func mcpToolSnapshot(ts *database.ToolServer, tools []*v1alpha2.MCPTool) string 
 		}
 		return strings.Compare(a.Description, b.Description)
 	})
-	b, _ := json.Marshal([]any{ts.Description, sorted})
+	b, err := json.Marshal([]any{ts.Description, tools == nil, sorted})
+	if err != nil {
+		// Fail open: an unhashable payload must never read as "unchanged",
+		// which would skip the write for as long as the process lives.
+		return ""
+	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
 func (a *kagentReconciler) toolSnapshotUnchanged(ts *database.ToolServer, tools []*v1alpha2.MCPTool) bool {
+	snapshot := mcpToolSnapshot(ts, tools)
 	prev, ok := a.toolSnapshots.Load(toolSnapshotKey(ts.Name, ts.GroupKind))
-	return ok && prev.(string) == mcpToolSnapshot(ts, tools)
+	return ok && snapshot != "" && prev.(string) == snapshot
 }
 
 func (a *kagentReconciler) rememberToolSnapshot(ts *database.ToolServer, tools []*v1alpha2.MCPTool) {
@@ -1227,7 +1233,7 @@ func (a *kagentReconciler) evictToolSnapshot(name, groupKind string) {
 // ensureToolServerRow writes the ToolServer once so a discovery failure still
 // shows up in DB-backed APIs. Later failures skip the write.
 func (a *kagentReconciler) ensureToolServerRow(ctx context.Context, ts *database.ToolServer) {
-	if _, ok := a.toolSnapshots.Load(toolSnapshotKey(ts.Name, ts.GroupKind)); ok {
+	if a.toolSnapshotUnchanged(ts, nil) {
 		return
 	}
 	if _, err := a.dbClient.StoreToolServer(ctx, ts); err != nil {
