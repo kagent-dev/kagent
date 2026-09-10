@@ -232,6 +232,7 @@ type HarnessStatus struct {
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=harnesses,singular=harness,categories=kagent
+// +kubebuilder:metadata:annotations="helm.sh/resource-policy=keep"
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"

@@ -114,6 +114,7 @@ type MCPTool struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:resource:shortName=rmcps,categories=kagent
+// +kubebuilder:metadata:annotations="helm.sh/resource-policy=keep"
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Protocol",type="string",JSONPath=".spec.protocol"
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"

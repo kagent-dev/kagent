@@ -211,6 +211,7 @@ type AgentTemplateSpec struct {
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agenttemplates,singular=agenttemplate,categories=kagent
+// +kubebuilder:metadata:annotations="helm.sh/resource-policy=keep"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // AgentTemplate defines portable agent behavior.
