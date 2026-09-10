@@ -341,16 +341,21 @@ test("substrate: the status bar stays inside its track, whatever the window", as
  *
  * A real controller answered with 34,356 actors, and rendered in full that came to a
  * 1.4-million-pixel page which took seconds to become interactive and could not be
- * screenshotted. So the table is windowed and its body bounded, and this covers both
- * halves of that: only a window of rows reaches the DOM, and the page stays a fixed
- * size regardless.
+ * screenshotted. What bounds it is the page: the read asks for twenty rows, so twenty
+ * is all there is to render. The table used to absorb a page of a hundred by windowing
+ * them inside a fixed-height body, which put a scrollbar over the same list the pager
+ * moves through — two ways to reach row forty, one of which silently skips rows the
+ * other one turns to.
  *
- * The order is checked here too, because an unordered list of thousands reshuffles
- * itself on every poll — a row moves under the pointer while it is being read. Nothing
- * on the wire imposes one: ate-api pages and offers no order, so `SubstratePage` sorts
- * the page it was handed before antd sees it, and this is what says that still happens.
+ * So this pins both: the rows are ordered, and the body they sit in does not scroll.
+ * The order matters because an unordered list of thousands reshuffles itself on every
+ * poll — a row moves under the pointer while it is being read. Nothing on the wire
+ * imposes one; ate-api offers no order, so the controller applies it before cutting
+ * the page, and this is what says that still happens.
  */
-test("substrate: the actor list is ordered, windowed, and bounded", async ({ page }) => {
+test("substrate: the actor list is ordered, and the page bounds it without a scrollbar", async ({
+  page,
+}) => {
   await loadPage(page, routes.substrate, { title: "Substrate" });
   await expectSettled(page);
 
@@ -368,17 +373,28 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
     "actor-c3f5",
   ]);
 
-  // Windowed: antd renders rows into a virtual holder rather than a plain tbody, which
-  // is what keeps a list of thousands off the page.
-  await expect(
-    actors.locator(".ant-table-tbody-virtual-holder"),
-  ).toHaveCount(1);
+  // Nothing windows the rows any more, so there is no virtual holder to scroll inside.
+  await expect(actors.locator(".ant-table-tbody-virtual-holder")).toHaveCount(0);
 
-  // Bounded: the body scrolls inside itself instead of growing the document.
-  const height = await actors
-    .locator(".ant-table-tbody-virtual-holder")
-    .evaluate((el) => el.getBoundingClientRect().height);
-  expect(height).toBeLessThanOrEqual(520);
+  // And nothing inside the table scrolls vertically. Asked of every element rather than
+  // of the one antd happens to use, because which element that is depends on what
+  // `scroll` was given: with a `y` it is `.ant-table-body`, without one there is no such
+  // element at all — so naming it is how this passes by finding nothing.
+  const scrollers = await actors.evaluate((table) =>
+    [table, ...table.querySelectorAll("*")]
+      .filter((el) => {
+        const overflow = getComputedStyle(el).overflowY;
+        return (
+          (overflow === "auto" || overflow === "scroll") &&
+          el.scrollHeight > el.clientHeight
+        );
+      })
+      .map((el) => `${el.className || el.tagName}: ${el.scrollHeight}px in ${el.clientHeight}px`),
+  );
+  expect(
+    scrollers,
+    "the pager moves through the actors; a scrollbar over the same rows is a second way to do it",
+  ).toEqual([]);
 });
 
 /**
@@ -549,12 +565,13 @@ test("substrate: every table sorts through the same header, and the paged two or
  * A row that changes colour on hover reads as a click target. None of these four is one:
  * there is no page for an actor, a worker, a pool or a template to open. The app has a
  * rule for exactly this — hover is opt-in through `clickable-table-row` — and it was
- * written as `tr:hover > td`, which a virtual table has neither of. So the two windowed
- * tables here went on hovering while every other static table in the app had stopped,
- * and this page offered both behaviours at once.
+ * written as `tr:hover > td`, which a virtual table has neither of. So the two tables
+ * here that were then windowed went on hovering while every other static table in the
+ * app had stopped, and this page offered both behaviours at once.
  *
- * Both bodies are checked because they are different markup: the pools and templates are
- * a real `table`, the actors and workers are divs from antd's virtual list.
+ * All four are still checked. They are one kind of markup now that nothing here is
+ * virtual, but the rules that suppress the highlight stayed class-based, and a rule
+ * written for the markup of the day is what caused this in the first place.
  */
 test("substrate: rows nobody can click do not light up under the pointer", async ({
   page,

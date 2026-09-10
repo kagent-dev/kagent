@@ -48,18 +48,6 @@ import {
 const { Text } = Typography;
 
 /**
- * How tall the actor and worker tables get before they scroll internally.
- *
- * These two lists are the only ones here whose length is set by the cluster rather
- * than by configuration, and ate-api will hand over as many as exist: a real cluster
- * answered with 34,356 actors, which unbounded came to a 1.4-million-pixel page that
- * took seconds to become interactive and could not even be screenshotted. Bounding
- * the body and letting antd window the rows keeps the page a fixed size whatever the
- * backend reports.
- */
-const GROWING_TABLE_HEIGHT = 420;
-
-/**
  * The interval polling starts at, in seconds.
  *
  * Half a second is quick enough to watch an actor move between workers, which is what
@@ -772,13 +760,17 @@ function SectionSearch({
 /**
  * How many rows a paged section asks for.
  *
- * The controller's maximum, because these tables are virtualised and bounded in
- * height: a bigger page costs nothing to render and means fewer round trips for a
- * reader scrolling through actors. It is also how much the sort and the search below
- * cover, which is the other reason to ask for as many as allowed. Anything above 100
- * is refused outright rather than clamped.
+ * A page is what bounds these two lists now, so it has to be a length that fits on
+ * screen: they are the only lists here whose size the cluster chooses, and a real one
+ * answered with 34,356 actors. The page used to be the controller's maximum and the
+ * table absorbed it by windowing the rows inside a fixed-height body — which gave the
+ * page a scrollbar of its own, under a pager that scrolls the same list. Twenty-five
+ * rows need neither, and it is what every other list in the app pages by.
+ *
+ * The sort and the search are the server's, so this is only how much of their result
+ * arrives at a time, not how far they reach.
  */
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 25;
 
 /**
  * How long to wait after a keystroke before asking the server.
@@ -966,24 +958,25 @@ function PageWarning({ message, testId }: { message: string; testId: string }) {
  *
  * ## Where the counts come from, and why it matters
  *
- * Every total on this page is the summary's, counted server-side. None of them is
+ * Every total on this page is counted server-side — the summary's for the tiles, the
+ * list response's `totalSize` for the two paged headings. None of them is
  * `rows.length`. With the lists paged, counting what arrived and calling it a total
- * would report a hundred actors for a cluster running four hundred thousand — the
- * exact failure the "3 of 4" rendering already existed to prevent, made far more
- * likely by paging.
+ * would report twenty-five actors for a cluster running four hundred thousand — the
+ * exact failure the "3 of 4" rendering already existed to prevent, made far more likely
+ * by paging.
  *
  * ## What the sorts and the searches reach
  *
- * The worker pool and actor template tables arrive whole, so sorting or searching
- * them covers all of them.
+ * The worker pool and actor template tables arrive whole, so sorting or searching them
+ * covers all of them.
  *
- * The actor and worker tables do not, and their sort and search cover one page. That
- * is not a shortcut: ate-api's `ListActors` takes a page size and a token and offers
- * no order and no filter, so ordering or narrowing the cluster would mean reading the
- * cluster first — the read that could not succeed. Both tables say so beneath
- * themselves, both headings distinguish "3 of 100 on this page" from "100 of 4,312",
- * and an empty search says which pages it looked at. A reader who is told "no matches"
- * without being told what was searched will conclude the actor does not exist.
+ * The actor and worker tables reach just as far, but nothing here does the reaching.
+ * Both are the controller's: a header click and a debounced keystroke are new reads,
+ * and it walks every ate-api page, narrows, orders, and then cuts the page it answers
+ * with. So the heading's "3 of 4,312" counts every match in the scope rather than
+ * every match that happened to arrive, and an empty search can honestly say the
+ * cluster holds none. A reader told "no matches" by a page that searched one page of
+ * rows will conclude the actor does not exist.
  */
 export function SubstratePage() {
   const theme = useTheme();
@@ -1202,14 +1195,6 @@ export function SubstratePage() {
   );
 
   /*
-   * The page of actors, and what is left of it after the search box.
-   *
-   * Both are kept, because the heading needs to say which is which: "3 of 100 on this
-   * page" is a different claim from "100 of 4,312", and only one of them is true at a
-   * time. Memoised because this page can be polling — filtering in the render body
-   * would run on every tick whether or not anything changed.
-   */
-  /*
    * The rows as they arrived, ordered and narrowed already.
    *
    * Nothing is filtered or sorted here. Both are the read's, so doing either again
@@ -1260,7 +1245,7 @@ export function SubstratePage() {
    *
    * Not derived from the rows on screen, and that is the point of the summary
    * existing: the rows are one page, and a page counted as a total is how a cluster
-   * running 410,110 actors gets reported as running 100.
+   * running 410,110 actors gets reported as running 25.
    */
   const readyTemplates = useMemo(() => {
     let ready = 0;
@@ -1879,10 +1864,12 @@ export function SubstratePage() {
             /* antd's own pager is off because the pages come from the server by token,
                not by number — `PageControls` below turns them. */
             pagination={false}
-            virtual
-            /* The sum of the column widths, so the table asks for exactly what it uses:
-               a wider `x` reserves space no column wants and scrolls the card for it. */
-            scroll={{ y: GROWING_TABLE_HEIGHT, x: 930 }}
+            /* Horizontal only. `x` is the sum of the column widths, so the table asks
+               for exactly what it uses: a wider one reserves space no column wants and
+               scrolls the card for it. There is no `y` because a page of rows is short
+               enough to read whole — a body that scrolled would put a second way to
+               move through the same list right above the one that turns the pages. */
+            scroll={{ x: 930 }}
             size="small"
             /* Three different sentences, because they are three different facts and
                only one is something to act on: a controller with no ate-api endpoint
@@ -1994,8 +1981,7 @@ export function SubstratePage() {
               setWorkerSort,
             )}
             pagination={false}
-            virtual
-            scroll={{ y: GROWING_TABLE_HEIGHT, x: 880 }}
+            scroll={{ x: 880 }}
             size="small"
             locale={{
               emptyText: workers.error
