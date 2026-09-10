@@ -39,6 +39,16 @@ func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
 	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
 }
 
+// PreResponseFlushEnabled reports whether spans must be exported before a turn's
+// response leaves the process. Set through KAGENT_PRE_RESPONSE_TRACE_FLUSH, which the
+// controller puts on Agent Substrate actors: a checkpoint/suspend runtime freezes as
+// soon as the response is out, so the batch exporter's timer never fires for a
+// session's last message. Everywhere else the timer suffices and a per-turn flush
+// would only add export churn and, during a collector outage, response-tail latency.
+func PreResponseFlushEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
+}
+
 // ForceFlush exports any spans still buffered in the tracer provider's batch
 // processor. Call it before an A2A response completes when the process may be
 // suspended right afterwards: Agent Substrate checkpoints the actor as soon as
