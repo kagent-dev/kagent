@@ -9,5 +9,7 @@ set -euo pipefail
 token=$1
 shift
 auth=$(printf 'x-access-token:%s' "$token" | base64 -w0)
-echo "::add-mask::${auth}"
+# Mask the encoded credential in the Actions log; outside Actions the line would
+# print it, so it is only emitted where the runner interprets it.
+[ -n "${GITHUB_ACTIONS:-}" ] && echo "::add-mask::${auth}"
 exec git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" push "$@"

@@ -135,7 +135,8 @@ jobs:
             echo
             echo "Finish by hand (FORK.md, \"Manual re-pin\"), then close this pull request — do not merge it. Run: ${RUN_URL}"
           } > pr-body.md
-          gh pr create --base "$CONSUMED" --head "$CANDIDATE" \
+          # --repo: in a checkout of a fork, gh otherwise targets the parent repository.
+          gh pr create --repo "$GITHUB_REPOSITORY" --base "$CONSUMED" --head "$CANDIDATE" \
             --title "sync: re-pin onto upstream ${TARGET:0:7} blocked — ${CONFLICT_SUBJECT}" \
             --body-file pr-body.md
           exit 1
@@ -209,7 +210,8 @@ jobs:
             echo
             echo "Finish by hand (FORK.md, \"Manual re-pin\"): fix on this branch, let the checks pass, force-push it onto \`${CONSUMED}\`, then close this pull request — do not merge it. Run: ${RUN_URL}"
           } > pr-body.md
-          gh pr create --base "$CONSUMED" --head "$CANDIDATE" \
+          # --repo: in a checkout of a fork, gh otherwise targets the parent repository.
+          gh pr create --repo "$GITHUB_REPOSITORY" --base "$CONSUMED" --head "$CANDIDATE" \
             --title "sync: re-pin onto upstream ${TARGET:0:7} blocked — checks ${RESULT}" \
             --body-file pr-body.md
           exit 1
