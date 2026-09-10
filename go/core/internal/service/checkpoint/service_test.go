@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"runtime"
 	"testing"
 
@@ -39,6 +40,10 @@ type testStore struct {
 	deleted     bool
 	finalizeErr error
 	reserveErr  error
+	listErr     error
+	listed      []*apiv1alpha1.Checkpoint
+	listTotal   int
+	listQuery   database.CheckpointQuery
 }
 
 func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint *apiv1alpha1.Checkpoint, _, _ string) (*apiv1alpha1.Checkpoint, *database.AgentInstanceTaskSnapshot, error) {
@@ -87,8 +92,9 @@ func (s *testStore) GetAgentInstanceCheckpointSnapshot(context.Context, string, 
 	return s.snapshot, s.tagUID, nil
 }
 
-func (*testStore) ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error) {
-	return nil, nil
+func (s *testStore) ListAgentInstanceCheckpoints(_ context.Context, query database.CheckpointQuery) ([]*apiv1alpha1.Checkpoint, int, error) {
+	s.listQuery = query
+	return s.listed, s.listTotal, s.listErr
 }
 
 func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error) {
@@ -373,4 +379,38 @@ func TestConcurrentCreateRetainsOneTag(t *testing.T) {
 	require.Equal(t, 1, tags.createCalls)
 	require.Equal(t, 0, tags.deleteCalls)
 	require.Equal(t, "s3://tags/checkpoint", store.snapshot.URI)
+}
+
+// A page the caller can walk: the token carries the offset, and the count says whether
+// there is another page without reading one.
+func TestListPagesByOffsetAndRefusesUnknownSortFields(t *testing.T) {
+	ctx := auth.AuthSessionTo(context.Background(), testSession{userID: "alice"})
+	store := &testStore{listed: []*apiv1alpha1.Checkpoint{{Id: "one"}, {Id: "two"}}, listTotal: 5}
+	service := NewService(store, testAuthorizer{}, &testTags{}, nil)
+
+	result, err := service.List(ctx, ListRequest{PageSize: 2, Offset: 2, Filter: "otter"})
+	require.NoError(t, err)
+	require.Equal(t, database.CheckpointQuery{UserID: "alice", Filter: "otter", Offset: 2, Limit: 2}, store.listQuery)
+	require.Equal(t, 5, result.TotalSize)
+
+	// The token round-trips as the next offset, and the last page offers none.
+	_, err = service.List(ctx, ListRequest{PageSize: 2, PageToken: result.NextPageToken})
+	require.NoError(t, err)
+	require.Equal(t, 4, store.listQuery.Offset)
+	store.listTotal = 4
+	last, err := service.List(ctx, ListRequest{PageSize: 2, Offset: 2})
+	require.NoError(t, err)
+	require.Empty(t, last.NextPageToken)
+
+	// A token that would wrap the store's int32 offset is the caller's fault.
+	_, err = service.List(ctx, ListRequest{PageSize: 2, PageToken: encodePageToken(math.MaxInt32 + 1)})
+	var tooFar *serviceerrors.Error
+	require.ErrorAs(t, err, &tooFar)
+	require.Equal(t, serviceerrors.CodeInvalidArgument, tooFar.Code())
+
+	store.listErr = fmt.Errorf("%w: unsortable column", database.ErrCheckpointQuery)
+	_, err = service.List(ctx, ListRequest{PageSize: 2})
+	var refused *serviceerrors.Error
+	require.ErrorAs(t, err, &refused)
+	require.Equal(t, serviceerrors.CodeInvalidArgument, refused.Code())
 }

@@ -64,7 +64,11 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
-import type { Checkpoint } from "./domain/checkpoints";
+import type {
+  Checkpoint,
+  CheckpointPage,
+  CheckpointSort,
+} from "./domain/checkpoints";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
@@ -246,10 +250,32 @@ export interface OperationMap {
     output: Checkpoint;
   };
 
-  /** Every boundary saved against this conversation, newest first. */
+  /**
+   * Saved boundaries, narrowed, ordered and paged by the controller. Without an `id`,
+   * every boundary the caller owns; `filter` is a plain substring of the recorded
+   * conversation name or the checkpoint id. Unsorted is newest first.
+   */
   "agentInstances.checkpoints.list": {
-    input: AgentInstanceRef;
-    output: Checkpoint[];
+    input: {
+      id?: string;
+      filter?: string;
+      sort?: CheckpointSort;
+      limit?: number;
+      offset?: number;
+    };
+    output: CheckpointPage;
+  };
+
+  /**
+   * Removes a saved boundary, and with it the snapshot it was holding.
+   *
+   * A checkpoint pins a copy of the conversation's runtime in the substrate — that is
+   * what makes forking one possible — so this is the only thing that gives that space
+   * back. Forks already made from it are unaffected: they own their own copy.
+   */
+  "agentInstances.checkpoints.delete": {
+    input: { checkpointId: string };
+    output: void;
   };
 
   /**

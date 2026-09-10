@@ -27,11 +27,22 @@ func (s *checkpointServer) ListCheckpoints(ctx context.Context, request *apiv1al
 	result, err := s.service.List(ctx, checkpoint.ListRequest{
 		InstanceID: request.GetAgentInstanceId(),
 		PageSize:   int(page.GetLimit()), PageToken: page.GetPageToken(),
+		Offset: int(page.GetOffset()),
+		Filter: request.GetFilter(),
+		// An unknown enum member sorts by nothing, rather than by a guess.
+		SortField:  checkpointSortColumns[request.GetSortBy().GetField()],
+		Descending: request.GetSortBy().GetDirection() == apiv1alpha1.SortDirection_SORT_DIRECTION_DESC,
 	})
 	return &apiv1alpha1.ListCheckpointsResponse{
 		Checkpoints: result.Checkpoints,
 		Page:        &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		TotalSize:   int32(result.TotalSize),
 	}, err
+}
+
+var checkpointSortColumns = map[apiv1alpha1.CheckpointSortField]string{
+	apiv1alpha1.CheckpointSortField_CHECKPOINT_SORT_FIELD_CREATED_AT:   "created_at",
+	apiv1alpha1.CheckpointSortField_CHECKPOINT_SORT_FIELD_CONVERSATION: "conversation",
 }
 
 func (s *checkpointServer) DeleteCheckpoint(ctx context.Context, request *apiv1alpha1.DeleteCheckpointRequest) (*apiv1alpha1.DeleteCheckpointResponse, error) {

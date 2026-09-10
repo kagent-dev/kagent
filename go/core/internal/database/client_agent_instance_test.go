@@ -373,9 +373,16 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *retained {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
-	listed, err := client.ListAgentInstanceCheckpoints(ctx, instanceID, "alice", "", 10)
-	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id {
-		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
+	listed, total, err := client.ListAgentInstanceCheckpoints(ctx, CheckpointQuery{
+		InstanceID: instanceID, UserID: "alice", Limit: 10,
+	})
+	if err != nil || len(listed) != 1 || listed[0].Id != checkpoint.Id || total != 1 {
+		t.Fatalf("listed checkpoints = %+v, total %d, error %v", listed, total, err)
+	}
+	// The conversation was deleted above; the row still carries the name recorded when
+	// the checkpoint was taken, which here is the empty name it was created with.
+	if listed[0].GetConversationName() != "" {
+		t.Fatalf("conversation name after source deletion = %q", listed[0].GetConversationName())
 	}
 	if ref, tag, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) || ref != nil || tag != "" {
 		t.Fatalf("unauthorized deletion = %+v, %q, %v", ref, tag, err)
@@ -995,6 +1002,92 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	wrong := *waiting
 	wrong.ContextID = fork.GetId()
 	require.Error(t, client.StoreAgentInstanceTaskEvent(ctx, fork.GetId(), &wrong, &wrong, nil))
+}
+
+// The listing the snapshots page reads: across conversations, filtered, ordered and
+// paged in the query rather than by the caller.
+func TestListAgentInstanceCheckpointsFiltersSortsAndPages(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	client := NewClient(db)
+
+	// Ids ascend, as UUIDv7 ids do in production, so ascending id is ascending time.
+	seed := func(instance, name, id string) {
+		t.Helper()
+		// Only the checkpoint row and the history it points at: nothing in the listing
+		// reads agent_instance, and the conversation may well be deleted by then.
+		_, err := db.Exec(ctx, `INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)`, instance)
+		require.NoError(t, err)
+		payload, err := proto.Marshal(&apiv1alpha1.Checkpoint{
+			Id: id, AgentInstanceId: instance, HeadTaskId: "task-" + id, HistorySequence: 1,
+			State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY,
+		})
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `
+			INSERT INTO agent_instance_checkpoint
+			    (id, source_instance_id, user_id, request_id, head_task_id, history_sequence,
+			     snapshot_atespace, snapshot_uri, snapshot_content_scope, tag_uid, state, data,
+			     source_history_id, source_name)
+			VALUES ($1::uuid, $2::uuid, 'alice', $1, $3, 1, 'team-a', 's3://snapshots/x', 'DATA',
+			        'tag', 'READY', $4, $2::uuid, $5)
+		`, id, instance, "task-"+id, payload, name)
+		require.NoError(t, err)
+	}
+	seed("11111111-1111-4111-8111-111111111111", "Otters", "aaaaaaaa-0000-4000-8000-000000000001")
+	seed("22222222-2222-4222-8222-222222222222", "Ramen", "aaaaaaaa-0000-4000-8000-000000000002")
+	seed("33333333-3333-4333-8333-333333333333", "Otters again", "aaaaaaaa-0000-4000-8000-000000000003")
+
+	names := func(query CheckpointQuery) ([]string, int) {
+		t.Helper()
+		if query.UserID == "" {
+			query.UserID = "alice"
+		}
+		if query.Limit == 0 {
+			query.Limit = 10
+		}
+		listed, total, err := client.ListAgentInstanceCheckpoints(ctx, query)
+		require.NoError(t, err)
+		out := make([]string, 0, len(listed))
+		for _, checkpoint := range listed {
+			out = append(out, checkpoint.GetConversationName())
+		}
+		return out, total
+	}
+
+	listed, total := names(CheckpointQuery{})
+	require.Equal(t, []string{"Otters again", "Ramen", "Otters"}, listed, "newest first by default")
+	require.Equal(t, 3, total)
+
+	listed, total = names(CheckpointQuery{Filter: "otter"})
+	require.Equal(t, []string{"Otters again", "Otters"}, listed, "the filter matches the recorded name")
+	require.Equal(t, 2, total, "and narrows the count, not just the page")
+
+	// A wildcard is a character to search for, not a pattern.
+	_, total = names(CheckpointQuery{Filter: "%"})
+	require.Zero(t, total, "%% matched every row instead of none")
+
+	listed, _ = names(CheckpointQuery{SortField: "conversation"})
+	require.Equal(t, []string{"Otters", "Otters again", "Ramen"}, listed)
+	listed, _ = names(CheckpointQuery{SortField: "conversation", Descending: true})
+	require.Equal(t, []string{"Ramen", "Otters again", "Otters"}, listed)
+
+	first, _ := names(CheckpointQuery{Limit: 2, SortField: "conversation"})
+	second, _ := names(CheckpointQuery{Limit: 2, Offset: 2, SortField: "conversation"})
+	require.Equal(t, []string{"Otters", "Otters again", "Ramen"}, append(first, second...),
+		"an offset page neither repeats nor skips")
+
+	_, total = names(CheckpointQuery{UserID: "mallory"})
+	require.Zero(t, total, "another caller sees none of them")
+
+	// Past the end reports no total, which is the caller's cue to ask for page one.
+	listed, total = names(CheckpointQuery{Offset: 99})
+	require.Empty(t, listed)
+	require.Zero(t, total)
+
+	_, _, err := client.ListAgentInstanceCheckpoints(ctx, CheckpointQuery{
+		UserID: "alice", Limit: 10, SortField: "id; DROP TABLE agent_instance_checkpoint",
+	})
+	require.ErrorIs(t, err, ErrCheckpointQuery, "an unknown column is refused, not interpolated")
 }
 
 // markAgentInstanceReady completes creation for persistence fixtures using the lifecycle CAS.

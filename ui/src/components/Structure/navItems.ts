@@ -1,6 +1,7 @@
 import {
   Bot,
   CalendarClock,
+  Camera,
   Boxes,
   Cpu,
   LayoutDashboard,
@@ -34,6 +35,7 @@ export const coreNavItems: NavItem[] = [
   },
   { key: "agents", label: "Agents", path: paths.agents, icon: Bot, order: 200 },
   { key: "scheduledRuns", label: "Schedules", path: paths.scheduledRuns, icon: CalendarClock, order: 275 },
+  { key: "snapshots", label: "Snapshots", path: paths.snapshots, icon: Camera, order: 285 },
   
   { key: "models", label: "Models", path: paths.models, icon: Cpu, order: 300 },
   {

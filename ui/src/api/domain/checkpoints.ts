@@ -27,9 +27,27 @@ export type CheckpointState =
   | "deleting"
   | "unknown";
 
+/** One page of saved boundaries, and how many the filter matched in all. */
+export interface CheckpointPage {
+  checkpoints: Checkpoint[];
+  /** Everything the filter matched, not just this page. */
+  total: number;
+}
+
+/** A column a listing can be ordered by, and which way. */
+export interface CheckpointSort {
+  field: "createdAt" | "conversation";
+  descending?: boolean;
+}
+
 export interface Checkpoint {
   id: string;
   agentInstanceId: string;
+  /**
+   * What the conversation was called when this was taken, and the only name a query can
+   * filter or order by. Empty for a conversation that never had one.
+   */
+  conversationName: string;
   /** The turn this boundary sits at. Matches `taskId` on that turn's messages. */
   headTaskId: string;
   state: CheckpointState;
@@ -37,9 +55,4 @@ export interface Checkpoint {
   createdAt?: string;
   /** Why it failed, when it did. */
   failure?: string;
-}
-
-/** Whether a fork can start from this checkpoint. */
-export function canForkFrom(checkpoint: Checkpoint): boolean {
-  return checkpoint.state === "ready";
 }
