@@ -412,7 +412,7 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 					PromptTokenCount:        aws.ToInt32(meta.Value.Usage.InputTokens),
 					CandidatesTokenCount:    aws.ToInt32(meta.Value.Usage.OutputTokens),
 					TotalTokenCount:         aws.ToInt32(meta.Value.Usage.TotalTokens),
-					CachedContentTokenCount: aws.ToInt32(meta.Value.Usage.CacheReadInputTokens),
+					CachedContentTokenCount: cachedTokenCount(int64(aws.ToInt32(meta.Value.Usage.CacheReadInputTokens))),
 				}
 			}
 		}
@@ -541,7 +541,7 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 			PromptTokenCount:        aws.ToInt32(output.Usage.InputTokens),
 			CandidatesTokenCount:    aws.ToInt32(output.Usage.OutputTokens),
 			TotalTokenCount:         aws.ToInt32(output.Usage.TotalTokens),
-			CachedContentTokenCount: aws.ToInt32(output.Usage.CacheReadInputTokens),
+			CachedContentTokenCount: cachedTokenCount(int64(aws.ToInt32(output.Usage.CacheReadInputTokens))),
 		}
 	}
 

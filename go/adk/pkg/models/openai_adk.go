@@ -469,7 +469,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 			PromptTokenCount:        int32(promptTokens),
 			CandidatesTokenCount:    int32(completionTokens),
 			TotalTokenCount:         int32(totalTokens),
-			CachedContentTokenCount: int32(cachedTokens),
+			CachedContentTokenCount: cachedTokenCount(cachedTokens),
 		}
 	}
 	resp := &model.LLMResponse{
@@ -532,7 +532,7 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 			PromptTokenCount:        int32(completion.Usage.PromptTokens),
 			CandidatesTokenCount:    int32(completion.Usage.CompletionTokens),
 			TotalTokenCount:         int32(completion.Usage.TotalTokens),
-			CachedContentTokenCount: int32(completion.Usage.PromptTokensDetails.CachedTokens),
+			CachedContentTokenCount: cachedTokenCount(completion.Usage.PromptTokensDetails.CachedTokens),
 		}
 	}
 	return &model.LLMResponse{

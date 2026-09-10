@@ -51,6 +51,7 @@ from pydantic import Field, model_validator
 
 from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
+from ._usage import cached_token_count
 from ._utils import function_declaration_schema
 
 if TYPE_CHECKING:
@@ -336,7 +337,7 @@ def _cached_prompt_tokens(usage: Any) -> int:
     details = getattr(usage, "prompt_tokens_details", None)
     if details is None:
         return 0
-    return getattr(details, "cached_tokens", 0) or 0
+    return cached_token_count(getattr(details, "cached_tokens", None))
 
 
 def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmResponse:
@@ -497,6 +498,9 @@ def _responses_usage_to_genai(
         prompt_token_count=usage.input_tokens,
         candidates_token_count=usage.output_tokens,
         total_token_count=usage.total_tokens,
+        cached_content_token_count=cached_token_count(
+            getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", None)
+        ),
     )
 
 
