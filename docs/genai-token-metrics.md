@@ -13,20 +13,22 @@ A Prometheus histogram, served at **`/metrics`** on the agent's HTTP port:
 | --- | --- | --- |
 | `gen_ai_client_token_usage` | `gen_ai.client.token.usage` | histogram, semconv-recommended buckets |
 
-Labels (semconv attributes, dots → underscores), aligned with what the upstream Google ADK Python
-runtime emits for the same instrument so a single dashboard works across both runtimes:
+Labels use semconv attribute names with dots mapped to underscores:
 
 | Label | Values |
 | --- | --- |
 | `gen_ai_token_type` | `input`, `output` (output = candidate + reasoning tokens) |
-| `gen_ai_operation_name` | `chat` |
+| `gen_ai_operation_name` | `generate_content` for Gemini; `chat` for chat-completion providers |
 | `gen_ai_provider_name` | well-known value, e.g. `openai`, `anthropic`, `gcp.vertex_ai`, `aws.bedrock`, `azure.ai.openai` |
 | `gen_ai_request_model` | configured model, e.g. `gpt-4o` |
 | `gen_ai_response_model` | model the provider served (falls back to request model) |
-| `gen_ai_agent_name` | agent that produced the tokens (the kagent app name) |
+| `gen_ai_agent_name` | ADK agent that made the model call (not the application name) |
 | `error_type` | set on failed requests; empty otherwise |
 
-One observation is recorded per LLM call (streaming partial chunks are not double-counted).
+For each positive input/output count, one observation is recorded per LLM call.
+Streaming partial chunks are not double-counted. Recording runs in the model callback,
+so usage-only responses are counted even when they do not produce an A2A artifact.
+Missing optional labels are exported as empty strings.
 
 ## Configuration
 
@@ -89,10 +91,10 @@ chunks, and the semconv labels including `gen_ai.agent.name`, response model, an
 ```text
 # HELP gen_ai_client_token_usage Measures the number of input and output tokens used by GenAI requests.
 # TYPE gen_ai_client_token_usage histogram
-gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 137
-gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 2
-gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 91
-gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 2
+gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 137
+gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 2
+gen_ai_client_token_usage_sum{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 91
+gen_ai_client_token_usage_count{error_type="",gen_ai_agent_name="my_agent",gen_ai_operation_name="generate_content",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 2
 ```
 
 ## Follow-ups

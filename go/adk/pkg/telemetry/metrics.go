@@ -18,10 +18,6 @@ import (
 //   - attrs   gen_ai.token.type, gen_ai.request.model, gen_ai.response.model,
 //     gen_ai.provider.name, gen_ai.agent.name, gen_ai.operation.name, error.type
 //
-// The attribute set mirrors what the upstream Google ADK Python runtime emits
-// for the same instrument, so a single dashboard works across the Go and Python
-// runtimes.
-//
 // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
 const (
 	metricGenAIClientTokenUsage = "gen_ai_client_token_usage"
@@ -37,8 +33,7 @@ const (
 	tokenTypeInput  = "input"
 	tokenTypeOutput = "output"
 
-	// operationChat is the gen_ai.operation.name for the chat-completion calls
-	// that produce the token usage recorded here.
+	// operationChat is the default gen_ai.operation.name for chat-completion calls.
 	operationChat = "chat"
 
 	// metricsEnabledEnvVar gates metrics recording and the /metrics endpoint.
@@ -109,6 +104,7 @@ func SemconvProviderName(modelType string) string {
 // TokenUsage carries the per-request labels and counts for one recording on the
 // gen_ai.client.token.usage histogram.
 type TokenUsage struct {
+	OperationName string
 	// RequestModel is gen_ai.request.model (the configured model).
 	RequestModel string
 	// ResponseModel is gen_ai.response.model (the model the provider actually
@@ -130,20 +126,24 @@ type TokenUsage struct {
 // gen_ai.client.token.usage histogram. If the metric pipeline is disabled
 // (OTEL_METRICS_ENABLED unset or not "true"), it is a no-op. Zero/negative
 // counts are skipped.
-func RecordTokenUsage(u TokenUsage) {
+func RecordTokenUsage(usage TokenUsage) {
 	if !MetricsEnabled() {
 		return
 	}
-	responseModel := u.ResponseModel
+	operationName := usage.OperationName
+	if operationName == "" {
+		operationName = operationChat
+	}
+	responseModel := usage.ResponseModel
 	if responseModel == "" {
-		responseModel = u.RequestModel
+		responseModel = usage.RequestModel
 	}
-	if u.InputTokens > 0 {
-		tokenUsage.WithLabelValues(tokenTypeInput, operationChat, u.Provider, u.RequestModel, responseModel, u.AgentName, u.ErrorType).
-			Observe(float64(u.InputTokens))
+	if usage.InputTokens > 0 {
+		tokenUsage.WithLabelValues(tokenTypeInput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
+			Observe(float64(usage.InputTokens))
 	}
-	if u.OutputTokens > 0 {
-		tokenUsage.WithLabelValues(tokenTypeOutput, operationChat, u.Provider, u.RequestModel, responseModel, u.AgentName, u.ErrorType).
-			Observe(float64(u.OutputTokens))
+	if usage.OutputTokens > 0 {
+		tokenUsage.WithLabelValues(tokenTypeOutput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
+			Observe(float64(usage.OutputTokens))
 	}
 }
