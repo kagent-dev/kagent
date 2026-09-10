@@ -1,5 +1,6 @@
 {{- if index .Values "kagent-tools" "enabled" }}
 {{- $toolsValues := index .Values "kagent-tools" }}
+{{- $toolsNamespace := default .Release.Namespace $toolsValues.namespaceOverride }}
 {{- $toolsFullname := "" }}
 {{- if $toolsValues.fullnameOverride }}
   {{- $toolsFullname = $toolsValues.fullnameOverride }}
@@ -16,7 +17,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  url: "http://{{ $toolsFullname }}.{{ include "kagent.namespace" . }}:8084/mcp"
+  url: "http://{{ $toolsFullname }}.{{ $toolsNamespace }}:8084/mcp"
   timeout: 30s
   sseReadTimeout: 5m0s
   description: "Official KAgent tool server"
