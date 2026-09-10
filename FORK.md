@@ -48,20 +48,75 @@ charts, not here.
 | Images (multi-arch, amd64 + arm64) | `ghcr.io/giantswarm/kagent/{controller,ui,golang-adk,claude-harness}:<version>` |
 | Charts | `oci://ghcr.io/giantswarm/kagent/helm/kagent:<version>`, `oci://ghcr.io/giantswarm/kagent/helm/kagent-crds:<version>` (the chart's image defaults are stamped with the same version) |
 | Dev version of a branch push | `0.11.0-dev.giantswarm.<YYYY-MM-DD>.<HH-MM-SS>.h<sha7>` — base `0.11.0` (upstream `main`'s next release), the branch lowercased to `[a-z0-9-]`, the committer date in UTC, the short commit. Consumers select the channel with a Flux `semverFilter` of `.*-dev\.giantswarm\..*` on the range `>=0.11.0-0 <0.12.0-0` |
-| Release version of a tag | the tag without `v` |
+| Release version of a tag | the tag without `v`: `X.Y.Z-gs.N` (the release scheme below; `tag.yaml` refuses any other tag shape) |
 | Digests | every build's image and chart digests (multi-arch index digests, what a `Harness` pins) are a row of [`builds.md`](../../blob/ledger/builds.md) on the `ledger` branch and in the run summary of the workflow run |
 
 Only what the platform consumes is published: the Python ADK, the Codex harness and the CLI image are not
-offered on the platform and are not built here. Consumers of the dev builds: the agent-platform meta chart's
-dev line (`components.kagent` follows the channel; its `kagent.tag` and the two `Harness` image digests are pinned
-there and re-pinned per build), agentlab (`agentlab configure --chart-branch poc/kagent-main`), and the test
-cluster following the channel.
+offered on the platform and are not built here. A dev build is the test artifact of a change — a pull request's
+branch or a re-pin, proven in agentlab before the tag that consumers depend on. Its consumers: the agent-platform
+meta chart's dev line (`components.kagent` follows the channel; its `kagent.tag` and the two `Harness` image digests
+are pinned there and re-pinned per build), agentlab (`agentlab configure --chart-branch poc/kagent-main`), and the
+test cluster following the channel. A release (below) is what the meta chart's release line resolves.
 
 Publishing does not wait for the tests. Nothing reaches the consumed branch untested — a pull request needs a
 green `ci-ok` and `scan-ok` on an up-to-date branch, and the sync lands a candidate only after both passed on
 its exact head (the same commits it then force-pushes) — so the push-triggered run on the consumed branch is a
 repetition; a red one is a flake to re-run or an environment drift to fix, visible on the commit and in the
 Actions tab, never a reason to pull a build that was green on the same tree.
+
+### Release scheme
+
+A release of the line is a tag `vX.Y.Z-gs.N` on the consumed branch — the scheme of the Substrate line
+(giantswarm/substrate). `X.Y.Z` is the upstream version the pin anticipates: `DEV_BASE_VERSION` in `tag.yaml`,
+today `0.11.0`, upstream `main`'s next release. `N` counts the line's releases of that base, from 1. The first
+release is `v0.11.0-gs.1`. `tag.yaml` publishes a tag the way it publishes a dev build (`on.push.tags` `v*.*.*`
+matches, the version is the tag without `v`, and the version step refuses a tag that is not
+`v<DEV_BASE_VERSION>-gs.<N>`): the four images and both charts under `ghcr.io/giantswarm/kagent` at
+`0.11.0-gs.1`, the digests as a row of `builds.md`. The release's row in the table below is written by hand.
+
+Why this shape:
+
+- **Order.** Semver sorts `0.11.0-dev.giantswarm.… < 0.11.0-gs.1 < 0.11.0`: a release outranks every dev build of
+  its base and never outranks the upstream release it anticipates, so the day upstream ships everything the line
+  carries, the switch to the upstream tag is a range change for the consumers, not a rename. When upstream tags
+  `v0.11.0`, the next re-pin moves `DEV_BASE_VERSION` to `0.12.0` and the counter restarts at `-gs.1`.
+- **No collision with the mirror.** Upstream's tags are `vX.Y.Z` (and its own pre-release suffixes); `-gs.N` is
+  ours alone. The mirror copies every upstream tag the fork lacks and never touches a tag upstream does not have —
+  which is also why a fork tag must never carry a name upstream will use: a `v0.11.0` here would make the mirror
+  skip upstream's `v0.11.0` silently. Upstream's version resolvers in `ci.yaml` see the fork's tags too:
+  `scripts/upgrade-from-version.sh` (the `adjacent` leg) is skipped on a non-release base such as `giantswarm`,
+  and `scripts/prev-stable-version.sh` only looks at the release line below the one being built (`release/v0.10.x`
+  today), where no `-gs.N` tag lives. The one window: after upstream opens `release/v0.11.x` and before its first
+  `v0.11.*` tag, a `0.11.0-gs.N` tag would be the only `prev-stable` candidate — the re-pin that follows upstream's
+  release closes it (the base moves); until then, expect that leg red and re-pin.
+- **Out of the wrapper's range.** Every 3.x installation of the platform selects the 0.10 wrapper chart `kagent` at
+  `oci://gsoci.azurecr.io/charts/giantswarm/kagent` with `>=0.2.0 <1.0.0` and re-resolves it on every reconcile.
+  The line's chart must never be resolvable there. It is not, twice over: it lives on another OCI path
+  (`ghcr.io/giantswarm/kagent/helm`), and its version is a pre-release (`-gs.N`, `-dev.…`), which Flux's semver
+  (Masterminds) never matches against a range without a pre-release bound. Either alone keeps it out; both are used.
+- **ghcr.io, not gsoci or the app catalog, today.** The org publishes to gsoci and the catalog from CircleCI
+  (architect) only; GitHub Actions has no ACR credential, and this repository runs upstream's Actions workflows,
+  not a CircleCI pipeline. Moving the line to gsoci later is a repository-URL change for the consumers
+  (`components.kagent`/`components.kagent-crds` `repository`, the `Harness` image references) plus a push
+  credential in the publish job — the version scheme does not change.
+
+A tag is cut only after the build of the same commit — its dev build — has passed the platform's proofs in
+agentlab on the meta chart's dev channel; the tag re-publishes the same tree under the release version. Cut it
+deliberately (no tag ruleset gates it; anyone with write access can push a tag):
+
+```bash
+git tag v0.11.0-gs.1 <sha> && git push origin v0.11.0-gs.1
+# or, without a checkout:
+gh api -X POST repos/giantswarm/kagent-upstream/git/refs -f ref=refs/tags/v0.11.0-gs.1 -f sha=<sha>
+```
+
+Then add the row below from the run summary (or `builds.md`).
+
+### Releases
+
+| Release | Tag | Commit | Upstream pin | Images (index digests: controller, ui, golang-adk, claude-harness) | Charts (kagent, kagent-crds) |
+|---|---|---|---|---|---|
+| — | none yet; the first is `v0.11.0-gs.1`, after the agentlab proof of its dev build | | | | |
 
 ## CI and security
 
