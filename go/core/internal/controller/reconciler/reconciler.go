@@ -942,11 +942,7 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent v1alpha2.AgentObject) s
 		unsupported = append(unsupported, "code execution (executeCodeBlocks is deprecated)")
 	}
 
-	// Memory: ✅ Supported in Go as of PR #1444
-	// Context compression: Not yet implemented in Go runtime
-	if decl.Context != nil && decl.Context.Compaction != nil {
-		unsupported = append(unsupported, "context compression/compaction (not implemented in Go runtime)")
-	}
+	// Memory and context compaction are implemented in the Go runtime.
 
 	if len(unsupported) == 0 {
 		return ""
