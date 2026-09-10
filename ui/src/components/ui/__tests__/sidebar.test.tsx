@@ -10,7 +10,10 @@ describe("Sidebar", () => {
       </SidebarProvider>
     )
 
-    expect(screen.getByTestId("sidebar-provider")).toHaveClass("relative")
+    expect(screen.getByTestId("sidebar-provider")).toHaveClass(
+      "relative",
+      "overflow-hidden",
+    )
     expect(screen.getByTestId("sidebar-panel")).toHaveClass("absolute", "h-full")
     expect(screen.getByTestId("sidebar-panel")).not.toHaveClass("fixed", "h-svh")
   })
