@@ -166,10 +166,15 @@ test("chat: a question the agent is waiting on is said, and can be given up", as
     await page.getByTestId("chat-input").fill("What should I order?");
     await page.getByTestId("chat-send").click();
 
-    // The question itself arrives as prose, which is exactly why it is not enough.
+    // The actionable card is the only representation of the pending interaction;
+    // raw ask_user protocol artifacts do not become chat messages.
+    await expect(page.getByTestId("chat-awaiting-reply")).toContainText(
+      "What size pizza would you like?",
+      { timeout: 20_000 },
+    );
     await expect(
-      page.getByTestId("chat-message").last(),
-    ).toContainText("What size pizza would you like?", { timeout: 20_000 });
+      page.getByTestId("chat-tool-call").filter({ hasText: "ask_user" }),
+    ).toHaveCount(0);
   });
 
   await test.step("2. the page says the agent is waiting, and does not call it a failure", async () => {
@@ -212,18 +217,21 @@ test("chat: a question the agent is waiting on is said, and can be given up", as
   });
 
   await test.step("5. answering it resumes the turn that asked, and the agent uses the answer", async () => {
-    await page.getByTestId("chat-choices-0").getByText("Large", { exact: true }).click();
-    await page.getByTestId("chat-choices-1").getByText("Pineapple", { exact: true }).click();
+    await page.getByTestId("chat-choices-0").getByRole("radio", { name: "Large" }).check();
+    await page
+      .getByTestId("chat-choices-1")
+      .getByRole("checkbox", { name: "Pineapple" })
+      .check();
     await expect(page.getByTestId("chat-answer-send")).toBeEnabled();
     await page.getByTestId("chat-answer-send").click();
 
-    // The choices are in the transcript as prose, so the conversation reads as what
-    // happened rather than as an empty message the agent somehow understood.
+    // The completed interaction is one read-only card, not protocol response text.
     await expect(
       page.locator('[data-testid="chat-message"][data-role="user"]').filter({
         hasText: "Large",
       }),
     ).toHaveCount(1);
+    await expect(page.getByTestId("chat-ask-user-record")).toHaveCount(1);
 
     // And the *structured* answer arrived, which the prose alone cannot show. The
     // fixture answers "I did not catch a choice in that" when the metadata is

@@ -74,6 +74,10 @@ func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Agen
 	return &database.AgentInstanceTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
 }
 
+func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1alpha1.AgentInstance) error {
+	return nil
+}
+
 type scheduledControllerAuth struct {
 	authimpl.UnsecureAuthenticator
 }

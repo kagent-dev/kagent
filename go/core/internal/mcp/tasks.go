@@ -12,6 +12,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -364,16 +365,16 @@ func elicitationSchema(task *a2atype.Task) map[string]any {
 	if request := adka2a.GetAskUserRequest(task.Status.Message); request != nil {
 		for i, question := range request.Questions {
 			key := answerKey(i, len(request.Questions))
-			property := map[string]any{"type": "string", "description": stringValue(question["question"])}
-			if choices := stringSlice(question["choices"]); len(choices) > 0 {
-				property["enum"] = choices
+			property := map[string]any{"type": "string", "description": question.Question}
+			if len(question.Choices) > 0 {
+				property["enum"] = question.Choices
 			}
-			if multiple, _ := question["multiple"].(bool); multiple {
+			if question.Multiple {
 				items := map[string]any{"type": "string"}
-				if choices := stringSlice(question["choices"]); len(choices) > 0 {
-					items["enum"] = choices
+				if len(question.Choices) > 0 {
+					items["enum"] = question.Choices
 				}
-				property = map[string]any{"type": "array", "items": items, "description": stringValue(question["question"])}
+				property = map[string]any{"type": "array", "items": items, "description": question.Question}
 			}
 			properties[key], required = property, append(required, key)
 		}
@@ -397,7 +398,7 @@ func elicitationMessage(task *a2atype.Task, response *mcp.ElicitResult) (*a2atyp
 	}
 	message := a2atype.NewMessageForTask(a2atype.MessageRoleUser, task, a2atype.NewTextPart("Tool approval response."))
 	if request := adka2a.GetAskUserRequest(task.Status.Message); request != nil {
-		answers := make([]adka2a.AskUserAnswer, len(request.Questions))
+		answers := make([]apia2a.AskUserAnswer, len(request.Questions))
 		var text []string
 		for i := range request.Questions {
 			if response.Action == "accept" {
@@ -416,20 +417,20 @@ func elicitationMessage(task *a2atype.Task, response *mcp.ElicitResult) (*a2atyp
 			text = append(text, answers[i].Answer...)
 		}
 		message.Parts = []*a2atype.Part{a2atype.NewTextPart(strings.Join(text, "\n"))}
-		return adka2a.AttachHitlExtension(message, &adka2a.AskUserResponse{
+		return adka2a.AttachHitlExtension(message, &apia2a.AskUserResponse{
 			Type: adka2a.HITLTypeAskUserResponse, ID: request.ID, Answers: answers,
 		}), nil
 	}
 	if request := adka2a.GetToolApprovalRequest(task.Status.Message); request != nil {
-		approvals := make([]adka2a.ToolApproval, len(request.Tools))
+		approvals := make([]apia2a.ToolApproval, len(request.Tools))
 		for i, tool := range request.Tools {
 			approved, ok := response.Content[fmt.Sprintf("approve_%d", i+1)].(bool)
 			if response.Action == "accept" && !ok {
 				return nil, fmt.Errorf("accepted elicitation must decide every approval")
 			}
-			approvals[i] = adka2a.ToolApproval{ID: tool.ID, Approved: response.Action == "accept" && approved}
+			approvals[i] = apia2a.ToolApproval{ID: tool.ID, Approved: response.Action == "accept" && approved}
 		}
-		return adka2a.AttachHitlExtension(message, &adka2a.ToolApprovalResponse{
+		return adka2a.AttachHitlExtension(message, &apia2a.ToolApprovalResponse{
 			Type: adka2a.HITLTypeToolApprovalResponse, Approvals: approvals,
 		}), nil
 	}
@@ -446,11 +447,6 @@ func answerKey(i, total int) string {
 		return "response"
 	}
 	return fmt.Sprintf("response_%d", i+1)
-}
-
-func stringValue(value any) string {
-	text, _ := value.(string)
-	return text
 }
 
 func stringSlice(value any) []string {

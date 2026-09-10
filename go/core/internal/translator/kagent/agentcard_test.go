@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
@@ -27,7 +28,7 @@ func TestCompilerRequiresModelConfig(t *testing.T) {
 // knows to ask — which is exactly why it needs a test: the failure is a client
 // that cannot tell an answerable question from an unanswerable one.
 func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
-	card := agentTemplateCard(&v1alpha3.AgentTemplate{
+	card := v2translator.ManagedAgentCard(&v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "pizza-agent", Namespace: "team-a"},
 	})
 
@@ -36,7 +37,7 @@ func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
 	}
 	var found bool
 	for _, extension := range card.Capabilities.Extensions {
-		if extension.URI == hitlExtensionURI {
+		if extension.URI == apia2a.HITLExtensionURI {
 			found = true
 			if extension.Required {
 				t.Fatal("the HITL extension must be optional; requiring it would refuse clients that cannot answer questions")
@@ -44,7 +45,7 @@ func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("extensions = %#v, want %s declared", card.Capabilities.Extensions, hitlExtensionURI)
+		t.Fatalf("extensions = %#v, want HITL declared", card.Capabilities.Extensions)
 	}
 	// The card must stay free of cluster-specific addresses; the gateway supplies
 	// the public interface.

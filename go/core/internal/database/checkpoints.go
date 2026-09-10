@@ -213,6 +213,12 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			    LIMIT 1
 			) latest
 			WHERE latest.history_sequence = (SELECT MAX(sequence) FROM agent_instance_task_event WHERE history_id = $1)
+			AND latest.state IN (
+			    'TASK_STATE_COMPLETED',
+			    'TASK_STATE_CANCELED',
+			    'TASK_STATE_FAILED',
+			    'TASK_STATE_REJECTED'
+			)
 			AND NOT EXISTS (
 			    SELECT 1 FROM agent_instance_task active
 			    WHERE active.history_id = $1
@@ -220,9 +226,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 			          'TASK_STATE_COMPLETED',
 			          'TASK_STATE_CANCELED',
 			          'TASK_STATE_FAILED',
-			          'TASK_STATE_REJECTED',
-			          'TASK_STATE_INPUT_REQUIRED',
-			          'TASK_STATE_AUTH_REQUIRED'
+			          'TASK_STATE_REJECTED'
 			      )
 			)
 		`, pgx.RowToStructByName[agentInstanceTaskRow], instance.HistoryID)
