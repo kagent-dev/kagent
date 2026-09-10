@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1372,4 +1373,32 @@ func generateTestCAPEM(t *testing.T) []byte {
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	require.NoError(t, err)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func TestMcpToolSnapshot_IgnoresOrder(t *testing.T) {
+	ts := &database.ToolServer{Description: "d"}
+	a := []*v1alpha2.MCPTool{{Name: "a", Description: "1"}, {Name: "b", Description: "2"}}
+	b := []*v1alpha2.MCPTool{{Name: "b", Description: "2"}, {Name: "a", Description: "1"}}
+	assert.Equal(t, mcpToolSnapshot(ts, a), mcpToolSnapshot(ts, b))
+}
+
+func TestMcpToolSnapshot_ChangesOnToolOrDescription(t *testing.T) {
+	tools := []*v1alpha2.MCPTool{{Name: "t", Description: "td"}}
+	base := mcpToolSnapshot(&database.ToolServer{Description: "d"}, tools)
+	assert.NotEqual(t, base, mcpToolSnapshot(&database.ToolServer{Description: "other"}, tools))
+	assert.NotEqual(t, base, mcpToolSnapshot(&database.ToolServer{Description: "d"}, []*v1alpha2.MCPTool{{Name: "t", Description: "changed"}}))
+	assert.NotEqual(t, base, mcpToolSnapshot(&database.ToolServer{Description: "d"}, []*v1alpha2.MCPTool{{Name: "t", Description: "td"}, {Name: "u", Description: "ud"}}))
+}
+
+func TestToolSnapshotCache_SkipUnchangedAndEvict(t *testing.T) {
+	r := &kagentReconciler{}
+	ts := &database.ToolServer{Name: "ns/s", GroupKind: "kagent.dev/RemoteMCPServer", Description: "d"}
+	tools := []*v1alpha2.MCPTool{{Name: "t", Description: "td"}}
+
+	assert.False(t, r.toolSnapshotUnchanged(ts, tools))
+	r.rememberToolSnapshot(ts, tools)
+	assert.True(t, r.toolSnapshotUnchanged(ts, tools))
+	assert.False(t, r.toolSnapshotUnchanged(ts, []*v1alpha2.MCPTool{{Name: "other", Description: "td"}}))
+	r.evictToolSnapshot(ts.Name, ts.GroupKind)
+	assert.False(t, r.toolSnapshotUnchanged(ts, tools))
 }
