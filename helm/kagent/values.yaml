@@ -633,6 +633,12 @@ providers:
     apiKeySecretRef: kagent-anthropic
     apiKeySecretKey: ANTHROPIC_API_KEY
     # apiKey: ""
+    # Provider options rendered into spec.anthropic of the generated ModelConfig.
+    # promptCaching bills the stable prefix of every agent-loop call (tools,
+    # system prompt, previous turns) as a cache read instead of fresh input.
+    # config:
+    #   promptCaching: true
+    #   cacheTTL: "5m" # or "1h" for calls spaced more than 5 minutes apart
   azureOpenAI:
     provider: AzureOpenAI
     model: "gpt-4.1-mini"
