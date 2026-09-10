@@ -1,15 +1,19 @@
 name: Scan images
 
+# Fork (giantswarm/kagent-upstream): every image the fork publishes is scanned
+# on every push to the consumed branch and the sync candidates, on every pull
+# request to the consumed branch and weekly (the schedule runs on the default
+# branch, which is the consumed branch); the Go module graph is scanned with
+# govulncheck. One `scan-ok` status for the ruleset. See FORK.md.
 on:
-  # Trigger once a week on the main branch
+  # Trigger once a week on the default branch
   schedule:
   - cron: '0 0 * * 0' # Every Monday at midnight UTC
 
-  # Trigger the workflow on push to main and release branches
   push:
-    branches: [main, "release/**"]
-    paths-ignore:
-      - '**/*.md'
+    branches: [main, "release/**", poc/agent-platform, "sync/**"]
+  pull_request:
+    branches: [poc/agent-platform]
 
   workflow_dispatch:
 
@@ -29,15 +33,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Fork: the images the platform publishes (FORK.md).
         include:
           - build_target: controller
             image_name: controller
             tag_suffix: ""
           - build_target: ui
             image_name: ui
-            tag_suffix: ""
-          - build_target: kagent-adk
-            image_name: kagent-adk
             tag_suffix: ""
           - build_target: golang-adk
             image_name: golang-adk
@@ -51,7 +53,7 @@ jobs:
           - build_target: sandbox-guest
             image_name: sandbox-guest
             tag_suffix: ""
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     services:
       registry:
         image: registry:2
@@ -62,8 +64,13 @@ jobs:
         uses: actions/checkout@v6
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: network=host
+          use: "true"
       - name: Set version
         id: vars
         run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -93,3 +100,34 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
+
+  # Fork: the Go module graph. Upstream ships the target (go/Makefile) without a
+  # workflow that runs it.
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+      - name: Scan the Go module graph
+        run: scripts/fork/govulncheck.sh
+
+  # Fork: the one status the ruleset requires.
+  scan-ok:
+    if: always()
+    needs:
+      - build
+      - govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every scan succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$RESULTS"
+          jq -e 'all(.[]; .result == "success")' <<< "$RESULTS" > /dev/null

@@ -1,0 +1,208 @@
+name: Sync with upstream
+
+# Fork (giantswarm/kagent-upstream): the weekly re-pin of the consumed branch
+# (FORK.md, "Re-pin"). Fast-forwards the mirror (main, release/v*.x, tags —
+# scripts/fork/mirror.sh) to upstream, rebases the carried commits onto the upstream head (scripts/fork/repin.sh),
+# lets CI Build and Scan images test the candidate branch, and force-pushes the
+# consumed branch so Tag and Push publishes the dev build. When a carried
+# commit conflicts or a check fails it opens a pull request against the
+# consumed branch that names the cause, and pushes nothing else.
+#
+# Who pushes matters: the mirror and the ledger are pushed with GITHUB_TOKEN
+# (no workflow reacts to such a push — upstream's CI must not run on the
+# mirror); the candidate and the consumed branch are pushed with a token of
+# the org's heraldbot GitHub App (contents + workflows write; the ruleset's
+# bypass actor), so CI Build, Scan images and Tag and Push do run and commits
+# that touch .github/workflows are accepted.
+on:
+  schedule:
+    - cron: '0 5 * * 1' # Monday 05:00 UTC
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream ref to re-pin onto (the mirror main always follows upstream main)'
+        default: main
+      dry_run:
+        description: 'Rebase and report only; push nothing'
+        type: boolean
+        default: false
+      mirror_only:
+        description: 'Fast-forward the mirror (main, release branches, tags) and stop'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  CONSUMED: poc/agent-platform
+  UPSTREAM_REPO: kagent-dev/kagent
+  UPSTREAM_REF: ${{ inputs.upstream_ref || 'main' }}
+  DRY_RUN: ${{ inputs.dry_run == true }}
+  MIRROR_ONLY: ${{ inputs.mirror_only == true }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CONSUMED }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mint the bot token
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.HERALD_CLIENT_ID }}
+          private-key: ${{ secrets.HERALD_APP_KEY }}
+
+      - name: Prepare
+        run: |
+          git config user.name "HeraldBot[bot]"
+          git config user.email "149080493+heraldbot[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch -q upstream main
+          [ "$UPSTREAM_REF" = main ] || git fetch -q upstream "$UPSTREAM_REF"
+          git fetch -q origin main "$CONSUMED"
+
+      - name: Fast-forward the mirror (main, release branches, tags)
+        # GITHUB_TOKEN on purpose: a push made with it triggers no workflow, so
+        # upstream's CI does not run on the mirrored refs and mirrored tags do
+        # not start Tag and Push.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$DRY_RUN" = true ]; then
+            scripts/fork/mirror.sh "$GITHUB_TOKEN" --check
+          else
+            scripts/fork/mirror.sh "$GITHUB_TOKEN"
+          fi
+
+      - name: Rebase the carried commits
+        id: repin
+        if: env.MIRROR_ONLY != 'true'
+        run: |
+          set +e
+          UPSTREAM_REMOTE=upstream REPORT=repin-report.md REPORT_ENV=repin-report.env scripts/fork/repin.sh
+          rc=$?
+          set -e
+          cat repin-report.md >> "$GITHUB_STEP_SUMMARY"
+          cat repin-report.env >> "$GITHUB_OUTPUT"
+          case $rc in 0|2) ;; *) exit "$rc" ;; esac
+
+      - name: Dry run
+        if: env.DRY_RUN == 'true' && env.MIRROR_ONLY != 'true'
+        run: |
+          echo "dry run: status=${{ steps.repin.outputs.status }}; nothing pushed"
+          [ "${{ steps.repin.outputs.status }}" != conflict ]
+
+      - name: Conflict — open the pull request
+        if: env.DRY_RUN != 'true' && steps.repin.outputs.status == 'conflict'
+        env:
+          BOT_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CANDIDATE: ${{ steps.repin.outputs.candidate }}
+          TARGET: ${{ steps.repin.outputs.target }}
+          CONFLICT: ${{ steps.repin.outputs.conflict }}
+          CONFLICT_SUBJECT: ${{ steps.repin.outputs.conflict_subject }}
+        run: |
+          # A signal, not a proposal: the branch is the consumed head plus one empty
+          # commit, so the pull request can exist; [skip ci] keeps the checks quiet.
+          git checkout -q -B "$CANDIDATE" "origin/$CONSUMED"
+          git commit -q --allow-empty \
+            -m "sync: upstream ${TARGET:0:7} conflicts with carried commit ${CONFLICT:0:7} [skip ci]" \
+            -m "${CONFLICT_SUBJECT}" -m "Details and the manual procedure: ${RUN_URL}"
+          scripts/fork/git-push-as.sh "$BOT_TOKEN" origin "$CANDIDATE"
+          {
+            echo "The automated re-pin stopped: a carried commit does not apply onto upstream \`${TARGET:0:7}\`. Nothing was pushed to \`${CONSUMED}\`."
+            echo
+            cat repin-report.md
+            echo
+            echo "Finish by hand (FORK.md, \"Manual re-pin\"), then close this pull request — do not merge it. Run: ${RUN_URL}"
+          } > pr-body.md
+          gh pr create --base "$CONSUMED" --head "$CANDIDATE" \
+            --title "sync: re-pin onto upstream ${TARGET:0:7} blocked — ${CONFLICT_SUBJECT}" \
+            --body-file pr-body.md
+          exit 1
+
+      - name: Push the candidate
+        if: env.DRY_RUN != 'true' && steps.repin.outputs.status == 'rebased'
+        env:
+          BOT_TOKEN: ${{ steps.app.outputs.token }}
+        run: scripts/fork/git-push-as.sh "$BOT_TOKEN" origin "${{ steps.repin.outputs.candidate }}"
+
+      - name: Wait for ci-ok and scan-ok on the candidate
+        if: env.DRY_RUN != 'true' && steps.repin.outputs.status == 'rebased'
+        id: checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.repin.outputs.new_head }}
+        run: |
+          deadline=$((SECONDS + 170 * 60))
+          while :; do
+            state=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "ci-ok" or .name == "scan-ok") | {(.name): "\(.status)/\(.conclusion)"}] | add // {}')
+            echo "$(date -u +%H:%M:%S) ${state}"
+            if jq -e '[."ci-ok", ."scan-ok"] | all(. == "completed/success")' <<< "$state" > /dev/null; then
+              echo "result=green" >> "$GITHUB_OUTPUT"; break
+            fi
+            if jq -e '[."ci-ok", ."scan-ok"] | all(. != null and startswith("completed/"))' <<< "$state" > /dev/null; then
+              echo "result=red" >> "$GITHUB_OUTPUT"; echo "state=${state}" >> "$GITHUB_OUTPUT"; break
+            fi
+            if [ "$SECONDS" -gt "$deadline" ]; then
+              echo "result=timeout" >> "$GITHUB_OUTPUT"; echo "state=${state}" >> "$GITHUB_OUTPUT"; break
+            fi
+            sleep 60
+          done
+
+      - name: Land the re-pin
+        if: steps.checks.outputs.result == 'green'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BOT_TOKEN: ${{ steps.app.outputs.token }}
+          CANDIDATE: ${{ steps.repin.outputs.candidate }}
+          NEW_HEAD: ${{ steps.repin.outputs.new_head }}
+          OLD_HEAD: ${{ steps.repin.outputs.old_head }}
+          PIN: ${{ steps.repin.outputs.pin }}
+          TARGET: ${{ steps.repin.outputs.target }}
+        run: |
+          scripts/fork/git-push-as.sh "$BOT_TOKEN" origin \
+            --force-with-lease="refs/heads/${CONSUMED}:${OLD_HEAD}" "${NEW_HEAD}:refs/heads/${CONSUMED}"
+          scripts/fork/git-push-as.sh "$BOT_TOKEN" origin --delete "$CANDIDATE"
+          dropped="${{ steps.repin.outputs.dropped }}"
+          scripts/fork/ledger-append.sh re-pins.md \
+            "| $(date -u +'%Y-%m-%d %H:%M') | \`${PIN:0:7}\` | \`${TARGET:0:7}\` ($(git show -s --format=%cs "$TARGET")) | \`${OLD_HEAD:0:7}\` → \`${NEW_HEAD:0:7}\` | ${{ steps.repin.outputs.replayed_count }} | ${dropped:-—} | [run](${RUN_URL}) |"
+          echo "### Landed" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${CONSUMED}\` is \`${NEW_HEAD:0:7}\` (was \`${OLD_HEAD:0:7}\`); Tag and Push publishes the dev build." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checks failed — open the pull request
+        if: steps.checks.outputs.result == 'red' || steps.checks.outputs.result == 'timeout'
+        env:
+          BOT_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CANDIDATE: ${{ steps.repin.outputs.candidate }}
+          TARGET: ${{ steps.repin.outputs.target }}
+          RESULT: ${{ steps.checks.outputs.result }}
+          STATE: ${{ steps.checks.outputs.state }}
+        run: |
+          {
+            echo "The automated re-pin stopped: the rebased candidate did not pass the checks (${RESULT}: \`${STATE}\`). Nothing was pushed to \`${CONSUMED}\`."
+            echo
+            echo "The checks ran on this branch's head; their runs are in the Actions tab for \`${CANDIDATE}\`."
+            echo
+            cat repin-report.md
+            echo
+            echo "Finish by hand (FORK.md, \"Manual re-pin\"): fix on this branch, let the checks pass, force-push it onto \`${CONSUMED}\`, then close this pull request — do not merge it. Run: ${RUN_URL}"
+          } > pr-body.md
+          gh pr create --base "$CONSUMED" --head "$CANDIDATE" \
+            --title "sync: re-pin onto upstream ${TARGET:0:7} blocked — checks ${RESULT}" \
+            --body-file pr-body.md
+          exit 1

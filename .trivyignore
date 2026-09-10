@@ -1,0 +1,14 @@
+# Time-boxed Trivy ignores for the Giant Swarm kagent line (FORK.md, "CI and security").
+# Trivy reads this file from the repository root; `exp:` is Trivy's own expiry — an
+# expired line stops ignoring. Only findings with no fix path belong here; a fixable
+# finding is fixed. Re-review each entry at its date.
+#
+# istio.io/istio v0.0.0-20260820015531-47320ba1a73b (controller binary): the module has
+# no Go-module semver releases (istio tags are `1.x.y`, not module versions), so kagent
+# can only depend on a pseudo-version, which Trivy compares below every fixed version
+# (1.1.13 … 1.13.1) although the pinned commit (2026-08-20) is years past those fixes.
+# False positive by version comparison; clears when Trivy/istio publish module versions.
+CVE-2019-14993 exp:2026-12-31
+CVE-2021-39155 exp:2026-12-31
+CVE-2021-39156 exp:2026-12-31
+CVE-2022-23635 exp:2026-12-31

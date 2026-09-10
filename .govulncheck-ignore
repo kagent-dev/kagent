@@ -1,0 +1,19 @@
+# Time-boxed govulncheck ignores for the Giant Swarm kagent line (FORK.md, "CI and
+# security"; scripts/fork/govulncheck.sh applies them). One per line:
+#   GO-YYYY-NNNN until=YYYY-MM-DD # <module@version>: why unresolvable, what to track
+# An entry is re-reviewed at its date; a fixable finding is bumped, never extended.
+#
+# github.com/ollama/ollama@v0.32.15 — kagent imports the Ollama API *client*
+# (adk/pkg/models, adk/pkg/embedding, core/internal/service/model); the eight
+# advisories describe the Ollama *server* (authentication, token exposure, DoS,
+# path handling) and the Go vulnerability database marks every one "fixed: N/A",
+# so no module version clears them. Re-review when upstream bumps the module or
+# the database records a fixed version; tracked in giantswarm/giantswarm#37742.
+GO-2025-4251 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3824 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3695 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3689 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3582 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3559 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3558 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only
+GO-2025-3557 until=2026-12-31 # github.com/ollama/ollama@v0.32.15: server-side, no fixed version, client import only

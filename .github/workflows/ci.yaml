@@ -1,14 +1,19 @@
 name: CI Build
 
+# Fork (giantswarm/kagent-upstream): the consumed branch and the sync
+# candidates run this suite on every push and pull request, on GitHub-hosted
+# runners (the org has no Blacksmith runners), and report one `ci-ok` status
+# for the ruleset. No paths-ignore: a docs-only pull request must still report
+# the required checks to be mergeable. See FORK.md.
 on:
   push:
-    branches: [main, "release/**"]
+    branches: [main, "release/**", poc/agent-platform, "sync/**"]
     paths:
       - "**"
       - "!**/*.md"
       - "docs/env.md"
   pull_request:
-    branches: [main, "release/**"]
+    branches: [main, "release/**", poc/agent-platform]
     paths:
       - "**"
       - "!**/*.md"
@@ -60,7 +65,7 @@ jobs:
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - name: Checkout repository
@@ -88,12 +93,13 @@ jobs:
         # See https://github.com/openai/codex/issues/14919
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
         with:
-          cache-key: kagent-e2e
-          platforms: linux/amd64
-          nofallback: true
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: network=host
+          use: "true"
 
       - name: Set up Helm
         uses: azure/setup-helm@v5.0.1
@@ -296,7 +302,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -343,7 +349,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -437,7 +443,7 @@ jobs:
           helm unittest helm/tools/grafana-mcp
 
   ui-tests:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
@@ -495,16 +501,16 @@ jobs:
       VERSION: v0.0.1-test
     strategy:
       matrix:
+        # Fork: the images the platform publishes (FORK.md) — the Python ADK,
+        # the Codex harness and the CLI image are not offered.
         image:
           - controller
           - ui
-          - kagent-adk
-          - cli
           - golang-adk
           - claude-harness
           - codex-harness
           - sandbox-guest
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     services:
       registry:
         image: registry:2
@@ -517,12 +523,13 @@ jobs:
         uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64,linux/arm64
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
         with:
-          cache-key: kagent-build-${{ matrix.image }}
-          platforms: linux/amd64,linux/arm64
-          nofallback: true
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          driver-opts: network=host
+          use: "true"
       - name: Run make build
         env:
           DOCKER_BUILD_ARGS: >-
@@ -647,3 +654,31 @@ jobs:
             exit 1
           fi
           echo "✓ Controller manifests are up to date"
+
+  # Fork: the one status the ruleset requires. Every job above must succeed; a
+  # leg a job skips internally (the upgrade tests on a non-release base) still
+  # ends in success, a skipped or failed job does not.
+  ci-ok:
+    if: always()
+    needs:
+      - setup
+      - test-e2e
+      - proto-check
+      - upgrade-tests
+      - rolling-upgrade-tests
+      - go-unit-tests
+      - helm-unit-tests
+      - ui-tests
+      - build
+      - go-lint
+      - python-test
+      - python-lint
+      - manifests-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$RESULTS"
+          jq -e 'all(.[]; .result == "success")' <<< "$RESULTS" > /dev/null
