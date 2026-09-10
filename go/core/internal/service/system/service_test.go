@@ -9,6 +9,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -311,41 +312,54 @@ func TestListSubstrateActors(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, page.Enabled)
 		require.Len(t, page.Actors, 2)
-		assert.Equal(t, []string{"actor-1", "actor-2"}, []string{page.Actors[0].ActorID, page.Actors[1].ActorID})
+		// The default order is status then id, across the whole inventory rather than
+		// within the page: Paused sorts before Running, so actor-2 leads even though
+		// ate-api handed it over second.
+		assert.Equal(t, []string{"actor-2", "actor-1"}, []string{page.Actors[0].ActorID, page.Actors[1].ActorID})
 		assert.NotEmpty(t, page.NextPageToken)
-		// One page asked for is one page read: filling a page must not walk the
-		// inventory, which is the whole point of the call.
-		assert.Equal(t, 1, ateClient.actorReads)
+		// The count is of everything matching, not of the page.
+		assert.Equal(t, int64(3), page.TotalSize)
 		assert.False(t, page.ComputedAt.IsZero())
 	})
 
-	t.Run("follows the token it is given", func(t *testing.T) {
+	t.Run("continues from the token it was given", func(t *testing.T) {
 		ateClient := &fakeATEClient{pageSize: 2, actors: []*ateapipb.Actor{
 			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 			substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-1"),
 		}}
+		service := newService(ateClient)
 
-		page, err := newService(ateClient).ListSubstrateActors(ctx, system.SubstrateListInput{PageSize: 2, PageToken: "2"})
+		first, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{PageSize: 2})
 		require.NoError(t, err)
-		require.Len(t, page.Actors, 1)
-		assert.Equal(t, "actor-3", page.Actors[0].ActorID)
-		assert.Empty(t, page.NextPageToken)
+		second, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize:  2,
+			PageToken: first.NextPageToken,
+		})
+		require.NoError(t, err)
+		require.Len(t, second.Actors, 1)
+		assert.Equal(t, "actor-3", second.Actors[0].ActorID)
+		assert.Empty(t, second.NextPageToken, "the last page offers nowhere to go")
+		assert.Equal(t, int64(3), second.TotalSize)
+		// The two pages together are the whole result, in order and without repeats.
+		assert.Equal(t, []string{"actor-1", "actor-2", "actor-3"}, []string{
+			first.Actors[0].ActorID, first.Actors[1].ActorID, second.Actors[0].ActorID,
+		})
 	})
 
-	t.Run("drops rows outside the scope and keeps reading to fill the page", func(t *testing.T) {
+	t.Run("drops rows outside the scope before counting or paging", func(t *testing.T) {
 		ateClient := &fakeATEClient{pageSize: 1, actors: []*ateapipb.Actor{
 			substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-0"),
 			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 		}}
 
-		page, err := newService(ateClient).ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 1})
+		page, err := newService(ateClient).ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 10})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
 		assert.Equal(t, "actor-1", page.Actors[0].ActorID)
-		// A page of one that ate-api answered with a row from another namespace would
-		// otherwise render as "no actors" on a cluster that has them.
-		assert.Equal(t, 2, ateClient.actorReads)
+		// The total is of the scope, not of the cluster: counting the other namespace
+		// here would report "1 of 2" for a scope holding one.
+		assert.Equal(t, int64(1), page.TotalSize)
 	})
 
 	t.Run("an ate-api failure is an empty page beside a warning", func(t *testing.T) {
@@ -478,97 +492,6 @@ func TestGetSubstrateSummary(t *testing.T) {
 	})
 }
 
-// A read that dies between pages must not look like the end of the list: the rows
-// already collected are kept, and the token names the page that failed so a retry
-// resumes there instead of losing everything behind it.
-func TestListSubstrateActorsKeepsRowsWhenAPageFailsMidway(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
-	ateClient := &fakeATEClient{
-		pageSize:     1,
-		err:          errors.New("ate-api unreachable"),
-		failFromRead: 2,
-		actors: []*ateapipb.Actor{
-			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-			substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-1"),
-			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-2"),
-		},
-	}
-	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
-
-	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 10})
-	require.NoError(t, err)
-	require.Len(t, page.Actors, 1)
-	assert.Equal(t, "actor-1", page.Actors[0].ActorID)
-	assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
-	// The token of the page that failed. Empty here would hide "actor-2" behind a
-	// missing Next button, with the summary beside it still counting three actors.
-	assert.Equal(t, "1", page.NextPageToken)
-}
-
-// A page can be advanced past without keeping any of it — every row out of scope — and
-// the progress still has to survive a later failure, or the rest of the list is
-// unreachable behind a control that has hidden itself.
-func TestListSubstrateActorsResumesFromTheTokenItReached(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
-	ateClient := &fakeATEClient{
-		pageSize:     1,
-		err:          errors.New("ate-api unreachable"),
-		failFromRead: 2,
-		actors: []*ateapipb.Actor{
-			// The whole of page one, and none of it in scope.
-			substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-0"),
-			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-1"),
-		},
-	}
-	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
-
-	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 10})
-	require.NoError(t, err)
-	assert.Empty(t, page.Actors)
-	assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
-	// Page one was read and dropped, so page two is where a retry belongs. Empty here
-	// would strand "actor-1" behind a Next button that never rendered.
-	assert.Equal(t, "1", page.NextPageToken)
-}
-
-// With nothing read at all there is no page to continue after: the token names the page
-// the caller already asked for, and offering it as "next" is a control that goes nowhere.
-func TestListSubstrateActorsOffersNoNextPageWhenTheFirstReadFails(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
-	ateClient := &fakeATEClient{pageSize: 1, err: errors.New("ate-api unreachable")}
-	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
-
-	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{PageToken: "2", PageSize: 10})
-	require.NoError(t, err)
-	assert.Empty(t, page.Actors)
-	assert.Empty(t, page.NextPageToken)
-}
-
-// A page must not come back larger than it was asked for: a caller sizes a table or a
-// buffer by the number it sent, and the proto caps it at 100.
-func TestListSubstrateActorsNeverOverfillsAPage(t *testing.T) {
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
-	actors := []*ateapipb.Actor{
-		substrateActor("other-1", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-0"),
-	}
-	for index := range 6 {
-		actors = append(actors, substrateActor(
-			fmt.Sprintf("actor-%d", index), "team",
-			ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0",
-		))
-	}
-	// Three rows a page: the first page contributes one in-scope row, so a second read
-	// asking for the full three again would return four rows for a page of three.
-	ateClient := &fakeATEClient{pageSize: 3, actors: actors}
-	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
-
-	page, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 3})
-	require.NoError(t, err)
-	assert.Len(t, page.Actors, 3)
-	// Each read asks only for what is still missing.
-	assert.Equal(t, []int32{3, 1}, ateClient.actorPageSizes)
-}
-
 /*
 The summary's three ate-api reads are independent, and a database failure is not one
 of them.
@@ -649,4 +572,140 @@ type failingTemplatesATEClient struct {
 
 func (client *failingTemplatesATEClient) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
 	return nil, errors.New("templates unavailable")
+}
+
+/*
+The point of the whole exercise: an order and a filter that mean the cluster, not the
+page in front of the reader.
+
+ate-api offers neither, so the controller walks its pages and applies both before
+cutting. What that buys is exactly what these assert — a row that sorts first arrives on
+page one however late ate-api mentioned it, and a match nine pages deep is still found.
+*/
+func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	newService := func(client system.ATEClient) *system.Service {
+		return system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, client, &fakeRuntimeRevisionStore{})
+	}
+	// One row per ate-api page, so nothing here can pass by accident on a single read.
+	actors := &fakeATEClient{pageSize: 1, actors: []*ateapipb.Actor{
+		substrateActor("actor-zulu", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
+		substrateActor("actor-mike", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+		substrateActor("actor-alpha", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-9"),
+	}}
+
+	t.Run("the first page holds the first row of the whole order", func(t *testing.T) {
+		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize:  1,
+			SortField: int32(apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID),
+		})
+		require.NoError(t, err)
+		require.Len(t, page.Actors, 1)
+		// Last out of ate-api, first in the order. A page-scoped sort would have put
+		// actor-zulu here, because that is the row the first ate-api page held.
+		assert.Equal(t, "actor-alpha", page.Actors[0].ActorID)
+		assert.Equal(t, int64(3), page.TotalSize)
+	})
+
+	t.Run("descending reverses the whole order, not the page", func(t *testing.T) {
+		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize:  1,
+			SortField: int32(apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID),
+			SortOrder: int32(apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC),
+		})
+		require.NoError(t, err)
+		require.Len(t, page.Actors, 1)
+		assert.Equal(t, "actor-zulu", page.Actors[0].ActorID)
+	})
+
+	t.Run("a filter narrows every page and the total with it", func(t *testing.T) {
+		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize: 10,
+			// Case-insensitive, and matching a row ate-api mentioned last.
+			Filter: "ALPHA",
+		})
+		require.NoError(t, err)
+		require.Len(t, page.Actors, 1)
+		assert.Equal(t, "actor-alpha", page.Actors[0].ActorID)
+		// The count is of matches, which is what makes "1 of 1" rather than "1 of 3".
+		assert.Equal(t, int64(1), page.TotalSize)
+		assert.Empty(t, page.NextPageToken)
+	})
+
+	t.Run("the filter reaches fields the row shows beyond its name", func(t *testing.T) {
+		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize: 10,
+			Filter:   "worker-9",
+		})
+		require.NoError(t, err)
+		require.Len(t, page.Actors, 1)
+		assert.Equal(t, "actor-alpha", page.Actors[0].ActorID)
+	})
+
+	t.Run("the order applied comes back, rather than being assumed from the request", func(t *testing.T) {
+		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize:  10,
+			SortField: int32(apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_STATUS),
+			SortOrder: int32(apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int32(apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_STATUS), page.AppliedSortField)
+		assert.Equal(t, int32(apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC), page.AppliedSortOrder)
+	})
+
+	t.Run("an unknown sort field falls back to the default order rather than failing", func(t *testing.T) {
+		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize:  10,
+			SortField: 999,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int32(apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED), page.AppliedSortField)
+		// Status then id: Paused before the two Running, and alpha before zulu within them.
+		assert.Equal(t, []string{"actor-mike", "actor-alpha", "actor-zulu"},
+			[]string{page.Actors[0].ActorID, page.Actors[1].ActorID, page.Actors[2].ActorID})
+	})
+
+	t.Run("a page token past the end is the end of the list, not an error", func(t *testing.T) {
+		service := newService(actors)
+		first, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{PageSize: 3})
+		require.NoError(t, err)
+		require.Empty(t, first.NextPageToken)
+
+		beyond, err := service.ListSubstrateActors(ctx, system.SubstrateListInput{
+			PageSize:  3,
+			PageToken: "OTk5",
+		})
+		require.NoError(t, err)
+		assert.Empty(t, beyond.Actors)
+		assert.Empty(t, beyond.NextPageToken)
+	})
+
+	t.Run("a page token that is not one is refused", func(t *testing.T) {
+		_, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{PageToken: "not a token"})
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), err)
+	})
+}
+
+// Workers get the same treatment, ordered by the pool they belong to by default.
+func TestListSubstrateWorkersSortsAndFiltersAcrossEveryPage(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ateClient := &fakeATEClient{pageSize: 1, workers: []*ateapipb.Worker{
+		{WorkerNamespace: "kagent", WorkerPool: "zulu", WorkerPod: "pod-1", Ip: "10.0.0.9"},
+		{WorkerNamespace: "kagent", WorkerPool: "alpha", WorkerPod: "pod-2", Ip: "10.0.0.1"},
+	}}
+	service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+
+	page, err := service.ListSubstrateWorkers(ctx, system.SubstrateListInput{PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, page.Workers, 1)
+	assert.Equal(t, "alpha", page.Workers[0].WorkerPool, "the default order is pool, across every page")
+	assert.Equal(t, int64(2), page.TotalSize)
+
+	byIP, err := service.ListSubstrateWorkers(ctx, system.SubstrateListInput{
+		PageSize: 10,
+		Filter:   "10.0.0.9",
+	})
+	require.NoError(t, err)
+	require.Len(t, byIP.Workers, 1)
+	assert.Equal(t, "pod-1", byIP.Workers[0].WorkerPod, "the filter reaches the IP the row shows")
 }

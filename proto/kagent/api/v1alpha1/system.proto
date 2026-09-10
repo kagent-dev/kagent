@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "kagent/api/v1alpha1/common.proto";
@@ -165,12 +166,44 @@ message GetSubstrateSummaryResponse {
   google.protobuf.Timestamp computed_at = 10;
 }
 
-// One page of actors, passed through to ate-api's own pagination.
+// Which way a sorted substrate read runs.
+enum SubstrateSortOrder {
+  SUBSTRATE_SORT_ORDER_UNSPECIFIED = 0;
+  SUBSTRATE_SORT_ORDER_ASC = 1;
+  SUBSTRATE_SORT_ORDER_DESC = 2;
+}
+
+// The columns ListSubstrateActors can order by.
 //
-// ate-api offers paging and nothing else — no ordering, no filter, no total — so
-// neither does this. Ordering and searching a page are the client's, over the rows
-// it was given, and a client that presents that as ordering the cluster is lying to
-// its reader.
+// Every one of them ends in the actor id, which is unique. An order whose last key
+// repeats gives a page boundary that names more than one row, and paging across it
+// drops or repeats whatever shares the key.
+enum SubstrateActorSortField {
+  // Status, then actor id. What a reader gets without asking.
+  SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED = 0;
+  SUBSTRATE_ACTOR_SORT_FIELD_STATUS = 1;
+  SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID = 2;
+  SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE = 3;
+  SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD = 4;
+}
+
+// The columns ListSubstrateWorkers can order by, each ending in the worker's
+// namespace and pod, which together are unique.
+enum SubstrateWorkerSortField {
+  // Pool, then pod.
+  SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED = 0;
+  SUBSTRATE_WORKER_SORT_FIELD_POOL = 1;
+  SUBSTRATE_WORKER_SORT_FIELD_POD = 2;
+  SUBSTRATE_WORKER_SORT_FIELD_IP = 3;
+}
+
+// One page of actors, ordered and narrowed across the whole inventory.
+//
+// ate-api offers paging and nothing else, so the controller reads every one of its
+// pages, applies the filter and the order, and answers with the slice asked for. That
+// costs a walk of the inventory per request — seconds on a large cluster — and it is
+// what makes the order and the filter mean the cluster rather than the hundred rows a
+// reader happens to be looking at.
 message ListSubstrateActorsRequest {
   // Empty means every namespace the controller observes.
   string namespace = 1;
@@ -179,6 +212,12 @@ message ListSubstrateActorsRequest {
   // means the server's default. Above the cap is refused rather than clamped, so a
   // caller learns its page size was not honoured.
   PageRequest page = 2;
+  // Matched case-insensitively, as a substring, against the fields a row shows: id,
+  // status, template and worker pod. Empty matches everything. Applied before the page
+  // is cut, so a match on the ninth page is still found.
+  string filter = 3 [(buf.validate.field).string.max_len = 200];
+  SubstrateActorSortField sort_field = 4 [(buf.validate.field).enum.defined_only = true];
+  SubstrateSortOrder sort_order = 5 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ListSubstrateActorsResponse {
@@ -189,19 +228,29 @@ message ListSubstrateActorsResponse {
   // them into its page. next_page_token, not the row count, is what says there is more.
   repeated SubstrateActor actors = 3;
   // Empty next_page_token on the last page.
-  //
-  // When ate_api_error is set partway through a page, it holds the token of the page
-  // that failed, so retrying resumes there rather than losing the rest of the list.
-  // It is empty when no page was read at all: there is then nothing to continue after,
-  // and offering a token would point back at the page just asked for.
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
+  // How many actors match the filter across every page.
+  //
+  // What makes "20 of 4,312" sayable. Without it a page can only report its own
+  // length, which reads as the whole result.
+  int64 total_size = 6;
+  // The order actually applied, reported rather than assumed.
+  //
+  // A client that drew its own control's state would still claim "sorted by status"
+  // after sending an order the server did not honour.
+  SubstrateActorSortField applied_sort_field = 7;
+  SubstrateSortOrder applied_sort_order = 8;
 }
 
 // One page of worker assignments. The mirror of ListSubstrateActors.
 message ListSubstrateWorkersRequest {
   string namespace = 1;
   PageRequest page = 2;
+  // Matched against the namespace, pool, pod and IP a row shows.
+  string filter = 3 [(buf.validate.field).string.max_len = 200];
+  SubstrateWorkerSortField sort_field = 4 [(buf.validate.field).enum.defined_only = true];
+  SubstrateSortOrder sort_order = 5 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ListSubstrateWorkersResponse {
@@ -210,4 +259,7 @@ message ListSubstrateWorkersResponse {
   repeated SubstrateWorker workers = 3;
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
+  int64 total_size = 6;
+  SubstrateWorkerSortField applied_sort_field = 7;
+  SubstrateSortOrder applied_sort_order = 8;
 }

@@ -131,6 +131,12 @@ export interface Timed {
   computedAt?: string;
 }
 
+import type {
+  SubstrateActorSortField,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
+} from "../operations";
+
 /** What every paged substrate read has in common. */
 interface SubstratePage extends Timed {
   /** True when the controller is configured with an ate-api endpoint. */
@@ -153,26 +159,33 @@ interface SubstratePage extends Timed {
    *
    * Absent rather than empty, so "there is more" is a question about presence and
    * a caller cannot accidentally send `""` and re-read page one.
-   *
-   * Presence is the only signal, and a short page is not the end: rows outside the
-   * chosen namespace are dropped after ate-api has counted them into its page, so a
-   * page of three with a token still has more behind it.
    */
   nextPageToken?: string;
+  /**
+   * How many rows match the filter across every page.
+   *
+   * What makes "20 of 4,312" sayable. Without it a page can only report its own
+   * length, which reads as the whole result.
+   */
+  totalSize: number;
 }
 
-/**
- * One page of actors.
- *
- * No total, and no order the server applied, because ate-api offers neither: its
- * `ListActors` takes a page size and a token and answers with a page and a token.
- * The totals come from `SubstrateSummary`; the order is whatever the page put the
- * rows it was handed into.
- */
+/** One page of actors, ordered and narrowed across the whole inventory. */
 export interface SubstrateActorPage extends SubstratePage {
   actors: SubstrateActorEntry[];
+  /**
+   * The order the server actually applied.
+   *
+   * Reported rather than assumed, so the table can say how its rows are sorted instead
+   * of showing the control's own state — which would still read as "sorted by status"
+   * if the request had been ignored.
+   */
+  appliedSortField: SubstrateActorSortField;
+  appliedSortOrder: SubstrateSortOrder;
 }
 
 export interface SubstrateWorkerPage extends SubstratePage {
   workers: SubstrateWorkerEntry[];
+  appliedSortField: SubstrateWorkerSortField;
+  appliedSortOrder: SubstrateSortOrder;
 }

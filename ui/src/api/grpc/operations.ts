@@ -39,7 +39,12 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_r
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SubstrateActorSortField as PbActorSortField,
+  SubstrateSortOrder as PbSortOrder,
+  SubstrateWorkerSortField as PbWorkerSortField,
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
@@ -101,7 +106,10 @@ import type {
 import type {
   ApiOperations,
   OperationCallOptions,
+  SubstrateActorSortField,
   SubstratePageInput,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
 } from "../operations";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { createContextValues } from "@connectrpc/connect";
@@ -1118,13 +1126,50 @@ async function substrateStatus(
  * around a different row type, and a `pageSize` defaulted one way here and another way
  * below is the kind of difference nothing would notice.
  */
-function substratePageRequest(input: SubstratePageInput) {
+/*
+ * The two sort enums, as words on this side and numbers on the wire.
+ *
+ * Tables rather than a switch so the mapping back is the same fact read the other way:
+ * a field added to one and forgotten in the other fails to compile.
+ */
+const ACTOR_SORT_FIELDS = {
+  default: PbActorSortField.UNSPECIFIED,
+  status: PbActorSortField.STATUS,
+  actorId: PbActorSortField.ACTOR_ID,
+  template: PbActorSortField.TEMPLATE,
+  workerPod: PbActorSortField.WORKER_POD,
+} as const satisfies Record<SubstrateActorSortField, PbActorSortField>;
+
+const WORKER_SORT_FIELDS = {
+  default: PbWorkerSortField.UNSPECIFIED,
+  pool: PbWorkerSortField.POOL,
+  pod: PbWorkerSortField.POD,
+  ip: PbWorkerSortField.IP,
+} as const satisfies Record<SubstrateWorkerSortField, PbWorkerSortField>;
+
+function wordFor<Word extends string, Value>(
+  table: Record<Word, Value>,
+  value: Value,
+  fallback: Word,
+): Word {
+  const found = (Object.keys(table) as Word[]).find((word) => table[word] === value);
+  return found ?? fallback;
+}
+
+function substratePageRequest<Sort extends string>(
+  input: SubstratePageInput<Sort>,
+  sortFields: Record<Sort, number>,
+) {
   return {
     namespace: input.namespace ?? "",
     // `PageRequest`, as every other paged read on this API sends it. Zero is "the
     // controller's own default", which is a better answer than a number invented here
     // — and the schema refuses anything over 100 outright.
     page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" },
+    filter: input.filter ?? "",
+    sortField: sortFields[input.sortField ?? ("default" as Sort)],
+    sortOrder:
+      input.sortOrder === "desc" ? PbSortOrder.DESC : PbSortOrder.ASC,
   };
 }
 
@@ -1133,6 +1178,8 @@ function substratePageResult(response: {
   ateApiError: string;
   page?: { nextPageToken: string };
   computedAt?: Timestamp;
+  totalSize: bigint;
+  appliedSortOrder: PbSortOrder;
 }) {
   return {
     enabled: response.enabled,
@@ -1141,6 +1188,10 @@ function substratePageResult(response: {
     // which would send it back to page one for ever.
     nextPageToken: orUndefined(response.page?.nextPageToken ?? ""),
     computedAt: orUndefined(isoFrom(response.computedAt)),
+    totalSize: toNumber(response.totalSize) ?? 0,
+    appliedSortOrder: (response.appliedSortOrder === PbSortOrder.DESC
+      ? "desc"
+      : "asc") as SubstrateSortOrder,
   };
 }
 
@@ -1193,13 +1244,14 @@ const cluster: Pick<
   "substrate.actors": async (input, options) => {
     const response = await rpc("SystemService/ListSubstrateActors", options.signal, () =>
       serviceClient(SystemService).listSubstrateActors(
-        substratePageRequest(input),
+        substratePageRequest(input, ACTOR_SORT_FIELDS),
         call("substrate.actors", options),
       ),
     );
     return {
       ...substratePageResult(response),
       actors: list(response.actors).map(toActorEntry),
+      appliedSortField: wordFor(ACTOR_SORT_FIELDS, response.appliedSortField, "default"),
     };
   },
 
@@ -1209,13 +1261,14 @@ const cluster: Pick<
       options.signal,
       () =>
         serviceClient(SystemService).listSubstrateWorkers(
-          substratePageRequest(input),
+          substratePageRequest(input, WORKER_SORT_FIELDS),
           call("substrate.workers", options),
         ),
     );
     return {
       ...substratePageResult(response),
       workers: list(response.workers).map(toWorkerEntry),
+      appliedSortField: wordFor(WORKER_SORT_FIELDS, response.appliedSortField, "default"),
     };
   },
 };

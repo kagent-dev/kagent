@@ -120,16 +120,22 @@ func (s *systemServer) ListSubstrateActors(ctx context.Context, request *apiv1al
 		Namespace: request.GetNamespace(),
 		PageSize:  int(request.GetPage().GetLimit()),
 		PageToken: request.GetPage().GetPageToken(),
+		Filter:    request.GetFilter(),
+		SortField: int32(request.GetSortField()),
+		SortOrder: int32(request.GetSortOrder()),
 	})
 	if err != nil {
 		return nil, err
 	}
 	response := &apiv1alpha1.ListSubstrateActorsResponse{
-		Enabled:     result.Enabled,
-		AteApiError: result.ATEAPIError,
-		Actors:      make([]*apiv1alpha1.SubstrateActor, 0, len(result.Actors)),
-		Page:        &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
-		ComputedAt:  timestamppb.New(result.ComputedAt),
+		Enabled:          result.Enabled,
+		AteApiError:      result.ATEAPIError,
+		Actors:           make([]*apiv1alpha1.SubstrateActor, 0, len(result.Actors)),
+		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		ComputedAt:       timestamppb.New(result.ComputedAt),
+		TotalSize:        result.TotalSize,
+		AppliedSortField: apiv1alpha1.SubstrateActorSortField(result.AppliedSortField),
+		AppliedSortOrder: apiv1alpha1.SubstrateSortOrder(result.AppliedSortOrder),
 	}
 	for _, actor := range result.Actors {
 		response.Actors = append(response.Actors, substrateActorProto(actor))
@@ -142,16 +148,22 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1a
 		Namespace: request.GetNamespace(),
 		PageSize:  int(request.GetPage().GetLimit()),
 		PageToken: request.GetPage().GetPageToken(),
+		Filter:    request.GetFilter(),
+		SortField: int32(request.GetSortField()),
+		SortOrder: int32(request.GetSortOrder()),
 	})
 	if err != nil {
 		return nil, err
 	}
 	response := &apiv1alpha1.ListSubstrateWorkersResponse{
-		Enabled:     result.Enabled,
-		AteApiError: result.ATEAPIError,
-		Workers:     make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
-		Page:        &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
-		ComputedAt:  timestamppb.New(result.ComputedAt),
+		Enabled:          result.Enabled,
+		AteApiError:      result.ATEAPIError,
+		Workers:          make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
+		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		ComputedAt:       timestamppb.New(result.ComputedAt),
+		TotalSize:        result.TotalSize,
+		AppliedSortField: apiv1alpha1.SubstrateWorkerSortField(result.AppliedSortField),
+		AppliedSortOrder: apiv1alpha1.SubstrateSortOrder(result.AppliedSortOrder),
 	}
 	for _, worker := range result.Workers {
 		response.Workers = append(response.Workers, substrateWorkerProto(worker))

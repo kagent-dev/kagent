@@ -30,7 +30,12 @@ import type { ConnectRouter } from "@connectrpc/connect";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SubstrateActorSortField,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -456,7 +461,14 @@ describe("the cluster", () => {
 
   // `PageRequest`/`PageResponse`, the shape every other paged read on this API uses.
   it("sends the page size and token, and reads the next token back", async () => {
-    const asked: { namespace: string; limit: number; pageToken: string }[] = [];
+    const asked: {
+      namespace: string;
+      limit: number;
+      pageToken: string;
+      filter: string;
+      sortField: number;
+      sortOrder: number;
+    }[] = [];
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateActors: (request) => {
@@ -464,11 +476,15 @@ describe("the cluster", () => {
             namespace: request.namespace,
             limit: request.page?.limit ?? 0,
             pageToken: request.page?.pageToken ?? "",
+            filter: request.filter,
+            sortField: request.sortField,
+            sortOrder: request.sortOrder,
           });
           return {
             enabled: true,
             actors: [{ actorId: "a1", status: "Running", version: 3n }],
             page: { nextPageToken: "cursor-2" },
+            totalSize: 4312n,
           };
         },
       });
@@ -478,10 +494,28 @@ describe("the cluster", () => {
       namespace: "kagent",
       limit: 100,
       pageToken: "cursor-1",
+      filter: "7f21",
+      sortField: "template",
+      sortOrder: "desc",
     });
-    expect(asked).toEqual([{ namespace: "kagent", limit: 100, pageToken: "cursor-1" }]);
+    // The sort words become the schema's numbers on the way out, which is the half a
+    // client-side sort would never exercise.
+    expect(asked).toEqual([
+      {
+        namespace: "kagent",
+        limit: 100,
+        pageToken: "cursor-1",
+        filter: "7f21",
+        sortField: SubstrateActorSortField.TEMPLATE,
+        sortOrder: SubstrateSortOrder.DESC,
+      },
+    ]);
+    expect(page.appliedSortField).toBe("default");
     expect(page.actors[0].version).toBe(3);
     expect(page.nextPageToken).toBe("cursor-2");
+    // The matching total, which is what lets a heading say "1 of 4,312" rather than
+    // reporting the page's own length as the result.
+    expect(page.totalSize).toBe(4312);
   });
 
   // Absent rather than empty, so "there is more" is a question about presence: an
@@ -493,6 +527,8 @@ describe("the cluster", () => {
           enabled: true,
           workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
           page: { nextPageToken: "" },
+          appliedSortField: SubstrateWorkerSortField.IP,
+          appliedSortOrder: SubstrateSortOrder.DESC,
         }),
       });
     });
@@ -500,6 +536,10 @@ describe("the cluster", () => {
     const page = await apiClient.substrate.workers({ limit: 100 });
     expect(page.nextPageToken).toBeUndefined();
     expect(page.workers).toHaveLength(1);
+    // Read back from the answer rather than echoed from the request, so a server that
+    // ignored the order cannot be reported as having honoured it.
+    expect(page.appliedSortField).toBe("ip");
+    expect(page.appliedSortOrder).toBe("desc");
   });
 });
 

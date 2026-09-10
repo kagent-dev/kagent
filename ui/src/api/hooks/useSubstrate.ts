@@ -5,7 +5,11 @@ import type {
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "../domain/substrate";
-import type { SubstratePageInput } from "../operations";
+import type {
+  SubstrateActorSortField,
+  SubstratePageInput,
+  SubstrateWorkerSortField,
+} from "../operations";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
 /**
@@ -47,34 +51,65 @@ export function useSubstrateSummary(namespace?: string): ApiResource<SubstrateSu
 }
 
 /**
- * One page of actors.
+ * One page of actors, ordered and narrowed server-side.
  *
- * The key is the scope, the page size and the token — everything that changes which
- * rows come back, and nothing else. Ordering and searching are deliberately not in
- * it: ate-api offers neither, so neither does the controller, and a header click or
- * a keystroke rearranges the rows already in hand rather than asking for them again.
- * That is the whole of what reordering costs now; it used to be a re-read of the
- * entire inventory.
+ * The filter and the sort are part of the key, because both change which rows this read
+ * answers with: typing in the search box or clicking a header re-reads rather than
+ * re-rendering what was already fetched. That is the whole point of them being the
+ * server's — filtering or ordering here would reach one page, and a match on page nine
+ * would read on screen as "no matches".
  *
- * What it does not buy is a search across the cluster. A page is what there is to
- * search, and the page saying so is the difference between a narrow answer and a
- * wrong one.
+ * What it costs is worth naming. ate-api offers neither an order nor a filter, so the
+ * controller walks every one of its pages to apply them: each keystroke past the
+ * debounce, and each header click, is a walk of the inventory.
  */
 export function useSubstrateActors(
-  input: SubstratePageInput,
+  input: SubstratePageInput<SubstrateActorSortField>,
 ): ApiResource<SubstrateActorPage> {
-  const { namespace = "", limit = 0, pageToken = "" } = input;
-  return useApiResource(["substrate.actors", namespace, limit, pageToken], () =>
-    apiClient.substrate.actors({ namespace, limit, pageToken }),
+  const {
+    namespace = "",
+    filter = "",
+    limit = 0,
+    pageToken = "",
+    sortField = "default",
+    sortOrder = "asc",
+  } = input;
+  return useApiResource(
+    ["substrate.actors", namespace, filter, limit, pageToken, sortField, sortOrder],
+    () =>
+      apiClient.substrate.actors({
+        namespace,
+        filter,
+        limit,
+        pageToken,
+        sortField,
+        sortOrder,
+      }),
   );
 }
 
 /** One page of workers. The mirror of `useSubstrateActors`. */
 export function useSubstrateWorkers(
-  input: SubstratePageInput,
+  input: SubstratePageInput<SubstrateWorkerSortField>,
 ): ApiResource<SubstrateWorkerPage> {
-  const { namespace = "", limit = 0, pageToken = "" } = input;
-  return useApiResource(["substrate.workers", namespace, limit, pageToken], () =>
-    apiClient.substrate.workers({ namespace, limit, pageToken }),
+  const {
+    namespace = "",
+    filter = "",
+    limit = 0,
+    pageToken = "",
+    sortField = "default",
+    sortOrder = "asc",
+  } = input;
+  return useApiResource(
+    ["substrate.workers", namespace, filter, limit, pageToken, sortField, sortOrder],
+    () =>
+      apiClient.substrate.workers({
+        namespace,
+        filter,
+        limit,
+        pageToken,
+        sortField,
+        sortOrder,
+      }),
   );
 }

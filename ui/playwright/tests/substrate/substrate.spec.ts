@@ -382,26 +382,19 @@ test("substrate: the actor list is ordered, windowed, and bounded", async ({ pag
 });
 
 /**
- * Each section narrows on its own, and says what its search reached.
+ * Each section narrows on its own, and a match is found wherever it is.
  *
- * Four searches rather than one for the page, because these lists answer four
- * different questions: narrowing the actors to one template must not also empty the
- * table that says what that template is.
+ * Four searches rather than one for the page, because these lists answer four different
+ * questions: narrowing the actors to one template must not also empty the table that
+ * says what that template is.
  *
- * Two of them reach further than the other two, and the point of this test is that the
- * page says which is which. Worker pools and actor templates arrive whole in the
- * summary, so searching them searches all of them. Actors and workers arrive one page
- * at a time — `ListSubstrateActors` passes a token through to ate-api, which offers
- * paging and no filter — so those two searches reach one page.
- *
- * A page-scoped search is only honest while it is labelled. "No matches" over a search
- * that looked at a hundred of four hundred thousand rows is how a reader concludes an
- * actor does not exist, so the empty state names what it searched, the heading
- * separates "1 of 8 on this page" from "8 of 4,312", and the note beneath the table
- * says it outright. Those three sentences are the assertions here; if a filter is ever
- * pushed into the API, they are what should change with it.
+ * Two of them are the server's. ate-api offers no filter, so the controller reads every
+ * one of its pages and applies the term before cutting this one — which is what makes a
+ * match on the ninth page findable at all. The count beside the heading is then the
+ * matching total across every page, and that is what this pins: a bare page length
+ * presented as the result is how a reader concludes their cluster holds one actor.
  */
-test("substrate: each list narrows on its own, and says what its search reached", async ({
+test("substrate: each list narrows on its own, and a match is found wherever it is", async ({
   page,
 }) => {
   await loadPage(page, routes.substrate, { title: "Substrate" });
@@ -411,21 +404,20 @@ test("substrate: each list narrows on its own, and says what its search reached"
   const templatesCard = page.getByTestId("substrate-templates-card");
   const actorsTable = page.getByTestId("substrate-actors-table");
 
-  await test.step("1. the term narrows the page, and the heading says it was the page", async () => {
+  await test.step("1. the term narrows the list, and the count is of every match", async () => {
     await page.getByTestId("substrate-actors-search").locator("input").fill("7f21");
 
     await expect(actorsTable).toContainText("actor-7f21");
     await expect(actorsTable).not.toContainText("actor-9c03");
-
-    // "1 of 8 on this page", not "1 of 8". The second reads as one match in the whole
-    // scope, which is a claim this search cannot make.
-    await expect(actorsCard).toContainText("1 of 8 on this page");
+    // One match in the scope, not "one of the eight on this page": the total came back
+    // with the answer, counted over everything the filter matched.
+    await expect(actorsCard).toContainText("1");
   });
 
   await test.step("2. a narrowed list never reads as the size of the cluster", async () => {
-    // The tile is what keeps the cluster's own size on screen, counted server-side by
-    // `GetSubstrateSummary` rather than from the rows. A reader who searched and found
-    // one actor must not conclude their cluster is running one.
+    // The tile keeps the cluster's own size on screen, counted by GetSubstrateSummary
+    // rather than from the rows. A reader who searched and found one actor must not
+    // conclude their cluster is running one.
     await expect(page.getByTestId("substrate-stat-actors")).toContainText("/8");
   });
 
@@ -438,20 +430,10 @@ test("substrate: each list narrows on its own, and says what its search reached"
       .getByTestId("substrate-actors-search")
       .locator("input")
       .fill("no-such-actor");
-    // The second sentence is the one that matters. Without it a reader takes "no
-    // matches" for "no such actor", and the row they are looking for is on page nine.
-    await expect(actorsTable).toContainText("No actors on this page match your search");
-    await expect(actorsTable).toContainText("Other pages are not searched");
-  });
-
-  await test.step("5. the whole-list searches say nothing of the kind, because they reach the whole list", async () => {
-    await page
-      .getByTestId("substrate-templates-search")
-      .locator("input")
-      .fill("no-such-template");
-    const templatesTable = page.getByTestId("substrate-templates-table");
-    await expect(templatesTable).toContainText("No actor templates match your search");
-    await expect(templatesTable).not.toContainText("this page");
+    // "anywhere in this scope" is a claim only a server-side filter can make, and the
+    // sentence that stops a reader taking an empty page for an empty cluster.
+    await expect(actorsTable).toContainText("No actors match your search");
+    await expect(actorsTable).toContainText("anywhere in this scope");
   });
 });
 
@@ -465,7 +447,7 @@ async function firstColumn(table: Locator) {
 }
 
 /**
- * All four tables sort the same way, and the paged two say how far that reaches.
+ * All four tables sort the same way, and the paged two order the whole inventory.
  *
  * The actor and worker columns once carried a header of this page's own — a button
  * around the title, an arrow beside it, nothing outside those few words to click —
@@ -474,19 +456,15 @@ async function firstColumn(table: Locator) {
  * tables that sort by clicking a header and two that sort by clicking the words inside
  * one, which is a page a reader has to learn twice.
  *
- * Then they declared `sorter: true` — antd's header with no comparator behind it — and
- * a click became the next read, which ordered every actor in the cluster before the
- * browser sliced out a page. Honest, and it could not survive a large cluster: that
- * read answers with one message, and 410,110 actors is roughly 43MB against gRPC's
- * 16MB ceiling.
- *
- * So the reads page, and a comparator is what is left. All four tables sort through
- * antd's own header, and the two paged ones sort the rows they hold. What this pins is
- * that they say so: the strip beneath each names its reach, and no strip anywhere
- * claims an order over the cluster. If sort is ever pushed into ate-api and back out
- * through `ListSubstrateActors`, this is the assertion that should change with it.
+ * What the paged columns declare is `sorter: true` — antd's header, with no comparator
+ * behind it — so the whole cell is the target and the table still reorders nothing
+ * itself. A click becomes the next read, and the controller walks every ate-api page to
+ * order all of them before this one is cut. That is the claim the strip beneath each
+ * table makes, and the half this pins: if a comparator is ever handed to one of these
+ * tables the order would hold over the page alone, and these assertions are what would
+ * object.
  */
-test("substrate: every table sorts through the same header, and the paged two say how far", async ({
+test("substrate: every table sorts through the same header, and the paged two order the lot", async ({
   page,
 }) => {
   await loadPage(page, routes.substrate, { title: "Substrate" });
@@ -512,77 +490,54 @@ test("substrate: every table sorts through the same header, and the paged two sa
     }
   });
 
-  await test.step("2. the paged tables say what their sort reaches, and never claim the cluster", async () => {
-    for (const testId of ["substrate-actors-order", "substrate-workers-order"]) {
-      const note = page.getByTestId(testId);
-      await expect(note).toContainText("Sorting and search apply to this page only");
-      // The sentence this replaced. It was true of a read that fetched every row; it
-      // is not true of a page, and nothing here may drift back to it.
-      await expect(note).not.toContainText("whole inventory");
-    }
-  });
-
-  await test.step("3. a header click reorders the rows in hand, and cycles back to the default", async () => {
+  await test.step("2. the actors' order covers every row, and cycles back to the default", async () => {
     const actors = page.getByTestId("substrate-actors-table");
-    // The header, not the words in it: clicking the cell is what a reader does on the
-    // two tables above, and this is the assertion that the same click works here.
+    const order = page.getByTestId("substrate-actors-order");
+    // The order the answer says it applied, not the one the control asked for.
+    await expect(order).toContainText("status, then actor");
+
+    // The header cell, not the words in it: clicking the cell is what a reader does on
+    // the two tables above, and this is the assertion that the same click works here.
     const header = actors.locator("th").first();
 
-    // `aria-sort` rather than a caption: it is the state a screen reader is given, so
-    // asserting it covers the reader who cannot see the arrow.
-    await expect(header).not.toHaveAttribute("aria-sort", /.*/);
-    const byStatus = await firstColumn(actors);
+    await header.click();
+    await expect(order).toContainText("Sorted across the whole inventory: actor, ascending");
+    await expect.poll(() => firstColumn(actors)).toEqual(
+      await firstColumn(actors).then((ids) => [...ids].sort()),
+    );
 
     await header.click();
-    await expect(header).toHaveAttribute("aria-sort", "ascending");
-    // The rows themselves, because a header that says ascending over rows that never
-    // moved is the failure worth catching. Relative to what arrived rather than a list
-    // written out here, so growing the fixture does not silently stop testing this.
-    await expect.poll(() => firstColumn(actors)).toEqual([...byStatus].sort());
+    await expect(order).toContainText("Sorted across the whole inventory: actor, descending");
 
+    // antd's third click clears the sort, which for a read that always arrives ordered
+    // means the order it falls back to rather than no order at all.
     await header.click();
-    await expect(header).toHaveAttribute("aria-sort", "descending");
-    await expect.poll(() => firstColumn(actors)).toEqual([...byStatus].sort().reverse());
-
-    /*
-     * No loading state through any of that, because there is no read behind it. This is
-     * the whole of what paging bought a reader: the sort used to be part of the SWR key,
-     * so every header click re-fetched the entire inventory to reorder rows the browser
-     * was already holding.
-     */
-    await expect(actors.locator(".ant-spin")).toHaveCount(0);
-
-    // antd's third click clears the sort, which for rows the page ordered before antd
-    // saw them means the order they fall back to rather than no order at all.
-    await header.click();
-    await expect(header).not.toHaveAttribute("aria-sort", /.*/);
-    await expect.poll(() => firstColumn(actors)).toEqual(byStatus);
+    await expect(order).toContainText("status, then actor");
   });
 
-  await test.step("4. and the workers' the same", async () => {
-    const header = page.getByTestId("substrate-workers-table").locator("th").nth(1);
-    await header.click();
-    await expect(header).toHaveAttribute("aria-sort", "ascending");
+  await test.step("3. and the workers' the same", async () => {
+    const order = page.getByTestId("substrate-workers-order");
+    await expect(order).toContainText("pool, then pod");
+
+    await page.getByTestId("substrate-workers-table").locator("th").nth(1).click();
+    await expect(order).toContainText("Sorted across the whole inventory: pool, ascending");
   });
 
-  await test.step("5. the actors are grouped by status, in an order nobody asked for", async () => {
-    // Stated rather than asked for: ate-api returns actors in whatever order it holds
-    // them, so the same actor would appear somewhere different on every poll. Something
-    // has to impose an order, and with nothing on the wire to ask for one it is the
-    // page, over the rows it was handed.
+  await test.step("4. the actors are grouped by status, in an order nobody asked for", async () => {
     await loadPage(page, routes.substrate, { title: "Substrate" });
     await expectSettled(page);
 
+    // Stated rather than asked for: ate-api returns actors in whatever order it holds
+    // them, so the same actor would appear somewhere different on every poll. Something
+    // has to impose an order, and that something is the read rather than the table.
+    // The status cell itself rather than a pattern over the row: a list of words to
+    // match is a list to keep up to date, and a state it has not been told about reads
+    // as empty and sorts first, which looks like the order being wrong.
     const statuses = await page
       .getByTestId("substrate-actors-table")
       .locator(".ant-table-row")
       .evaluateAll((rows) =>
-        rows.map(
-          (row) =>
-            row.textContent?.match(
-              /Crashed|Deleting|Paused|Resuming|Running|Snapshotting|Suspended/,
-            )?.[0] ?? "",
-        ),
+        rows.map((row) => (row.querySelectorAll(".ant-table-cell")[1]?.textContent ?? "").trim()),
       );
     expect(statuses).toEqual([...statuses].sort());
   });

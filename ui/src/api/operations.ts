@@ -84,13 +84,49 @@ export interface AgentInstanceRef {
   id: string;
 }
 
-/** What a paged substrate read takes. */
-export interface SubstratePageInput {
+/** Which direction a paged substrate read is sorted in. */
+export type SubstrateSortOrder = "asc" | "desc";
+
+/** The columns `substrate.actors` can order by. */
+export type SubstrateActorSortField =
+  /** Groups by status and orders by id within each group. The default. */
+  | "default"
+  | "status"
+  | "actorId"
+  | "template"
+  | "workerPod";
+
+/** The columns `substrate.workers` can order by. */
+export type SubstrateWorkerSortField =
+  /** Groups by pool and orders by pod within each group. The default. */
+  | "default"
+  | "pool"
+  | "pod"
+  | "ip";
+
+/** What a paged, filtered substrate read takes. */
+export interface SubstratePageInput<Sort = string> {
   namespace?: string;
+  /**
+   * Matched server-side against the fields the row displays. Empty matches everything.
+   *
+   * Sent rather than applied here: the rows are one page of an inventory that can run
+   * to hundreds of thousands, so filtering them locally would search that page and
+   * report a match nine pages away as "no matches".
+   */
+  filter?: string;
   /** Rows per page. The controller refuses anything over 100 rather than clamping. */
   limit?: number;
   /** Empty for the first page; otherwise the previous response's `nextPageToken`. */
   pageToken?: string;
+  /**
+   * Which column to order by, and in which direction.
+   *
+   * Sent for the same reason the filter is: ordering a page orders the page, and the
+   * first row of the sorted cluster is almost certainly not on it.
+   */
+  sortField?: Sort;
+  sortOrder?: SubstrateSortOrder;
 }
 
 /**
@@ -282,21 +318,20 @@ export interface OperationMap {
     output: SubstrateSummary;
   };
   /**
-   * One page of actors.
+   * One page of actors, ordered and narrowed across the whole inventory.
    *
-   * A page and nothing else: no order and no filter, because ate-api has neither to
-   * offer. `ListActors` there takes a page size and a token, so anything the
-   * controller sorted or searched it would first have to read whole — the read this
-   * call exists to stop. Ordering and searching are the page's, over the rows it was
-   * given, and what says so on screen is the page's business too.
+   * ate-api offers paging and nothing else, so the controller reads every one of its
+   * pages to apply the order and the filter before cutting this one. That costs a walk
+   * of the inventory per request, and it is what makes the order and the filter mean
+   * the cluster rather than the hundred rows in front of the reader.
    */
   "substrate.actors": {
-    input: SubstratePageInput;
+    input: SubstratePageInput<SubstrateActorSortField>;
     output: SubstrateActorPage;
   };
   /** One page of worker assignments. The mirror of `substrate.actors`. */
   "substrate.workers": {
-    input: SubstratePageInput;
+    input: SubstratePageInput<SubstrateWorkerSortField>;
     output: SubstrateWorkerPage;
   };
 }

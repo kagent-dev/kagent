@@ -81,7 +81,12 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_temp
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SubstrateActorSortField,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -1439,22 +1444,39 @@ Not because a page cannot carry both rows and an error — it can, when a namesp
 the controller read several ate-api pages to fill one and a later one fails — but
 because that state has no fixture yet. See `playwright/DEFERRED.md`.
 */
+/*
+ * Narrowed, ordered, then cut — in that order, as the controller does it.
+ *
+ * The order matters more than it looks. Filtering after the cut would search one page,
+ * and ordering after it would order one page: both are the defect the server-side read
+ * exists to prevent, and a fixture that did either would let a page-scoped regression
+ * pass its tests.
+ */
 function substratePageResponse<Row, Message>(
   rows: readonly Row[],
-  input: { namespace: string; page?: { limit: number; pageToken: string } },
+  input: { namespace: string; filter: string; page?: { limit: number; pageToken: string } },
   inScope: (row: Row) => boolean,
+  searchText: (row: Row) => string,
+  sortKey: (row: Row) => string,
+  descending: boolean,
   message: (row: Row) => Message,
 ) {
-  const page = substratePage(
-    rows.filter(inScope),
-    input.page?.limit ?? 0,
-    input.page?.pageToken ?? "",
-  );
+  const needle = input.filter.trim().toLowerCase();
+  const matching = rows
+    .filter(inScope)
+    .filter((row) => !needle || searchText(row).toLowerCase().includes(needle))
+    .sort((left, right) => {
+      const compared = sortKey(left).localeCompare(sortKey(right));
+      return descending ? -compared : compared;
+    });
+
+  const page = substratePage(matching, input.page?.limit ?? 0, input.page?.pageToken ?? "");
   return {
     enabled: mockSubstrateStatus.enabled,
     rows: page.rows.map(message),
     page: { nextPageToken: page.nextPageToken },
     computedAt: timestampFromDate(new Date()),
+    totalSize: BigInt(matching.length),
   };
 }
 
@@ -1462,26 +1484,60 @@ on(SystemService.method.listSubstrateActors, (input, call) => {
   if (call.scenario === "empty") return { enabled: false };
 
   const inScope = substrateScope(input.namespace);
+  const id = (actor: SubstrateActorEntry) => actor.actorId;
+  // Every key ends in the id, as the controller's do: an order whose last key repeats
+  // gives a page boundary that names more than one row.
+  const keys: Record<number, (actor: SubstrateActorEntry) => string> = {
+    [SubstrateActorSortField.ACTOR_ID]: id,
+    [SubstrateActorSortField.TEMPLATE]: (a) =>
+      `${a.actorTemplateNamespace ?? ""}/${a.actorTemplateName ?? ""}\u0000${id(a)}`,
+    [SubstrateActorSortField.WORKER_POD]: (a) =>
+      `${a.ateomPodNamespace ?? ""}/${a.ateomPodName ?? ""}\u0000${id(a)}`,
+  };
   const { rows, ...page } = substratePageResponse(
     mockSubstrateStatus.actors,
     input,
     (actor) => inScope(actor.actorTemplateNamespace),
+    (a) =>
+      [a.actorId, a.status, a.actorTemplateNamespace, a.actorTemplateName, a.ateomPodNamespace, a.ateomPodName, a.ateomPodIp]
+        .filter(Boolean)
+        .join(" "),
+    keys[input.sortField] ?? ((a) => `${a.status}\u0000${id(a)}`),
+    input.sortOrder === SubstrateSortOrder.DESC,
     substrateActorMessage,
   );
-  return { ...page, actors: rows };
+  return {
+    ...page,
+    actors: rows,
+    appliedSortField: input.sortField,
+    appliedSortOrder: input.sortOrder || SubstrateSortOrder.ASC,
+  };
 });
 
 on(SystemService.method.listSubstrateWorkers, (input, call) => {
   if (call.scenario === "empty") return { enabled: false };
 
   const inScope = substrateScope(input.namespace);
+  const pod = (w: SubstrateWorkerEntry) => `${w.workerNamespace}/${w.workerPod}`;
+  const keys: Record<number, (worker: SubstrateWorkerEntry) => string> = {
+    [SubstrateWorkerSortField.POD]: pod,
+    [SubstrateWorkerSortField.IP]: (w) => `${w.ip ?? ""}\u0000${pod(w)}`,
+  };
   const { rows, ...page } = substratePageResponse(
     mockSubstrateStatus.workers,
     input,
     (worker) => inScope(worker.workerNamespace),
+    (w) => [w.workerNamespace, w.workerPool, w.workerPod, w.ip].filter(Boolean).join(" "),
+    keys[input.sortField] ?? ((w) => `${w.workerPool}\u0000${pod(w)}`),
+    input.sortOrder === SubstrateSortOrder.DESC,
     substrateWorkerMessage,
   );
-  return { ...page, workers: rows };
+  return {
+    ...page,
+    workers: rows,
+    appliedSortField: input.sortField,
+    appliedSortOrder: input.sortOrder || SubstrateSortOrder.ASC,
+  };
 });
 
 /**

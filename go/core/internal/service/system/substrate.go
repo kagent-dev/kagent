@@ -2,13 +2,16 @@ package system
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -40,17 +43,6 @@ const defaultSubstratePageSize int32 = 50
 const maxSubstratePageSize int32 = 100
 
 /*
-How many ate-api pages one list call will read to fill one page of its own.
-
-Rows outside the requested scope are dropped after ate-api has counted them into its
-page, so a narrow scope on a wide cluster can turn a page of 100 into a page of 3.
-Reading a few more ate-api pages keeps that from rendering as "no actors" on a cluster
-that has plenty; a bound keeps it from becoming the whole-inventory walk this replaced.
-A short page with a next token is the honest answer once the bound is reached.
-*/
-const maxATEPagesPerRequest = 10
-
-/*
 How many ate-api pages a counting walk will read before giving up.
 
 A drain used to be bounded by a deadline: the client wrapped the whole loop in one
@@ -73,6 +65,13 @@ type SubstrateListInput struct {
 	PageSize int
 	// Empty for the first page; otherwise the previous answer's NextPageToken.
 	PageToken string
+	// Matched case-insensitively as a substring of what the row shows. Empty matches
+	// everything.
+	Filter string
+	// Which column to order by, and which way. Zero values are the read's default
+	// order, which is the one every column ends in.
+	SortField int32
+	SortOrder int32
 }
 
 // SubstrateActorPage is one page of actors, as read.
@@ -82,15 +81,22 @@ type SubstrateActorPage struct {
 	Actors        []SubstrateActor
 	NextPageToken string
 	ComputedAt    time.Time
+	// How many actors match the filter across every page.
+	TotalSize        int64
+	AppliedSortField int32
+	AppliedSortOrder int32
 }
 
 // SubstrateWorkerPage is one page of workers. The mirror of SubstrateActorPage.
 type SubstrateWorkerPage struct {
-	Enabled       bool
-	ATEAPIError   string
-	Workers       []SubstrateWorker
-	NextPageToken string
-	ComputedAt    time.Time
+	Enabled          bool
+	ATEAPIError      string
+	Workers          []SubstrateWorker
+	NextPageToken    string
+	ComputedAt       time.Time
+	TotalSize        int64
+	AppliedSortField int32
+	AppliedSortOrder int32
 }
 
 // SubstrateSummary is the inventory as counts, plus the two lists whose length is set
@@ -252,7 +258,8 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 	return result, nil
 }
 
-// ListSubstrateActors answers with one page of actors, ate-api's token passed through.
+// ListSubstrateActors answers with one page of actors, ordered and narrowed across the
+// whole inventory.
 func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListInput) (SubstrateActorPage, error) {
 	namespaces, err := s.substrateScope(ctx, input.Namespace)
 	if err != nil {
@@ -262,37 +269,49 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
+	offset, err := decodeSubstrateOffset(input.PageToken)
+	if err != nil {
+		return SubstrateActorPage{}, err
+	}
 
+	sortField := apiv1alpha1.SubstrateActorSortField(input.SortField)
+	if _, known := apiv1alpha1.SubstrateActorSortField_name[input.SortField]; !known {
+		sortField = apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED
+	}
 	result := SubstrateActorPage{
-		Enabled:    s.ateClient != nil,
-		Actors:     []SubstrateActor{},
-		ComputedAt: time.Now().UTC(),
+		Enabled:          s.ateClient != nil,
+		Actors:           []SubstrateActor{},
+		ComputedAt:       time.Now().UTC(),
+		AppliedSortField: int32(sortField),
+		AppliedSortOrder: int32(substrateSortOrder(input.SortOrder)),
 	}
 	if s.ateClient == nil {
 		return result, nil
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
-	actors, next, err := collectSubstratePage(
-		ctx,
-		pageSize,
-		input.PageToken,
-		func(ctx context.Context, size int32, token string) ([]*ateapipb.Actor, string, error) {
-			return s.ateClient.ListActorsPage(ctx, "", size, token)
-		},
-		func(actor *ateapipb.Actor) (SubstrateActor, bool) {
-			if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
-				return SubstrateActor{}, false
-			}
-			return actorFromProto(actor), true
-		},
-	)
-	result.Actors = actors
-	result.NextPageToken = next
-	if err != nil {
+	matching := []SubstrateActor{}
+	needle := strings.ToLower(strings.TrimSpace(input.Filter))
+	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
+		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
+			return
+		}
+		entry := actorFromProto(actor)
+		if !matchesFilter(needle, actorSearchText(entry)) {
+			return
+		}
+		matching = append(matching, entry)
+	}); err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
+		return result, nil
 	}
+
+	slices.SortStableFunc(matching, substrateOrder(actorSortKey(sortField), input.SortOrder))
+	page, next := sliceSubstratePage(matching, offset, pageSize)
+	result.Actors = page
+	result.NextPageToken = next
+	result.TotalSize = int64(len(matching))
 	return result, nil
 }
 
@@ -306,94 +325,50 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input SubstrateListI
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
+	offset, err := decodeSubstrateOffset(input.PageToken)
+	if err != nil {
+		return SubstrateWorkerPage{}, err
+	}
 
+	sortField := apiv1alpha1.SubstrateWorkerSortField(input.SortField)
+	if _, known := apiv1alpha1.SubstrateWorkerSortField_name[input.SortField]; !known {
+		sortField = apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED
+	}
 	result := SubstrateWorkerPage{
-		Enabled:    s.ateClient != nil,
-		Workers:    []SubstrateWorker{},
-		ComputedAt: time.Now().UTC(),
+		Enabled:          s.ateClient != nil,
+		Workers:          []SubstrateWorker{},
+		ComputedAt:       time.Now().UTC(),
+		AppliedSortField: int32(sortField),
+		AppliedSortOrder: int32(substrateSortOrder(input.SortOrder)),
 	}
 	if s.ateClient == nil {
 		return result, nil
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
-	workers, next, err := collectSubstratePage(
-		ctx,
-		pageSize,
-		input.PageToken,
-		s.ateClient.ListWorkersPage,
-		func(worker *ateapipb.Worker) (SubstrateWorker, bool) {
-			if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
-				return SubstrateWorker{}, false
-			}
-			return workerFromProto(worker), true
-		},
-	)
-	result.Workers = workers
-	result.NextPageToken = next
-	if err != nil {
+	matching := []SubstrateWorker{}
+	needle := strings.ToLower(strings.TrimSpace(input.Filter))
+	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
+		if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
+			return
+		}
+		entry := workerFromProto(worker)
+		if !matchesFilter(needle, workerSearchText(entry)) {
+			return
+		}
+		matching = append(matching, entry)
+	}); err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
+		return result, nil
 	}
+
+	slices.SortStableFunc(matching, substrateOrder(workerSortKey(sortField), input.SortOrder))
+	page, next := sliceSubstratePage(matching, offset, pageSize)
+	result.Workers = page
+	result.NextPageToken = next
+	result.TotalSize = int64(len(matching))
 	return result, nil
-}
-
-/*
-collectSubstratePage fills one page of rows from ate-api, dropping those out of scope.
-
-Rows outside the requested namespace are dropped after ate-api has counted them into
-its page, so filling a page can take more than one read of it. Each read asks only for
-what is still missing, which is what keeps the answer from overshooting the page size a
-caller sized a buffer or a table to — asking for the full size every time could return
-`pageSize` rows on top of the ones already collected.
-
-On failure the rows collected so far are kept and the token handed back is the failed
-page's, so a caller resumes at the page it did not get rather than losing the rest of
-the list. With nothing collected there is no page to resume after, and the token is
-empty: offering "next" for a page that is also the current one is a broken control.
-*/
-func collectSubstratePage[Row any, Entry any](
-	ctx context.Context,
-	pageSize int32,
-	pageToken string,
-	read func(ctx context.Context, pageSize int32, pageToken string) ([]Row, string, error),
-	keep func(Row) (Entry, bool),
-) ([]Entry, string, error) {
-	entries := []Entry{}
-	token := pageToken
-	for range maxATEPagesPerRequest {
-		rows, next, err := read(ctx, pageSize-int32(len(entries)), token)
-		if err != nil {
-			/*
-			 * Resume wherever this got to, which is not the same as "wherever it
-			 * collected a row".
-			 *
-			 * A read can advance past a page and keep nothing from it — every row out
-			 * of scope, or a page ate-api answered empty while still holding a token,
-			 * which it says it may do. Testing the row count instead of the token threw
-			 * that progress away: the caller got an empty page with no next token, the
-			 * controls hid themselves, and the rest of the list was unreachable.
-			 */
-			if token == pageToken {
-				return entries, "", err
-			}
-			return entries, token, err
-		}
-		for _, row := range rows {
-			if entry, ok := keep(row); ok {
-				entries = append(entries, entry)
-			}
-		}
-		if next == "" || int32(len(entries)) >= pageSize {
-			return entries, next, nil
-		}
-		advanced, err := substrate.AdvancePageToken(token, next)
-		if err != nil {
-			return entries, "", err
-		}
-		token = advanced
-	}
-	return entries, token, nil
 }
 
 // walkActors calls visit for every actor ate-api holds, one page at a time.
@@ -505,4 +480,146 @@ func substratePageSize(requested int) (int32, error) {
 	default:
 		return int32(requested), nil
 	}
+}
+
+/*
+The order, the filter and the slice — the three things the controller now does because
+ate-api does none of them.
+
+Each of these costs a walk of the whole inventory, which is the price of an order that
+means the cluster rather than the hundred rows in front of the reader. The walk holds
+only the rows that match, so a narrow filter on a wide cluster costs time rather than
+memory.
+*/
+
+// matchesFilter reports whether a row's own text contains the needle. An empty needle
+// matches everything, so an unfiltered read pays nothing for the check.
+func matchesFilter(needle, text string) bool {
+	return needle == "" || strings.Contains(strings.ToLower(text), needle)
+}
+
+// actorSearchText is everything an actor row shows, which is what a reader searching it
+// expects to match — including the parts a column composes, like a pod and its IP.
+func actorSearchText(actor SubstrateActor) string {
+	return strings.Join([]string{
+		actor.ActorID,
+		actor.Status,
+		actor.ActorTemplateNamespace,
+		actor.ActorTemplateName,
+		actor.AteomPodNamespace,
+		actor.AteomPodName,
+		actor.AteomPodIP,
+	}, " ")
+}
+
+func workerSearchText(worker SubstrateWorker) string {
+	return strings.Join([]string{
+		worker.WorkerNamespace,
+		worker.WorkerPool,
+		worker.WorkerPod,
+		worker.IP,
+	}, " ")
+}
+
+/*
+actorSortKey turns a column into the string a row is ordered by.
+
+Every key ends in the actor id, which is unique. An order whose last key repeats gives a
+page boundary that names more than one row, and paging across it drops or repeats
+whatever shares the key — the defect worth designing out rather than testing for.
+*/
+func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(SubstrateActor) string {
+	switch field {
+	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID:
+		return func(a SubstrateActor) string { return a.ActorID }
+	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE:
+		return func(a SubstrateActor) string {
+			return a.ActorTemplateNamespace + "/" + a.ActorTemplateName + "\x00" + a.ActorID
+		}
+	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD:
+		return func(a SubstrateActor) string {
+			return a.AteomPodNamespace + "/" + a.AteomPodName + "\x00" + a.ActorID
+		}
+	default:
+		// Status and the default are one ordering, because the default *is* status then
+		// id. So the Status header changes nothing ascending and reverses the grouping
+		// descending, which is correct and not obvious.
+		return func(a SubstrateActor) string { return a.Status + "\x00" + a.ActorID }
+	}
+}
+
+func workerSortKey(field apiv1alpha1.SubstrateWorkerSortField) func(SubstrateWorker) string {
+	pod := func(w SubstrateWorker) string { return w.WorkerNamespace + "/" + w.WorkerPod }
+	switch field {
+	case apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_POD:
+		return pod
+	case apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_IP:
+		return func(w SubstrateWorker) string { return w.IP + "\x00" + pod(w) }
+	default:
+		// Pool and the default are one ordering, as status and the default are above.
+		return func(w SubstrateWorker) string { return w.WorkerPool + "\x00" + pod(w) }
+	}
+}
+
+// substrateOrder compares two rows by their sort key, reversed for a descending read.
+func substrateOrder[Row any](key func(Row) string, order int32) func(Row, Row) int {
+	descending := substrateSortOrder(order) == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC
+	return func(left, right Row) int {
+		compared := strings.Compare(key(left), key(right))
+		if descending {
+			return -compared
+		}
+		return compared
+	}
+}
+
+// substrateSortOrder reads an unset or unknown order as ascending, which is what a
+// caller that did not ask means.
+func substrateSortOrder(order int32) apiv1alpha1.SubstrateSortOrder {
+	if apiv1alpha1.SubstrateSortOrder(order) == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC {
+		return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC
+	}
+	return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_ASC
+}
+
+/*
+sliceSubstratePage cuts the page a caller asked for out of the ordered result.
+
+An offset rather than a cursor into the rows, because the order is the controller's and
+is rebuilt on every request: a key-based token would name a row's position in an ordering
+that the next request may not produce. An offset past the end is an empty last page
+rather than an error — a reader whose cluster shrank under them should see the end of the
+list, not a failure.
+*/
+func sliceSubstratePage[Row any](rows []Row, offset int, pageSize int32) ([]Row, string) {
+	if offset >= len(rows) {
+		return []Row{}, ""
+	}
+	end := min(offset+int(pageSize), len(rows))
+	page := rows[offset:end]
+	if end >= len(rows) {
+		return page, ""
+	}
+	return page, encodeSubstrateOffset(end)
+}
+
+// The page token is an offset, encoded so it reads as opaque and a caller is not tempted
+// to do arithmetic on it — the same shape the other paged reads on this API use.
+func encodeSubstrateOffset(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+}
+
+func decodeSubstrateOffset(token string) (int, error) {
+	if token == "" {
+		return 0, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return 0, serviceerrors.NewInvalidArgument("invalid page token", err)
+	}
+	offset, err := strconv.Atoi(string(raw))
+	if err != nil || offset < 0 {
+		return 0, serviceerrors.NewInvalidArgument("invalid page token", err)
+	}
+	return offset, nil
 }

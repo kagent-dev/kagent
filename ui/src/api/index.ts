@@ -35,7 +35,10 @@ export type {
   OperationInput,
   OperationMap,
   OperationOutput,
+  SubstrateActorSortField,
   SubstratePageInput,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
 } from "./operations";
 
 export {
