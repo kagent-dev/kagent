@@ -42,13 +42,21 @@ test("snapshots: taken in a chat, and deleted in bulk from the list", async ({ p
     await loadPage(page, routes.snapshots, { title: "Snapshots" });
     // Two saved above, plus the two the fixture seeds against other conversations.
     await expect(rows).toHaveCount(4, { timeout: 30_000 });
-    await expect(page.getByTestId("snapshots-summary")).toContainText("4 of 4");
+    await expect(page.getByTestId("snapshots-summary")).toContainText("4 snapshots");
   });
 
-  await test.step("3. the search narrows them without hiding the count", async () => {
+  await test.step("3. the search is the controller's, and the count is of what matched", async () => {
+    // The count moving is the point: it is the controller's total for the filter, so a
+    // page narrowing rows it had already been handed would leave it at four.
     await page.getByTestId("snapshots-filters-search").fill("nothing matches this");
     await expect(rows).toHaveCount(0);
-    await expect(page.getByTestId("snapshots-summary")).toContainText("0 of 4");
+    await expect(page.getByTestId("snapshots-summary")).toContainText("0 snapshots");
+
+    // A name that belongs to one boundary only, so the count is unambiguous.
+    await page.getByTestId("snapshots-filters-search").fill("Deploy summary");
+    await expect(rows).toHaveCount(1);
+    await expect(page.getByTestId("snapshots-summary")).toContainText("1 snapshot");
+
     await page.getByTestId("snapshots-filters-search").fill("");
     await expect(rows).toHaveCount(4);
   });
@@ -72,7 +80,7 @@ test("snapshots: taken in a chat, and deleted in bulk from the list", async ({ p
     await page.getByTestId("snapshots-delete-selected").click();
 
     await expect(rows).toHaveCount(2, { timeout: 30_000 });
-    await expect(page.getByTestId("snapshots-summary")).toContainText("2 of 2");
+    await expect(page.getByTestId("snapshots-summary")).toContainText("2 snapshots");
   });
 
   await test.step("7. and one at a time, from the row itself", async () => {

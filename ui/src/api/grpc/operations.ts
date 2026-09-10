@@ -55,8 +55,10 @@ import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kag
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import {
   CheckpointService,
+  CheckpointSortField as PbCheckpointSortField,
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import { SortDirection as PbSortDirection } from "@/generated/kagent/api/v1alpha1/common_pb";
 import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
@@ -104,7 +106,11 @@ import type {
   AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
-import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
+import type {
+  Checkpoint,
+  CheckpointSort,
+  CheckpointState,
+} from "../domain/checkpoints";
 import type {
   ApiOperations,
   OperationCallOptions,
@@ -672,8 +678,16 @@ function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
     state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
     createdAt: isoFrom(checkpoint.createdAt),
     failure: checkpoint.failure?.message || undefined,
+    conversationName: checkpoint.conversationName,
   };
 }
+
+/** The sortable columns, as the wire spells them. */
+const CHECKPOINT_SORT_TO_PB: Record<CheckpointSort["field"], PbCheckpointSortField> = {
+  createdAt: PbCheckpointSortField.CREATED_AT,
+  conversation: PbCheckpointSortField.CONVERSATION,
+  state: PbCheckpointSortField.STATE,
+};
 
 const agentInstances: Pick<
   ApiOperations,
@@ -808,49 +822,32 @@ const agentInstances: Pick<
   },
 
   /*
-   * Every page of them, newest first.
-   *
-   * Paged like `agentInstances.list` and for the same reason: the controller answers
-   * 50 at a time by default, so reading one page and calling it the list quietly loses
-   * the oldest boundaries — the chat would stop drawing their lines and the snapshots
-   * page would stop offering to release them, both without saying so. Newest first is
-   * this client's ordering; the controller promises none.
+   * One page, narrowed and ordered by the controller: the filter, the ordering and the
+   * offset all travel with the request, and the count that comes back is of everything
+   * the filter matched rather than of the page.
    */
   "agentInstances.checkpoints.list": async (input, options) => {
     const name = "CheckpointService/ListCheckpoints";
-    const rows: Checkpoint[] = [];
-    let pageToken = "";
-
-    for (let page = 0; page < INSTANCE_PAGE_LIMIT; page += 1) {
-      const response = await rpc(name, options.signal, () =>
-        serviceClient(CheckpointService).listCheckpoints(
-          { agentInstanceId: input.id, page: { pageToken } },
-          call("agentInstances.checkpoints.list", options),
-        ),
-      );
-      rows.push(...list(response.checkpoints).map(toCheckpoint));
-
-      const next = response.page?.nextPageToken ?? "";
-      if (!next) {
-        return rows.sort((left, right) =>
-          (right.createdAt ?? "").localeCompare(left.createdAt ?? ""),
-        );
-      }
-      // A token that has not moved is a server that is not advancing; left alone this
-      // re-reads one page until the cap. Caught here, where the reason is still plain.
-      if (next === pageToken) {
-        throw new ApiError(
-          "The API repeated the same page of checkpoints instead of advancing.",
-          { kind: "parse", url: name },
-        );
-      }
-      pageToken = next;
-    }
-
-    throw new ApiError(
-      `The API offered more than ${INSTANCE_PAGE_LIMIT} pages of checkpoints; the list was not read to the end.`,
-      { kind: "parse", url: name },
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).listCheckpoints(
+        {
+          agentInstanceId: input.id ?? "",
+          filter: input.filter ?? "",
+          sortBy: (input.sort ?? []).map((by) => ({
+            field: CHECKPOINT_SORT_TO_PB[by.field],
+            direction: by.descending
+              ? PbSortDirection.DESC
+              : PbSortDirection.ASC,
+          })),
+          page: { limit: input.limit ?? 0, offset: input.offset ?? 0 },
+        },
+        call("agentInstances.checkpoints.list", options),
+      ),
     );
+    return {
+      checkpoints: list(response.checkpoints).map(toCheckpoint),
+      total: response.totalSize,
+    };
   },
 
   /*

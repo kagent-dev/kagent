@@ -6,35 +6,37 @@ import { Trash2 } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import toast from "react-hot-toast";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { apiClient, useSnapshots, type Snapshot } from "@/api";
+import { apiClient, useSnapshots, type CheckpointSort, type Snapshot } from "@/api";
 import { agentUrl } from "@/components/agent/agentUrl";
-import {
-  conversationTitle,
-  relativeAge,
-  shortInstanceId,
-} from "@/components/agent-instances/instanceLabels";
+import { relativeAge, shortInstanceId } from "@/components/agent-instances/instanceLabels";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
-import {
-  byText,
-  listTableChange,
-  matchesQuery,
-  paginationFor,
-  sortOrderFor,
-} from "@/components/table/listTable";
+import { listTableChange, paginationFor, sortOrderFor } from "@/components/table/listTable";
 import { deleteSnapshots, deletedMessage } from "./deleteSnapshots";
 
 const { Text } = Typography;
 
 const PAGE_SIZE = 25;
 
-/** How a boundary is named where its conversation is gone or unnamed. */
+/**
+ * The name recorded when the snapshot was taken, not the conversation's current one.
+ *
+ * That is the only name the controller can filter and order by, so showing the current
+ * one would give a search that misses the words on screen. A rename leaves earlier rows
+ * reading as they did, which is what a snapshot is.
+ */
 function conversationLabel(row: Snapshot): string {
-  if (!row.conversation) return `Deleted conversation · ${shortInstanceId(row.agentInstanceId)}`;
-  return conversationTitle(row.conversation);
+  return row.conversationName || `Untitled · ${shortInstanceId(row.agentInstanceId)}`;
 }
+
+/** The columns this table can be ordered by, as the request spells them. */
+const SORT_FIELDS: Record<string, CheckpointSort["field"]> = {
+  conversation: "conversation",
+  createdAt: "createdAt",
+  state: "state",
+};
 
 /**
  * Every snapshot this cluster is holding for the reader, and the way to release them.
@@ -62,25 +64,27 @@ function conversationLabel(row: Snapshot): string {
  */
 export function SnapshotsPage() {
   const theme = useTheme();
-  const { data, isLoading, error, isEmpty, refresh } = useSnapshots();
   const view = useListView([]);
   const [picked, setPicked] = useState<readonly string[]>([]);
   const [isDeleting, setDeleting] = useState(false);
 
-  const snapshots = useMemo(() => data ?? [], [data]);
+  // One column at a time is all a table header offers; the request takes several and
+  // applies them in order, so multi-sort would need no change here.
+  const sort = useMemo<CheckpointSort[]>(() => {
+    const field = view.sort ? SORT_FIELDS[view.sort.column] : undefined;
+    if (!field) return [];
+    return [{ field, descending: view.sort?.direction === "desc" }];
+  }, [view.sort]);
 
-  const filtered = useMemo(
-    () =>
-      snapshots.filter((row) =>
-        matchesQuery(view.query, [
-          conversationLabel(row),
-          row.agentInstanceId,
-          row.id,
-          row.headTaskId,
-        ]),
-      ),
-    [snapshots, view.query],
-  );
+  const { data, isLoading, error, isEmpty, refresh } = useSnapshots({
+    filter: view.query,
+    sort,
+    page: view.page,
+    pageSize: PAGE_SIZE,
+  });
+
+  const snapshots = useMemo(() => data?.snapshots ?? [], [data]);
+  const total = data?.total ?? 0;
 
   /*
    * One request each, wrapped in one toast.
@@ -118,7 +122,9 @@ export function SnapshotsPage() {
       {
         title: "Conversation",
         key: "conversation",
-        sorter: byText<Snapshot>(conversationLabel),
+        // No `sorter` function: the controller orders these, and a compare here would
+        // reorder one page of them, which looks like sorting and is not.
+        sorter: true,
         sortOrder: sortOrderFor(view, "conversation"),
         render: (_, row) =>
           row.conversation ? (
@@ -140,7 +146,7 @@ export function SnapshotsPage() {
         title: "Taken",
         key: "createdAt",
         width: 200,
-        sorter: byText<Snapshot>((row) => row.createdAt ?? ""),
+        sorter: true,
         sortOrder: sortOrderFor(view, "createdAt"),
         render: (_, row) =>
           row.createdAt ? (
@@ -155,7 +161,7 @@ export function SnapshotsPage() {
         title: "State",
         key: "state",
         width: 120,
-        sorter: byText<Snapshot>((row) => row.state),
+        sorter: true,
         sortOrder: sortOrderFor(view, "state"),
         render: (_, row) => (
           <Tag color={row.state === "ready" ? "success" : row.state === "failed" ? "error" : "default"}>
@@ -228,8 +234,9 @@ export function SnapshotsPage() {
           trailing={
             !error && !isLoading ? (
               <Text data-testid="snapshots-summary" css={{ color: theme.color.textMuted }}>
-                {filtered.length} of {snapshots.length}{" "}
-                {snapshots.length === 1 ? "snapshot" : "snapshots"}
+                {/* The controller's count of everything the filter matched, not the
+                    length of the page on screen. */}
+                {total} {total === 1 ? "snapshot" : "snapshots"}
               </Text>
             ) : null
           }
@@ -239,10 +246,10 @@ export function SnapshotsPage() {
           data-testid="snapshots-table"
           rowKey={(row) => row.id}
           columns={columns}
-          dataSource={error ? [] : filtered}
+          dataSource={error ? [] : snapshots}
           loading={isLoading}
           onChange={listTableChange<Snapshot>(view)}
-          pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
+          pagination={paginationFor(view, total, PAGE_SIZE)}
           rowSelection={{
             selectedRowKeys: picked as string[],
             onChange: (keys) => setPicked(keys.map(String)),

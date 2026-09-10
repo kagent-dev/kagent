@@ -84,8 +84,10 @@ import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_p
 import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   CheckpointService,
+  CheckpointSortField as PbCheckpointSortField,
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import { SortDirection as PbSortDirection } from "@/generated/kagent/api/v1alpha1/common_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -957,6 +959,7 @@ const checkpointMessage = (row: MockCheckpoint) => ({
   id: row.id,
   agentInstanceId: row.agentInstanceId,
   headTaskId: row.headTaskId,
+  conversationName: row.conversationName,
   state: PbCheckpointState.READY,
   createdAt: timestampFromDate(new Date(row.createdAt)),
 });
@@ -967,6 +970,7 @@ on(CheckpointService.method.createCheckpoint, (input, call) => {
     id: crypto.randomUUID(),
     agentInstanceId: instance.id,
     headTaskId: mockLatestTaskId(instance.id),
+    conversationName: instance.name,
     createdAt: new Date().toISOString(),
   });
   return { checkpoint: checkpointMessage(checkpoint) };
@@ -977,9 +981,52 @@ on(CheckpointService.method.deleteCheckpoint, (input) => {
   return {};
 });
 
+/*
+ * Narrowed, ordered and paged here, because the controller does it there.
+ *
+ * A fixture that returned everything and let the page sort it would let a build whose
+ * request carries none of this pass every browser test — the filter would still appear
+ * to work, on rows the page had already been handed.
+ */
 on(CheckpointService.method.listCheckpoints, (input, call) => {
-  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
-  return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
+  const scoped = input.agentInstanceId
+    ? readCheckpoints(instanceFor(requireInstanceId(input.agentInstanceId), call).id)
+    : readCheckpoints();
+
+  const filter = input.filter.trim().toLowerCase();
+  const matched = filter
+    ? scoped.filter((row) =>
+        [row.conversationName, row.id, row.agentInstanceId, row.headTaskId].some((field) =>
+          field.toLowerCase().includes(filter),
+        ),
+      )
+    : scoped;
+
+  const ordered = [...matched].sort((left, right) => {
+    for (const by of input.sortBy) {
+      const of = (row: MockCheckpoint) => {
+        if (by.field === PbCheckpointSortField.CONVERSATION) return row.conversationName.toLowerCase();
+        if (by.field === PbCheckpointSortField.STATE) return "ready";
+        return row.createdAt;
+      };
+      const compared = of(left).localeCompare(of(right));
+      if (compared !== 0) return by.direction === PbSortDirection.DESC ? -compared : compared;
+    }
+    // Newest first by default, and the id last so equal rows keep one order.
+    if (input.sortBy.length === 0) {
+      const byAge = right.createdAt.localeCompare(left.createdAt);
+      if (byAge !== 0) return byAge;
+    }
+    return left.id.localeCompare(right.id);
+  });
+
+  const offset = input.page?.offset ?? 0;
+  const limit = input.page?.limit || ordered.length;
+  return {
+    checkpoints: ordered.slice(offset, offset + limit).map(checkpointMessage),
+    page: {},
+    totalSize: ordered.length,
+  };
 });
 
 /*

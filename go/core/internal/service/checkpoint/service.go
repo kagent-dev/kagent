@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -28,7 +29,7 @@ type store interface {
 	ReserveAgentInstanceCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, *database.AgentInstanceTaskSnapshot, error)
 	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string, string) (*apiv1alpha1.Checkpoint, error)
 	GetAgentInstanceCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
-	ListAgentInstanceCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, database.CheckpointQuery) ([]*apiv1alpha1.Checkpoint, int, error)
 	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string) error
@@ -56,15 +57,21 @@ type Service struct {
 	workflow   workflow
 }
 
+// An empty InstanceID lists across every conversation the caller owns.
 type ListRequest struct {
 	InstanceID string
 	PageSize   int
 	PageToken  string
+	Offset     int
+	Filter     string
+	Sort       []database.CheckpointSort
 }
 
 type ListResult struct {
 	Checkpoints   []*apiv1alpha1.Checkpoint
 	NextPageToken string
+	// Everything the filter matches, not just this page.
+	TotalSize int
 }
 
 func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflow workflow) *Service {
@@ -200,11 +207,17 @@ func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Ch
 	return checkpoint, nil
 }
 
+// List reads one page of the caller's checkpoints, narrowed to one conversation when
+// one is named. Authorised on the instance when it is and on the type otherwise, the
+// way AgentInstance listing does; the store scopes every row to the caller either way.
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
-	if err := validateIdentity(request.InstanceID); err != nil {
-		return ListResult{}, err
+	resource := request.InstanceID
+	if resource != "" {
+		if err := validateIdentity(resource); err != nil {
+			return ListResult{}, err
+		}
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.InstanceID)
+	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", resource)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -215,17 +228,36 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if pageSize < 0 || pageSize > maxPageSize {
 		return ListResult{}, serviceerrors.NewInvalidArgument(fmt.Sprintf("page limit must be between 1 and %d", maxPageSize), nil)
 	}
-	afterID, err := decodePageToken(request.PageToken)
-	if err != nil {
-		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
+	// A caller walking the list follows tokens; one showing page numbers sends offsets.
+	offset := request.Offset
+	if request.PageToken != "" {
+		decoded, err := decodePageToken(request.PageToken)
+		if err != nil {
+			return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
+		}
+		offset = decoded
 	}
-	rows, err := s.store.ListAgentInstanceCheckpoints(ctx, request.InstanceID, userID, afterID, pageSize+1)
+	if offset < 0 {
+		return ListResult{}, serviceerrors.NewInvalidArgument("page offset cannot be negative", nil)
+	}
+
+	rows, total, err := s.store.ListAgentInstanceCheckpoints(ctx, database.CheckpointQuery{
+		InstanceID: request.InstanceID,
+		UserID:     userID,
+		Filter:     request.Filter,
+		Sort:       request.Sort,
+		Offset:     offset,
+		Limit:      pageSize,
+	})
 	if err != nil {
+		if errors.Is(err, database.ErrCheckpointQuery) {
+			return ListResult{}, serviceerrors.NewInvalidArgument("sort field is not supported", err)
+		}
 		return ListResult{}, serviceerrors.NewInternal("Failed to list checkpoints", err)
 	}
-	result := ListResult{Checkpoints: rows[:min(len(rows), pageSize)]}
-	if len(rows) > pageSize {
-		result.NextPageToken = encodePageToken(rows[pageSize-1].GetId())
+	result := ListResult{Checkpoints: rows, TotalSize: total}
+	if offset+len(rows) < total {
+		result.NextPageToken = encodePageToken(offset + len(rows))
 	}
 	return result, nil
 }
@@ -341,22 +373,27 @@ func validateIdentity(id string) error {
 	return nil
 }
 
-func encodePageToken(id string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(id))
+// The token is the offset it resumes at, encoded so a caller treats it as opaque.
+func encodePageToken(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
 func tagName(checkpointID string) string { return "checkpoint-" + checkpointID }
 
-func decodePageToken(token string) (string, error) {
+func decodePageToken(token string) (int, error) {
 	if token == "" {
-		return "", nil
+		return 0, nil
 	}
 	value, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
-	if _, err := uuid.Parse(string(value)); err != nil {
-		return "", err
+	offset, err := strconv.Atoi(string(value))
+	if err != nil {
+		return 0, err
 	}
-	return string(value), nil
+	if offset < 0 {
+		return 0, fmt.Errorf("page offset %d is negative", offset)
+	}
+	return offset, nil
 }

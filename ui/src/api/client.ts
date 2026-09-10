@@ -54,7 +54,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
-import type { Checkpoint } from "./domain/checkpoints";
+import type { Checkpoint, CheckpointPage, CheckpointSort } from "./domain/checkpoints";
 
 /** Options every read method accepts, so callers can cancel in-flight work. */
 export interface ReadOptions {
@@ -248,7 +248,20 @@ export interface AgentInstancesApi {
    * then starts a conversation holding the history up to whichever one is named.
    */
   checkpoints: {
-    list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
+    /**
+     * One page of saved boundaries, narrowed and ordered by the controller. `id`
+     * narrows to one conversation; without it, every boundary the caller owns.
+     */
+    list(
+      input?: {
+        id?: string;
+        filter?: string;
+        sort?: readonly CheckpointSort[];
+        limit?: number;
+        offset?: number;
+      },
+      options?: ReadOptions,
+    ): Promise<CheckpointPage>;
     create(id: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
     /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
@@ -373,8 +386,8 @@ export function createApiClient(): KagentApiClient {
       fork: (id, name) =>
         invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
       checkpoints: {
-        list: (id, options) =>
-          invoke("agentInstances.checkpoints.list", { id }, options),
+        list: (input, options) =>
+          invoke("agentInstances.checkpoints.list", input ?? {}, options),
         create: (id) =>
           invoke("agentInstances.checkpoints.create", {
             id,

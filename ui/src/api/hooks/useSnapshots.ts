@@ -1,57 +1,60 @@
 import { apiClient } from "../client";
 import type { AgentInstance } from "../domain/agentInstances";
-import type { Checkpoint } from "../domain/checkpoints";
+import type { Checkpoint, CheckpointSort } from "../domain/checkpoints";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
-/** A saved boundary, with the conversation it was taken of. */
+/** A saved boundary, with the conversation it was taken of when that still exists. */
 export interface Snapshot extends Checkpoint {
   /**
-   * The conversation, when it is one the caller can still see.
-   *
-   * Absent for a boundary whose conversation has gone — deleting a conversation does
-   * not release the snapshots taken of it, so those rows are exactly the ones a reader
-   * most wants to find here.
+   * The conversation, when the caller can still see it — deleting one does not release
+   * the snapshots taken of it. Only decides whether the row's name links anywhere; the
+   * name itself is the checkpoint's own.
    */
   conversation?: AgentInstance;
 }
 
+export interface SnapshotPage {
+  snapshots: Snapshot[];
+  /** Everything the filter matched, not just this page. */
+  total: number;
+}
+
+export interface SnapshotQuery {
+  filter: string;
+  sort: readonly CheckpointSort[];
+  page: number;
+  pageSize: number;
+}
+
 /**
- * Every saved boundary the caller can see, across all their conversations.
+ * One page of the caller's saved boundaries, narrowed and ordered by the controller.
  *
- * ## Why this is a fan-out
- *
- * `ListCheckpoints` takes an `agent_instance_id` and requires it — there is no RPC
- * that lists a caller's checkpoints. So the conversations are read first and each is
- * asked for its own, which is one request per conversation. That is the cost of the
- * API as it stands, and it is why this page is not offered from the shell's chrome:
- * it is a page you go to, not one that loads beside something else.
- *
- * A conversation whose read fails does not fail the page. One conversation the caller
- * has lost access to would otherwise take out the whole table, including the rows that
- * are the reason to be here — so its checkpoints are simply missing and the rest are
- * shown.
+ * Nothing is re-narrowed here: a client-side filter over a server-side page reports "no
+ * matches" about rows it never read. The one extra request, for conversations, is not
+ * per row — it only says which names can link somewhere.
  */
-export function useSnapshots(): ApiResource<Snapshot[]> {
-  return useApiResource(["snapshots.list"], async () => {
-    const conversations = await apiClient.agentInstances.list();
-    const perConversation = await Promise.all(
-      conversations.map(async (conversation) => {
-        try {
-          const checkpoints = await apiClient.agentInstances.checkpoints.list(
-            conversation.id,
-          );
-          return checkpoints.map((checkpoint) => ({ ...checkpoint, conversation }));
-        } catch (cause: unknown) {
-          console.error(`Could not read snapshots of ${conversation.id}:`, cause);
-          return [];
-        }
-      }),
-    );
-    // Newest first across every conversation, which is not the order the fan-out
-    // returns them in: that is grouped by conversation, and a reader looking for what
-    // they took a minute ago would have to know which one it was under.
-    return perConversation
-      .flat()
-      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
-  });
+export function useSnapshots(query: SnapshotQuery): ApiResource<SnapshotPage> {
+  const sortKey = query.sort.map((by) => `${by.field}:${by.descending ? "d" : "a"}`).join(",");
+  return useApiResource(
+    ["snapshots.list", query.filter, sortKey, query.page, query.pageSize],
+    async () => {
+      const [page, conversations] = await Promise.all([
+        apiClient.agentInstances.checkpoints.list({
+          filter: query.filter,
+          sort: query.sort,
+          limit: query.pageSize,
+          offset: (query.page - 1) * query.pageSize,
+        }),
+        apiClient.agentInstances.list(),
+      ]);
+      const byId = new Map(conversations.map((row) => [row.id, row]));
+      return {
+        snapshots: page.checkpoints.map((checkpoint) => ({
+          ...checkpoint,
+          conversation: byId.get(checkpoint.agentInstanceId),
+        })),
+        total: page.total,
+      };
+    },
+  );
 }

@@ -64,7 +64,11 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
-import type { Checkpoint } from "./domain/checkpoints";
+import type {
+  Checkpoint,
+  CheckpointPage,
+  CheckpointSort,
+} from "./domain/checkpoints";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
@@ -246,10 +250,20 @@ export interface OperationMap {
     output: Checkpoint;
   };
 
-  /** Every boundary saved against this conversation, newest first. */
+  /**
+   * Saved boundaries, narrowed, ordered and paged by the controller. Without an `id`,
+   * every boundary the caller owns; `filter` matches the recorded conversation name and
+   * the checkpoint's identifiers, and `sort` applies in the order given.
+   */
   "agentInstances.checkpoints.list": {
-    input: AgentInstanceRef;
-    output: Checkpoint[];
+    input: {
+      id?: string;
+      filter?: string;
+      sort?: readonly CheckpointSort[];
+      limit?: number;
+      offset?: number;
+    };
+    output: CheckpointPage;
   };
 
   /**

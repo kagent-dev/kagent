@@ -4,6 +4,7 @@ import (
 	"context"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 )
 
@@ -27,11 +28,37 @@ func (s *checkpointServer) ListCheckpoints(ctx context.Context, request *apiv1al
 	result, err := s.service.List(ctx, checkpoint.ListRequest{
 		InstanceID: request.GetAgentInstanceId(),
 		PageSize:   int(page.GetLimit()), PageToken: page.GetPageToken(),
+		Offset: int(page.GetOffset()),
+		Filter: request.GetFilter(),
+		Sort:   checkpointSort(request.GetSortBy()),
 	})
 	return &apiv1alpha1.ListCheckpointsResponse{
 		Checkpoints: result.Checkpoints,
 		Page:        &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		TotalSize:   int32(result.TotalSize),
 	}, err
+}
+
+var checkpointSortColumns = map[apiv1alpha1.CheckpointSortField]string{
+	apiv1alpha1.CheckpointSortField_CHECKPOINT_SORT_FIELD_CREATED_AT:   "created_at",
+	apiv1alpha1.CheckpointSortField_CHECKPOINT_SORT_FIELD_CONVERSATION: "conversation",
+	apiv1alpha1.CheckpointSortField_CHECKPOINT_SORT_FIELD_STATE:        "state",
+}
+
+// An unknown enum member is dropped, not guessed at.
+func checkpointSort(sortBy []*apiv1alpha1.CheckpointSortBy) []database.CheckpointSort {
+	sort := make([]database.CheckpointSort, 0, len(sortBy))
+	for _, by := range sortBy {
+		column, ok := checkpointSortColumns[by.GetField()]
+		if !ok {
+			continue
+		}
+		sort = append(sort, database.CheckpointSort{
+			Field:      column,
+			Descending: by.GetDirection() == apiv1alpha1.SortDirection_SORT_DIRECTION_DESC,
+		})
+	}
+	return sort
 }
 
 func (s *checkpointServer) DeleteCheckpoint(ctx context.Context, request *apiv1alpha1.DeleteCheckpointRequest) (*apiv1alpha1.DeleteCheckpointResponse, error) {

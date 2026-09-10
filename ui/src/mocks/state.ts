@@ -446,6 +446,8 @@ export interface MockCheckpoint {
   id: string;
   agentInstanceId: string;
   headTaskId: string;
+  /** The conversation's name when it was taken, which is what a listing filters on. */
+  conversationName: string;
   createdAt: string;
 }
 
@@ -459,6 +461,7 @@ export const SEEDED_CHECKPOINT: MockCheckpoint = {
   id: "3f5b1c88-91d2-4a0e-b7c6-5d1f0a2e9b34",
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   headTaskId: "seed-task-1",
+  conversationName: "Tuesday cluster review",
   createdAt: "2025-01-04T10:15:00Z",
 };
 
@@ -476,6 +479,7 @@ export const DISPOSABLE_CHECKPOINT: MockCheckpoint = {
   // whichever won. It is also a state the composer's guard exists to prevent.
   agentInstanceId: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
   headTaskId: "seed-task-2",
+  conversationName: "Deploy summary",
   createdAt: "2025-01-04T10:20:00Z",
 };
 
@@ -508,9 +512,10 @@ function writeAll(rows: MockCheckpoint[]): void {
   }
 }
 
-/** Every boundary saved against one conversation. */
-export function readCheckpoints(agentInstanceId: string): MockCheckpoint[] {
-  return readAll().filter((row) => row.agentInstanceId === agentInstanceId);
+/** Every boundary saved against one conversation, or all of them. */
+export function readCheckpoints(agentInstanceId?: string): MockCheckpoint[] {
+  const all = readAll();
+  return agentInstanceId ? all.filter((row) => row.agentInstanceId === agentInstanceId) : all;
 }
 
 export function checkpointById(id: string): MockCheckpoint | undefined {
