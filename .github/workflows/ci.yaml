@@ -58,18 +58,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sandbox_class: [gvisor, microvm]
+        # The Giant Swarm line of Substrate publishes the gVisor worker only
+        # (its FORK.md, "Publishing"); the platform runs no micro-VM pool.
+        sandbox_class: [gvisor]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.5.0-alpha2
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
+      # The upstream release whose kubectl-ate performs the CA/JWT bootstrap
+      # below; the Giant Swarm line of Substrate publishes no CLI. Same pin as
+      # the Makefile's SUBSTRATE_VERSION is built from.
+      KUBECTL_ATE_VERSION: 0.0.29
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Resolve the Substrate pin
+        # One source of truth: the Makefile's SUBSTRATE_VERSION / SUBSTRATE_REPO
+        # (the Giant Swarm line of Substrate, ghcr.io/giantswarm/substrate) drive
+        # the charts' dependencies and the Substrate this cluster runs.
+        run: |
+          make -s substrate-pin | tee -a "$GITHUB_ENV"
+          registry=$(make -s substrate-pin | sed -n 's|^SUBSTRATE_REPO=oci://||p')
+          echo "SUBSTRATE_IMAGE_REGISTRY=${registry%/helm}" | tee -a "$GITHUB_ENV"
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Set up Go
@@ -134,8 +147,8 @@ jobs:
             --set controller.push.allowPrivateNetworks=true
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
-            --set substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
-            --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
+            --set-string substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
+            --set-string substrateWorkerPool.workerImage=${{ env.SUBSTRATE_IMAGE_REGISTRY }}/ateom-${{ matrix.sandbox_class }}:${{ env.SUBSTRATE_VERSION }}
             --set otel.traces.enabled=true
             --set otel.metrics.enabled=true
             --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317

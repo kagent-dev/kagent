@@ -259,6 +259,11 @@ SUBSTRATE_REPO ?= oci://ghcr.io/giantswarm/substrate/helm # Override for local d
 SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
 SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 
+.PHONY: substrate-pin
+substrate-pin: ## Print the Substrate pin as KEY=VALUE lines (ci.yaml reads them, so the e2e cluster runs the same Substrate the charts depend on)
+	@echo SUBSTRATE_VERSION=$(strip $(SUBSTRATE_VERSION))
+	@echo SUBSTRATE_REPO=$(strip $(SUBSTRATE_REPO))
+
 HELM_ACTION=upgrade --install
 
 # Helm chart variables

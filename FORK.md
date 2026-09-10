@@ -13,7 +13,7 @@ switches to that release and this line ends.
 | Mirror | `main`, every `release/v*.x` branch and every tag — read-only mirrors of upstream, fast-forwarded by the sync workflow, never edited (upstream's CI reads release branches and tags to pick the upgrade-test baseline) |
 | Automation branches | `sync/**` (re-pin candidates), `ledger` (machine-written records) — never commit to them by hand |
 | Upstream pin | `git merge-base poc/agent-platform main` — the newest row of [`re-pins.md`](../../blob/ledger/re-pins.md) on the `ledger` branch gives the commit and date |
-| Substrate version the pin runs with | 0.0.26 ([kagent-dev/substrate](https://github.com/kagent-dev/substrate); `SUBSTRATE_VERSION` in `.github/workflows/ci.yaml`) |
+| Substrate version the pin runs with | `0.0.27-dev.giantswarm.2026-09-10.19-33-37.h734ec53` of the Giant Swarm line [giantswarm/substrate](https://github.com/giantswarm/substrate) (upstream kagent-dev/substrate v0.0.26 — the `go/go.mod` replace, the ate-api contract — plus kagent-dev/substrate#33; `SUBSTRATE_VERSION` / `SUBSTRATE_REPO` in the `Makefile`, read by `ci.yaml` through `make substrate-pin`; `kubectl-ate` for the e2e bootstrap still from upstream's v0.0.26 release) |
 | Tracking | giantswarm/giantswarm#37010 (the line), giantswarm/giantswarm#37742 (the upstream exit of every patch) |
 
 ## Which kagent are we running
