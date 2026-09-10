@@ -1,5 +1,6 @@
 """Tests for KAgentAnthropicLlm."""
 
+import copy
 import json
 from unittest import mock
 
@@ -238,17 +239,17 @@ class TestMarkPromptCacheBreakpoints:
             {"system": "", "tools": [], "messages": []},
             {"messages": [{"role": "user", "content": ""}]},
         ):
-            before = {k: list(v) if isinstance(v, list) else v for k, v in kwargs.items()}
+            before = copy.deepcopy(kwargs)
             mark_prompt_cache_breakpoints(kwargs, self.CC)
             assert kwargs == before
 
     def test_does_not_mutate_caller_objects(self):
         kwargs = self._agent_loop_kwargs()
         tools, messages = kwargs["tools"], kwargs["messages"]
-        last_tool, last_message = dict(tools[-1]), dict(messages[-1])
+        before_tools, before_messages = copy.deepcopy(tools), copy.deepcopy(messages)
         mark_prompt_cache_breakpoints(kwargs, self.CC)
-        assert tools[-1] == last_tool
-        assert messages[-1] == last_message
+        assert tools == before_tools
+        assert messages == before_messages
 
 
 class TestPromptCachingRequests:
