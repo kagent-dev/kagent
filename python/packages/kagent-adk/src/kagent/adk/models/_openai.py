@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Optional
@@ -29,14 +30,39 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.chat.chat_completion_message_tool_call_param import (
     Function as ToolCallFunction,
 )
+from openai.types.responses import (
+    EasyInputMessageParam,
+    FunctionToolParam,
+    Response,
+    ResponseFunctionToolCall,
+    ResponseFunctionToolCallParam,
+    ResponseInputImageParam,
+    ResponseInputItemParam,
+    ResponseInputTextParam,
+    ResponseOutputMessage,
+    ResponseUsage,
+)
+from openai.types.responses.response_input_item_param import FunctionCallOutput
+from openai.types.responses.response_input_message_content_list_param import (
+    ResponseInputMessageContentListParam,
+)
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
+
+logger = logging.getLogger(__name__)
+
+# OpenAI API format (ModelConfig openAI.apiFormat); chatCompletions is the default.
+OpenAIAPIFormat = Literal["chatCompletions", "responses"]
+OPENAI_API_FORMAT_RESPONSES = "responses"
+
+# Sampling parameters the Responses API does not accept.
+_RESPONSES_UNSUPPORTED_PARAMS = ("frequency_penalty", "presence_penalty", "n", "seed")
 
 
 def _convert_role_to_openai(role: Optional[str]) -> str:
@@ -89,6 +115,41 @@ def _thought_signatures_by_tool_call_id(contents: list[types.Content]) -> dict[s
     return thought_signatures
 
 
+def _function_responses_by_tool_call_id(contents: list[types.Content]) -> dict[str, FunctionResponse]:
+    """Index function responses by tool call id."""
+    function_responses: dict[str, FunctionResponse] = {}
+    for content in contents:
+        for part in content.parts or []:
+            if part.function_response:
+                function_responses[part.function_response.id or "call_1"] = part.function_response
+
+    return function_responses
+
+
+def _partition_content_parts(
+    content: types.Content,
+) -> tuple[list[str], list[FunctionCall], list[types.Blob]]:
+    """Split a Content's parts into text, function calls and inline image blobs."""
+    text_parts: list[str] = []
+    function_calls: list[FunctionCall] = []
+    image_blobs: list[types.Blob] = []
+
+    for part in content.parts or []:
+        if part.text:
+            text_parts.append(part.text)
+        elif part.function_call:
+            function_calls.append(part.function_call)
+        elif (
+            part.inline_data
+            and part.inline_data.data
+            and part.inline_data.mime_type
+            and part.inline_data.mime_type.startswith("image")
+        ):
+            image_blobs.append(part.inline_data)
+
+    return text_parts, function_calls, image_blobs
+
+
 def _build_function_call_part(
     *,
     name: str,
@@ -116,6 +177,24 @@ def _build_function_call_part(
     return part
 
 
+def _blob_data_uri(blob: types.Blob) -> str:
+    """Render an inline data blob as a base64 data URI."""
+    return f"data:{blob.mime_type};base64,{base64.b64encode(blob.data or b'').decode()}"
+
+
+def _extract_function_response_content(func_response: FunctionResponse) -> str:
+    """Extract text content from a genai FunctionResponse for the model to consume."""
+    if isinstance(func_response.response, str):
+        return func_response.response
+    if func_response.response and "content" in func_response.response:
+        content_list = func_response.response["content"]
+        if len(content_list) > 0:
+            return "\n".join(item["text"] for item in content_list if "text" in item)
+    elif func_response.response and "result" in func_response.response:
+        return str(func_response.response["result"])
+    return ""
+
+
 def _convert_content_to_openai_messages(
     contents: list[types.Content], system_instruction: Optional[str] = None
 ) -> list[ChatCompletionMessageParam]:
@@ -128,40 +207,18 @@ def _convert_content_to_openai_messages(
         messages.append(system_message)
 
     # First pass: collect all function responses to match with tool calls
-    all_function_responses: dict[str, FunctionResponse] = {}
+    all_function_responses = _function_responses_by_tool_call_id(contents)
     thought_signatures = _thought_signatures_by_tool_call_id(contents)
-    for content in contents:
-        for part in content.parts or []:
-            if part.function_response:
-                tool_call_id = part.function_response.id or "call_1"
-                all_function_responses[tool_call_id] = part.function_response
 
     for content in contents:
         role = _convert_role_to_openai(content.role)
 
-        # Separate different types of parts
-        text_parts: list[str] = []
-        function_calls: list[FunctionCall] = []
-        function_responses: list[FunctionResponse] = []
-        image_parts = []
+        text_parts, function_calls, image_blobs = _partition_content_parts(content)
+        image_parts: list[ChatCompletionContentPartImageParam] = [
+            {"type": "image_url", "image_url": {"url": _blob_data_uri(blob)}} for blob in image_blobs
+        ]
 
-        for part in content.parts or []:
-            if part.text:
-                text_parts.append(part.text)
-            elif part.function_call:
-                function_calls.append(part.function_call)
-            elif part.function_response:
-                function_responses.append(part.function_response)
-            elif part.inline_data and part.inline_data.mime_type and part.inline_data.mime_type.startswith("image"):
-                if part.inline_data.data:
-                    image_data = base64.b64encode(part.inline_data.data).decode()
-                    image_part: ChatCompletionContentPartImageParam = {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{part.inline_data.mime_type};base64,{image_data}"},
-                    }
-                    image_parts.append(image_part)
-
-        # Function responses are now handled together with function calls
+        # Function responses are handled together with function calls
         # This ensures proper pairing and prevents orphaned tool messages
 
         # Handle function calls (assistant messages with tool_calls)
@@ -186,21 +243,10 @@ def _convert_content_to_openai_messages(
 
                 # Check if we have a response for this tool call
                 if tool_call_id in all_function_responses:
-                    func_response = all_function_responses[tool_call_id]
-                    content = ""
-                    if isinstance(func_response.response, str):
-                        content = func_response.response
-                    elif func_response.response and "content" in func_response.response:
-                        content_list = func_response.response["content"]
-                        if len(content_list) > 0:
-                            content = "\n".join(item["text"] for item in content_list if "text" in item)
-                    elif func_response.response and "result" in func_response.response:
-                        content = func_response.response["result"]
-
                     tool_message = ChatCompletionToolMessageParam(
                         role="tool",
                         tool_call_id=tool_call_id,
-                        content=content,
+                        content=_extract_function_response_content(all_function_responses[tool_call_id]),
                     )
                     if extra_content := _openai_extra_content_for_thought_signature(
                         thought_signatures.get(tool_call_id)
@@ -278,38 +324,43 @@ def _update_type_string(value_dict: dict[str, Any]):
             _update_type_string(value)
 
 
+def _iter_function_declarations(tools: list[types.Tool]) -> Iterable[types.FunctionDeclaration]:
+    """Yield every function declaration across a list of genai Tools."""
+    for tool in tools:
+        for func_decl in tool.function_declarations or []:
+            yield func_decl
+
+
+def _function_parameters_schema(func_decl: types.FunctionDeclaration) -> FunctionParameters:
+    """Build the JSON schema parameters object for a function declaration."""
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+
+    if func_decl.parameters:
+        if func_decl.parameters.properties:
+            for prop_name, prop_schema in func_decl.parameters.properties.items():
+                value_dict = prop_schema.model_dump(exclude_none=True)
+                _update_type_string(value_dict)
+                properties[prop_name] = value_dict
+
+        if func_decl.parameters.required:
+            required = func_decl.parameters.required
+
+    # Always include the parameters field, even if empty.
+    return {"type": "object", "properties": properties, "required": required}
+
+
 def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionToolParam]:
     """Convert google.genai Tools to OpenAI tools format."""
     openai_tools: list[ChatCompletionToolParam] = []
 
-    for tool in tools:
-        if tool.function_declarations:
-            for func_decl in tool.function_declarations:
-                # Build function definition
-                function_def = FunctionDefinition(
-                    name=func_decl.name or "",
-                    description=func_decl.description or "",
-                )
-
-                # Always include parameters field, even if empty
-                properties = {}
-                required = []
-
-                if func_decl.parameters:
-                    if func_decl.parameters.properties:
-                        for prop_name, prop_schema in func_decl.parameters.properties.items():
-                            value_dict = prop_schema.model_dump(exclude_none=True)
-                            _update_type_string(value_dict)
-                            properties[prop_name] = value_dict
-
-                    if func_decl.parameters.required:
-                        required = func_decl.parameters.required
-
-                function_def["parameters"] = {"type": "object", "properties": properties, "required": required}
-
-                # Create the tool param
-                openai_tool = ChatCompletionToolParam(type="function", function=function_def)
-                openai_tools.append(openai_tool)
+    for func_decl in _iter_function_declarations(tools):
+        function_def = FunctionDefinition(
+            name=func_decl.name or "",
+            description=func_decl.description or "",
+            parameters=_function_parameters_schema(func_decl),
+        )
+        openai_tools.append(ChatCompletionToolParam(type="function", function=function_def))
 
     return openai_tools
 
@@ -365,12 +416,183 @@ def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmRes
     return LlmResponse(content=content, usage_metadata=usage_metadata, finish_reason=finish_reason)
 
 
+def _extract_system_instruction(llm_request: LlmRequest) -> Optional[str]:
+    """Extract the system instruction text from an LlmRequest's config, if any."""
+    if not (llm_request.config and llm_request.config.system_instruction):
+        return None
+
+    system_instruction = llm_request.config.system_instruction
+    if isinstance(system_instruction, str):
+        return system_instruction
+    if hasattr(system_instruction, "parts"):
+        text_parts = []
+        parts = getattr(system_instruction, "parts", [])
+        if parts:
+            for part in parts:
+                if hasattr(part, "text") and part.text:
+                    text_parts.append(part.text)
+            return "\n".join(text_parts)
+    return None
+
+
+def _convert_content_to_responses_input(contents: list[types.Content]) -> list[ResponseInputItemParam]:
+    """Convert google.genai Content list to OpenAI Responses API input items."""
+    input_items: list[ResponseInputItemParam] = []
+
+    # First pass: collect all function responses to match with tool calls
+    all_function_responses = _function_responses_by_tool_call_id(contents)
+
+    for content in contents:
+        role = _convert_role_to_openai(content.role)
+        if role == "system":
+            continue
+
+        text_parts, function_calls, image_blobs = _partition_content_parts(content)
+        image_parts = [
+            ResponseInputImageParam(type="input_image", detail="auto", image_url=_blob_data_uri(blob))
+            for blob in image_blobs
+        ]
+
+        # Handle function calls (assistant tool calls + their outputs)
+        if function_calls and role == "assistant":
+            if text_parts:
+                input_items.append(EasyInputMessageParam(role="assistant", content="\n".join(text_parts)))
+
+            for func_call in function_calls:
+                tool_call_id = func_call.id or "call_1"
+                input_items.append(
+                    ResponseFunctionToolCallParam(
+                        type="function_call",
+                        call_id=tool_call_id,
+                        name=func_call.name or "",
+                        arguments=json.dumps(func_call.args) if func_call.args else "{}",
+                    )
+                )
+
+                if tool_call_id in all_function_responses:
+                    output = _extract_function_response_content(all_function_responses[tool_call_id])
+                else:
+                    # If no response is available, create a placeholder response
+                    # This prevents the OpenAI API error
+                    output = "No response available for this function call."
+                input_items.append(FunctionCallOutput(type="function_call_output", call_id=tool_call_id, output=output))
+            continue
+
+        # Handle regular text/image messages (only if no function calls)
+        if text_parts or image_parts:
+            if image_parts:
+                message_content: ResponseInputMessageContentListParam = [
+                    ResponseInputTextParam(type="input_text", text=t) for t in text_parts
+                ]
+                message_content.extend(image_parts)
+                input_items.append(EasyInputMessageParam(role=role, content=message_content))
+            else:
+                input_items.append(EasyInputMessageParam(role=role, content="\n".join(text_parts)))
+
+    return input_items
+
+
+def _convert_tools_to_responses(tools: list[types.Tool]) -> list[FunctionToolParam]:
+    """Convert google.genai Tools to OpenAI Responses API tools format."""
+    responses_tools: list[FunctionToolParam] = []
+
+    for func_decl in _iter_function_declarations(tools):
+        responses_tools.append(
+            FunctionToolParam(
+                type="function",
+                name=func_decl.name or "",
+                description=func_decl.description or "",
+                parameters=_function_parameters_schema(func_decl),
+                strict=False,
+            )
+        )
+
+    return responses_tools
+
+
+def _responses_usage_to_genai(
+    usage: Optional[ResponseUsage],
+) -> Optional[types.GenerateContentResponseUsageMetadata]:
+    """Convert a Responses API usage block to genai usage metadata."""
+    if usage is None:
+        return None
+    return types.GenerateContentResponseUsageMetadata(
+        prompt_token_count=usage.input_tokens,
+        candidates_token_count=usage.output_tokens,
+        total_token_count=usage.total_tokens,
+    )
+
+
+def _responses_status_to_finish_reason(status: Optional[str]) -> types.FinishReason:
+    """Map a Responses API response status to a genai finish reason."""
+    if status == "incomplete":
+        return types.FinishReason.MAX_TOKENS
+    if status == "failed":
+        return types.FinishReason.OTHER
+    return types.FinishReason.STOP
+
+
+def _responses_error_message(code: Optional[str], message: Optional[str]) -> str:
+    """Render a Responses API error, keeping the upstream code when present."""
+    message = message or "OpenAI responses request failed"
+    return f"{code}: {message}" if code else message
+
+
+def _responses_failure_llm_response(response: Optional[Response]) -> Optional[LlmResponse]:
+    """Build an error LlmResponse for a failed Responses API response, else None."""
+    if response is None or response.status != "failed":
+        return None
+
+    error = response.error
+    return LlmResponse(
+        error_code="API_ERROR",
+        error_message=_responses_error_message(
+            getattr(error, "code", None),
+            getattr(error, "message", None),
+        ),
+    )
+
+
+def _responses_output_message_texts(item: ResponseOutputMessage) -> list[str]:
+    """Collect the text content of a Responses API output message."""
+    return [text for output_content in item.content if (text := getattr(output_content, "text", None))]
+
+
+def _responses_tool_call_part(item: ResponseFunctionToolCall) -> types.Part:
+    """Build a genai function-call part from a Responses API tool call."""
+    try:
+        args = json.loads(item.arguments) if item.arguments else {}
+    except json.JSONDecodeError:
+        args = {}
+    return _build_function_call_part(name=item.name, args=args, tool_call_id=item.call_id or item.id or "call_1")
+
+
+def _convert_responses_output_to_llm_response(response: Response) -> LlmResponse:
+    """Convert an OpenAI Responses API response to LlmResponse."""
+    parts: list[types.Part] = []
+
+    for item in response.output:
+        if isinstance(item, ResponseOutputMessage):
+            parts.extend(types.Part.from_text(text=text) for text in _responses_output_message_texts(item))
+        elif isinstance(item, ResponseFunctionToolCall):
+            parts.append(_responses_tool_call_part(item))
+
+    content = types.Content(role="model", parts=parts)
+
+    return LlmResponse(
+        content=content,
+        usage_metadata=_responses_usage_to_genai(response.usage),
+        finish_reason=_responses_status_to_finish_reason(response.status),
+    )
+
+
 class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     """Base class for OpenAI-compatible models."""
 
     model: str
     api_key: Optional[str] = Field(default=None, exclude=True)
     base_url: Optional[str] = None
+    api_format: Optional[OpenAIAPIFormat] = None
     frequency_penalty: Optional[float] = None
     default_headers: Optional[dict[str, str]] = None
     max_tokens: Optional[int] = None
@@ -388,6 +610,18 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
 
     # GDCH token exchange: refreshes a short-lived bearer token before each model call.
     token_exchange: Optional[GDCHTokenSource] = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def _warn_on_ignored_responses_params(self) -> "BaseOpenAI":
+        if self.api_format == OPENAI_API_FORMAT_RESPONSES:
+            ignored = [name for name in _RESPONSES_UNSUPPORTED_PARAMS if getattr(self, name) is not None]
+            if ignored:
+                logger.warning(
+                    "Ignoring %s for model %s: not supported by the OpenAI Responses API",
+                    ", ".join(ignored),
+                    self.model,
+                )
+        return self
 
     def set_passthrough_key(self, token: str) -> None:
         if self.api_key != token:
@@ -437,20 +671,20 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
                 yield LlmResponse(error_message=f"Failed to refresh token-exchange credential: {exc}")
                 return
 
+        if self.api_format == OPENAI_API_FORMAT_RESPONSES:
+            generator = self._generate_content_responses_async(llm_request, stream)
+        else:
+            generator = self._generate_content_completions_async(llm_request, stream)
+
+        async for response in generator:
+            yield response
+
+    async def _generate_content_completions_async(
+        self, llm_request: LlmRequest, stream: bool
+    ) -> AsyncGenerator[LlmResponse, None]:
+        """Generate content using the OpenAI Chat Completions API (/v1/chat/completions)."""
         # Convert messages
-        system_instruction = None
-        if llm_request.config and llm_request.config.system_instruction:
-            if isinstance(llm_request.config.system_instruction, str):
-                system_instruction = llm_request.config.system_instruction
-            elif hasattr(llm_request.config.system_instruction, "parts"):
-                # Handle Content type system instruction
-                text_parts = []
-                parts = getattr(llm_request.config.system_instruction, "parts", [])
-                if parts:
-                    for part in parts:
-                        if hasattr(part, "text") and part.text:
-                            text_parts.append(part.text)
-                    system_instruction = "\n".join(text_parts)
+        system_instruction = _extract_system_instruction(llm_request)
 
         messages = _convert_content_to_openai_messages(llm_request.contents, system_instruction)
 
@@ -603,6 +837,112 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
                 # Handle non-streaming
                 response = await self._client.chat.completions.create(stream=False, **kwargs)
                 yield _convert_openai_response_to_llm_response(response)
+
+        except Exception as e:
+            yield LlmResponse(error_code="API_ERROR", error_message=str(e))
+
+    async def _generate_content_responses_async(
+        self, llm_request: LlmRequest, stream: bool
+    ) -> AsyncGenerator[LlmResponse, None]:
+        """Generate content using the OpenAI Responses API (/v1/responses)."""
+        system_instruction = _extract_system_instruction(llm_request)
+        input_items = _convert_content_to_responses_input(llm_request.contents)
+
+        kwargs: dict[str, Any] = {
+            "model": llm_request.model or self.model,
+            "input": input_items,
+        }
+        if system_instruction:
+            kwargs["instructions"] = system_instruction
+
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
+        # Responses uses max_output_tokens (same semantics as max_completion_tokens).
+        if self.max_completion_tokens:
+            kwargs["max_output_tokens"] = self.max_completion_tokens
+        elif self.max_tokens:
+            kwargs["max_output_tokens"] = self.max_tokens
+        if self.top_p is not None:
+            kwargs["top_p"] = self.top_p
+        if self.reasoning_effort is not None:
+            kwargs["reasoning"] = {"effort": self.reasoning_effort}
+
+        if llm_request.config and llm_request.config.tools:
+            genai_tools = [tool for tool in llm_request.config.tools if hasattr(tool, "function_declarations")]
+            if genai_tools:
+                responses_tools = _convert_tools_to_responses(genai_tools)
+                if responses_tools:
+                    kwargs["tools"] = responses_tools
+                    kwargs["tool_choice"] = "auto"
+
+        try:
+            if stream:
+                aggregated_text = ""
+                status: Optional[str] = None
+                usage: Optional[ResponseUsage] = None
+                tool_calls: dict[str, types.Part] = {}
+                tool_call_order: list[str] = []
+
+                async for event in await self._client.responses.create(stream=True, **kwargs):
+                    event_type = getattr(event, "type", None)
+                    if event_type == "response.output_text.delta":
+                        delta = event.delta
+                        if not delta:
+                            continue
+                        aggregated_text += delta
+                        yield LlmResponse(
+                            content=types.Content(role="model", parts=[types.Part.from_text(text=delta)]),
+                            partial=True,
+                            turn_complete=False,
+                        )
+                    elif event_type == "response.output_item.done":
+                        item = event.item
+                        if isinstance(item, ResponseFunctionToolCall):
+                            call_id = item.call_id or item.id or "call_1"
+                            if call_id not in tool_calls:
+                                tool_call_order.append(call_id)
+                            tool_calls[call_id] = _responses_tool_call_part(item)
+                        elif isinstance(item, ResponseOutputMessage) and not aggregated_text:
+                            # Endpoints that emit no text deltas still report the text here.
+                            aggregated_text += "".join(_responses_output_message_texts(item))
+                    elif event_type == "response.completed":
+                        usage = event.response.usage
+                        status = event.response.status
+                    elif event_type == "response.incomplete":
+                        usage = event.response.usage
+                        status = "incomplete"
+                    elif event_type == "response.failed":
+                        yield _responses_failure_llm_response(getattr(event, "response", None)) or LlmResponse(
+                            error_code="API_ERROR", error_message="OpenAI responses stream failed"
+                        )
+                        return
+                    elif event_type == "error":
+                        # Bare error events carry the message directly, not a Response.
+                        yield LlmResponse(
+                            error_code="API_ERROR",
+                            error_message=_responses_error_message(
+                                getattr(event, "code", None),
+                                getattr(event, "message", None),
+                            ),
+                        )
+                        return
+
+                final_parts: list[types.Part] = []
+                if aggregated_text:
+                    final_parts.append(types.Part.from_text(text=aggregated_text))
+                for call_id in tool_call_order:
+                    final_parts.append(tool_calls[call_id])
+
+                yield LlmResponse(
+                    content=types.Content(role="model", parts=final_parts),
+                    partial=False,
+                    turn_complete=True,
+                    finish_reason=_responses_status_to_finish_reason(status),
+                    usage_metadata=_responses_usage_to_genai(usage),
+                )
+            else:
+                response = await self._client.responses.create(stream=False, **kwargs)
+                yield _responses_failure_llm_response(response) or _convert_responses_output_to_llm_response(response)
 
         except Exception as e:
             yield LlmResponse(error_code="API_ERROR", error_message=str(e))
