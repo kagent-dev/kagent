@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -115,7 +115,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			instrumentedHandler.ServeHTTP(w, r)
 			if isA2ARequest(r) {
-				telemetry.ForceFlush(r.Context())
+				tracing.ForceFlush(r.Context())
 			}
 		})
 	}
