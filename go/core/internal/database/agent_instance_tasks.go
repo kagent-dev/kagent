@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -125,7 +126,8 @@ func (c *Client) CreateAgentInstanceTask(ctx context.Context, instanceID string,
 // READY with no lifecycle operation, creating checkpoint, or other active task.
 // Identical message/hash retries return the current task without dispatch, even
 // after its state advances; reused IDs with different content return
-// ErrIdempotencyConflict. The second result is the prior waiting task, present
+// ErrIdempotencyConflict. Invalid human-input replies return ErrFailedPrecondition.
+// The second result is the prior waiting task, present
 // only for a new admission so the caller can restore runtime continuation state.
 // Missing instances/tasks return ErrNotFound; callers authorize access.
 func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, message *a2a.Message) (*a2a.Task, *a2a.Task, error) {
@@ -167,6 +169,24 @@ func (c *Client) ContinueAgentInstanceTask(ctx context.Context, instanceID strin
 		}
 		if result.Status.State != a2a.TaskStateInputRequired && result.Status.State != a2a.TaskStateAuthRequired {
 			return fmt.Errorf("task is not waiting for input: %w", ErrConflict)
+		}
+		if pending, parseErr := apia2a.ParseToolApprovalRequest(result.Status.Message); parseErr != nil {
+			return fmt.Errorf("stored tool approval request is invalid: %w", parseErr)
+		} else if pending != nil {
+			response, responseErr := apia2a.ParseToolApprovalResponse(message)
+			if responseErr != nil || apia2a.ValidateToolApprovalResponse(pending, response) != nil {
+				return fmt.Errorf("tool approval response does not match the pending request: %w", ErrFailedPrecondition)
+			}
+		} else if pending, parseErr := apia2a.ParseAskUserRequest(result.Status.Message); parseErr != nil {
+			return fmt.Errorf("stored ask-user request is invalid: %w", parseErr)
+		} else if pending != nil && pending.Nested == nil {
+			// Nested ask-user correlation remains owned by the ADK adapter. Native
+			// Harness requests use the top-level ID and can be rejected before the
+			// paused Actor is resumed.
+			response, responseErr := apia2a.ParseAskUserResponse(message)
+			if responseErr != nil || apia2a.ValidateAskUserResponse(pending, response) != nil {
+				return fmt.Errorf("ask-user response does not match the pending request: %w", ErrFailedPrecondition)
+			}
 		}
 		if err := loadAgentInstanceTaskHistories(ctx, tx, instance.HistoryID, []*a2a.Task{result}, nil); err != nil {
 			return err

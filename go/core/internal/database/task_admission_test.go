@@ -22,8 +22,7 @@ func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.AgentInstanc
 	_, _, err = client.CreateAgentInstanceTask(t.Context(), instance.Id, []byte("initial request"), task)
 	require.NoError(t, err)
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which database?"))}
-	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, task, task,
-		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "waiting-snapshot", ContentScope: "DATA"}))
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, task, task, nil))
 	return instance, task
 }
 
@@ -91,7 +90,7 @@ func TestContinuationAdmissionIsExclusive(t *testing.T) {
 func TestContinuationAdmissionBarriersAndReplay(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	agentInstanceFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
-	for _, barrier := range []string{"suspended", "lifecycle", "checkpoint", "active task", "initial ID", "question ID", "not waiting"} {
+	for _, barrier := range []string{"suspended", "lifecycle", "active task", "initial ID", "question ID", "not waiting"} {
 		t.Run(barrier, func(t *testing.T) {
 			instance, task := waitingTaskFixture(t, client)
 			reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
@@ -106,9 +105,6 @@ func TestContinuationAdmissionBarriersAndReplay(t *testing.T) {
 					next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND
 				}
 				_, err := client.TransitionAgentInstance(t.Context(), next, instance.State, instance.Operation)
-				require.NoError(t, err)
-			case "checkpoint":
-				_, _, err := client.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", uuid.NewString())
 				require.NoError(t, err)
 			case "active task":
 				active := newAgentInstanceTask("other", "other-initial")
@@ -169,15 +165,19 @@ func TestContinuationReceiptSurvivesCheckpointFork(t *testing.T) {
 	reply.TaskID, reply.ContextID = task.ID, task.ContextID
 	submitted, _, err := client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("reply hash"), reply)
 	require.NoError(t, err)
-	submitted.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which table?"))}
+	submitted.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted}
 	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, submitted, submitted,
 		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "after-reply", ContentScope: "DATA"}))
 	checkpoint, _, err := client.ReserveAgentInstanceCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instance.Id}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	_, err = client.FinalizeAgentInstanceCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "retained-reply", "")
 	require.NoError(t, err)
+	laterTask := newAgentInstanceTask("later-task", "later-initial")
+	laterTask.ContextID = instance.ContextId
+	laterTask.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Which table?"))}
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, laterTask, laterTask, nil))
 	later := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("customers"))
-	later.TaskID, later.ContextID = task.ID, task.ContextID
+	later.TaskID, later.ContextID = laterTask.ID, laterTask.ContextID
 	_, _, err = client.ContinueAgentInstanceTask(t.Context(), instance.Id, []byte("later hash"), later)
 	require.NoError(t, err)
 	fork, _, err := client.ForkAgentInstance(t.Context(), checkpoint.Id, "alice", uuid.NewString(), uuid.NewString())
@@ -187,11 +187,12 @@ func TestContinuationReceiptSurvivesCheckpointFork(t *testing.T) {
 	replay, waiting, err := client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("reply hash"), reply)
 	require.NoError(t, err)
 	require.Nil(t, waiting, "an inherited reply must not dispatch again")
-	require.Equal(t, a2a.TaskStateInputRequired, replay.Status.State)
-	require.Equal(t, submitted.Status.Message.ID, replay.Status.Message.ID)
+	require.Equal(t, a2a.TaskStateCompleted, replay.Status.State)
+	require.Len(t, replay.History, 3)
+	require.Equal(t, reply.ID, replay.History[2].ID)
 	_, _, err = client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("changed request"), reply)
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	_, waiting, err = client.ContinueAgentInstanceTask(t.Context(), fork.Id, []byte("later hash"), later)
-	require.NoError(t, err)
-	require.NotNil(t, waiting, "a post-checkpoint receipt must not be inherited")
+	require.ErrorIs(t, err, ErrNotFound, "a post-checkpoint task and its reply must not be inherited")
+	require.Nil(t, waiting)
 }

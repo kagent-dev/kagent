@@ -517,6 +517,7 @@ func TestGatewayRejectsInputRequiredMessageWithoutID(t *testing.T) {
 }
 
 func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
+	store, instance := gatewayPostgresFixture(t)
 	question := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which namespace?"))
 	if err := apia2a.AttachHITL(question, apia2a.AskUserRequest{
 		Type: apia2a.HITLTypeAskUserRequest, ID: "ask-1",
@@ -525,10 +526,12 @@ func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	waiting := &a2atype.Task{
-		ID: "task-1", ContextID: gatewayTestID,
+		ID: "task-1", ContextID: instance.ContextId,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: question},
 	}
-	store := &gatewayTestStore{task: waiting}
+	if err := store.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, waiting, waiting, nil); err != nil {
+		t.Fatal(err)
+	}
 	gateway := &Gateway{store: store}
 	answer := a2atype.NewMessage(a2atype.MessageRoleUser)
 	answer.TaskID = waiting.ID
@@ -539,15 +542,20 @@ func TestGatewayRejectsMismatchedAskUserResponseBeforeResume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: answer}); err == nil {
-		t.Fatal("prepareReply() accepted a mismatched ask-user response")
+	if _, err := gateway.prepareReply(t.Context(), instance, &a2atype.SendMessageRequest{Message: answer}); !errors.Is(err, a2atype.ErrInvalidRequest) {
+		t.Fatalf("prepareReply() = %v, want invalid request for mismatched ask-user response", err)
 	}
-	if len(store.stored) != 0 {
-		t.Fatalf("stored events = %#v, want no partial write", store.stored)
+	stored, err := store.GetAgentInstanceTask(t.Context(), instance.Id, string(waiting.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status.State != a2atype.TaskStateInputRequired || stored.Status.Message.ID != question.ID || len(stored.History) != 0 {
+		t.Fatalf("stored task = %#v, want unchanged pending question and no reply", stored)
 	}
 }
 
 func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
+	store, instance := gatewayPostgresFixture(t)
 	request := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approve child tools?"))
 	if err := apia2a.AttachHITL(request, apia2a.ToolApprovalRequest{
 		Type:  apia2a.HITLTypeToolApprovalRequest,
@@ -560,10 +568,12 @@ func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	waiting := &a2atype.Task{
-		ID: "task-1", ContextID: gatewayTestContextID,
+		ID: "task-1", ContextID: instance.ContextId,
 		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: request},
 	}
-	store := &gatewayTestStore{task: waiting}
+	if err := store.StoreAgentInstanceTaskEvent(t.Context(), instance.Id, waiting, waiting, nil); err != nil {
+		t.Fatal(err)
+	}
 	gateway := &Gateway{store: store}
 	response := a2atype.NewMessage(a2atype.MessageRoleUser)
 	response.TaskID = waiting.ID
@@ -577,7 +587,7 @@ func TestGatewayAcceptsNestedToolApprovalResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := gateway.prepareReply(t.Context(), gatewayTestInstance(), &a2atype.SendMessageRequest{Message: response}); err != nil {
+	if _, err := gateway.prepareReply(t.Context(), instance, &a2atype.SendMessageRequest{Message: response}); err != nil {
 		t.Fatalf("prepareReply() rejected nested tool decisions: %v", err)
 	}
 }

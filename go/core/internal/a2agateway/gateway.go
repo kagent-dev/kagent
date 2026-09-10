@@ -753,6 +753,9 @@ func isQuiescent(state a2atype.TaskState) bool {
 }
 
 func (g *Gateway) storeError(ctx context.Context, err error) error {
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return a2atype.NewError(a2atype.ErrInvalidRequest, "reply does not match the pending input request")
+	}
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
 	}
