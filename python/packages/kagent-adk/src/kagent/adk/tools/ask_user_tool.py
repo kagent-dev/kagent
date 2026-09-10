@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Final
 
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
@@ -39,6 +39,37 @@ _QUESTION_SCHEMA = types.Schema(
     },
     required=["question"],
 )
+
+
+_RETRY_HINT = (
+    ". Call ask_user again with a 'questions' array holding at least one object whose "
+    "'question' field is non-empty text, or answer the user directly without calling ask_user."
+)
+
+
+def _question_text(question: Any) -> str:
+    """The question's trimmed text, or "" when the entry cannot supply one."""
+    match question:
+        case {"question": str() as text}:
+            return text.strip()
+        case _:
+            return ""
+
+
+def _validation_error(questions: Any) -> str | None:
+    """Why `questions` is unusable, or None when every entry carries real text."""
+    match questions:
+        case list() if questions:
+            return next(
+                (
+                    f"ask_user: question {index} must contain non-whitespace text"
+                    for index, question in enumerate(questions, start=1)
+                    if not _question_text(question)
+                ),
+                None,
+            )
+        case _:
+            return "ask_user: at least one question is required"
 
 
 class AskUserTool(BaseTool):
@@ -73,7 +104,8 @@ class AskUserTool(BaseTool):
                     "questions": types.Schema(
                         type=types.Type.ARRAY,
                         items=_QUESTION_SCHEMA,
-                        description="List of questions to ask the user.",
+                        min_items=1,
+                        description="List of questions to ask the user. Must contain at least one question.",
                     ),
                 },
                 required=["questions"],
@@ -86,18 +118,19 @@ class AskUserTool(BaseTool):
         args: dict[str, Any],
         tool_context: ToolContext,
     ) -> Any:
-        questions: list[dict] = args.get("questions", [])
+        questions: Final = args.get("questions")
+        error: Final = _validation_error(questions)
 
-        if not questions:
-            raise ValueError("ask_user: at least one question is required")
-        for index, question in enumerate(questions, start=1):
-            question_text = question.get("question")
-            if not isinstance(question_text, str) or not question_text.strip():
-                raise ValueError(f"ask_user: question {index} must contain non-whitespace text")
+        # Raising here aborts the whole request: ADK re-raises tool exceptions, so the caller
+        # gets a failed task and the user is shown nothing at all. The call is still rejected,
+        # but as a response the model can act on and retry.
+        if error is not None:
+            logger.warning("%s (received %r)", error, questions)
+            return {"error": error + _RETRY_HINT}
 
         if tool_context.tool_confirmation is None:
             # First invocation — pause execution and ask the user.
-            summary = "; ".join(q["question"] for q in questions)
+            summary = "; ".join(question["question"] for question in questions)
             tool_context.request_confirmation(hint=summary)
             logger.debug("ask_user: requesting confirmation with %d question(s)", len(questions))
             return {"status": "pending", "questions": questions}
