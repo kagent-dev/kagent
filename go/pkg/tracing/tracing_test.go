@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	otelLog "go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -45,6 +48,56 @@ func (e failingExporter) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) e
 	return e.err
 }
 
+type testLogExporter struct {
+	records []sdklog.Record
+}
+
+func (e *testLogExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	e.records = append(e.records, records...)
+	return nil
+}
+
+func (e *testLogExporter) Shutdown(context.Context) error {
+	return nil
+}
+
+func (e *testLogExporter) ForceFlush(context.Context) error {
+	return nil
+}
+
+func TestForceFlushExportsBufferedLogs(t *testing.T) {
+	exporter := &testLogExporter{}
+	provider := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(
+			exporter,
+			sdklog.WithExportInterval(time.Hour),
+		)),
+	)
+
+	previous := logglobal.GetLoggerProvider()
+	logglobal.SetLoggerProvider(provider)
+	t.Cleanup(func() {
+		logglobal.SetLoggerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	logger := provider.Logger("test")
+	var record otelLog.Record
+	record.SetBody(otelLog.StringValue("request finished"))
+	logger.Emit(t.Context(), record)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if err := ForceFlush(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(exporter.records) != 1 {
+		t.Fatalf("records exported after ForceFlush = %d, want 1", len(exporter.records))
+	}
+}
+
 func TestForceFlushReturnsExportError(t *testing.T) {
 	want := errors.New("collector unavailable")
 	exporter := failingExporter{InMemoryExporter: tracetest.NewInMemoryExporter(), err: want}
@@ -62,7 +115,7 @@ func TestForceFlushReturnsExportError(t *testing.T) {
 	}
 }
 
-// flushTimeout reads KAGENT_TRACE_FLUSH_TIMEOUT_MS and falls back to 3s on
+// flushTimeout reads KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS and falls back to 3s on
 // unset, non-numeric, or non-positive values.
 func TestFlushTimeout(t *testing.T) {
 	tests := []struct {
@@ -78,7 +131,7 @@ func TestFlushTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", tt.env)
+			t.Setenv("KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS", tt.env)
 			if got := flushTimeout(); got != tt.want {
 				t.Errorf("flushTimeout() = %v, want %v", got, tt.want)
 			}

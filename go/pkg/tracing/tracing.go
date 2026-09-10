@@ -3,6 +3,7 @@ package tracing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -89,20 +91,43 @@ func environmentValue(name, fallback string) string {
 	return fallback
 }
 
-// ForceFlush exports spans buffered by the global tracer provider.
+// ForceFlush exports telemetry buffered by the global logger and tracer
+// providers. Logs are flushed before traces so terminal events do not leave
+// buffered log records behind when the process is about to suspend or exit.
 func ForceFlush(ctx context.Context) error {
 	type flusher interface{ ForceFlush(context.Context) error }
-	provider, ok := otel.GetTracerProvider().(flusher)
-	if !ok {
+
+	tracerProvider, tracerOK := otel.GetTracerProvider().(flusher)
+	loggerProvider, loggerOK := logglobal.GetLoggerProvider().(flusher)
+	if !tracerOK && !loggerOK {
 		return nil
 	}
-	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
+
+	flushCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		flushTimeout(),
+	)
 	defer cancel()
-	return provider.ForceFlush(flushCtx)
+
+	var errs []error
+
+	if loggerOK {
+		if err := loggerProvider.ForceFlush(flushCtx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if tracerOK {
+		if err := tracerProvider.ForceFlush(flushCtx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func flushTimeout() time.Duration {
-	if value := strings.TrimSpace(os.Getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")); value != "" {
+	if value := strings.TrimSpace(os.Getenv("KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS")); value != "" {
 		if milliseconds, err := strconv.Atoi(value); err == nil && milliseconds > 0 {
 			return time.Duration(milliseconds) * time.Millisecond
 		}

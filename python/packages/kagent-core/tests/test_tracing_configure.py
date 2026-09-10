@@ -224,14 +224,65 @@ def test_resolve_otlp_timeout_seconds_uses_milliseconds(monkeypatch, signal, env
     assert _utils._resolve_otlp_timeout_seconds(signal) == expected
 
 
-def test_force_flush_calls_provider_force_flush(monkeypatch):
-    calls = []
-    provider = SimpleNamespace(force_flush=lambda timeout: calls.append(timeout))
-    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
+def test_force_flush_flushes_logs_and_traces(monkeypatch):
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs.export import (
+        BatchLogRecordProcessor,
+        InMemoryLogRecordExporter,
+    )
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    log_exporter = InMemoryLogRecordExporter()
+    logger_provider = LoggerProvider()
+    logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+
+    span_exporter = InMemorySpanExporter()
+    tracer_provider = TracerProvider()
+    tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
+
+    monkeypatch.setattr(_utils._logs, "get_logger_provider", lambda: logger_provider)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: tracer_provider)
+
+    logger = logger_provider.get_logger("test")
+    logger.emit(body="buffered log")
+
+    tracer = tracer_provider.get_tracer("test")
+    span = tracer.start_span("buffered span")
+    span.end()
+
+    assert log_exporter.get_finished_logs() == ()
+    assert span_exporter.get_finished_spans() == ()
 
     _utils.force_flush()
 
-    assert calls == [3000]
+    assert len(log_exporter.get_finished_logs()) == 1
+    assert len(span_exporter.get_finished_spans()) == 1
+
+    logger_provider.shutdown()
+    tracer_provider.shutdown()
+
+
+def test_force_flush_continues_when_log_flush_fails(monkeypatch):
+    calls = []
+
+    def fail_logs(timeout):
+        calls.append(("logs", timeout))
+        raise RuntimeError("collector down")
+
+    def flush_traces(timeout):
+        calls.append(("traces", timeout))
+
+    logger_provider = SimpleNamespace(force_flush=fail_logs)
+    tracer_provider = SimpleNamespace(force_flush=flush_traces)
+
+    monkeypatch.setattr(_utils._logs, "get_logger_provider", lambda: logger_provider)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: tracer_provider)
+
+    _utils.force_flush()
+
+    assert [name for name, _ in calls] == ["logs", "traces"]
 
 
 @pytest.mark.parametrize(
@@ -245,28 +296,28 @@ def test_force_flush_calls_provider_force_flush(monkeypatch):
 )
 def test_force_flush_timeout_env_override(monkeypatch, raw, expected):
     calls = []
-    provider = SimpleNamespace(force_flush=lambda timeout: calls.append(timeout))
-    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
-    monkeypatch.setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", raw)
+
+    logger_provider = SimpleNamespace(
+        force_flush=lambda timeout: calls.append(("logs", timeout))
+    )
+    tracer_provider = SimpleNamespace(
+        force_flush=lambda timeout: calls.append(("traces", timeout))
+    )
+
+    monkeypatch.setattr(_utils._logs, "get_logger_provider", lambda: logger_provider)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: tracer_provider)
+    monkeypatch.setenv("KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS", raw)
 
     _utils.force_flush()
 
-    assert calls == [expected]
+    assert [name for name, _ in calls] == ["logs", "traces"]
+    assert all(0 < timeout <= expected for _, timeout in calls)
 
 
 def test_force_flush_noop_without_provider_support(monkeypatch):
-    # The default (no-op) provider has no force_flush; must not raise.
+    # Providers without force_flush support must not raise.
+    monkeypatch.setattr(_utils._logs, "get_logger_provider", lambda: SimpleNamespace())
     monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())
-
-    _utils.force_flush()
-
-
-def test_force_flush_swallows_exporter_errors(monkeypatch):
-    def boom(timeout):
-        raise RuntimeError("collector down")
-
-    provider = SimpleNamespace(force_flush=boom)
-    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
 
     _utils.force_flush()
 
