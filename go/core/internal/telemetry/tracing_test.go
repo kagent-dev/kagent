@@ -26,6 +26,8 @@ func restoreGlobals(t *testing.T) {
 func TestInitTracerProviderDisabled(t *testing.T) {
 	restoreGlobals(t)
 	t.Setenv("OTEL_TRACING_ENABLED", "false")
+	t.Setenv("OTEL_TRACES_EXPORTER", "invalid")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "invalid")
 
 	before := otel.GetTracerProvider()
 	shutdown, err := telemetry.InitTracerProvider(context.Background(), "test")

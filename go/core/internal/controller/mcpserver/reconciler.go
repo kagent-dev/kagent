@@ -30,6 +30,7 @@ import (
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +43,11 @@ import (
 )
 
 const (
+	eventReconcileFailed  = "ReconcileFailed"
+	eventValidationFailed = "ValidationFailed"
+	eventToolsDiscovered  = "ToolsDiscovered"
+	actionReconcile       = "Reconcile"
+	actionDiscover        = "Discover"
 	mcpServerGroupKind    = "MCPServer.kagent.dev"
 	refreshInterval       = 5 * time.Minute
 	readinessPollInterval = 10 * time.Second
@@ -66,21 +72,11 @@ type Reconciler struct {
 	client     client.Client
 	discoverer ToolDiscoverer
 	catalog    CatalogStore
-	// Recorder emits Kubernetes Events on reconcile transitions. Optional;
-	// event emission is skipped when nil.
-	Recorder events.EventRecorder
+	recorder   events.EventRecorder
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog}
-}
-
-// WithRecorder wires an optional EventRecorder used to surface reconcile
-// outcomes via kubectl describe. It returns the receiver so it composes with
-// New.
-func (r *Reconciler) WithRecorder(recorder events.EventRecorder) *Reconciler {
-	r.Recorder = recorder
-	return r
+func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore, recorder events.EventRecorder) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog, recorder: recorder}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
@@ -131,7 +127,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		Ref: request.NamespacedName, GroupKind: mcpServerGroupKind,
 	})
 	if err != nil {
-		r.recordEvent(ctx, server, "Warning", "ReconcileFailed", "Reconcile",
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
 			"failed to discover MCPServer tools: %v", err)
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
@@ -142,7 +138,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 
 	discovered, err := toolcatalog.NormalizeTools(tools)
 	if err != nil {
-		r.recordEvent(ctx, server, "Warning", "ValidationFailed", "Reconcile",
+		r.recordEvent(server, corev1.EventTypeWarning, eventValidationFailed, actionReconcile,
 			"invalid MCPServer tool discovery: %v", err)
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
@@ -151,23 +147,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		)
 	}
 	if err := r.updateCatalog(ctx, server, discovered, true); err != nil {
-		r.recordEvent(ctx, server, "Warning", "ReconcileFailed", "Reconcile",
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
 			"failed to update MCPServer tool catalog: %v", err)
 		return reconcile.Result{}, fmt.Errorf("update MCPServer tool catalog: %w", err)
 	}
-	if len(discovered) > 0 {
-		r.recordEvent(ctx, server, "Normal", "ToolsDiscovered", "Discover", "Discovered %d MCP tools", len(discovered))
-	}
+	r.recordEvent(server, corev1.EventTypeNormal, eventToolsDiscovered, actionDiscover, "Discovered %d MCP tools", len(discovered))
 	return reconcile.Result{RequeueAfter: refreshInterval}, nil
 }
 
 // recordEvent emits a Kubernetes Event against the reconciled object. It is a
-// no-op when no Recorder is wired on this reconciler.
-func (r *Reconciler) recordEvent(ctx context.Context, object client.Object, eventType, reason, action, messageFmt string, args ...any) {
-	if r.Recorder == nil {
+// no-op when no recorder is wired on this reconciler.
+func (r *Reconciler) recordEvent(object client.Object, eventType, reason, action, messageFmt string, args ...any) {
+	if r.recorder == nil {
 		return
 	}
-	r.Recorder.Eventf(object, nil, eventType, reason, action, messageFmt, args...)
+	r.recorder.Eventf(object, nil, eventType, reason, action, messageFmt, args...)
 }
 
 func isReady(server *kmcp.MCPServer) bool {

@@ -13,12 +13,12 @@ import (
 // gen_ai.client.token.usage histogram after RecordTokenUsage calls.
 func withTokenRecorder(t *testing.T) *sdkmetric.ManualReader {
 	t.Helper()
-	prev := tokenUsageHistogram
+	prev := tokenUsageHistogram.Load()
 	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	initTokenUsageRecorder(mp)
 	t.Cleanup(func() {
-		tokenUsageHistogram = prev
+		tokenUsageHistogram.Store(prev)
 		_ = mp.Shutdown(context.Background())
 	})
 	return reader
@@ -147,9 +147,9 @@ func TestRecordTokenUsage_SkipsZeroAndNegative(t *testing.T) {
 }
 
 func TestRecordTokenUsage_NoopWhenNotInitialized(t *testing.T) {
-	prev := tokenUsageHistogram
-	tokenUsageHistogram = nil
-	t.Cleanup(func() { tokenUsageHistogram = prev })
+	prev := tokenUsageHistogram.Load()
+	tokenUsageHistogram.Store(nil)
+	t.Cleanup(func() { tokenUsageHistogram.Store(prev) })
 
 	RecordTokenUsage(context.Background(), TokenUsage{
 		RequestModel: "gpt-4o", ProviderName: "openai", InputTokens: 10, OutputTokens: 5,

@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -14,13 +15,13 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 	"go.opentelemetry.io/otel/trace"
-	adktelemetry "google.golang.org/adk/v2/telemetry"
 )
 
 // SetKAgentSpanAttributes sets kagent span attributes in the OpenTelemetry context
@@ -93,6 +94,17 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 	if !isTelemetryEnabled() {
 		return func(context.Context) error { return nil }, false, nil
 	}
+	var shutdowns []func(context.Context) error
+	shutdownAll := func(shutdownCtx context.Context) error {
+		return shutdownProviders(shutdownCtx, shutdowns)
+	}
+	defer func() {
+		if err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			err = errors.Join(err, shutdownAll(cleanupCtx))
+		}
+	}()
 
 	telemetryResource, err := newTelemetryResource(ctx, serviceName, serviceNamespace)
 	if err != nil {
@@ -102,29 +114,23 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 	tracingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true")
 	loggingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
 	metricsEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_METRICS_ENABLED")), "true")
-	otelOpts := []adktelemetry.Option{adktelemetry.WithResource(telemetryResource)}
+	var tracerProvider *sdktrace.TracerProvider
+	var loggerProvider *sdklog.LoggerProvider
 	if tracingEnabled {
-		tracerProvider, tpErr := newTracerProvider(ctx, telemetryResource)
-		if tpErr != nil {
-			return nil, true, tpErr
+		tracerProvider, err = newTracerProvider(ctx, telemetryResource)
+		if err != nil {
+			return nil, true, err
 		}
-		otelOpts = append(otelOpts, adktelemetry.WithTracerProvider(tracerProvider))
+		shutdowns = append(shutdowns, tracerProvider.Shutdown)
 	}
 	if loggingEnabled {
-		loggerProvider, lpErr := newLoggerProvider(ctx, telemetryResource)
-		if lpErr != nil {
-			return nil, true, lpErr
+		loggerProvider, err = newLoggerProvider(ctx, telemetryResource)
+		if err != nil {
+			return nil, true, err
 		}
-		otelOpts = append(otelOpts, adktelemetry.WithLoggerProvider(loggerProvider))
+		shutdowns = append(shutdowns, loggerProvider.Shutdown)
 	}
 
-	telemetryProviders, telErr := adktelemetry.New(ctx, otelOpts...)
-	if telErr != nil {
-		return nil, true, telErr
-	}
-	telemetryProviders.SetGlobalOtelProviders()
-
-	var meterShutdown func(context.Context) error
 	if metricsEnabled {
 		meterProvider, mpErr := newMeterProvider(ctx, telemetryResource)
 		if mpErr != nil {
@@ -132,7 +138,13 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 		}
 		otel.SetMeterProvider(meterProvider)
 		initTokenUsageRecorder(meterProvider)
-		meterShutdown = meterProvider.Shutdown
+		shutdowns = append(shutdowns, meterProvider.Shutdown)
+	}
+	if tracerProvider != nil {
+		otel.SetTracerProvider(tracerProvider)
+	}
+	if loggerProvider != nil {
+		logglobal.SetLoggerProvider(loggerProvider)
 	}
 
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
@@ -140,15 +152,15 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 		propagation.Baggage{},
 	))
 
-	if meterShutdown == nil {
-		return telemetryProviders.Shutdown, true, nil
+	return shutdownAll, true, nil
+}
+
+func shutdownProviders(ctx context.Context, shutdowns []func(context.Context) error) error {
+	var shutdownErrors []error
+	for _, shutdown := range shutdowns {
+		shutdownErrors = append(shutdownErrors, shutdown(ctx))
 	}
-	return func(shutdownCtx context.Context) error {
-		if err := telemetryProviders.Shutdown(shutdownCtx); err != nil {
-			return err
-		}
-		return meterShutdown(shutdownCtx)
-	}, true, nil
+	return errors.Join(shutdownErrors...)
 }
 
 func isTelemetryEnabled() bool {

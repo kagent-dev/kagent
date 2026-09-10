@@ -2,7 +2,8 @@ package telemetry
 
 import (
 	"context"
-	"net/url"
+	"fmt"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -34,7 +35,7 @@ const (
 // tokenUsageHistogram records gen_ai.client.token.usage per LLM call. It is
 // set when the meter provider is initialized (metrics enabled); otherwise it
 // stays nil and recording is a cheap no-op, keeping the gate default-OFF.
-var tokenUsageHistogram metric.Int64Histogram
+var tokenUsageHistogram atomic.Pointer[metric.Int64Histogram]
 
 // TokenUsage carries the per-LLM-call labels and token counts for one
 // recording on the gen_ai.client.token.usage histogram. RequestModel and
@@ -54,8 +55,8 @@ type TokenUsage struct {
 // Zero/negative counts are skipped, and nothing is recorded when metrics are
 // disabled or initialization failed (the instrument is nil).
 func RecordTokenUsage(ctx context.Context, usage TokenUsage) {
-	h := tokenUsageHistogram
-	if h == nil {
+	histogram := tokenUsageHistogram.Load()
+	if histogram == nil {
 		return
 	}
 	responseModel := usage.ResponseModel
@@ -73,7 +74,7 @@ func RecordTokenUsage(ctx context.Context, usage TokenUsage) {
 			return
 		}
 		opts := append([]attribute.KeyValue{attribute.String(attrGenAITokenType, tokenType)}, base...)
-		h.Record(ctx, count, metric.WithAttributes(opts...))
+		(*histogram).Record(ctx, count, metric.WithAttributes(opts...))
 	}
 	recordToken(tokenTypeInput, usage.InputTokens)
 	recordToken(tokenTypeOutput, usage.OutputTokens)
@@ -103,30 +104,19 @@ func SemconvProviderName(modelType string) string {
 // sharing the endpoint/protocol resolution used by traces and logs.
 func newMeterProvider(ctx context.Context, res *resource.Resource) (*sdkmetric.MeterProvider, error) {
 	protocol := resolveOTLPProtocol("METRICS")
-	endpoint := resolveEndpoint("METRICS")
 
 	var exporter sdkmetric.Exporter
 	var err error
 	switch protocol {
 	case "http/protobuf":
-		var opts []otlpmetrichttp.Option
-		if endpoint != "" {
-			opts = append(opts, otlpmetrichttp.WithEndpointURL(endpoint))
-		}
-		exporter, err = otlpmetrichttp.New(ctx, opts...)
+		exporter, err = otlpmetrichttp.New(ctx)
+	case "grpc":
+		exporter, err = otlpmetricgrpc.New(ctx)
 	default:
-		var opts []otlpmetricgrpc.Option
-		if endpoint != "" {
-			if u, parseErr := url.Parse(endpoint); parseErr == nil && u.Scheme != "" && u.Host != "" {
-				opts = append(opts, otlpmetricgrpc.WithEndpointURL(u.String()))
-			} else {
-				opts = append(opts, otlpmetricgrpc.WithEndpoint(endpoint))
-			}
-		}
-		exporter, err = otlpmetricgrpc.New(ctx, opts...)
+		return nil, fmt.Errorf("unsupported OTLP metrics protocol %q", protocol)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create metric exporter: %w", err)
 	}
 
 	return sdkmetric.NewMeterProvider(
@@ -139,14 +129,15 @@ func newMeterProvider(ctx context.Context, res *resource.Resource) (*sdkmetric.M
 // given meter scope. It is called after setting the global meter provider.
 func initTokenUsageRecorder(mp *sdkmetric.MeterProvider) {
 	meter := mp.Meter(genAIMeterScope)
-	var err error
-	tokenUsageHistogram, err = meter.Int64Histogram(
+	histogram, err := meter.Int64Histogram(
 		metricGenAIClientTokenUsage,
 		metric.WithUnit("{token}"),
 		metric.WithDescription("Number of input and output tokens used by GenAI requests."),
 	)
 	if err != nil {
 		otel.Handle(err)
-		tokenUsageHistogram = nil
+		tokenUsageHistogram.Store(nil)
+		return
 	}
+	tokenUsageHistogram.Store(&histogram)
 }
