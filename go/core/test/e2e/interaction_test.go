@@ -91,9 +91,9 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 	if request == nil {
 		t.Fatal("INPUT_REQUIRED task has no ask_user request")
 	}
-	reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL")), &adka2a.AskUserResponse{
+	reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL")), &kagenta2a.AskUserResponse{
 		Type: adka2a.HITLTypeAskUserResponse, ID: request.ID,
-		Answers: []adka2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+		Answers: []kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 	})
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
 	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Message: reply})
