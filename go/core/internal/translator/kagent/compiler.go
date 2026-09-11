@@ -35,6 +35,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
 	}
+	logConfig, err := v2translator.LogConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
+	}
 	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
 		return nil, err
@@ -74,6 +78,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
 	environment = append(environment, traceConfig.Environment()...)
+	environment = append(environment, logConfig.Environment()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -85,6 +90,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	if traceConfig.Enabled {
 		compiled.Egress = append(compiled.Egress, traceConfig.CollectorHostname())
+	}
+	if logConfig.Enabled {
+		compiled.Egress = append(compiled.Egress, logConfig.CollectorHostname())
 	}
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)

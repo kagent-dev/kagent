@@ -92,6 +92,9 @@ func TestCompileTracing(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
@@ -107,10 +110,10 @@ func TestCompileTracing(t *testing.T) {
 	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Telemetry == nil || cfg.Telemetry.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Protocol != "http/protobuf" || !cfg.Telemetry.CaptureContent {
+	if cfg.Telemetry == nil || cfg.Telemetry.Traces == nil || cfg.Telemetry.Traces.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Traces.Protocol != "http/protobuf" || cfg.Telemetry.Logs == nil || cfg.Telemetry.Logs.Endpoint != "http://logs:4317" || cfg.Telemetry.Logs.Protocol != "grpc" || !cfg.Telemetry.CaptureContent {
 		t.Fatalf("telemetry = %#v", cfg.Telemetry)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector", "logs"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	environment := map[string]string{}
@@ -120,6 +123,9 @@ func TestCompileTracing(t *testing.T) {
 	for name, value := range map[string]string{
 		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
 		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf",
+		"OTEL_LOGGING_ENABLED":               "true",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT":   "http://logs:4317",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL":   "grpc",
 		"KAGENT_NAME":                        "assistant-codex",
 		"KAGENT_NAMESPACE":                   "test", preResponseTraceFlushEnv: "true",
 	} {

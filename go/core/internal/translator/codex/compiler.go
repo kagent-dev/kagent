@@ -37,8 +37,10 @@ var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
 	"OTEL_TRACING_ENABLED": {}, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": {},
-	"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": {}, preResponseTraceFlushEnv: {},
-	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {},
+	"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": {}, "OTEL_LOGGING_ENABLED": {},
+	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": {}, "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": {},
+	preResponseTraceFlushEnv: {},
+	"KAGENT_NAME":            {}, "KAGENT_NAMESPACE": {},
 }
 
 type Compiler struct {
@@ -64,6 +66,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	traceConfig, err := v2translator.TraceConfigFromProcess()
 	if err != nil {
 		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
+	}
+	logConfig, err := v2translator.LogConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
 	}
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
@@ -98,15 +104,20 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: preResponseTraceFlushEnv, Value: "true"},
 	)
 	environment = append(environment, traceConfig.Environment()...)
+	environment = append(environment, logConfig.Environment()...)
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
 	}
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
-	if traceConfig.Enabled {
-		cfg.Telemetry = &codexconfig.Telemetry{
-			Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol, CaptureContent: true,
+	if traceConfig.Enabled || logConfig.Enabled {
+		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: true}
+		if traceConfig.Enabled {
+			cfg.Telemetry.Traces = &codexconfig.OTLPExporter{Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol}
+		}
+		if logConfig.Enabled {
+			cfg.Telemetry.Logs = &codexconfig.OTLPExporter{Endpoint: logConfig.Endpoint, Protocol: logConfig.Protocol}
 		}
 	}
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
@@ -135,6 +146,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, mcp.egress...)
 	if traceConfig.Enabled {
 		egress = append(egress, traceConfig.CollectorHostname())
+	}
+	if logConfig.Enabled {
+		egress = append(egress, logConfig.CollectorHostname())
 	}
 	slices.Sort(egress)
 	egress = slices.Compact(egress)

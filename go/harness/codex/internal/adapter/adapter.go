@@ -116,9 +116,10 @@ type nativeAnalytics struct {
 }
 
 type nativeOtel struct {
-	LogUserPrompt bool               `toml:"log_user_prompt"`
-	Environment   string             `toml:"environment"`
-	TraceExporter nativeOtelExporter `toml:"trace_exporter"`
+	LogUserPrompt bool                `toml:"log_user_prompt"`
+	Environment   string              `toml:"environment"`
+	Exporter      *nativeOtelExporter `toml:"exporter,omitempty"`
+	TraceExporter *nativeOtelExporter `toml:"trace_exporter,omitempty"`
 }
 
 type nativeOtelExporter struct {
@@ -180,17 +181,11 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		}
 	}
 	if cfg.Telemetry != nil {
-		exporter := nativeOtelExporter{}
-		switch cfg.Telemetry.Protocol {
-		case "grpc":
-			exporter.OTLPGRPC = &nativeOTLPGRPC{Endpoint: cfg.Telemetry.Endpoint}
-		case "http/protobuf":
-			exporter.OTLPHTTP = &nativeOTLPHTTP{Endpoint: cfg.Telemetry.Endpoint, Protocol: "binary"}
-		}
 		native.Otel = &nativeOtel{
 			LogUserPrompt: cfg.Telemetry.CaptureContent,
 			Environment:   "kagent",
-			TraceExporter: exporter,
+			Exporter:      nativeExporter(cfg.Telemetry.Logs),
+			TraceExporter: nativeExporter(cfg.Telemetry.Traces),
 		}
 	}
 	for name, agent := range cfg.Agents {
@@ -222,6 +217,20 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		return nil, fmt.Errorf("encode Codex configuration: %w", err)
 	}
 	return contents, nil
+}
+
+func nativeExporter(exporterConfig *config.OTLPExporter) *nativeOtelExporter {
+	if exporterConfig == nil {
+		return nil
+	}
+	exporter := &nativeOtelExporter{}
+	switch exporterConfig.Protocol {
+	case "grpc":
+		exporter.OTLPGRPC = &nativeOTLPGRPC{Endpoint: exporterConfig.Endpoint}
+	case "http/protobuf":
+		exporter.OTLPHTTP = &nativeOTLPHTTP{Endpoint: exporterConfig.Endpoint, Protocol: "binary"}
+	}
+	return exporter
 }
 
 func nativeProviderName(name string) string {
