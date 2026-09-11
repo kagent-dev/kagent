@@ -519,3 +519,53 @@ func TestWithSessionIDAndBearerTokenAreDistinct(t *testing.T) {
 		t.Fatalf("session ID = %v, want %q: it must be stored under its own key", got, sessionID)
 	}
 }
+
+type stubExchangedTokens struct{ token string }
+
+func (s stubExchangedTokens) GetTokenForSession(string) string { return s.token }
+
+func TestWithExchangedTokens(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stamps the provider when one is configured", func(t *testing.T) {
+		t.Parallel()
+		e := &KAgentExecutor{exchangedTokens: stubExchangedTokens{token: "exchanged"}}
+		ctx := e.withExchangedTokens(context.Background())
+
+		provider, ok := ctx.Value(models.ExchangedTokenProviderKey).(models.ExchangedTokenProvider)
+		if !ok {
+			t.Fatalf("provider in context = %v, want a models.ExchangedTokenProvider", ctx.Value(models.ExchangedTokenProviderKey))
+		}
+		if got := provider.GetTokenForSession("any"); got != "exchanged" {
+			t.Fatalf("GetTokenForSession() = %q, want %q", got, "exchanged")
+		}
+	})
+
+	t.Run("stamps nothing when token propagation is off", func(t *testing.T) {
+		t.Parallel()
+		e := &KAgentExecutor{}
+		ctx := e.withExchangedTokens(context.Background())
+
+		if got := ctx.Value(models.ExchangedTokenProviderKey); got != nil {
+			t.Fatalf("provider in context = %v, want nil", got)
+		}
+	})
+
+	t.Run("coexists with the bearer token and session ID stamps", func(t *testing.T) {
+		t.Parallel()
+		e := &KAgentExecutor{exchangedTokens: stubExchangedTokens{token: "exchanged"}}
+		ctx := context.WithValue(context.Background(), models.BearerTokenKey, "bearer")
+		ctx = withSessionID(ctx, "session-abc")
+		ctx = e.withExchangedTokens(ctx)
+
+		if got := ctx.Value(models.BearerTokenKey); got != "bearer" {
+			t.Fatalf("bearer token = %v, want %q", got, "bearer")
+		}
+		if got := ctx.Value(models.SessionIDKey); got != "session-abc" {
+			t.Fatalf("session ID = %v, want %q", got, "session-abc")
+		}
+		if ctx.Value(models.ExchangedTokenProviderKey) == nil {
+			t.Fatal("provider in context = nil, want the stamped provider")
+		}
+	})
+}
