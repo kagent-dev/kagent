@@ -3,6 +3,7 @@ package sts
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"log/slog"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/golang-jwt/jwt/v5"
 	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
@@ -66,10 +68,12 @@ func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
-	plugin.setCachedToken("sess-123", "token-abc", 0)
+	bearer := signedTokenWithSub(t, "alice")
+	plugin.setCachedToken("sess-123", subjectKey(bearer), "token-abc", 0)
 
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
 	headers := plugin.HeaderProvider(fakeSessionContext{
-		Context:   context.Background(),
+		Context:   ctx,
 		sessionID: "sess-123",
 	})
 
@@ -78,11 +82,22 @@ func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	}
 }
 
-func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T) {
-	t.Parallel()
+// newSTSIntegration wires an STSIntegration to a fake authorization server whose
+// token endpoint answers with issue(r); every other path is discovery. issue
+// runs on the server goroutine, so it must not call t.Fatal.
+func newSTSIntegration(t *testing.T, fetchActor func(context.Context) (string, error), issue func(*http.Request) map[string]any) *STSIntegration {
+	t.Helper()
 
-	fetchCount := 0
-	exchangeCount := 0
+	return newSTSIntegrationWithTokenHandler(t, fetchActor, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(issue(r))
+	})
+}
+
+// newSTSIntegrationWithTokenHandler serves the token endpoint with handler, so a
+// test can answer an exchange with a failure status instead of a token.
+func newSTSIntegrationWithTokenHandler(t *testing.T, fetchActor func(context.Context) (string, error), handler http.HandlerFunc) *STSIntegration {
+	t.Helper()
+
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
@@ -96,27 +111,14 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 			http.NotFound(w, r)
 			return
 		}
-		exchangeCount++
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
-		}
-		if got := r.FormValue("actor_token"); got != "dynamic-actor" {
-			t.Fatalf("actor_token = %q, want %q", got, "dynamic-actor")
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":      "access-token",
-			"issued_token_type": string(TokenTypeJWT),
-		})
+		handler(w, r)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	integration, err := NewSTSIntegration(
 		srv.URL+"/.well-known/oauth-authorization-server",
 		"",
-		func(context.Context) (string, error) {
-			fetchCount++
-			return "dynamic-actor", nil
-		},
+		fetchActor,
 		nil,
 		5,
 		true,
@@ -125,6 +127,39 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	if err != nil {
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}
+	return integration
+}
+
+// staticActor is an actor-token provider that always returns the same token.
+func staticActor(token string) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) { return token, nil }
+}
+
+// issued is a token endpoint response carrying accessToken.
+func issued(accessToken string) map[string]any {
+	return map[string]any{
+		"access_token":      accessToken,
+		"issued_token_type": string(TokenTypeJWT),
+	}
+}
+
+func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T) {
+	t.Parallel()
+
+	fetchCount := 0
+	exchangeCount := 0
+	gotActorToken := ""
+	integration := newSTSIntegration(t,
+		func(context.Context) (string, error) {
+			fetchCount++
+			return "dynamic-actor", nil
+		},
+		func(r *http.Request) map[string]any {
+			exchangeCount++
+			gotActorToken = r.FormValue("actor_token")
+			return issued("access-token")
+		},
+	)
 
 	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
 	for _, sessionID := range []string{"sess-one", "sess-two"} {
@@ -142,6 +177,9 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	}
 	if exchangeCount != 2 {
 		t.Fatalf("token exchange calls = %d, want 2", exchangeCount)
+	}
+	if gotActorToken != "dynamic-actor" {
+		t.Fatalf("actor_token = %q, want %q", gotActorToken, "dynamic-actor")
 	}
 }
 
@@ -182,38 +220,10 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 			// back on the test goroutine to avoid a data race on the captured form.
 			gotForm := make(chan exchangeForm, 1)
 
-			var srv *httptest.Server
-			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/.well-known/oauth-authorization-server" {
-					_ = json.NewEncoder(w).Encode(map[string]any{
-						"issuer":         srv.URL,
-						"token_endpoint": srv.URL + "/token",
-					})
-					return
-				}
-				if r.URL.Path != "/token" {
-					http.NotFound(w, r)
-					return
-				}
-				if err := r.ParseForm(); err != nil {
-					gotForm <- exchangeForm{err: err}
-				} else {
-					gotForm <- exchangeForm{resource: r.FormValue("resource"), audience: r.FormValue("audience")}
-				}
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"access_token":      "access-token",
-					"issued_token_type": string(TokenTypeJWT),
-				})
-			}))
-			defer srv.Close()
-
-			integration, err := NewSTSIntegration(
-				srv.URL+"/.well-known/oauth-authorization-server",
-				"", nil, nil, 5, true, false,
-			)
-			if err != nil {
-				t.Fatalf("NewSTSIntegration() error = %v", err)
-			}
+			integration := newSTSIntegration(t, nil, func(r *http.Request) map[string]any {
+				gotForm <- exchangeForm{resource: r.FormValue("resource"), audience: r.FormValue("audience")}
+				return issued("access-token")
+			})
 
 			plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), tt.resource, tt.audience)
 			ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
@@ -242,6 +252,395 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 	}
 }
 
+func signedTokenWithKey(t *testing.T, iss, sub, signingKey string) string {
+	t.Helper()
+	claims := jwt.MapClaims{"sub": sub}
+	if iss != "" {
+		claims["iss"] = iss
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(signingKey))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	return token
+}
+
+func signedTokenWithSub(t *testing.T, sub string) string {
+	t.Helper()
+	return signedTokenWithKey(t, "https://issuer.example", sub, "secret")
+}
+
+// subjectOf is the cache subject of a named caller's opaque bearer, so a test
+// that seeds the cache directly keys the entry the way the plugin does.
+func subjectOf(caller string) string {
+	return subjectKey(caller + "-bearer")
+}
+
+// A cache hit hands out a delegated token without an STS exchange, so the key
+// must not be derivable from claims anyone can write: a token carrying the
+// victim's "iss" and "sub" must miss the victim's entry and be sent to the STS,
+// which is what rejects it.
+func TestSubjectKeyIgnoresUnverifiedClaims(t *testing.T) {
+	t.Parallel()
+	genuine := signedTokenWithKey(t, "https://issuer.example", "alice", "genuine-signing-key")
+	forged := signedTokenWithKey(t, "https://issuer.example", "alice", "attacker-signing-key")
+	if subjectKey(genuine) == subjectKey(forged) {
+		t.Fatal("a token claiming the victim's iss/sub must not share the victim's cache key")
+	}
+}
+
+// Distinct credentials must partition, and no credential must yield no key.
+func TestSubjectKeyPartitionsOpaqueTokens(t *testing.T) {
+	t.Parallel()
+	if subjectKey("opaque-a") == subjectKey("opaque-b") {
+		t.Fatal("distinct opaque tokens must not share a cache key")
+	}
+	if got := subjectKey(""); got != "" {
+		t.Fatalf("subjectKey(\"\") = %q, want an empty key", got)
+	}
+}
+
+// A session shared by multiple subjects must run each caller's tool calls under
+// that caller's exchanged token, not whichever subject seeded the session first.
+func TestSharedSessionKeepsPerSubjectTokens(t *testing.T) {
+	t.Parallel()
+
+	// Echo the incoming subject into the issued token so each caller receives a
+	// distinct exchanged token.
+	integration := newSTSIntegration(t, staticActor("actor"), func(r *http.Request) map[string]any {
+		return issued("exchanged-for-" + subjectKey(r.FormValue("subject_token")))
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+
+	const sessionID = "shared-session"
+	alice := signedTokenWithSub(t, "alice")
+	bob := signedTokenWithSub(t, "bob")
+
+	for _, bearer := range []string{alice, bob} {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+			t.Fatalf("BeforeRunCallback() error = %v", err)
+		}
+	}
+
+	for _, bearer := range []string{alice, bob} {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+		headers := plugin.HeaderProvider(fakeSessionContext{Context: ctx, sessionID: sessionID})
+		want := "Bearer exchanged-for-" + subjectKey(bearer)
+		if headers["Authorization"] != want {
+			t.Fatalf("Authorization header = %q, want %q", headers["Authorization"], want)
+		}
+	}
+}
+
+// HeaderProvider must recover the acting subject even when the bearer reaches it
+// only through the A2A CallContext, the channel the MCP round-tripper reads, and
+// not via models.BearerTokenKey. This pins the plumbing the per-subject lookup
+// depends on at the transport layer.
+func TestHeaderProviderRecoversSubjectFromCallContext(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const sessionID = "sess-cc"
+	alice := signedTokenWithSub(t, "alice")
+
+	// Seed the cache through the executor path (bearer via BearerTokenKey).
+	seedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, alice)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: seedCtx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	// Look up through the transport path: no BearerTokenKey, bearer only in the
+	// A2A CallContext Authorization header.
+	ccCtx, _ := a2asrv.NewCallContext(context.Background(),
+		a2asrv.NewServiceParams(map[string][]string{"authorization": {"Bearer " + alice}}))
+	headers := plugin.HeaderProvider(fakeSessionContext{Context: ccCtx, sessionID: sessionID})
+
+	if got := headers["Authorization"]; got != "Bearer "+alice {
+		t.Fatalf("Authorization header = %q, want %q", got, "Bearer "+alice)
+	}
+}
+
+// A repeat request from the same subject on the same session reuses the cached
+// exchange rather than exchanging again.
+func TestBeforeRunCallbackSameSubjectCachesExchange(t *testing.T) {
+	t.Parallel()
+
+	exchangeCount := 0
+	integration := newSTSIntegration(t, staticActor("actor"), func(*http.Request) map[string]any {
+		exchangeCount++
+		return issued("access")
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+	bearer := signedTokenWithSub(t, "alice")
+	for range 2 {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: "sess"}); err != nil {
+			t.Fatalf("BeforeRunCallback() error = %v", err)
+		}
+	}
+
+	if exchangeCount != 1 {
+		t.Fatalf("token exchange calls = %d, want 1", exchangeCount)
+	}
+}
+
+// A request with no bearer must not receive another subject's cached token.
+func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken("sess-x", subjectOf("alice"), "alice-token", 0)
+
+	headers := plugin.HeaderProvider(fakeSessionContext{
+		Context:   context.Background(),
+		sessionID: "sess-x",
+	})
+
+	if got, ok := headers["Authorization"]; ok {
+		t.Fatalf("expected no Authorization header for empty-bearer request, got %q", got)
+	}
+}
+
+// An empty subject identifies no principal, so it must not be storable: an entry
+// under it would be shared by every credential-less caller in the session.
+func TestEmptySubjectIsNotCacheable(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken("sess-x", "", "anonymous-token", 0)
+
+	if len(plugin.tokenCache) != 0 {
+		t.Fatalf("expected empty subject not to be cached, got %d entries", len(plugin.tokenCache))
+	}
+	if _, ok := plugin.getCachedToken("sess-x", ""); ok {
+		t.Fatal("expected no cache hit for an empty subject")
+	}
+}
+
+// The forged-token case end to end: a caller presenting a token that merely
+// claims to be alice must not be handed alice's cached entry.
+func TestHeaderProviderRejectsForgedSubjectClaims(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const sessionID = "sess-forge"
+	alice := signedTokenWithKey(t, "https://issuer.example", "alice", "genuine-signing-key")
+
+	seedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, alice)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: seedCtx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	forged := signedTokenWithKey(t, "https://issuer.example", "alice", "attacker-signing-key")
+	forgedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, forged)
+	headers := plugin.HeaderProvider(fakeSessionContext{Context: forgedCtx, sessionID: sessionID})
+
+	if got, ok := headers["Authorization"]; ok {
+		t.Fatalf("forged token must not receive a cached entry, got %q", got)
+	}
+}
+
+// A token with no exp claim must still get a bounded cache lifetime: the cache
+// holds one entry per (session, subject), so an immortal entry per caller would
+// grow without limit. The bound is the eviction time, never the expiry, which
+// would end the caller's authority on a deadline nothing stated.
+func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken("sess-ttl", subjectOf("alice"), "opaque-token", 0)
+
+	entry, ok := plugin.getCachedToken("sess-ttl", subjectOf("alice"))
+	if !ok {
+		t.Fatal("expected a cached entry")
+	}
+	if entry.Expiry != 0 {
+		t.Fatalf("entry expiry = %d, want 0: nothing on this path states one", entry.Expiry)
+	}
+	if entry.evictAfter == 0 {
+		t.Fatal("entry with no exp claim must be given a bounded eviction time")
+	}
+	if ceiling := time.Now().Add(evictAfterIdle).Unix(); entry.evictAfter > ceiling {
+		t.Fatalf("entry eviction time %d exceeds the %s ceiling %d", entry.evictAfter, evictAfterIdle, ceiling)
+	}
+}
+
+// A run that is still making tool calls keeps its entry when a concurrent run
+// finishes and sweeps. BeforeRunCallback runs once per run, so a swept entry has
+// nothing to re-mint it and the rest of that run would reach the backend with no
+// credential at all.
+func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const sessionID = "sess-in-flight"
+	const bearer = "opaque-caller-bearer"
+
+	// An opaque credential states no expiry, so the entry carries only the
+	// synthetic eviction bound.
+	plugin.setCachedToken(sessionID, subjectKey(bearer), "delegated-opaque", 0)
+
+	// The bound comes due while the run is still in flight.
+	due := time.Now().Add(-time.Minute).Unix()
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].evictAfter = due
+
+	// The run makes another tool call, which renews the bound.
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-opaque" {
+		t.Fatalf("in-flight tool call got Authorization %q", got)
+	}
+
+	// A concurrent run finishes and sweeps the whole cache.
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-other"})
+
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-opaque" {
+		t.Fatalf("the in-flight run lost its credential to another run's sweep, Authorization = %q", got)
+	}
+}
+
+// An entry no run is using still ages out, so the eviction bound keeps bounding
+// memory.
+func TestSweepEvictsAnIdleEntryWithoutExpiry(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken("sess-idle", subjectOf("alice"), "opaque-token", 0)
+
+	due := time.Now().Add(-time.Minute).Unix()
+	plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: subjectOf("alice")}].evictAfter = due
+
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-idle"})
+
+	if _, ok := plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: subjectOf("alice")}]; ok {
+		t.Fatal("an entry no run is using must age out")
+	}
+}
+
+// A burst of distinct credentials on one session is capped, and the cap drops
+// the least recently used of that session's entries rather than the one a run is
+// still making tool calls with.
+func TestSessionCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const sessionID = "sess-burst"
+	const bearer = "opaque-alice"
+	plugin.setCachedToken(sessionID, subjectKey(bearer), "delegated-alice", 0)
+
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
+
+	const overflow = 5
+	for i := range maxEntriesPerSession + overflow {
+		// Each new caller is more recent than the last tool call of the
+		// in-flight run, so only a renewed entry survives the burst.
+		if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-alice" {
+			t.Fatalf("in-flight tool call %d got Authorization %q", i, got)
+		}
+		plugin.setCachedToken(sessionID, subjectKey(fmt.Sprintf("token-%d", i)), "delegated", 0)
+	}
+
+	if len(plugin.tokenCache) != maxEntriesPerSession {
+		t.Fatalf("cache holds %d entries, want the %d per-session cap", len(plugin.tokenCache), maxEntriesPerSession)
+	}
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-alice" {
+		t.Fatalf("the in-flight run lost its credential to the capacity bound, Authorization = %q", got)
+	}
+	// The cap drops by use order, so the callers the burst left untouched
+	// longest are exactly the ones gone.
+	for i := range overflow + 1 {
+		key := cacheKey{sessionID: sessionID, subject: subjectKey(fmt.Sprintf("token-%d", i))}
+		if _, ok := plugin.tokenCache[key]; ok {
+			t.Fatalf("token-%d is still cached, want the least recently used entries dropped", i)
+		}
+	}
+}
+
+// One session's burst of credentials must not evict another session's entry. The
+// bound is per session for that reason: the victim's run is between tool calls,
+// so it has nothing more recent to show, and BeforeRunCallback has already run.
+func TestSessionCapacityBoundSparesOtherSessions(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const victimSession = "sess-victim"
+	const victimBearer = "opaque-victim"
+	plugin.setCachedToken(victimSession, subjectKey(victimBearer), "delegated-victim", 0)
+
+	for i := range maxEntriesPerSession * 4 {
+		plugin.setCachedToken("sess-flood", subjectKey(fmt.Sprintf("token-%d", i)), "delegated", 0)
+	}
+
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, victimBearer)
+	toolCall := fakeSessionContext{Context: ctx, sessionID: victimSession}
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-victim" {
+		t.Fatalf("another session's burst took the victim's credential, Authorization = %q", got)
+	}
+}
+
+// The whole-cache bound still backstops the per-session one, so many sessions
+// cannot grow the cache without limit.
+func TestCacheCapacityBoundCapsEverySession(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	sessions := maxCacheEntries/maxEntriesPerSession + 4
+	for session := range sessions {
+		for i := range maxEntriesPerSession {
+			plugin.setCachedToken(
+				fmt.Sprintf("sess-%d", session),
+				subjectKey(fmt.Sprintf("token-%d-%d", session, i)),
+				"delegated", 0,
+			)
+		}
+	}
+
+	if len(plugin.tokenCache) != maxCacheEntries {
+		t.Fatalf("cache holds %d entries, want the %d whole-cache cap", len(plugin.tokenCache), maxCacheEntries)
+	}
+}
+
+// The sweep must evict entries belonging to subjects and sessions other than the
+// acting one, since only the acting subject's key is derivable in the callback.
+func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	past := time.Now().Add(-time.Hour).Unix()
+	future := time.Now().Add(time.Hour).Unix()
+	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", past)
+	plugin.setCachedToken("sess-b", subjectOf("bob"), "bob-token", future)
+
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-b"})
+
+	if _, ok := plugin.getCachedToken("sess-a", subjectOf("alice")); ok {
+		t.Fatal("expired entry of another session/subject must be evicted")
+	}
+	if _, ok := plugin.getCachedToken("sess-b", subjectOf("bob")); !ok {
+		t.Fatal("unexpired entry must survive the sweep")
+	}
+}
+
+func TestClearCacheDropsEveryEntry(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", time.Now().Add(time.Hour).Unix())
+	plugin.setCachedToken("sess-b", subjectOf("bob"), "bob-token", 0)
+	plugin.ClearCache()
+
+	if len(plugin.tokenCache) != 0 {
+		t.Fatalf("cache holds %d entries, want none after ClearCache", len(plugin.tokenCache))
+	}
+	if _, ok := plugin.getCachedToken("sess-a", subjectOf("alice")); ok {
+		t.Fatal("expected no cache hit after ClearCache")
+	}
+}
+
 func TestExtractJWTExpiryUsesUnverifiedClaims(t *testing.T) {
 	t.Parallel()
 	want := time.Now().Add(time.Hour).Unix()
@@ -254,5 +653,153 @@ func TestExtractJWTExpiryUsesUnverifiedClaims(t *testing.T) {
 
 	if got := extractJWTExpiry(token); got != want {
 		t.Fatalf("extractJWTExpiry() = %d, want %d", got, want)
+	}
+}
+
+// signedTokenExpiringIn mints a token whose exp claim is offset from now.
+func signedTokenExpiringIn(t *testing.T, sub string, d time.Duration) string {
+	t.Helper()
+	claims := jwt.MapClaims{
+		"iss": "https://issuer.example",
+		"sub": sub,
+		"exp": time.Now().Add(d).Unix(),
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	return token
+}
+
+// The entry is keyed by the caller's credential, so it must not outlive it.
+// Otherwise a caller replaying an expired bearer keeps hitting a cached
+// delegated token instead of reaching the STS that would reject it.
+func TestCachedEntryDoesNotOutliveTheCallerCredential(t *testing.T) {
+	t.Parallel()
+
+	// A delegated token that long outlives the caller's own credential.
+	integration := newSTSIntegration(t, staticActor("actor"), func(*http.Request) map[string]any {
+		resp := issued("long-lived")
+		resp["expires_in"] = 3600
+		return resp
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+
+	const sessionID = "sess-ttl"
+	bearer := signedTokenExpiringIn(t, "alice", 30*time.Second)
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	entry, ok := plugin.getCachedToken(sessionID, subjectKey(bearer))
+	if !ok {
+		t.Fatal("expected a cached entry after the exchange")
+	}
+	if want := extractJWTExpiry(bearer); entry.Expiry != want {
+		t.Fatalf("entry expiry = %d, want the caller credential's exp %d", entry.Expiry, want)
+	}
+}
+
+// The entry's expiry is capped at the caller credential's own exp, so an expired
+// entry means the caller's authority is gone. AfterRunCallback only sweeps
+// between runs, so HeaderProvider has to reject such an entry itself.
+func TestHeaderProviderRejectsEntryPastTheCallerExpiry(t *testing.T) {
+	t.Parallel()
+
+	integration := newSTSIntegration(t, staticActor("actor"), func(*http.Request) map[string]any {
+		resp := issued("long-lived")
+		resp["expires_in"] = 3600
+		return resp
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+
+	const sessionID = "sess-expired-caller"
+	bearer := signedTokenExpiringIn(t, "alice", 30*time.Second)
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	headerCtx := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	if got := plugin.HeaderProvider(headerCtx)["Authorization"]; got != "Bearer long-lived" {
+		t.Fatalf("Authorization header = %q, want the delegated token", got)
+	}
+
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].Expiry = time.Now().Unix() - 1
+	if headers := plugin.HeaderProvider(headerCtx); headers != nil {
+		t.Fatalf("HeaderProvider() = %v, want no headers once the caller credential expired", headers)
+	}
+}
+
+// An exchange the STS rejects must not leave the previous delegated token
+// injectable. The cache lookup precedes the exchange, so an exchange only runs
+// once the entry is already unusable, and HeaderProvider applies the same check.
+func TestFailedExchangeLeavesNoUsableEntry(t *testing.T) {
+	t.Parallel()
+
+	reject := false
+	integration := newSTSIntegrationWithTokenHandler(t, staticActor("actor"), func(w http.ResponseWriter, _ *http.Request) {
+		if reject {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid_grant"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(issued("exchanged-alice"))
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+
+	const sessionID = "sess-rejected"
+	bearer := signedTokenWithSub(t, "alice")
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	headerCtx := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	if got := plugin.HeaderProvider(headerCtx)["Authorization"]; got != "Bearer exchanged-alice" {
+		t.Fatalf("Authorization header = %q, want the delegated token", got)
+	}
+
+	// Age the entry out, then have the STS reject the refresh.
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].Expiry = time.Now().Unix() - 1
+	reject = true
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	if headers := plugin.HeaderProvider(headerCtx); headers != nil {
+		t.Fatalf("HeaderProvider() = %v, want no headers after the exchange was rejected", headers)
+	}
+}
+
+// earlierExpiry decides the cached entry's lifetime, so it must treat a missing
+// expiry as "unknown" rather than as the epoch.
+func TestEarlierExpiry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		current   int64
+		candidate int64
+		want      int64
+	}{
+		{name: "the candidate expires first", current: 200, candidate: 100, want: 100},
+		{name: "the current entry expires first", current: 100, candidate: 200, want: 100},
+		{name: "no candidate expiry keeps the current one", current: 100, candidate: 0, want: 100},
+		{name: "no current expiry takes the candidate", current: 0, candidate: 100, want: 100},
+		{name: "neither expires", current: 0, candidate: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := earlierExpiry(tt.current, tt.candidate); got != tt.want {
+				t.Fatalf("earlierExpiry(%d, %d) = %d, want %d", tt.current, tt.candidate, got, tt.want)
+			}
+		})
 	}
 }
