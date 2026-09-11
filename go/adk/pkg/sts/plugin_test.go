@@ -87,6 +87,16 @@ func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 func newSTSIntegration(t *testing.T, fetchActor func(context.Context) (string, error), issue func(*http.Request) map[string]any) *STSIntegration {
 	t.Helper()
 
+	return newSTSIntegrationWithTokenHandler(t, fetchActor, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(issue(r))
+	})
+}
+
+// newSTSIntegrationWithTokenHandler serves the token endpoint with handler, so a
+// test can answer an exchange with a failure status instead of a token.
+func newSTSIntegrationWithTokenHandler(t *testing.T, fetchActor func(context.Context) (string, error), handler http.HandlerFunc) *STSIntegration {
+	t.Helper()
+
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
@@ -100,7 +110,7 @@ func newSTSIntegration(t *testing.T, fetchActor func(context.Context) (string, e
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(issue(r))
+		handler(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
@@ -560,6 +570,80 @@ func TestCachedEntryDoesNotOutliveTheCallerCredential(t *testing.T) {
 	}
 	if want := extractJWTExpiry(bearer); entry.Expiry != want {
 		t.Fatalf("entry expiry = %d, want the caller credential's exp %d", entry.Expiry, want)
+	}
+}
+
+// The entry's expiry is capped at the caller credential's own exp, so an expired
+// entry means the caller's authority is gone. AfterRunCallback only sweeps
+// between runs, so HeaderProvider has to reject such an entry itself.
+func TestHeaderProviderRejectsEntryPastTheCallerExpiry(t *testing.T) {
+	t.Parallel()
+
+	integration := newSTSIntegration(t, staticActor("actor"), func(*http.Request) map[string]any {
+		resp := issued("long-lived")
+		resp["expires_in"] = 3600
+		return resp
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+
+	const sessionID = "sess-expired-caller"
+	bearer := signedTokenExpiringIn(t, "alice", 30*time.Second)
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	headerCtx := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	if got := plugin.HeaderProvider(headerCtx)["Authorization"]; got != "Bearer long-lived" {
+		t.Fatalf("Authorization header = %q, want the delegated token", got)
+	}
+
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].Expiry = time.Now().Unix() - 1
+	if headers := plugin.HeaderProvider(headerCtx); headers != nil {
+		t.Fatalf("HeaderProvider() = %v, want no headers once the caller credential expired", headers)
+	}
+}
+
+// An exchange the STS rejects must not leave the previous delegated token
+// injectable. The cache lookup precedes the exchange, so an exchange only runs
+// once the entry is already unusable, and HeaderProvider applies the same check.
+func TestFailedExchangeLeavesNoUsableEntry(t *testing.T) {
+	t.Parallel()
+
+	reject := false
+	integration := newSTSIntegrationWithTokenHandler(t, staticActor("actor"), func(w http.ResponseWriter, _ *http.Request) {
+		if reject {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid_grant"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(issued("exchanged-alice"))
+	})
+
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
+
+	const sessionID = "sess-rejected"
+	bearer := signedTokenWithSub(t, "alice")
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	headerCtx := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	if got := plugin.HeaderProvider(headerCtx)["Authorization"]; got != "Bearer exchanged-alice" {
+		t.Fatalf("Authorization header = %q, want the delegated token", got)
+	}
+
+	// Age the entry out, then have the STS reject the refresh.
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].Expiry = time.Now().Unix() - 1
+	reject = true
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	if headers := plugin.HeaderProvider(headerCtx); headers != nil {
+		t.Fatalf("HeaderProvider() = %v, want no headers after the exchange was rejected", headers)
 	}
 }
 
