@@ -148,6 +148,13 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 mcp_toolset._header_provider = self.header_provider
                 logger.debug(f"add_to_agent: updated MCP tool's header provider for agent {agent_name}")
 
+    def get_token_for_session(self, session_id: str) -> Optional[str]:
+        """Return the cached token for a session, or None if none is cached or it expired."""
+        cache_entry = self.token_cache.get(session_id)
+        if not cache_entry or _has_token_expired(cache_entry.expiry):
+            return None
+        return cache_entry.token
+
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
         # access saved token
         cache_entry = self.token_cache.get(self.cache_key(readonly_context._invocation_context))

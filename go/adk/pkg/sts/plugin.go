@@ -293,6 +293,8 @@ func sessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+var _ models.ExchangedTokenProvider = (*TokenPropagationPlugin)(nil)
+
 // GetTokenForSession retrieves the cached token for a specific session.
 // Returns empty string if no valid token is cached.
 func (p *TokenPropagationPlugin) GetTokenForSession(sessionID string) string {

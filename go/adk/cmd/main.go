@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
@@ -183,19 +184,27 @@ func main() {
 		logger.Info("memory service enabled", "app_name", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
+	runnerConfig, stsPlugin, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
 	if err != nil {
 		logger.Error("failed to create Google ADK Runner config", "error", err)
 		os.Exit(1)
 	}
 
+	// A nil *sts.TokenPropagationPlugin held in an interface is not nil, so only
+	// assign when there is a plugin.
+	var exchangedTokens models.ExchangedTokenProvider
+	if stsPlugin != nil {
+		exchangedTokens = stsPlugin
+	}
+
 	stream := agentConfig.GetStream()
 	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
-		RunnerConfig:   runnerConfig,
-		SessionService: sessionService,
-		Stream:         stream,
-		AppName:        appName,
-		Logger:         logger,
+		RunnerConfig:    runnerConfig,
+		SessionService:  sessionService,
+		Stream:          stream,
+		AppName:         appName,
+		Logger:          logger,
+		ExchangedTokens: exchangedTokens,
 	})
 
 	// Build the agent card.

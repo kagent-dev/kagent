@@ -34,15 +34,18 @@ type KAgentExecutorConfig struct {
 	Stream         bool
 	AppName        string
 	Logger         *slog.Logger
+	// ExchangedTokens is nil when STS token propagation is off.
+	ExchangedTokens models.ExchangedTokenProvider
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
 // A2A executor. Event conversion and artifact streaming are delegated to ADK.
 type KAgentExecutor struct {
-	builtin        a2asrv.AgentExecutor
-	sessionService adksession.Service
-	appName        string
-	logger         *slog.Logger
+	builtin         a2asrv.AgentExecutor
+	sessionService  adksession.Service
+	appName         string
+	logger          *slog.Logger
+	exchangedTokens models.ExchangedTokenProvider
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -82,10 +85,11 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	})
 
 	return &KAgentExecutor{
-		builtin:        builtin,
-		sessionService: runnerConfig.SessionService,
-		appName:        cfg.AppName,
-		logger:         cfg.Logger.With("component", "kagent-executor"),
+		builtin:         builtin,
+		sessionService:  runnerConfig.SessionService,
+		appName:         cfg.AppName,
+		logger:          cfg.Logger.With("component", "kagent-executor"),
+		exchangedTokens: cfg.ExchangedTokens,
 	}
 }
 
@@ -134,6 +138,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 		ctx = withBearerToken(ctx)
 		ctx = withSessionID(ctx, sessionID)
+		ctx = e.withExchangedTokens(ctx)
 		ctx = auth.WithUserID(ctx, userID)
 		spanAttributes := map[string]string{
 			"kagent.user_id":         userID,
@@ -338,6 +343,16 @@ func withSessionID(ctx context.Context, sessionID string) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, models.SessionIDKey, sessionID)
+}
+
+// withExchangedTokens stores the STS token provider as a context value, so the
+// outbound LLM path can resolve the exchanged token for this session. See
+// models.PassthroughToken.
+func (e *KAgentExecutor) withExchangedTokens(ctx context.Context) context.Context {
+	if e.exchangedTokens == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, models.ExchangedTokenProviderKey, e.exchangedTokens)
 }
 
 // dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision
