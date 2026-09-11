@@ -211,7 +211,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	contextID := "00000000-0000-0000-0000-000000000001"
 	instanceID := "00000000-0000-0000-0000-000000000002"
 	historyID := "00000000-0000-0000-0000-000000000003"
-	execSQL(t, dsn, "INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'user', $2)", historyID, contextID)
+	execSQL(t, dsn, "INSERT INTO agent_history (id, user_id, context_id) VALUES ($1, 'user', $2)", historyID, contextID)
 	execSQL(t, dsn, "INSERT INTO agent_instance (id, user_id, request_id, state, data, context_id, history_id) VALUES ($1, 'user', 'request', 'AGENT_INSTANCE_STATE_READY', $2, $3, $4)", instanceID, []byte{}, contextID, historyID)
 	execSQL(t, dsn, "INSERT INTO agent_instance_task (history_id, id, state, data) VALUES ($1, 'task', 'TASK_STATE_INPUT_REQUIRED', $2)", historyID, []byte{})
 	scheduleID := "00000000-0000-0000-0000-000000000003"

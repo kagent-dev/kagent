@@ -2,12 +2,12 @@
 
 ## Durable interaction model
 
-`AgentInstance` represents ephemeral compute. An A2A context durably owns its
+`AgentInstance` represents ephemeral compute. An `agent_history` row durably owns its
 tasks and ordered events, allowing interaction history to remain as an audit trail
 after compute is removed. New instances allocate independent instance, wire A2A
 context, and durable history IDs. `agent_instance.history_id` selects the history;
 `agent_instance.context_id` binds its public context. A composite foreign key
-ensures that binding agrees with `a2a_context`. A history belongs to at most one
+ensures that binding agrees with `agent_history`. A history belongs to at most one
 live instance, while multiple fork authorities may use the same wire context.
 
 The core PostgreSQL records are:
@@ -18,7 +18,7 @@ The core PostgreSQL records are:
 | `agent_template_harness_pair` | Pair status and latest successful revision |
 | `agent_instance` | Compute identity, pinned revision, lifecycle phase, and Actor identity |
 | `agent_instance_share` | Instance authorization grants |
-| `a2a_context` | Durable history scope and its wire A2A context binding |
+| `agent_history` | One durable history branch, its wire A2A context binding, and parent history/cutoff |
 | `agent_instance_task` | Rebuildable current A2A task state and query indexes |
 | `agent_instance_task_event` | Authoritative append-only task and message events, with creation and runtime-boundary metadata |
 | `agent_instance_checkpoint` | Named immutable snapshot/history boundary |
@@ -40,15 +40,16 @@ without duplicating SQL. Transaction boundaries remain with the owning operation
 flowchart TD
     PAIR[Harness + AgentTemplate pair] --> REV[runtime revision]
     REV --> INSTANCE[AgentInstance]
-    INSTANCE --> CONTEXT[history scope + wire context]
-    CONTEXT --> EVENT[immutable ordered task events]
+    INSTANCE -->|history_id| HISTORY[agent_history]
+    HISTORY --> EVENT[immutable ordered task events]
     EVENT -->|replay| TASK[materialized task views]
-    CONTEXT --> CHECKPOINT[checkpoint boundary]
+    HISTORY --> CHECKPOINT[checkpoint boundary]
     REV --> CHECKPOINT
     CHECKPOINT --> TAG[Substrate snapshot tag]
     CHECKPOINT --> FORK[forked AgentInstance]
-    FORK --> NEWCTX[new history scope, same wire context]
-    EVENT -->|copy through checkpoint cutoff| NEWCTX
+    FORK -->|history_id| NEWHISTORY[new agent_history, same wire context]
+    NEWHISTORY -->|parent history + cutoff| HISTORY
+    EVENT -->|copy through checkpoint cutoff| NEWHISTORY
 ```
 
 ## Checkpoint creation
@@ -74,23 +75,41 @@ The checkpoint retains source-instance provenance, source history, prepared
 revision, name, head task, and history sequence. Reservation saves an event
 cutoff in the same transaction as the runtime boundary reference. Later replies
 append events beyond that cutoff and cannot change the saved task state.
-The head identifies the task whose snapshot
-covers the latest history event, including when an older paused task resumes. The source AgentInstance may be
-deleted while its context and checkpoint remain.
+The head identifies the task whose snapshot covers the latest history event,
+including when an older paused task resumes and reaches a terminal state. The
+source AgentInstance may be deleted while its history and checkpoint remain.
 
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
-the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
+the row. A checkpoint inside any retained fork history's inherited prefix cannot
+start deletion. Deleting instances keeps those histories, so inherited checkpoints
+and their Tags remain protected even after all related instances are removed.
+There is currently no history garbage collection. A deletion already in progress
+can finish or retry if a later fork inherits its boundary. Substrate deletes the
+Tag's copied snapshot with the Tag.
 
 ## Forking
+
+History ancestry is recorded directly on `agent_history`: `parent_history_id` and
+`parent_history_sequence` identify the source history and the cutoff copied from
+it. Roots have neither field. Fork creation sets both fields atomically with the
+new instance and never changes them. Each new history points to an existing
+parent; ancestry traversal needs no checkpoint rows. `agent_instance.source_checkpoint_id`
+separately retains fork-request identity and runtime provenance while the instance exists.
+
+Checkpoint listing follows parent histories and their cutoffs, returning owned
+ready checkpoints with their original source provenance. Membership depends on the
+history boundary, so a checkpoint created later at an already inherited boundary
+also appears. Listing uses checkpoint-ID pagination across local and inherited
+results. After an instance is deleted, listing by its former ID returns only its
+locally created checkpoints; surviving descendants still follow retained ancestry.
 
 Forking creates a new AgentInstance authority and durable history scope. It
 preserves wire context, task, message, artifact IDs, and request deduplication
 metadata while copying events through the saved cutoff and reconstructing task
 views from those events. It never reads the source's current task views. It creates a
-separate Actor from the checkpoint's snapshot tag. Private runtime session IDs and
-opaque paused-tool references therefore remain valid without runtime-specific
-rewriting. New work appends only to the fork's history; source history and the
-checkpoint remain immutable. The copied head boundary
+separate Actor from the checkpoint's snapshot tag. Private runtime session IDs
+remain valid without runtime-specific rewriting. New work appends only to the
+fork's history; it does not mutate the source history or checkpoint. The copied head boundary
 uses the retained Tag URI, allowing a fresh fork to be checkpointed before its
 first turn. Fork creation verifies the Tag UID and URI as well as the Actor's
 source Tag, suspended state, template, and external snapshot.

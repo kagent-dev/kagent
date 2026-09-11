@@ -112,7 +112,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 			scheduled_run,
 			tool, toolserver, memory,
 			agent_instance_share,
-			agent_instance, a2a_context, agent_template_harness_pair, runtime_revision
+			agent_instance, agent_history, agent_template_harness_pair, runtime_revision
 		RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err, "Failed to truncate test tables")
