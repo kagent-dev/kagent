@@ -133,7 +133,7 @@ test("chat: a checkpoint is deleted from the chat, and stays deleted", async ({ 
 
   await test.step("asks before deleting, and cancelling leaves both", async () => {
     await page.getByTestId(`chat-checkpoint-delete-${id}`).click();
-    await expect(page.getByText("Delete this checkpoint?")).toBeVisible();
+    await expect(page.getByText("Remove this checkpoint?")).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(dividers(page)).toHaveCount(2);
   });

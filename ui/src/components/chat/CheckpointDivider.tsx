@@ -1,5 +1,5 @@
 import { Button, Popconfirm, Tooltip, Typography } from "antd";
-import { GitFork, Save, Trash2 } from "lucide-react";
+import { Eraser, GitFork, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
 
 const { Text } = Typography;
@@ -35,6 +35,12 @@ export function CheckpointDivider({
     paddingInline: theme.space(2),
     background: "transparent",
   } as const;
+  const rule = (
+    <span
+      aria-hidden
+      css={{ width: 14, height: 1, background: theme.color.primaryText, opacity: 0.4 }}
+    />
+  );
 
   return (
     <div
@@ -72,68 +78,73 @@ export function CheckpointDivider({
           word — the tooltip says where from, so the line stays a line. */}
       {onFork || onDelete ? (
         <>
-          {/* The rule carrying on between the two, so the mark and the control read as
-              two things on one line rather than a label with a button stuck to it. */}
-          <span
-            aria-hidden
-            css={{
-              width: 14,
-              height: 1,
-              background: theme.color.primaryText,
-              opacity: 0.4,
-            }}
-          />
+          {/* The rule carrying on between each pair, so the mark and the controls read
+              as things on one line rather than a label with buttons stuck to it. */}
+          {rule}
           {onFork ? (
-            <Tooltip title="Fork the chat from this checkpoint">
+            <Tooltip title="Fork the chat from this checkpoint" placement="bottom">
               <Button
                 size="small"
                 data-testid={`chat-checkpoint-fork-${checkpointId}`}
                 aria-label="Fork the chat from this checkpoint"
+                type="primary"
                 icon={<GitFork size={13} />}
                 onClick={onFork}
                 css={{
                   ...control,
-                  color: theme.color.primaryText,
-                  borderColor: theme.color.primaryText,
+                  background: theme.color.primary,
+                  color: theme.color.textOnPrimary,
+                  borderColor: theme.color.primary,
                   "&:hover, &:focus-visible": {
-                    color: theme.color.primaryText,
-                    borderColor: theme.color.primaryText,
-                    background: theme.color.accentBg,
+                    background: theme.color.primaryHover,
+                    borderColor: theme.color.primaryHover,
+                    color: theme.color.textOnPrimary,
                   },
-                  "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+                  "&:active": { background: theme.color.primaryHover, opacity: 0.85 },
                 }}
               >
                 Fork
               </Button>
             </Tooltip>
           ) : null}
+          {onFork && onDelete ? rule : null}
           {/* Confirmed, because the snapshot behind the boundary goes with it and
               nothing brings it back. */}
           {onDelete ? (
             <Popconfirm
-              title="Delete this checkpoint?"
-              description="The snapshot behind it goes too. Chats already forked from it keep working."
+              title="Remove this checkpoint?"
+              description="The snapshot behind it will be deleted. This chat history and chat sessions already forked from here will be kept."
               // Capped, or the one line of copy sets the popover's width and it spans
               // half the transcript.
               overlayStyle={{ maxWidth: 300 }}
-              okText="Delete"
+              okText="Remove"
               okButtonProps={{
-                danger: true,
                 "data-testid": `chat-checkpoint-delete-confirm-${checkpointId}`,
               }}
               cancelText="Cancel"
               onConfirm={onDelete}
             >
-              <Tooltip title="Delete this checkpoint">
+              <Tooltip title="Remove this checkpoint. This deletes the associated snapshot." placement="bottom">
                 <Button
                   size="small"
-                  danger
                   data-testid={`chat-checkpoint-delete-${checkpointId}`}
-                  aria-label="Delete this checkpoint"
-                  icon={<Trash2 size={13} />}
-                  css={control}
+                  aria-label="Remove this checkpoint. This deletes the associated snapshot."
+                  icon={<Eraser size={13} />}
+                  // Outlined against Fork's fill: forking is what the line is for, and
+                  // this is the one that takes something away.
+                  css={{
+                    ...control,
+                    color: theme.color.primaryText,
+                    borderColor: theme.color.primaryText,
+                    "&:hover, &:focus-visible": {
+                      color: theme.color.primaryText,
+                      borderColor: theme.color.primaryText,
+                      background: theme.color.accentBg,
+                    },
+                    "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+                  }}
                 >
-                  Delete
+                  Remove
                 </Button>
               </Tooltip>
             </Popconfirm>
