@@ -90,7 +90,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
-	}}, nil
+	}, Warnings: compiled.Warnings}, nil
 }
 
 func requireModels(input *v2translator.AgentInput) error {

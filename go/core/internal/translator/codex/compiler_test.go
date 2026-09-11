@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,4 +210,23 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{
 		Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully",
 	}}, collections
+}
+
+func TestCompileReportsIgnoredContextCompaction(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-root",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Root.Template.Spec.Context = &v1alpha3.AgentTemplateContextSpec{Compaction: &v1alpha3.AgentTemplateCompactionSpec{CompactionInterval: new(5)}}
+	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	want := []string{`AgentTemplate "assistant" spec.context is ignored: the Codex harness does not apply context compaction settings`}
+	if !slices.Equal(compilation.Warnings, want) {
+		t.Fatalf("Warnings = %v, want %v", compilation.Warnings, want)
+	}
 }

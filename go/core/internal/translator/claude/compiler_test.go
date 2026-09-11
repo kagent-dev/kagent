@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -453,4 +454,21 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
 	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
+}
+
+func TestCompileReportsIgnoredContextCompaction(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	input.Root.Template.Spec.Context = &v1alpha3.AgentTemplateContextSpec{Compaction: &v1alpha3.AgentTemplateCompactionSpec{CompactionInterval: new(5)}}
+	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	want := []string{`AgentTemplate "assistant" spec.context is ignored: the Claude harness does not apply context compaction settings`}
+	if !slices.Equal(compilation.Warnings, want) {
+		t.Fatalf("Warnings = %v, want %v", compilation.Warnings, want)
+	}
 }

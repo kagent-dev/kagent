@@ -120,7 +120,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Provenance:       provenance, EgressDestinations: egress,
 		},
-		Warnings: mcp.warnings,
+		Warnings: append(mcp.warnings, v2translator.ContextWarnings(input.Root, true, "the Claude harness does not apply context compaction settings")...),
 	}, nil
 }
 
