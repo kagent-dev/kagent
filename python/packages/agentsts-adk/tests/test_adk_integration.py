@@ -10,7 +10,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
-from agentsts.adk._base import HEADERS_KEY, MAX_CACHE_TTL_SECONDS
+from agentsts.adk._base import HEADERS_KEY, MAX_CACHE_ENTRIES, MAX_CACHE_TTL_SECONDS
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
 from agentsts.adk._base import _has_token_expired as has_token_expired
@@ -808,9 +808,12 @@ class TestADKTokenPropagationPlugin:
             # First call
             await plugin.before_run_callback(invocation_context=ic)
             assert sts.exchange_token.call_count == 1
-            expiry = plugin.token_cache[plugin.cache_key(ic)].expiry
-            assert expiry is not None
-            assert expiry <= int(time.time()) + MAX_CACHE_TTL_SECONDS
+            entry = plugin.token_cache[plugin.cache_key(ic)]
+            # Nothing states when this caller's authority ends, so the entry
+            # carries an eviction time without carrying a deadline.
+            assert entry.expiry is None
+            assert entry.evict_after is not None
+            assert entry.evict_after <= int(time.time()) + MAX_CACHE_TTL_SECONDS
 
             # after_run_callback preserves it until the bounded lifetime elapses
             await plugin.after_run_callback(invocation_context=ic)
@@ -1235,10 +1238,116 @@ class TestADKTokenPropagationPlugin:
             await plugin.before_run_callback(invocation_context=ic)
 
         entry = plugin.token_cache[plugin.cache_key(ic)]
-        assert entry.expiry is not None
-        assert entry.expiry <= int(time.time()) + MAX_CACHE_TTL_SECONDS
-        # The bounded expiry also arms the sweep gate, which a None expiry leaves unset.
-        assert plugin._earliest_expiry == entry.expiry
+        assert entry.evict_after is not None
+        assert entry.evict_after <= int(time.time()) + MAX_CACHE_TTL_SECONDS
+        # The bounded eviction time also arms the sweep gate, which a None value
+        # leaves unset. It is not a deadline on the caller: expiry stays unset.
+        assert plugin._earliest_eviction == entry.evict_after
+        assert entry.expiry is None
+
+    @pytest.mark.asyncio
+    async def test_token_without_expiry_propagates_past_the_eviction_bound(self):
+        """Case: nothing states when this caller's authority ends, so a run that
+        outlives the eviction bound keeps injecting the token.
+
+        before_run_callback runs once per run, so a run longer than the bound has
+        nothing to re-mint the entry. Reading the bound as a deadline would drop
+        the credential part way through the run.
+        """
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="delegated-opaque")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-long-run", headers={"Authorization": "Bearer caller-opaque"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        ro_ctx = self._make_readonly_context(ic)
+        assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer delegated-opaque"}
+
+        later = int(time.time()) + MAX_CACHE_TTL_SECONDS + 1
+        with patch("time.time", return_value=later):
+            assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer delegated-opaque"}
+            # The entry is still evictable, so it does not pin a slot for the
+            # lifetime of the process.
+            await plugin.after_run_callback(invocation_context=ic)
+        assert plugin.cache_key(ic) not in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_opaque_caller_credential_does_not_shorten_a_dated_token(self):
+        """Case: a caller credential stating no expiry must not cap the entry at
+        the eviction bound, which would force a re-exchange every few minutes."""
+        long_lived = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=long_lived)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-opaque", headers={"Authorization": "Bearer caller-opaque"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        entry = plugin.token_cache[plugin.cache_key(ic)]
+        assert entry.expiry == extract_jwt_expiry(long_lived)
+        assert entry.evict_after == entry.expiry
+
+    @pytest.mark.asyncio
+    async def test_caller_without_an_inbound_header_does_not_warn(self):
+        """Case: the documented custom get_subject_token mode carries no
+        Authorization header by design, which is not a fault worth a warning."""
+        token = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = lambda state: state.get("subject-token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=token)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook-quiet", headers=None, extra_state={"subject-token": token})
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            await plugin.before_run_callback(invocation_context=ic)
+            assert mock_logger.warning.call_args_list == []
+
+        # Nor on the tool-call path, which runs far more often than once a run.
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            plugin.header_provider(self._make_readonly_context(ic))
+            assert mock_logger.warning.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_missing_authorization_header_is_reported_once(self):
+        """Case: a caller that sends no usable Authorization header is still
+        reported, once, on the run that refuses to propagate for it."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-no-auth", headers={"X-User-Id": "alice"})
+
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            await plugin.before_run_callback(invocation_context=ic)
+            warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
+        assert warnings == ["No Authorization header found in request"]
+
+        # The tool-call path reads the same header and must stay quiet.
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+            assert mock_logger.warning.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_cache_is_capped_by_entry_count(self):
+        """Case: one session seeing many distinct credentials is capped, since the
+        sweep never runs while a single run holds them."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        for index in range(MAX_CACHE_ENTRIES + 25):
+            ic = self._make_invocation_context("one-session", headers={"Authorization": f"Bearer token-{index}"})
+            await plugin.before_run_callback(invocation_context=ic)
+
+        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        # The run that just cached keeps its own entry.
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     def test_header_provider_without_context_fails_closed(self):
         """Case: a tool call with no invocation context gets no header instead of raising."""
