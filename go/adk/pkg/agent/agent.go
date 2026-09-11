@@ -301,6 +301,8 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Temperature:     m.Temperature,
 			TopP:            m.TopP,
 			TopK:            m.TopK,
+			PromptCaching:   m.PromptCaching,
+			CacheTTL:        m.CacheTTL,
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 

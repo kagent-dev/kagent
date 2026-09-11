@@ -171,6 +171,10 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			options := *model.Spec.Anthropic
 			baseURL = strings.TrimSpace(options.BaseURL)
 			options.BaseURL = ""
+			// "5m" is the CRD default and matches Claude Code's native cache TTL.
+			if options.CacheTTL == "5m" {
+				options.CacheTTL = ""
+			}
 			if !reflect.DeepEqual(options, v1alpha3.AnthropicConfig{}) {
 				return nil, nil, v2translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}

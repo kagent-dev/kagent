@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -78,4 +79,38 @@ func TestResolveFoundryEndpointFromConfigMap(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, configMap.Data["endpoint"], endpoint)
+}
+
+func TestTranslateAnthropicPromptCaching(t *testing.T) {
+	tests := []struct {
+		name        string
+		spec        *v1alpha3.AnthropicConfig
+		wantCaching bool
+		wantTTL     string
+	}{
+		{name: "no provider block", spec: nil},
+		// cacheTTL is passed through as configured; the runtime only reads it when caching is on.
+		{name: "disabled", spec: &v1alpha3.AnthropicConfig{CacheTTL: "5m"}, wantTTL: "5m"},
+		{name: "enabled with the default TTL", spec: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}, wantCaching: true, wantTTL: "5m"},
+		{name: "enabled with the 1h TTL", spec: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "1h"}, wantCaching: true, wantTTL: "1h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := &v2translator.ResolvedModelConfig{
+				Config: &v1alpha3.ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+					Spec: v1alpha3.ModelConfigSpec{
+						Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-6",
+						Anthropic: tt.spec,
+					},
+				},
+			}
+			got, _, err := (&Builder{}).translateModel(context.Background(), resolved)
+			require.NoError(t, err)
+			anthropic, ok := got.(*adk.Anthropic)
+			require.True(t, ok, "model is %T, want *adk.Anthropic", got)
+			require.Equal(t, tt.wantCaching, anthropic.PromptCaching)
+			require.Equal(t, tt.wantTTL, anthropic.CacheTTL)
+		})
+	}
 }
