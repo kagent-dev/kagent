@@ -556,8 +556,12 @@ type ModelConfigSpec struct {
 	// Unlike defaultHeaders, which carries static values fixed at configuration
 	// time, the value of a pass-through header is read from each incoming request;
 	// headers absent from the request are omitted. A pass-through value overrides
-	// a defaultHeaders entry of the same name. The Authorization header cannot be
-	// passed through — use apiKeyPassthrough to forward the caller's credential.
+	// a defaultHeaders entry of the same name.
+	// Credential and hop-by-hop headers are rejected at admission and are never
+	// forwarded: Authorization (use apiKeyPassthrough to forward the caller's
+	// credential), Proxy-Authorization, Proxy-Authenticate, Cookie, Connection,
+	// Content-Length, Host, Keep-Alive, Proxy-Connection, TE, Trailer,
+	// Transfer-Encoding, and Upgrade.
 	// Not supported for the GeminiVertexAI and SAPAICore providers; on the Python
 	// runtime additionally unsupported for Bedrock, Ollama, and AnthropicVertexAI
 	// (a warning is logged and the field is ignored).
@@ -566,6 +570,7 @@ type ModelConfigSpec struct {
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=256
 	// +kubebuilder:validation:XValidation:message="the Authorization header cannot be passed through; use apiKeyPassthrough to forward the caller's credential",rule="self.all(h, h.lowerAscii() != 'authorization')"
+	// +kubebuilder:validation:XValidation:message="passthroughHeaders must not contain credential or hop-by-hop headers (proxy-authorization, proxy-authenticate, cookie, connection, content-length, host, keep-alive, proxy-connection, te, trailer, transfer-encoding, upgrade)",rule="self.all(h, !(h.lowerAscii() in ['proxy-authorization', 'proxy-authenticate', 'cookie', 'connection', 'content-length', 'host', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']))"
 	PassthroughHeaders []string `json:"passthroughHeaders,omitempty"`
 
 	// The provider of the model

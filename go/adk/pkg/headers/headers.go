@@ -6,6 +6,7 @@ package headers
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -43,6 +44,19 @@ var restrictedPassthroughHeaders = map[string]struct{}{
 func IsRestricted(name string) bool {
 	_, restricted := restrictedPassthroughHeaders[strings.ToLower(name)]
 	return restricted
+}
+
+// RestrictedNames returns the restricted header names in sorted order. The
+// passthroughHeaders CEL validation on the ModelConfig CRD enumerates the same
+// set; TestPassthroughHeadersValidation iterates this list so the two cannot
+// drift silently.
+func RestrictedNames() []string {
+	names := make([]string, 0, len(restrictedPassthroughHeaders))
+	for name := range restrictedPassthroughHeaders {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // FilterRestricted drops restricted names (case-insensitively) from a

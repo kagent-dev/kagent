@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/headers"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -232,6 +233,7 @@ func TestPassthroughHeadersValidation(t *testing.T) {
 		{name: "custom header names accepted", headers: []string{"x-guardrail-token", "X-Request-Id"}},
 		{name: "authorization rejected lowercase", headers: []string{"authorization"}, wantReject: "apiKeyPassthrough"},
 		{name: "authorization rejected mixed case", headers: []string{"Authorization"}, wantReject: "apiKeyPassthrough"},
+		{name: "cookie rejected mixed case", headers: []string{"Cookie"}, wantReject: "passthroughHeaders"},
 		{name: "empty header name rejected", headers: []string{""}, wantReject: "passthroughHeaders"},
 	}
 
@@ -251,6 +253,24 @@ func TestPassthroughHeadersValidation(t *testing.T) {
 			}
 			require.Error(t, err)
 			require.Contains(t, err.Error(), c.wantReject)
+		})
+	}
+
+	// Every name the runtimes refuse to forward must also be rejected at
+	// admission, so the CEL rule cannot silently drift from the Go list in
+	// adk/pkg/headers.
+	for i, name := range headers.RestrictedNames() {
+		t.Run("restricted name rejected: "+name, func(t *testing.T) {
+			err := cl.Create(ctx, &ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("mc-restricted-%d", i), Namespace: ns},
+				Spec: ModelConfigSpec{
+					Model:              "gpt-4",
+					Provider:           ModelProviderOpenAI,
+					PassthroughHeaders: []string{name},
+				},
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "passthroughHeaders")
 		})
 	}
 }
