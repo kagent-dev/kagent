@@ -24,6 +24,13 @@ const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
 const CHECKPOINT_GAP = 4;
 
 /**
+ * Less below than above, because below it is not the only space there is: the
+ * transcript's own gap to the next message sits under this one, and the two together
+ * read as a hole in the conversation rather than a division in it.
+ */
+const CHECKPOINT_GAP_BELOW = 2;
+
+/**
  * Turn phases worth naming on screen. The rest are transient enough to skip.
  *
  * Keyed on the machine's phase rather than on the A2A task state, which is what
@@ -344,7 +351,7 @@ export function ChatTranscript({
                   // conversation from the box used to continue it.
                   marginBlockStart: theme.space(CHECKPOINT_GAP),
                   marginBlockEnd:
-                    index === groups.length - 1 ? 0 : theme.space(CHECKPOINT_GAP),
+                    index === groups.length - 1 ? 0 : theme.space(CHECKPOINT_GAP_BELOW),
                 }}
               >
                 <CheckpointDivider

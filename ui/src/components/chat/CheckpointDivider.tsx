@@ -113,7 +113,7 @@ export function CheckpointDivider({
           {onDelete ? (
             <Popconfirm
               title="Remove this checkpoint?"
-              description="The snapshot behind it will be deleted. This chat history and chat sessions already forked from here will be kept."
+              description="The snapshot for this checkpoint will be deleted. Chat history and sessions already forked from here will be kept."
               // Capped, or the one line of copy sets the popover's width and it spans
               // half the transcript.
               overlayStyle={{ maxWidth: 300 }}
