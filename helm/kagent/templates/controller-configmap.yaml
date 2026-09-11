@@ -39,6 +39,7 @@ data:
   {{- if $logsEndpoint }}
   OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: {{ $logsEndpoint | quote }}
   OTEL_EXPORTER_OTLP_LOGS_INSECURE: {{ .Values.otel.logging.exporter.otlp.insecure | quote }}
+  OTEL_EXPORTER_OTLP_LOGS_PROTOCOL: {{ .Values.otel.logging.exporter.otlp.protocol | quote }}
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
   {{- end }}
   {{- end }}
