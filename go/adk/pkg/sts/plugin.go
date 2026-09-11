@@ -70,16 +70,15 @@ func hasPassed(deadline, bufferSeconds int64) bool {
 // It registers as a Go ADK plugin for run-level token preparation and exposes
 // a header provider used by MCP tool transports.
 type TokenPropagationPlugin struct {
-	integration      *STSIntegration
-	tokenCache       map[cacheKey]*TokenCacheEntry
-	actorTokenCache  *TokenCacheEntry // used only for dynamic fetchActorToken providers
-	mu               sync.RWMutex
-	logger           *slog.Logger
-	bufferSeconds    int64
-	earliestEviction int64    // lower bound on the earliest EvictAfter in tokenCache; 0 when nothing is evictable
-	uses             uint64   // monotonic use counter, read by touch
-	resource         []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
-	audience         []string // RFC 8693 audiences sent on the STS exchange; empty omits them
+	integration     *STSIntegration
+	tokenCache      map[cacheKey]*TokenCacheEntry
+	actorTokenCache *TokenCacheEntry // used only for dynamic fetchActorToken providers
+	mu              sync.RWMutex
+	logger          *slog.Logger
+	bufferSeconds   int64
+	uses            uint64   // monotonic use counter, read by touch
+	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
+	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
 
 // NewTokenPropagationPlugin creates a new token propagation plugin.
@@ -126,17 +125,6 @@ func subjectKey(token string) string {
 	}
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-
-// actingCredential returns the credential this request authenticates with, which
-// is also what the cache key is derived from. models.BearerTokenFromContext
-// prefers the value executor.withBearerToken stored and falls back to the A2A
-// call context, which is what reaches the MCP transport layer: the call context
-// is the same source the round-tripper's propagateToken path reads, so the
-// per-subject key stays derivable even when BearerTokenKey is not threaded to
-// the MCP request context.
-func actingCredential(ctx context.Context) string {
-	return models.BearerTokenFromContext(ctx)
 }
 
 // cacheKey scopes a cache entry to both the session and the acting subject so a
@@ -211,7 +199,7 @@ func (p *TokenPropagationPlugin) evictOverSessionCapacity(sessionID string) {
 			keys = append(keys, key)
 		}
 	}
-	p.evictLeastRecentlyUsed(keys, len(keys)-maxEntriesPerSession, "session_id", sessionID)
+	p.evictLeastRecentlyUsed(keys, len(keys)-maxEntriesPerSession, "session")
 }
 
 // evictOverCapacity drops the least recently used entries once the whole cache
@@ -229,7 +217,7 @@ func (p *TokenPropagationPlugin) evictOverCapacity() {
 	for key := range p.tokenCache {
 		keys = append(keys, key)
 	}
-	p.evictLeastRecentlyUsed(keys, overflow)
+	p.evictLeastRecentlyUsed(keys, overflow, "cache")
 }
 
 // evictLeastRecentlyUsed drops the overflow least recently used entries among
@@ -239,7 +227,7 @@ func (p *TokenPropagationPlugin) evictOverCapacity() {
 // run that is between tool calls can lose the token it would have injected next.
 // It is reported above debug for that reason. The entry the caller just cached
 // is the most recently used, so it is never dropped here.
-func (p *TokenPropagationPlugin) evictLeastRecentlyUsed(keys []cacheKey, overflow int, logAttrs ...any) {
+func (p *TokenPropagationPlugin) evictLeastRecentlyUsed(keys []cacheKey, overflow int, bound string) {
 	if overflow <= 0 {
 		return
 	}
@@ -250,8 +238,8 @@ func (p *TokenPropagationPlugin) evictLeastRecentlyUsed(keys []cacheKey, overflo
 	for _, key := range keys[:overflow] {
 		delete(p.tokenCache, key)
 	}
-	p.logger.Warn("dropped valid cached tokens to stay within the cache capacity; callers may re-exchange",
-		append([]any{"dropped", overflow}, logAttrs...)...)
+	p.logger.Warn("dropped valid cached tokens to stay within capacity; callers may re-exchange",
+		"bound", bound, "dropped", overflow)
 }
 
 // setCachedToken caches a token for the session and subject.
@@ -271,9 +259,6 @@ func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string
 	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = entry
 	p.touch(entry)
 
-	if p.earliestEviction == 0 || entry.evictAfter < p.earliestEviction {
-		p.earliestEviction = entry.evictAfter
-	}
 	p.evictOverSessionCapacity(sessionID)
 	p.evictOverCapacity()
 }
@@ -335,7 +320,7 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 	// Resolve the acting credential before the cache lookup: the cache is keyed by
 	// the acting subject, and a session shared by multiple subjects would otherwise
 	// reuse the first caller's token for every later caller.
-	bearerToken := actingCredential(ctx)
+	bearerToken := models.BearerTokenFromContext(ctx)
 
 	if bearerToken == "" {
 		p.logger.Debug("no bearer token in context, skipping token propagation", "session_id", sessionID)
@@ -426,20 +411,12 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 	// The sweep covers every entry rather than the caller's alone; scoping it to
 	// the current session would strand the entries of sessions that never run
 	// again. A use renews the eviction time, so this cannot drop the credential
-	// of a run that is still in flight. The earliest eviction time gates the
-	// walk, so a large cache is only traversed once something can be evicted.
-	if p.earliestEviction != 0 && p.earliestEviction <= time.Now().Unix()+p.bufferSeconds {
-		earliest := int64(0)
-		for key, entry := range p.tokenCache {
-			if entry.evictable(p.bufferSeconds) {
-				delete(p.tokenCache, key)
-				continue
-			}
-			if earliest == 0 || entry.evictAfter < earliest {
-				earliest = entry.evictAfter
-			}
+	// of a run that is still in flight. The capacity bounds hold the walk to
+	// maxCacheEntries, and a run spans model calls, so it is not worth gating.
+	for key, entry := range p.tokenCache {
+		if entry.evictable(p.bufferSeconds) {
+			delete(p.tokenCache, key)
 		}
-		p.earliestEviction = earliest
 	}
 
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
@@ -463,8 +440,11 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 
 	// Derive the acting subject from this request's own credential, so the injected
 	// token matches the caller of this request rather than whichever subject
-	// first seeded the session.
-	subject := subjectKey(actingCredential(ctx))
+	// first seeded the session. BearerTokenFromContext falls back to the A2A call
+	// context, the same source the round-tripper's propagateToken path reads, so
+	// the key stays derivable here even when BearerTokenKey was not threaded into
+	// the MCP request context.
+	subject := subjectKey(models.BearerTokenFromContext(ctx))
 	if subject == "" {
 		p.logger.DebugContext(ctx, "no caller credential on the request, MCP request will use existing headers", "session_id", sessionID)
 		return nil
@@ -502,7 +482,6 @@ func (p *TokenPropagationPlugin) ClearCache() {
 	defer p.mu.Unlock()
 
 	p.tokenCache = make(map[cacheKey]*TokenCacheEntry)
-	p.earliestEviction = 0
 	p.actorTokenCache = nil
 	p.logger.Info("cleared STS token cache")
 }

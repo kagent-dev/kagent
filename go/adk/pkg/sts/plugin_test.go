@@ -486,7 +486,6 @@ func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
 	// The bound comes due while the run is still in flight.
 	due := time.Now().Add(-time.Minute).Unix()
 	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].evictAfter = due
-	plugin.earliestEviction = due
 
 	// The run makes another tool call, which renews the bound.
 	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
@@ -513,7 +512,6 @@ func TestSweepEvictsAnIdleEntryWithoutExpiry(t *testing.T) {
 
 	due := time.Now().Add(-time.Minute).Unix()
 	plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: subjectOf("alice")}].evictAfter = due
-	plugin.earliestEviction = due
 
 	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-idle"})
 
@@ -625,39 +623,21 @@ func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
 	if _, ok := plugin.getCachedToken("sess-b", subjectOf("bob")); !ok {
 		t.Fatal("unexpired entry must survive the sweep")
 	}
-	if plugin.earliestEviction != future {
-		t.Fatalf("earliestEviction = %d, want %d after the sweep", plugin.earliestEviction, future)
-	}
 }
 
-// The earliest expiry gates the walk, so a cache with nothing evictable is left
-// untouched instead of being traversed on every run.
-func TestAfterRunCallbackSkipsWalkUntilSomethingExpires(t *testing.T) {
-	t.Parallel()
-
-	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
-	future := time.Now().Add(time.Hour).Unix()
-	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", future)
-
-	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-a"})
-
-	if _, ok := plugin.getCachedToken("sess-a", subjectOf("alice")); !ok {
-		t.Fatal("unexpired entry must survive")
-	}
-	if plugin.earliestEviction != future {
-		t.Fatalf("earliestEviction = %d, want it left at %d", plugin.earliestEviction, future)
-	}
-}
-
-func TestClearCacheResetsEarliestEviction(t *testing.T) {
+func TestClearCacheDropsEveryEntry(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", time.Now().Add(time.Hour).Unix())
+	plugin.setCachedToken("sess-b", subjectOf("bob"), "bob-token", 0)
 	plugin.ClearCache()
 
-	if plugin.earliestEviction != 0 {
-		t.Fatalf("earliestEviction = %d, want 0 after ClearCache", plugin.earliestEviction)
+	if len(plugin.tokenCache) != 0 {
+		t.Fatalf("cache holds %d entries, want none after ClearCache", len(plugin.tokenCache))
+	}
+	if _, ok := plugin.getCachedToken("sess-a", subjectOf("alice")); ok {
+		t.Fatal("expected no cache hit after ClearCache")
 	}
 }
 
