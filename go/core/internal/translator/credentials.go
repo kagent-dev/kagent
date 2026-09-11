@@ -27,6 +27,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	var bindings []egress.Credential
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
+	boundArtifacts := map[string]bool{}
 	bind := func(rawURL, header, prefix, namespace, name, key string) error {
 		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
@@ -49,6 +50,28 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 					if err := bind(tool.Server.Spec.URL, ref.Name, "", tool.Server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
 						return err
 					}
+				}
+			}
+		}
+		if agent.Template != nil {
+			// Git speaks Basic authentication, so the Secret key holds the
+			// base64 of "<username>:<token>", ready to follow the scheme.
+			bindArtifact := func(source v1alpha3.ArtifactSource) error {
+				if source.Git == nil || source.Git.CredentialRef == nil {
+					return nil
+				}
+				ref := source.Git.CredentialRef
+				boundArtifacts[ref.Name+"\x00"+ref.Key] = true
+				return bind(source.Git.URL, "authorization", "Basic ", agent.Template.Namespace, ref.Name, ref.Key)
+			}
+			for _, skill := range agent.Template.Spec.Skills {
+				if err := bindArtifact(skill.Source); err != nil {
+					return err
+				}
+			}
+			for _, plugin := range agent.Template.Spec.Plugins {
+				if err := bindArtifact(plugin.Source); err != nil {
+					return err
 				}
 			}
 		}
@@ -119,7 +142,8 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		ref := variable.ValueFrom.SecretKeyRef
 		isMCP := strings.HasPrefix(variable.Name, "KAGENT_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CODEX_MCP_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CLAUDE_MCP_CREDENTIAL_")
-		if ref == nil || (!boundModels[variable.Name+"\x00"+ref.Name+"\x00"+ref.Key] && (!isMCP || !boundMCP[ref.Name+"\x00"+ref.Key])) {
+		isArtifact := strings.HasPrefix(variable.Name, ArtifactCredentialEnvPrefix)
+		if ref == nil || (!boundModels[variable.Name+"\x00"+ref.Name+"\x00"+ref.Key] && (!isMCP || !boundMCP[ref.Name+"\x00"+ref.Key]) && (!isArtifact || !boundArtifacts[ref.Name+"\x00"+ref.Key])) {
 			return nil, nil, NewValidationError("environment credential %q cannot use gateway header injection; local signing and arbitrary secret environment variables are unsupported", variable.Name)
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil

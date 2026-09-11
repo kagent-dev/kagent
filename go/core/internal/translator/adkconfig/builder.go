@@ -157,13 +157,14 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 	}
 	stream := true
 	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
-	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
+	skills, err := v2translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = &pluginConfig
+	if len(skills.Resources.Skills) > 0 || len(skills.Resources.Plugins) > 0 {
+		cfg.AgentPlugins = &skills.Resources
 	}
+	modelRuntime.Environment = append(modelRuntime.Environment, skills.Environment...)
 	for _, tool := range input.MCPTools {
 		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
 		if err != nil {
@@ -182,7 +183,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 	result := &Result{
 		Config: cfg, Templates: []*v1alpha3.AgentTemplate{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), skills.Egress...),
 	}
 	if modelConfig != nil {
 		result.Models = []*v2translator.ResolvedModelConfig{input.ResolvedModelConfig}
