@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures/test";
 import { agentChat, instances, loadPage, routes } from "../helpers/app";
+import { tick, untick } from "../helpers/controls";
 
 /**
  * The round trip a snapshot makes: taken in a conversation, released from the page
@@ -67,16 +68,16 @@ test("snapshots: taken in a chat, and deleted in bulk from the list", async ({ p
 
   await test.step("5. the header box picks every row, and unpicks them", async () => {
     const selectAll = page.getByTestId("snapshots-table").locator("thead input[type=checkbox]");
-    await selectAll.check();
+    await tick(selectAll);
     await expect(page.getByTestId("snapshots-delete-selected")).toBeEnabled();
-    await selectAll.uncheck();
+    await untick(selectAll);
     await expect(page.getByTestId("snapshots-delete-selected")).toBeDisabled();
   });
 
   await test.step("6. two of them, deleted together and gone from the list", async () => {
     const boxes = page.getByTestId("snapshots-table").locator("tbody input[type=checkbox]");
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
+    await tick(boxes.nth(0));
+    await tick(boxes.nth(1));
     await page.getByTestId("snapshots-delete-selected").click();
 
     await expect(rows).toHaveCount(2, { timeout: 30_000 });
