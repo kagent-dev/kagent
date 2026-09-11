@@ -1,6 +1,7 @@
 """Google ADK-specific STS integration."""
 
 import hashlib
+import heapq
 import inspect
 import logging
 import time
@@ -41,6 +42,10 @@ MAX_CACHE_TTL_SECONDS = 300
 # holding many distinct credentials need a bound that does not wait for one.
 MAX_CACHE_ENTRIES = 1024
 
+# Separates the session part of a cache key from the subject part. It cannot
+# occur in either part, so the session part of a key is an unambiguous prefix.
+_KEY_SEPARATOR = "\0"
+
 
 def _acting_credential(state: dict) -> Optional[str]:
     """Return the bearer token this caller presented.
@@ -80,7 +85,7 @@ def _cache_key(session_id: str, caller: Optional[str]) -> Optional[str]:
     """
     if not session_id or not caller:
         return None
-    return f"{session_id}\0{_subject_key(caller)}"
+    return f"{session_id}{_KEY_SEPARATOR}{_subject_key(caller)}"
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -120,10 +125,12 @@ class ADKSTSIntegration(STSIntegrationBase):
             use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
             get_subject_token: Optional callback that takes session.state (dict) and returns
                 the subject token string or None. If not set, defaults to extracting the
-                JWT from the Authorization header in session.state["headers"]. The
-                callback must be cheap and free of side effects: when the caller sends
-                no Authorization header, it also identifies the caller, so it runs on
-                every tool call and not once per run.
+                JWT from the Authorization header in session.state["headers"]. When
+                the caller sends no Authorization header, the callback also identifies
+                the caller, so it runs on every tool call and not once per run. In that
+                mode it must be cheap, free of side effects, and return the same value
+                for the whole run: a value that changes between tool calls keys a
+                different entry every time, so the calls go out with no credential.
         """
         super().__init__(
             well_known_uri=well_known_uri,
@@ -139,7 +146,7 @@ class ADKSTSIntegration(STSIntegrationBase):
 class _TokenCacheEntry:
     """Cache entry for access tokens with metadata."""
 
-    def __init__(self, token: str, expiry: Optional[int] = None):
+    def __init__(self, token: str, expiry: Optional[int] = None, keyed_by_hook: bool = False):
         """Initialize token cache entry.
 
         Args:
@@ -147,9 +154,14 @@ class _TokenCacheEntry:
             expiry: Timestamp at which the authority behind the token ends (Unix
                 epoch), or None when nothing on this path states one. It decides
                 whether the token may still be injected.
+            keyed_by_hook: True when get_subject_token, not an inbound
+                Authorization header, supplied the caller part of the key. Such
+                an entry is reachable again only through the same hook, so a run
+                the hook refuses drops it even without a key of its own.
         """
         self.token = token
         self.expiry = expiry
+        self.keyed_by_hook = keyed_by_hook
         # Timestamp at which the entry may be dropped. It bounds memory only,
         # never the caller's authority, so it can be earlier than expiry. _touch
         # sets it when nothing states an expiry.
@@ -226,9 +238,12 @@ class ADKTokenPropagationPlugin(BasePlugin):
         # caller credential's own expiry, so an expired one means the caller's
         # authority is gone. The sweep runs between runs, so the check belongs
         # here too.
+        # Reported at debug level: this runs on every tool call, and a run that
+        # caches nothing makes every one of its tool calls reach here.
+        # before_run_callback warns once when it refuses to propagate.
         cache_entry = self.token_cache.get(cache_key)
         if cache_entry is None or _has_token_expired(cache_entry.expiry):
-            logger.warning("No valid cached token for this caller, injecting no credential")
+            logger.debug("No valid cached token for this caller, injecting no credential")
             return {}
 
         self._touch(cache_entry)
@@ -254,7 +269,15 @@ class ADKTokenPropagationPlugin(BasePlugin):
         cache_key = _cache_key(invocation_context.session.id, credential or subject_token)
         if cache_key is None or not subject_token:
             logger.warning("No subject token in session state, not propagating a token for this run")
-            self._invalidate(cache_key)
+            if cache_key is None:
+                # Nothing identifies the caller, so no single entry can be named.
+                # get_subject_token identifies the caller in this mode, and
+                # header_provider resolves it again per tool call: a hook that
+                # resolves nothing now and a token a moment later would rebuild
+                # the key of the entry this run was refused.
+                self._invalidate_hook_keyed(invocation_context.session.id)
+            else:
+                self._invalidate(cache_key)
             return None
 
         # Check if we have a valid cached subject token
@@ -294,7 +317,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         # it: replaying an expired bearer would otherwise keep hitting a cached
         # delegated token instead of reaching the STS.
         expiry = _earlier_expiry(_extract_jwt_expiry(subject_token), _extract_jwt_expiry(credential))
-        entry = _TokenCacheEntry(token=subject_token, expiry=expiry)
+        entry = _TokenCacheEntry(token=subject_token, expiry=expiry, keyed_by_hook=credential is None)
         self.token_cache[cache_key] = entry
         self._touch(entry)
         self._earliest_eviction = _earlier_expiry(self._earliest_eviction, entry.evict_after)
@@ -329,6 +352,24 @@ class ADKTokenPropagationPlugin(BasePlugin):
         if cache_key and self.token_cache.pop(cache_key, None) is not None:
             logger.debug("Dropped cached token for a caller this run refused to propagate for")
 
+    def _invalidate_hook_keyed(self, session_id: str) -> None:
+        """Drop the session's hook-keyed entries when nothing names the caller.
+
+        Reached when neither an inbound credential nor get_subject_token
+        identifies the caller, so there is no key to drop. Only the entries the
+        hook keyed are candidates: those are the ones a later resolution by the
+        same hook could reach again. The entries of callers that arrived with
+        their own Authorization header stay, since a caller sending no header
+        can never rebuild their key.
+        """
+        if not session_id:
+            return
+
+        prefix = f"{session_id}{_KEY_SEPARATOR}"
+        for key in [key for key, entry in self.token_cache.items() if entry.keyed_by_hook and key.startswith(prefix)]:
+            del self.token_cache[key]
+            logger.debug("Dropped cached token for a caller this run refused to propagate for")
+
     def _touch(self, entry: _TokenCacheEntry) -> None:
         """Record that a run is using this entry.
 
@@ -349,14 +390,19 @@ class ADKTokenPropagationPlugin(BasePlugin):
         The sweep runs between runs only, so it cannot bound a run that sees
         many distinct credentials while it holds them. The entry the current run
         just cached is the most recently used, so it is never dropped here.
+
+        Use order is the only signal available here, so an entry a run still
+        holds is dropped once MAX_CACHE_ENTRIES more recent callers arrive
+        between two of its tool calls. That run then injects no credential for
+        the rest of its tool calls.
         """
         overflow = len(self.token_cache) - MAX_CACHE_ENTRIES
         if overflow <= 0:
             return
 
-        for key, _ in sorted(self.token_cache.items(), key=lambda item: item[1].last_used)[:overflow]:
+        for key, _ in heapq.nsmallest(overflow, self.token_cache.items(), key=lambda item: item[1].last_used):
             del self.token_cache[key]
-        logger.debug("Dropped cached tokens over the cache capacity")
+        logger.debug(f"Dropped {overflow} cached token(s) over the cache capacity")
 
     def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session
