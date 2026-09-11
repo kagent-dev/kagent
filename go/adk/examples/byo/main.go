@@ -58,7 +58,8 @@ func main() {
 
 	ctx := logging.IntoContext(context.Background(), logger)
 	llmModel, err := models.NewOpenAIModel(ctx, &models.OpenAIConfig{
-		Model: modelName,
+		Model:  modelName,
+		APIKey: os.Getenv("OPENAI_API_KEY"),
 	})
 	if err != nil {
 		logger.Error("failed to create LLM model", "error", err)
