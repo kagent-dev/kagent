@@ -13,6 +13,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
@@ -38,7 +39,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
-	environment := adkconfig.DedupeEnv(append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...))
+	environment := adkconfig.DedupeEnv(append(append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...), corev1.EnvVar{Name: "PORT", Value: "80"}))
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
