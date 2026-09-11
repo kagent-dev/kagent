@@ -46,6 +46,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
 	}
+	logConfig, err := v2translator.LogConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
+	}
 
 	providerEnvironment, egress, err := c.provider(ctx, model)
 	if err != nil {
@@ -83,17 +87,34 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 	)
 	environment = append(environment, traceConfig.Environment()...)
-	if traceConfig.Enabled {
+	environment = append(environment, logConfig.Environment()...)
+	if traceConfig.Enabled || logConfig.Enabled {
+		tracesExporter := "none"
+		if traceConfig.Enabled {
+			tracesExporter = "otlp"
+		}
+		logsExporter := "none"
+		if logConfig.Enabled {
+			logsExporter = "otlp"
+		}
 		environment = append(environment,
 			corev1.EnvVar{Name: "CLAUDE_CODE_ENABLE_TELEMETRY", Value: "1"},
 			corev1.EnvVar{Name: "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", Value: "1"},
-			corev1.EnvVar{Name: "OTEL_TRACES_EXPORTER", Value: "otlp"},
+			corev1.EnvVar{Name: "OTEL_TRACES_EXPORTER", Value: tracesExporter},
 			corev1.EnvVar{Name: "OTEL_METRICS_EXPORTER", Value: "none"},
-			corev1.EnvVar{Name: "OTEL_LOGS_EXPORTER", Value: "none"},
+			corev1.EnvVar{Name: "OTEL_LOGS_EXPORTER", Value: logsExporter},
 			corev1.EnvVar{Name: "OTEL_LOG_USER_PROMPTS", Value: "1"},
 			corev1.EnvVar{Name: "OTEL_LOG_TOOL_DETAILS", Value: "1"},
-			corev1.EnvVar{Name: "OTEL_LOG_TOOL_CONTENT", Value: "1"},
 		)
+		if traceConfig.Enabled {
+			environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_TOOL_CONTENT", Value: "1"})
+		}
+		if logConfig.Enabled {
+			environment = append(environment,
+				corev1.EnvVar{Name: "OTEL_LOG_ASSISTANT_RESPONSES", Value: "1"},
+				corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"},
+			)
+		}
 	}
 
 	localAgents, err := c.compileLocalAgents(input.Root)
@@ -130,6 +151,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, mcp.egress...)
 	if traceConfig.Enabled {
 		egress = append(egress, traceConfig.CollectorHostname())
+	}
+	if logConfig.Enabled {
+		egress = append(egress, logConfig.CollectorHostname())
 	}
 	slices.Sort(egress)
 	egress = slices.Compact(egress)

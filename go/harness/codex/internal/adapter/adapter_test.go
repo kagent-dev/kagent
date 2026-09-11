@@ -23,7 +23,11 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {
 		URL: "https://mcp.example.com/mcp", Headers: map[string]string{"X-Tenant": "test", "Authorization": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}, EnabledTools: []string{"read"}, RequireApproval: true,
 	}}
-	cfg.Telemetry = &config.Telemetry{Endpoint: "http://collector:4318/v1/traces", Protocol: "http/protobuf", CaptureContent: true}
+	cfg.Telemetry = &config.Telemetry{
+		CaptureContent: true,
+		Traces:         &config.OTLPExporter{Endpoint: "http://collector:4318/v1/traces", Protocol: "http/protobuf"},
+		Logs:           &config.OTLPExporter{Endpoint: "http://logs:4317", Protocol: "grpc"},
+	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +64,10 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
 	}
-	if native.Otel == nil || !native.Otel.LogUserPrompt || native.Otel.Environment != "kagent" || native.Otel.TraceExporter.OTLPHTTP == nil || native.Otel.TraceExporter.OTLPHTTP.Endpoint != cfg.Telemetry.Endpoint || native.Otel.TraceExporter.OTLPHTTP.Protocol != "binary" {
+	if native.Otel == nil || !native.Otel.LogUserPrompt || native.Otel.Environment != "kagent" ||
+		native.Otel.TraceExporter == nil || native.Otel.TraceExporter.OTLPHTTP == nil ||
+		native.Otel.TraceExporter.OTLPHTTP.Endpoint != cfg.Telemetry.Traces.Endpoint || native.Otel.TraceExporter.OTLPHTTP.Protocol != "binary" ||
+		native.Otel.Exporter == nil || native.Otel.Exporter.OTLPGRPC == nil || native.Otel.Exporter.OTLPGRPC.Endpoint != cfg.Telemetry.Logs.Endpoint {
 		t.Fatalf("generated OTEL configuration = %#v", native.Otel)
 	}
 	if native.ApprovalPolicy.Granular != (nativeGranularApprovalPolicy{MCPElicitations: true}) {
@@ -82,6 +89,48 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if agentConfig.Model != "gpt-5.2-codex" || agentConfig.DeveloperInstructions != `Inspect "all" changes` {
 		t.Fatalf("generated Codex agent configuration = %#v", agentConfig)
+	}
+}
+
+func TestRenderConfigOmitsDisabledSignalExporter(t *testing.T) {
+	tests := []struct {
+		name       string
+		telemetry  *config.Telemetry
+		wantLogs   bool
+		wantTraces bool
+	}{
+		{
+			name: "logs only",
+			telemetry: &config.Telemetry{
+				Logs: &config.OTLPExporter{Endpoint: "http://logs:4317", Protocol: "grpc"},
+			},
+			wantLogs: true,
+		},
+		{
+			name: "traces only",
+			telemetry: &config.Telemetry{
+				Traces: &config.OTLPExporter{Endpoint: "http://traces:4318/v1/traces", Protocol: "http/protobuf"},
+			},
+			wantTraces: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Production("gpt-5.2-codex", "work carefully")
+			cfg.Provider = config.Provider{Name: "openai"}
+			cfg.Telemetry = test.telemetry
+			contents, err := renderConfig(cfg, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var native nativeConfig
+			if err := toml.Unmarshal(contents, &native); err != nil {
+				t.Fatal(err)
+			}
+			if native.Otel == nil || (native.Otel.Exporter != nil) != test.wantLogs || (native.Otel.TraceExporter != nil) != test.wantTraces {
+				t.Fatalf("generated OTEL configuration = %#v", native.Otel)
+			}
+		})
 	}
 }
 
@@ -123,7 +172,11 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	durable := filepath.Join(t.TempDir(), "data")
 	cfg := config.Production("gpt-5.2-codex", "work carefully")
 	cfg.Provider = provider
-	cfg.Telemetry = &config.Telemetry{Endpoint: "http://collector:4318/v1/traces", Protocol: "http/protobuf", CaptureContent: true}
+	cfg.Telemetry = &config.Telemetry{
+		CaptureContent: true,
+		Traces:         &config.OTLPExporter{Endpoint: "http://collector:4318/v1/traces", Protocol: "http/protobuf"},
+		Logs:           &config.OTLPExporter{Endpoint: "http://collector:4318/v1/logs", Protocol: "http/protobuf"},
+	}
 	cfg.Agents = map[string]config.Agent{"reviewer": {Description: "Reviews", Instruction: "Review", Model: "gpt-5.2-codex"}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {URL: "https://mcp.example.com/mcp", EnabledTools: []string{"read"}}}
 	raw, err := json.Marshal(cfg)

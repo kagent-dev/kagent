@@ -41,11 +41,17 @@ type Config struct {
 	InterruptGraceMillis int                    `json:"interrupt_grace_millis"`
 }
 
-// Telemetry contains the compiler-owned native trace exporter settings.
+// Telemetry contains the compiler-owned native signal exporter settings.
 type Telemetry struct {
-	Endpoint       string `json:"endpoint"`
-	Protocol       string `json:"protocol"`
-	CaptureContent bool   `json:"capture_content"`
+	CaptureContent bool          `json:"capture_content"`
+	Traces         *OTLPExporter `json:"traces,omitempty"`
+	Logs           *OTLPExporter `json:"logs,omitempty"`
+}
+
+// OTLPExporter identifies one native OTLP signal destination.
+type OTLPExporter struct {
+	Endpoint string `json:"endpoint"`
+	Protocol string `json:"protocol"`
 }
 
 type Provider struct {
@@ -107,13 +113,14 @@ func (c Config) Validate() error {
 		return fmt.Errorf("unsupported Codex provider %q", c.Provider.Name)
 	}
 	if c.Telemetry != nil {
-		if err := validateURL(c.Telemetry.Endpoint); err != nil {
-			return fmt.Errorf("invalid telemetry endpoint: %w", err)
+		if c.Telemetry.Traces == nil && c.Telemetry.Logs == nil {
+			return fmt.Errorf("telemetry requires at least one exporter")
 		}
-		switch c.Telemetry.Protocol {
-		case "grpc", "http/protobuf":
-		default:
-			return fmt.Errorf("unsupported telemetry protocol %q", c.Telemetry.Protocol)
+		if err := validateExporter("trace", c.Telemetry.Traces); err != nil {
+			return err
+		}
+		if err := validateExporter("log", c.Telemetry.Logs); err != nil {
+			return err
 		}
 	}
 	if c.Provider.BaseURL != "" {
@@ -151,6 +158,21 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateExporter(signal string, exporter *OTLPExporter) error {
+	if exporter == nil {
+		return nil
+	}
+	if err := validateURL(exporter.Endpoint); err != nil {
+		return fmt.Errorf("invalid telemetry %s endpoint: %w", signal, err)
+	}
+	switch exporter.Protocol {
+	case "grpc", "http/protobuf":
+		return nil
+	default:
+		return fmt.Errorf("unsupported telemetry %s protocol %q", signal, exporter.Protocol)
+	}
 }
 
 func validateURL(raw string) error {
