@@ -77,15 +77,41 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 }
 
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
-var BearerTokenKey = &contextKey{}
+var BearerTokenKey = &contextKey{name: "bearer-token"}
 
-// PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
-// is enabled, so every model/embedding provider resolves passthrough the same way.
-// Each caller wraps the returned token in its own SDK's request-option type, since
-// that varies by provider (e.g. Authorization vs Api-Key header).
+// SessionIDKey is the context key for storing the ADK session ID. It exists
+// because ADK's ToolContext.SessionID method stops being reachable once
+// http.Client wraps the request context in a deadline; the A2A executor stamps
+// the value here so the outbound MCP path can recover it.
+var SessionIDKey = &contextKey{name: "session-id"}
+
+// ExchangedTokenProviderKey is the context key for storing an
+// ExchangedTokenProvider. The A2A executor stamps it alongside the bearer token
+// and session ID.
+var ExchangedTokenProviderKey = &contextKey{name: "exchanged-token-provider"}
+
+// ExchangedTokenProvider returns the STS-exchanged token cached for a session.
+// It is an interface because the sts package imports this one, so the dependency
+// can only run the other way through a context value.
+type ExchangedTokenProvider interface {
+	GetTokenForSession(sessionID string) string
+}
+
+// PassthroughToken returns the token to authenticate an outbound LLM call with
+// when apiKeyPassthrough is enabled, so every model/embedding provider resolves
+// passthrough the same way. Each caller wraps it in its own SDK's request-option
+// type, since that varies by provider (e.g. Authorization vs Api-Key header).
+//
+// The STS-exchanged token for the session wins over the caller's own bearer
+// token: it names the user delegated to this agent, which is the identity the
+// backend should see. Without STS configured no provider is stamped and the
+// caller's token is returned, as before.
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
+	}
+	if exchanged := exchangedToken(ctx); exchanged != "" {
+		return exchanged, true
 	}
 	token, ok = ctx.Value(BearerTokenKey).(string)
 	if !ok || token == "" {
@@ -94,7 +120,24 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 	return token, true
 }
 
-type contextKey struct{}
+func exchangedToken(ctx context.Context) string {
+	provider, ok := ctx.Value(ExchangedTokenProviderKey).(ExchangedTokenProvider)
+	if !ok || provider == nil {
+		return ""
+	}
+	sessionID, ok := ctx.Value(SessionIDKey).(string)
+	if !ok || sessionID == "" {
+		return ""
+	}
+	return provider.GetTokenForSession(sessionID)
+}
+
+// contextKey is named so every key is a distinct, non-zero-size allocation:
+// pointers to zero-size structs may share an address, which would make two keys
+// compare equal and let one value silently overwrite another.
+type contextKey struct{ name string }
+
+func (k *contextKey) String() string { return "kagent context key " + k.name }
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {

@@ -15,6 +15,7 @@ from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
+from ._bearer_token import set_exchanged_token_provider
 from ._config_materialize import materialize_from_env
 from .tools import add_skills_tool_to_agent
 
@@ -50,7 +51,9 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         sts_integration = None
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
-        return ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
+        plugin = ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
+        set_exchanged_token_provider(plugin)
+        return plugin
 
 
 def maybe_add_skills(root_agent: BaseAgent):
