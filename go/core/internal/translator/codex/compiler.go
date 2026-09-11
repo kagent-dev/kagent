@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -21,19 +22,23 @@ import (
 )
 
 const (
-	codexHomeEnv        = "CODEX_HOME"
-	openAIAPIKeyEnv     = "OPENAI_API_KEY"
-	awsRegionEnv        = "AWS_REGION"
-	awsBedrockTokenEnv  = "AWS_BEARER_TOKEN_BEDROCK"
-	awsAccessKeyEnv     = "AWS_ACCESS_KEY_ID"
-	awsSecretKeyEnv     = "AWS_SECRET_ACCESS_KEY"
-	awsSessionTokenEnv  = "AWS_SESSION_TOKEN"
-	mcpCredentialPrefix = "KAGENT_CODEX_MCP_CREDENTIAL_"
+	codexHomeEnv             = "CODEX_HOME"
+	openAIAPIKeyEnv          = "OPENAI_API_KEY"
+	awsRegionEnv             = "AWS_REGION"
+	awsBedrockTokenEnv       = "AWS_BEARER_TOKEN_BEDROCK"
+	awsAccessKeyEnv          = "AWS_ACCESS_KEY_ID"
+	awsSecretKeyEnv          = "AWS_SECRET_ACCESS_KEY"
+	awsSessionTokenEnv       = "AWS_SESSION_TOKEN"
+	mcpCredentialPrefix      = "KAGENT_CODEX_MCP_CREDENTIAL_"
+	preResponseTraceFlushEnv = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
+	otelEnvironmentPrefix    = "OTEL_"
 )
 
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
+	preResponseTraceFlushEnv: {},
+	"KAGENT_NAME":            {}, "KAGENT_NAMESPACE": {},
 }
 
 type Compiler struct {
@@ -56,6 +61,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, v2translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough")
 	}
+	traceConfig, err := v2translator.TraceConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
+	}
+	logConfig, err := v2translator.LogConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
+	}
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
 	if err != nil {
@@ -71,7 +84,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	environment := append(providerEnvironment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if _, reserved := ownedEnvironment[variable.Name]; reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
+		_, reserved := ownedEnvironment[variable.Name]
+		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || strings.HasPrefix(variable.Name, otelEnvironmentPrefix) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
@@ -82,12 +96,29 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		}
 		environment = append(environment, envVar)
 	}
+	template, harness := input.Root.Template, input.Harness
+	environment = append(environment,
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
+		corev1.EnvVar{Name: preResponseTraceFlushEnv, Value: "true"},
+	)
+	environment = append(environment, traceConfig.Environment()...)
+	environment = append(environment, logConfig.Environment()...)
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
 	}
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
+	if traceConfig.Enabled || logConfig.Enabled {
+		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: true}
+		if traceConfig.Enabled {
+			cfg.Telemetry.Traces = &codexconfig.OTLPExporter{Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol}
+		}
+		if logConfig.Enabled {
+			cfg.Telemetry.Logs = &codexconfig.OTLPExporter{Endpoint: logConfig.Endpoint, Protocol: logConfig.Protocol}
+		}
+	}
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		cfg.SkillResources = &skillResources
 	}
@@ -112,9 +143,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
+	if traceConfig.Enabled {
+		egress = append(egress, traceConfig.CollectorHostname())
+	}
+	if logConfig.Enabled {
+		egress = append(egress, logConfig.CollectorHostname())
+	}
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
-	template, harness := input.Root.Template, input.Harness
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
 			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,

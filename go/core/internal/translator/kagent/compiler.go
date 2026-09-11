@@ -31,6 +31,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err := requireModels(input.Root); err != nil {
 		return nil, err
 	}
+	traceConfig, err := v2translator.TraceConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
+	}
+	logConfig, err := v2translator.LogConfigFromProcess()
+	if err != nil {
+		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
+	}
 	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
 		return nil, err
@@ -69,7 +77,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
-	environment = append(environment, v2translator.OtelEnvFromProcess()...)
+	environment = append(environment, traceConfig.Environment()...)
+	environment = append(environment, logConfig.Environment()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -79,12 +88,19 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}
+	if traceConfig.Enabled {
+		compiled.Egress = append(compiled.Egress, traceConfig.CollectorHostname())
+	}
+	if logConfig.Enabled {
+		compiled.Egress = append(compiled.Egress, logConfig.CollectorHostname())
+	}
 	slices.Sort(compiled.Egress)
+	compiled.Egress = slices.Compact(compiled.Egress)
 	return &v2translator.CompileResult{Revision: v2translator.Revision{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
 }
 

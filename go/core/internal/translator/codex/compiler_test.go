@@ -88,6 +88,71 @@ func TestCompileSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestCompileTracing(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg codexconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Telemetry == nil || cfg.Telemetry.Traces == nil || cfg.Telemetry.Traces.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Traces.Protocol != "http/protobuf" || cfg.Telemetry.Logs == nil || cfg.Telemetry.Logs.Endpoint != "http://logs:4317" || cfg.Telemetry.Logs.Protocol != "grpc" || !cfg.Telemetry.CaptureContent {
+		t.Fatalf("telemetry = %#v", cfg.Telemetry)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.openai.com", "collector", "logs"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4318/v1/traces",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/protobuf",
+		"OTEL_LOGGING_ENABLED":               "true",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT":   "http://logs:4317",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL":   "grpc",
+		"KAGENT_NAME":                        "assistant-codex",
+		"KAGENT_NAMESPACE":                   "test", preResponseTraceFlushEnv: "true",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+}
+
+func TestCompileRejectsOTELEnvironment(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	value := "Authorization=secret"
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: &value}}
+
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	var validation *v2translator.ValidationError
+	if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
+		t.Fatalf("Compile() error = %v, want OTEL environment conflict", err)
+	}
+}
+
 func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	responses, chat := v1alpha3.OpenAIAPIFormatResponses, v1alpha3.OpenAIAPIFormatChatCompletions
 	tests := []v1alpha3.ModelConfigSpec{

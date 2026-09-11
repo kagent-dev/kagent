@@ -123,6 +123,78 @@ func TestCompileSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestCompileTracing(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "collector"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "otlp",
+		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
+		"OTEL_LOG_USER_PROMPTS": "1", "OTEL_LOG_TOOL_DETAILS": "1",
+		"OTEL_LOG_TOOL_CONTENT": "1", "KAGENT_NAME": "assistant-claude",
+		"KAGENT_NAMESPACE": "test", claudeconfig.PreResponseTraceFlushEnvName: "true",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+}
+
+func TestCompileLogging(t *testing.T) {
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://logs:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "logs"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "none",
+		"OTEL_LOGS_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none",
+		"OTEL_LOG_USER_PROMPTS": "1", "OTEL_LOG_TOOL_DETAILS": "1",
+		"OTEL_LOG_ASSISTANT_RESPONSES": "1", "OTEL_LOG_RAW_API_BODIES": "1",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+	if _, exists := environment["OTEL_LOG_TOOL_CONTENT"]; exists {
+		t.Fatal("logging-only revision enables trace-based tool content")
+	}
+}
+
 func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	tests := []struct {
 		name  string

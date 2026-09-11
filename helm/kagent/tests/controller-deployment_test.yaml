@@ -192,6 +192,33 @@ tests:
           path: data.PROXY_URL
           value: "http://proxy.kagent.svc.cluster.local:8080"
 
+  - it: should preserve signal protocols when traces and logs share an endpoint
+    template: controller-configmap.yaml
+    set:
+      otel:
+        tracing:
+          enabled: true
+          exporter:
+            otlp:
+              endpoint: "http://collector:4317"
+              protocol: "grpc"
+        logging:
+          enabled: true
+          exporter:
+            otlp:
+              endpoint: "http://collector:4317"
+              protocol: "http/protobuf"
+    asserts:
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://collector:4317"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+          value: "grpc"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL
+          value: "http/protobuf"
+
   - it: should not set PROXY_URL when not set
     template: controller-configmap.yaml
     asserts:

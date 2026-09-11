@@ -89,6 +89,7 @@ type nativeConfig struct {
 	WebSearch      string                         `toml:"web_search"`
 	Features       nativeFeatures                 `toml:"features"`
 	Analytics      nativeAnalytics                `toml:"analytics"`
+	Otel           *nativeOtel                    `toml:"otel,omitempty"`
 	ModelProviders map[string]nativeModelProvider `toml:"model_providers,omitempty"`
 	Agents         map[string]nativeAgent         `toml:"agents,omitempty"`
 	MCPServers     map[string]nativeMCPServer     `toml:"mcp_servers,omitempty"`
@@ -112,6 +113,27 @@ type nativeFeatures struct {
 
 type nativeAnalytics struct {
 	Enabled bool `toml:"enabled"`
+}
+
+type nativeOtel struct {
+	LogUserPrompt bool                `toml:"log_user_prompt"`
+	Environment   string              `toml:"environment"`
+	Exporter      *nativeOtelExporter `toml:"exporter,omitempty"`
+	TraceExporter *nativeOtelExporter `toml:"trace_exporter,omitempty"`
+}
+
+type nativeOtelExporter struct {
+	OTLPGRPC *nativeOTLPGRPC `toml:"otlp-grpc,omitempty"`
+	OTLPHTTP *nativeOTLPHTTP `toml:"otlp-http,omitempty"`
+}
+
+type nativeOTLPGRPC struct {
+	Endpoint string `toml:"endpoint"`
+}
+
+type nativeOTLPHTTP struct {
+	Endpoint string `toml:"endpoint"`
+	Protocol string `toml:"protocol"`
 }
 
 type nativeModelProvider struct {
@@ -158,6 +180,14 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 			},
 		}
 	}
+	if cfg.Telemetry != nil {
+		native.Otel = &nativeOtel{
+			LogUserPrompt: cfg.Telemetry.CaptureContent,
+			Environment:   "kagent",
+			Exporter:      nativeExporter(cfg.Telemetry.Logs),
+			TraceExporter: nativeExporter(cfg.Telemetry.Traces),
+		}
+	}
 	for name, agent := range cfg.Agents {
 		native.Agents[name] = nativeAgent{
 			Description: agent.Description,
@@ -187,6 +217,20 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		return nil, fmt.Errorf("encode Codex configuration: %w", err)
 	}
 	return contents, nil
+}
+
+func nativeExporter(exporterConfig *config.OTLPExporter) *nativeOtelExporter {
+	if exporterConfig == nil {
+		return nil
+	}
+	exporter := &nativeOtelExporter{}
+	switch exporterConfig.Protocol {
+	case "grpc":
+		exporter.OTLPGRPC = &nativeOTLPGRPC{Endpoint: exporterConfig.Endpoint}
+	case "http/protobuf":
+		exporter.OTLPHTTP = &nativeOTLPHTTP{Endpoint: exporterConfig.Endpoint, Protocol: "binary"}
+	}
+	return exporter
 }
 
 func nativeProviderName(name string) string {

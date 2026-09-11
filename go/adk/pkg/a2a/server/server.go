@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -51,6 +51,10 @@ type A2AServer struct {
 
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
+	flushBeforeResponse := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
+	if flushBeforeResponse {
+		handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(&traceFlushInterceptor{logger: logger}))
+	}
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
@@ -96,26 +100,17 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		}),
 		otelhttp.WithFilter(isA2ARequest),
 	)
-	// Pre-response span flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH
-	// (the controller sets it on Agent Substrate actors): a checkpoint/suspend
-	// runtime freezes as soon as the response body closes, making this the only
-	// reliable export window. Everywhere else the batch exporter's timer
-	// suffices, and a per-request flush would only add export churn and, during
-	// a collector outage, response-tail latency.
-	//
-	// When enabled, flush after the otelhttp server span ends (when the inner
-	// handler returns) but before net/http closes the response body, which is the
-	// only point the server span itself can be exported from. The executor flushes
-	// the turn's own spans earlier, before yielding the event that ends the turn
-	// (see flushTurnSpans): for a streamed turn that event is on the wire before
-	// this handler returns, and the caller closes the stream on receipt, so a flush
-	// here comes too late for anything but the server span.
+	// Flush again on handler return for errors and non-quiescent responses.
+	// Quiescent events must flush earlier: the gateway may suspend or pause
+	// the actor immediately upon receiving the event, before HTTP body close.
 	handler := http.Handler(instrumentedHandler)
-	if telemetry.PreResponseFlushEnabled() {
+	if flushBeforeResponse {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			instrumentedHandler.ServeHTTP(w, r)
 			if isA2ARequest(r) {
-				telemetry.ForceFlush(r.Context())
+				if err := tracing.ForceFlush(r.Context()); err != nil {
+					logger.ErrorContext(r.Context(), "failed to flush traces after A2A handler", "error", err)
+				}
 			}
 		})
 	}
