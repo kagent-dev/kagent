@@ -595,6 +595,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			if spec.TopK > 0 {
 				anthropic.TopK = &spec.TopK
 			}
+			anthropic.PromptCaching = spec.PromptCaching
+			anthropic.CacheTTL = spec.CacheTTL
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:

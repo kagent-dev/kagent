@@ -117,6 +117,50 @@ type AnthropicConfig struct {
 	// Top-k sampling parameter
 	// +optional
 	TopK int `json:"topK,omitempty"`
+
+	// PromptCaching enables Anthropic prompt caching by marking the reusable
+	// prefix of every Messages API request with `cache_control` breakpoints:
+	// the last tool definition, the last system prompt block and the last
+	// content block of the most recent conversation turn. Anthropic caches the
+	// prefix up to each breakpoint and bills a cache hit at a fraction of the
+	// normal input price on later requests within the TTL. Because the
+	// conversation breakpoint moves with every turn, each call of an agent
+	// loop reads the whole previous history from the cache and writes only
+	// the new turn.
+	//
+	// Recommended for tool-using agents that make many model calls per task
+	// with a stable system prompt and tool set — without it the full history
+	// is billed as fresh input on every call. Cache writes are billed at a
+	// premium over normal input, so a prefix has to be read at least once to
+	// pay off, and each model has a minimum cacheable prefix (1024–4096
+	// tokens depending on the model) below which the markers are silently
+	// ignored.
+	//
+	// See https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+	// for the current list of supported models, minimum prefix sizes and
+	// pricing.
+	// +optional
+	// +kubebuilder:default=false
+	PromptCaching bool `json:"promptCaching,omitempty"`
+
+	// CacheTTL controls how long Anthropic retains a cached prefix when
+	// PromptCaching is enabled. Only meaningful when PromptCaching is true.
+	//
+	//   - "5m" (default): the standard 5-minute cache. Each cache hit refreshes
+	//     the window, so an agent loop whose calls are less than 5 minutes
+	//     apart keeps its prefix cached for the whole task.
+	//   - "1h": the extended 1-hour cache, useful for tasks whose model calls
+	//     are spaced more than 5 minutes apart.
+	//
+	// NOTE: "1h" is NOT strictly better than "5m". 1-hour cache writes are
+	// billed at a higher per-token rate than 5-minute writes. Only choose
+	// "1h" when calls are spaced far enough apart that a 5-minute cache would
+	// expire between them; otherwise the higher write cost is wasted. See the
+	// Anthropic prompt-caching docs above.
+	// +optional
+	// +kubebuilder:validation:Enum="5m";"1h"
+	// +kubebuilder:default="5m"
+	CacheTTL string `json:"cacheTTL,omitempty"`
 }
 
 // TokenExchangeType identifies the token exchange mechanism
