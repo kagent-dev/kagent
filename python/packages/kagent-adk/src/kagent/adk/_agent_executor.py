@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
+from a2a.server.tasks import TaskUpdater
 from a2a.types import (
     Artifact,
     Message,
@@ -59,6 +60,8 @@ from .converters.part_converter import convert_a2a_part_to_genai_part, convert_g
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+_EXPLICIT_A2A_CANCELLATION_ATTR = "_kagent_explicit_a2a_cancellation"
 
 
 class A2aAgentExecutorConfig(BaseModel):
@@ -151,11 +154,21 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             f"Runner must be a Runner instance or a callable that returns a Runner, got {type(self._runner)}"
         )
 
+    @staticmethod
+    def _was_explicitly_canceled(event_queue: EventQueue) -> bool:
+        """Check this execution queue and its handler-created cancellation taps."""
+        queues = (event_queue, *getattr(event_queue, "_children", ()))
+        return any(getattr(queue, _EXPLICIT_A2A_CANCELLATION_ATTR, False) for queue in queues)
+
     @override
-    async def cancel(self, context: RequestContext, event_queue: EventQueue):
-        """Cancel the execution."""
-        # TODO: Implement proper cancellation logic if needed
-        raise NotImplementedError("Cancellation is not supported")
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        """Publish the canonical cancellation event for the current task."""
+        if not context.task_id or not context.context_id:
+            raise ValueError("Cancellation requires task and context IDs")
+
+        await TaskUpdater(event_queue, context.task_id, context.context_id).cancel()
+        # The handler cancels the producer only after this tapped queue is marked.
+        setattr(event_queue, _EXPLICIT_A2A_CANCELLATION_ATTR, True)
 
     @override
     async def execute(
@@ -189,6 +202,9 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 # awaits (e.g. publishing the failure event) don't re-raise.
                 while current_task.uncancel() > 0:
                     pass
+            if self._was_explicitly_canceled(event_queue):
+                logger.info("A2A request execution stopped after explicit cancellation")
+                return
             logger.error(
                 "CancelledError escaped execute, converting to failed status: %s",
                 e,
@@ -245,9 +261,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             try:
                 await self._handle_request(context, event_queue, runner, run_args)
             except asyncio.CancelledError as e:
-                logger.error("A2A request execution was cancelled", exc_info=True)
-                error_message = str(e) or "A2A request execution was cancelled."
-                await self._publish_failed_status_event(context, event_queue, error_message)
+                if self._was_explicitly_canceled(event_queue):
+                    logger.info("A2A request execution stopped after explicit cancellation")
+                else:
+                    logger.error("A2A request execution was cancelled", exc_info=True)
+                    error_message = str(e) or "A2A request execution was cancelled."
+                    await self._publish_failed_status_event(context, event_queue, error_message)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
