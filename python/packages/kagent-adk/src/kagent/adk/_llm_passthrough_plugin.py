@@ -14,7 +14,7 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
 
-from ._bearer_token import extract_bearer_token
+from ._bearer_token import extract_bearer_token, resolve_passthrough_token
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,10 @@ class LLMPassthroughPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> Optional[LlmResponse]:
-        token = extract_bearer_token(callback_context.state.get("headers", {}))
+        token = resolve_passthrough_token(
+            inbound_token=extract_bearer_token(callback_context.state.get("headers", {})),
+            current_session_id=callback_context._invocation_context.session.id,
+        )
         if not token:
             return None
 

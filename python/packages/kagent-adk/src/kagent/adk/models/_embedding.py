@@ -17,7 +17,7 @@ from typing import Any, List, Optional, Union
 import httpx
 import numpy as np
 
-from kagent.adk._bearer_token import bearer_token
+from kagent.adk._bearer_token import resolve_passthrough_token
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.types import EmbeddingConfig
 
@@ -162,7 +162,7 @@ class KAgentEmbedding:
         """
         if not self.config.api_key_passthrough:
             return None
-        return bearer_token.get()
+        return resolve_passthrough_token()
 
     def _tls_http_client(self) -> Optional[httpx.AsyncClient]:
         """httpx client honoring ModelConfig TLS settings, or None when unset."""

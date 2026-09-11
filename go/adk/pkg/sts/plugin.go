@@ -483,6 +483,52 @@ func sessionIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+var _ models.ExchangedTokenProvider = (*TokenPropagationPlugin)(nil)
+
+// ExchangedToken resolves the STS-exchanged token for this request. It is the
+// only read of the token cache, so the outbound LLM call and the MCP header
+// cannot drift apart on mode, session recovery, caller identity or expiry.
+func (p *TokenPropagationPlugin) ExchangedToken(ctx context.Context) (string, bool) {
+	if p == nil || ctx == nil {
+		return "", false
+	}
+
+	// Propagate-only mode mints no credential. Returning nothing leaves the MCP
+	// registry forwarding the live caller bearer rather than overriding it, and
+	// leaves the LLM path on the caller's own token.
+	if p.integration == nil {
+		return "", false
+	}
+
+	sessionID := sessionIDFromContext(ctx)
+	if sessionID == "" {
+		p.logger.DebugContext(ctx, "no session ID in context, no exchanged token for this request")
+		return "", false
+	}
+
+	// Derive the acting subject from this request's own credential, so the token
+	// matches the caller of this request rather than whichever subject first
+	// seeded the session. BearerTokenFromContext falls back to the A2A call
+	// context, the same source the round-tripper's propagateToken path reads, so
+	// the key stays derivable even when BearerTokenKey was not threaded into the
+	// MCP request context.
+	subject := subjectKey(models.BearerTokenFromContext(ctx))
+	if subject == "" {
+		p.logger.DebugContext(ctx, "no caller credential on the request", "session_id", sessionID)
+		return "", false
+	}
+
+	entry, ok := p.getCachedToken(sessionID, subject)
+	if !ok {
+		// The caller is identified but has no usable entry, so this request loses
+		// its delegated identity. Reported above debug: nothing else says so.
+		p.logger.WarnContext(ctx, "no valid cached STS token for this caller", "session_id", sessionID)
+		return "", false
+	}
+
+	return entry.Token, true
+}
+
 // ClearCache clears all cached tokens.
 func (p *TokenPropagationPlugin) ClearCache() {
 	p.mu.Lock()

@@ -93,6 +93,20 @@ var BearerTokenKey = &contextKey{name: "bearer-token"}
 // reachable.
 var SessionIDKey = &contextKey{name: "session-id"}
 
+// ExchangedTokenProviderKey is the context key for storing an
+// ExchangedTokenProvider. The A2A executor stamps it alongside the bearer token
+// and session ID.
+var ExchangedTokenProviderKey = &contextKey{name: "exchanged-token-provider"}
+
+// ExchangedTokenProvider resolves the STS-exchanged token for one request. The
+// implementation owns mode handling, session recovery, caller identity and
+// expiry, so the LLM and MCP paths read the same lookup instead of the cache.
+// It is an interface because the sts package imports this one, so the dependency
+// can only run the other way through a context value.
+type ExchangedTokenProvider interface {
+	ExchangedToken(ctx context.Context) (string, bool)
+}
+
 // PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
 // is enabled, so every model/embedding provider resolves passthrough the same way.
 // Each caller wraps the returned token in its own SDK's request-option type, since
@@ -101,6 +115,13 @@ var SessionIDKey = &contextKey{name: "session-id"}
 // It reads BearerTokenKey alone and takes no call-context fallback, unlike
 // BearerTokenFromContext: passthrough sends the credential to a third-party model
 // provider, so it is limited to the contexts the executor threaded it through.
+//
+// The STS-exchanged token for this request wins over the caller's own bearer
+// token: it names the user delegated to this agent, which is the identity the
+// backend should see. Without STS configured no provider is stamped and the
+// caller's token is returned, as before.
+// A request presenting no caller token gets none: the exchanged token replaces
+// the caller's, it never stands in for its absence.
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
@@ -109,7 +130,19 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 	if !ok || token == "" {
 		return "", false
 	}
+	if exchanged := exchangedToken(ctx); exchanged != "" {
+		return exchanged, true
+	}
 	return token, true
+}
+
+func exchangedToken(ctx context.Context) string {
+	provider, ok := ctx.Value(ExchangedTokenProviderKey).(ExchangedTokenProvider)
+	if !ok || provider == nil {
+		return ""
+	}
+	exchanged, _ := provider.ExchangedToken(ctx)
+	return exchanged
 }
 
 // contextKey is named so every key is a distinct, non-zero-size allocation:
