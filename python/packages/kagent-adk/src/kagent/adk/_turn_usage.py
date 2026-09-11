@@ -40,6 +40,10 @@ class TurnUsage:
         self._counted_event_ids: set[str] = set()
 
     def add(self, event: Optional[Event]) -> None:
+        """Sum one LLM call into the accumulator. A call that reports no total
+        contributes a derived one, so a task mixing providers that report a
+        total with providers that do not keeps a total consistent with its
+        parts."""
         if event is None or event.partial:
             return
         usage = event.usage_metadata
@@ -49,11 +53,14 @@ class TurnUsage:
             if event.id in self._counted_event_ids:
                 return
             self._counted_event_ids.add(event.id)
-        self.prompt_tokens += usage.prompt_token_count or 0
-        self.completion_tokens += usage.candidates_token_count or 0
-        self.thoughts_tokens += usage.thoughts_token_count or 0
+        prompt = usage.prompt_token_count or 0
+        completion = usage.candidates_token_count or 0
+        thoughts = usage.thoughts_token_count or 0
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.thoughts_tokens += thoughts
         self.cached_content_tokens += usage.cached_content_token_count or 0
-        self.total_tokens += usage.total_token_count or 0
+        self.total_tokens += usage.total_token_count or (prompt + completion + thoughts)
         if event.model_version:
             self.model_version = event.model_version
 
@@ -80,14 +87,6 @@ class TurnUsage:
     def empty(self) -> bool:
         return self.prompt_tokens == 0 and self.completion_tokens == 0 and self.total_tokens == 0
 
-    def total_token_count(self) -> int:
-        """Anthropic and other providers report per-call input and output counts
-        without a total, so derive one rather than emitting a zero total next to
-        non-zero counts."""
-        if self.total_tokens:
-            return self.total_tokens
-        return self.prompt_tokens + self.completion_tokens + self.thoughts_tokens
-
     def stamp(self, metadata: dict[str, Any]) -> None:
         """Attach the aggregate to metadata under kagent_usage_total. The value
         is serialized exactly like the per-event kagent_usage_metadata (same
@@ -101,7 +100,7 @@ class TurnUsage:
                 candidates_token_count=self.completion_tokens or None,
                 thoughts_token_count=self.thoughts_tokens or None,
                 cached_content_token_count=self.cached_content_tokens or None,
-                total_token_count=self.total_token_count() or None,
+                total_token_count=self.total_tokens or None,
             )
         )
         if not isinstance(total, dict):

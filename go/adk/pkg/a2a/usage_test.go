@@ -3,8 +3,6 @@ package a2a
 import (
 	"context"
 	"iter"
-	"reflect"
-	"slices"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -12,7 +10,6 @@ import (
 	"github.com/go-logr/logr"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
-	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
@@ -356,66 +353,41 @@ func TestTurnUsageIsPerExecution(t *testing.T) {
 	}
 }
 
-// TestUsageObservingRunnerProviderMirrorsRunnerConfig fails when the upstream
-// RunnerConfig grows a field, since RunnerProvider replaces RunnerConfig
-// outright and a field the mirror does not carry is silently dropped.
-func TestUsageObservingRunnerProviderMirrorsRunnerConfig(t *testing.T) {
-	mirrored := []string{"AppName", "Agent", "SessionService"}
+// TestTurnUsageDerivesTotalPerCall covers a task mixing calls that report a
+// total with calls that do not: the derived counts of the second call must
+// extend the total reported by the first.
+func TestTurnUsageDerivesTotalPerCall(t *testing.T) {
+	_, terminal := runUsageAgent(t, nil,
+		usageResponse("with total", 10, 5, 15),
+		usageResponse("without total", 20, 7, 0),
+	)
 
-	fields := reflect.VisibleFields(reflect.TypeFor[adka2a.RunnerConfig]())
-	got := make([]string, 0, len(fields))
-	for _, field := range fields {
-		got = append(got, field.Name)
-	}
-	if !slices.Equal(got, mirrored) {
-		t.Fatalf("adka2a.RunnerConfig fields = %v, want %v; carry the new field in usageObservingRunnerProvider", got, mirrored)
-	}
-
-	agent, err := adkagent.New(adkagent.Config{
-		Name: "mirror-agent",
-		Run: func(adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-			return func(func(*adksession.Event, error) bool) {}
-		},
-	})
-	if err != nil {
-		t.Fatalf("agent.New() error = %v", err)
-	}
-	sessionService := adksession.InMemoryService()
-	base := runner.Config{AppName: "mirror-app", Agent: agent, SessionService: sessionService}
-
-	cfg, observing, err := usageObservingRunnerProvider(base)(t.Context(), nil, &plugin.Plugin{})
-	if err != nil {
-		t.Fatalf("provider error = %v", err)
-	}
-	if observing == nil {
-		t.Fatal("provider returned a nil runner")
-	}
-	want := adka2a.RunnerConfig{AppName: base.AppName, Agent: base.Agent, SessionService: sessionService}
-	if cfg != want {
-		t.Fatalf("RunnerConfig = %#v, want %#v", cfg, want)
-	}
+	total := usageTotalFrom(t, terminal)
+	assertTokenCount(t, total, "promptTokenCount", 30)
+	assertTokenCount(t, total, "candidatesTokenCount", 12)
+	assertTokenCount(t, total, "totalTokenCount", 42)
 }
 
-func TestUsageObservingRunnerProviderRejectsIncompleteConfig(t *testing.T) {
-	agent, err := adkagent.New(adkagent.Config{
-		Name: "mirror-agent",
-		Run: func(adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-			return func(func(*adksession.Event, error) bool) {}
+// TestTurnUsageDerivedTotalGrowsAcrossExecutions covers a resumed task whose
+// persisted total was itself derived: the next execution must add its own
+// derived total instead of keeping the stored one.
+func TestTurnUsageDerivedTotalGrowsAcrossExecutions(t *testing.T) {
+	storedTask := &a2atype.Task{
+		ID:        "task-1",
+		ContextID: "context-1",
+		Metadata: map[string]any{
+			usageTotalMetadataKey: map[string]any{
+				"promptTokenCount":     float64(100),
+				"candidatesTokenCount": float64(20),
+				"totalTokenCount":      float64(120),
+			},
 		},
-	})
-	if err != nil {
-		t.Fatalf("agent.New() error = %v", err)
 	}
 
-	tests := map[string]runner.Config{
-		"no agent":           {AppName: "app", SessionService: adksession.InMemoryService()},
-		"no session service": {AppName: "app", Agent: agent},
-	}
-	for name, base := range tests {
-		t.Run(name, func(t *testing.T) {
-			if _, _, err := usageObservingRunnerProvider(base)(t.Context(), nil, &plugin.Plugin{}); err == nil {
-				t.Fatal("provider error = nil, want the default provider's validation error")
-			}
-		})
-	}
+	_, terminal := runUsageAgent(t, storedTask, usageResponse("no total", 200, 30, 0))
+
+	total := usageTotalFrom(t, terminal)
+	assertTokenCount(t, total, "promptTokenCount", 300)
+	assertTokenCount(t, total, "candidatesTokenCount", 50)
+	assertTokenCount(t, total, "totalTokenCount", 350)
 }

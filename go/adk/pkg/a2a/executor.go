@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
@@ -54,8 +55,14 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	if cfg.SessionService != nil {
 		runnerConfig.SessionService = cfg.SessionService
 	}
+	logger := cfg.Logger.WithName("kagent-executor")
+	if usagePlugin, err := newTurnUsagePlugin(); err != nil {
+		logger.Error(err, "token usage aggregation is disabled")
+	} else {
+		runnerConfig.PluginConfig.Plugins = append([]*plugin.Plugin{usagePlugin}, runnerConfig.PluginConfig.Plugins...)
+	}
 	builtin := adka2a.NewExecutor(adka2a.ExecutorConfig{
-		RunnerProvider:     usageObservingRunnerProvider(runnerConfig),
+		RunnerConfig:       runnerConfig,
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: genAIPartConverter,
@@ -79,7 +86,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		builtin:        builtin,
 		sessionService: runnerConfig.SessionService,
 		appName:        cfg.AppName,
-		logger:         cfg.Logger.WithName("kagent-executor"),
+		logger:         logger,
 	}
 }
 

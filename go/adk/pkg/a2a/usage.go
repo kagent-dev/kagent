@@ -2,17 +2,11 @@ package a2a
 
 import (
 	"context"
-	"fmt"
-	"iter"
 	"math"
-	"slices"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
-	"google.golang.org/adk/v2/runner"
-	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
@@ -23,6 +17,8 @@ import (
 // a task carries the running task-lifetime total, so consumers take the latest
 // value rather than summing across executions.
 var usageTotalMetadataKey = GetKAgentMetadataKey("usage_total")
+
+const turnUsagePluginName = "kagent_turn_usage"
 
 // turnUsage accumulates token usage across the ADK events of one execution so
 // the aggregated total can be emitted on the terminal status update. Partial
@@ -40,8 +36,9 @@ type turnUsage struct {
 type turnUsageContextKey struct{}
 
 // withTurnUsage binds an accumulator to ctx. The upstream ADK executor derives
-// its ExecutorContext from this context, so the per-event and post-execution
-// callbacks reach the accumulator of the execution they belong to.
+// its ExecutorContext from this context, so the runner plugin and the
+// post-execution callback reach the accumulator of the execution they belong
+// to.
 func withTurnUsage(ctx context.Context, usage *turnUsage) context.Context {
 	return context.WithValue(ctx, turnUsageContextKey{}, usage)
 }
@@ -51,70 +48,39 @@ func turnUsageFrom(ctx context.Context) *turnUsage {
 	return usage
 }
 
-// usageObservingRunnerProvider mirrors the ADK executor's default runner
-// provider and wraps the runner so every ADK event is seen. Events are counted
-// before A2A conversion, which drops the ones it cannot turn into an artifact
-// (a paused tool call, for instance) even though they report token usage.
-func usageObservingRunnerProvider(baseConfig runner.Config) adka2a.RunnerProvider {
-	return func(_ context.Context, _ *a2asrv.ExecutorContext, executorPlugin *plugin.Plugin) (adka2a.RunnerConfig, adka2a.Runner, error) {
-		if baseConfig.Agent == nil {
-			return adka2a.RunnerConfig{}, nil, fmt.Errorf("runner.Config.Agent is not provided")
-		}
-		if baseConfig.SessionService == nil {
-			return adka2a.RunnerConfig{}, nil, fmt.Errorf("runner.Config.SessionService is not provided")
-		}
-
-		cfg := baseConfig
-		cfg.PluginConfig.Plugins = append(slices.Clone(cfg.PluginConfig.Plugins), executorPlugin)
-		adkRunner, err := runner.New(cfg)
-		if err != nil {
-			return adka2a.RunnerConfig{}, nil, err
-		}
-		return adka2a.RunnerConfig{
-				AppName:        cfg.AppName,
-				Agent:          cfg.Agent,
-				SessionService: cfg.SessionService,
-			},
-			&usageObservingRunner{runner: adkRunner}, nil
-	}
+// newTurnUsagePlugin counts every ADK event the runner produces. Events are
+// counted before A2A conversion, which drops the ones it cannot turn into an
+// artifact (a paused tool call, for instance) even though they report token
+// usage.
+func newTurnUsagePlugin() (*plugin.Plugin, error) {
+	return plugin.New(plugin.Config{
+		Name: turnUsagePluginName,
+		OnEventCallback: func(ictx adkagent.InvocationContext, event *adksession.Event) (*adksession.Event, error) {
+			turnUsageFrom(ictx).add(event)
+			return nil, nil
+		},
+	})
 }
 
-type usageObservingRunner struct {
-	runner *runner.Runner
-}
-
-func (r *usageObservingRunner) Run(
-	ctx context.Context,
-	userID, sessionID string,
-	message *genai.Content,
-	config adkagent.RunConfig,
-) iter.Seq2[*adksession.Event, error] {
-	events := r.runner.Run(ctx, userID, sessionID, message, config)
-	usage := turnUsageFrom(ctx)
-	if usage == nil {
-		return events
-	}
-	return func(yield func(*adksession.Event, error) bool) {
-		for event, err := range events {
-			if err == nil {
-				usage.add(event)
-			}
-			if !yield(event, err) {
-				return
-			}
-		}
-	}
-}
-
+// add sums one LLM call into the accumulator. A call that reports no total
+// contributes a derived one, so a task mixing providers that report a total
+// with providers that do not keeps a total consistent with its parts.
 func (u *turnUsage) add(event *adksession.Event) {
 	if u == nil || event == nil || event.Partial || event.UsageMetadata == nil {
 		return
 	}
-	u.promptTokens += int64(event.UsageMetadata.PromptTokenCount)
-	u.completionTokens += int64(event.UsageMetadata.CandidatesTokenCount)
-	u.thoughtsTokens += int64(event.UsageMetadata.ThoughtsTokenCount)
+	prompt := int64(event.UsageMetadata.PromptTokenCount)
+	completion := int64(event.UsageMetadata.CandidatesTokenCount)
+	thoughts := int64(event.UsageMetadata.ThoughtsTokenCount)
+	total := int64(event.UsageMetadata.TotalTokenCount)
+	if total == 0 {
+		total = prompt + completion + thoughts
+	}
+	u.promptTokens += prompt
+	u.completionTokens += completion
+	u.thoughtsTokens += thoughts
 	u.cachedContentTokens += int64(event.UsageMetadata.CachedContentTokenCount)
-	u.totalTokens += int64(event.UsageMetadata.TotalTokenCount)
+	u.totalTokens += total
 	if event.ModelVersion != "" {
 		u.modelVersion = event.ModelVersion
 	}
@@ -164,16 +130,6 @@ func (u *turnUsage) empty() bool {
 	return u.promptTokens == 0 && u.completionTokens == 0 && u.totalTokens == 0
 }
 
-// totalTokenCount derives a total when no provider reported one. The Anthropic
-// models report per-call input and output counts without a total, and emitting
-// a zero total next to non-zero counts reads as "no tokens were used".
-func (u *turnUsage) totalTokenCount() int64 {
-	if u.totalTokens != 0 {
-		return u.totalTokens
-	}
-	return u.promptTokens + u.completionTokens + u.thoughtsTokens
-}
-
 // stampEvent attaches the aggregate to a terminal status update under
 // kagent_usage_total. The value is serialized exactly like the per-event
 // adk_usage_metadata (same genai type, same JSON mapping) plus modelVersion, so
@@ -187,7 +143,7 @@ func (u *turnUsage) stampEvent(event *a2atype.TaskStatusUpdateEvent) {
 		CandidatesTokenCount:    clampInt32(u.completionTokens),
 		ThoughtsTokenCount:      clampInt32(u.thoughtsTokens),
 		CachedContentTokenCount: clampInt32(u.cachedContentTokens),
-		TotalTokenCount:         clampInt32(u.totalTokenCount()),
+		TotalTokenCount:         clampInt32(u.totalTokens),
 	})
 	if err != nil || total == nil {
 		return

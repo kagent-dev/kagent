@@ -193,6 +193,58 @@ def test_derives_total_when_provider_reports_none():
     }
 
 
+def test_derives_total_per_call():
+    """A task mixing a call that reports a total with one that does not."""
+    usage = TurnUsage()
+    usage.add(usage_event(10, 5, 15, None, partial=False))
+    usage.add(
+        Event(
+            author="agent",
+            partial=False,
+            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=20,
+                candidates_token_count=7,
+            ),
+        )
+    )
+
+    assert stamped_total(usage) == {
+        "promptTokenCount": 30,
+        "candidatesTokenCount": 12,
+        "totalTokenCount": 42,
+    }
+
+
+def test_derived_total_grows_across_executions():
+    """A resumed task whose persisted total was itself derived."""
+    usage = TurnUsage()
+    usage.seed_from_task(
+        task_with_total(
+            {
+                "promptTokenCount": 100,
+                "candidatesTokenCount": 20,
+                "totalTokenCount": 120,
+            }
+        )
+    )
+    usage.add(
+        Event(
+            author="agent",
+            partial=False,
+            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=200,
+                candidates_token_count=30,
+            ),
+        )
+    )
+
+    assert stamped_total(usage) == {
+        "promptTokenCount": 300,
+        "candidatesTokenCount": 50,
+        "totalTokenCount": 350,
+    }
+
+
 @pytest.mark.asyncio
 async def test_plugin_counts_events_that_produce_no_a2a_event():
     """The event carrying the usage of the call that pauses a task has its
