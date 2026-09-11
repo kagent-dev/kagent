@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -64,10 +65,11 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	wpKey types.NamespacedName,
 	podTemplate corev1.PodTemplateSpec,
 ) (*atev1alpha1.ActorTemplate, error) {
-	kagentContainer := findKagentContainer(podTemplate.Spec.Containers)
-	if kagentContainer == nil {
+	kagentIdx := findKagentContainerIndex(podTemplate.Spec.Containers)
+	if kagentIdx < 0 {
 		return nil, fmt.Errorf("pod template is missing the kagent container")
 	}
+	kagentContainer := &podTemplate.Spec.Containers[kagentIdx]
 	image, err := pinImageRef(kagentContainer.Image)
 	if err != nil {
 		return nil, err
@@ -77,11 +79,19 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	if err != nil {
 		return nil, err
 	}
+	// Extra containers (byo.deployment.extraContainers / declarative deployment.extraContainers)
+	// run alongside the agent in the same gVisor sandbox — shared loopback, separate rootfs — so
+	// sidecars keep working on substrate. They are appended AFTER the agent container:
+	// applyDurableDirSessionStore mounts /data on Containers[0], which must stay the agent.
+	extraContainers, err := buildSubstrateExtraContainers(podTemplate.Spec.Containers, kagentIdx)
+	if err != nil {
+		return nil, err
+	}
 
 	spec := atev1alpha1.ActorTemplateSpec{
 		PauseImage:   p.Defaults.PauseImage,
 		SandboxClass: atev1alpha1.SandboxClassGvisor,
-		Containers: []atev1alpha1.Container{{
+		Containers: append([]atev1alpha1.Container{{
 			Name:    defaultKagentContainer,
 			Image:   image,
 			Command: command,
@@ -98,7 +108,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 					Port: substrateKagentListenPort,
 				},
 			},
-		}},
+		}}, extraContainers...),
 		WorkerSelector: workerSelectorForPool(wpKey),
 		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 			Location: sandboxAgentSnapshotsLocation(sa),
@@ -176,16 +186,122 @@ func applyDurableDirSessionStore(spec *atev1alpha1.ActorTemplateSpec) {
 	spec.SnapshotsConfig.OnCommit = atev1alpha1.SnapshotScopeData
 }
 
-func findKagentContainer(containers []corev1.Container) *corev1.Container {
+// findKagentContainerIndex returns the index of the agent's main container: the one named
+// "kagent", falling back to the first container when none carries the reserved name (mirrors
+// the old findKagentContainer pointer semantics).
+func findKagentContainerIndex(containers []corev1.Container) int {
 	for i := range containers {
 		if containers[i].Name == defaultKagentContainer {
-			return &containers[i]
+			return i
 		}
 	}
 	if len(containers) > 0 {
-		return &containers[0]
+		return 0
 	}
-	return nil
+	return -1
+}
+
+// maxActorTemplateContainers mirrors the ActorTemplate CRD's spec.containers MaxItems=10.
+const maxActorTemplateContainers = 10
+
+// buildSubstrateExtraContainers converts the pod template's non-kagent containers (BYO
+// byo.deployment.extraContainers, or a declarative agent's deployment.extraContainers) into
+// ActorTemplate containers, so sidecars keep running alongside the agent inside the same
+// gVisor sandbox: shared loopback network, separate rootfs and mount namespaces.
+//
+// The ActorTemplate container contract is a strict subset of the Kubernetes one:
+//   - the command must be fully explicit (verbatim OCI Process.Args, no image-entrypoint
+//     fallback — the same rule ValidateSubstrateSandboxAgentSpec enforces for the BYO cmd);
+//   - the image must be digest-pinned (pinImageRef);
+//   - env supports literals and secretKeyRef only; envFrom, configMapKeyRef and any other
+//     valueFrom are dropped (sanitizeActorTemplateEnvVar);
+//   - an HTTP readiness probe maps to Readyz so actor readiness keeps gating on the sidecar;
+//     TCP/exec probes and lifecycle hooks have no substrate equivalent and are ignored.
+//
+// Volumes are NOT mapped: ActorTemplate volumes only support durableDir (one per template,
+// already consumed by the agent's /data session store), so secret/configMap/emptyDir mounts
+// would silently misconfigure a sidecar — an extra container carrying volumeMounts is
+// rejected instead.
+func buildSubstrateExtraContainers(containers []corev1.Container, kagentIdx int) ([]atev1alpha1.Container, error) {
+	var out []atev1alpha1.Container
+	for i := range containers {
+		if i == kagentIdx {
+			continue
+		}
+		c := &containers[i]
+		if c.Name == "" {
+			return nil, fmt.Errorf("extra container %d has no name", i)
+		}
+		if len(c.VolumeMounts) > 0 {
+			return nil, fmt.Errorf("extra container %q mounts volumes, which substrate ActorTemplates do not support (durableDir is reserved for the agent's /data session store)", c.Name)
+		}
+		image, err := pinImageRef(c.Image)
+		if err != nil {
+			return nil, fmt.Errorf("extra container %q: %w", c.Name, err)
+		}
+		if len(c.Command) == 0 {
+			return nil, fmt.Errorf("extra container %q on substrate must set command (substrate does not fall back to the image entrypoint)", c.Name)
+		}
+		ec := atev1alpha1.Container{
+			Name:    c.Name,
+			Image:   image,
+			Command: append(append([]string{}, c.Command...), c.Args...),
+			Env:     actorTemplateEnvFromPodEnv(c.Env),
+		}
+		if get := probeHTTPGet(c.ReadinessProbe); get != nil {
+			readyz, err := substrateReadyzFromProbe(c, get)
+			if err != nil {
+				return nil, fmt.Errorf("extra container %q: %w", c.Name, err)
+			}
+			ec.Readyz = readyz
+		}
+		out = append(out, ec)
+	}
+	if 1+len(out) > maxActorTemplateContainers {
+		return nil, fmt.Errorf("substrate ActorTemplates support at most %d containers (the agent plus %d extra)", maxActorTemplateContainers, maxActorTemplateContainers-1)
+	}
+	return out, nil
+}
+
+// probeHTTPGet returns the HTTP handler of a Kubernetes readiness probe, or nil when the
+// probe is absent or is a TCP/exec probe (which have no substrate equivalent).
+func probeHTTPGet(p *corev1.Probe) *corev1.HTTPGetAction {
+	if p == nil {
+		return nil
+	}
+	return p.HTTPGet
+}
+
+// substrateReadyzFromProbe maps an HTTP readiness probe onto an ActorTemplate ContainerReadyz.
+// ActorTemplate probe ports are plain integers: a named port must resolve against the extra
+// container's own containerPorts (the translator only registers the agent container's "http"
+// port). An empty path takes the substrate default, /readyz.
+func substrateReadyzFromProbe(c *corev1.Container, get *corev1.HTTPGetAction) (*atev1alpha1.ContainerReadyz, error) {
+	var port int32
+	switch get.Port.Type {
+	case intstr.Int:
+		port = get.Port.IntVal
+	case intstr.String:
+		for i := range c.Ports {
+			if c.Ports[i].Name == get.Port.StrVal {
+				port = c.Ports[i].ContainerPort
+				break
+			}
+		}
+		if port == 0 {
+			return nil, fmt.Errorf("readiness probe names port %q which the container does not declare", get.Port.StrVal)
+		}
+	}
+	if port < 1 || port > 65535 {
+		return nil, fmt.Errorf("readiness probe port %q is not a valid port", get.Port.String())
+	}
+	path := get.Path
+	if path == "" {
+		path = "/readyz"
+	}
+	return &atev1alpha1.ContainerReadyz{
+		HTTPGet: &atev1alpha1.HTTPGetAction{Path: path, Port: port},
+	}, nil
 }
 
 // buildSubstrateKagentContainerCommand returns the ActorTemplate command and the prepended
