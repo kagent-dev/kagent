@@ -6,12 +6,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -103,6 +105,10 @@ type kagentReconciler struct {
 	// uses s.Spec.URL verbatim. Mirrors the agent translator's config-phase
 	// egress rewrite.
 	mcpEgressPlaintext bool
+
+	// toolSnapshots caches the last persisted tool fingerprint per server so
+	// periodic discovery can skip unchanged Postgres writes.
+	toolSnapshots sync.Map
 }
 
 func NewKagentReconciler(
@@ -387,6 +393,7 @@ func (a *kagentReconciler) ReconcileKagentMCPService(ctx context.Context, req ct
 			if err := a.dbClient.DeleteToolsForServer(ctx, dbService.Name, dbService.GroupKind); err != nil {
 				reconcileLog.Error(err, "failed to delete tools for mcp service", "service", req.String())
 			}
+			a.evictToolSnapshot(dbService.Name, dbService.GroupKind)
 			return nil
 		}
 		return fmt.Errorf("failed to get service %s: %w", req.Name, err)
@@ -604,6 +611,7 @@ func (a *kagentReconciler) ReconcileKagentMCPServer(ctx context.Context, req ctr
 			if err := a.dbClient.DeleteToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
 				reconcileLog.Error(err, "failed to delete tools for mcp server", "mcpServer", req.String())
 			}
+			a.evictToolSnapshot(dbServer.Name, dbServer.GroupKind)
 			return nil
 		}
 		return fmt.Errorf("failed to get mcp server %s: %w", req.Name, err)
@@ -654,6 +662,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 			if err := a.dbClient.DeleteToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
 				l.Error(err, "failed to delete tools for remote mcp server")
 			}
+			a.evictToolSnapshot(dbServer.Name, dbServer.GroupKind)
 
 			return nil
 		}
@@ -1146,10 +1155,6 @@ func agentKind(agent v1alpha2.AgentObject) string {
 }
 
 func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {
-	if _, err := a.dbClient.StoreToolServer(ctx, toolServer); err != nil {
-		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
-	}
-
 	// Bound the entire registration sequence (header resolution + MCP connect +
 	// tool listing) to the effective per-resource timeout so that a hung or
 	// unreachable endpoint cannot block this goroutine — and therefore all
@@ -1159,20 +1164,85 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 
 	tsp, err := a.createMcpTransport(tCtx, remoteMcpServer)
 	if err != nil {
+		a.ensureToolServerRow(ctx, toolServer)
 		return nil, fmt.Errorf("failed to create client for toolServer %s: %w", toolServer.Name, err)
 	}
 
 	tools, err := a.listTools(tCtx, tsp, toolServer)
 	if err != nil {
+		a.ensureToolServerRow(ctx, toolServer)
 		return nil, fmt.Errorf("failed to fetch tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
-	// Refresh tools in database - uses transaction for atomicity
+	// Skip the Postgres write when this process already persisted the same
+	// server + tool list. Polling still discovers federated catalog changes;
+	// idle DBs can drop connections and scale to zero.
+	if a.toolSnapshotUnchanged(toolServer, tools) {
+		return tools, nil
+	}
+
+	a.evictToolSnapshot(toolServer.Name, toolServer.GroupKind)
+	if _, err := a.dbClient.StoreToolServer(ctx, toolServer); err != nil {
+		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
+	}
+
 	if err := a.dbClient.RefreshToolsForServer(ctx, toolServer.Name, toolServer.GroupKind, tools...); err != nil {
 		return nil, fmt.Errorf("failed to refresh tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
+	a.rememberToolSnapshot(toolServer, tools)
 	return tools, nil
+}
+
+func toolSnapshotKey(name, groupKind string) string {
+	return name + "\x00" + groupKind
+}
+
+// mcpToolSnapshot returns a hash of the tool server description and sorted tool list.
+func mcpToolSnapshot(ts *database.ToolServer, tools []*v1alpha2.MCPTool) string {
+	sorted := slices.Clone(tools)
+	slices.SortFunc(sorted, func(a, b *v1alpha2.MCPTool) int {
+		if n := strings.Compare(a.Name, b.Name); n != 0 {
+			return n
+		}
+		return strings.Compare(a.Description, b.Description)
+	})
+	b, err := json.Marshal([]any{ts.Description, tools == nil, sorted})
+	if err != nil {
+		// Fail open: an unhashable payload must never read as "unchanged",
+		// which would skip the write for as long as the process lives.
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func (a *kagentReconciler) toolSnapshotUnchanged(ts *database.ToolServer, tools []*v1alpha2.MCPTool) bool {
+	snapshot := mcpToolSnapshot(ts, tools)
+	prev, ok := a.toolSnapshots.Load(toolSnapshotKey(ts.Name, ts.GroupKind))
+	return ok && snapshot != "" && prev.(string) == snapshot
+}
+
+func (a *kagentReconciler) rememberToolSnapshot(ts *database.ToolServer, tools []*v1alpha2.MCPTool) {
+	a.toolSnapshots.Store(toolSnapshotKey(ts.Name, ts.GroupKind), mcpToolSnapshot(ts, tools))
+}
+
+func (a *kagentReconciler) evictToolSnapshot(name, groupKind string) {
+	a.toolSnapshots.Delete(toolSnapshotKey(name, groupKind))
+}
+
+// ensureToolServerRow writes the ToolServer once so a discovery failure still
+// shows up in DB-backed APIs. Later failures skip the write.
+func (a *kagentReconciler) ensureToolServerRow(ctx context.Context, ts *database.ToolServer) {
+	if a.toolSnapshotUnchanged(ts, nil) {
+		return
+	}
+	a.evictToolSnapshot(ts.Name, ts.GroupKind)
+	if _, err := a.dbClient.StoreToolServer(ctx, ts); err != nil {
+		reconcileLog.Error(err, "failed to store toolServer after discovery error", "toolServer", ts.Name)
+		return
+	}
+	a.rememberToolSnapshot(ts, nil)
 }
 
 func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {
