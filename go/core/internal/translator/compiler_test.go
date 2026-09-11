@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
@@ -977,4 +979,88 @@ func TestResolveModelConfigMistral(t *testing.T) {
 
 	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
 	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
+}
+
+func TestCompileAgentKeepsSkillCredentialsOutOfConfig(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "skills-git-auth", Namespace: "test", UID: types.UID("secret-uid")},
+		Data:       map[string][]byte{"token": []byte("ghp_private-skills-token")},
+	}
+	credentialRef := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
+			Skills: []v1alpha3.AgentTemplateSkill{
+				{Name: "runbooks", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+					URL: "https://github.com/acme/private-skills", Commit: "cccccccccccccccccccccccccccccccccccccccc", CredentialRef: credentialRef,
+				}, Path: "runbooks"}},
+				{Name: "public", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+					URL: "https://github.com/acme/public-skills", Commit: "dddddddddddddddddddddddddddddddddddddddd",
+				}}},
+			},
+			Plugins: []v1alpha3.PluginBundle{{
+				Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+					URL: "https://github.com/acme/private-plugins", Commit: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", CredentialRef: credentialRef,
+				}},
+				Skills: []string{"deploy"},
+			}},
+		},
+	}
+	spec, err := compiler(t, modelConfig(), secret).CompileAgent(t.Context(), inlineAgent(skillCredentialHarness(), template))
+	require.NoError(t, err)
+
+	if bytes.Contains(spec.ConfigJSON, secret.Data["token"]) || bytes.Contains(spec.Provenance, secret.Data["token"]) {
+		t.Fatal("runtime revision contains the skill credential value")
+	}
+	var config adk.AgentConfig
+	require.NoError(t, json.Unmarshal(spec.ConfigJSON, &config))
+	require.NotNil(t, config.AgentPlugins)
+	require.Len(t, config.AgentPlugins.Skills, 2)
+	require.Len(t, config.AgentPlugins.Plugins, 1)
+
+	var artifactCredentials []corev1.EnvVar
+	for _, variable := range spec.Environment {
+		require.Nil(t, variable.ValueFrom, "runtime revision environment contains unresolved valueFrom: %+v", variable)
+		if strings.HasPrefix(variable.Name, v2translator.ArtifactCredentialEnvPrefix) {
+			artifactCredentials = append(artifactCredentials, variable)
+		}
+	}
+	require.Len(t, artifactCredentials, 1, "one Secret key compiles to one variable")
+	require.Equal(t, v2translator.CredentialPlaceholder, artifactCredentials[0].Value, "the actor holds a placeholder, the gateway the credential")
+	require.Contains(t, spec.Credentials, egress.Credential{
+		Hostname: "github.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/test/" + secret.Name + "/token",
+	}, "credentials: %+v", spec.Credentials)
+	require.Zero(t, bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)), "a rotation of the credential is not a new revision; the gateway reads the Secret live: %s", spec.Provenance)
+	require.Contains(t, spec.EgressDestinations, "https://github.com:443")
+}
+
+func TestCompileAgentReportsAMissingSkillCredentialSecret(t *testing.T) {
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: "default-model"},
+			Skills: []v1alpha3.AgentTemplateSkill{{Name: "runbooks", Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
+				URL: "https://github.com/acme/private-skills", Commit: "cccccccccccccccccccccccccccccccccccccccc",
+				CredentialRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"},
+			}}}},
+		},
+	}
+	_, err := compiler(t, modelConfig()).CompileAgent(t.Context(), inlineAgent(skillCredentialHarness(), template))
+	require.ErrorContains(t, err, `secret "missing" not found`)
+	var validation *v2translator.ValidationError
+	require.False(t, errors.As(err, &validation), "a missing Secret is a reference failure the controller retries, not a validation error")
+}
+
+func skillCredentialHarness() *v1alpha3.Harness {
+	return &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:   &v1alpha3.KagentHarness{},
+			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
 }
