@@ -1390,6 +1390,146 @@ class TestADKTokenPropagationPlugin:
         assert plugin.cache_key(ic) in plugin.token_cache
         assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": f"Bearer {alice}"}
 
+    @pytest.mark.asyncio
+    async def test_header_provider_rejects_an_entry_past_the_caller_expiry(self):
+        """Case: the caller's bearer outlives neither itself nor the entry keyed on it,
+        so a tool call after it expires must not receive the delegated token."""
+        now = int(time.time())
+        alice = self._jwt("https://dex.example", "alice", expiry=now + 30)
+        long_lived = self._jwt("https://dex.example", "alice", expiry=now + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=long_lived)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-exp", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        ro_ctx = self._make_readonly_context(ic)
+        assert plugin.header_provider(ro_ctx) == {"Authorization": f"Bearer {long_lived}"}
+
+        # The run is still going, so the sweep has not run: header_provider is the
+        # only thing standing between the expired caller and the delegated token.
+        plugin.token_cache[plugin.cache_key(ic)].expiry = now - 1
+        assert plugin.header_provider(ro_ctx) == {}
+
+    @pytest.mark.asyncio
+    async def test_failed_exchange_drops_the_previous_entry(self):
+        """Case: an exchange the STS rejects must not leave the earlier delegated
+        token injectable for the rest of its lifetime."""
+        now = int(time.time())
+        alice = self._jwt("https://dex.example", "alice", expiry=now + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-fail", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": "Bearer exchanged-alice"}
+
+        # Force the next run past the cache hit, then have the STS reject it.
+        plugin.token_cache[plugin.cache_key(ic)].expiry = now - 1
+        sts.exchange_token = AsyncMock(side_effect=RuntimeError("invalid_grant"))
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.cache_key(ic) not in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_raising_subject_hook_drops_the_previous_entry(self):
+        """Case: a hook that stops resolving a token for a caller must stop that
+        caller's tool calls too, not serve the entry the last run cached."""
+        alice = self._jwt("https://dex.example", "alice")
+        raise_now = False
+
+        def get_subject_token(state):
+            if raise_now:
+                raise RuntimeError("subject lookup is down")
+            return state[HEADERS_KEY]["Authorization"].removeprefix("Bearer ")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook-fail", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": "Bearer exchanged-alice"}
+
+        raise_now = True
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_subject_hook_returning_none_drops_the_previous_entry(self):
+        """Case: same as a raising hook, for one that simply stops returning a token."""
+        alice = self._jwt("https://dex.example", "alice")
+        resolve = True
+
+        def get_subject_token(state):
+            return state[HEADERS_KEY]["Authorization"].removeprefix("Bearer ") if resolve else None
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook-none", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": "Bearer exchanged-alice"}
+
+        resolve = False
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_a_refused_run_leaves_other_callers_alone(self):
+        """Case: dropping a refused caller's entry must not disturb the entry of
+        another caller sharing the session."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+        refuse_alice = False
+
+        def get_subject_token(state):
+            token = state[HEADERS_KEY]["Authorization"].removeprefix("Bearer ")
+            return None if refuse_alice and token == alice else token
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=lambda subject_token, **_: f"exchanged-for-{subject_token[-5:]}")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic_alice = self._make_invocation_context("shared-refuse", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-refuse", headers={"Authorization": f"Bearer {bob}"})
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        await plugin.before_run_callback(invocation_context=ic_bob)
+        assert len(plugin.token_cache) == 2
+
+        refuse_alice = True
+        await plugin.before_run_callback(invocation_context=ic_alice)
+
+        assert plugin.cache_key(ic_alice) not in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic_bob)) == {
+            "Authorization": f"Bearer exchanged-for-{bob[-5:]}"
+        }
+
 
 class TestADKSTSIntegration:
     """Test cases for ADKSTSIntegration."""

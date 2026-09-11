@@ -200,8 +200,12 @@ class ADKTokenPropagationPlugin(BasePlugin):
 
         cache_key = self.cache_key(invocation_context)
         cache_entry = self.token_cache.get(cache_key) if cache_key else None
-        if not cache_entry:
-            logger.debug("no cached access token for this caller, leaving existing headers in place")
+        # The entry is capped at the caller credential's own expiry, so an
+        # expired one means the caller's authority is gone, not merely that the
+        # delegated token is stale. The sweep only runs between runs, so the
+        # check has to happen here too.
+        if not cache_entry or _has_token_expired(cache_entry.expiry):
+            logger.debug("no valid cached access token for this caller, leaving existing headers in place")
             return {}
 
         logger.debug("Using cached access token for tool invocation")
@@ -227,6 +231,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         cache_key = self._cache_key_for(invocation_context.session.id, credential, subject_token)
         if cache_key is None:
             logger.debug("subject token not found in session state for token propagation")
+            self._invalidate(self.cache_key(invocation_context))
             return None
 
         # Check if we have a valid cached subject token
@@ -244,6 +249,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
             actor_token = await self._get_actor_token()
             if actor_token is None and self.sts_integration.fetch_actor_token:
                 # Dynamic fetch failed; already logged a warning in _get_actor_token
+                self._invalidate(cache_key)
                 return None
 
             try:
@@ -257,6 +263,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 )
             except Exception as e:
                 logger.warning(f"STS token exchange failed: {e}")
+                self._invalidate(cache_key)
                 return None
 
         # Extract expiry from the token, bounding tokens that carry none so every
@@ -294,6 +301,18 @@ class ADKTokenPropagationPlugin(BasePlugin):
         except Exception as e:
             logger.warning(f"Failed to read subject token from session state: {e}")
             return None
+
+    def _invalidate(self, cache_key: Optional[str]) -> None:
+        """Drop the entry of a caller this run refuses to propagate a token for.
+
+        header_provider serves the cache on its own, without re-reading
+        get_subject_token and without repeating the exchange, so an entry left
+        behind by a refused run keeps authenticating tool calls until it
+        expires. A refusal means the caller's authority is in question, so the
+        entry goes with it.
+        """
+        if cache_key and self.token_cache.pop(cache_key, None) is not None:
+            logger.debug("Dropped cached token for a caller this run refused to propagate for")
 
     def _cache_key_for(
         self,
