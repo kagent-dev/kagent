@@ -37,6 +37,8 @@ message Harness {
   // Ready mirrors the Ready status condition. False also covers a Harness the
   // controller has not yet observed.
   bool ready = 5;
+
+  bool can_delete = 6;
 }
 
 message ListHarnessesRequest {
@@ -45,6 +47,7 @@ message ListHarnessesRequest {
 
 message ListHarnessesResponse {
   repeated Harness harnesses = 1;
+  bool can_create = 2;
 }
 
 message CreateHarnessRequest {

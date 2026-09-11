@@ -66,7 +66,15 @@ export function ModelEditPage() {
 
         {model.isLoading ? <Skeleton active paragraph={{ rows: 6 }} /> : null}
 
-        {model.data ? (
+        {model.data && !model.data.canUpdate ? (
+          <Alert
+            type="info"
+            showIcon
+            title="You cannot edit this model configuration"
+          />
+        ) : null}
+
+        {model.data?.canUpdate ? (
           <ModelForm
             initial={modelDraftFrom(model.data)}
             outcome="saved"

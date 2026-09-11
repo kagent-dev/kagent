@@ -9,9 +9,13 @@
  *
  * It is also persisted, so `?mock=slow` survives an in-app navigation that drops
  * the query string. `?mock=ok` clears it again.
+ *
+ * `?mock=denied` answers with every capability false, which is what a caller sees
+ * when an authorizer withholds the action. The default installation permits
+ * everything, so no other scenario can reach the refused states.
  */
 
-export const MOCK_SCENARIOS = ["ok", "empty", "error", "slow"] as const;
+export const MOCK_SCENARIOS = ["ok", "empty", "error", "slow", "denied"] as const;
 
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 
@@ -27,6 +31,7 @@ export const SCENARIO_DELAY_MS: Record<MockScenario, number> = {
   empty: 450,
   error: 450,
   slow: 2_500,
+  denied: 450,
 };
 
 /** The scenario in force, re-read on every request so it can change mid-session. */

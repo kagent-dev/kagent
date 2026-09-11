@@ -12,4 +12,8 @@ func (a *NoopAuthorizer) Check(ctx context.Context, principal auth.Principal, ve
 	return nil
 }
 
-var _ auth.Authorizer = (*NoopAuthorizer)(nil)
+func (a *NoopAuthorizer) Scope(ctx context.Context, principal auth.Principal, verb auth.Verb, resourceType string) (auth.AuthorizationScope, error) {
+	return auth.AuthorizationScope{Kind: auth.ScopeAll}, nil
+}
+
+var _ auth.CollectionAuthorizer = (*NoopAuthorizer)(nil)

@@ -196,7 +196,10 @@ export function HarnessesTab() {
         <DeleteResourceButton
           kind="harness"
           name={row.name}
-          disabled={deleting === row.ref}
+          disabled={!row.canDelete || deleting === row.ref}
+          disabledReason={
+            row.canDelete ? undefined : "You do not have permission to delete this harness"
+          }
           onDelete={() => remove(row)}
           onDeleted={() => undefined}
           description={describeLoss(admitted(row))}
