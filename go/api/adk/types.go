@@ -584,7 +584,10 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
+	// Model is omitted when unset rather than emitted as "model":null. The python
+	// runtime requires model to be an object when the key is present, so a null
+	// value is never valid input for it.
+	Model         Model                 `json:"model,omitempty"`
 	Description   string                `json:"description"`
 	Instruction   string                `json:"instruction"`
 	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`

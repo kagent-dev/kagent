@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -93,6 +95,127 @@ func TestNeedsSRTSettings(t *testing.T) {
 	}
 	if !needsSRTSettings(byoAgent, &v1alpha2.SandboxConfig{}) {
 		t.Fatal("BYO agents with sandbox config should get srt settings")
+	}
+}
+
+func TestNeedsAgentConfig(t *testing.T) {
+	declarativeAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "decl", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type:        v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{},
+		},
+	}
+	byoAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO:  &v1alpha2.BYOAgentSpec{},
+		},
+	}
+	cfg := &adk.AgentConfig{Description: "a test agent"}
+
+	if needsAgentConfig(declarativeAgent, nil) {
+		t.Fatal("a nil config should never be rendered")
+	}
+	if !needsAgentConfig(declarativeAgent, cfg) {
+		t.Fatal("declarative agents should get the rendered agent config")
+	}
+	if needsAgentConfig(byoAgent, cfg) {
+		t.Fatal("BYO agents should not get the rendered agent config")
+	}
+}
+
+func byoManifestContext() manifestContext {
+	return manifestContext{
+		agent: &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_BYO,
+				BYO:  &v1alpha2.BYOAgentSpec{},
+			},
+		},
+		deployment: &resolvedDeployment{},
+	}
+}
+
+// TestBuildConfigSecret_BYOOmitsAgentConfig guards against handing BYO agents the
+// config rendered for the declarative runtime. That config carries no model, and the
+// runtime schema requires one, so a BYO image that loads /config/config.json on
+// startup fails validation and crashloops.
+func TestBuildConfigSecret_BYOOmitsAgentConfig(t *testing.T) {
+	translator := &adkApiTranslator{}
+	// The minimal config the compiler builds for BYO agents: a description, no model.
+	cfg := &adk.AgentConfig{Description: "A BYO test agent"}
+
+	got, err := translator.buildConfigSecret(context.Background(), byoManifestContext(), cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildConfigSecret() error = %v", err)
+	}
+
+	if data := got.secret.StringData["config.json"]; data != "" {
+		t.Fatalf("config.json = %q, want empty for BYO agents", data)
+	}
+	if len(got.volumes) != 0 {
+		t.Fatalf("volumes = %#v, want none for BYO agents", got.volumes)
+	}
+	if len(got.mounts) != 0 {
+		t.Fatalf("mounts = %#v, want none for BYO agents", got.mounts)
+	}
+}
+
+// TestBuildConfigSecret_BYOWithSandboxMountsOnlySRTSettings covers the one case where a
+// BYO agent still needs the config volume. The agent config stays empty; only the srt
+// settings are populated.
+func TestBuildConfigSecret_BYOWithSandboxMountsOnlySRTSettings(t *testing.T) {
+	translator := &adkApiTranslator{}
+	cfg := &adk.AgentConfig{Description: "A BYO test agent"}
+
+	got, err := translator.buildConfigSecret(context.Background(), byoManifestContext(), cfg, &v1alpha2.SandboxConfig{}, nil, nil)
+	if err != nil {
+		t.Fatalf("buildConfigSecret() error = %v", err)
+	}
+
+	if data := got.secret.StringData["config.json"]; data != "" {
+		t.Fatalf("config.json = %q, want empty for BYO agents", data)
+	}
+	if got.secret.StringData["srt-settings.json"] == "" {
+		t.Fatal("srt-settings.json should be populated for sandboxed BYO agents")
+	}
+	if len(got.mounts) != 1 || got.mounts[0].MountPath != "/config" {
+		t.Fatalf("mounts = %#v, want a single /config mount", got.mounts)
+	}
+}
+
+// TestBuildConfigSecret_DeclarativeKeepsAgentConfig pins the declarative path, which
+// must keep receiving the rendered config and its volume.
+func TestBuildConfigSecret_DeclarativeKeepsAgentConfig(t *testing.T) {
+	translator := &adkApiTranslator{}
+	manifestCtx := manifestContext{
+		agent: &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "decl", Namespace: "default"},
+			Spec: v1alpha2.AgentSpec{
+				Type:        v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{},
+			},
+		},
+		deployment: &resolvedDeployment{},
+	}
+	cfg := &adk.AgentConfig{Description: "a declarative agent"}
+
+	got, err := translator.buildConfigSecret(context.Background(), manifestCtx, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildConfigSecret() error = %v", err)
+	}
+
+	if got.secret.StringData["config.json"] == "" {
+		t.Fatal("config.json should be populated for declarative agents")
+	}
+	if len(got.volumes) != 1 || got.volumes[0].Name != "config" {
+		t.Fatalf("volumes = %#v, want a single config volume", got.volumes)
+	}
+	if len(got.mounts) != 1 || got.mounts[0].MountPath != "/config" {
+		t.Fatalf("mounts = %#v, want a single /config mount", got.mounts)
 	}
 }
 

@@ -28,8 +28,7 @@
   },
   "config": {
     "description": "A BYO test agent",
-    "instruction": "",
-    "model": null
+    "instruction": ""
   },
   "manifest": [
     {
@@ -58,7 +57,7 @@
       },
       "stringData": {
         "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"A BYO test agent\",\n  \"name\": \"byo_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://byo-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://byo-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://byo-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
-        "config.json": "{\"model\":null,\"description\":\"A BYO test agent\",\"instruction\":\"\"}"
+        "config.json": ""
       }
     },
     {
@@ -127,7 +126,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "14721439369706619567"
+              "kagent.dev/config-hash": "0"
             },
             "labels": {
               "app": "kagent",
@@ -188,10 +187,6 @@
                 },
                 "volumeMounts": [
                   {
-                    "mountPath": "/config",
-                    "name": "config"
-                  },
-                  {
                     "mountPath": "/var/run/secrets/tokens",
                     "name": "kagent-token"
                   }
@@ -200,12 +195,6 @@
             ],
             "serviceAccountName": "byo-agent",
             "volumes": [
-              {
-                "name": "config",
-                "secret": {
-                  "secretName": "byo-agent"
-                }
-              },
               {
                 "name": "kagent-token",
                 "projected": {
