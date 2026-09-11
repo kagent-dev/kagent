@@ -63,6 +63,10 @@ type BaseModel struct {
 	Model   string            `json:"model"`
 	Headers map[string]string `json:"headers,omitempty"`
 
+	// PassthroughHeaders lists header names whose values are forwarded from the
+	// incoming A2A request onto the outbound LLM call, resolved per request.
+	PassthroughHeaders []string `json:"passthrough_headers,omitempty"`
+
 	// TLS/SSL configuration (applies to all model types)
 	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
 	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`

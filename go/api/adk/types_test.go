@@ -125,6 +125,7 @@ func TestMarshalJSON_BaseModelFields(t *testing.T) {
 	base := BaseModel{
 		Model:                 "test-model",
 		Headers:               map[string]string{"X-Custom": "value"},
+		PassthroughHeaders:    []string{"x-guardrail-token"},
 		TLSInsecureSkipVerify: new(true),
 		TLSCACertPath:         new("/etc/ssl/ca.crt"),
 		TLSDisableSystemCAs:   new(false),
@@ -167,6 +168,14 @@ func TestMarshalJSON_BaseModelFields(t *testing.T) {
 			}
 			if headers["X-Custom"] != "value" {
 				t.Errorf("headers[X-Custom] = %v, want %q", headers["X-Custom"], "value")
+			}
+
+			passthrough, ok := raw["passthrough_headers"].([]any)
+			if !ok {
+				t.Fatal("passthrough_headers field missing or wrong type")
+			}
+			if len(passthrough) != 1 || passthrough[0] != "x-guardrail-token" {
+				t.Errorf("passthrough_headers = %v, want [x-guardrail-token]", passthrough)
 			}
 
 			if raw["tls_insecure_skip_verify"] != true {

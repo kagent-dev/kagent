@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/headers"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
@@ -197,12 +198,12 @@ func TestAllowedRequestHeaders_EmptyAllowedList(t *testing.T) {
 		"Authorization": {"Bearer token"},
 	})
 
-	got := allowedRequestHeaders(ctx, nil)
+	got := headers.AllowedRequestHeaders(ctx, nil)
 	if got != nil {
 		t.Errorf("expected nil for empty allowed list, got %v", got)
 	}
 
-	got = allowedRequestHeaders(ctx, []string{})
+	got = headers.AllowedRequestHeaders(ctx, []string{})
 	if got != nil {
 		t.Errorf("expected nil for empty allowed list, got %v", got)
 	}
@@ -401,7 +402,7 @@ func TestAllowedRequestHeaders_CaseInsensitiveLookup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := a2aCtx(tc.incoming)
-			got := allowedRequestHeaders(ctx, tc.allowed)
+			got := headers.AllowedRequestHeaders(ctx, tc.allowed)
 			if got[tc.wantKey] != tc.wantVal {
 				t.Errorf("got[%q] = %q, want %q (full map: %v)", tc.wantKey, got[tc.wantKey], tc.wantVal, got)
 			}
@@ -417,7 +418,7 @@ func TestAllowedRequestHeaders_MultiValueFirstWins(t *testing.T) {
 	ctx := a2aCtx(map[string][]string{
 		"X-Forwarded-For": {"1.2.3.4", "5.6.7.8", "9.10.11.12"},
 	})
-	got := allowedRequestHeaders(ctx, []string{"X-Forwarded-For"})
+	got := headers.AllowedRequestHeaders(ctx, []string{"X-Forwarded-For"})
 	if got["X-Forwarded-For"] != "1.2.3.4" {
 		t.Errorf("expected first value 1.2.3.4, got %q", got["X-Forwarded-For"])
 	}
@@ -498,7 +499,7 @@ func TestAllowedRequestHeaders_ReturnsNilWhenNoMatches(t *testing.T) {
 	ctx := a2aCtx(map[string][]string{
 		"X-Something-Else": {"value"},
 	})
-	got := allowedRequestHeaders(ctx, []string{"Authorization", "X-Trace-Id"})
+	got := headers.AllowedRequestHeaders(ctx, []string{"Authorization", "X-Trace-Id"})
 	if got != nil {
 		t.Errorf("expected nil when no allowed headers are present, got %v", got)
 	}

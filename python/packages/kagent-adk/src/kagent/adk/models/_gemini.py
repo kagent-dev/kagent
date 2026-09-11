@@ -47,6 +47,9 @@ class KAgentGeminiLlm(KAgentTLSMixin, _GeminiGenerationConfigMixin, GeminiLLM):
 
     extra_headers: Optional[dict[str, str]] = None
     api_key_passthrough: Optional[bool] = None
+    # Header names forwarded per request via llm_request.config.http_options
+    # (see LLMHeaderPassthroughPlugin); honoured natively by the genai client.
+    passthrough_headers: Optional[list[str]] = None
     max_output_tokens: Optional[int] = None
 
     model_config = {"arbitrary_types_allowed": True}
