@@ -117,12 +117,12 @@ export interface SubstrateApi {
   status(namespace?: string, options?: ReadOptions): Promise<SubstrateStatusResponse>;
   /** Counts and the two small lists. The only honest source of a total. */
   summary(namespace?: string, options?: ReadOptions): Promise<SubstrateSummary>;
-  /** One page of actors, narrowed and ordered server-side. */
+  /** One page of actors, ordered and narrowed server-side across the whole inventory. */
   actors(
     input: SubstratePageInput<SubstrateActorSortField>,
     options?: ReadOptions,
   ): Promise<SubstrateActorPage>;
-  /** One page of worker assignments, narrowed and ordered server-side. */
+  /** One page of workers. The mirror of `actors`. */
   workers(
     input: SubstratePageInput<SubstrateWorkerSortField>,
     options?: ReadOptions,
@@ -326,9 +326,9 @@ export function createApiClient(): KagentApiClient {
         invoke("substrate.status", { namespace }, options),
       summary: (namespace, options) =>
         invoke("substrate.summary", { namespace }, options),
-      // Not sorted here, unlike every other list: the server orders these pages,
-      // and re-sorting a page would order it within itself while leaving it in the
-      // wrong place in the whole — which reads as a list that shuffles as you page.
+      // Not sorted here, unlike every other list: the server orders these pages across
+      // the whole inventory, and re-sorting a page would order it within itself while
+      // leaving it in the wrong place in the whole.
       actors: (input, options) => invoke("substrate.actors", input, options),
       workers: (input, options) => invoke("substrate.workers", input, options),
     },

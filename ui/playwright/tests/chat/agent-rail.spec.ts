@@ -116,12 +116,28 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
   });
 
   await test.step("3. and Delete removes exactly one", async () => {
-    // The dialog animates out, and a click while it is still there lands on its mask.
+    /*
+     * Every precondition this step assumes, waited for rather than slept past.
+     *
+     * A fixed pause is long enough on an idle machine and not on a loaded one, and this
+     * step assumes three things it never checked: that the dialog has gone, that the
+     * menu step 1 opened has gone with it, and that the click reopened a menu rather
+     * than closing one. The middle one is the expensive miss — the trigger toggles, so
+     * clicking it while the old menu is still animating out shuts it instead, and the
+     * Delete that follows lands on a menu already leaving.
+     */
     await expect(page.locator(".ant-modal:visible")).toHaveCount(0);
+    await expect(item).toBeHidden();
+
     await page.locator(sibling).click({ force: true });
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: "Delete chat" }).click();
-    await page.locator(".ant-modal:visible").getByRole("button", { name: "Delete" }).click();
+    await expect(item).toBeVisible();
+    await item.click();
+
+    // The dialog this opened, not the one step 2 dismissed: its own words are what say
+    // which, and clicking Delete on a dialog that is fading out does nothing at all.
+    const confirm = page.locator(".ant-modal:visible");
+    await expect(confirm).toContainText("cannot be recovered");
+    await confirm.getByRole("button", { name: "Delete" }).click();
     await expect(rows).toHaveCount(before - 1, { timeout: 20_000 });
     await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
   });
@@ -516,8 +532,9 @@ test("agent rail: several conversations can be picked and deleted together", asy
     await rows.nth(1).hover();
     await boxes.nth(1).click();
     await page.getByTestId("chat-bulk-menu").click();
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: /Delete all selected/ }).click();
+    const deleteSelected = page.getByRole("menuitem", { name: /Delete all selected/ });
+    await expect(deleteSelected).toBeVisible();
+    await deleteSelected.click();
 
     const confirm = page.getByTestId("chat-bulk-confirm");
     // One question for the set, naming how many — not one per conversation, which is
@@ -587,10 +604,9 @@ test("agent rail: a conversation can be renamed from inside it, two ways", async
     await page.locator(`[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`).click({
       force: true,
     });
-    // The dropdown animates in, and a click landing mid-transition is refused as
-    // unstable rather than missing the element.
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: "Rename chat" }).click();
+    const rename = page.getByRole("menuitem", { name: "Rename chat" });
+    await expect(rename).toBeVisible();
+    await rename.click();
 
     const field = page.getByTestId("conversation-rename-input").locator("input");
     // Empty for an unnamed conversation rather than pre-filled with the placeholder,

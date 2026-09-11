@@ -112,15 +112,23 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * reader can check the list against the schemas rather than trust it — regenerate it
  * with, from the repository root:
  *
- *   awk '/^message /{m=$2} /int64|uint64/{print FILENAME":"NR" "m}' \
+ *   awk '/^message /{m=$2} /int64|uint64/{print FILENAME":"FNR" "m}' \
  *     proto/kagent/api/v1alpha1/*.proto
  *
- * - `system.proto:85`   — `SubstrateActor.version`     (reached by `substrate.status`)
- * - `system.proto:96`   — `SubstrateWorker.version`    (reached by `substrate.status`)
+ * `FNR`, not `NR`: `NR` keeps counting across files, so every line number after the
+ * first schema comes out wrong — which is how this list drifted last time.
+ *
+ * - `system.proto:95`   — `SubstrateActor.version`     (reached by `substrate.actors`)
+ * - `system.proto:106`  — `SubstrateWorker.version`    (reached by `substrate.workers`)
+ * - `system.proto:127`  — `SubstrateActorStatusCount.count`      (`substrate.summary`)
+ * - `system.proto:150`  — `GetSubstrateSummaryResponse.actor_count`         (the same)
+ * - `system.proto:151`  — `GetSubstrateSummaryResponse.worker_count`        (the same)
+ * - `system.proto:152`  — `GetSubstrateSummaryResponse.running_actor_count` (the same)
+ * - `system.proto:154`  — `GetSubstrateSummaryResponse.busy_worker_count`   (the same)
  * - `memory.proto:38`   — `MemorySummary.access_count` (no operation id yet)
  * - `checkpoints.proto:32` — `Checkpoint.history_sequence` (no operation id yet)
  *
- * The last five have no operation behind them today. They are listed anyway: the
+ * The last two have no operation behind them today. They are listed anyway: the
  * moment one gets an id, this is the helper its conversion needs, and a list that
  * only covered what happens to be wired is a list that goes stale silently.
  */

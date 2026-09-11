@@ -81,7 +81,12 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_temp
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SubstrateActorSortField,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
@@ -102,6 +107,12 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import type { AgentInstanceShare } from "@/api/domain/agentInstances";
+import type {
+  SubstrateActorEntry,
+  SubstrateActorTemplateEntry,
+  SubstrateWorkerEntry,
+  SubstrateWorkerPoolEntry,
+} from "@/api/domain/substrate";
 import type { ModelConfig, ModelConfigSpec } from "@/api/domain/models";
 import type { PromptTemplateDetail } from "@/api/domain/prompts";
 import {
@@ -1335,47 +1346,265 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
   return {
     enabled: status.enabled,
     ateApiError: status.ateApiError ?? "",
-    workerPools: workerPools.map((pool) => ({
-      namespace: pool.namespace,
-      name: pool.name,
-      replicas: pool.replicas ?? 0,
-      ateomImage: pool.ateomImage ?? "",
-    })),
-    actorTemplates: actorTemplates.map((template) => ({
-      namespace: template.namespace,
-      name: template.name,
-      phase: template.phase ?? "",
-      goldenActorId: template.goldenActorId ?? "",
-      goldenSnapshot: template.goldenSnapshot ?? "",
-      sandboxClass: template.sandboxClass ?? "",
-      workerSelector: template.workerSelector ?? "",
-      harnessName: template.harnessName ?? "",
-    })),
-    actors: actors.map((actor) => ({
-      actorId: actor.actorId,
-      atespace: actor.atespace ?? "",
-      status: actor.status ?? "",
-      actorTemplateNamespace: actor.actorTemplateNamespace ?? "",
-      actorTemplateName: actor.actorTemplateName ?? "",
-      ateomPodNamespace: actor.ateomPodNamespace ?? "",
-      ateomPodName: actor.ateomPodName ?? "",
-      ateomPodIp: actor.ateomPodIp ?? "",
-      latestSnapshot: actor.latestSnapshot ?? "",
-      workerPoolName: actor.workerPoolName ?? "",
-      inProgressSnapshot: actor.inProgressSnapshot ?? "",
-      // `int64` on the wire.
-      version: BigInt(actor.version ?? 0),
-    })),
-    workers: workers.map((worker) => ({
-      workerNamespace: worker.workerNamespace,
-      workerPool: worker.workerPool,
-      workerPod: worker.workerPod,
-      actorNamespace: worker.actorNamespace ?? "",
-      actorTemplate: worker.actorTemplate ?? "",
-      actorId: worker.actorId ?? "",
-      ip: worker.ip ?? "",
-      version: BigInt(worker.version ?? 0),
-    })),
+    workerPools: workerPools.map(substrateWorkerPoolMessage),
+    actorTemplates: actorTemplates.map(substrateActorTemplateMessage),
+    actors: actors.map(substrateActorMessage),
+    workers: workers.map(substrateWorkerMessage),
+  };
+});
+
+/**
+ * The scope, narrowed the way the controller narrows it.
+ *
+ * Kept alongside `inScope` above rather than folded into it, because the paged
+ * handlers below need the same rule and a scope control that filters on one read and
+ * not another is worse than one that filters on neither.
+ */
+function substrateScope(namespace: string) {
+  const scope = namespace.trim();
+  return (rowNamespace: string | undefined) =>
+    scope === "" || !rowNamespace || rowNamespace === scope;
+}
+
+function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
+  return {
+    namespace: pool.namespace,
+    name: pool.name,
+    replicas: pool.replicas ?? 0,
+    ateomImage: pool.ateomImage ?? "",
+  };
+}
+
+function substrateActorTemplateMessage(template: SubstrateActorTemplateEntry) {
+  return {
+    namespace: template.namespace,
+    name: template.name,
+    phase: template.phase ?? "",
+    goldenActorId: template.goldenActorId ?? "",
+    goldenSnapshot: template.goldenSnapshot ?? "",
+    sandboxClass: template.sandboxClass ?? "",
+    workerSelector: template.workerSelector ?? "",
+    harnessName: template.harnessName ?? "",
+  };
+}
+
+function substrateActorMessage(actor: SubstrateActorEntry) {
+  return {
+    actorId: actor.actorId,
+    atespace: actor.atespace ?? "",
+    status: actor.status ?? "",
+    actorTemplateNamespace: actor.actorTemplateNamespace ?? "",
+    actorTemplateName: actor.actorTemplateName ?? "",
+    ateomPodNamespace: actor.ateomPodNamespace ?? "",
+    ateomPodName: actor.ateomPodName ?? "",
+    ateomPodIp: actor.ateomPodIp ?? "",
+    latestSnapshot: actor.latestSnapshot ?? "",
+    workerPoolName: actor.workerPoolName ?? "",
+    inProgressSnapshot: actor.inProgressSnapshot ?? "",
+    // `int64` on the wire.
+    version: BigInt(actor.version ?? 0),
+  };
+}
+
+function substrateWorkerMessage(worker: SubstrateWorkerEntry) {
+  return {
+    workerNamespace: worker.workerNamespace,
+    workerPool: worker.workerPool,
+    workerPod: worker.workerPod,
+    // Always empty, as the controller leaves them: ate-api's Worker has no actor
+    // reference to fill them from.
+    actorNamespace: "",
+    actorTemplate: "",
+    actorId: "",
+    ip: worker.ip ?? "",
+    version: BigInt(worker.version ?? 0),
+  };
+}
+
+/**
+ * One page of rows, cut the way the controller cuts one.
+ *
+ * The token is an offset, which ate-api's is not — nothing reads it, which is the
+ * property that matters — and it is absent on the last page rather than empty, so a
+ * page that runs out is distinguishable from one that starts over.
+ */
+function substratePage<T>(rows: T[], pageSize: number, pageToken: string) {
+  const start = Number.parseInt(pageToken, 10) || 0;
+  const limit = pageSize > 0 ? pageSize : 50;
+  const end = Math.min(start + limit, rows.length);
+  return {
+    rows: rows.slice(start, end),
+    nextPageToken: end < rows.length ? String(end) : "",
+  };
+}
+
+on(SystemService.method.getSubstrateSummary, (input, call) => {
+  if (call.scenario === "empty") return { enabled: false };
+
+  const status = mockSubstrateStatus;
+  const inScope = substrateScope(input.namespace);
+  const actors = status.actors.filter((actor) => inScope(actor.actorTemplateNamespace));
+  const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
+
+  const statusCounts = new Map<string, number>();
+  for (const actor of actors) {
+    statusCounts.set(actor.status, (statusCounts.get(actor.status) ?? 0) + 1);
+  }
+  // A worker is busy when an actor is placed on it, counted once however many actors
+  // it holds — the controller counts distinct pods, so the fixture has to as well.
+  const busyPods = new Set(
+    actors
+      .filter((actor) => actor.ateomPodName)
+      .map((actor) => `${actor.ateomPodNamespace ?? ""}/${actor.ateomPodName}`),
+  );
+
+  /*
+   * The error and the complete counts together, which is a state the controller really
+   * does produce — worth spelling out, because a fixture that models an impossible one
+   * makes every assertion resting on it worthless.
+   *
+   * `GetSubstrateSummary` makes three independent ate-api reads and none of them gates
+   * the others, so a walk that fails keeps whatever it had already tallied and the
+   * reads beside it still answer in full. This is that: the actor walk failed fetching
+   * a token after counting everything it could reach, and the template listing and the
+   * worker walk succeeded. Before those reads were made independent, one failure zeroed
+   * every count, and this shape could not have occurred.
+   */
+  return {
+    enabled: status.enabled,
+    ateApiError: status.ateApiError ?? "",
+    workerPools: status.workerPools
+      .filter((pool) => inScope(pool.namespace))
+      .map(substrateWorkerPoolMessage),
+    actorTemplates: status.actorTemplates
+      .filter((template) => inScope(template.namespace))
+      .map(substrateActorTemplateMessage),
+    actorCount: BigInt(actors.length),
+    workerCount: BigInt(workers.length),
+    runningActorCount: BigInt(
+      actors.filter((actor) => actor.status.toLowerCase() === "running").length,
+    ),
+    busyWorkerCount: BigInt(busyPods.size),
+    actorStatusCounts: [...statusCounts]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([status, count]) => ({ status, count: BigInt(count) })),
+    computedAt: timestampFromDate(new Date()),
+  };
+});
+
+/*
+The envelope both paged reads answer with, around the rows each one holds.
+
+No `ateApiError`, unlike the summary above, and that pairing is the fixture's point:
+the summary's walk visits every ate-api page to count and is the read that times out,
+while a single page still comes back.
+
+Not because a page cannot carry both rows and an error — it can, when a namespace makes
+the controller read several ate-api pages to fill one and a later one fails — but
+because that state has no fixture yet. See `playwright/DEFERRED.md`.
+*/
+/*
+ * Narrowed, ordered, then cut — in that order, as the controller does it.
+ *
+ * The order matters more than it looks. Filtering after the cut would search one page,
+ * and ordering after it would order one page: both are the defect the server-side read
+ * exists to prevent, and a fixture that did either would let a page-scoped regression
+ * pass its tests.
+ */
+function substratePageResponse<Row, Message>(
+  rows: readonly Row[],
+  input: { namespace: string; filter: string; page?: { limit: number; pageToken: string } },
+  inScope: (row: Row) => boolean,
+  searchText: (row: Row) => string,
+  sortKey: (row: Row) => string,
+  descending: boolean,
+  message: (row: Row) => Message,
+) {
+  const needle = input.filter.trim().toLowerCase();
+  const matching = rows
+    .filter(inScope)
+    .filter((row) => !needle || searchText(row).toLowerCase().includes(needle))
+    .sort((left, right) => {
+      /*
+       * Byte order, not locale order: the controller sorts with Go's `strings.Compare`,
+       * and `localeCompare` disagrees with it on case and on punctuation — an
+       * underscored wire status like `ACTOR_STATE_CRASHED` lands either side of a
+       * neighbouring word depending which is used. A fixture that orders differently
+       * from the controller is the defect this app has been bitten by before.
+       */
+      const a = sortKey(left);
+      const c = sortKey(right);
+      const compared = a < c ? -1 : a > c ? 1 : 0;
+      return descending ? -compared : compared;
+    });
+
+  const page = substratePage(matching, input.page?.limit ?? 0, input.page?.pageToken ?? "");
+  return {
+    enabled: mockSubstrateStatus.enabled,
+    rows: page.rows.map(message),
+    page: { nextPageToken: page.nextPageToken },
+    computedAt: timestampFromDate(new Date()),
+    totalSize: BigInt(matching.length),
+  };
+}
+
+on(SystemService.method.listSubstrateActors, (input, call) => {
+  if (call.scenario === "empty") return { enabled: false };
+
+  const inScope = substrateScope(input.namespace);
+  const id = (actor: SubstrateActorEntry) => actor.actorId;
+  // Every key ends in the id, as the controller's do: an order whose last key repeats
+  // gives a page boundary that names more than one row.
+  const keys: Record<number, (actor: SubstrateActorEntry) => string> = {
+    [SubstrateActorSortField.ACTOR_ID]: id,
+    [SubstrateActorSortField.TEMPLATE]: (a) =>
+      `${a.actorTemplateNamespace ?? ""}/${a.actorTemplateName ?? ""}\u0000${id(a)}`,
+    [SubstrateActorSortField.WORKER_POD]: (a) =>
+      `${a.ateomPodNamespace ?? ""}/${a.ateomPodName ?? ""}\u0000${id(a)}`,
+  };
+  const { rows, ...page } = substratePageResponse(
+    mockSubstrateStatus.actors,
+    input,
+    (actor) => inScope(actor.actorTemplateNamespace),
+    (a) =>
+      [a.actorId, a.status, a.actorTemplateNamespace, a.actorTemplateName, a.ateomPodNamespace, a.ateomPodName, a.ateomPodIp]
+        .filter(Boolean)
+        .join(" "),
+    keys[input.sortField] ?? ((a) => `${a.status}\u0000${id(a)}`),
+    input.sortOrder === SubstrateSortOrder.DESC,
+    substrateActorMessage,
+  );
+  return {
+    ...page,
+    actors: rows,
+    appliedSortField: input.sortField,
+    appliedSortOrder: input.sortOrder || SubstrateSortOrder.ASC,
+  };
+});
+
+on(SystemService.method.listSubstrateWorkers, (input, call) => {
+  if (call.scenario === "empty") return { enabled: false };
+
+  const inScope = substrateScope(input.namespace);
+  const pod = (w: SubstrateWorkerEntry) => `${w.workerNamespace}/${w.workerPod}`;
+  const keys: Record<number, (worker: SubstrateWorkerEntry) => string> = {
+    [SubstrateWorkerSortField.POD]: pod,
+    [SubstrateWorkerSortField.IP]: (w) => `${w.ip ?? ""}\u0000${pod(w)}`,
+  };
+  const { rows, ...page } = substratePageResponse(
+    mockSubstrateStatus.workers,
+    input,
+    (worker) => inScope(worker.workerNamespace),
+    (w) => [w.workerNamespace, w.workerPool, w.workerPod, w.ip].filter(Boolean).join(" "),
+    keys[input.sortField] ?? ((w) => `${w.workerPool}\u0000${pod(w)}`),
+    input.sortOrder === SubstrateSortOrder.DESC,
+    substrateWorkerMessage,
+  );
+  return {
+    ...page,
+    workers: rows,
+    appliedSortField: input.sortField,
+    appliedSortOrder: input.sortOrder || SubstrateSortOrder.ASC,
   };
 });
 

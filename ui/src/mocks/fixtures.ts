@@ -328,14 +328,18 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
     { actorId: "actor-8b91", status: "Resuming", version: 1 },
     { actorId: "actor-c3f5", status: "Suspended", version: 3 },
   ],
+  /*
+   * No actor on any worker, because the controller cannot put one there: ate-api's
+   * `Worker` carries capacity and allocation and no actor reference. This fixture used
+   * to name an actor and a template on the first worker, which made the columns look
+   * populated in mock mode and blank against every real cluster — a fixture agreeing
+   * with a type and a test while all three disagreed with the controller.
+   */
   workers: [
     {
       workerNamespace: "kagent",
       workerPool: "default-pool",
       workerPod: "ateom-default-pool-0",
-      actorNamespace: "kagent",
-      actorTemplate: "coder-template",
-      actorId: "actor-7f21",
       ip: "10.42.1.19",
       version: 4,
     },

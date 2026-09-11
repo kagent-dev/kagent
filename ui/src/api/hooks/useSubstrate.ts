@@ -35,8 +35,14 @@ export function useSubstrateStatus(
  *
  * This is what the tiles read, and it is the only place a *total* comes from: the
  * actor and worker reads below are pages, and a page's length is not a total.
- * Counting rows on screen and labelling the result "Actors" would report 20 for a
+ * Counting rows on screen and labelling the result "Actors" would report 100 for a
  * cluster running four hundred thousand.
+ *
+ * It is also the expensive read on this page. ate-api reports no totals, so the
+ * controller walks every one of its pages to count — seconds on a large cluster,
+ * against milliseconds for a page. Poll it no faster than the counts need to be
+ * right: a caller that does not show them beside a live table wants it far less often
+ * than the pages, and `computedAt` says how old the answer it got is.
  */
 export function useSubstrateSummary(namespace?: string): ApiResource<SubstrateSummary> {
   return useApiResource(["substrate.summary", namespace ?? ""], () =>
@@ -45,12 +51,17 @@ export function useSubstrateSummary(namespace?: string): ApiResource<SubstrateSu
 }
 
 /**
- * One page of actors, narrowed server-side.
+ * One page of actors, ordered and narrowed server-side.
  *
- * The filter and the page token are part of the key, so typing in the search box
- * re-reads rather than re-rendering the previous answer — which is the whole point
- * of the filter being server-side. Filtering here instead would search only the
- * rows already fetched, and a match on page nine would read as "no matches".
+ * The filter and the sort are part of the key, because both change which rows this read
+ * answers with: typing in the search box or clicking a header re-reads rather than
+ * re-rendering what was already fetched. That is the whole point of them being the
+ * server's — filtering or ordering here would reach one page, and a match on page nine
+ * would read on screen as "no matches".
+ *
+ * What it costs is worth naming. ate-api offers neither an order nor a filter, so the
+ * controller walks every one of its pages to apply them: each keystroke past the
+ * debounce, and each header click, is a walk of the inventory.
  */
 export function useSubstrateActors(
   input: SubstratePageInput<SubstrateActorSortField>,
@@ -63,19 +74,6 @@ export function useSubstrateActors(
     sortField = "default",
     sortOrder = "asc",
   } = input;
-  /*
-   * The sort is part of the key for the same reason the filter is: it changes which
-   * rows this read answers with and in what order, so asking for a different one has
-   * to re-read rather than re-render the previous answer.
-   *
-   * What that costs is worth naming rather than leaving to be discovered. The ordering
-   * is applied in `localPage`, after `GetSubstrateStatus` has already handed back every
-   * row — the RPC takes a namespace and nothing else — so each header click re-reads
-   * the whole inventory to reorder rows the browser was just holding. Removing that
-   * means moving the sort and the slice out of the transport so a reorder can be a
-   * re-render, which changes what this operation returns and belongs in its own change
-   * rather than smuggled into a header fix.
-   */
   return useApiResource(
     ["substrate.actors", namespace, filter, limit, pageToken, sortField, sortOrder],
     () =>
@@ -90,7 +88,7 @@ export function useSubstrateActors(
   );
 }
 
-/** One page of worker assignments. The mirror of `useSubstrateActors`. */
+/** One page of workers. The mirror of `useSubstrateActors`. */
 export function useSubstrateWorkers(
   input: SubstratePageInput<SubstrateWorkerSortField>,
 ): ApiResource<SubstrateWorkerPage> {

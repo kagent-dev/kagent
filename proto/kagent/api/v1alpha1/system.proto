@@ -2,7 +2,10 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
@@ -10,7 +13,15 @@ service SystemService {
   rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
   rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+  // Every actor and worker in one message, which a large cluster cannot fit: 410,110
+  // actors is roughly 43MB against gRPC's 16MB ceiling, and the call fails outright.
+  // Anything rendering the inventory wants the three calls below. Not deprecated: it
+  // is still the only way to look one actor up by id without paging to find it.
   rpc GetSubstrateStatus(GetSubstrateStatusRequest) returns (GetSubstrateStatusResponse);
+
+  rpc GetSubstrateSummary(GetSubstrateSummaryRequest) returns (GetSubstrateSummaryResponse);
+  rpc ListSubstrateActors(ListSubstrateActorsRequest) returns (ListSubstrateActorsResponse);
+  rpc ListSubstrateWorkers(ListSubstrateWorkersRequest) returns (ListSubstrateWorkersResponse);
 }
 
 message GetVersionRequest {}
@@ -94,4 +105,127 @@ message SubstrateWorker {
   string actor_id = 6;
   string ip = 7;
   int64 version = 8;
+}
+
+// The inventory as counts, plus the two lists whose length is set by configuration
+// rather than by the cluster.
+//
+// ate-api reports no totals, so these cost a walk of every one of its pages. Only the
+// counts cross the wire, so there is no message-size ceiling — but a caller polling
+// this as often as it pages will spend most of its time here.
+message GetSubstrateSummaryRequest {
+  string namespace = 1;
+}
+
+message SubstrateActorStatusCount {
+  string status = 1;
+  int64 count = 2;
+}
+
+message GetSubstrateSummaryResponse {
+  // False when the controller has no ate-api endpoint configured: a deployment choice,
+  // not a failure. Every other field is then empty — a configuration note to show, not
+  // an error and not an empty cluster.
+  bool enabled = 1;
+  // Set when one of the three ate-api reads behind this answer failed. They do not gate
+  // each other, so the counts here may be short while the Kubernetes-derived lists are
+  // complete: a warning to show beside the data rather than a failed call. Never a
+  // database failure — those are internal errors.
+  string ate_api_error = 2;
+  repeated SubstrateWorkerPool worker_pools = 3;
+  repeated SubstrateActorTemplate actor_templates = 4;
+  int64 actor_count = 5;
+  int64 worker_count = 6;
+  int64 running_actor_count = 7;
+  // A worker is busy when an actor is bound to it.
+  int64 busy_worker_count = 8;
+  // Every actor status present, with how many hold it: knowing 12 of 410,110 are
+  // running says nothing about the other 410,098.
+  repeated SubstrateActorStatusCount actor_status_counts = 9;
+  // When this answer was computed, which is not when it was received.
+  google.protobuf.Timestamp computed_at = 10;
+}
+
+// Which way a sorted substrate read runs.
+enum SubstrateSortOrder {
+  SUBSTRATE_SORT_ORDER_UNSPECIFIED = 0;
+  SUBSTRATE_SORT_ORDER_ASC = 1;
+  SUBSTRATE_SORT_ORDER_DESC = 2;
+}
+
+// The columns ListSubstrateActors can order by, each ending in the unique actor id:
+// an order whose last key repeats gives a page boundary naming more than one row, and
+// paging across it drops or repeats them.
+enum SubstrateActorSortField {
+  // Status, then actor id. What a reader gets without asking.
+  SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED = 0;
+  SUBSTRATE_ACTOR_SORT_FIELD_STATUS = 1;
+  SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID = 2;
+  SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE = 3;
+  SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD = 4;
+}
+
+// The columns ListSubstrateWorkers can order by, each ending in the worker's
+// namespace and pod, which together are unique.
+enum SubstrateWorkerSortField {
+  // Pool, then pod.
+  SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED = 0;
+  SUBSTRATE_WORKER_SORT_FIELD_POOL = 1;
+  SUBSTRATE_WORKER_SORT_FIELD_POD = 2;
+  SUBSTRATE_WORKER_SORT_FIELD_IP = 3;
+}
+
+// One page of actors, ordered and narrowed across the whole inventory.
+//
+// ate-api offers paging and nothing else, so the controller reads all of its pages and
+// applies the filter and the order before cutting this one. That is a walk of the
+// inventory per request — seconds on a large cluster — and it is what makes both mean
+// the cluster rather than the page.
+message ListSubstrateActorsRequest {
+  // Empty means every namespace the controller observes.
+  string namespace = 1;
+  // `limit` is capped at 100 in common.proto and zero means the server's default;
+  // above the cap is refused rather than clamped.
+  PageRequest page = 2;
+  // Matched case-insensitively as a substring of the id, status, template and worker
+  // pod a row shows. Empty matches everything.
+  string filter = 3 [(buf.validate.field).string.max_len = 200];
+  SubstrateActorSortField sort_field = 4 [(buf.validate.field).enum.defined_only = true];
+  SubstrateSortOrder sort_order = 5 [(buf.validate.field).enum.defined_only = true];
+}
+
+message ListSubstrateActorsResponse {
+  bool enabled = 1;
+  string ate_api_error = 2;
+  repeated SubstrateActor actors = 3;
+  // Empty next_page_token on the last page.
+  PageResponse page = 4;
+  google.protobuf.Timestamp computed_at = 5;
+  // How many actors match the filter in total. Without it a page can only report its
+  // own length, which reads as the whole result.
+  int64 total_size = 6;
+  // The order actually applied, so a client does not claim one the server ignored.
+  SubstrateActorSortField applied_sort_field = 7;
+  SubstrateSortOrder applied_sort_order = 8;
+}
+
+// One page of worker assignments. The mirror of ListSubstrateActors.
+message ListSubstrateWorkersRequest {
+  string namespace = 1;
+  PageRequest page = 2;
+  // Matched against the namespace, pool, pod and IP a row shows.
+  string filter = 3 [(buf.validate.field).string.max_len = 200];
+  SubstrateWorkerSortField sort_field = 4 [(buf.validate.field).enum.defined_only = true];
+  SubstrateSortOrder sort_order = 5 [(buf.validate.field).enum.defined_only = true];
+}
+
+message ListSubstrateWorkersResponse {
+  bool enabled = 1;
+  string ate_api_error = 2;
+  repeated SubstrateWorker workers = 3;
+  PageResponse page = 4;
+  google.protobuf.Timestamp computed_at = 5;
+  int64 total_size = 6;
+  SubstrateWorkerSortField applied_sort_field = 7;
+  SubstrateSortOrder applied_sort_order = 8;
 }

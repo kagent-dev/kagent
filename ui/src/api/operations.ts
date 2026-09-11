@@ -103,12 +103,18 @@ export type SubstrateWorkerSortField =
   | "default"
   | "pool"
   | "pod"
-  | "actor";
+  | "ip";
 
 /** What a paged, filtered substrate read takes. */
 export interface SubstratePageInput<Sort = string> {
   namespace?: string;
-  /** Matched server-side against the fields the row displays. Empty matches everything. */
+  /**
+   * Matched server-side against the fields the row displays. Empty matches everything.
+   *
+   * Sent rather than applied here: the rows are one page of an inventory that can run
+   * to hundreds of thousands, so filtering them locally would search that page and
+   * report a match nine pages away as "no matches".
+   */
   filter?: string;
   /** Rows per page. The controller refuses anything over 100 rather than clamping. */
   limit?: number;
@@ -117,9 +123,8 @@ export interface SubstratePageInput<Sort = string> {
   /**
    * Which column to order by, and in which direction.
    *
-   * Sent rather than applied here, for the same reason the filter is: the rows are
-   * one page of hundreds of thousands, so ordering them locally reorders the page
-   * rather than the result — which looks like sorting and is not.
+   * Sent for the same reason the filter is: ordering a page orders the page, and the
+   * first row of the sorted cluster is almost certainly not on it.
    */
   sortField?: Sort;
   sortOrder?: SubstrateSortOrder;
@@ -357,11 +362,12 @@ export interface OperationMap {
     output: SubstrateSummary;
   };
   /**
-   * One page of actors, narrowed server-side.
+   * One page of actors, ordered and narrowed across the whole inventory.
    *
-   * The filter is sent rather than applied here, because filtering a page that has
-   * already been fetched searches only what was fetched — a match on page nine
-   * reads on screen as "no matches".
+   * ate-api offers paging and nothing else, so the controller reads every one of its
+   * pages to apply the order and the filter before cutting this one. That costs a walk
+   * of the inventory per request, and it is what makes the order and the filter mean
+   * the cluster rather than the hundred rows in front of the reader.
    */
   "substrate.actors": {
     input: SubstratePageInput<SubstrateActorSortField>;

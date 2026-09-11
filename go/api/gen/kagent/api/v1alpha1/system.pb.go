@@ -7,9 +7,11 @@
 package apiv1alpha1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -21,6 +23,170 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// Which way a sorted substrate read runs.
+type SubstrateSortOrder int32
+
+const (
+	SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED SubstrateSortOrder = 0
+	SubstrateSortOrder_SUBSTRATE_SORT_ORDER_ASC         SubstrateSortOrder = 1
+	SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC        SubstrateSortOrder = 2
+)
+
+// Enum value maps for SubstrateSortOrder.
+var (
+	SubstrateSortOrder_name = map[int32]string{
+		0: "SUBSTRATE_SORT_ORDER_UNSPECIFIED",
+		1: "SUBSTRATE_SORT_ORDER_ASC",
+		2: "SUBSTRATE_SORT_ORDER_DESC",
+	}
+	SubstrateSortOrder_value = map[string]int32{
+		"SUBSTRATE_SORT_ORDER_UNSPECIFIED": 0,
+		"SUBSTRATE_SORT_ORDER_ASC":         1,
+		"SUBSTRATE_SORT_ORDER_DESC":        2,
+	}
+)
+
+func (x SubstrateSortOrder) Enum() *SubstrateSortOrder {
+	p := new(SubstrateSortOrder)
+	*p = x
+	return p
+}
+
+func (x SubstrateSortOrder) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SubstrateSortOrder) Descriptor() protoreflect.EnumDescriptor {
+	return file_kagent_api_v1alpha1_system_proto_enumTypes[0].Descriptor()
+}
+
+func (SubstrateSortOrder) Type() protoreflect.EnumType {
+	return &file_kagent_api_v1alpha1_system_proto_enumTypes[0]
+}
+
+func (x SubstrateSortOrder) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SubstrateSortOrder.Descriptor instead.
+func (SubstrateSortOrder) EnumDescriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{0}
+}
+
+// The columns ListSubstrateActors can order by, each ending in the unique actor id:
+// an order whose last key repeats gives a page boundary naming more than one row, and
+// paging across it drops or repeats them.
+type SubstrateActorSortField int32
+
+const (
+	// Status, then actor id. What a reader gets without asking.
+	SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED SubstrateActorSortField = 0
+	SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_STATUS      SubstrateActorSortField = 1
+	SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID    SubstrateActorSortField = 2
+	SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE    SubstrateActorSortField = 3
+	SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD  SubstrateActorSortField = 4
+)
+
+// Enum value maps for SubstrateActorSortField.
+var (
+	SubstrateActorSortField_name = map[int32]string{
+		0: "SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED",
+		1: "SUBSTRATE_ACTOR_SORT_FIELD_STATUS",
+		2: "SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID",
+		3: "SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE",
+		4: "SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD",
+	}
+	SubstrateActorSortField_value = map[string]int32{
+		"SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED": 0,
+		"SUBSTRATE_ACTOR_SORT_FIELD_STATUS":      1,
+		"SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID":    2,
+		"SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE":    3,
+		"SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD":  4,
+	}
+)
+
+func (x SubstrateActorSortField) Enum() *SubstrateActorSortField {
+	p := new(SubstrateActorSortField)
+	*p = x
+	return p
+}
+
+func (x SubstrateActorSortField) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SubstrateActorSortField) Descriptor() protoreflect.EnumDescriptor {
+	return file_kagent_api_v1alpha1_system_proto_enumTypes[1].Descriptor()
+}
+
+func (SubstrateActorSortField) Type() protoreflect.EnumType {
+	return &file_kagent_api_v1alpha1_system_proto_enumTypes[1]
+}
+
+func (x SubstrateActorSortField) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SubstrateActorSortField.Descriptor instead.
+func (SubstrateActorSortField) EnumDescriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{1}
+}
+
+// The columns ListSubstrateWorkers can order by, each ending in the worker's
+// namespace and pod, which together are unique.
+type SubstrateWorkerSortField int32
+
+const (
+	// Pool, then pod.
+	SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED SubstrateWorkerSortField = 0
+	SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_POOL        SubstrateWorkerSortField = 1
+	SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_POD         SubstrateWorkerSortField = 2
+	SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_IP          SubstrateWorkerSortField = 3
+)
+
+// Enum value maps for SubstrateWorkerSortField.
+var (
+	SubstrateWorkerSortField_name = map[int32]string{
+		0: "SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED",
+		1: "SUBSTRATE_WORKER_SORT_FIELD_POOL",
+		2: "SUBSTRATE_WORKER_SORT_FIELD_POD",
+		3: "SUBSTRATE_WORKER_SORT_FIELD_IP",
+	}
+	SubstrateWorkerSortField_value = map[string]int32{
+		"SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED": 0,
+		"SUBSTRATE_WORKER_SORT_FIELD_POOL":        1,
+		"SUBSTRATE_WORKER_SORT_FIELD_POD":         2,
+		"SUBSTRATE_WORKER_SORT_FIELD_IP":          3,
+	}
+)
+
+func (x SubstrateWorkerSortField) Enum() *SubstrateWorkerSortField {
+	p := new(SubstrateWorkerSortField)
+	*p = x
+	return p
+}
+
+func (x SubstrateWorkerSortField) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SubstrateWorkerSortField) Descriptor() protoreflect.EnumDescriptor {
+	return file_kagent_api_v1alpha1_system_proto_enumTypes[2].Descriptor()
+}
+
+func (SubstrateWorkerSortField) Type() protoreflect.EnumType {
+	return &file_kagent_api_v1alpha1_system_proto_enumTypes[2]
+}
+
+func (x SubstrateWorkerSortField) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SubstrateWorkerSortField.Descriptor instead.
+func (SubstrateWorkerSortField) EnumDescriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{2}
+}
 
 type GetVersionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -866,11 +1032,609 @@ func (x *SubstrateWorker) GetVersion() int64 {
 	return 0
 }
 
+// The inventory as counts, plus the two lists whose length is set by configuration
+// rather than by the cluster.
+//
+// ate-api reports no totals, so these cost a walk of every one of its pages. Only the
+// counts cross the wire, so there is no message-size ceiling — but a caller polling
+// this as often as it pages will spend most of its time here.
+type GetSubstrateSummaryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSubstrateSummaryRequest) Reset() {
+	*x = GetSubstrateSummaryRequest{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSubstrateSummaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSubstrateSummaryRequest) ProtoMessage() {}
+
+func (x *GetSubstrateSummaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSubstrateSummaryRequest.ProtoReflect.Descriptor instead.
+func (*GetSubstrateSummaryRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetSubstrateSummaryRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+type SubstrateActorStatusCount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Count         int64                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubstrateActorStatusCount) Reset() {
+	*x = SubstrateActorStatusCount{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubstrateActorStatusCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubstrateActorStatusCount) ProtoMessage() {}
+
+func (x *SubstrateActorStatusCount) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubstrateActorStatusCount.ProtoReflect.Descriptor instead.
+func (*SubstrateActorStatusCount) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SubstrateActorStatusCount) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *SubstrateActorStatusCount) GetCount() int64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+type GetSubstrateSummaryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// False when the controller has no ate-api endpoint configured: a deployment choice,
+	// not a failure. Every other field is then empty — a configuration note to show, not
+	// an error and not an empty cluster.
+	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Set when one of the three ate-api reads behind this answer failed. They do not gate
+	// each other, so the counts here may be short while the Kubernetes-derived lists are
+	// complete: a warning to show beside the data rather than a failed call. Never a
+	// database failure — those are internal errors.
+	AteApiError       string                    `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
+	WorkerPools       []*SubstrateWorkerPool    `protobuf:"bytes,3,rep,name=worker_pools,json=workerPools,proto3" json:"worker_pools,omitempty"`
+	ActorTemplates    []*SubstrateActorTemplate `protobuf:"bytes,4,rep,name=actor_templates,json=actorTemplates,proto3" json:"actor_templates,omitempty"`
+	ActorCount        int64                     `protobuf:"varint,5,opt,name=actor_count,json=actorCount,proto3" json:"actor_count,omitempty"`
+	WorkerCount       int64                     `protobuf:"varint,6,opt,name=worker_count,json=workerCount,proto3" json:"worker_count,omitempty"`
+	RunningActorCount int64                     `protobuf:"varint,7,opt,name=running_actor_count,json=runningActorCount,proto3" json:"running_actor_count,omitempty"`
+	// A worker is busy when an actor is bound to it.
+	BusyWorkerCount int64 `protobuf:"varint,8,opt,name=busy_worker_count,json=busyWorkerCount,proto3" json:"busy_worker_count,omitempty"`
+	// Every actor status present, with how many hold it: knowing 12 of 410,110 are
+	// running says nothing about the other 410,098.
+	ActorStatusCounts []*SubstrateActorStatusCount `protobuf:"bytes,9,rep,name=actor_status_counts,json=actorStatusCounts,proto3" json:"actor_status_counts,omitempty"`
+	// When this answer was computed, which is not when it was received.
+	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSubstrateSummaryResponse) Reset() {
+	*x = GetSubstrateSummaryResponse{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSubstrateSummaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSubstrateSummaryResponse) ProtoMessage() {}
+
+func (x *GetSubstrateSummaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSubstrateSummaryResponse.ProtoReflect.Descriptor instead.
+func (*GetSubstrateSummaryResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GetSubstrateSummaryResponse) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *GetSubstrateSummaryResponse) GetAteApiError() string {
+	if x != nil {
+		return x.AteApiError
+	}
+	return ""
+}
+
+func (x *GetSubstrateSummaryResponse) GetWorkerPools() []*SubstrateWorkerPool {
+	if x != nil {
+		return x.WorkerPools
+	}
+	return nil
+}
+
+func (x *GetSubstrateSummaryResponse) GetActorTemplates() []*SubstrateActorTemplate {
+	if x != nil {
+		return x.ActorTemplates
+	}
+	return nil
+}
+
+func (x *GetSubstrateSummaryResponse) GetActorCount() int64 {
+	if x != nil {
+		return x.ActorCount
+	}
+	return 0
+}
+
+func (x *GetSubstrateSummaryResponse) GetWorkerCount() int64 {
+	if x != nil {
+		return x.WorkerCount
+	}
+	return 0
+}
+
+func (x *GetSubstrateSummaryResponse) GetRunningActorCount() int64 {
+	if x != nil {
+		return x.RunningActorCount
+	}
+	return 0
+}
+
+func (x *GetSubstrateSummaryResponse) GetBusyWorkerCount() int64 {
+	if x != nil {
+		return x.BusyWorkerCount
+	}
+	return 0
+}
+
+func (x *GetSubstrateSummaryResponse) GetActorStatusCounts() []*SubstrateActorStatusCount {
+	if x != nil {
+		return x.ActorStatusCounts
+	}
+	return nil
+}
+
+func (x *GetSubstrateSummaryResponse) GetComputedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ComputedAt
+	}
+	return nil
+}
+
+// One page of actors, ordered and narrowed across the whole inventory.
+//
+// ate-api offers paging and nothing else, so the controller reads all of its pages and
+// applies the filter and the order before cutting this one. That is a walk of the
+// inventory per request — seconds on a large cluster — and it is what makes both mean
+// the cluster rather than the page.
+type ListSubstrateActorsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty means every namespace the controller observes.
+	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// `limit` is capped at 100 in common.proto and zero means the server's default;
+	// above the cap is refused rather than clamped.
+	Page *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	// Matched case-insensitively as a substring of the id, status, template and worker
+	// pod a row shows. Empty matches everything.
+	Filter        string                  `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
+	SortField     SubstrateActorSortField `protobuf:"varint,4,opt,name=sort_field,json=sortField,proto3,enum=kagent.api.v1alpha1.SubstrateActorSortField" json:"sort_field,omitempty"`
+	SortOrder     SubstrateSortOrder      `protobuf:"varint,5,opt,name=sort_order,json=sortOrder,proto3,enum=kagent.api.v1alpha1.SubstrateSortOrder" json:"sort_order,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSubstrateActorsRequest) Reset() {
+	*x = ListSubstrateActorsRequest{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubstrateActorsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubstrateActorsRequest) ProtoMessage() {}
+
+func (x *ListSubstrateActorsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubstrateActorsRequest.ProtoReflect.Descriptor instead.
+func (*ListSubstrateActorsRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListSubstrateActorsRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *ListSubstrateActorsRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+func (x *ListSubstrateActorsRequest) GetFilter() string {
+	if x != nil {
+		return x.Filter
+	}
+	return ""
+}
+
+func (x *ListSubstrateActorsRequest) GetSortField() SubstrateActorSortField {
+	if x != nil {
+		return x.SortField
+	}
+	return SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED
+}
+
+func (x *ListSubstrateActorsRequest) GetSortOrder() SubstrateSortOrder {
+	if x != nil {
+		return x.SortOrder
+	}
+	return SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED
+}
+
+type ListSubstrateActorsResponse struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Enabled     bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
+	Actors      []*SubstrateActor      `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
+	// Empty next_page_token on the last page.
+	Page       *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
+	ComputedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
+	// How many actors match the filter in total. Without it a page can only report its
+	// own length, which reads as the whole result.
+	TotalSize int64 `protobuf:"varint,6,opt,name=total_size,json=totalSize,proto3" json:"total_size,omitempty"`
+	// The order actually applied, so a client does not claim one the server ignored.
+	AppliedSortField SubstrateActorSortField `protobuf:"varint,7,opt,name=applied_sort_field,json=appliedSortField,proto3,enum=kagent.api.v1alpha1.SubstrateActorSortField" json:"applied_sort_field,omitempty"`
+	AppliedSortOrder SubstrateSortOrder      `protobuf:"varint,8,opt,name=applied_sort_order,json=appliedSortOrder,proto3,enum=kagent.api.v1alpha1.SubstrateSortOrder" json:"applied_sort_order,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ListSubstrateActorsResponse) Reset() {
+	*x = ListSubstrateActorsResponse{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubstrateActorsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubstrateActorsResponse) ProtoMessage() {}
+
+func (x *ListSubstrateActorsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubstrateActorsResponse.ProtoReflect.Descriptor instead.
+func (*ListSubstrateActorsResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ListSubstrateActorsResponse) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *ListSubstrateActorsResponse) GetAteApiError() string {
+	if x != nil {
+		return x.AteApiError
+	}
+	return ""
+}
+
+func (x *ListSubstrateActorsResponse) GetActors() []*SubstrateActor {
+	if x != nil {
+		return x.Actors
+	}
+	return nil
+}
+
+func (x *ListSubstrateActorsResponse) GetPage() *PageResponse {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+func (x *ListSubstrateActorsResponse) GetComputedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ComputedAt
+	}
+	return nil
+}
+
+func (x *ListSubstrateActorsResponse) GetTotalSize() int64 {
+	if x != nil {
+		return x.TotalSize
+	}
+	return 0
+}
+
+func (x *ListSubstrateActorsResponse) GetAppliedSortField() SubstrateActorSortField {
+	if x != nil {
+		return x.AppliedSortField
+	}
+	return SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED
+}
+
+func (x *ListSubstrateActorsResponse) GetAppliedSortOrder() SubstrateSortOrder {
+	if x != nil {
+		return x.AppliedSortOrder
+	}
+	return SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED
+}
+
+// One page of worker assignments. The mirror of ListSubstrateActors.
+type ListSubstrateWorkersRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Page      *PageRequest           `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
+	// Matched against the namespace, pool, pod and IP a row shows.
+	Filter        string                   `protobuf:"bytes,3,opt,name=filter,proto3" json:"filter,omitempty"`
+	SortField     SubstrateWorkerSortField `protobuf:"varint,4,opt,name=sort_field,json=sortField,proto3,enum=kagent.api.v1alpha1.SubstrateWorkerSortField" json:"sort_field,omitempty"`
+	SortOrder     SubstrateSortOrder       `protobuf:"varint,5,opt,name=sort_order,json=sortOrder,proto3,enum=kagent.api.v1alpha1.SubstrateSortOrder" json:"sort_order,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSubstrateWorkersRequest) Reset() {
+	*x = ListSubstrateWorkersRequest{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubstrateWorkersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubstrateWorkersRequest) ProtoMessage() {}
+
+func (x *ListSubstrateWorkersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubstrateWorkersRequest.ProtoReflect.Descriptor instead.
+func (*ListSubstrateWorkersRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ListSubstrateWorkersRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *ListSubstrateWorkersRequest) GetPage() *PageRequest {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+func (x *ListSubstrateWorkersRequest) GetFilter() string {
+	if x != nil {
+		return x.Filter
+	}
+	return ""
+}
+
+func (x *ListSubstrateWorkersRequest) GetSortField() SubstrateWorkerSortField {
+	if x != nil {
+		return x.SortField
+	}
+	return SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED
+}
+
+func (x *ListSubstrateWorkersRequest) GetSortOrder() SubstrateSortOrder {
+	if x != nil {
+		return x.SortOrder
+	}
+	return SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED
+}
+
+type ListSubstrateWorkersResponse struct {
+	state            protoimpl.MessageState   `protogen:"open.v1"`
+	Enabled          bool                     `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	AteApiError      string                   `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
+	Workers          []*SubstrateWorker       `protobuf:"bytes,3,rep,name=workers,proto3" json:"workers,omitempty"`
+	Page             *PageResponse            `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
+	ComputedAt       *timestamppb.Timestamp   `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
+	TotalSize        int64                    `protobuf:"varint,6,opt,name=total_size,json=totalSize,proto3" json:"total_size,omitempty"`
+	AppliedSortField SubstrateWorkerSortField `protobuf:"varint,7,opt,name=applied_sort_field,json=appliedSortField,proto3,enum=kagent.api.v1alpha1.SubstrateWorkerSortField" json:"applied_sort_field,omitempty"`
+	AppliedSortOrder SubstrateSortOrder       `protobuf:"varint,8,opt,name=applied_sort_order,json=appliedSortOrder,proto3,enum=kagent.api.v1alpha1.SubstrateSortOrder" json:"applied_sort_order,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ListSubstrateWorkersResponse) Reset() {
+	*x = ListSubstrateWorkersResponse{}
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSubstrateWorkersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSubstrateWorkersResponse) ProtoMessage() {}
+
+func (x *ListSubstrateWorkersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1alpha1_system_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSubstrateWorkersResponse.ProtoReflect.Descriptor instead.
+func (*ListSubstrateWorkersResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ListSubstrateWorkersResponse) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *ListSubstrateWorkersResponse) GetAteApiError() string {
+	if x != nil {
+		return x.AteApiError
+	}
+	return ""
+}
+
+func (x *ListSubstrateWorkersResponse) GetWorkers() []*SubstrateWorker {
+	if x != nil {
+		return x.Workers
+	}
+	return nil
+}
+
+func (x *ListSubstrateWorkersResponse) GetPage() *PageResponse {
+	if x != nil {
+		return x.Page
+	}
+	return nil
+}
+
+func (x *ListSubstrateWorkersResponse) GetComputedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ComputedAt
+	}
+	return nil
+}
+
+func (x *ListSubstrateWorkersResponse) GetTotalSize() int64 {
+	if x != nil {
+		return x.TotalSize
+	}
+	return 0
+}
+
+func (x *ListSubstrateWorkersResponse) GetAppliedSortField() SubstrateWorkerSortField {
+	if x != nil {
+		return x.AppliedSortField
+	}
+	return SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED
+}
+
+func (x *ListSubstrateWorkersResponse) GetAppliedSortOrder() SubstrateSortOrder {
+	if x != nil {
+		return x.AppliedSortOrder
+	}
+	return SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED
+}
+
 var File_kagent_api_v1alpha1_system_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\n" +
-	" kagent/api/v1alpha1/system.proto\x12\x13kagent.api.v1alpha1\x1a\x1cgoogle/protobuf/struct.proto\"\x13\n" +
+	" kagent/api/v1alpha1/system.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a kagent/api/v1alpha1/common.proto\"\x13\n" +
 	"\x11GetVersionRequest\"y\n" +
 	"\x12GetVersionResponse\x12%\n" +
 	"\x0ekagent_version\x18\x01 \x01(\tR\rkagentVersion\x12\x1d\n" +
@@ -939,13 +1703,88 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x0eactor_template\x18\x05 \x01(\tR\ractorTemplate\x12\x19\n" +
 	"\bactor_id\x18\x06 \x01(\tR\aactorId\x12\x0e\n" +
 	"\x02ip\x18\a \x01(\tR\x02ip\x12\x18\n" +
-	"\aversion\x18\b \x01(\x03R\aversion2\xbb\x03\n" +
+	"\aversion\x18\b \x01(\x03R\aversion\":\n" +
+	"\x1aGetSubstrateSummaryRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"I\n" +
+	"\x19SubstrateActorStatusCount\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\"\xbb\x04\n" +
+	"\x1bGetSubstrateSummaryResponse\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
+	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12K\n" +
+	"\fworker_pools\x18\x03 \x03(\v2(.kagent.api.v1alpha1.SubstrateWorkerPoolR\vworkerPools\x12T\n" +
+	"\x0factor_templates\x18\x04 \x03(\v2+.kagent.api.v1alpha1.SubstrateActorTemplateR\x0eactorTemplates\x12\x1f\n" +
+	"\vactor_count\x18\x05 \x01(\x03R\n" +
+	"actorCount\x12!\n" +
+	"\fworker_count\x18\x06 \x01(\x03R\vworkerCount\x12.\n" +
+	"\x13running_actor_count\x18\a \x01(\x03R\x11runningActorCount\x12*\n" +
+	"\x11busy_worker_count\x18\b \x01(\x03R\x0fbusyWorkerCount\x12^\n" +
+	"\x13actor_status_counts\x18\t \x03(\v2..kagent.api.v1alpha1.SubstrateActorStatusCountR\x11actorStatusCounts\x12;\n" +
+	"\vcomputed_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"computedAt\"\xbb\x02\n" +
+	"\x1aListSubstrateActorsRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x124\n" +
+	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12 \n" +
+	"\x06filter\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\xc8\x01R\x06filter\x12U\n" +
+	"\n" +
+	"sort_field\x18\x04 \x01(\x0e2,.kagent.api.v1alpha1.SubstrateActorSortFieldB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortField\x12P\n" +
+	"\n" +
+	"sort_order\x18\x05 \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortOrder\"\xde\x03\n" +
+	"\x1bListSubstrateActorsResponse\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
+	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12;\n" +
+	"\x06actors\x18\x03 \x03(\v2#.kagent.api.v1alpha1.SubstrateActorR\x06actors\x125\n" +
+	"\x04page\x18\x04 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\x12;\n" +
+	"\vcomputed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"computedAt\x12\x1d\n" +
+	"\n" +
+	"total_size\x18\x06 \x01(\x03R\ttotalSize\x12Z\n" +
+	"\x12applied_sort_field\x18\a \x01(\x0e2,.kagent.api.v1alpha1.SubstrateActorSortFieldR\x10appliedSortField\x12U\n" +
+	"\x12applied_sort_order\x18\b \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderR\x10appliedSortOrder\"\xbd\x02\n" +
+	"\x1bListSubstrateWorkersRequest\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x124\n" +
+	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12 \n" +
+	"\x06filter\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\xc8\x01R\x06filter\x12V\n" +
+	"\n" +
+	"sort_field\x18\x04 \x01(\x0e2-.kagent.api.v1alpha1.SubstrateWorkerSortFieldB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortField\x12P\n" +
+	"\n" +
+	"sort_order\x18\x05 \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortOrder\"\xe3\x03\n" +
+	"\x1cListSubstrateWorkersResponse\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
+	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12>\n" +
+	"\aworkers\x18\x03 \x03(\v2$.kagent.api.v1alpha1.SubstrateWorkerR\aworkers\x125\n" +
+	"\x04page\x18\x04 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\x12;\n" +
+	"\vcomputed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"computedAt\x12\x1d\n" +
+	"\n" +
+	"total_size\x18\x06 \x01(\x03R\ttotalSize\x12[\n" +
+	"\x12applied_sort_field\x18\a \x01(\x0e2-.kagent.api.v1alpha1.SubstrateWorkerSortFieldR\x10appliedSortField\x12U\n" +
+	"\x12applied_sort_order\x18\b \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderR\x10appliedSortOrder*w\n" +
+	"\x12SubstrateSortOrder\x12$\n" +
+	" SUBSTRATE_SORT_ORDER_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18SUBSTRATE_SORT_ORDER_ASC\x10\x01\x12\x1d\n" +
+	"\x19SUBSTRATE_SORT_ORDER_DESC\x10\x02*\xe9\x01\n" +
+	"\x17SubstrateActorSortField\x12*\n" +
+	"&SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED\x10\x00\x12%\n" +
+	"!SUBSTRATE_ACTOR_SORT_FIELD_STATUS\x10\x01\x12'\n" +
+	"#SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID\x10\x02\x12'\n" +
+	"#SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE\x10\x03\x12)\n" +
+	"%SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD\x10\x04*\xb6\x01\n" +
+	"\x18SubstrateWorkerSortField\x12+\n" +
+	"'SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED\x10\x00\x12$\n" +
+	" SUBSTRATE_WORKER_SORT_FIELD_POOL\x10\x01\x12#\n" +
+	"\x1fSUBSTRATE_WORKER_SORT_FIELD_POD\x10\x02\x12\"\n" +
+	"\x1eSUBSTRATE_WORKER_SORT_FIELD_IP\x10\x032\xac\x06\n" +
 	"\rSystemService\x12]\n" +
 	"\n" +
 	"GetVersion\x12&.kagent.api.v1alpha1.GetVersionRequest\x1a'.kagent.api.v1alpha1.GetVersionResponse\x12i\n" +
 	"\x0eGetCurrentUser\x12*.kagent.api.v1alpha1.GetCurrentUserRequest\x1a+.kagent.api.v1alpha1.GetCurrentUserResponse\x12i\n" +
 	"\x0eListNamespaces\x12*.kagent.api.v1alpha1.ListNamespacesRequest\x1a+.kagent.api.v1alpha1.ListNamespacesResponse\x12u\n" +
-	"\x12GetSubstrateStatus\x12..kagent.api.v1alpha1.GetSubstrateStatusRequest\x1a/.kagent.api.v1alpha1.GetSubstrateStatusResponseBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
+	"\x12GetSubstrateStatus\x12..kagent.api.v1alpha1.GetSubstrateStatusRequest\x1a/.kagent.api.v1alpha1.GetSubstrateStatusResponse\x12x\n" +
+	"\x13GetSubstrateSummary\x12/.kagent.api.v1alpha1.GetSubstrateSummaryRequest\x1a0.kagent.api.v1alpha1.GetSubstrateSummaryResponse\x12x\n" +
+	"\x13ListSubstrateActors\x12/.kagent.api.v1alpha1.ListSubstrateActorsRequest\x1a0.kagent.api.v1alpha1.ListSubstrateActorsResponse\x12{\n" +
+	"\x14ListSubstrateWorkers\x120.kagent.api.v1alpha1.ListSubstrateWorkersRequest\x1a1.kagent.api.v1alpha1.ListSubstrateWorkersResponseBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
 
 var (
 	file_kagent_api_v1alpha1_system_proto_rawDescOnce sync.Once
@@ -959,43 +1798,83 @@ func file_kagent_api_v1alpha1_system_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1alpha1_system_proto_rawDescData
 }
 
-var file_kagent_api_v1alpha1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_kagent_api_v1alpha1_system_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_kagent_api_v1alpha1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_kagent_api_v1alpha1_system_proto_goTypes = []any{
-	(*GetVersionRequest)(nil),          // 0: kagent.api.v1alpha1.GetVersionRequest
-	(*GetVersionResponse)(nil),         // 1: kagent.api.v1alpha1.GetVersionResponse
-	(*GetCurrentUserRequest)(nil),      // 2: kagent.api.v1alpha1.GetCurrentUserRequest
-	(*GetCurrentUserResponse)(nil),     // 3: kagent.api.v1alpha1.GetCurrentUserResponse
-	(*ListNamespacesRequest)(nil),      // 4: kagent.api.v1alpha1.ListNamespacesRequest
-	(*Namespace)(nil),                  // 5: kagent.api.v1alpha1.Namespace
-	(*ListNamespacesResponse)(nil),     // 6: kagent.api.v1alpha1.ListNamespacesResponse
-	(*GetSubstrateStatusRequest)(nil),  // 7: kagent.api.v1alpha1.GetSubstrateStatusRequest
-	(*GetSubstrateStatusResponse)(nil), // 8: kagent.api.v1alpha1.GetSubstrateStatusResponse
-	(*SubstrateWorkerPool)(nil),        // 9: kagent.api.v1alpha1.SubstrateWorkerPool
-	(*SubstrateActorTemplate)(nil),     // 10: kagent.api.v1alpha1.SubstrateActorTemplate
-	(*SubstrateActor)(nil),             // 11: kagent.api.v1alpha1.SubstrateActor
-	(*SubstrateWorker)(nil),            // 12: kagent.api.v1alpha1.SubstrateWorker
-	(*structpb.Struct)(nil),            // 13: google.protobuf.Struct
+	(SubstrateSortOrder)(0),              // 0: kagent.api.v1alpha1.SubstrateSortOrder
+	(SubstrateActorSortField)(0),         // 1: kagent.api.v1alpha1.SubstrateActorSortField
+	(SubstrateWorkerSortField)(0),        // 2: kagent.api.v1alpha1.SubstrateWorkerSortField
+	(*GetVersionRequest)(nil),            // 3: kagent.api.v1alpha1.GetVersionRequest
+	(*GetVersionResponse)(nil),           // 4: kagent.api.v1alpha1.GetVersionResponse
+	(*GetCurrentUserRequest)(nil),        // 5: kagent.api.v1alpha1.GetCurrentUserRequest
+	(*GetCurrentUserResponse)(nil),       // 6: kagent.api.v1alpha1.GetCurrentUserResponse
+	(*ListNamespacesRequest)(nil),        // 7: kagent.api.v1alpha1.ListNamespacesRequest
+	(*Namespace)(nil),                    // 8: kagent.api.v1alpha1.Namespace
+	(*ListNamespacesResponse)(nil),       // 9: kagent.api.v1alpha1.ListNamespacesResponse
+	(*GetSubstrateStatusRequest)(nil),    // 10: kagent.api.v1alpha1.GetSubstrateStatusRequest
+	(*GetSubstrateStatusResponse)(nil),   // 11: kagent.api.v1alpha1.GetSubstrateStatusResponse
+	(*SubstrateWorkerPool)(nil),          // 12: kagent.api.v1alpha1.SubstrateWorkerPool
+	(*SubstrateActorTemplate)(nil),       // 13: kagent.api.v1alpha1.SubstrateActorTemplate
+	(*SubstrateActor)(nil),               // 14: kagent.api.v1alpha1.SubstrateActor
+	(*SubstrateWorker)(nil),              // 15: kagent.api.v1alpha1.SubstrateWorker
+	(*GetSubstrateSummaryRequest)(nil),   // 16: kagent.api.v1alpha1.GetSubstrateSummaryRequest
+	(*SubstrateActorStatusCount)(nil),    // 17: kagent.api.v1alpha1.SubstrateActorStatusCount
+	(*GetSubstrateSummaryResponse)(nil),  // 18: kagent.api.v1alpha1.GetSubstrateSummaryResponse
+	(*ListSubstrateActorsRequest)(nil),   // 19: kagent.api.v1alpha1.ListSubstrateActorsRequest
+	(*ListSubstrateActorsResponse)(nil),  // 20: kagent.api.v1alpha1.ListSubstrateActorsResponse
+	(*ListSubstrateWorkersRequest)(nil),  // 21: kagent.api.v1alpha1.ListSubstrateWorkersRequest
+	(*ListSubstrateWorkersResponse)(nil), // 22: kagent.api.v1alpha1.ListSubstrateWorkersResponse
+	(*structpb.Struct)(nil),              // 23: google.protobuf.Struct
+	(*timestamppb.Timestamp)(nil),        // 24: google.protobuf.Timestamp
+	(*PageRequest)(nil),                  // 25: kagent.api.v1alpha1.PageRequest
+	(*PageResponse)(nil),                 // 26: kagent.api.v1alpha1.PageResponse
 }
 var file_kagent_api_v1alpha1_system_proto_depIdxs = []int32{
-	13, // 0: kagent.api.v1alpha1.GetCurrentUserResponse.claims:type_name -> google.protobuf.Struct
-	5,  // 1: kagent.api.v1alpha1.ListNamespacesResponse.namespaces:type_name -> kagent.api.v1alpha1.Namespace
-	9,  // 2: kagent.api.v1alpha1.GetSubstrateStatusResponse.worker_pools:type_name -> kagent.api.v1alpha1.SubstrateWorkerPool
-	10, // 3: kagent.api.v1alpha1.GetSubstrateStatusResponse.actor_templates:type_name -> kagent.api.v1alpha1.SubstrateActorTemplate
-	11, // 4: kagent.api.v1alpha1.GetSubstrateStatusResponse.actors:type_name -> kagent.api.v1alpha1.SubstrateActor
-	12, // 5: kagent.api.v1alpha1.GetSubstrateStatusResponse.workers:type_name -> kagent.api.v1alpha1.SubstrateWorker
-	0,  // 6: kagent.api.v1alpha1.SystemService.GetVersion:input_type -> kagent.api.v1alpha1.GetVersionRequest
-	2,  // 7: kagent.api.v1alpha1.SystemService.GetCurrentUser:input_type -> kagent.api.v1alpha1.GetCurrentUserRequest
-	4,  // 8: kagent.api.v1alpha1.SystemService.ListNamespaces:input_type -> kagent.api.v1alpha1.ListNamespacesRequest
-	7,  // 9: kagent.api.v1alpha1.SystemService.GetSubstrateStatus:input_type -> kagent.api.v1alpha1.GetSubstrateStatusRequest
-	1,  // 10: kagent.api.v1alpha1.SystemService.GetVersion:output_type -> kagent.api.v1alpha1.GetVersionResponse
-	3,  // 11: kagent.api.v1alpha1.SystemService.GetCurrentUser:output_type -> kagent.api.v1alpha1.GetCurrentUserResponse
-	6,  // 12: kagent.api.v1alpha1.SystemService.ListNamespaces:output_type -> kagent.api.v1alpha1.ListNamespacesResponse
-	8,  // 13: kagent.api.v1alpha1.SystemService.GetSubstrateStatus:output_type -> kagent.api.v1alpha1.GetSubstrateStatusResponse
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	23, // 0: kagent.api.v1alpha1.GetCurrentUserResponse.claims:type_name -> google.protobuf.Struct
+	8,  // 1: kagent.api.v1alpha1.ListNamespacesResponse.namespaces:type_name -> kagent.api.v1alpha1.Namespace
+	12, // 2: kagent.api.v1alpha1.GetSubstrateStatusResponse.worker_pools:type_name -> kagent.api.v1alpha1.SubstrateWorkerPool
+	13, // 3: kagent.api.v1alpha1.GetSubstrateStatusResponse.actor_templates:type_name -> kagent.api.v1alpha1.SubstrateActorTemplate
+	14, // 4: kagent.api.v1alpha1.GetSubstrateStatusResponse.actors:type_name -> kagent.api.v1alpha1.SubstrateActor
+	15, // 5: kagent.api.v1alpha1.GetSubstrateStatusResponse.workers:type_name -> kagent.api.v1alpha1.SubstrateWorker
+	12, // 6: kagent.api.v1alpha1.GetSubstrateSummaryResponse.worker_pools:type_name -> kagent.api.v1alpha1.SubstrateWorkerPool
+	13, // 7: kagent.api.v1alpha1.GetSubstrateSummaryResponse.actor_templates:type_name -> kagent.api.v1alpha1.SubstrateActorTemplate
+	17, // 8: kagent.api.v1alpha1.GetSubstrateSummaryResponse.actor_status_counts:type_name -> kagent.api.v1alpha1.SubstrateActorStatusCount
+	24, // 9: kagent.api.v1alpha1.GetSubstrateSummaryResponse.computed_at:type_name -> google.protobuf.Timestamp
+	25, // 10: kagent.api.v1alpha1.ListSubstrateActorsRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
+	1,  // 11: kagent.api.v1alpha1.ListSubstrateActorsRequest.sort_field:type_name -> kagent.api.v1alpha1.SubstrateActorSortField
+	0,  // 12: kagent.api.v1alpha1.ListSubstrateActorsRequest.sort_order:type_name -> kagent.api.v1alpha1.SubstrateSortOrder
+	14, // 13: kagent.api.v1alpha1.ListSubstrateActorsResponse.actors:type_name -> kagent.api.v1alpha1.SubstrateActor
+	26, // 14: kagent.api.v1alpha1.ListSubstrateActorsResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	24, // 15: kagent.api.v1alpha1.ListSubstrateActorsResponse.computed_at:type_name -> google.protobuf.Timestamp
+	1,  // 16: kagent.api.v1alpha1.ListSubstrateActorsResponse.applied_sort_field:type_name -> kagent.api.v1alpha1.SubstrateActorSortField
+	0,  // 17: kagent.api.v1alpha1.ListSubstrateActorsResponse.applied_sort_order:type_name -> kagent.api.v1alpha1.SubstrateSortOrder
+	25, // 18: kagent.api.v1alpha1.ListSubstrateWorkersRequest.page:type_name -> kagent.api.v1alpha1.PageRequest
+	2,  // 19: kagent.api.v1alpha1.ListSubstrateWorkersRequest.sort_field:type_name -> kagent.api.v1alpha1.SubstrateWorkerSortField
+	0,  // 20: kagent.api.v1alpha1.ListSubstrateWorkersRequest.sort_order:type_name -> kagent.api.v1alpha1.SubstrateSortOrder
+	15, // 21: kagent.api.v1alpha1.ListSubstrateWorkersResponse.workers:type_name -> kagent.api.v1alpha1.SubstrateWorker
+	26, // 22: kagent.api.v1alpha1.ListSubstrateWorkersResponse.page:type_name -> kagent.api.v1alpha1.PageResponse
+	24, // 23: kagent.api.v1alpha1.ListSubstrateWorkersResponse.computed_at:type_name -> google.protobuf.Timestamp
+	2,  // 24: kagent.api.v1alpha1.ListSubstrateWorkersResponse.applied_sort_field:type_name -> kagent.api.v1alpha1.SubstrateWorkerSortField
+	0,  // 25: kagent.api.v1alpha1.ListSubstrateWorkersResponse.applied_sort_order:type_name -> kagent.api.v1alpha1.SubstrateSortOrder
+	3,  // 26: kagent.api.v1alpha1.SystemService.GetVersion:input_type -> kagent.api.v1alpha1.GetVersionRequest
+	5,  // 27: kagent.api.v1alpha1.SystemService.GetCurrentUser:input_type -> kagent.api.v1alpha1.GetCurrentUserRequest
+	7,  // 28: kagent.api.v1alpha1.SystemService.ListNamespaces:input_type -> kagent.api.v1alpha1.ListNamespacesRequest
+	10, // 29: kagent.api.v1alpha1.SystemService.GetSubstrateStatus:input_type -> kagent.api.v1alpha1.GetSubstrateStatusRequest
+	16, // 30: kagent.api.v1alpha1.SystemService.GetSubstrateSummary:input_type -> kagent.api.v1alpha1.GetSubstrateSummaryRequest
+	19, // 31: kagent.api.v1alpha1.SystemService.ListSubstrateActors:input_type -> kagent.api.v1alpha1.ListSubstrateActorsRequest
+	21, // 32: kagent.api.v1alpha1.SystemService.ListSubstrateWorkers:input_type -> kagent.api.v1alpha1.ListSubstrateWorkersRequest
+	4,  // 33: kagent.api.v1alpha1.SystemService.GetVersion:output_type -> kagent.api.v1alpha1.GetVersionResponse
+	6,  // 34: kagent.api.v1alpha1.SystemService.GetCurrentUser:output_type -> kagent.api.v1alpha1.GetCurrentUserResponse
+	9,  // 35: kagent.api.v1alpha1.SystemService.ListNamespaces:output_type -> kagent.api.v1alpha1.ListNamespacesResponse
+	11, // 36: kagent.api.v1alpha1.SystemService.GetSubstrateStatus:output_type -> kagent.api.v1alpha1.GetSubstrateStatusResponse
+	18, // 37: kagent.api.v1alpha1.SystemService.GetSubstrateSummary:output_type -> kagent.api.v1alpha1.GetSubstrateSummaryResponse
+	20, // 38: kagent.api.v1alpha1.SystemService.ListSubstrateActors:output_type -> kagent.api.v1alpha1.ListSubstrateActorsResponse
+	22, // 39: kagent.api.v1alpha1.SystemService.ListSubstrateWorkers:output_type -> kagent.api.v1alpha1.ListSubstrateWorkersResponse
+	33, // [33:40] is the sub-list for method output_type
+	26, // [26:33] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_system_proto_init() }
@@ -1003,18 +1882,20 @@ func file_kagent_api_v1alpha1_system_proto_init() {
 	if File_kagent_api_v1alpha1_system_proto != nil {
 		return
 	}
+	file_kagent_api_v1alpha1_common_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1alpha1_system_proto_rawDesc), len(file_kagent_api_v1alpha1_system_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   13,
+			NumEnums:      3,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_kagent_api_v1alpha1_system_proto_goTypes,
 		DependencyIndexes: file_kagent_api_v1alpha1_system_proto_depIdxs,
+		EnumInfos:         file_kagent_api_v1alpha1_system_proto_enumTypes,
 		MessageInfos:      file_kagent_api_v1alpha1_system_proto_msgTypes,
 	}.Build()
 	File_kagent_api_v1alpha1_system_proto = out.File
