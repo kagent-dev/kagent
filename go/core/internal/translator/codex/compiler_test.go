@@ -135,6 +135,24 @@ func TestCompileTracing(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsOTELEnvironment(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	value := "Authorization=secret"
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: &value}}
+
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	var validation *v2translator.ValidationError
+	if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
+		t.Fatalf("Compile() error = %v, want OTEL environment conflict", err)
+	}
+}
+
 func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	responses, chat := v1alpha3.OpenAIAPIFormatResponses, v1alpha3.OpenAIAPIFormatChatCompletions
 	tests := []v1alpha3.ModelConfigSpec{

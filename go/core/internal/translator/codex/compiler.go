@@ -31,14 +31,12 @@ const (
 	awsSessionTokenEnv       = "AWS_SESSION_TOKEN"
 	mcpCredentialPrefix      = "KAGENT_CODEX_MCP_CREDENTIAL_"
 	preResponseTraceFlushEnv = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
+	otelEnvironmentPrefix    = "OTEL_"
 )
 
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	"OTEL_TRACING_ENABLED": {}, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": {},
-	"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": {}, "OTEL_LOGGING_ENABLED": {},
-	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": {}, "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": {},
 	preResponseTraceFlushEnv: {},
 	"KAGENT_NAME":            {}, "KAGENT_NAMESPACE": {},
 }
@@ -86,7 +84,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	environment := append(providerEnvironment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if _, reserved := ownedEnvironment[variable.Name]; reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
+		_, reserved := ownedEnvironment[variable.Name]
+		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || strings.HasPrefix(variable.Name, otelEnvironmentPrefix) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
