@@ -854,6 +854,7 @@ otel:
     exporter:
       otlp:
         endpoint: ""
+        protocol: "grpc"
         timeout: 15000 # milliseconds
         insecure: true
 
