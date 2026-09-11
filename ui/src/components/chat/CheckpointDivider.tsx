@@ -82,11 +82,11 @@ export function CheckpointDivider({
               as things on one line rather than a label with buttons stuck to it. */}
           {rule}
           {onFork ? (
-            <Tooltip title="Fork the chat from this checkpoint" placement="bottom">
+            <Tooltip title="Fork the chat from this checkpoint." placement="bottom">
               <Button
                 size="small"
                 data-testid={`chat-checkpoint-fork-${checkpointId}`}
-                aria-label="Fork the chat from this checkpoint"
+                aria-label="Fork the chat from this checkpoint."
                 type="primary"
                 icon={<GitFork size={13} />}
                 onClick={onFork}
