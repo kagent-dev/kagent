@@ -1,5 +1,12 @@
 {{- define "kagent.writer.rules" -}}
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - kagent.dev
   resources:
   - harnesses

@@ -30,10 +30,12 @@ import (
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -41,6 +43,11 @@ import (
 )
 
 const (
+	eventReconcileFailed  = "ReconcileFailed"
+	eventValidationFailed = "ValidationFailed"
+	eventToolsDiscovered  = "ToolsDiscovered"
+	actionReconcile       = "Reconcile"
+	actionDiscover        = "Discover"
 	mcpServerGroupKind    = "MCPServer.kagent.dev"
 	refreshInterval       = 5 * time.Minute
 	readinessPollInterval = 10 * time.Second
@@ -65,10 +72,11 @@ type Reconciler struct {
 	client     client.Client
 	discoverer ToolDiscoverer
 	catalog    CatalogStore
+	recorder   events.EventRecorder
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog}
+func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore, recorder events.EventRecorder) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog, recorder: recorder}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
@@ -119,6 +127,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		Ref: request.NamespacedName, GroupKind: mcpServerGroupKind,
 	})
 	if err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
+			"failed to discover MCPServer tools: %v", err)
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
 			fmt.Errorf("discover MCPServer tools: %w", err),
@@ -128,6 +138,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 
 	discovered, err := toolcatalog.NormalizeTools(tools)
 	if err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventValidationFailed, actionReconcile,
+			"invalid MCPServer tool discovery: %v", err)
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
 			err,
@@ -135,9 +147,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		)
 	}
 	if err := r.updateCatalog(ctx, server, discovered, true); err != nil {
+		r.recordEvent(server, corev1.EventTypeWarning, eventReconcileFailed, actionReconcile,
+			"failed to update MCPServer tool catalog: %v", err)
 		return reconcile.Result{}, fmt.Errorf("update MCPServer tool catalog: %w", err)
 	}
+	r.recordEvent(server, corev1.EventTypeNormal, eventToolsDiscovered, actionDiscover, "Discovered %d MCP tools", len(discovered))
 	return reconcile.Result{RequeueAfter: refreshInterval}, nil
+}
+
+// recordEvent emits a Kubernetes Event against the reconciled object. It is a
+// no-op when no recorder is wired on this reconciler.
+func (r *Reconciler) recordEvent(object client.Object, eventType, reason, action, messageFmt string, args ...any) {
+	if r.recorder == nil {
+		return
+	}
+	r.recorder.Eventf(object, nil, eventType, reason, action, messageFmt, args...)
 }
 
 func isReady(server *kmcp.MCPServer) bool {

@@ -137,6 +137,7 @@ func SetupLogger() error {
 	if err != nil {
 		return fmt.Errorf("parse LOG_LEVEL: %w", err)
 	}
+	logger = slog.New(telemetry.ControllerLogHandler(logger.Handler()))
 	slog.SetDefault(logger)
 	ctrl.SetLogger(logging.AsLogr(logger))
 	return nil
@@ -162,6 +163,18 @@ func Run(ctx context.Context, opts Options) error {
 		defer cancel()
 		if err := shutdownTracing(shutdownCtx); err != nil {
 			logger.ErrorContext(shutdownCtx, "failed to shut down tracing", "error", err)
+		}
+	}()
+
+	shutdownLogging, err := telemetry.InitLoggerProvider(ctx, version.Version)
+	if err != nil {
+		return fmt.Errorf("initialize logging: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownLogging(shutdownCtx); err != nil {
+			logger.ErrorContext(shutdownCtx, "failed to shut down logging", "error", err)
 		}
 	}()
 
@@ -253,11 +266,11 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	mcpClient := toolservice.NewRuntimeMCPClient(manager.GetClient())
-	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
+	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store, manager.GetEventRecorder("remotemcpserver"))
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
+	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store, manager.GetEventRecorder("mcpserver-catalog"))
 	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up MCPServer discovery: %w", err)
 	}

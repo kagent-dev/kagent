@@ -19,6 +19,7 @@ package remotemcpserver
 import (
 	"context"
 	"errors"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -42,15 +44,17 @@ type fakeDiscoverer struct {
 }
 
 type fakeCatalog struct {
-	server  *database.ToolServer
-	tools   []*v1alpha3.MCPTool
-	deleted string
+	server       *database.ToolServer
+	tools        []*v1alpha3.MCPTool
+	err          error
+	deletedTools string
+	deleted      string
 }
 
 func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
 	f.server = server
 	f.tools = tools
-	return nil
+	return f.err
 }
 
 func (f *fakeCatalog) DeleteToolServer(_ context.Context, name, groupKind string) error {
@@ -71,7 +75,7 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 		{Name: "alpha", Description: "first"},
 	}}
 	catalog := &fakeCatalog{}
-	reconciler := New(kube, discoverer, catalog)
+	reconciler := New(kube, discoverer, catalog, nil)
 
 	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
 	if err != nil {
@@ -110,7 +114,7 @@ func TestReconcilePublishesFailureAndClearsStaleTools(t *testing.T) {
 	discoverer := &fakeDiscoverer{err: errors.New("upstream unavailable")}
 	catalog := &fakeCatalog{}
 
-	_, err := New(kube, discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	_, err := New(kube, discoverer, catalog, nil).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
 	if err == nil {
 		t.Fatal("Reconcile() error = nil, want discovery failure")
 	}
@@ -131,7 +135,7 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 	catalog := &fakeCatalog{}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "test", Name: "gone"}}
 
-	if _, err := New(testClient(t), &fakeDiscoverer{}, catalog).Reconcile(t.Context(), request); err != nil {
+	if _, err := New(testClient(t), &fakeDiscoverer{}, catalog, nil).Reconcile(t.Context(), request); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	want := "test/gone|" + remoteGroupKind
@@ -174,6 +178,71 @@ func testServer() *v1alpha3.RemoteMCPServer {
 			Description: "tools", Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 			URL: "https://tools.example/mcp",
 		},
+	}
+}
+
+func TestReconcileEvents(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		tools        []toolservice.MCPAppTool
+		condition    *metav1.Condition
+		discoveryErr error
+		catalogErr   error
+		wantEvent    string
+		wantErr      bool
+	}{
+		{name: "initial empty discovery", wantEvent: "Normal ToolsDiscovered Discovered 0 MCP tools"},
+		{name: "initial discovery", tools: []toolservice.MCPAppTool{{Name: "tool"}}, wantEvent: "Normal ToolsDiscovered Discovered 1 MCP tools"},
+		{name: "unchanged successful discovery", condition: &metav1.Condition{Status: metav1.ConditionTrue, ObservedGeneration: 3}},
+		{name: "new generation", condition: &metav1.Condition{Status: metav1.ConditionTrue, ObservedGeneration: 2}, wantEvent: "Normal ToolsDiscovered Discovered 0 MCP tools"},
+		{name: "recovery to empty discovery", condition: &metav1.Condition{Status: metav1.ConditionFalse, ObservedGeneration: 3}, wantEvent: "Normal ToolsDiscovered Discovered 0 MCP tools"},
+		{name: "discovery failure", discoveryErr: errors.New("unavailable"), wantErr: true, wantEvent: "Warning ReconcileFailed failed to discover RemoteMCPServer tools: unavailable"},
+		{name: "validation failure", tools: []toolservice.MCPAppTool{{Name: " "}}, wantErr: true, wantEvent: "Warning ValidationFailed invalid RemoteMCPServer tool discovery:"},
+		{name: "catalog failure", catalogErr: errors.New("unavailable"), wantErr: true, wantEvent: "Warning ReconcileFailed failed to update RemoteMCPServer tool catalog:"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := testServer()
+			if test.condition != nil {
+				condition := *test.condition
+				condition.Type = conditionAccepted
+				server.Status.Conditions = []metav1.Condition{condition}
+			}
+			recorder := events.NewFakeRecorder(4)
+			catalog := &fakeCatalog{err: test.catalogErr}
+			reconciler := New(testClient(t, server), &fakeDiscoverer{tools: test.tools, err: test.discoveryErr}, catalog, recorder)
+			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)}
+			_, err := reconciler.Reconcile(t.Context(), request)
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if test.wantEvent != "" {
+				select {
+				case event := <-recorder.Events:
+					require.Contains(t, event, test.wantEvent)
+				default:
+					t.Fatal("expected reconcile event")
+				}
+			}
+			require.Empty(t, recorder.Events)
+			if !test.wantErr {
+				_, err = reconciler.Reconcile(t.Context(), request)
+				require.NoError(t, err)
+				require.Empty(t, recorder.Events)
+			}
+			if test.catalogErr != nil {
+				catalog.err = nil
+				_, err = reconciler.Reconcile(t.Context(), request)
+				require.NoError(t, err)
+				select {
+				case event := <-recorder.Events:
+					require.Contains(t, event, "Normal ToolsDiscovered Discovered 0 MCP tools")
+				default:
+					t.Fatal("catalog retry lost the success event")
+				}
+			}
+		})
 	}
 }
 
