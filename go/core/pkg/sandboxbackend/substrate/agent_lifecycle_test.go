@@ -359,13 +359,11 @@ func TestBuildSandboxAgentActorTemplateExtraContainers(t *testing.T) {
 		Name:    "agent-vault",
 		Image:   sidecarImage,
 		Command: []string{"/sidecar"},
+		Args:    []string{"--listen", "127.0.0.1:14322"},
 		Env: []corev1.EnvVar{
 			{Name: "AGENT_VAULT_LISTEN_ADDR", Value: "127.0.0.1:14322"},
 			{Name: "AGENT_VAULT_SECRET_ANTHROPIC_AUTH_TOKEN", ValueFrom: &corev1.EnvVarSource{
 				SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "vault-secrets"}, Key: "anthropic-token"},
-			}},
-			{Name: "DROPPED_CONFIGMAP", ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "cm"}, Key: "k"},
 			}},
 		},
 		ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt32(8080)}}},
@@ -387,14 +385,14 @@ func TestBuildSandboxAgentActorTemplateExtraContainers(t *testing.T) {
 		sc := tmpl.Spec.Containers[1]
 		require.Equal(t, "agent-vault", sc.Name)
 		require.Equal(t, sidecarImage, sc.Image, "extra images must stay digest-pinned")
-		require.Equal(t, []string{"/sidecar"}, sc.Command)
+		require.Equal(t, []string{"/sidecar", "--listen", "127.0.0.1:14322"}, sc.Command, "command and args are concatenated verbatim")
+		require.Len(t, sc.Env, 2, "only the literal and secretKeyRef env survive")
+		require.Equal(t, "AGENT_VAULT_LISTEN_ADDR", sc.Env[0].Name)
+		require.Equal(t, "AGENT_VAULT_SECRET_ANTHROPIC_AUTH_TOKEN", sc.Env[1].Name)
+		require.Equal(t, "vault-secrets", sc.Env[1].ValueFrom.SecretKeyRef.Name)
 		require.NotNil(t, sc.Readyz, "an HTTP readiness probe maps to readyz so actor readiness gates on the sidecar")
 		require.Equal(t, "/readyz", sc.Readyz.HTTPGet.Path)
 		require.Equal(t, int32(8080), sc.Readyz.HTTPGet.Port)
-		names := actorEnvNames(sc.Env)
-		require.True(t, names["AGENT_VAULT_LISTEN_ADDR"])
-		require.True(t, names["AGENT_VAULT_SECRET_ANTHROPIC_AUTH_TOKEN"], "secretKeyRef env survives (substrate resolves it server-side)")
-		require.False(t, names["DROPPED_CONFIGMAP"], "configMapKeyRef is not expressible in an ActorTemplate and is dropped")
 		require.Empty(t, sc.VolumeMounts, "extra containers get no volume mounts: durableDir belongs to the agent's /data")
 
 		// The sidecar changes the shape hash, so it fans out blue-green like any spec change.
@@ -419,26 +417,53 @@ func TestBuildSandboxAgentActorTemplateExtraContainers(t *testing.T) {
 	})
 
 	for _, tc := range []struct {
-		name  string
-		extra corev1.Container
+		name    string
+		extra   corev1.Container
+		errText string
 	}{
 		{
-			name:  "unpinned image is rejected",
-			extra: corev1.Container{Name: "agent-vault", Image: "registry.example/videoamp/central:latest", Command: []string{"/sidecar"}},
+			name:    "unpinned image is rejected",
+			extra:   corev1.Container{Name: "agent-vault", Image: "registry.example/videoamp/central:latest", Command: []string{"/sidecar"}},
+			errText: "must be pinned",
 		},
 		{
-			name:  "missing command is rejected",
-			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage},
+			name:    "missing command and args is rejected",
+			extra:   corev1.Container{Name: "agent-vault", Image: sidecarImage},
+			errText: "no image entrypoint fallback",
+		},
+		{
+			name: "envFrom is rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
+				EnvFrom: []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "vault-secrets"}}}}},
+			errText: "envFrom",
+		},
+		{
+			name: "configMapKeyRef env is rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
+				Env: []corev1.EnvVar{{Name: "DROPPED_CONFIGMAP", ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "cm"}, Key: "k"},
+				}}}},
+			errText: "secretKeyRef only",
+		},
+		{
+			name: "fieldRef env is rejected",
+			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
+				Env: []corev1.EnvVar{{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+				}}}},
+			errText: "secretKeyRef only",
 		},
 		{
 			name: "volume mounts are rejected",
 			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
 				VolumeMounts: []corev1.VolumeMount{{Name: "secrets", MountPath: "/etc/agent-vault/secrets"}}},
+			errText: "mounts volumes",
 		},
 		{
 			name: "unresolvable named readiness port is rejected",
 			extra: corev1.Container{Name: "agent-vault", Image: sidecarImage, Command: []string{"/sidecar"},
 				ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Port: intstr.FromString("nope")}}}},
+			errText: "does not declare",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -447,6 +472,7 @@ func TestBuildSandboxAgentActorTemplateExtraContainers(t *testing.T) {
 			sa, podTemplate := byoSandboxAgentWithSidecar(tc.extra)
 			_, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podTemplate)
 			require.Error(t, err)
+			require.ErrorContains(t, err, tc.errText)
 		})
 	}
 

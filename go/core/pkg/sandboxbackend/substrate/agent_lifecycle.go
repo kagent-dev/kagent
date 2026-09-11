@@ -213,8 +213,10 @@ const maxActorTemplateContainers = 10
 //   - the command must be fully explicit (verbatim OCI Process.Args, no image-entrypoint
 //     fallback — the same rule ValidateSubstrateSandboxAgentSpec enforces for the BYO cmd);
 //   - the image must be digest-pinned (pinImageRef);
-//   - env supports literals and secretKeyRef only; envFrom, configMapKeyRef and any other
-//     valueFrom are dropped (sanitizeActorTemplateEnvVar);
+//   - env supports literals and secretKeyRef only; envFrom and any other valueFrom source
+//     (configMapKeyRef, fieldRef, ...) is rejected with a named-container error — a sidecar
+//     whose credential source silently vanished is worse than a rejected apply;
+//   - resources and container ports have no ActorTemplate equivalent and are ignored;
 //   - an HTTP readiness probe maps to Readyz so actor readiness keeps gating on the sidecar;
 //     TCP/exec probes and lifecycle hooks have no substrate equivalent and are ignored.
 //
@@ -239,13 +241,22 @@ func buildSubstrateExtraContainers(containers []corev1.Container, kagentIdx int)
 		if err != nil {
 			return nil, fmt.Errorf("extra container %q: %w", c.Name, err)
 		}
-		if len(c.Command) == 0 {
-			return nil, fmt.Errorf("extra container %q on substrate must set command (substrate does not fall back to the image entrypoint)", c.Name)
+		command := append(append([]string{}, c.Command...), c.Args...)
+		if len(command) == 0 {
+			return nil, fmt.Errorf("extra container %q must set command and/or args: substrate runs the command verbatim with no image entrypoint fallback", c.Name)
+		}
+		if len(c.EnvFrom) > 0 {
+			return nil, fmt.Errorf("extra container %q uses envFrom, which ActorTemplates do not support", c.Name)
+		}
+		for _, e := range c.Env {
+			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef == nil {
+				return nil, fmt.Errorf("extra container %q env %q: ActorTemplates support literal values and secretKeyRef only", c.Name, e.Name)
+			}
 		}
 		ec := atev1alpha1.Container{
 			Name:    c.Name,
 			Image:   image,
-			Command: append(append([]string{}, c.Command...), c.Args...),
+			Command: command,
 			Env:     actorTemplateEnvFromPodEnv(c.Env),
 		}
 		if get := probeHTTPGet(c.ReadinessProbe); get != nil {
