@@ -257,7 +257,7 @@ export function McpServersPage() {
               icon={<Plus size={14} />}
               data-testid="mcp-servers-new"
             >
-              Add server
+              New Server
             </Button>
           </Link>
         </Space>

@@ -1,8 +1,8 @@
 import { useImperativeHandle, useRef, useState, type Ref } from "react";
-import { Button, Input, Space } from "antd";
+import { Button, Input, Space, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { useTheme } from "@emotion/react";
-import { Send, Square } from "lucide-react";
+import { Save, Send, Square } from "lucide-react";
 import type { ChatController } from "@/api";
 
 /** What a page can ask of the box from outside it: put the caret back in it. */
@@ -27,6 +27,9 @@ export function ChatComposer({
   send,
   isStreaming = false,
   onCancel,
+  onCheckpoint,
+  canCheckpoint = false,
+  isCheckpointing = false,
   disabled = false,
   variant = "docked",
   autoFocus = false,
@@ -36,6 +39,21 @@ export function ChatComposer({
   isStreaming?: boolean;
   /** Absent before a conversation exists — there is no stream to stop. */
   onCancel?: ChatController["cancel"];
+  /**
+   * Saves the conversation's current turn boundary, so a fork can start from it.
+   *
+   * Here rather than on a message because that is what the controller offers:
+   * `CreateCheckpoint` takes no cutoff, so what it saves is always "the conversation
+   * as it stands now" — which is the composer's tense, not any one message's.
+   * Absent on a read-only surface.
+   */
+  onCheckpoint?: () => void;
+  /**
+   * Whether there is a boundary to save: something has been said, the turn has
+   * finished, and the latest one is not already saved.
+   */
+  canCheckpoint?: boolean;
+  isCheckpointing?: boolean;
   /**
    * Whether the agent can be sent to at all.
    *
@@ -146,6 +164,22 @@ export function ChatComposer({
       />
 
       <Space size={8}>
+        {onCheckpoint ? (
+          <Tooltip title="Checkpoint this chat">
+            {/* Icon only: the box beside it is the point of this row, and a second
+                labelled button took enough width from it to wrap the placeholder and
+                grow the whole composer by a line. */}
+            <Button
+              data-testid="chat-checkpoint"
+              aria-label="Checkpoint this chat"
+              icon={<Save size={14} />}
+              loading={isCheckpointing}
+              disabled={disabled || isStreaming || !canCheckpoint}
+              onClick={onCheckpoint}
+              css={{ "&:disabled": { opacity: 1 } }}
+            />
+          </Tooltip>
+        ) : null}
         {isStreaming && onCancel ? (
           <Button
             data-testid="chat-cancel"

@@ -1,10 +1,27 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import type { ChatController, ChatTurnPhase } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
+import { CheckpointDivider } from "./CheckpointDivider";
+import { groupByCheckpoint } from "./messageCheckpoints";
+import { scrollbarStyles } from "@/components/agent/controlStyles";
+
+/** Stable, so a transcript with no boundaries does not regroup on every render. */
+const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * The room a checkpoint's line takes, on top of the gap between two messages.
+ *
+ * A line drawn at the transcript's own rhythm reads as one more thing said. Pushing
+ * the conversation apart around it is what makes it a division rather than an entry —
+ * and the space is what tells the reader, before they read the label, that the two
+ * halves are not continuous.
+ */
+const CHECKPOINT_GAP = 4;
 
 /**
  * Turn phases worth naming on screen. The rest are transient enough to skip.
@@ -32,10 +49,13 @@ export function ChatTranscript({
   sessionId,
   onAnswered,
   onFork,
+  checkpointByMessage,
 }: {
   chat: ChatController;
-  /** Forks this conversation, offered from the reader's own messages. Absent when read-only. */
-  onFork?: () => void;
+  /** Forks a saved boundary. Absent when read-only. */
+  onFork?: (checkpointId: string) => void;
+  /** Which boundary each message sits inside, for the messages that sit inside one. */
+  checkpointByMessage?: ReadonlyMap<string, string>;
   /**
    * An `ask_user` answer has just gone.
    *
@@ -53,9 +73,12 @@ export function ChatTranscript({
   sessionId?: string;
 }) {
   const theme = useTheme();
-  const latestFromReader = [...chat.messages]
-    .reverse()
-    .find((message) => message.role === "user")?.id;
+  /* A boundary falls after the last message of the turn it was taken at, so the
+     messages are grouped by turn before they are drawn and the line goes between. */
+  const groups = useMemo(
+    () => groupByCheckpoint(chat.messages, checkpointByMessage ?? EMPTY_CHECKPOINTS),
+    [chat.messages, checkpointByMessage],
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -256,17 +279,7 @@ export function ChatTranscript({
         // Clear of the messages, which run to the right edge — the reader's own align
         // that way, so an unpadded bar sits on top of them.
         paddingInlineEnd: theme.space(3),
-        scrollbarWidth: "thin",
-        scrollbarColor: `${theme.color.border} transparent`,
-        "&::-webkit-scrollbar": { width: 10 },
-        "&::-webkit-scrollbar-track": { background: "transparent" },
-        "&::-webkit-scrollbar-thumb": {
-          background: theme.color.border,
-          borderRadius: 999,
-          border: "3px solid transparent",
-          backgroundClip: "content-box",
-        },
-        "&:hover::-webkit-scrollbar-thumb": { background: theme.color.textMuted },
+        ...scrollbarStyles(theme),
       }}
     >
     <div
@@ -291,24 +304,55 @@ export function ChatTranscript({
         minHeight: "100%",
       }}
     >
-      {/* Which message a fork may start from: the reader's latest, because that is the
-          conversation's latest turn boundary. Computed here rather than in the message,
-          which cannot see its siblings. */}
       {chat.messages.length === 0 ? (
         <Empty
           data-testid="chat-empty"
           description="No messages yet. Ask the agent something."
         />
       ) : (
-        chat.messages.map((message) => (
-          <ChatMessageItem
-            key={message.id}
-            message={message}
-            sessionId={sessionId}
-            onFork={onFork}
-            isForkable={message.id === latestFromReader}
-          />
-        ))
+        /*
+         * One flat run of children, each keyed by what it *is* — a message by its id, a
+         * line by its checkpoint's.
+         *
+         * Not a fragment per group keyed by its first message: the grouping changes
+         * when the saved boundaries land, so two groups becoming one retired a key and
+         * React unmounted and remounted the messages under it. Every rendered mermaid
+         * diagram flashed back to its loading state each time the checkpoint list
+         * resolved or the reader saved a boundary, because that component holds its
+         * render in local state.
+         */
+        groups.flatMap((group, index) => {
+          const drawn: ReactNode[] = group.messages.map((message) => (
+            <ChatMessageItem
+              key={message.id}
+              message={message}
+              sessionId={sessionId}
+              isCheckpointed={Boolean(group.checkpointId)}
+            />
+          ));
+          const checkpointId = group.checkpointId;
+          if (checkpointId) {
+            drawn.push(
+              <div
+                key={`checkpoint-${checkpointId}`}
+                css={{
+                  // The extra room the line needs, split either side of it. Not on the
+                  // last group: a line against the composer would be dividing the
+                  // conversation from the box used to continue it.
+                  marginBlockStart: theme.space(CHECKPOINT_GAP),
+                  marginBlockEnd:
+                    index === groups.length - 1 ? 0 : theme.space(CHECKPOINT_GAP),
+                }}
+              >
+                <CheckpointDivider
+                  checkpointId={checkpointId}
+                  onFork={onFork && (() => onFork(checkpointId))}
+                />
+              </div>,
+            );
+          }
+          return drawn;
+        })
       )}
 
       {statusLabel ? (
@@ -434,6 +478,47 @@ export function ChatTranscript({
               css={{
                 transform: "translateY(-100%)",
                 boxShadow: `0 6px 18px -6px ${theme.color.bg}`,
+                /*
+                 * Purple rather than the default grey: it floats over the conversation
+                 * rather than sitting in a row of controls, so its edge is the only
+                 * thing separating it from whatever is behind it.
+                 *
+                 * The edge is a diluted brand purple, not the whole of it: at full
+                 * strength it read as a control demanding to be used, over a
+                 * conversation somebody is trying to read. There is no token between
+                 * `primaryText` and the surface, so it is mixed here — the same purple,
+                 * a fraction of it.
+                 *
+                 * Through `&.ant-btn`, because antd's own default-variant rule is more
+                 * specific than the emitted class and wins a plain declaration.
+                 */
+                "&.ant-btn": {
+                  color: theme.color.primaryText,
+                  borderColor: `color-mix(in srgb, ${theme.color.primaryText} 45%, transparent)`,
+                  // Quicker than antd's 200ms: three steps that each take a fifth of a
+                  // second read as the button catching up rather than responding.
+                  transition:
+                    "background 80ms ease, border-color 80ms ease, color 80ms ease",
+                },
+                /*
+                 * Three steps, not two: a wash under the pointer, the full fill under
+                 * the press. Hovering used to land on the fill, which was as loud as a
+                 * click and left the click with nowhere further to go.
+                 *
+                 * The variant class is in the selector to outrank antd's own hover rule,
+                 * which carries three classes of its own and otherwise wins.
+                 */
+                "&.ant-btn.ant-btn-variant-outlined:not(:disabled):hover, &.ant-btn.ant-btn-variant-outlined:not(:disabled):focus-visible":
+                  {
+                    color: theme.color.primaryText,
+                    borderColor: theme.color.primaryText,
+                    background: `color-mix(in srgb, ${theme.color.primary} 14%, ${theme.color.bgElevated})`,
+                  },
+                "&.ant-btn.ant-btn-variant-outlined:not(:disabled):active": {
+                  color: theme.color.textOnPrimary,
+                  borderColor: theme.color.primaryHover,
+                  background: theme.color.primaryHover,
+                },
               }}
             />
           </Tooltip>

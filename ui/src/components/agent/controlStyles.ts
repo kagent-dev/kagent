@@ -16,11 +16,22 @@ export function rowStyles(theme: Theme, isActive: boolean) {
     alignItems: "center",
     gap: theme.space(2),
     padding: `${theme.space(2)} ${theme.space(3)}`,
-    borderRadius: theme.radius.md,
+    // The smaller of the two radii the rail uses, shared with the menu button beside
+    // it: two rounded rectangles side by side with different corners read as a mistake.
+    borderRadius: theme.radius.sm,
     minWidth: 0,
     color: isActive ? theme.color.text : theme.color.textMuted,
-    background: isActive ? `${theme.color.primary}26` : "transparent",
-    border: `1px solid ${isActive ? theme.color.primary : "transparent"}`,
+    /*
+     * The open row is a tint and a weight, not an outlined pill.
+     *
+     * Outlined, it read as a selected field rather than the place you are — a hard
+     * edge a few pixels from the menu button beside it, in a column of rows that have
+     * none. The tint is deeper than hover so the two are never confused, and the
+     * heavier text is what carries it when a row is scrolled past at speed.
+     */
+    background: isActive ? `${theme.color.primary}24` : "transparent",
+    border: "1px solid transparent",
+    fontWeight: isActive ? 600 : 400,
     transition: "background 100ms ease, color 100ms ease",
     /*
      * A tint of the foreground, not a named surface.
@@ -99,4 +110,68 @@ export function searchInputStyles(theme: Theme) {
     },
     "& input::placeholder": { color: theme.color.textMuted },
   } as const;
+}
+
+/**
+ * A checkbox big enough to hit, and one that answers when you touch it.
+ *
+ * antd 6 draws the box on `.ant-checkbox` itself and the tick as its `::after` — there
+ * is no `.ant-checkbox-inner` any more, which is what an override written against
+ * antd 5 targets, and it silently styles nothing.
+ *
+ * The box stays antd's 16px, because the tick is positioned against that size; what
+ * grows is the target around it. The padding does that and a negative margin of the
+ * same size cancels it, so nothing beside the box moves.
+ *
+ * Hover tints the box and strengthens its edge, and pressing takes the darker brand
+ * purple, so a press is distinct from the hover that preceded it. Both are stated for
+ * the checked box too, which antd fills and otherwise leaves inert under the pointer.
+ */
+export function checkboxStyles(theme: Theme) {
+  return {
+    // antd's own 16px box, untouched: growing it moved the tick it positions against,
+    // and a checkbox that changes size under the pointer is a target that moves.
+    "& .ant-checkbox": {
+      transition: "outline-color 80ms ease, outline-width 80ms ease",
+      outline: "2px solid transparent",
+      outlineOffset: 2,
+    },
+    "&:hover .ant-checkbox:not(.ant-checkbox-disabled)": {
+      outline: `2px solid ${theme.color.accentBorder}`,
+      outlineOffset: 2,
+    },
+    "&:active .ant-checkbox:not(.ant-checkbox-disabled)": {
+      outline: `3px solid ${theme.color.primary}`,
+      outlineOffset: 2,
+    },
+    // A keyboard reader has no hover to fall back on, and this is the only thing
+    // telling them where they are.
+    "&:focus-within .ant-checkbox": {
+      outline: `2px solid ${theme.color.primaryText}`,
+      outlineOffset: 2,
+    },
+  };
+}
+
+/**
+ * The scrollbar the conversation uses, for the lists beside it.
+ *
+ * A thin thumb in the border colour that darkens when the box it is in is hovered.
+ * Here rather than in each scrolling box, because two scrollbars a few hundred pixels
+ * apart that do not match read as two applications.
+ */
+export function scrollbarStyles(theme: Theme) {
+  return {
+    scrollbarWidth: "thin" as const,
+    scrollbarColor: `${theme.color.border} transparent`,
+    "&::-webkit-scrollbar": { width: 10 },
+    "&::-webkit-scrollbar-track": { background: "transparent" },
+    "&::-webkit-scrollbar-thumb": {
+      background: theme.color.border,
+      borderRadius: 999,
+      border: "3px solid transparent",
+      backgroundClip: "content-box" as const,
+    },
+    "&:hover::-webkit-scrollbar-thumb": { background: theme.color.textMuted },
+  };
 }

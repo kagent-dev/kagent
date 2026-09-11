@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -14,10 +14,14 @@ import {
 import { useTheme, type Theme } from "@emotion/react";
 import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
+import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
+import { ShareDialog } from "@/components/chat/ShareDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
   ChevronsUpDown,
+  Copy,
+  FileText,
   Folder,
   MoreVertical,
   PanelLeftClose,
@@ -25,6 +29,7 @@ import {
   Search,
   SquarePen,
   Pencil,
+  Share2,
   Trash,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -42,6 +47,7 @@ import {
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { useThemeMode } from "@/theme/themeMode";
+import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
   useExtensionAgentRailItems,
@@ -56,12 +62,28 @@ import {
 } from "./railItems";
 import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
 import { AgentSwitcher } from "./AgentSwitcher";
-import { iconControlStyles, rowStyles, searchInputStyles } from "./controlStyles";
+import {
+  checkboxStyles,
+  iconControlStyles,
+  rowStyles,
+  scrollbarStyles,
+  searchInputStyles,
+} from "./controlStyles";
 
 const { Text } = Typography;
 
 /** Where the rail's collapsed state is remembered, per reader. */
 const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
+
+/**
+ * The width below which the rail gets out of the transcript's way.
+ *
+ * Last of the three columns to fold, and below the `lg` breakpoint antd folds the
+ * application sidebar at: the agent panel is reference, the application sidebar is
+ * navigation you can reach from anywhere, and this rail is the only way to the other
+ * conversations with *this* agent. So it goes when there is nothing else left to give.
+ */
+const RAIL_COLLAPSES_BELOW = 1040;
 
 /**
  * The navigation for when you are inside one agent.
@@ -494,6 +516,33 @@ export function AgentRail({
     }
   }
 
+  const [duplicatingId, setDuplicatingId] = useState<string>();
+  const [isBulkMenuOpen, setBulkMenuOpen] = useState(false);
+  /*
+   * How wide the conversation list's scrollbar track is, so the bar above it can hold
+   * its controls in the same column as the rows'.
+   *
+   * Measured rather than declared: it is 0 where scrollbars overlay the content and
+   * about 11px where the reader has asked for them always, and hard-coding either puts
+   * the two columns of controls a scrollbar apart on the other. The bar reserved it
+   * with a `scrollbar-gutter` of its own for a while, which meant making a bar that
+   * never scrolls into a scroll container — and a scroll container clips, which took
+   * the top and bottom off its focus ring.
+   */
+  const [listGutter, setListGutter] = useState(0);
+  const gutterWatch = useRef<ResizeObserver | null>(null);
+  const measureGutter = useCallback((list: HTMLUListElement | null) => {
+    if (!list) return;
+    const read = () => setListGutter(list.offsetWidth - list.clientWidth);
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(list);
+    gutterWatch.current?.disconnect();
+    gutterWatch.current = observer;
+  }, []);
+  useEffect(() => () => gutterWatch.current?.disconnect(), []);
+  const navigate = useNavigate();
+
   async function deleteConversation(target: AgentInstance): Promise<void> {
     setDeletingId(target.id);
     setActionError(undefined);
@@ -508,15 +557,49 @@ export function AgentRail({
     }
   }
 
-  const [isCollapsed, setCollapsed] = useState(
+  /**
+   * A copy of a conversation, opened.
+   *
+   * A checkpoint of it as it stands and a fork of that checkpoint — which is what a
+   * duplicate *is*: the same transcript, its own worker, and its own future. The copy
+   * opens because the reader duplicated it in order to say something else in it, and
+   * leaving them in the original would make the next thing they typed land in the
+   * conversation they had just set aside.
+   */
+  async function duplicateConversation(target: AgentInstance): Promise<void> {
+    setDuplicatingId(target.id);
+    setActionError(undefined);
+    try {
+      // The title, not the row's label: that carries the age too, and a copy called
+      // "… · 2 minutes ago (copy)" is stamped with the age of the thing it came from.
+      const title = conversationTitle(target, derivedTitles[target.id]);
+      const copy = await apiClient.agentInstances.fork(target.id, `${title} (copy)`);
+      await conversations.refresh();
+      toast.success(`Duplicated "${title}"`);
+      navigate(url.chat({ id: copy.id }));
+    } catch (cause: unknown) {
+      reportActionFailure("duplicate", cause, setActionError);
+    } finally {
+      setDuplicatingId(undefined);
+    }
+  }
+
+  const [isNarrow, setNarrow] = useCollapsedBelow(RAIL_COLLAPSES_BELOW);
+  const [wantsCollapsed, setWantsCollapsed] = useState(
     () => window.localStorage.getItem(RAIL_COLLAPSED) === "true",
   );
+  const isCollapsed = wantsCollapsed || isNarrow;
 
+  /*
+   * The reader's choice and the window's, kept apart — see the same pair on the chat
+   * page's agent panel. Only the choice is stored, so a rail folded away by a narrow
+   * window is open again in the next wide one.
+   */
   function toggleCollapsed() {
-    setCollapsed((collapsed) => {
-      window.localStorage.setItem(RAIL_COLLAPSED, String(!collapsed));
-      return !collapsed;
-    });
+    const collapsed = !isCollapsed;
+    window.localStorage.setItem(RAIL_COLLAPSED, String(collapsed));
+    setWantsCollapsed(collapsed);
+    if (!collapsed) setNarrow(false);
   }
 
   return (
@@ -578,6 +661,10 @@ export function AgentRail({
         display: "flex",
         flexDirection: "column",
         gap: theme.space(3),
+        /* Nothing here is text to take away: every row is a place to go or a thing to
+           press, and a drag across them is somebody aiming at a row, not selecting its
+           name. Shift-picking a run of conversations otherwise highlighted the lot. */
+        userSelect: "none",
         /*
          * Sticky, because this is navigation. The page is what scrolls, so a rail in
          * normal flow would be gone by the third exchange of a conversation — and the
@@ -613,6 +700,12 @@ export function AgentRail({
            scrolled, by 8px, because of the column beside it. */
         height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(12)})`,
         overflow: "hidden",
+        /* A sliver at the left edge, because this box clips — it has to, to animate to
+           nothing when collapsed. Without it a checkbox's focus or hover ring, drawn
+           just outside the box it belongs to, came back with its left side sliced flat.
+           Inside the width rather than added to it, so nothing beside the rail moves. */
+        boxSizing: "border-box",
+        paddingInlineStart: theme.space(2),
       }}
     >
       {/* Which agent you are in, stated before what you can do to it: a reader
@@ -904,7 +997,9 @@ export function AgentRail({
                * the list still shifted — a smaller jump than the whole bar appearing,
                * but the same jump, at the same moment.
                */
-              minHeight: 24,
+              minHeight: 38,
+              // The list's reserved scrollbar track, measured — see `listGutter`.
+              paddingInlineEnd: listGutter,
             }}
             data-testid="chat-bulk-bar"
           >
@@ -913,6 +1008,7 @@ export function AgentRail({
               indeterminate={selected.size > 0 && !allVisibleSelected}
               onChange={toggleAllVisible}
               data-testid="chat-select-all"
+              css={checkboxStyles(theme)}
             >
               <Text
                 data-testid="chat-selection-count"
@@ -930,6 +1026,7 @@ export function AgentRail({
             {selected.size > 0 ? (
             <Dropdown
               trigger={["click"]}
+              onOpenChange={setBulkMenuOpen}
               menu={{
                 items: [
                   {
@@ -946,10 +1043,16 @@ export function AgentRail({
                 type="text"
                 size="small"
                 loading={isBulkDeleting}
-                icon={<MoreVertical size={14} color={theme.color.textMuted} />}
+                icon={
+                  <MoreVertical
+                    size={14}
+                    color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
+                  />
+                }
                 aria-label="Actions for the selected conversations"
                 data-testid="chat-bulk-menu"
-                css={{ marginInlineStart: "auto" }}
+                // The same square as the menu on each row below it.
+                css={{ ...menuButtonStyles(theme, isBulkMenuOpen), marginInlineStart: "auto" }}
               />
             </Dropdown>
             ) : null}
@@ -1037,6 +1140,7 @@ export function AgentRail({
           </Text>
         ) : (
           <ul
+            ref={measureGutter}
             data-testid="chat-sessions-list"
             css={{
               listStyle: "none",
@@ -1052,6 +1156,24 @@ export function AgentRail({
               flex: "1 1 auto",
               minHeight: 0,
               overflowY: "auto",
+              /* The track is reserved whether or not there is anything to scroll, so
+                 the rows do not shift left the moment the list outgrows the rail —
+                 and so the bulk bar above, which reserves the same, stays lined up
+                 with them. Without it the two menus were aligned in a short list and
+                 a scrollbar's width apart in a long one. */
+              scrollbarGutter: "stable",
+              /* Room for the focus ring on the first and last rows, which is drawn
+                 outside them and was clipped by the scroll box at 2px. */
+              paddingBlock: theme.space(1),
+              /* The list clips its own overflow, and a checkbox's ring is drawn just
+                 outside the box it belongs to — so the clip box is widened to the left
+                 and pulled back by the same amount. The rail's own left padding is
+                 what this then has room to reach into. */
+              paddingInlineStart: theme.space(2),
+              marginInlineStart: `-${theme.space(2)}`,
+              // The conversation's scrollbar, a few hundred pixels away: two that do
+              // not match read as two applications.
+              ...scrollbarStyles(theme),
             }}
           >
             {chats.map((candidate) => {
@@ -1110,7 +1232,9 @@ export function AgentRail({
                  */
                 isActive={location.pathname === href}
                 onDelete={deleteConversation}
+                onDuplicate={duplicateConversation}
                 isDeleting={deletingId === candidate.id}
+                isDuplicating={duplicatingId === candidate.id}
                 isSelected={selected.has(candidate.id)}
                 onToggleSelected={toggleSelected}
                 isSelecting={selected.size > 0}
@@ -1140,7 +1264,7 @@ export function AgentRail({
         position: "sticky",
         top: theme.layout.headerHeight + 24,
         alignSelf: "start",
-        marginInlineStart: -theme.space(3),
+        marginInlineStart: -theme.space(2),
         display: "grid",
         gap: theme.space(1),
         justifyItems: "center",
@@ -1322,9 +1446,11 @@ function ChatEntry({
   href,
   isActive,
   onDelete,
+  onDuplicate,
   shownState,
   shownOperation,
   isDeleting,
+  isDuplicating,
   isSelected,
   onToggleSelected,
   isSelecting,
@@ -1334,6 +1460,8 @@ function ChatEntry({
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance) => void;
+  /** Copies the conversation and opens the copy. */
+  onDuplicate: (instance: AgentInstance) => void;
   /**
    * The state to draw, which is not always the state on the record.
    *
@@ -1351,6 +1479,7 @@ function ChatEntry({
    */
   shownOperation?: AgentInstanceOperation;
   isDeleting: boolean;
+  isDuplicating: boolean;
   isSelected: boolean;
   onToggleSelected: (id: string, withShift: boolean) => void;
   /** Whether anything is selected, which is what keeps the boxes on screen. */
@@ -1367,9 +1496,15 @@ function ChatEntry({
    */
   const [isConfirming, setConfirming] = useState(false);
   const [isRenaming, setRenaming] = useState(false);
+  const [isShowingDetails, setShowingDetails] = useState(false);
+  const [isSharing, setSharing] = useState(false);
+  const [isMenuOpen, setMenuOpen] = useState(false);
 
   return (
-    <li css={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+    /* Room between the three things on a row. At 2px the checkbox, the name and the
+       menu were one undifferentiated strip, and the open conversation's outline ran
+       straight into the button beside it. */
+    <li css={{ display: "flex", alignItems: "center", gap: theme.space(2), minWidth: 0 }}>
       <Modal
         open={isConfirming}
         onCancel={() => setConfirming(false)}
@@ -1402,7 +1537,10 @@ function ChatEntry({
         css={{
           display: "grid",
           placeItems: "center",
-          width: 22,
+          /* As wide as the box in it, so this checkbox's left edge is the select-all's
+             left edge above the list. A wider cell centred the 16px box inside it and
+             left the column three pixels out of true. */
+          width: 16,
           height: 22,
           flexShrink: 0,
           // Both children occupy the same cell; only one is painted.
@@ -1433,17 +1571,12 @@ function ChatEntry({
             transition: "opacity 100ms ease",
             "li:hover &, &:focus-within": { opacity: 1 },
             /*
-             * A target bigger than the tick drawn in it.
-             *
-             * This box replaces the folder icon in a single grid cell, so it was sized
-             * to the icon — about as small as a pointer target gets, and shift-picking
-             * a run means hitting several of them in a row. The padding grows the
-             * clickable area with negative margin cancelling it, so the cell it shares
-             * with the icon does not change size and nothing in the row moves.
+             * A target bigger than the tick drawn in it, shared with the select-all box
+             * above the list: this one replaces the folder icon in a single grid cell,
+             * so it was sized to the icon — about as small as a pointer target gets, and
+             * shift-picking a run means hitting several in succession.
              */
-            padding: theme.space(2),
-            margin: `-${theme.space(2)}`,
-            "& .ant-checkbox .ant-checkbox-inner": { width: 18, height: 18 },
+            ...checkboxStyles(theme),
           }}
         />
       </span>
@@ -1480,14 +1613,37 @@ function ChatEntry({
       */}
       <Dropdown
         trigger={["click"]}
+        onOpenChange={setMenuOpen}
         menu={{
           items: [
+            /* Details and Share are the gutter controls from the chat page, offered here
+               for the rows the reader is not in. Both take an instance id, so neither
+               needs the conversation open. */
+            {
+              key: "details",
+              icon: <FileText size={13} />,
+              label: "Chat details",
+              onClick: () => setShowingDetails(true),
+            },
+            {
+              key: "share",
+              icon: <Share2 size={13} />,
+              label: "Share chat",
+              onClick: () => setSharing(true),
+            },
             {
               key: "rename",
               icon: <Pencil size={13} />,
               label: "Rename chat",
               onClick: () => setRenaming(true),
             },
+            {
+              key: "duplicate",
+              icon: <Copy size={13} />,
+              label: "Duplicate chat",
+              onClick: () => onDuplicate(instance),
+            },
+            { type: "divider" as const },
             {
               key: "delete",
               danger: true,
@@ -1501,19 +1657,18 @@ function ChatEntry({
         <Button
           type="text"
           size="small"
-          loading={isDeleting}
+          loading={isDeleting || isDuplicating}
           data-testid={`chat-session-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
-          icon={<MoreVertical size={14} color={theme.color.textMuted} />}
-          css={{
-            flexShrink: 0,
-            // Hidden until the row is hovered or the button itself has focus, so the
-            // list reads as names rather than as a column of controls. Focus matters as
-            // much as hover: a keyboard reader has no pointer to reveal it with.
-            opacity: 0,
-            transition: "opacity 100ms ease",
-            "li:hover &, &:focus-visible, &[aria-expanded='true']": { opacity: 1 },
-          }}
+          icon={
+            <MoreVertical
+              size={14}
+              color={isMenuOpen ? theme.color.primaryText : theme.color.textMuted}
+            />
+          }
+          // Square, and as tall as the row beside it: at antd's own size it was a
+          // 24px control against a 38px row and sat visibly short of both edges.
+          css={menuButtonStyles(theme, isMenuOpen)}
         />
       </Dropdown>
 
@@ -1525,6 +1680,19 @@ function ChatEntry({
           instance={instance}
           onClose={() => setRenaming(false)}
         />
+      ) : null}
+
+      {/* The row already holds the record the details modal renders, so opening one
+          costs no read. Mounted only while open, like the rename dialog above it. */}
+      {isShowingDetails ? (
+        <ConversationDetailsModal
+          instance={{ data: instance }}
+          open
+          onClose={() => setShowingDetails(false)}
+        />
+      ) : null}
+      {isSharing ? (
+        <ShareDialog conversation={instance} open onClose={() => setSharing(false)} />
       ) : null}
     </li>
   );
@@ -1544,6 +1712,45 @@ function ChatEntry({
  * instance is scoped to its creator on write, so being refused is an ordinary outcome
  * here rather than an exceptional one — which is exactly why it must be said.
  */
+
+/**
+ * The menu that lives on a conversation row.
+ *
+ * On screen on every row, not revealed on hover. Hidden, it read as a list of names
+ * with nothing you could do to them, and finding the control meant discovering that
+ * pointing at a row changed it — the actions are the reason most people open this rail
+ * on a conversation that is not the one they are in.
+ */
+/**
+ * The square menu button, on a row and on the bulk bar.
+ *
+ * Outlined while its menu is open, because the menu opens somewhere else on the screen
+ * and nothing else says which of a dozen identical buttons it belongs to. An outline
+ * rather than a fill: a solid square in a list of quiet rows read as the row itself
+ * being selected. Driven from React rather than `[aria-expanded]`, because the state
+ * has to reach the icon too — lucide takes its colour as a prop, which no stylesheet
+ * can reach.
+ */
+function menuButtonStyles(theme: Theme, isOpen: boolean) {
+  // The row's radius, not antd's: they sit side by side and are the same shape.
+  const size = {
+    width: 38,
+    minWidth: 38,
+    height: 38,
+    padding: 0,
+    borderRadius: theme.radius.sm,
+  };
+  if (!isOpen) return { flexShrink: 0, ...size } as const;
+  return {
+    flexShrink: 0,
+    ...size,
+    "&.ant-btn.ant-btn-variant-text.ant-btn-color-default": {
+      border: `1px solid ${theme.color.primary}`,
+      background: "transparent",
+      "&:hover, &:active": { background: theme.color.accentBg },
+    },
+  } as const;
+}
 
 function reportActionFailure(
   /** What was attempted, lower case — it is read in the middle of a sentence. */

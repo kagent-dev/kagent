@@ -31,9 +31,10 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_r
  * nothing in the app calls them yet. Adding one is a new id here, not a new path
  * anywhere else.
  *
- * `CheckpointService` is reached only through **`agentInstances.fork`**, which
- * creates a checkpoint and forks it in one operation. Listing, naming and restoring
- * checkpoints need product behaviour first, not a transport mapping here.
+ * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
+ * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
+ * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
+ * the chat reads boundaries from the list and nothing removes one yet.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
@@ -56,6 +57,7 @@ import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
   GetSubstrateStatusResponse,
@@ -102,6 +104,7 @@ import type {
   AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
+import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
 import type {
   ApiOperations,
   OperationCallOptions,
@@ -646,8 +649,37 @@ function toAgentInstanceShare(share: PbAgentInstanceShare): AgentInstanceShare {
   };
 }
 
+const CHECKPOINT_STATE_FROM_PB: Partial<Record<PbCheckpointState, CheckpointState>> = {
+  [PbCheckpointState.UNSPECIFIED]: "unspecified",
+  [PbCheckpointState.CREATING]: "creating",
+  [PbCheckpointState.READY]: "ready",
+  [PbCheckpointState.FAILED]: "failed",
+  [PbCheckpointState.DELETING]: "deleting",
+};
+
+/**
+ * One saved turn boundary.
+ *
+ * A state this build has not heard of becomes `unknown` rather than `ready`: the
+ * chat offers a fork from anything ready, and a newer controller adding a state must
+ * not have that read as an invitation.
+ */
+function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
+  return {
+    id: checkpoint.id,
+    agentInstanceId: checkpoint.agentInstanceId,
+    headTaskId: checkpoint.headTaskId,
+    state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
+    createdAt: isoFrom(checkpoint.createdAt),
+    failure: checkpoint.failure?.message || undefined,
+  };
+}
+
 const agentInstances: Pick<
   ApiOperations,
+  | "agentInstances.checkpoints.create"
+  | "agentInstances.checkpoints.list"
+  | "agentInstances.checkpoints.fork"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -748,35 +780,83 @@ const agentInstances: Pick<
   },
 
   /*
-   * A checkpoint, then a fork of it. The checkpoint is synchronous: the controller
-   * answers `ready` or `failed`, never `creating`. The same request id serves both
-   * calls, so a retry cannot leave a second checkpoint or a second fork behind.
+   * The boundary a fork can start from, saved where the conversation stands now.
+   *
+   * Synchronous: the controller copies the runtime snapshot before it answers, so the
+   * reply is `ready` or `failed` and never `creating`. A state that is neither is
+   * raised here rather than handed on, because everything downstream of a checkpoint
+   * assumes it can be forked.
    */
-  "agentInstances.fork": async (input, options) => {
-    const checkpoints = serviceClient(CheckpointService);
-    const created = await rpc("CheckpointService/CreateCheckpoint", options.signal, () =>
-      checkpoints.createCheckpoint(
+  "agentInstances.checkpoints.create": async (input, options) => {
+    const name = "CheckpointService/CreateCheckpoint";
+    const created = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).createCheckpoint(
         { agentInstanceId: input.id, requestId: input.requestId },
-        call("agentInstances.fork", options),
+        call("agentInstances.checkpoints.create", options),
       ),
     );
-    const checkpoint = required(created.checkpoint, "CheckpointService/CreateCheckpoint", "checkpoint");
-    if (checkpoint.state !== PbCheckpointState.READY) {
-      throw new ApiError(
-        checkpoint.failure?.message || "The checkpoint did not become ready.",
-        { kind: "http", url: "CheckpointService/CreateCheckpoint", status: 500 },
-      );
+    const checkpoint = toCheckpoint(required(created.checkpoint, name, "checkpoint"));
+    if (checkpoint.state !== "ready") {
+      throw new ApiError(checkpoint.failure || "The checkpoint did not become ready.", {
+        kind: "http",
+        url: name,
+        status: 500,
+      });
     }
+    return checkpoint;
+  },
+
+  /*
+   * Newest first, because that is the order the chat needs them in and the controller
+   * does not promise one. One page: a conversation's boundaries are counted in
+   * handfuls, and paging a list this short would be machinery with nothing to do.
+   */
+  "agentInstances.checkpoints.list": async (input, options) => {
+    const name = "CheckpointService/ListCheckpoints";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).listCheckpoints(
+        { agentInstanceId: input.id },
+        call("agentInstances.checkpoints.list", options),
+      ),
+    );
+    return list(response.checkpoints)
+      .map(toCheckpoint)
+      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+  },
+
+  /*
+   * The fork of a boundary saved earlier, which is where the history it holds stops.
+   *
+   * Renaming is a second call because `ForkAgentInstance` takes no name — the fork
+   * inherits the source's, and a reader looking at two rows with the same title
+   * cannot tell which one they just made.
+   */
+  "agentInstances.checkpoints.fork": async (input, options) => {
     const name = "CheckpointService/ForkAgentInstance";
     const forked = await rpc(name, options.signal, () =>
-      checkpoints.forkAgentInstance(
-        { checkpointId: checkpoint.id, requestId: input.requestId },
-        call("agentInstances.fork", options),
+      serviceClient(CheckpointService).forkAgentInstance(
+        { checkpointId: input.checkpointId, requestId: input.requestId },
+        call("agentInstances.checkpoints.fork", options),
       ),
     );
     const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
     if (!input.name) return instance;
     return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
+  },
+
+  /*
+   * A checkpoint, then a fork of it. The same request id serves both calls, so a
+   * retry cannot leave a second checkpoint or a second fork behind.
+   */
+  "agentInstances.fork": async (input, options) => {
+    const checkpoint = await agentInstances["agentInstances.checkpoints.create"](
+      { id: input.id, requestId: input.requestId },
+      options,
+    );
+    return agentInstances["agentInstances.checkpoints.fork"](
+      { checkpointId: checkpoint.id, requestId: input.requestId, name: input.name },
+      options,
+    );
   },
 
   /*

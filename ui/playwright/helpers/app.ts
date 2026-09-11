@@ -20,6 +20,7 @@ export const routes = {
   mcpServerNew: "/mcp/new",
   prompts: "/prompts",
   promptNew: "/prompts/new",
+  snapshots: "/snapshots",
   substrate: "/substrate",
   /* The templates list is a tab of the agents page now. The old address still
      resolves — it redirects here — but a test should go where the reader goes. */

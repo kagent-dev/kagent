@@ -12,6 +12,7 @@ import {
   rowNamed,
   routes,
 } from "../../helpers/app";
+import { tick } from "../../helpers/controls";
 
 /**
  * One agent, and the conversations people have had with it.
@@ -508,10 +509,9 @@ test("agents: conversations can be picked and deleted together from the table to
   });
 
   await test.step("2. picking one offers the bulk action, counted", async () => {
-    await page
-      .locator("tbody tr td.ant-table-selection-column input:not(:disabled)")
-      .first()
-      .check();
+    await tick(
+      page.locator("tbody tr td.ant-table-selection-column input:not(:disabled)").first(),
+    );
     await expect(page.getByTestId("conversations-bulk-bar")).toContainText(
       "1 conversation selected",
     );

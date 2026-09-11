@@ -193,7 +193,7 @@ export function ModelsPage() {
               list itself belongs to the page, so it survives whatever frames it. */}
           <Link to={paths.modelNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="models-new">
-              New model
+              New Model
             </Button>
           </Link>
         </Space>
