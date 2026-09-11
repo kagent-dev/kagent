@@ -16,3 +16,10 @@ export async function tick(control: Locator): Promise<void> {
   await control.click();
   await expect(control).toBeChecked();
 }
+
+/** The same, for clearing a control: click, then wait for the tick to go. */
+export async function untick(control: Locator): Promise<void> {
+  if (!(await control.isChecked())) return;
+  await control.click();
+  await expect(control).not.toBeChecked();
+}

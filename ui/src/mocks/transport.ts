@@ -84,8 +84,10 @@ import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_p
 import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   CheckpointService,
+  CheckpointSortField as PbCheckpointSortField,
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import { SortDirection as PbSortDirection } from "@/generated/kagent/api/v1alpha1/common_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -139,6 +141,7 @@ import {
   savePrompt,
   saveToolServer,
   checkpointById,
+  deleteCheckpoint,
   readCheckpoints,
   saveCheckpoint,
 } from "./state";
@@ -956,6 +959,7 @@ const checkpointMessage = (row: MockCheckpoint) => ({
   id: row.id,
   agentInstanceId: row.agentInstanceId,
   headTaskId: row.headTaskId,
+  conversationName: row.conversationName,
   state: PbCheckpointState.READY,
   createdAt: timestampFromDate(new Date(row.createdAt)),
 });
@@ -966,14 +970,60 @@ on(CheckpointService.method.createCheckpoint, (input, call) => {
     id: crypto.randomUUID(),
     agentInstanceId: instance.id,
     headTaskId: mockLatestTaskId(instance.id),
+    conversationName: instance.name,
     createdAt: new Date().toISOString(),
   });
   return { checkpoint: checkpointMessage(checkpoint) };
 });
 
+on(CheckpointService.method.deleteCheckpoint, (input) => {
+  if (!deleteCheckpoint(input.checkpointId)) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return {};
+});
+
+/*
+ * Narrowed, ordered and paged here, because the controller does it there.
+ *
+ * A fixture that returned everything and let the page sort it would let a build whose
+ * request carries none of this pass every browser test — the filter would still appear
+ * to work, on rows the page had already been handed.
+ */
 on(CheckpointService.method.listCheckpoints, (input, call) => {
-  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
-  return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
+  const scoped = input.agentInstanceId
+    ? readCheckpoints(instanceFor(requireInstanceId(input.agentInstanceId), call).id)
+    : readCheckpoints();
+
+  // A plain substring, as the controller matches it — not a pattern.
+  const filter = input.filter.trim().toLowerCase();
+  const matched = filter
+    ? scoped.filter((row) =>
+        [row.conversationName, row.id].some((field) => field.toLowerCase().includes(filter)),
+      )
+    : scoped;
+
+  const sortBy = input.sortBy;
+  const key = (row: MockCheckpoint) =>
+    sortBy?.field === PbCheckpointSortField.CONVERSATION
+      ? row.conversationName.toLowerCase()
+      : row.createdAt;
+  const ordered = [...matched].sort((left, right) => {
+    if (sortBy) {
+      const compared = key(left).localeCompare(key(right));
+      if (compared !== 0) return sortBy.direction === PbSortDirection.DESC ? -compared : compared;
+    }
+    // Newest first, which is also the tiebreak when a column was asked for.
+    return right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id);
+  });
+
+  const offset = input.page?.offset ?? 0;
+  const limit = input.page?.limit || ordered.length;
+  const page = ordered.slice(offset, offset + limit);
+  return {
+    checkpoints: page.map(checkpointMessage),
+    page: {},
+    // No total over an empty window, as the controller's count(*) OVER () reports it.
+    totalSize: page.length === 0 ? 0 : ordered.length,
+  };
 });
 
 /*

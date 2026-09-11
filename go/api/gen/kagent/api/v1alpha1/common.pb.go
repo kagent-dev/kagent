@@ -23,6 +23,57 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Which way a sorted list runs. Unspecified is ascending, so a caller that names a
+// field and nothing else gets the obvious order rather than an error.
+type SortDirection int32
+
+const (
+	SortDirection_SORT_DIRECTION_UNSPECIFIED SortDirection = 0
+	SortDirection_SORT_DIRECTION_ASC         SortDirection = 1
+	SortDirection_SORT_DIRECTION_DESC        SortDirection = 2
+)
+
+// Enum value maps for SortDirection.
+var (
+	SortDirection_name = map[int32]string{
+		0: "SORT_DIRECTION_UNSPECIFIED",
+		1: "SORT_DIRECTION_ASC",
+		2: "SORT_DIRECTION_DESC",
+	}
+	SortDirection_value = map[string]int32{
+		"SORT_DIRECTION_UNSPECIFIED": 0,
+		"SORT_DIRECTION_ASC":         1,
+		"SORT_DIRECTION_DESC":        2,
+	}
+)
+
+func (x SortDirection) Enum() *SortDirection {
+	p := new(SortDirection)
+	*p = x
+	return p
+}
+
+func (x SortDirection) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SortDirection) Descriptor() protoreflect.EnumDescriptor {
+	return file_kagent_api_v1alpha1_common_proto_enumTypes[0].Descriptor()
+}
+
+func (SortDirection) Type() protoreflect.EnumType {
+	return &file_kagent_api_v1alpha1_common_proto_enumTypes[0]
+}
+
+func (x SortDirection) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SortDirection.Descriptor instead.
+func (SortDirection) EnumDescriptor() ([]byte, []int) {
+	return file_kagent_api_v1alpha1_common_proto_rawDescGZIP(), []int{0}
+}
+
 type StructuredObject struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ApiVersion    string                 `protobuf:"bytes,1,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
@@ -136,9 +187,13 @@ func (x *ResourceReference) GetName() string {
 }
 
 type PageRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Limit         int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
-	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Limit     int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Where to start, for a list a reader pages by number rather than by walking.
+	// A sorted list cannot offer a keyset cursor over columns chosen at call time, so
+	// the ones that take a sort take this instead. Ignored when `page_token` is set.
+	Offset        int32 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -185,6 +240,13 @@ func (x *PageRequest) GetPageToken() string {
 		return x.PageToken
 	}
 	return ""
+}
+
+func (x *PageRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
 }
 
 type PageResponse struct {
@@ -243,13 +305,18 @@ const file_kagent_api_v1alpha1_common_proto_rawDesc = "" +
 	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\"\xc1\x01\n" +
 	"\x11ResourceReference\x12H\n" +
 	"\tnamespace\x18\x01 \x01(\tB*\xbaH'r%\x10\x01\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\x12b\n" +
-	"\x04name\x18\x02 \x01(\tBN\xbaHKrI\x10\x01\x18\xfd\x012B^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$R\x04name\"M\n" +
+	"\x04name\x18\x02 \x01(\tBN\xbaHKrI\x10\x01\x18\xfd\x012B^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$R\x04name\"n\n" +
 	"\vPageRequest\x12\x1f\n" +
 	"\x05limit\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\x05limit\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\"6\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1f\n" +
+	"\x06offset\x18\x03 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\x06offset\"6\n" +
 	"\fPageResponse\x12&\n" +
-	"\x0fnext_page_token\x18\x01 \x01(\tR\rnextPageTokenBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
+	"\x0fnext_page_token\x18\x01 \x01(\tR\rnextPageToken*`\n" +
+	"\rSortDirection\x12\x1e\n" +
+	"\x1aSORT_DIRECTION_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12SORT_DIRECTION_ASC\x10\x01\x12\x17\n" +
+	"\x13SORT_DIRECTION_DESC\x10\x02BIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
 
 var (
 	file_kagent_api_v1alpha1_common_proto_rawDescOnce sync.Once
@@ -263,16 +330,18 @@ func file_kagent_api_v1alpha1_common_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1alpha1_common_proto_rawDescData
 }
 
+var file_kagent_api_v1alpha1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_kagent_api_v1alpha1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_kagent_api_v1alpha1_common_proto_goTypes = []any{
-	(*StructuredObject)(nil),  // 0: kagent.api.v1alpha1.StructuredObject
-	(*ResourceReference)(nil), // 1: kagent.api.v1alpha1.ResourceReference
-	(*PageRequest)(nil),       // 2: kagent.api.v1alpha1.PageRequest
-	(*PageResponse)(nil),      // 3: kagent.api.v1alpha1.PageResponse
-	(*structpb.Struct)(nil),   // 4: google.protobuf.Struct
+	(SortDirection)(0),        // 0: kagent.api.v1alpha1.SortDirection
+	(*StructuredObject)(nil),  // 1: kagent.api.v1alpha1.StructuredObject
+	(*ResourceReference)(nil), // 2: kagent.api.v1alpha1.ResourceReference
+	(*PageRequest)(nil),       // 3: kagent.api.v1alpha1.PageRequest
+	(*PageResponse)(nil),      // 4: kagent.api.v1alpha1.PageResponse
+	(*structpb.Struct)(nil),   // 5: google.protobuf.Struct
 }
 var file_kagent_api_v1alpha1_common_proto_depIdxs = []int32{
-	4, // 0: kagent.api.v1alpha1.StructuredObject.value:type_name -> google.protobuf.Struct
+	5, // 0: kagent.api.v1alpha1.StructuredObject.value:type_name -> google.protobuf.Struct
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -290,13 +359,14 @@ func file_kagent_api_v1alpha1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1alpha1_common_proto_rawDesc), len(file_kagent_api_v1alpha1_common_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_kagent_api_v1alpha1_common_proto_goTypes,
 		DependencyIndexes: file_kagent_api_v1alpha1_common_proto_depIdxs,
+		EnumInfos:         file_kagent_api_v1alpha1_common_proto_enumTypes,
 		MessageInfos:      file_kagent_api_v1alpha1_common_proto_msgTypes,
 	}.Build()
 	File_kagent_api_v1alpha1_common_proto = out.File

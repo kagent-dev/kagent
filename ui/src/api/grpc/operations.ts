@@ -33,8 +33,8 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_r
  *
  * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
  * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
- * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
- * the chat reads boundaries from the list and nothing removes one yet.
+ * as it stands, then a fork of it. `GetCheckpoint` has no id: the chat and the
+ * snapshots page both read boundaries from the list.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
@@ -55,8 +55,10 @@ import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kag
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import {
   CheckpointService,
+  CheckpointSortField as PbCheckpointSortField,
   CheckpointState as PbCheckpointState,
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import { SortDirection as PbSortDirection } from "@/generated/kagent/api/v1alpha1/common_pb";
 import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
@@ -104,7 +106,11 @@ import type {
   AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
-import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
+import type {
+  Checkpoint,
+  CheckpointSort,
+  CheckpointState,
+} from "../domain/checkpoints";
 import type {
   ApiOperations,
   OperationCallOptions,
@@ -672,14 +678,22 @@ function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
     state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
     createdAt: isoFrom(checkpoint.createdAt),
     failure: checkpoint.failure?.message || undefined,
+    conversationName: checkpoint.conversationName,
   };
 }
+
+/** The sortable columns, as the wire spells them. */
+const CHECKPOINT_SORT_TO_PB: Record<CheckpointSort["field"], PbCheckpointSortField> = {
+  createdAt: PbCheckpointSortField.CREATED_AT,
+  conversation: PbCheckpointSortField.CONVERSATION,
+};
 
 const agentInstances: Pick<
   ApiOperations,
   | "agentInstances.checkpoints.create"
   | "agentInstances.checkpoints.list"
   | "agentInstances.checkpoints.fork"
+  | "agentInstances.checkpoints.delete"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -807,21 +821,43 @@ const agentInstances: Pick<
   },
 
   /*
-   * Newest first, because that is the order the chat needs them in and the controller
-   * does not promise one. One page: a conversation's boundaries are counted in
-   * handfuls, and paging a list this short would be machinery with nothing to do.
+   * One page, narrowed and ordered by the controller: the filter, the ordering and the
+   * offset all travel with the request, and the count that comes back is of everything
+   * the filter matched rather than of the page.
    */
   "agentInstances.checkpoints.list": async (input, options) => {
     const name = "CheckpointService/ListCheckpoints";
     const response = await rpc(name, options.signal, () =>
       serviceClient(CheckpointService).listCheckpoints(
-        { agentInstanceId: input.id },
+        {
+          agentInstanceId: input.id ?? "",
+          filter: input.filter ?? "",
+          sortBy: input.sort && {
+            field: CHECKPOINT_SORT_TO_PB[input.sort.field],
+            direction: input.sort.descending ? PbSortDirection.DESC : PbSortDirection.ASC,
+          },
+          page: { limit: input.limit ?? 0, offset: input.offset ?? 0 },
+        },
         call("agentInstances.checkpoints.list", options),
       ),
     );
-    return list(response.checkpoints)
-      .map(toCheckpoint)
-      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+    return {
+      checkpoints: list(response.checkpoints).map(toCheckpoint),
+      total: response.totalSize,
+    };
+  },
+
+  /*
+   * Removing a boundary releases the snapshot it retained. The response carries
+   * nothing, and there is nothing left to show.
+   */
+  "agentInstances.checkpoints.delete": async (input, options) => {
+    await rpc("CheckpointService/DeleteCheckpoint", options.signal, () =>
+      serviceClient(CheckpointService).deleteCheckpoint(
+        { checkpointId: input.checkpointId },
+        call("agentInstances.checkpoints.delete", options),
+      ),
+    );
   },
 
   /*
