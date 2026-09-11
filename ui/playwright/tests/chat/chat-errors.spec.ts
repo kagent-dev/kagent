@@ -8,6 +8,7 @@ import {
   loadPage,
   withScenario,
 } from "../../helpers/app";
+import { tick } from "../../helpers/controls";
 
 /**
  * Chat — the failure journeys.
@@ -217,11 +218,8 @@ test("chat: a question the agent is waiting on is said, and can be given up", as
   });
 
   await test.step("5. answering it resumes the turn that asked, and the agent uses the answer", async () => {
-    await page.getByTestId("chat-choices-0").getByRole("radio", { name: "Large" }).check();
-    await page
-      .getByTestId("chat-choices-1")
-      .getByRole("checkbox", { name: "Pineapple" })
-      .check();
+    await tick(page.getByTestId("chat-choices-0").getByRole("radio", { name: "Large" }));
+    await tick(page.getByTestId("chat-choices-1").getByRole("checkbox", { name: "Pineapple" }));
     await expect(page.getByTestId("chat-answer-send")).toBeEnabled();
     await page.getByTestId("chat-answer-send").click();
 

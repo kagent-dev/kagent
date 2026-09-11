@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures/test";
 import { loadLive, throwawayName } from "./helpers/live";
+import { tick } from "../helpers/controls";
 
 // Requires the lifecycle fixture's ready kagent/smoke agent. Keep it paused:
 // runtime execution is covered by the Go scheduling E2Es with a controlled model.
@@ -17,7 +18,7 @@ test("live: schedule configuration persists through the browser and controller",
     await editor.getByLabel("Repeat", { exact: true }).click();
     await page.getByTitle("Weekly", { exact: true }).click();
     for (const day of ["Tuesday", "Wednesday", "Thursday", "Friday"]) {
-      await editor.getByLabel(day, { exact: true }).check();
+      await tick(editor.getByLabel(day, { exact: true }));
     }
     await editor.getByLabel("At time", { exact: true }).fill("09:00");
     await editor.getByLabel("Time zone", { exact: true }).fill("America/New_York");

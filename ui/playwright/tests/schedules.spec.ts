@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures/test";
+import { tick } from "../helpers/controls";
 
 const scheduleId = "c686bd1d-9124-4e96-8df7-000000000001";
 
@@ -81,7 +82,7 @@ test("schedules: create using an existing agent", async ({ page }) => {
   await page.getByLabel("Repeat", { exact: true }).click();
   await page.getByTitle("Weekly", { exact: true }).click();
   await page.getByLabel("At time", { exact: true }).fill("08:00");
-  await page.getByLabel("Wednesday", { exact: true }).check();
+  await tick(page.getByLabel("Wednesday", { exact: true }));
   await expect(page.getByRole("status")).toHaveText("Weekly on Monday, Wednesday at 08:00 (UTC)");
   await page.getByLabel("Prompt", { exact: true }).fill("Summarize this week.");
   await page.getByLabel("Execution timeout (seconds)", { exact: true }).fill("120");
@@ -98,7 +99,7 @@ test("schedules: create using an existing agent", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Edit Weekly report", exact: true })).toBeVisible();
   await expect(page.getByLabel("Enable Schedule", { exact: true })).not.toBeChecked();
   await expect(page.getByText("This schedule will not run automatically after it is saved.")).toBeVisible();
-  await page.getByLabel("Enable Schedule", { exact: true }).check();
+  await tick(page.getByLabel("Enable Schedule", { exact: true }));
   await expect(page.getByText("This schedule will run automatically after it is saved.")).toBeVisible();
   await expect(page.getByLabel("At time", { exact: true })).toHaveValue("08:00");
   await expect(page.getByLabel("Monday", { exact: true })).toBeChecked();
