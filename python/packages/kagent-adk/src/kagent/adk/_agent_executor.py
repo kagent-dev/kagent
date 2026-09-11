@@ -600,8 +600,17 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 subagent_session_ids[tool.name] = tool.subagent_session_id
 
         task_result_aggregator = TaskResultAggregator()
+        awaiting_confirmation_response = False
         async with Aclosing(runner.run_async(**run_args)) as agen:
             async for adk_event in agen:
+                # ADK yields the confirmation prompt before the tool response
+                # carrying requested_tool_confirmations. The runner persists
+                # that response before yielding it; ADK needs it to validate a
+                # dynamic confirmation on resume. Stop here, before another
+                # model call, and keep the prompt as the A2A input_required message.
+                if awaiting_confirmation_response and adk_event.actions.requested_tool_confirmations:
+                    break
+
                 # Capture the real invocation_id from the first ADK event that has one
                 event_inv_id = getattr(adk_event, "invocation_id", None)
                 if event_inv_id and not real_invocation_id:
@@ -627,9 +636,14 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                         task_result_aggregator.process_event(a2a_event)
                     await event_queue.enqueue_event(a2a_event)
 
-                # Break on confirmation events that use long running tools
+                # Confirmation requests must drain their following tool response.
+                # Other long-running tools retain the immediate pause behavior.
                 if getattr(adk_event, "long_running_tool_ids", None):
-                    break
+                    awaiting_confirmation_response = any(
+                        fc.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME for fc in adk_event.get_function_calls()
+                    )
+                    if not awaiting_confirmation_response:
+                        break
 
         # Attach the last LLM usage to run_metadata so the A2A task_manager
         # merges it into task.metadata on the completed Task object.
