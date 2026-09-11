@@ -680,6 +680,7 @@ const agentInstances: Pick<
   | "agentInstances.checkpoints.create"
   | "agentInstances.checkpoints.list"
   | "agentInstances.checkpoints.fork"
+  | "agentInstances.checkpoints.delete"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -842,6 +843,15 @@ const agentInstances: Pick<
     const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
     if (!input.name) return instance;
     return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
+  },
+
+  "agentInstances.checkpoints.delete": async (input, options) => {
+    await rpc("CheckpointService/DeleteCheckpoint", options.signal, () =>
+      serviceClient(CheckpointService).deleteCheckpoint(
+        { checkpointId: input.checkpointId },
+        call("agentInstances.checkpoints.delete", options),
+      ),
+    );
   },
 
   /*

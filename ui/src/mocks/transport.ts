@@ -139,6 +139,7 @@ import {
   savePrompt,
   saveToolServer,
   checkpointById,
+  deleteCheckpoint,
   readCheckpoints,
   saveCheckpoint,
 } from "./state";
@@ -969,6 +970,11 @@ on(CheckpointService.method.createCheckpoint, (input, call) => {
     createdAt: new Date().toISOString(),
   });
   return { checkpoint: checkpointMessage(checkpoint) };
+});
+
+on(CheckpointService.method.deleteCheckpoint, (input) => {
+  if (!deleteCheckpoint(input.checkpointId)) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return {};
 });
 
 on(CheckpointService.method.listCheckpoints, (input, call) => {

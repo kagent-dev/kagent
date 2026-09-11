@@ -106,6 +106,53 @@ test("chat: a fork does not inherit the marks of the page it was made from", asy
   await expect(dividers(page)).toHaveCount(0);
 });
 
+/*
+ * Deleting a boundary, and the reload that proves it.
+ *
+ * The line on screen is drawn from two sources — the controller's list and what this
+ * page has saved since it loaded — so a delete that dropped only the first would leave
+ * the line up until a reload, and one that dropped only the second would bring it back
+ * on the next read. The reload here is what tells those two apart.
+ */
+test("chat: a checkpoint is deleted from the chat, and stays deleted", async ({ page }) => {
+  await page.goto(agentChat(instances.ready));
+  const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
+  await expect(mine.first()).toBeVisible({ timeout: 30_000 });
+
+  // A second boundary, so the delete has to remove one line rather than all of them.
+  await page.getByTestId("chat-input").fill("A second turn, to save a second boundary at.");
+  await page.getByTestId("chat-send").click();
+  await expect(mine).toHaveCount(2, { timeout: 30_000 });
+  await page.getByTestId("chat-checkpoint").click();
+  await expect(dividers(page)).toHaveCount(2);
+
+  // The seeded line, not the new one: the newest sits against the composer, where the
+  // "Checkpoint saved" toast covers it.
+  const doomed = await dividers(page).first().getAttribute("data-testid");
+  const id = (doomed ?? "").replace("chat-checkpoint-mark-", "");
+
+  await test.step("asks before deleting, and cancelling leaves both", async () => {
+    await page.getByTestId(`chat-checkpoint-delete-${id}`).click();
+    await expect(page.getByText("Delete this checkpoint?")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(dividers(page)).toHaveCount(2);
+  });
+
+  await test.step("confirming takes that line and leaves the other", async () => {
+    await page.getByTestId(`chat-checkpoint-delete-${id}`).click();
+    await page.getByTestId(`chat-checkpoint-delete-confirm-${id}`).click();
+    await expect(page.getByTestId(`chat-checkpoint-mark-${id}`)).toHaveCount(0);
+    await expect(dividers(page)).toHaveCount(1);
+  });
+
+  await test.step("and the reload agrees: the boundary is gone from the backend", async () => {
+    await page.reload();
+    await expect(mine).toHaveCount(2, { timeout: 30_000 });
+    await expect(dividers(page)).toHaveCount(1);
+    await expect(page.getByTestId(`chat-checkpoint-mark-${id}`)).toHaveCount(0);
+  });
+});
+
 test("chat: a conversation is duplicated from the rail menu, and the copy opens", async ({
   page,
 }) => {

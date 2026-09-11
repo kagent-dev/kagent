@@ -259,6 +259,37 @@ export function AgentChatPage() {
   }, [id, chat.messages, checkpoints]);
 
   /*
+   * Removes a saved boundary.
+   *
+   * The mark this page holds for it goes too: `savedHere` is what draws the line for
+   * a boundary saved since the page loaded, so leaving it would keep the line on
+   * screen over a checkpoint the controller no longer has.
+   */
+  const deleteCheckpoint = useCallback(
+    async (checkpointId: string) => {
+      try {
+        await apiClient.agentInstances.checkpoints.remove(checkpointId);
+        setSavedHere((current) => ({
+          conversation: current.conversation,
+          marks: new Map([...current.marks].filter(([, saved]) => saved !== checkpointId)),
+        }));
+        toast.success("Checkpoint deleted");
+      } catch (cause: unknown) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        console.error("Could not delete the checkpoint:", cause);
+        toast.error(`Could not delete: ${reason}`);
+        return;
+      }
+      try {
+        await checkpoints.refresh();
+      } catch (cause: unknown) {
+        console.error("Could not re-read the saved boundaries:", cause);
+      }
+    },
+    [checkpoints],
+  );
+
+  /*
    * A new conversation holding the transcript up to a saved boundary, which is then
    * opened. Forking the same boundary again is allowed and makes another one.
    */
@@ -685,6 +716,7 @@ export function AgentChatPage() {
             chat={chat}
             sessionId={id}
             onFork={forkCheckpoint}
+            onDeleteCheckpoint={deleteCheckpoint}
             checkpointByMessage={checkpointByMessage}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
