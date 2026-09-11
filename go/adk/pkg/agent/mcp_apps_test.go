@@ -143,3 +143,48 @@ func TestMakeMCPAppModelResultCallbackLeavesNonAppToolsAlone(t *testing.T) {
 		t.Fatalf("non-app tool response modified: %#v", got)
 	}
 }
+
+func TestMakeMCPAppModelResultCallbackPassesThroughPlainResultFromAppTool(t *testing.T) {
+	t.Parallel()
+
+	// An App-capable tool ("jenkins_monitor_build" is in appToolNames) can still
+	// return an ordinary text-only result: no structuredContent and no _meta.ui.
+	// There is nothing to compact, so the text must reach the model unchanged.
+	const text = "No build found for job demo/1: it was deleted."
+	req := &adkmodel.LLMRequest{
+		Contents: []*genai.Content{{
+			Parts: []*genai.Part{{
+				FunctionResponse: &genai.FunctionResponse{
+					Name: "jenkins_monitor_build",
+				Response: map[string]any{
+					"content": []any{map[string]any{
+						"type": "text",
+						"text": text,
+					}},
+				},
+				},
+			}},
+		}},
+	}
+
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"jenkins_monitor_build": true})
+	if _, err := callback(nil, req); err != nil {
+		t.Fatalf("callback returned error: %v", err)
+	}
+
+	got := req.Contents[0].Parts[0].FunctionResponse.Response
+	content, ok := got["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("content unexpectedly rewritten: %#v", got["content"])
+	}
+	part, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("content part unexpected type: %#v", content[0])
+	}
+	if part["text"] != text {
+		t.Fatalf("plain result text was not preserved: %#v", content[0])
+	}
+	if part["text"] == mcpAppRenderedNotice {
+		t.Fatalf("plain result was collapsed into the render notice")
+	}
+}
