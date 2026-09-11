@@ -21,7 +21,7 @@ import type { OperationId, OperationInput } from "@/api/operations";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
 import { MOCK_INSTANCE_CREATOR } from "./fixtures";
-import { SEEDED_CHECKPOINT } from "./state";
+import { DISPOSABLE_CHECKPOINT, SEEDED_CHECKPOINT } from "./state";
 
 beforeAll(() => setApiTransport(mockTransport));
 afterAll(() => setApiTransport(undefined));
@@ -217,6 +217,9 @@ const INPUTS = {
     requestId: "fixture-suite-checkpoint-fork",
     name: "Forked from a checkpoint by the fixture suite",
   },
+
+  // The disposable boundary: deleting the seeded one would race the fork case above.
+  "agentInstances.checkpoints.delete": { checkpointId: DISPOSABLE_CHECKPOINT.id },
 
   "namespaces.list": {},
   "substrate.status": {},

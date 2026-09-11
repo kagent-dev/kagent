@@ -1,5 +1,5 @@
-import { Button, Tooltip, Typography } from "antd";
-import { GitFork, Save } from "lucide-react";
+import { Button, Popconfirm, Tooltip, Typography } from "antd";
+import { Eraser, GitFork, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
 
 const { Text } = Typography;
@@ -18,12 +18,29 @@ const { Text } = Typography;
 export function CheckpointDivider({
   checkpointId,
   onFork,
+  onDelete,
 }: {
   checkpointId: string;
   /** Forks this boundary. Absent on a read-only surface, which leaves the line alone. */
   onFork?: () => void;
+  /** Removes this boundary. Absent on a read-only surface, as `onFork` is. */
+  onDelete?: () => void;
 }) {
   const theme = useTheme();
+  // The two controls are drawn the same way, so the line does not read as one button
+  // with something else bolted beside it.
+  const control = {
+    height: 24,
+    fontSize: 12,
+    paddingInline: theme.space(2),
+    background: "transparent",
+  } as const;
+  const rule = (
+    <span
+      aria-hidden
+      css={{ width: 14, height: 1, background: theme.color.primaryText, opacity: 0.4 }}
+    />
+  );
 
   return (
     <div
@@ -59,44 +76,79 @@ export function CheckpointDivider({
       {/* Outlined, and named: on the line beside the label a bare icon left what it
           does to a hover, and a filled button pulled the eye off the conversation. One
           word — the tooltip says where from, so the line stays a line. */}
-      {onFork ? (
+      {onFork || onDelete ? (
         <>
-          {/* The rule carrying on between the two, so the mark and the control read as
-              two things on one line rather than a label with a button stuck to it. */}
-          <span
-            aria-hidden
-            css={{
-              width: 14,
-              height: 1,
-              background: theme.color.primaryText,
-              opacity: 0.4,
-            }}
-          />
-          <Tooltip title="Fork the chat from this checkpoint">
-            <Button
-              size="small"
-              data-testid={`chat-checkpoint-fork-${checkpointId}`}
-              aria-label="Fork the chat from this checkpoint"
-              icon={<GitFork size={13} />}
-              onClick={onFork}
-              css={{
-                height: 24,
-                fontSize: 12,
-                paddingInline: theme.space(2),
-                color: theme.color.primaryText,
-                borderColor: theme.color.primaryText,
-                background: "transparent",
-                "&:hover, &:focus-visible": {
-                  color: theme.color.primaryText,
-                  borderColor: theme.color.primaryText,
-                  background: theme.color.accentBg,
-                },
-                "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+          {/* The rule carrying on between each pair, so the mark and the controls read
+              as things on one line rather than a label with buttons stuck to it. */}
+          {rule}
+          {onFork ? (
+            <Tooltip title="Fork the chat from this checkpoint." placement="bottom">
+              <Button
+                size="small"
+                data-testid={`chat-checkpoint-fork-${checkpointId}`}
+                aria-label="Fork the chat from this checkpoint."
+                type="primary"
+                icon={<GitFork size={13} />}
+                onClick={onFork}
+                css={{
+                  ...control,
+                  background: theme.color.primary,
+                  color: theme.color.textOnPrimary,
+                  borderColor: theme.color.primary,
+                  "&:hover, &:focus-visible": {
+                    background: theme.color.primaryHover,
+                    borderColor: theme.color.primaryHover,
+                    color: theme.color.textOnPrimary,
+                  },
+                  "&:active": { background: theme.color.primaryHover, opacity: 0.85 },
+                }}
+              >
+                Fork
+              </Button>
+            </Tooltip>
+          ) : null}
+          {onFork && onDelete ? rule : null}
+          {/* Confirmed, because the snapshot behind the boundary goes with it and
+              nothing brings it back. */}
+          {onDelete ? (
+            <Popconfirm
+              title="Remove this checkpoint?"
+              description="The snapshot for this checkpoint will be deleted. Chat history and sessions already forked from here will be kept."
+              // Capped, or the one line of copy sets the popover's width and it spans
+              // half the transcript.
+              overlayStyle={{ maxWidth: 300 }}
+              okText="Remove"
+              okButtonProps={{
+                "data-testid": `chat-checkpoint-delete-confirm-${checkpointId}`,
               }}
+              cancelText="Cancel"
+              onConfirm={onDelete}
             >
-              Fork
-            </Button>
-          </Tooltip>
+              <Tooltip title="Remove this checkpoint. This deletes the associated snapshot." placement="bottom">
+                <Button
+                  size="small"
+                  data-testid={`chat-checkpoint-delete-${checkpointId}`}
+                  aria-label="Remove this checkpoint. This deletes the associated snapshot."
+                  icon={<Eraser size={13} />}
+                  // Outlined against Fork's fill: forking is what the line is for, and
+                  // this is the one that takes something away.
+                  css={{
+                    ...control,
+                    color: theme.color.primaryText,
+                    borderColor: theme.color.primaryText,
+                    "&:hover, &:focus-visible": {
+                      color: theme.color.primaryText,
+                      borderColor: theme.color.primaryText,
+                      background: theme.color.accentBg,
+                    },
+                    "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+                  }}
+                >
+                  Remove
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          ) : null}
         </>
       ) : null}
     </div>

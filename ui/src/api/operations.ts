@@ -253,6 +253,18 @@ export interface OperationMap {
   };
 
   /**
+   * Removes a saved boundary, and with it the snapshot it was holding.
+   *
+   * A checkpoint pins a copy of the conversation's runtime in the substrate — that is
+   * what makes forking one possible — so this is the only thing that gives that space
+   * back. Forks already made from it are unaffected: they own their own copy.
+   */
+  "agentInstances.checkpoints.delete": {
+    input: { checkpointId: string };
+    output: void;
+  };
+
+  /**
    * Forks a saved boundary: a new conversation holding the transcript up to it.
    *
    * Unlike `agentInstances.fork` this starts from a boundary saved earlier, so the
