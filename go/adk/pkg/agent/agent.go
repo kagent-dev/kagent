@@ -232,15 +232,42 @@ func generateContentConfig(m adk.Model) *genai.GenerateContentConfig {
 	return &genai.GenerateContentConfig{MaxOutputTokens: int32(*maxOutputTokens)}
 }
 
+// resolveOpenAIAPIKey resolves the data-plane API key for the OpenAI provider.
+// api.openai.com requires a key. A custom baseURL may point at an
+// OpenAI-compatible endpoint that takes no credentials, so there a missing key
+// yields an empty one and the client sends no Authorization header. With
+// passthrough the transport sets the key per request.
+func resolveOpenAIAPIKey(ctx context.Context, passthrough bool, baseURL string) (string, error) {
+	if passthrough {
+		return "passthrough", nil
+	}
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		return apiKey, nil
+	}
+	if baseURL == "" {
+		return "", fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+	}
+	logging.FromContext(ctx).WarnContext(ctx,
+		"OPENAI_API_KEY is not set; calling the custom OpenAI base URL without an Authorization header",
+		"base_url", baseURL)
+	return "", nil
+}
+
 // CreateLLM creates an adkmodel.LLM from the model configuration.
 // This is exported to allow reuse of model creation logic (e.g., for memory summarization).
 func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	switch m := m.(type) {
 	case *adk.OpenAI:
+		transport := transportConfigFromBase(m.BaseModel, m.Timeout)
+		apiKey, err := resolveOpenAIAPIKey(ctx, transport.APIKeyPassthrough, m.BaseUrl)
+		if err != nil {
+			return nil, err
+		}
 		cfg := &models.OpenAIConfig{
-			TransportConfig:     transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig:     transport,
 			Model:               m.Model,
 			BaseUrl:             m.BaseUrl,
+			APIKey:              apiKey,
 			FrequencyPenalty:    m.FrequencyPenalty,
 			MaxTokens:           m.MaxTokens,
 			MaxCompletionTokens: m.MaxCompletionTokens,
