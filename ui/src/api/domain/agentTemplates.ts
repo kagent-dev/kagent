@@ -112,6 +112,31 @@ export interface AgentTemplatePromptSpec {
   dataSources?: { name: string; alias?: string }[];
 }
 
+/** `spec.context.compaction.summarizer`: the model and prompt that write the summaries. */
+export interface AgentTemplateSummarizerSpec {
+  /** Omitted summarizes with the agent's own model. */
+  modelConfig?: AgentTemplateLocalRef;
+  /** Must contain `{conversation_history}`. */
+  promptTemplate?: string;
+}
+
+/**
+ * `spec.context.compaction`: the sliding window (`compactionInterval`, `overlapSize`)
+ * and tail retention (`tokenThreshold`, `eventRetentionSize`) strategies.
+ */
+export interface AgentTemplateCompactionSpec {
+  compactionInterval?: number;
+  overlapSize?: number;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+  summarizer?: AgentTemplateSummarizerSpec;
+}
+
+/** `spec.context`: how the runtime manages the conversation context. */
+export interface AgentTemplateContextSpec {
+  compaction?: AgentTemplateCompactionSpec;
+}
+
 /**
  * `AgentTemplateSpec`, field for field with `go/api/v1alpha3/agenttemplate_types.go`.
  *
@@ -132,6 +157,7 @@ export interface AgentTemplateSpec {
   tools?: ToolBinding[];
   skills?: AgentTemplateSkill[];
   plugins?: PluginBundle[];
+  context?: AgentTemplateContextSpec;
 }
 
 /** One condition the controller recorded for a template under one harness. */

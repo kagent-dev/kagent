@@ -122,7 +122,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Provenance: provenance, EgressDestinations: egress,
 		},
-		Warnings: mcp.warnings,
+		Warnings: append(mcp.warnings, v2translator.ContextWarnings(input.Root, true, "the Codex harness does not apply context compaction settings")...),
 	}, nil
 }
 

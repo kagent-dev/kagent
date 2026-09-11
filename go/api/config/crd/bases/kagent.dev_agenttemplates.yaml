@@ -45,6 +45,88 @@ spec:
           spec:
             description: AgentTemplateSpec defines portable agent behavior.
             properties:
+              context:
+                description: |-
+                  Context configures how the runtime manages the conversation context,
+                  such as compacting older events. The kagent harness applies it to the
+                  root agent; other harnesses report it as ignored.
+                properties:
+                  compaction:
+                    description: |-
+                      Compaction summarizes older session events so the prompt stays small as
+                      the conversation grows. Omitted leaves the history uncompacted.
+                    properties:
+                      compactionInterval:
+                        description: |-
+                          CompactionInterval is the number of new user-initiated invocations that,
+                          once fully represented in the session, triggers a sliding-window
+                          compaction of those invocations.
+                        minimum: 1
+                        type: integer
+                      eventRetentionSize:
+                        description: |-
+                          EventRetentionSize is the number of most recent events that tail
+                          retention keeps uncompacted.
+                        minimum: 1
+                        type: integer
+                      overlapSize:
+                        description: |-
+                          OverlapSize is the number of already-compacted invocations pulled back
+                          into the next sliding window so consecutive summaries overlap.
+                        minimum: 0
+                        type: integer
+                      summarizer:
+                        description: |-
+                          Summarizer selects the model and prompt that write the summaries.
+                          Omitted summarizes with the agent's own model and the runtime's default
+                          prompt.
+                        properties:
+                          modelConfig:
+                            description: |-
+                              ModelConfig references a same-namespace ModelConfig to summarize with.
+                              Omitted uses the agent's own model.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                            x-kubernetes-validations:
+                            - message: name must not be empty
+                              rule: has(self.name) && self.name != ''
+                          promptTemplate:
+                            description: |-
+                              PromptTemplate replaces the runtime's default summarization prompt. It
+                              must contain {conversation_history}, which the runtime replaces with the
+                              rendered events.
+                            minLength: 1
+                            type: string
+                        type: object
+                        x-kubernetes-validations:
+                        - message: promptTemplate must contain {conversation_history}
+                          rule: '!has(self.promptTemplate) || self.promptTemplate.contains(''{conversation_history}'')'
+                      tokenThreshold:
+                        description: |-
+                          TokenThreshold is the prompt token count at which tail-retention
+                          compaction summarizes the history before the next model call.
+                        minimum: 1
+                        type: integer
+                    type: object
+                    x-kubernetes-validations:
+                    - message: compactionInterval or tokenThreshold must be specified
+                      rule: has(self.compactionInterval) || has(self.tokenThreshold)
+                    - message: tokenThreshold and eventRetentionSize must be specified
+                        together
+                      rule: has(self.tokenThreshold) == has(self.eventRetentionSize)
+                    - message: overlapSize requires compactionInterval
+                      rule: '!has(self.overlapSize) || has(self.compactionInterval)'
+                type: object
               description:
                 type: string
               modelConfig:

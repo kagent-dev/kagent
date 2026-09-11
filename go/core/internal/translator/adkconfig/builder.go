@@ -46,6 +46,9 @@ type Result struct {
 	Templates   []*v1alpha3.AgentTemplate
 	Environment []corev1.EnvVar
 	Egress      []string
+	// Warnings are non-blocking decisions about template settings the
+	// compiled configuration does not apply.
+	Warnings []string
 }
 
 // ModelResult is the runtime configuration contributed by one ModelConfig.
@@ -97,7 +100,57 @@ func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
 }
 
 func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	return c.compileAgent(ctx, input)
+	result, err := c.compileAgent(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.applyContext(ctx, result, input); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// applyContext translates the root template's spec.context into the ADK
+// context configuration. Compaction is a property of the runner that drives
+// the root agent, so only the root template is read and a Shared child's
+// setting is reported as ignored.
+//
+// A summarizer ModelConfig other than the agent's own is resolved like the
+// agent model: its runtime configuration lands in config.json, its credentials
+// and egress join the revision, and it joins the provenance so a change to it
+// compiles a new revision. The agent's own model is left out because the
+// runtime already summarizes with it by default.
+func (c *Builder) applyContext(ctx context.Context, result *Result, input *v2translator.AgentInput) error {
+	result.Warnings = append(result.Warnings, v2translator.ContextWarnings(input, false, "context compaction is read from the root AgentTemplate only")...)
+	spec := input.Template.Spec.Context
+	if spec == nil || spec.Compaction == nil {
+		return nil
+	}
+	compaction := &adk.AgentCompressionConfig{
+		CompactionInterval: spec.Compaction.CompactionInterval,
+		OverlapSize:        spec.Compaction.OverlapSize,
+		TokenThreshold:     spec.Compaction.TokenThreshold,
+		EventRetentionSize: spec.Compaction.EventRetentionSize,
+	}
+	if summarizer := spec.Compaction.Summarizer; summarizer != nil {
+		compaction.PromptTemplate = summarizer.PromptTemplate
+		if ref := summarizer.ModelConfig; ref != nil && !isAgentModel(input.Template, ref.Name) {
+			model, err := c.BuildModel(ctx, input.Template.Namespace, ref.Name)
+			if err != nil {
+				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
+			}
+			compaction.SummarizerModel = model.Model
+			result.Models = append(result.Models, model.Config)
+			result.Environment = append(result.Environment, model.Environment...)
+			result.Egress = append(result.Egress, model.Egress...)
+		}
+	}
+	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
+	return nil
+}
+
+func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
+	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
 }
 
 func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {

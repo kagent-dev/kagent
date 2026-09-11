@@ -33,6 +33,13 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
+`TestAgentInstanceContextCompaction` creates an `AgentTemplate` whose
+`spec.context.compaction` fires a sliding window after two turns, with a
+dedicated summarizer `ModelConfig` pointing at the same mock LLM behind a
+recording proxy. It checks that the runtime calls the summarizer model once,
+and that the third turn's model request carries the summary instead of the
+compacted turns.
+
 `TestOpaqueBYOAgentInteraction` uses the fixture built by `make build-byo-a2a`;
 `TestConfiguredBYOMCPInteraction` runs the Go ADK image through the BYO adapter.
 

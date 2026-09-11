@@ -185,6 +185,69 @@ type PluginBundle struct {
 	Skills []string `json:"skills,omitempty"`
 }
 
+// AgentTemplateContextSpec configures how the runtime manages the conversation
+// context an agent sends to its model.
+type AgentTemplateContextSpec struct {
+	// Compaction summarizes older session events so the prompt stays small as
+	// the conversation grows. Omitted leaves the history uncompacted.
+	// +optional
+	Compaction *AgentTemplateCompactionSpec `json:"compaction,omitempty"`
+}
+
+// AgentTemplateCompactionSpec selects the compaction strategies and the model
+// that writes the summaries. The sliding window (compactionInterval,
+// overlapSize) summarizes each group of completed invocations; tail retention
+// (tokenThreshold, eventRetentionSize) bounds the prompt by summarizing
+// everything but the most recent events once the prompt grows past a token
+// count. At least one strategy must be configured.
+// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) || has(self.tokenThreshold)",message="compactionInterval or tokenThreshold must be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.tokenThreshold) == has(self.eventRetentionSize)",message="tokenThreshold and eventRetentionSize must be specified together"
+// +kubebuilder:validation:XValidation:rule="!has(self.overlapSize) || has(self.compactionInterval)",message="overlapSize requires compactionInterval"
+type AgentTemplateCompactionSpec struct {
+	// CompactionInterval is the number of new user-initiated invocations that,
+	// once fully represented in the session, triggers a sliding-window
+	// compaction of those invocations.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	CompactionInterval *int `json:"compactionInterval,omitempty"`
+	// OverlapSize is the number of already-compacted invocations pulled back
+	// into the next sliding window so consecutive summaries overlap.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	OverlapSize *int `json:"overlapSize,omitempty"`
+	// TokenThreshold is the prompt token count at which tail-retention
+	// compaction summarizes the history before the next model call.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TokenThreshold *int `json:"tokenThreshold,omitempty"`
+	// EventRetentionSize is the number of most recent events that tail
+	// retention keeps uncompacted.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
+	// Summarizer selects the model and prompt that write the summaries.
+	// Omitted summarizes with the agent's own model and the runtime's default
+	// prompt.
+	// +optional
+	Summarizer *AgentTemplateSummarizerSpec `json:"summarizer,omitempty"`
+}
+
+// AgentTemplateSummarizerSpec configures the model that summarizes compacted events.
+// +kubebuilder:validation:XValidation:rule="!has(self.promptTemplate) || self.promptTemplate.contains('{conversation_history}')",message="promptTemplate must contain {conversation_history}"
+type AgentTemplateSummarizerSpec struct {
+	// ModelConfig references a same-namespace ModelConfig to summarize with.
+	// Omitted uses the agent's own model.
+	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
+	// +optional
+	ModelConfig *corev1.LocalObjectReference `json:"modelConfig,omitempty"`
+	// PromptTemplate replaces the runtime's default summarization prompt. It
+	// must contain {conversation_history}, which the runtime replaces with the
+	// rendered events.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	PromptTemplate string `json:"promptTemplate,omitempty"`
+}
+
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
 type AgentTemplateSpec struct {
@@ -212,6 +275,11 @@ type AgentTemplateSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Plugins []PluginBundle `json:"plugins,omitempty"`
+	// Context configures how the runtime manages the conversation context,
+	// such as compacting older events. The kagent harness applies it to the
+	// root agent; other harnesses report it as ignored.
+	// +optional
+	Context *AgentTemplateContextSpec `json:"context,omitempty"`
 }
 
 const (

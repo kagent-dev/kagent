@@ -172,6 +172,48 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			}}),
 			wantReject: "kind must be RemoteMCPServer",
 		},
+		{
+			name: "AgentTemplate compaction requires a strategy",
+			object: compactionAgentTemplate(namespace, "compaction-no-strategy", AgentTemplateCompactionSpec{
+				Summarizer: &AgentTemplateSummarizerSpec{PromptTemplate: "Summarize.\n\n{conversation_history}"},
+			}),
+			wantReject: "compactionInterval or tokenThreshold must be specified",
+		},
+		{
+			name:       "AgentTemplate compaction pairs tokenThreshold with eventRetentionSize",
+			object:     compactionAgentTemplate(namespace, "compaction-threshold-alone", AgentTemplateCompactionSpec{TokenThreshold: new(50000)}),
+			wantReject: "tokenThreshold and eventRetentionSize must be specified together",
+		},
+		{
+			name: "AgentTemplate compaction overlap requires an interval",
+			object: compactionAgentTemplate(namespace, "compaction-overlap-alone", AgentTemplateCompactionSpec{
+				TokenThreshold: new(50000), EventRetentionSize: new(10), OverlapSize: new(2),
+			}),
+			wantReject: "overlapSize requires compactionInterval",
+		},
+		{
+			name: "AgentTemplate summarizer prompt needs the history placeholder",
+			object: compactionAgentTemplate(namespace, "compaction-prompt-without-history", AgentTemplateCompactionSpec{
+				CompactionInterval: new(5), Summarizer: &AgentTemplateSummarizerSpec{PromptTemplate: "Summarize."},
+			}),
+			wantReject: "promptTemplate must contain {conversation_history}",
+		},
+		{
+			name: "AgentTemplate rejects empty summarizer ModelConfig reference",
+			object: compactionAgentTemplate(namespace, "compaction-empty-summarizer-model", AgentTemplateCompactionSpec{
+				CompactionInterval: new(5), Summarizer: &AgentTemplateSummarizerSpec{ModelConfig: &corev1.LocalObjectReference{}},
+			}),
+			wantReject: "name must not be empty",
+		},
+		{
+			name: "valid AgentTemplate compaction",
+			object: compactionAgentTemplate(namespace, "compaction-valid", AgentTemplateCompactionSpec{
+				CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
+				Summarizer: &AgentTemplateSummarizerSpec{
+					ModelConfig: &corev1.LocalObjectReference{Name: "summarizer"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
+				},
+			}),
+		},
 	}
 
 	for _, tc := range cases {
@@ -207,4 +249,10 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 			Tools:       tools,
 		},
 	}
+}
+
+func compactionAgentTemplate(namespace, name string, compaction AgentTemplateCompactionSpec) *AgentTemplate {
+	template := validAgentTemplate(namespace, name, nil)
+	template.Spec.Context = &AgentTemplateContextSpec{Compaction: &compaction}
+	return template
 }

@@ -8,9 +8,10 @@ environment and credential references, WorkerPool configuration, snapshot
 location, and an admission selector.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
-description and prompt, MCP tool bindings, skills, plugins, and Shared or
-Dedicated agent bindings. Model configuration may be omitted for BYO images;
-pair compilation rejects managed harness combinations without one.
+description and prompt, MCP tool bindings, skills, plugins, context compaction
+settings, and Shared or Dedicated agent bindings. Model configuration may be
+omitted for BYO images; pair compilation rejects managed harness combinations
+without one.
 
 Both are `kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
@@ -63,8 +64,8 @@ application and readiness. The central entry points are
 
 ## Harness-specific output
 
-- **kagent** emits Go ADK configuration, Shared native subagents, and the kagent
-  HITL extension.
+- **kagent** emits Go ADK configuration, context compaction settings, Shared
+  native subagents, and the kagent HITL extension.
 - **Codex** emits native App Server configuration, OpenAI or Bedrock model setup,
   Streamable HTTP MCP servers, Shared agents, and skills. Approvals are currently
   disabled by policy.
@@ -75,3 +76,10 @@ application and readiness. The central entry points are
   supplied in the ADK-shaped format when requested.
 
 Dedicated agent bindings are not compiled yet.
+
+`spec.context.compaction` belongs to the runner that drives the root agent, so
+the kagent and BYO compilers read it from the root `AgentTemplate` only. A
+summarizer `ModelConfig` other than the agent's own is resolved like the agent
+model and joins the revision's credentials, egress, and provenance. A setting
+on a Shared child, or any setting under a Codex or Claude Harness, is reported
+in the template's status warnings instead of applied.
