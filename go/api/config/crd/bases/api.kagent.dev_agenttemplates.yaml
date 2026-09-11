@@ -145,6 +145,35 @@ spec:
                             commit:
                               pattern: ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
                               type: string
+                            credentialRef:
+                              description: |-
+                                CredentialRef references a key in a same-namespace Secret whose value is
+                                the base64 of "<username>:<token>" for the URL's host (GitHub takes
+                                "x-access-token:<token>"). The egress gateway sends it as
+                                "Authorization: Basic" on every request the actor makes to that host;
+                                the actor never holds it.
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
                             url:
                               minLength: 1
                               pattern: ^https?://[^[:space:]]+$
@@ -153,6 +182,12 @@ spec:
                           - commit
                           - url
                           type: object
+                          x-kubernetes-validations:
+                          - message: credentialRef name and key must not be empty
+                            rule: '!has(self.credentialRef) || (self.credentialRef.name.size()
+                              > 0 && self.credentialRef.key.size() > 0)'
+                          - message: credentialRef requires an https URL
+                            rule: '!has(self.credentialRef) || self.url.startsWith(''https://'')'
                         oci:
                           description: OCI is a digest-pinned image reference.
                           pattern: ^[^[:space:]@]+@sha256:[0-9a-f]{64}$
@@ -256,6 +291,35 @@ spec:
                             commit:
                               pattern: ^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
                               type: string
+                            credentialRef:
+                              description: |-
+                                CredentialRef references a key in a same-namespace Secret whose value is
+                                the base64 of "<username>:<token>" for the URL's host (GitHub takes
+                                "x-access-token:<token>"). The egress gateway sends it as
+                                "Authorization: Basic" on every request the actor makes to that host;
+                                the actor never holds it.
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
                             url:
                               minLength: 1
                               pattern: ^https?://[^[:space:]]+$
@@ -264,6 +328,12 @@ spec:
                           - commit
                           - url
                           type: object
+                          x-kubernetes-validations:
+                          - message: credentialRef name and key must not be empty
+                            rule: '!has(self.credentialRef) || (self.credentialRef.name.size()
+                              > 0 && self.credentialRef.key.size() > 0)'
+                          - message: credentialRef requires an https URL
+                            rule: '!has(self.credentialRef) || self.url.startsWith(''https://'')'
                         oci:
                           description: OCI is a digest-pinned image reference.
                           pattern: ^[^[:space:]@]+@sha256:[0-9a-f]{64}$
