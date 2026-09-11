@@ -3,6 +3,7 @@ package sts
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -438,7 +439,8 @@ func TestHeaderProviderRejectsForgedSubjectClaims(t *testing.T) {
 
 // A token with no exp claim must still get a bounded cache lifetime: the cache
 // holds one entry per (session, subject), so an immortal entry per caller would
-// grow without limit.
+// grow without limit. The bound is the eviction time, never the expiry, which
+// would end the caller's authority on a deadline nothing stated.
 func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
 	t.Parallel()
 
@@ -449,11 +451,107 @@ func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a cached entry")
 	}
-	if entry.Expiry == 0 {
-		t.Fatal("entry with no exp claim must be given a bounded expiry")
+	if entry.Expiry != 0 {
+		t.Fatalf("entry expiry = %d, want 0: nothing on this path states one", entry.Expiry)
 	}
-	if ceiling := time.Now().Add(maxCacheTTL).Unix(); entry.Expiry > ceiling {
-		t.Fatalf("entry expiry %d exceeds the %s ceiling %d", entry.Expiry, maxCacheTTL, ceiling)
+	if entry.EvictAfter == 0 {
+		t.Fatal("entry with no exp claim must be given a bounded eviction time")
+	}
+	if ceiling := time.Now().Add(maxCacheTTL).Unix(); entry.EvictAfter > ceiling {
+		t.Fatalf("entry eviction time %d exceeds the %s ceiling %d", entry.EvictAfter, maxCacheTTL, ceiling)
+	}
+}
+
+// A run that is still making tool calls keeps its entry when a concurrent run
+// finishes and sweeps. BeforeRunCallback runs once per run, so a swept entry has
+// nothing to re-mint it and the rest of that run would reach the backend with no
+// credential at all.
+func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const sessionID = "sess-in-flight"
+	const bearer = "opaque-caller-bearer"
+
+	// An opaque credential states no expiry, so the entry carries only the
+	// synthetic eviction bound.
+	plugin.setCachedToken(sessionID, subjectKey(bearer), "delegated-opaque", 0)
+
+	// The bound comes due while the run is still in flight.
+	due := time.Now().Add(-time.Minute).Unix()
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].EvictAfter = due
+	plugin.earliestEviction = due
+
+	// The run makes another tool call, which renews the bound.
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-opaque" {
+		t.Fatalf("in-flight tool call got Authorization %q", got)
+	}
+
+	// A concurrent run finishes and sweeps the whole cache.
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-other"})
+
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-opaque" {
+		t.Fatalf("the in-flight run lost its credential to another run's sweep, Authorization = %q", got)
+	}
+}
+
+// An entry no run is using still ages out, so the eviction bound keeps bounding
+// memory.
+func TestSweepEvictsAnIdleEntryWithoutExpiry(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	plugin.setCachedToken("sess-idle", "alice", "opaque-token", 0)
+
+	due := time.Now().Add(-time.Minute).Unix()
+	plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: "alice"}].EvictAfter = due
+	plugin.earliestEviction = due
+
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-idle"})
+
+	if _, ok := plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: "alice"}]; ok {
+		t.Fatal("an entry no run is using must age out")
+	}
+}
+
+// A burst of distinct credentials is capped, and the cap drops the least recently
+// used entries rather than the one a run is still making tool calls with.
+func TestCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const sessionID = "sess-burst"
+	const bearer = "opaque-alice"
+	plugin.setCachedToken(sessionID, subjectKey(bearer), "delegated-alice", 0)
+
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
+
+	const overflow = 25
+	for i := range maxCacheEntries + overflow {
+		// Each new caller is more recent than the last tool call of the
+		// in-flight run, so only a renewed entry survives the burst.
+		if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-alice" {
+			t.Fatalf("in-flight tool call %d got Authorization %q", i, got)
+		}
+		plugin.setCachedToken(sessionID, subjectKey(fmt.Sprintf("token-%d", i)), "delegated", 0)
+	}
+
+	if len(plugin.tokenCache) != maxCacheEntries {
+		t.Fatalf("cache holds %d entries, want the %d cap", len(plugin.tokenCache), maxCacheEntries)
+	}
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-alice" {
+		t.Fatalf("the in-flight run lost its credential to the capacity bound, Authorization = %q", got)
+	}
+	// The cap drops by use order, so the callers the burst left untouched
+	// longest are exactly the ones gone.
+	for i := range overflow + 1 {
+		key := cacheKey{sessionID: sessionID, subject: subjectKey(fmt.Sprintf("token-%d", i))}
+		if _, ok := plugin.tokenCache[key]; ok {
+			t.Fatalf("token-%d is still cached, want the least recently used entries dropped", i)
+		}
 	}
 }
 
@@ -476,8 +574,8 @@ func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
 	if _, ok := plugin.getCachedToken("sess-b", "bob"); !ok {
 		t.Fatal("unexpired entry must survive the sweep")
 	}
-	if plugin.earliestExpiry != future {
-		t.Fatalf("earliestExpiry = %d, want %d after the sweep", plugin.earliestExpiry, future)
+	if plugin.earliestEviction != future {
+		t.Fatalf("earliestEviction = %d, want %d after the sweep", plugin.earliestEviction, future)
 	}
 }
 
@@ -495,20 +593,20 @@ func TestAfterRunCallbackSkipsWalkUntilSomethingExpires(t *testing.T) {
 	if _, ok := plugin.getCachedToken("sess-a", "alice"); !ok {
 		t.Fatal("unexpired entry must survive")
 	}
-	if plugin.earliestExpiry != future {
-		t.Fatalf("earliestExpiry = %d, want it left at %d", plugin.earliestExpiry, future)
+	if plugin.earliestEviction != future {
+		t.Fatalf("earliestEviction = %d, want it left at %d", plugin.earliestEviction, future)
 	}
 }
 
-func TestClearCacheResetsEarliestExpiry(t *testing.T) {
+func TestClearCacheResetsEarliestEviction(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	plugin.setCachedToken("sess-a", "alice", "alice-token", time.Now().Add(time.Hour).Unix())
 	plugin.ClearCache()
 
-	if plugin.earliestExpiry != 0 {
-		t.Fatalf("earliestExpiry = %d, want 0 after ClearCache", plugin.earliestExpiry)
+	if plugin.earliestEviction != 0 {
+		t.Fatalf("earliestEviction = %d, want 0 after ClearCache", plugin.earliestEviction)
 	}
 }
 

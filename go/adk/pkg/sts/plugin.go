@@ -1,10 +1,12 @@
 package sts
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -17,42 +19,62 @@ import (
 	"google.golang.org/genai"
 )
 
-// maxCacheTTL bounds an entry whose token carries no usable expiry. The cache
-// holds one entry per (session, subject), so a token without an expiry would
-// otherwise pin an entry per caller for the lifetime of the process.
+// maxCacheTTL bounds an entry whose tokens state no expiry, so that such an
+// entry does not pin a slot for the lifetime of the process. It bounds memory
+// only, never the caller's authority, and a cache hit renews it.
 const maxCacheTTL = 5 * time.Minute
 
+// maxCacheEntries bounds the subject cache. The sweep runs between runs, so
+// concurrent runs holding many distinct credentials need a bound that does not
+// wait for one.
+const maxCacheEntries = 1024
+
 // TokenCacheEntry holds a cached token with its expiry time.
-//
-// Expiry 0 means the entry never expires. Only the actor token cache stores
-// such entries; setCachedToken bounds every subject entry, because the subject
-// cache holds one entry per caller rather than one per session.
 type TokenCacheEntry struct {
-	Token  string
-	Expiry int64 // Unix timestamp, 0 if no expiry
+	Token string
+	// Expiry is when the authority behind the token ends, 0 when nothing on
+	// this path states one. It decides whether the token may still be injected.
+	Expiry int64
+	// EvictAfter is when the entry may be dropped. It bounds memory only, never
+	// the caller's authority, so it can come due before Expiry. touch sets it
+	// when nothing states an expiry.
+	EvictAfter int64
+	// LastUsed is a use sequence, set by touch. It orders the capacity bound.
+	LastUsed uint64
 }
 
 // HasExpired checks if the token has expired or will expire soon.
 func (e *TokenCacheEntry) HasExpired(bufferSeconds int64) bool {
-	if e.Expiry == 0 {
+	return hasPassed(e.Expiry, bufferSeconds)
+}
+
+// evictable reports whether the entry may be dropped to bound memory.
+func (e *TokenCacheEntry) evictable(bufferSeconds int64) bool {
+	return hasPassed(e.EvictAfter, bufferSeconds)
+}
+
+// hasPassed reports whether a deadline has come due; 0 means there is none.
+func hasPassed(deadline, bufferSeconds int64) bool {
+	if deadline == 0 {
 		return false
 	}
-	return e.Expiry <= time.Now().Unix()+bufferSeconds
+	return deadline <= time.Now().Unix()+bufferSeconds
 }
 
 // TokenPropagationPlugin propagates STS tokens to ADK tools.
 // It registers as a Go ADK plugin for run-level token preparation and exposes
 // a header provider used by MCP tool transports.
 type TokenPropagationPlugin struct {
-	integration     *STSIntegration
-	tokenCache      map[cacheKey]*TokenCacheEntry
-	actorTokenCache *TokenCacheEntry // used only for dynamic fetchActorToken providers
-	mu              sync.RWMutex
-	logger          *slog.Logger
-	bufferSeconds   int64
-	earliestExpiry  int64    // lower bound on the earliest Expiry in tokenCache; 0 when nothing is evictable
-	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
-	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
+	integration      *STSIntegration
+	tokenCache       map[cacheKey]*TokenCacheEntry
+	actorTokenCache  *TokenCacheEntry // used only for dynamic fetchActorToken providers
+	mu               sync.RWMutex
+	logger           *slog.Logger
+	bufferSeconds    int64
+	earliestEviction int64    // lower bound on the earliest EvictAfter in tokenCache; 0 when nothing is evictable
+	uses             uint64   // monotonic use counter, read by touch
+	resource         []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
+	audience         []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
 
 // NewTokenPropagationPlugin creates a new token propagation plugin.
@@ -127,19 +149,65 @@ func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (*Tok
 		return nil, false
 	}
 
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	// A write lock, not a read lock: a hit records the use, which is what keeps
+	// the sweep and the capacity bound off an entry a run is still using.
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	entry, ok := p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}]
 	if !ok {
 		return nil, false
 	}
 
+	// Tested on Expiry, never on EvictAfter: the entry is capped at the caller
+	// credential's own expiry, so an expired one means the caller's authority is
+	// gone. The sweep runs between runs, so the check belongs here too.
 	if entry.HasExpired(p.bufferSeconds) {
 		return nil, false
 	}
 
+	p.touch(entry)
 	return entry, true
+}
+
+// touch records that a run is using an entry. It must be called with p.mu held.
+//
+// Both bounds on the cache drop the entries no run is using: the capacity bound
+// by use order, the sweep by eviction time. An entry whose tokens state no
+// expiry carries a synthetic eviction time, so a use renews it. Without this, a
+// concurrent run's sweep drops the credential of a run that is still in flight,
+// which BeforeRunCallback runs too late to re-mint.
+func (p *TokenPropagationPlugin) touch(entry *TokenCacheEntry) {
+	p.uses++
+	entry.LastUsed = p.uses
+	if entry.Expiry == 0 {
+		entry.EvictAfter = time.Now().Add(maxCacheTTL).Unix()
+	}
+}
+
+// evictOverCapacity drops the least recently used entries once the cache is over
+// capacity. It must be called with p.mu held.
+//
+// The sweep runs between runs only, so it cannot bound a run that sees many
+// distinct credentials while it holds them. The entry the caller just cached is
+// the most recently used, so it is never dropped here.
+func (p *TokenPropagationPlugin) evictOverCapacity() {
+	overflow := len(p.tokenCache) - maxCacheEntries
+	if overflow <= 0 {
+		return
+	}
+
+	keys := make([]cacheKey, 0, len(p.tokenCache))
+	for key := range p.tokenCache {
+		keys = append(keys, key)
+	}
+	slices.SortFunc(keys, func(a, b cacheKey) int {
+		return cmp.Compare(p.tokenCache[a].LastUsed, p.tokenCache[b].LastUsed)
+	})
+	for _, key := range keys[:overflow] {
+		delete(p.tokenCache, key)
+	}
+	p.logger.Debug("dropped cached tokens over the cache capacity")
 }
 
 // setCachedToken caches a token for the session and subject.
@@ -153,20 +221,16 @@ func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Every subject entry carries an expiry so the sweep can always evict it.
-	// Only entries whose token has no usable exp fall back to maxCacheTTL;
-	// a token that states its own expiry keeps it.
-	if expiry == 0 {
-		expiry = time.Now().Add(maxCacheTTL).Unix()
-	}
+	// EvictAfter defaults to Expiry; touch supplies the synthetic bound when
+	// nothing states an expiry, so every entry stays evictable.
+	entry := &TokenCacheEntry{Token: token, Expiry: expiry, EvictAfter: expiry}
+	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = entry
+	p.touch(entry)
 
-	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = &TokenCacheEntry{
-		Token:  token,
-		Expiry: expiry,
+	if p.earliestEviction == 0 || entry.EvictAfter < p.earliestEviction {
+		p.earliestEviction = entry.EvictAfter
 	}
-	if p.earliestExpiry == 0 || expiry < p.earliestExpiry {
-		p.earliestExpiry = expiry
-	}
+	p.evictOverCapacity()
 }
 
 func (p *TokenPropagationPlugin) getCachedActorToken() (*TokenCacheEntry, bool) {
@@ -306,23 +370,23 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// A session holds one entry per subject and only the acting subject's key is
-	// derivable here, so the sweep covers every entry rather than the caller's
-	// alone; scoping it to the current session would strand the entries of
-	// sessions that never run again. The earliest expiry gates the walk, so a
-	// large cache is only traversed once something can actually be evicted.
-	if p.earliestExpiry != 0 && p.earliestExpiry <= time.Now().Unix()+p.bufferSeconds {
+	// The sweep covers every entry rather than the caller's alone; scoping it to
+	// the current session would strand the entries of sessions that never run
+	// again. A use renews the eviction time, so this cannot drop the credential
+	// of a run that is still in flight. The earliest eviction time gates the
+	// walk, so a large cache is only traversed once something can be evicted.
+	if p.earliestEviction != 0 && p.earliestEviction <= time.Now().Unix()+p.bufferSeconds {
 		earliest := int64(0)
 		for key, entry := range p.tokenCache {
-			if entry.HasExpired(p.bufferSeconds) {
+			if entry.evictable(p.bufferSeconds) {
 				delete(p.tokenCache, key)
 				continue
 			}
-			if earliest == 0 || entry.Expiry < earliest {
-				earliest = entry.Expiry
+			if earliest == 0 || entry.EvictAfter < earliest {
+				earliest = entry.EvictAfter
 			}
 		}
-		p.earliestExpiry = earliest
+		p.earliestEviction = earliest
 	}
 
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
@@ -348,10 +412,16 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 	// token matches the caller of this request rather than whichever subject
 	// first seeded the session.
 	subject := subjectKey(actingCredential(ctx))
+	if subject == "" {
+		p.logger.DebugContext(ctx, "no caller credential on the request, MCP request will use existing headers", "session_id", sessionID)
+		return nil
+	}
 
 	entry, ok := p.getCachedToken(sessionID, subject)
 	if !ok {
-		p.logger.DebugContext(ctx, "no cached STS token for session/subject, MCP request will use existing headers", "session_id", sessionID)
+		// The caller is identified but has no usable entry, so this request loses
+		// its delegated identity. Reported above debug: nothing else says so.
+		p.logger.WarnContext(ctx, "no valid cached STS token for this caller, MCP request will use existing headers", "session_id", sessionID)
 		return nil
 	}
 
@@ -379,7 +449,7 @@ func (p *TokenPropagationPlugin) ClearCache() {
 	defer p.mu.Unlock()
 
 	p.tokenCache = make(map[cacheKey]*TokenCacheEntry)
-	p.earliestExpiry = 0
+	p.earliestEviction = 0
 	p.actorTokenCache = nil
 	p.logger.Info("cleared STS token cache")
 }
