@@ -1181,6 +1181,7 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 		return tools, nil
 	}
 
+	a.evictToolSnapshot(toolServer.Name, toolServer.GroupKind)
 	if _, err := a.dbClient.StoreToolServer(ctx, toolServer); err != nil {
 		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
@@ -1236,6 +1237,7 @@ func (a *kagentReconciler) ensureToolServerRow(ctx context.Context, ts *database
 	if a.toolSnapshotUnchanged(ts, nil) {
 		return
 	}
+	a.evictToolSnapshot(ts.Name, ts.GroupKind)
 	if _, err := a.dbClient.StoreToolServer(ctx, ts); err != nil {
 		reconcileLog.Error(err, "failed to store toolServer after discovery error", "toolServer", ts.Name)
 		return

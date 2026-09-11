@@ -8,8 +8,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -1431,4 +1433,75 @@ func TestEnsureToolServerRow_SkipsRepeatsButNotDescriptionChange(t *testing.T) {
 	// A successful poll cached tools, so a later failure is a state change.
 	r.rememberToolSnapshot(ts, []*v1alpha2.MCPTool{{Name: "t", Description: "td"}})
 	assert.False(t, r.toolSnapshotUnchanged(ts, nil))
+}
+
+func TestEnsureToolServerRow_EvictsSnapshotBeforeFailedStore(t *testing.T) {
+	ts := &database.ToolServer{Name: "ns/s", GroupKind: "kagent.dev/RemoteMCPServer", Description: "old"}
+	r := &kagentReconciler{dbClient: &toolSnapshotTestClient{storeErr: errors.New("injected store failure")}}
+	r.rememberToolSnapshot(ts, nil)
+
+	edited := &database.ToolServer{Name: ts.Name, GroupKind: ts.GroupKind, Description: "new"}
+	r.ensureToolServerRow(context.Background(), edited)
+
+	assert.False(t, r.toolSnapshotUnchanged(ts, nil))
+}
+
+func TestUpsertToolServer_EvictsSnapshotBeforeFailedWrite(t *testing.T) {
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0.0"}, nil)
+	httpServer := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return mcpServer
+	}, nil))
+	t.Cleanup(httpServer.Close)
+
+	rms := &v1alpha2.RemoteMCPServer{Spec: v1alpha2.RemoteMCPServerSpec{URL: httpServer.URL}}
+	old := &database.ToolServer{Name: "ns/s", GroupKind: "kagent.dev/RemoteMCPServer", Description: "old"}
+	edited := &database.ToolServer{Name: old.Name, GroupKind: old.GroupKind, Description: "new"}
+	emptyTools := []*v1alpha2.MCPTool{}
+
+	for _, tt := range []struct {
+		name             string
+		storeErr         error
+		refreshErr       error
+		wantRefreshCalls int
+	}{
+		{name: "store failure", storeErr: errors.New("injected store failure"), wantRefreshCalls: 1},
+		{name: "refresh failure", refreshErr: errors.New("injected refresh failure"), wantRefreshCalls: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &toolSnapshotTestClient{storeErr: tt.storeErr, refreshErr: tt.refreshErr}
+			r := &kagentReconciler{dbClient: db}
+			r.rememberToolSnapshot(old, emptyTools)
+
+			_, err := r.upsertToolServerForRemoteMCPServer(context.Background(), edited, rms)
+			require.Error(t, err)
+			assert.False(t, r.toolSnapshotUnchanged(old, emptyTools))
+
+			// A rollback to the old snapshot must attempt persistence again.
+			db.storeErr = nil
+			db.refreshErr = nil
+			_, err = r.upsertToolServerForRemoteMCPServer(context.Background(), old, rms)
+			require.NoError(t, err)
+			assert.Equal(t, 2, db.storeCalls)
+			assert.Equal(t, tt.wantRefreshCalls, db.refreshCalls)
+			assert.True(t, r.toolSnapshotUnchanged(old, emptyTools))
+		})
+	}
+}
+
+type toolSnapshotTestClient struct {
+	database.Client
+	storeErr     error
+	refreshErr   error
+	storeCalls   int
+	refreshCalls int
+}
+
+func (c *toolSnapshotTestClient) StoreToolServer(_ context.Context, ts *database.ToolServer) (*database.ToolServer, error) {
+	c.storeCalls++
+	return ts, c.storeErr
+}
+
+func (c *toolSnapshotTestClient) RefreshToolsForServer(context.Context, string, string, ...*v1alpha2.MCPTool) error {
+	c.refreshCalls++
+	return c.refreshErr
 }
