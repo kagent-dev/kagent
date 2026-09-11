@@ -85,6 +85,10 @@ var BearerTokenKey = &contextKey{}
 // is enabled, so every model/embedding provider resolves passthrough the same way.
 // Each caller wraps the returned token in its own SDK's request-option type, since
 // that varies by provider (e.g. Authorization vs Api-Key header).
+//
+// It reads BearerTokenKey alone and takes no call-context fallback, unlike
+// BearerTokenFromContext: passthrough sends the credential to a third-party model
+// provider, so it is limited to the contexts the executor threaded it through.
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false

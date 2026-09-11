@@ -270,6 +270,12 @@ func signedTokenWithSub(t *testing.T, sub string) string {
 	return signedTokenWithKey(t, "https://issuer.example", sub, "secret")
 }
 
+// subjectOf is the cache subject of a named caller's opaque bearer, so a test
+// that seeds the cache directly keys the entry the way the plugin does.
+func subjectOf(caller string) string {
+	return subjectKey(caller + "-bearer")
+}
+
 // A cache hit hands out a delegated token without an STS exchange, so the key
 // must not be derivable from claims anyone can write: a token carrying the
 // victim's "iss" and "sub" must miss the victim's entry and be sent to the STS,
@@ -386,7 +392,7 @@ func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
-	plugin.setCachedToken("sess-x", "alice", "alice-token", 0)
+	plugin.setCachedToken("sess-x", subjectOf("alice"), "alice-token", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
 		Context:   context.Background(),
@@ -445,20 +451,20 @@ func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
-	plugin.setCachedToken("sess-ttl", "alice", "opaque-token", 0)
+	plugin.setCachedToken("sess-ttl", subjectOf("alice"), "opaque-token", 0)
 
-	entry, ok := plugin.getCachedToken("sess-ttl", "alice")
+	entry, ok := plugin.getCachedToken("sess-ttl", subjectOf("alice"))
 	if !ok {
 		t.Fatal("expected a cached entry")
 	}
 	if entry.Expiry != 0 {
 		t.Fatalf("entry expiry = %d, want 0: nothing on this path states one", entry.Expiry)
 	}
-	if entry.EvictAfter == 0 {
+	if entry.evictAfter == 0 {
 		t.Fatal("entry with no exp claim must be given a bounded eviction time")
 	}
-	if ceiling := time.Now().Add(maxCacheTTL).Unix(); entry.EvictAfter > ceiling {
-		t.Fatalf("entry eviction time %d exceeds the %s ceiling %d", entry.EvictAfter, maxCacheTTL, ceiling)
+	if ceiling := time.Now().Add(evictAfterIdle).Unix(); entry.evictAfter > ceiling {
+		t.Fatalf("entry eviction time %d exceeds the %s ceiling %d", entry.evictAfter, evictAfterIdle, ceiling)
 	}
 }
 
@@ -479,7 +485,7 @@ func TestSweepKeepsAnInFlightCallerStillUsingItsEntry(t *testing.T) {
 
 	// The bound comes due while the run is still in flight.
 	due := time.Now().Add(-time.Minute).Unix()
-	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].EvictAfter = due
+	plugin.tokenCache[cacheKey{sessionID: sessionID, subject: subjectKey(bearer)}].evictAfter = due
 	plugin.earliestEviction = due
 
 	// The run makes another tool call, which renews the bound.
@@ -503,22 +509,23 @@ func TestSweepEvictsAnIdleEntryWithoutExpiry(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
-	plugin.setCachedToken("sess-idle", "alice", "opaque-token", 0)
+	plugin.setCachedToken("sess-idle", subjectOf("alice"), "opaque-token", 0)
 
 	due := time.Now().Add(-time.Minute).Unix()
-	plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: "alice"}].EvictAfter = due
+	plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: subjectOf("alice")}].evictAfter = due
 	plugin.earliestEviction = due
 
 	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-idle"})
 
-	if _, ok := plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: "alice"}]; ok {
+	if _, ok := plugin.tokenCache[cacheKey{sessionID: "sess-idle", subject: subjectOf("alice")}]; ok {
 		t.Fatal("an entry no run is using must age out")
 	}
 }
 
-// A burst of distinct credentials is capped, and the cap drops the least recently
-// used entries rather than the one a run is still making tool calls with.
-func TestCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
+// A burst of distinct credentials on one session is capped, and the cap drops
+// the least recently used of that session's entries rather than the one a run is
+// still making tool calls with.
+func TestSessionCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
@@ -529,8 +536,8 @@ func TestCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
 	toolCall := fakeSessionContext{Context: ctx, sessionID: sessionID}
 
-	const overflow = 25
-	for i := range maxCacheEntries + overflow {
+	const overflow = 5
+	for i := range maxEntriesPerSession + overflow {
 		// Each new caller is more recent than the last tool call of the
 		// in-flight run, so only a renewed entry survives the burst.
 		if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-alice" {
@@ -539,8 +546,8 @@ func TestCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 		plugin.setCachedToken(sessionID, subjectKey(fmt.Sprintf("token-%d", i)), "delegated", 0)
 	}
 
-	if len(plugin.tokenCache) != maxCacheEntries {
-		t.Fatalf("cache holds %d entries, want the %d cap", len(plugin.tokenCache), maxCacheEntries)
+	if len(plugin.tokenCache) != maxEntriesPerSession {
+		t.Fatalf("cache holds %d entries, want the %d per-session cap", len(plugin.tokenCache), maxEntriesPerSession)
 	}
 	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-alice" {
 		t.Fatalf("the in-flight run lost its credential to the capacity bound, Authorization = %q", got)
@@ -555,6 +562,50 @@ func TestCapacityBoundKeepsTheEntryOfAnInFlightCaller(t *testing.T) {
 	}
 }
 
+// One session's burst of credentials must not evict another session's entry. The
+// bound is per session for that reason: the victim's run is between tool calls,
+// so it has nothing more recent to show, and BeforeRunCallback has already run.
+func TestSessionCapacityBoundSparesOtherSessions(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	const victimSession = "sess-victim"
+	const victimBearer = "opaque-victim"
+	plugin.setCachedToken(victimSession, subjectKey(victimBearer), "delegated-victim", 0)
+
+	for i := range maxEntriesPerSession * 4 {
+		plugin.setCachedToken("sess-flood", subjectKey(fmt.Sprintf("token-%d", i)), "delegated", 0)
+	}
+
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, victimBearer)
+	toolCall := fakeSessionContext{Context: ctx, sessionID: victimSession}
+	if got := plugin.HeaderProvider(toolCall)["Authorization"]; got != "Bearer delegated-victim" {
+		t.Fatalf("another session's burst took the victim's credential, Authorization = %q", got)
+	}
+}
+
+// The whole-cache bound still backstops the per-session one, so many sessions
+// cannot grow the cache without limit.
+func TestCacheCapacityBoundCapsEverySession(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
+	sessions := maxCacheEntries/maxEntriesPerSession + 4
+	for session := range sessions {
+		for i := range maxEntriesPerSession {
+			plugin.setCachedToken(
+				fmt.Sprintf("sess-%d", session),
+				subjectKey(fmt.Sprintf("token-%d-%d", session, i)),
+				"delegated", 0,
+			)
+		}
+	}
+
+	if len(plugin.tokenCache) != maxCacheEntries {
+		t.Fatalf("cache holds %d entries, want the %d whole-cache cap", len(plugin.tokenCache), maxCacheEntries)
+	}
+}
+
 // The sweep must evict entries belonging to subjects and sessions other than the
 // acting one, since only the acting subject's key is derivable in the callback.
 func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
@@ -563,15 +614,15 @@ func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	past := time.Now().Add(-time.Hour).Unix()
 	future := time.Now().Add(time.Hour).Unix()
-	plugin.setCachedToken("sess-a", "alice", "alice-token", past)
-	plugin.setCachedToken("sess-b", "bob", "bob-token", future)
+	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", past)
+	plugin.setCachedToken("sess-b", subjectOf("bob"), "bob-token", future)
 
 	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-b"})
 
-	if _, ok := plugin.getCachedToken("sess-a", "alice"); ok {
+	if _, ok := plugin.getCachedToken("sess-a", subjectOf("alice")); ok {
 		t.Fatal("expired entry of another session/subject must be evicted")
 	}
-	if _, ok := plugin.getCachedToken("sess-b", "bob"); !ok {
+	if _, ok := plugin.getCachedToken("sess-b", subjectOf("bob")); !ok {
 		t.Fatal("unexpired entry must survive the sweep")
 	}
 	if plugin.earliestEviction != future {
@@ -586,11 +637,11 @@ func TestAfterRunCallbackSkipsWalkUntilSomethingExpires(t *testing.T) {
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	future := time.Now().Add(time.Hour).Unix()
-	plugin.setCachedToken("sess-a", "alice", "alice-token", future)
+	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", future)
 
 	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-a"})
 
-	if _, ok := plugin.getCachedToken("sess-a", "alice"); !ok {
+	if _, ok := plugin.getCachedToken("sess-a", subjectOf("alice")); !ok {
 		t.Fatal("unexpired entry must survive")
 	}
 	if plugin.earliestEviction != future {
@@ -602,7 +653,7 @@ func TestClearCacheResetsEarliestEviction(t *testing.T) {
 	t.Parallel()
 
 	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
-	plugin.setCachedToken("sess-a", "alice", "alice-token", time.Now().Add(time.Hour).Unix())
+	plugin.setCachedToken("sess-a", subjectOf("alice"), "alice-token", time.Now().Add(time.Hour).Unix())
 	plugin.ClearCache()
 
 	if plugin.earliestEviction != 0 {

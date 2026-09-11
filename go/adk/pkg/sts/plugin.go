@@ -19,14 +19,19 @@ import (
 	"google.golang.org/genai"
 )
 
-// maxCacheTTL bounds an entry whose tokens state no expiry, so that such an
+// evictAfterIdle bounds an entry whose tokens state no expiry, so that such an
 // entry does not pin a slot for the lifetime of the process. It bounds memory
 // only, never the caller's authority, and a cache hit renews it.
-const maxCacheTTL = 5 * time.Minute
+const evictAfterIdle = 5 * time.Minute
 
-// maxCacheEntries bounds the subject cache. The sweep runs between runs, so
-// concurrent runs holding many distinct credentials need a bound that does not
-// wait for one.
+// maxEntriesPerSession bounds the entries one session may hold. A session
+// carries as many entries as it has distinct callers, so the bound is what
+// keeps one session's burst of credentials from evicting another session's.
+const maxEntriesPerSession = 32
+
+// maxCacheEntries bounds the whole cache, across sessions. The sweep runs
+// between runs, so concurrent runs holding many distinct credentials need a
+// bound that does not wait for one.
 const maxCacheEntries = 1024
 
 // TokenCacheEntry holds a cached token with its expiry time.
@@ -35,12 +40,12 @@ type TokenCacheEntry struct {
 	// Expiry is when the authority behind the token ends, 0 when nothing on
 	// this path states one. It decides whether the token may still be injected.
 	Expiry int64
-	// EvictAfter is when the entry may be dropped. It bounds memory only, never
+	// evictAfter is when the entry may be dropped. It bounds memory only, never
 	// the caller's authority, so it can come due before Expiry. touch sets it
 	// when nothing states an expiry.
-	EvictAfter int64
-	// LastUsed is a use sequence, set by touch. It orders the capacity bound.
-	LastUsed uint64
+	evictAfter int64
+	// useSeq orders the capacity bounds. It is a sequence number, not a time.
+	useSeq uint64
 }
 
 // HasExpired checks if the token has expired or will expire soon.
@@ -50,7 +55,7 @@ func (e *TokenCacheEntry) HasExpired(bufferSeconds int64) bool {
 
 // evictable reports whether the entry may be dropped to bound memory.
 func (e *TokenCacheEntry) evictable(bufferSeconds int64) bool {
-	return hasPassed(e.EvictAfter, bufferSeconds)
+	return hasPassed(e.evictAfter, bufferSeconds)
 }
 
 // hasPassed reports whether a deadline has come due; 0 means there is none.
@@ -142,55 +147,78 @@ type cacheKey struct {
 	subject   string
 }
 
-// getCachedToken retrieves a valid cached token for the session and subject.
-func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (*TokenCacheEntry, bool) {
+// getCachedToken retrieves a valid cached token for the session and subject. It
+// returns a copy, so no caller holds the cached entry once the lock is released
+// and a concurrent touch cannot write fields a caller is reading.
+func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (TokenCacheEntry, bool) {
 	// An empty subject identifies no principal, so it must never match an entry.
 	if subject == "" {
-		return nil, false
+		return TokenCacheEntry{}, false
 	}
 
 	// A write lock, not a read lock: a hit records the use, which is what keeps
-	// the sweep and the capacity bound off an entry a run is still using.
+	// the sweep and the capacity bounds off an entry a run is still using.
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	entry, ok := p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}]
 	if !ok {
-		return nil, false
+		return TokenCacheEntry{}, false
 	}
 
-	// Tested on Expiry, never on EvictAfter: the entry is capped at the caller
+	// Tested on Expiry, never on evictAfter: the entry is capped at the caller
 	// credential's own expiry, so an expired one means the caller's authority is
 	// gone. The sweep runs between runs, so the check belongs here too.
 	if entry.HasExpired(p.bufferSeconds) {
-		return nil, false
+		return TokenCacheEntry{}, false
 	}
 
 	p.touch(entry)
-	return entry, true
+	return *entry, true
 }
 
 // touch records that a run is using an entry. It must be called with p.mu held.
 //
-// Both bounds on the cache drop the entries no run is using: the capacity bound
-// by use order, the sweep by eviction time. An entry whose tokens state no
-// expiry carries a synthetic eviction time, so a use renews it. Without this, a
-// concurrent run's sweep drops the credential of a run that is still in flight,
-// which BeforeRunCallback runs too late to re-mint.
+// Every bound on the cache drops the entries no run is using: the capacity
+// bounds by use order, the sweep by eviction time. An entry whose tokens state
+// no expiry carries a synthetic eviction time, so a use renews it. Without
+// this, a concurrent run's sweep drops the credential of a run that is still in
+// flight, which BeforeRunCallback runs too late to re-mint.
 func (p *TokenPropagationPlugin) touch(entry *TokenCacheEntry) {
 	p.uses++
-	entry.LastUsed = p.uses
+	entry.useSeq = p.uses
 	if entry.Expiry == 0 {
-		entry.EvictAfter = time.Now().Add(maxCacheTTL).Unix()
+		entry.evictAfter = time.Now().Add(evictAfterIdle).Unix()
 	}
 }
 
-// evictOverCapacity drops the least recently used entries once the cache is over
-// capacity. It must be called with p.mu held.
+// evictOverSessionCapacity drops the least recently used entries of one session
+// once that session is over capacity. It must be called with p.mu held.
 //
-// The sweep runs between runs only, so it cannot bound a run that sees many
-// distinct credentials while it holds them. The entry the caller just cached is
-// the most recently used, so it is never dropped here.
+// The bound is per session so that a session presenting many distinct
+// credentials evicts its own entries and not those of unrelated sessions.
+func (p *TokenPropagationPlugin) evictOverSessionCapacity(sessionID string) {
+	// The whole cache is walked because entries are not indexed by session, but
+	// only the keys of this session are collected, and only once the session can
+	// be over capacity at all.
+	if len(p.tokenCache) <= maxEntriesPerSession {
+		return
+	}
+
+	keys := make([]cacheKey, 0, maxEntriesPerSession+1)
+	for key := range p.tokenCache {
+		if key.sessionID == sessionID {
+			keys = append(keys, key)
+		}
+	}
+	p.evictLeastRecentlyUsed(keys, len(keys)-maxEntriesPerSession, "session_id", sessionID)
+}
+
+// evictOverCapacity drops the least recently used entries once the whole cache
+// is over capacity. It must be called with p.mu held.
+//
+// The sweep runs between runs only, so it cannot bound runs that see many
+// distinct credentials while they hold them.
 func (p *TokenPropagationPlugin) evictOverCapacity() {
 	overflow := len(p.tokenCache) - maxCacheEntries
 	if overflow <= 0 {
@@ -201,13 +229,29 @@ func (p *TokenPropagationPlugin) evictOverCapacity() {
 	for key := range p.tokenCache {
 		keys = append(keys, key)
 	}
+	p.evictLeastRecentlyUsed(keys, overflow)
+}
+
+// evictLeastRecentlyUsed drops the overflow least recently used entries among
+// keys. It must be called with p.mu held.
+//
+// Unlike the sweep, this drops entries whose credentials are still valid, so a
+// run that is between tool calls can lose the token it would have injected next.
+// It is reported above debug for that reason. The entry the caller just cached
+// is the most recently used, so it is never dropped here.
+func (p *TokenPropagationPlugin) evictLeastRecentlyUsed(keys []cacheKey, overflow int, logAttrs ...any) {
+	if overflow <= 0 {
+		return
+	}
+
 	slices.SortFunc(keys, func(a, b cacheKey) int {
-		return cmp.Compare(p.tokenCache[a].LastUsed, p.tokenCache[b].LastUsed)
+		return cmp.Compare(p.tokenCache[a].useSeq, p.tokenCache[b].useSeq)
 	})
 	for _, key := range keys[:overflow] {
 		delete(p.tokenCache, key)
 	}
-	p.logger.Debug("dropped cached tokens over the cache capacity")
+	p.logger.Warn("dropped valid cached tokens to stay within the cache capacity; callers may re-exchange",
+		append([]any{"dropped", overflow}, logAttrs...)...)
 }
 
 // setCachedToken caches a token for the session and subject.
@@ -221,15 +265,16 @@ func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// EvictAfter defaults to Expiry; touch supplies the synthetic bound when
+	// evictAfter defaults to Expiry; touch supplies the synthetic bound when
 	// nothing states an expiry, so every entry stays evictable.
-	entry := &TokenCacheEntry{Token: token, Expiry: expiry, EvictAfter: expiry}
+	entry := &TokenCacheEntry{Token: token, Expiry: expiry, evictAfter: expiry}
 	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = entry
 	p.touch(entry)
 
-	if p.earliestEviction == 0 || entry.EvictAfter < p.earliestEviction {
-		p.earliestEviction = entry.EvictAfter
+	if p.earliestEviction == 0 || entry.evictAfter < p.earliestEviction {
+		p.earliestEviction = entry.evictAfter
 	}
+	p.evictOverSessionCapacity(sessionID)
 	p.evictOverCapacity()
 }
 
@@ -301,8 +346,14 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 
 	// Check if we already have a valid cached token for this session and subject.
 	if entry, ok := p.getCachedToken(sessionID, subject); ok {
-		p.logger.Debug("using cached STS token", "session_id", sessionID,
-			"expires_in", time.Until(time.Unix(entry.Expiry, 0)).String())
+		// Nothing on this path states an expiry for an opaque credential, and
+		// time.Unix(0, 0) would report the epoch as a deadline decades past.
+		if entry.Expiry == 0 {
+			p.logger.Debug("using cached STS token", "session_id", sessionID)
+		} else {
+			p.logger.Debug("using cached STS token", "session_id", sessionID,
+				"expires_in", time.Until(time.Unix(entry.Expiry, 0)).String())
+		}
 		return nil, nil
 	}
 
@@ -335,7 +386,7 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			"", // requestedTokenType
 		)
 		if err != nil {
-			p.logger.Error("sTS token exchange failed, tools may not authenticate", "error", err, "session_id", sessionID)
+			p.logger.Error("STS token exchange failed, tools may not authenticate", "error", err, "session_id", sessionID)
 			return nil, nil
 		}
 
@@ -349,8 +400,10 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			expiry = extractJWTExpiry(exchangedToken)
 		}
 		// The entry is keyed by the caller's credential, so it must not outlive
-		// it: replaying an expired bearer would otherwise keep hitting a cached
-		// delegated token instead of reaching the STS.
+		// it, nor the subject token the exchange rests on: replaying an expired
+		// credential would otherwise keep hitting a cached delegated token
+		// instead of reaching the STS.
+		expiry = earlierExpiry(expiry, extractJWTExpiry(subjectToken))
 		expiry = earlierExpiry(expiry, extractJWTExpiry(bearerToken))
 		p.setCachedToken(sessionID, subject, exchangedToken, expiry)
 		p.logger.Info("successfully exchanged and cached STS token", "session_id", sessionID)
@@ -382,8 +435,8 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 				delete(p.tokenCache, key)
 				continue
 			}
-			if earliest == 0 || entry.EvictAfter < earliest {
-				earliest = entry.EvictAfter
+			if earliest == 0 || entry.evictAfter < earliest {
+				earliest = entry.evictAfter
 			}
 		}
 		p.earliestEviction = earliest
