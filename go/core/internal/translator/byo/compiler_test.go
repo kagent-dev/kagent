@@ -43,7 +43,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }
 
-func TestCompileInjectsPortMatchingAgentCard(t *testing.T) {
+func TestCompilePortResolution(t *testing.T) {
 	compile := func(t *testing.T, env []v1alpha3.HarnessEnvVar) *v2translator.CompileResult {
 		t.Helper()
 		harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
@@ -75,11 +75,29 @@ func TestCompileInjectsPortMatchingAgentCard(t *testing.T) {
 		return ""
 	}
 
+	portValues := func(env []corev1.EnvVar) []string {
+		var values []string
+		for _, v := range env {
+			if v.Name == "PORT" {
+				values = append(values, v.Value)
+			}
+		}
+		return values
+	}
+
 	revision := compile(t, nil)
 	require.Equal(t, "80", envValue(t, revision.Environment, "PORT"))
+	require.Equal(t, []string{"80"}, portValues(revision.Environment))
 	require.Len(t, revision.AgentCard.GetSupportedInterfaces(), 1)
 	require.Equal(t, "http://127.0.0.1:80", revision.AgentCard.GetSupportedInterfaces()[0].GetUrl())
 
-	override := compile(t, []v1alpha3.HarnessEnvVar{{Name: "PORT", Value: new("8080")}})
-	require.Equal(t, "80", envValue(t, override.Environment, "PORT"))
+	custom := compile(t, []v1alpha3.HarnessEnvVar{{Name: "PORT", Value: new("8080")}})
+	require.Equal(t, []string{"8080"}, portValues(custom.Environment))
+	require.Len(t, custom.AgentCard.GetSupportedInterfaces(), 1)
+	require.Equal(t, "http://127.0.0.1:8080", custom.AgentCard.GetSupportedInterfaces()[0].GetUrl())
+
+	invalid := compile(t, []v1alpha3.HarnessEnvVar{{Name: "PORT", Value: new("banana")}})
+	require.Equal(t, []string{"80"}, portValues(invalid.Environment))
+	require.Len(t, invalid.AgentCard.GetSupportedInterfaces(), 1)
+	require.Equal(t, "http://127.0.0.1:80", invalid.AgentCard.GetSupportedInterfaces()[0].GetUrl())
 }
