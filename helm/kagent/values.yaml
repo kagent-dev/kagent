@@ -495,6 +495,20 @@ harness:
       matchLabels:
         kagent.dev/harness: kagent
 
+# -- Runtime images the chart publishes besides the Go ADK image
+# (controller.agentImage). The chart lists its runtime images, digest-pinned, in
+# the ConfigMap `<fullname>-images` (in the release namespace) as a values
+# fragment for Agent Substrate's image cache (`atelet.imageCache.pinnedImages`),
+# so worker nodes pre-pull the images agents run on: the image the chart's
+# Harness runs and the ones below. An image without a digest is left out; a
+# published chart carries the digests of its build.
+runtimeImages:
+  # -- The Claude runtime image (the `claude` Harness adapter).
+  claudeHarness:
+    registry: ""
+    repository: kagent-dev/kagent/claude-harness
+    digest: ""
+
 # ==============================================================================
 # UI CONFIGURATION
 # ==============================================================================

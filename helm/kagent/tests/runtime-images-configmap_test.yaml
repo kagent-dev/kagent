@@ -1,0 +1,58 @@
+suite: test runtime images configmap
+templates:
+  - runtime-images-configmap.yaml
+tests:
+  - it: should render an empty pinned set when no digest is known
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-images
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - matchRegex:
+          path: data["substrate-values.yaml"]
+          pattern: "pinnedImages: \\[\\]"
+
+  - it: should list the chart's own Harness image and the Claude harness image at their digests
+    set:
+      fullnameOverride: kagent
+      controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      runtimeImages.claudeHarness.digest: "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    asserts:
+      - equal:
+          path: metadata.name
+          value: kagent-images
+      - equal:
+          path: data["substrate-values.yaml"]
+          value: |
+            atelet:
+              imageCache:
+                pinnedImages:
+                - ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                - ghcr.io/kagent-dev/kagent/claude-harness@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+
+  - it: should follow a harness.image override
+    set:
+      controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      harness.image: localhost:5001/kagent-dev/kagent/golang-adk@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+    asserts:
+      - matchRegex:
+          path: data["substrate-values.yaml"]
+          pattern: "- localhost:5001/kagent-dev/kagent/golang-adk@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+      - notMatchRegex:
+          path: data["substrate-values.yaml"]
+          pattern: "golang-adk@sha256:0123456789abcdef"
+
+  - it: should stay in the release namespace when the chart's namespace is overridden
+    set:
+      namespaceOverride: kagent
+      controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE

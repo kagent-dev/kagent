@@ -1,0 +1,29 @@
+{{- /*
+The chart's runtime images, digest-pinned, as a values fragment for Agent
+Substrate: atelet's image cache pre-pulls `imageCache.pinnedImages` on every
+worker node, so an agent's first turn does not wait for the pull of its runtime
+image. The ConfigMap sits in the release namespace — not the chart's
+namespaceOverride — so a Substrate release installed next to this one reads it
+as values (a Flux HelmRelease's valuesFrom) without crossing namespaces. Listed:
+the image the chart's Harness runs (harness.image, else the chart's own Go ADK
+image at controller.agentImage.digest) and the images under runtimeImages; an
+image whose digest is empty is left out, so a chart rendered from git lists
+nothing and a published chart lists its build.
+*/}}
+{{- $images := list }}
+{{- with include "kagent.harness.image" . }}
+{{- $images = append $images . }}
+{{- end }}
+{{- with include "kagent.runtimeImage" (dict "root" . "image" .Values.runtimeImages.claudeHarness) }}
+{{- $images = append $images . }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-images
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+data:
+  substrate-values.yaml: |
+    {{- toYaml (dict "atelet" (dict "imageCache" (dict "pinnedImages" $images))) | nindent 4 }}
