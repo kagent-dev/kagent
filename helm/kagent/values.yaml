@@ -501,7 +501,9 @@ harness:
 # fragment for Agent Substrate's image cache (`atelet.imageCache.pinnedImages`),
 # so worker nodes pre-pull the images agents run on: the image the chart's
 # Harness runs and the ones below. An image without a digest is left out; a
-# published chart carries the digests of its build.
+# published chart carries the digests of its build. The ConfigMap is labelled
+# `reconcile.fluxcd.io/watch: Enabled`, so a Flux HelmRelease that reads it
+# through valuesFrom follows a changed image reference at once.
 runtimeImages:
   # -- The Claude runtime image (the `claude` Harness adapter).
   claudeHarness:

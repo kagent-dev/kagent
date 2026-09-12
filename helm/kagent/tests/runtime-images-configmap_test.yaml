@@ -18,6 +18,12 @@ tests:
           path: data["substrate-values.yaml"]
           pattern: "pinnedImages: \\[\\]"
 
+  - it: should carry the label helm-controller watches, so a valuesFrom consumer follows a changed set at once
+    asserts:
+      - equal:
+          path: metadata.labels["reconcile.fluxcd.io/watch"]
+          value: Enabled
+
   - it: should list the chart's own Harness image and the Claude harness image at their digests
     set:
       fullnameOverride: kagent

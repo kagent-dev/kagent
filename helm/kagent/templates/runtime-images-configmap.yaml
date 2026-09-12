@@ -8,7 +8,11 @@ as values (a Flux HelmRelease's valuesFrom) without crossing namespaces. Listed:
 the image the chart's Harness runs (harness.image, else the chart's own Go ADK
 image at controller.agentImage.digest) and the images under runtimeImages; an
 image whose digest is empty is left out, so a chart rendered from git lists
-nothing and a published chart lists its build.
+nothing and a published chart lists its build. The ConfigMap carries the label
+helm-controller watches (reconcile.fluxcd.io/watch: Enabled, its default
+--watch-configs-label-selector): a HelmRelease reading it through valuesFrom
+is upgraded as soon as an image reference changes, instead of on its next
+interval. Any other reader ignores the label.
 */}}
 {{- $images := list }}
 {{- with include "kagent.harness.image" . }}
@@ -24,6 +28,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
+    reconcile.fluxcd.io/watch: Enabled
 data:
   substrate-values.yaml: |
     {{- toYaml (dict "atelet" (dict "imageCache" (dict "pinnedImages" $images))) | nindent 4 }}
