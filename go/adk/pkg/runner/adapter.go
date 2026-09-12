@@ -74,6 +74,11 @@ func CreateRunnerConfig(
 	}
 
 	var adkPlugins []*adkplugin.Plugin
+	metricsPlugin, err := newTokenUsagePlugin(agentConfig.Model)
+	if err != nil {
+		return runner.Config{}, fmt.Errorf("failed to create token usage plugin: %w", err)
+	}
+	adkPlugins = append(adkPlugins, metricsPlugin)
 	if stsPlugin != nil {
 		p, err := stsPlugin.ADKPlugin()
 		if err != nil {
