@@ -201,6 +201,11 @@ controller:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
+    # -- Index digest of the image published at that tag, `sha256:<64 hex digits>`.
+    # A Harness (kagent.dev/v1alpha3) pins its runtime image by digest only, so
+    # the chart's own Harness (`harness` below) needs it; empty in git, a
+    # published chart carries the digest of its build.
+    digest: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
   # internally. These values have no effect and will be removed in a future release.
   streaming: null
@@ -462,6 +467,33 @@ substrateWorkerPool:
   # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
   # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
   template: {}
+
+# -- Optional Harness (kagent.dev/v1alpha3) for the chart's own runtime image, the
+# Go ADK image at controller.agentImage. On the API v2 an agent runs on a Harness:
+# a digest-pinned runtime image, an environment and a Substrate policy (a
+# WorkerPool, a snapshot location); an AgentTemplate becomes Ready only when a
+# Harness admits it. Off by default — a consumer rendering its own Harness
+# objects keeps doing so.
+harness:
+  create: false
+  name: kagent
+  # -- Runtime image, `<repository>@sha256:<64 hex digits>` (a tag fails the
+  # render: the CRD accepts nothing but a digest). Empty selects the chart's own
+  # image, <registry>/<controller.agentImage.repository>@<controller.agentImage.digest>.
+  image: ""
+  # -- The Substrate WorkerPool (in the chart's namespace) the Harness runs on;
+  # empty selects substrateWorkerPool.name.
+  workerPoolRef: ""
+  # -- Snapshot store of the actors run under the Harness, e.g. `s3://<bucket>/<prefix>`
+  # (Harness.spec.substrate.snapshotPolicy.location); required when create is true.
+  snapshotLocation: ""
+  # -- Environment of the runtime (Harness.spec.env: name with value or credentialRef).
+  env: []
+  # -- The AgentTemplates the Harness admits (Harness.spec.allowedAgentTemplates).
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/harness: kagent
 
 # ==============================================================================
 # UI CONFIGURATION

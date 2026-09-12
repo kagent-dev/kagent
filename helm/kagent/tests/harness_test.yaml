@@ -1,0 +1,121 @@
+suite: test harness
+templates:
+  - harness.yaml
+set:
+  controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  harness.snapshotLocation: s3://snapshots/kagent
+tests:
+  - it: should render no Harness by default
+    set:
+      harness.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render exactly one Harness on the chart's own image at its digest
+    set:
+      harness.create: true
+      namespaceOverride: kagent
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Harness
+      - isAPIVersion:
+          of: kagent.dev/v1alpha3
+      - equal:
+          path: metadata.name
+          value: kagent
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: spec.kagent
+          value: {}
+      - equal:
+          path: spec.workload.image
+          value: ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: s3://snapshots/kagent
+      - equal:
+          path: spec.allowedAgentTemplates.selector.matchLabels["kagent.dev/harness"]
+          value: kagent
+      - notExists:
+          path: spec.env
+
+  - it: should follow the agent image registry over the global one
+    set:
+      harness.create: true
+      registry: registry.example.com
+      controller.agentImage.registry: mirror.example.com
+      controller.agentImage.repository: acme/golang-adk
+    asserts:
+      - equal:
+          path: spec.workload.image
+          value: mirror.example.com/acme/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+  - it: should let harness.image override the chart's own image
+    set:
+      harness.create: true
+      harness.image: localhost:5001/kagent-dev/kagent/golang-adk@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+    asserts:
+      - equal:
+          path: spec.workload.image
+          value: localhost:5001/kagent-dev/kagent/golang-adk@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+
+  - it: should forward the worker pool, the snapshot location, the env and the selector
+    set:
+      harness.create: true
+      harness.name: go-adk
+      harness.workerPoolRef: large
+      harness.env:
+        - name: KAGENT_PROPAGATE_TOKEN
+          value: "true"
+      harness.allowedAgentTemplates:
+        selector:
+          matchLabels:
+            example.com/harness: go-adk
+    asserts:
+      - equal:
+          path: metadata.name
+          value: go-adk
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: large
+      - equal:
+          path: spec.env[0].name
+          value: KAGENT_PROPAGATE_TOKEN
+      - equal:
+          path: spec.allowedAgentTemplates.selector.matchLabels["example.com/harness"]
+          value: go-adk
+
+  - it: should fail on a tag instead of a digest
+    set:
+      harness.create: true
+      harness.image: ghcr.io/kagent-dev/kagent/golang-adk:0.11.0
+    asserts:
+      - failedTemplate:
+          errorPattern: "a Harness pins its runtime image by digest"
+
+  - it: should fail without a digest
+    set:
+      harness.create: true
+      controller.agentImage.digest: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "needs the runtime image's digest"
+
+  - it: should fail without a snapshot location
+    set:
+      harness.create: true
+      harness.snapshotLocation: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "harness.snapshotLocation is required"
