@@ -157,6 +157,10 @@ func Run(ctx context.Context, opts Options) error {
 	if err := SetupLogger(); err != nil {
 		return err
 	}
+	metricsOptions, err := controllerMetricsOptions()
+	if err != nil {
+		return err
+	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
 	_, telemetryWarnings := v2translator.TelemetryConfigFromProcess()
@@ -276,7 +280,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors)); err != nil {
+	runtimeGC, err := v2controller.NewRuntimeRevisionGC(store, actors, crmetrics.Registry)
+	if err != nil {
+		return fmt.Errorf("create runtime revision GC: %w", err)
+	}
+	if err := manager.Add(runtimeGC); err != nil {
 		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {
@@ -366,6 +374,21 @@ func Run(ctx context.Context, opts Options) error {
 	group.Go(func() error { return manager.Start(ctx) })
 	group.Go(func() error { return server.Start(ctx) })
 	return group.Wait()
+}
+
+func controllerMetricsOptions() (metricsserver.Options, error) {
+	secure, err := strconv.ParseBool(env("METRICS_SECURE", "true"))
+	if err != nil {
+		return metricsserver.Options{}, fmt.Errorf("parse METRICS_SECURE: %w", err)
+	}
+	options := metricsserver.Options{
+		BindAddress:   env("METRICS_BIND_ADDRESS", "0"),
+		SecureServing: secure,
+	}
+	if secure {
+		options.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+	return options, nil
 }
 
 // mergePolicies overlays a consumer's method policies onto core's defaults.
