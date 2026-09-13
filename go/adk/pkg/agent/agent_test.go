@@ -3,11 +3,15 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -570,5 +574,37 @@ func TestUsesRawOutputSchema(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, test.want, usesRawOutputSchema(test.model))
 		})
+	}
+}
+
+func TestCreateGoogleADKAgentLoadsSkillsWithFrontmatterFieldsOutsideTheSpec(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	writeSkill := func(t *testing.T, frontmatter string) *adk.AgentConfig {
+		skillsDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(skillsDir, "deploy"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skillsDir, "deploy", "SKILL.md"), []byte("---\n"+frontmatter+"---\n# Deploy\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return &adk.AgentConfig{
+			Model:           &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4o"}, BaseUrl: "https://api.openai.com/v1"},
+			Description:     "root",
+			Instruction:     "deploy",
+			SkillsDirectory: skillsDir,
+		}
+	}
+
+	// Claude Code's fields and a top-level version, as skills written for other
+	// harnesses carry them.
+	config := writeSkill(t, "name: deploy\ndescription: Deploys the service.\nuser-invocable: false\nargument-hint: '[environment]'\nversion: 0.1.0\n")
+	if _, err := CreateGoogleADKAgent(context.Background(), config, "root", nil); err != nil {
+		t.Fatalf("an agent whose skill carries fields outside the agentskills.io set must load: %v", err)
+	}
+
+	// The fields the specification requires are still required.
+	config = writeSkill(t, "name: deploy\nuser-invocable: false\n")
+	if _, err := CreateGoogleADKAgent(context.Background(), config, "root", nil); !errors.Is(err, skill.ErrInvalidFrontmatter) {
+		t.Fatalf("a skill without a description must still fail with %v, got %v", skill.ErrInvalidFrontmatter, err)
 	}
 }
