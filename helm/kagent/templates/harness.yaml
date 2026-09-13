@@ -43,6 +43,7 @@ spec:
       name: {{ .Values.harness.workerPoolRef | default .Values.substrateWorkerPool.name | quote }}
     snapshotPolicy:
       location: {{ .Values.harness.snapshotLocation | quote }}
+  {{- /* matchLabels entries whose value is the empty string are dropped (kagent.harness.allowedAgentTemplates). */}}
   allowedAgentTemplates:
-    {{- toYaml .Values.harness.allowedAgentTemplates | nindent 4 }}
+    {{- include "kagent.harness.allowedAgentTemplates" . | nindent 4 }}
 {{- end }}

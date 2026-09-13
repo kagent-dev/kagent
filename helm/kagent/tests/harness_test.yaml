@@ -96,6 +96,57 @@ tests:
           path: spec.allowedAgentTemplates.selector.matchLabels["example.com/harness"]
           value: go-adk
 
+  - it: should drop a selector label whose value is empty and keep the rest
+    set:
+      harness.create: true
+      harness.allowedAgentTemplates:
+        selector:
+          matchLabels:
+            kagent.dev/harness: ""
+            example.com/harness: kagent
+          matchExpressions:
+            - key: example.com/tier
+              operator: In
+              values: [gold]
+    asserts:
+      - notExists:
+          path: spec.allowedAgentTemplates.selector.matchLabels["kagent.dev/harness"]
+      - equal:
+          path: spec.allowedAgentTemplates.selector.matchLabels
+          value:
+            example.com/harness: kagent
+      - equal:
+          path: spec.allowedAgentTemplates.selector.matchExpressions[0].key
+          value: example.com/tier
+
+  - it: should keep the selector on matchExpressions alone when every label value is empty
+    set:
+      harness.create: true
+      harness.allowedAgentTemplates:
+        selector:
+          matchLabels:
+            kagent.dev/harness: ""
+          matchExpressions:
+            - key: example.com/harness
+              operator: Exists
+    asserts:
+      - notExists:
+          path: spec.allowedAgentTemplates.selector.matchLabels
+      - equal:
+          path: spec.allowedAgentTemplates.selector.matchExpressions[0].operator
+          value: Exists
+
+  - it: should fail when the selector is left with nothing to select by
+    set:
+      harness.create: true
+      harness.allowedAgentTemplates:
+        selector:
+          matchLabels:
+            kagent.dev/harness: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "selects nothing"
+
   - it: should fail on a tag instead of a digest
     set:
       harness.create: true

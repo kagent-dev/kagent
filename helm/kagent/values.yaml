@@ -490,6 +490,10 @@ harness:
   # -- Environment of the runtime (Harness.spec.env: name with value or credentialRef).
   env: []
   # -- The AgentTemplates the Harness admits (Harness.spec.allowedAgentTemplates).
+  # A matchLabels entry whose value is the empty string is dropped from the
+  # rendered selector: values layered over these merge maps and cannot remove
+  # the default key otherwise (a null does not survive a JSON merge patch of a
+  # Flux HelmRelease). A selector with no requirement left fails the render.
   allowedAgentTemplates:
     selector:
       matchLabels:
