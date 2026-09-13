@@ -42,6 +42,26 @@ type Config struct {
 	Model adkmodel.LLM
 }
 
+const maxToolResultChars = 500
+
+// marshalAndTruncate marshals v to JSON and truncates it to maxToolResultChars.
+// It returns ok=false if marshaling fails or the result is empty/null, signaling
+// that the caller has no usable content to include.
+func marshalAndTruncate(v any) (string, bool) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "", false
+	}
+	s := string(data)
+	if s == "" || s == "null" {
+		return "", false
+	}
+	if len(s) > maxToolResultChars {
+		s = s[:maxToolResultChars] + "...(truncated)"
+	}
+	return s, true
+}
+
 // New creates a new KagentMemoryService.
 func New(cfg Config) (*KagentMemoryService, error) {
 	if cfg.AgentName == "" {
@@ -303,16 +323,24 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 		}
 
 		for _, part := range event.Content.Parts {
-			// Skip function calls
-			if part.FunctionCall != nil {
-				continue
-			}
-
 			// Get text content
 			text := part.Text
+
+			if text == "" && part.FunctionCall != nil {
+				truncated, ok := marshalAndTruncate(part.FunctionCall.Args)
+				if !ok {
+					text = fmt.Sprintf("[tool call to %s]", part.FunctionCall.Name)
+				} else {
+					text = fmt.Sprintf("[tool call to %s]: %s", part.FunctionCall.Name, truncated)
+				}
+			}
+
 			if text == "" && part.FunctionResponse != nil {
-				// TODO: Extract content from function response if needed
-				continue
+				truncated, ok := marshalAndTruncate(part.FunctionResponse.Response)
+				if !ok {
+					continue
+				}
+				text = fmt.Sprintf("[tool result from %s]: %s", part.FunctionResponse.Name, truncated)
 			}
 
 			if text != "" {
