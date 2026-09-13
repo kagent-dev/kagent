@@ -55,7 +55,14 @@ func (c *Client) UpsertAgentTemplateHarnessPair(ctx context.Context, pair AgentT
 				return ErrObjectDeleting
 			}
 		}
-		return nil
+		return execSQL(ctx, tx, `
+			UPDATE runtime_revision r
+			SET cleanup_pending_since = NULL
+			FROM agent_template_harness_pair p
+			WHERE p.namespace = $1 AND p.agent_template_uid = $2 AND p.harness_uid = $3
+			  AND r.revision IN (p.desired_revision, p.latest_successful_revision)
+			  AND r.cleanup_pending_since IS NOT NULL
+		`, pair.Namespace, pair.AgentTemplateUID, pair.HarnessUID)
 	})
 }
 
@@ -219,6 +226,70 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 	return result, nil
 }
 
+var errCleanupObservationChanged = errors.New("runtime revision cleanup eligibility changed during observation")
+
+// ObserveRuntimeRevisionCleanupBacklog records when eligible revisions were
+// first discovered and returns their aggregate backlog. Retries preserve that
+// time; reference acquisition clears it atomically. Eligibility is rechecked
+// after locking, so references committed during a lock wait are respected.
+// Concurrent releases require a fresh transaction rather than a partial snapshot.
+// Three attempts bound churn; each retry releases locks and keeps the caller's deadline.
+func (c *Client) ObserveRuntimeRevisionCleanupBacklog(ctx context.Context) (RuntimeRevisionCleanupBacklog, error) {
+	var backlog RuntimeRevisionCleanupBacklog
+	var err error
+	for range 3 {
+		err = c.withTx(ctx, func(tx pgx.Tx) error {
+			revisions, err := queryMany(ctx, tx, `
+				SELECT r.revision FROM runtime_revision r
+				WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision)
+				ORDER BY r.revision
+				FOR UPDATE OF r
+			`, pgx.RowTo[string])
+			if err != nil {
+				return err
+			}
+			if err := execSQL(ctx, tx, `
+				UPDATE runtime_revision
+				SET cleanup_pending_since = COALESCE(deleted_at, statement_timestamp())
+				WHERE revision = ANY($1)
+				  AND cleanup_pending_since IS NULL
+				  AND revision IN (SELECT revision FROM unreferenced_runtime_revision)
+			`, revisions); err != nil {
+				return err
+			}
+			type observation struct {
+				Pending            int64
+				OldestPendingSince *time.Time
+				Incomplete         bool
+			}
+			current, err := queryOne(ctx, tx, `
+				SELECT COUNT(*) AS pending, MIN(cleanup_pending_since) AS oldest_pending_since,
+				    COALESCE(BOOL_OR(cleanup_pending_since IS NULL
+				        OR NOT COALESCE(revision = ANY($1), FALSE)), FALSE) AS incomplete
+				FROM runtime_revision
+				WHERE revision IN (SELECT revision FROM unreferenced_runtime_revision)
+			`, pgx.RowToStructByName[observation], revisions)
+			if err != nil {
+				return err
+			}
+			if current.Incomplete {
+				return errCleanupObservationChanged
+			}
+			backlog = RuntimeRevisionCleanupBacklog{
+				Pending: current.Pending, OldestPendingSince: current.OldestPendingSince,
+			}
+			return nil
+		})
+		if !errors.Is(err, errCleanupObservationChanged) {
+			break
+		}
+	}
+	if err != nil {
+		return RuntimeRevisionCleanupBacklog{}, fmt.Errorf("observe runtime revision cleanup backlog: %w", err)
+	}
+	return backlog, nil
+}
+
 // getRuntimeRevisionForUpdate locks a revision until the supplied transaction ends.
 // Missing revisions return pgx.ErrNoRows. Check eligibility in a separate statement
 // after this lock so references committed during a lock wait are visible.
@@ -230,7 +301,8 @@ func getRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revision string
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 }
 
-// getAvailableRuntimeRevisionForUpdate locks a revision for reference acquisition.
+// getAvailableRuntimeRevisionForUpdate locks a revision for reference acquisition
+// and clears its cleanup observation in the same transaction.
 // The caller must commit the reference in this transaction. Missing revisions return
 // ErrNotFound; logically deleted revisions return ErrObjectDeleting.
 func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revision string) (runtimeRevisionRow, error) {
@@ -240,6 +312,12 @@ func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revisi
 	}
 	if row.DeletedAt != nil {
 		return row, ErrObjectDeleting
+	}
+	if err := execSQL(ctx, tx, `
+		UPDATE runtime_revision SET cleanup_pending_since = NULL
+		WHERE revision = $1 AND cleanup_pending_since IS NOT NULL
+	`, revision); err != nil {
+		return row, err
 	}
 	return row, nil
 }
@@ -259,7 +337,8 @@ func (c *Client) BeginRuntimeRevisionDeletion(ctx context.Context, revision stri
 		}
 		updated, err := tx.Exec(ctx, `
 			UPDATE runtime_revision
-			SET deleted_at = COALESCE(deleted_at, NOW())
+			SET deleted_at = COALESCE(deleted_at, NOW()),
+			    cleanup_pending_since = COALESCE(cleanup_pending_since, deleted_at, NOW())
 			WHERE revision = $1 AND revision IN (SELECT revision FROM unreferenced_runtime_revision)
 		`, revision)
 		if err != nil || updated.RowsAffected() == 0 {

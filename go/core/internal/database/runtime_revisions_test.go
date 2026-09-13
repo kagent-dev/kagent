@@ -81,6 +81,321 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
 }
 
+func TestRuntimeRevisionCleanupBacklog(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool)
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "old", "assistant", "kagent")
+	agentInstanceFixture(t, client, ctx, "team-a", "new", "other", "kagent")
+
+	backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.Zero(t, backlog.Pending)
+	require.Nil(t, backlog.OldestPendingSince)
+
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+	first, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, first.Pending)
+	require.NotNil(t, first.OldestPendingSince, "unattempted cleanup must have a durable observation")
+
+	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "old")
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "other", "kagent", nil))
+	restarted := NewClient(pool)
+	backlog, err = restarted.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, backlog.Pending)
+	require.Equal(t, first.OldestPendingSince, backlog.OldestPendingSince)
+
+	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "old", "stale-uid"))
+	backlog, err = restarted.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, backlog.Pending, "successful no-op finalization must not hide cleanup")
+	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "old", "old-actor-uid"))
+	backlog, err = restarted.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, backlog.Pending)
+	require.True(t, backlog.OldestPendingSince.After(*first.OldestPendingSince))
+
+	claimed, err = restarted.BeginRuntimeRevisionDeletion(ctx, "new")
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "new", "new-actor-uid"))
+	backlog, err = restarted.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.Zero(t, backlog.Pending)
+	require.Nil(t, backlog.OldestPendingSince)
+}
+
+func TestRuntimeRevisionCleanupClaimBeforeObservation(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool)
+	ctx := t.Context()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	var deletedAt *time.Time
+	require.NoError(t, client.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := getRuntimeRevisionForUpdate(ctx, tx, "revision")
+		deletedAt = row.DeletedAt
+		return err
+	}))
+	backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, backlog.Pending)
+	require.Equal(t, deletedAt, backlog.OldestPendingSince)
+}
+
+func TestRuntimeRevisionCleanupObservationSerializesWithPairAcquisition(t *testing.T) {
+	for _, referenceFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reference_first=%t", referenceFirst), func(t *testing.T) {
+			pool := setupTestDB(t)
+			client := NewClient(pool)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+			first, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, first.Pending)
+
+			barrier := &runtimeReferenceBarrier{
+				query: "FOR UPDATE OF r", afterQuery: referenceFirst,
+				reached: make(chan struct{}), resume: make(chan struct{}),
+			}
+			var resume sync.Once
+			defer resume.Do(func() { close(barrier.resume) })
+			config := pool.Config()
+			config.ConnConfig.Tracer = barrier
+			creatingPool, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			t.Cleanup(creatingPool.Close)
+			created := make(chan error, 1)
+			go func() {
+				created <- NewClient(creatingPool).UpsertAgentTemplateHarnessPair(ctx, AgentTemplateHarnessPair{
+					Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
+					HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "revision",
+				})
+			}()
+			select {
+			case <-barrier.reached:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			type observation struct {
+				backlog RuntimeRevisionCleanupBacklog
+				err     error
+			}
+			observed := make(chan observation, 1)
+			go func() {
+				backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+				observed <- observation{backlog, err}
+			}()
+			if referenceFirst {
+				require.Eventually(t, func() bool {
+					var waiting bool
+					err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%SELECT r.revision FROM runtime_revision r%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
+					return err == nil && waiting
+				}, 5*time.Second, 10*time.Millisecond)
+				resume.Do(func() { close(barrier.resume) })
+				require.NoError(t, <-created)
+				result := <-observed
+				require.NoError(t, result.err)
+				require.Zero(t, result.backlog.Pending, "observation must recheck references committed during its lock wait")
+			} else {
+				result := <-observed
+				require.NoError(t, result.err)
+				require.Equal(t, first, result.backlog)
+				resume.Do(func() { close(barrier.resume) })
+				require.NoError(t, <-created, "observation must not fence reference acquisition")
+			}
+			// Release the reacquired reference without another observation in
+			// between: acquisition itself must have cleared the previous age.
+			require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+			backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, backlog.Pending)
+			require.True(t, backlog.OldestPendingSince.After(*first.OldestPendingSince))
+		})
+	}
+}
+
+func TestRuntimeRevisionCleanupObservationRetriesPairRevisionExchange(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	for _, revision := range []string{"a", "b", "c"} {
+		agentInstanceFixture(t, client, ctx, "team-a", revision, "assistant", "kagent")
+	}
+	pair := AgentTemplateHarnessPair{
+		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "assistant-uid",
+		HarnessName: "kagent", HarnessUID: "kagent-uid", DesiredRevision: "b",
+	}
+	require.NoError(t, client.UpsertAgentTemplateHarnessPair(ctx, pair))
+	first, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, first.Pending, "desired b and last-good c both retain their revisions")
+
+	barrier := &runtimeReferenceBarrier{
+		query: "FOR UPDATE OF r", afterQuery: true,
+		reached: make(chan struct{}), resume: make(chan struct{}),
+	}
+	var resume sync.Once
+	defer resume.Do(func() { close(barrier.resume) })
+	config := pool.Config()
+	config.ConnConfig.Tracer = barrier
+	creatingPool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(creatingPool.Close)
+	pair.DesiredRevision = "a"
+	created := make(chan error, 1)
+	go func() {
+		created <- NewClient(creatingPool).UpsertAgentTemplateHarnessPair(ctx, pair)
+	}()
+	select {
+	case <-barrier.reached:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	type observation struct {
+		backlog RuntimeRevisionCleanupBacklog
+		err     error
+	}
+	observed := make(chan observation, 1)
+	go func() {
+		backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+		observed <- observation{backlog, err}
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND query LIKE '%SELECT r.revision FROM runtime_revision r%' AND cardinality(pg_blocking_pids(pid)) > 0)").Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	resume.Do(func() { close(barrier.resume) })
+	require.NoError(t, <-created)
+	result := <-observed
+	require.NoError(t, result.err)
+	require.EqualValues(t, 1, result.backlog.Pending, "the backlog cannot be empty: acquiring a atomically releases b")
+	require.NotNil(t, result.backlog.OldestPendingSince)
+	require.True(t, result.backlog.OldestPendingSince.After(*first.OldestPendingSince))
+	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	require.Equal(t, "b", revisions[0].Revision, "last-good c must remain retained")
+}
+
+func TestRuntimeRevisionCleanupObservationBoundsConcurrentReleases(t *testing.T) {
+	for _, cancelObservation := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel=%t", cancelObservation), func(t *testing.T) {
+			pool := setupTestDB(t)
+			client := NewClient(pool)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			for i := range 3 {
+				name := fmt.Sprintf("assistant-%d", i)
+				agentInstanceFixture(t, client, ctx, "team-a", name, name, "kagent")
+			}
+			attempts := 0
+			var releaseErr error
+			config := pool.Config()
+			config.ConnConfig.Tracer = &runtimeCleanupObservationTracer{beforeUpdate: func(ctx context.Context) {
+				if attempts >= 3 {
+					cancel()
+					return
+				}
+				name := fmt.Sprintf("assistant-%d", attempts)
+				releaseErr = client.RetirePairIdentities(ctx, "team-a", name, "kagent", nil)
+				attempts++
+				if cancelObservation {
+					cancel()
+				}
+			}}
+			observingPool, err := pgxpool.NewWithConfig(ctx, config)
+			require.NoError(t, err)
+			t.Cleanup(observingPool.Close)
+			backlog, err := NewClient(observingPool).ObserveRuntimeRevisionCleanupBacklog(ctx)
+			require.NoError(t, releaseErr)
+			require.Equal(t, RuntimeRevisionCleanupBacklog{}, backlog)
+			if cancelObservation {
+				require.ErrorIs(t, err, context.Canceled)
+				require.Equal(t, 1, attempts)
+			} else {
+				require.ErrorIs(t, err, errCleanupObservationChanged)
+				require.Equal(t, 3, attempts)
+			}
+			checkCtx, checkCancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer checkCancel()
+			var recorded int
+			require.NoError(t, pool.QueryRow(checkCtx, "SELECT COUNT(*) FROM runtime_revision WHERE cleanup_pending_since IS NOT NULL").Scan(&recorded))
+			require.Zero(t, recorded, "failed observations must roll back partial discovery timestamps")
+			backlog, err = client.ObserveRuntimeRevisionCleanupBacklog(checkCtx)
+			require.NoError(t, err, "failed attempts must release their locks")
+			require.EqualValues(t, attempts, backlog.Pending)
+			require.NotNil(t, backlog.OldestPendingSince)
+		})
+	}
+}
+
+type runtimeCleanupObservationTracer struct {
+	beforeUpdate func(context.Context)
+}
+
+func (b *runtimeCleanupObservationTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.Contains(data.SQL, "SET cleanup_pending_since = COALESCE(deleted_at, statement_timestamp())") {
+		b.beforeUpdate(ctx)
+	}
+	return ctx
+}
+
+func (*runtimeCleanupObservationTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {
+}
+
+func TestRuntimeRevisionCleanupObservationClearedByInstanceAcquisition(t *testing.T) {
+	pool := setupTestDB(t)
+	client := NewClient(pool)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	agentInstanceFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	barrier := &runtimeReferenceBarrier{
+		query:   "FROM runtime_revision WHERE revision = $1 FOR UPDATE",
+		reached: make(chan struct{}), resume: make(chan struct{}),
+	}
+	var resume sync.Once
+	defer resume.Do(func() { close(barrier.resume) })
+	config := pool.Config()
+	config.ConnConfig.Tracer = barrier
+	creatingPool, err := pgxpool.NewWithConfig(ctx, config)
+	require.NoError(t, err)
+	t.Cleanup(creatingPool.Close)
+	request := newAgentInstanceRequest(uuid.NewString(), "assistant", "kagent", "")
+	created := make(chan error, 1)
+	go func() {
+		_, _, err := NewClient(creatingPool).CreateAgentInstance(ctx, request, "instance")
+		created <- err
+	}()
+	select {
+	case <-barrier.reached:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	require.NoError(t, client.RetirePairIdentities(ctx, "team-a", "assistant", "kagent", nil))
+	first, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, first.Pending)
+	resume.Do(func() { close(barrier.resume) })
+	require.NoError(t, <-created, "observational metadata must not prevent an in-flight reference acquisition")
+	require.NoError(t, client.DeleteAgentInstance(ctx, request.GetId()))
+	backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, backlog.Pending)
+	require.True(t, backlog.OldestPendingSince.After(*first.OldestPendingSince))
+}
+
 func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := t.Context()
@@ -93,6 +408,10 @@ func TestRuntimeRevisionCollectionPreservesInstanceAndCheckpoint(t *testing.T) {
 
 	assertRetained := func() {
 		t.Helper()
+		backlog, err := client.ObserveRuntimeRevisionCleanupBacklog(ctx)
+		require.NoError(t, err)
+		require.Zero(t, backlog.Pending)
+		require.Nil(t, backlog.OldestPendingSince)
 		revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 		require.NoError(t, err)
 		require.Empty(t, revisions)

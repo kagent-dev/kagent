@@ -72,6 +72,13 @@ type RuntimeRevision struct {
 	ActorTemplateUID      string
 }
 
+// RuntimeRevisionCleanupBacklog describes a durable observation of cleanup
+// eligibility. OldestPendingSince is nil only when Pending is zero.
+type RuntimeRevisionCleanupBacklog struct {
+	Pending            int64
+	OldestPendingSince *time.Time
+}
+
 type ActorTemplateHarness struct {
 	Atespace    string
 	Name        string
