@@ -580,3 +580,99 @@ func TestStaticHeaders_OverrideDynamic(t *testing.T) {
 		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
 	}
 }
+
+// TestHostHeader_IsSentAsRequestHost verifies that a Host value from any header
+// source is written onto req.Host. net/http ignores Header["Host"] on the wire,
+// so Header.Set("Host", ...) alone would silently drop virtual-host routing
+// configured via RemoteMCPServer.headersFrom.
+func TestHostHeader_IsSentAsRequestHost(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		rt   headerRoundTripper
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "static headersFrom",
+			rt:   headerRoundTripper{headers: map[string]string{"Host": "tenant.gateway.internal"}},
+			ctx:  context.Background(),
+			want: "tenant.gateway.internal",
+		},
+		{
+			name: "static host is case-insensitive",
+			rt:   headerRoundTripper{headers: map[string]string{"host": "tenant.gateway.internal"}},
+			ctx:  context.Background(),
+			want: "tenant.gateway.internal",
+		},
+		{
+			name: "allowedHeaders",
+			rt:   headerRoundTripper{allowedHeaders: []string{"Host"}},
+			ctx:  a2aCtx(map[string][]string{"Host": {"from-request.example"}}),
+			want: "from-request.example",
+		},
+		{
+			name: "dynamic headerProvider",
+			rt: headerRoundTripper{headerProvider: func(context.Context) map[string]string {
+				return map[string]string{"HOST": "from-dynamic.example"}
+			}},
+			ctx:  context.Background(),
+			want: "from-dynamic.example",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var seen string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = r.Host
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer srv.Close()
+
+			tc.rt.base = newTestTransport(t)
+			req, err := http.NewRequestWithContext(tc.ctx, http.MethodGet, srv.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := tc.rt.RoundTrip(req)
+			if err != nil {
+				t.Fatalf("RoundTrip failed: %v", err)
+			}
+			resp.Body.Close()
+			if seen != tc.want {
+				t.Errorf("server Host = %q, want %q", seen, tc.want)
+			}
+		})
+	}
+}
+
+func TestStaticHostHeader_OverridesDynamic(t *testing.T) {
+	t.Parallel()
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt := &headerRoundTripper{
+		base:    newTestTransport(t),
+		headers: map[string]string{"Host": "static.gateway.internal"},
+		headerProvider: func(context.Context) map[string]string {
+			return map[string]string{"Host": "dynamic.gateway.internal"}
+		},
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+	if seen != "static.gateway.internal" {
+		t.Errorf("server Host = %q, want static.gateway.internal", seen)
+	}
+}
