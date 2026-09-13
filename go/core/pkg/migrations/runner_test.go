@@ -203,8 +203,12 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
 	for _, source := range sources {
-		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, []int64{0, 1}) {
-			t.Fatalf("%s versions = %v, want the single baseline", source.Name, versions)
+		want := []int64{0, 1}
+		if source.Name == "core" {
+			want = append(want, 2)
+		}
+		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, want) {
+			t.Fatalf("%s versions = %v, want %v", source.Name, versions, want)
 		}
 	}
 	// Routing, wire context, and durable history are independent identities.
@@ -236,6 +240,72 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("second VerifyMigrated: %v", err)
+	}
+}
+
+func TestRuntimeRevisionCleanupObservationMigration(t *testing.T) {
+	dsn := startTestDB(t)
+	ctx := t.Context()
+	source := BuiltinSources(false)[0]
+	if err := WithProvider(ctx, dsn, source, func(provider *goose.Provider) error {
+		_, err := provider.UpTo(ctx, 1)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deletedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	for _, revision := range []string{"pending", "unclaimed"} {
+		var marker *time.Time
+		if revision == "pending" {
+			marker = &deletedAt
+		}
+		execSQL(t, dsn, `
+			INSERT INTO runtime_revision (
+			    revision, namespace, agent_template_name, agent_template_uid,
+			    harness_name, harness_uid, source_snapshot, agent_card,
+			    actor_template_atespace, actor_template_name, deleted_at
+			) VALUES ($1, 'test', 'agent', 'agent-uid', 'kagent', 'harness-uid',
+			    '{}', $2, 'test', $1, $3)
+		`, revision, []byte{}, marker)
+	}
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for range 2 {
+		if err := RunUp(ctx, dsn, []Source{source}); err != nil {
+			t.Fatal(err)
+		}
+		var pending, unclaimed *time.Time
+		if err := db.QueryRowContext(ctx, "SELECT cleanup_pending_since FROM runtime_revision WHERE revision = 'pending'").Scan(&pending); err != nil {
+			t.Fatal(err)
+		}
+		if pending == nil || !pending.Equal(deletedAt) {
+			t.Fatalf("pending cleanup timestamp = %v, want original marker %v", pending, deletedAt)
+		}
+		if err := db.QueryRowContext(ctx, "SELECT cleanup_pending_since FROM runtime_revision WHERE revision = 'unclaimed'").Scan(&unclaimed); err != nil {
+			t.Fatal(err)
+		}
+		if unclaimed != nil {
+			t.Fatal("migration invented an observation time for unclaimed cleanup")
+		}
+		if err := WithProvider(ctx, dsn, source, func(provider *goose.Provider) error {
+			_, err := provider.DownTo(ctx, 1)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if testColumnExists(t, dsn, "runtime_revision", "cleanup_pending_since") {
+			t.Fatal("down migration retained cleanup_pending_since")
+		}
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM runtime_revision").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 2 {
+			t.Fatal("down migration removed runtime revisions")
+		}
 	}
 }
 

@@ -92,6 +92,44 @@ func TestLeaderElectionDefaultsOnWithLocalOptOut(t *testing.T) {
 	}
 }
 
+func TestControllerMetricsOptions(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		address     string
+		secure      string
+		wantAddress string
+		wantSecure  bool
+		wantErr     bool
+	}{
+		{name: "disabled by default", wantAddress: "0", wantSecure: true},
+		{name: "secure opt in", address: ":8443", wantAddress: ":8443", wantSecure: true},
+		{name: "explicit disable", address: "0", secure: "true", wantAddress: "0", wantSecure: true},
+		{name: "explicit insecure local listener", address: "127.0.0.1:8080", secure: "false", wantAddress: "127.0.0.1:8080"},
+		{name: "invalid security setting", address: ":8443", secure: "invalid", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("METRICS_BIND_ADDRESS", test.address)
+			t.Setenv("METRICS_SECURE", test.secure)
+			options, err := controllerMetricsOptions()
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("invalid metrics security setting was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if options.BindAddress != test.wantAddress || options.SecureServing != test.wantSecure {
+				t.Fatalf("metrics options = %#v", options)
+			}
+			if (options.FilterProvider != nil) != test.wantSecure {
+				t.Fatal("secure metrics must require Kubernetes authentication and authorization")
+			}
+		})
+	}
+}
+
 func TestNamespaces(t *testing.T) {
 	want := []string{"one", "two"}
 	if got := namespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {
