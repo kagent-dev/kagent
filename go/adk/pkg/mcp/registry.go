@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 )
@@ -267,6 +268,10 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 			headerProvider: params.HeaderProvider,
 		}
 	}
+
+	// Outermost layer: inject W3C traceparent/tracestate from the active span so
+	// MCP calls stay attached to the invocation trace (kagent-dev/kagent#2550).
+	httpTransport = otelhttp.NewTransport(httpTransport)
 
 	httpClient := &http.Client{
 		Timeout:   httpTimeout,
