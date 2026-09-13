@@ -6,6 +6,9 @@ files on the filesystem within the sandbox environment.
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import functools
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -15,14 +18,31 @@ from google.genai import types
 from kagent.skills import (
     edit_file_content,
     get_edit_file_description,
+    get_grep_file_description,
+    get_list_files_description,
     get_read_file_description,
     get_session_path,
     get_write_file_description,
+    grep_content,
+    list_dir_content,
     read_file_content,
     write_file_content,
 )
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+
+def _resolve_working_path(tool_context: ToolContext, path_str: str) -> tuple[Path, Path]:
+    """Resolve path_str relative to the session's working directory.
+
+    Returns (resolved_path, working_dir); callers use working_dir to build
+    their allowed_root argument.
+    """
+    working_dir = get_session_path(session_id=tool_context.session.id)
+    path = Path(path_str)
+    if not path.is_absolute():
+        path = working_dir / path
+    return path.resolve(), working_dir
 
 
 class ReadFileTool(BaseTool):
@@ -71,11 +91,7 @@ class ReadFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(file_path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, file_path_str)
 
             return read_file_content(path, offset, limit, allowed_root=[working_dir, Path(self.skills_directory)])
         except (FileNotFoundError, IsADirectoryError, PermissionError, IOError) as e:
@@ -120,17 +136,149 @@ class WriteFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(file_path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, file_path_str)
 
             return write_file_content(path, content, allowed_root=working_dir)
         except (PermissionError, IOError) as e:
             error_msg = f"Error writing file {file_path_str}: {e}"
             logger.error(error_msg)
             return error_msg
+
+
+class ListFilesTool(BaseTool):
+    """List files and directories at a given path."""
+
+    def __init__(self, skills_directory: str | Path):
+        super().__init__(
+            name="list_files",
+            description=get_list_files_description(),
+        )
+        self.skills_directory = Path(skills_directory).resolve()
+        if not self.skills_directory.exists():
+            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "path": types.Schema(
+                        type=types.Type.STRING,
+                        description="Directory path to list (absolute or relative to working directory); defaults to the working directory",
+                    ),
+                },
+            ),
+        )
+
+    async def run_async(self, *, args: Dict[str, Any], tool_context: ToolContext) -> str:
+        """List the contents of a directory."""
+        path_str = args.get("path", "").strip() or "."
+
+        try:
+            path, working_dir = _resolve_working_path(tool_context, path_str)
+
+            return list_dir_content(path, allowed_root=[working_dir, Path(self.skills_directory)])
+        except (FileNotFoundError, NotADirectoryError, PermissionError, IOError) as e:
+            return f"Error listing {path_str}: {e}"
+
+
+class GrepFileTool(BaseTool):
+    """Search for a regular expression pattern in a file or directory."""
+
+    # Bounds regex execution time: the pattern is agent-controlled, and Python's
+    # backtracking `re` engine can take catastrophically long on adversarial
+    # patterns (unlike Go's RE2-based regexp, which is linear-time). Note this
+    # only bounds the *caller's* wait -- CPython can't forcibly stop a running
+    # thread, so a pathological match keeps running in the background after
+    # the timeout fires.
+    _TIMEOUT_SECONDS = 30
+
+    # A small dedicated pool, rather than asyncio's shared default executor,
+    # so a hung or catastrophically slow match can only ever starve other
+    # grep_file calls -- not unrelated to_thread-based work elsewhere in the
+    # process (token counting, embeddings, other provider clients). Note
+    # ThreadPoolExecutor workers are non-daemon threads that CPython's atexit
+    # hook joins before the interpreter exits, so a permanently-stuck worker
+    # (e.g. from a pathological pattern) also blocks a clean process shutdown,
+    # not just steady-state grep_file availability -- bounded in practice by
+    # Kubernetes' terminationGracePeriodSeconds before SIGKILL.
+    _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="grep-file")
+
+    def __init__(self, skills_directory: str | Path):
+        super().__init__(
+            name="grep_file",
+            description=get_grep_file_description(),
+        )
+        self.skills_directory = Path(skills_directory).resolve()
+        if not self.skills_directory.exists():
+            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "pattern": types.Schema(
+                        type=types.Type.STRING,
+                        description="The regular expression pattern to search for",
+                    ),
+                    "path": types.Schema(
+                        type=types.Type.STRING,
+                        description="The file or directory path to search (absolute or relative to working directory)",
+                    ),
+                    "recursive": types.Schema(
+                        type=types.Type.BOOLEAN,
+                        description="Search directories recursively (default: false)",
+                    ),
+                    "ignore_case": types.Schema(
+                        type=types.Type.BOOLEAN,
+                        description="Ignore case when matching (default: false)",
+                    ),
+                },
+                required=["pattern", "path"],
+            ),
+        )
+
+    async def run_async(self, *, args: Dict[str, Any], tool_context: ToolContext) -> str:
+        """Search a file or directory for a pattern."""
+        pattern = args.get("pattern", "").strip()
+        path_str = args.get("path", "").strip()
+        recursive = args.get("recursive", False)
+        ignore_case = args.get("ignore_case", False)
+
+        if not pattern:
+            return "Error: No pattern provided"
+        if not path_str:
+            return "Error: No file path provided"
+
+        try:
+            path, working_dir = _resolve_working_path(tool_context, path_str)
+
+            loop = asyncio.get_running_loop()
+            return await asyncio.wait_for(
+                loop.run_in_executor(
+                    self._EXECUTOR,
+                    functools.partial(
+                        grep_content,
+                        path,
+                        pattern,
+                        recursive=recursive,
+                        ignore_case=ignore_case,
+                        allowed_root=[working_dir, Path(self.skills_directory)],
+                    ),
+                ),
+                timeout=self._TIMEOUT_SECONDS,
+            )
+        except (TimeoutError, asyncio.TimeoutError):
+            # asyncio.TimeoutError is TimeoutError on Python >=3.11, but this
+            # package supports >=3.10 where they're distinct classes.
+            return f"Error searching {path_str}: pattern took too long to match (possible catastrophic backtracking); try a simpler pattern"
+        except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
+            return f"Error searching {path_str}: {e}"
 
 
 class EditFileTool(BaseTool):
@@ -181,11 +329,7 @@ class EditFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(file_path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, file_path_str)
 
             return edit_file_content(path, old_string, new_string, replace_all, allowed_root=working_dir)
         except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
