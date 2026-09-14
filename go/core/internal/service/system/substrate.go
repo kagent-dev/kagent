@@ -101,20 +101,11 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 	}
 
 	result := SubstrateSummary{
-		Enabled:           s.ateClient != nil,
+		Enabled:           true,
 		WorkerPools:       []SubstrateWorkerPool{},
 		ActorTemplates:    []SubstrateActorTemplate{},
 		ActorStatusCounts: []SubstrateActorStatusCount{},
 		ComputedAt:        time.Now().UTC(),
-	}
-	if s.ateClient == nil {
-		return result, nil
-	}
-	if s.kubeClient == nil {
-		return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("kubernetes client is not configured"))
-	}
-	if s.revisions == nil {
-		return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", fmt.Errorf("runtime revision store is not configured"))
 	}
 
 	for _, namespace := range namespaces {
@@ -196,14 +187,11 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.Li
 
 	sortField := input.GetSortField()
 	result := SubstrateActorPage{
-		Enabled:          s.ateClient != nil,
+		Enabled:          true,
 		Actors:           []*ateapipb.Actor{},
 		ComputedAt:       time.Now().UTC(),
 		AppliedSortField: sortField,
 		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
-	}
-	if s.ateClient == nil {
-		return result, nil
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
@@ -245,14 +233,11 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1alpha1.L
 
 	sortField := input.GetSortField()
 	result := SubstrateWorkerPage{
-		Enabled:          s.ateClient != nil,
+		Enabled:          true,
 		Workers:          []*ateapipb.Worker{},
 		ComputedAt:       time.Now().UTC(),
 		AppliedSortField: sortField,
 		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
-	}
-	if s.ateClient == nil {
-		return result, nil
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)

@@ -184,14 +184,6 @@ func TestGetSubstrateStatus(t *testing.T) {
 	require.NoError(t, atev1alpha1.AddToScheme(scheme))
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
-	t.Run("disabled does not read Kubernetes", func(t *testing.T) {
-		service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil)
-		result, err := service.GetSubstrateStatus(ctx, "team")
-		require.NoError(t, err)
-		assert.False(t, result.Enabled)
-		assert.Empty(t, result.WorkerPools)
-	})
-
 	t.Run("lists and filters typed inventory", func(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 			&atev1alpha1.WorkerPool{
@@ -279,9 +271,6 @@ func substrateActor(name, atespace string, state ateapipb.ActorState, workerName
 func TestListSubstrateActors(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
-	// Takes the interface rather than the fake, so that "disabled" below passes an
-	// untyped nil: a typed nil pointer in an interface is not nil, and the test would
-	// be asserting against a fake it had accidentally kept.
 	newService := func(client system.ATEClient) *system.Service {
 		return system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, client, &fakeRuntimeRevisionStore{})
 	}
@@ -355,13 +344,6 @@ func TestListSubstrateActors(t *testing.T) {
 		assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
 		// No token either: a walk that failed has nothing ordered to resume into.
 		assert.Empty(t, page.NextPageToken)
-	})
-
-	t.Run("disabled substrate is an empty page, not an error", func(t *testing.T) {
-		page, err := newService(nil).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{})
-		require.NoError(t, err)
-		assert.False(t, page.Enabled)
-		assert.Empty(t, page.Actors)
 	})
 
 	t.Run("authorizes", func(t *testing.T) {
@@ -456,14 +438,6 @@ func TestGetSubstrateSummary(t *testing.T) {
 		assert.Equal(t, "ate-api unreachable", result.ATEAPIError)
 		assert.Zero(t, result.ActorCount)
 		require.Len(t, result.WorkerPools, 1)
-	})
-
-	t.Run("disabled substrate does not read Kubernetes", func(t *testing.T) {
-		service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil)
-		result, err := service.GetSubstrateSummary(ctx, "team")
-		require.NoError(t, err)
-		assert.False(t, result.Enabled)
-		assert.Empty(t, result.WorkerPools)
 	})
 }
 

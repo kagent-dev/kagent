@@ -111,9 +111,6 @@ func (s *Service) GetCurrentUser(ctx context.Context) (map[string]any, error) {
 }
 
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
-	if s.kubeClient == nil {
-		return nil, serviceerrors.NewInternal("Failed to list namespaces", fmt.Errorf("kubernetes client is not configured"))
-	}
 	if len(s.observedNamespaces) == 0 {
 		namespaceList := &corev1.NamespaceList{}
 		if err := s.kubeClient.List(ctx, namespaceList); err != nil {
@@ -155,20 +152,11 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 	}
 
 	result := SubstrateStatus{
-		Enabled:        s.ateClient != nil,
+		Enabled:        true,
 		WorkerPools:    []SubstrateWorkerPool{},
 		ActorTemplates: []SubstrateActorTemplate{},
 		Actors:         []*ateapipb.Actor{},
 		Workers:        []*ateapipb.Worker{},
-	}
-	if s.ateClient == nil {
-		return result, nil
-	}
-	if s.kubeClient == nil {
-		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("kubernetes client is not configured"))
-	}
-	if s.revisions == nil {
-		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", fmt.Errorf("runtime revision store is not configured"))
 	}
 
 	for _, namespace := range namespaces {

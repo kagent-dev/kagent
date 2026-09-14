@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/prometheus/client_golang/prometheus"
@@ -28,6 +31,9 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("corev1.AddToScheme() error = %v", err)
 	}
+	if err := atev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("atev1alpha1.AddToScheme() error = %v", err)
+	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "Zoo"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceActive}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alpha"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceTerminating}},
@@ -37,7 +43,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
-		SystemService: systemservice.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, nil, nil),
+		SystemService: systemservice.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, emptySystemATEClient{}, emptySystemRevisionStore{}),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -84,24 +90,24 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubstrateStatus() error = %v", err)
 	}
-	if substrateStatus.GetEnabled() || len(substrateStatus.GetWorkerPools()) != 0 {
-		t.Fatalf("GetSubstrateStatus() = %+v, want disabled empty inventory", substrateStatus)
+	if !substrateStatus.GetEnabled() || len(substrateStatus.GetWorkerPools()) != 0 {
+		t.Fatalf("GetSubstrateStatus() = %+v, want enabled empty inventory", substrateStatus)
 	}
 
 	/*
 	 * The three paged reads, over the wire rather than against the service directly.
 	 *
 	 * What only this level can say: that each one is in the method-policy map, that the
-	 * shared PageRequest/PageResponse survives the round trip, and that an unconfigured
-	 * substrate is an empty answer rather than an error. A service-level test sees none
+	 * shared PageRequest/PageResponse survives the round trip, and that an empty inventory
+	 * is a successful answer. A service-level test sees none
 	 * of that — it never passes through the interceptors or the generated client.
 	 */
 	summary, err := systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "alpha"})
 	if err != nil {
 		t.Fatalf("GetSubstrateSummary() error = %v", err)
 	}
-	if summary.GetEnabled() || summary.GetActorCount() != 0 || len(summary.GetWorkerPools()) != 0 {
-		t.Fatalf("GetSubstrateSummary() = %+v, want disabled empty summary", summary)
+	if !summary.GetEnabled() || summary.GetActorCount() != 0 || len(summary.GetWorkerPools()) != 0 {
+		t.Fatalf("GetSubstrateSummary() = %+v, want enabled empty summary", summary)
 	}
 
 	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
@@ -111,8 +117,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSubstrateActors() error = %v", err)
 	}
-	if actors.GetEnabled() || len(actors.GetActors()) != 0 || actors.GetPage().GetNextPageToken() != "" {
-		t.Fatalf("ListSubstrateActors() = %+v, want disabled empty page", actors)
+	if !actors.GetEnabled() || len(actors.GetActors()) != 0 || actors.GetPage().GetNextPageToken() != "" {
+		t.Fatalf("ListSubstrateActors() = %+v, want enabled empty page", actors)
 	}
 
 	workers, err := systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
@@ -122,8 +128,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSubstrateWorkers() error = %v", err)
 	}
-	if workers.GetEnabled() || len(workers.GetWorkers()) != 0 || workers.GetPage().GetNextPageToken() != "" {
-		t.Fatalf("ListSubstrateWorkers() = %+v, want disabled empty page", workers)
+	if !workers.GetEnabled() || len(workers.GetWorkers()) != 0 || workers.GetPage().GetNextPageToken() != "" {
+		t.Fatalf("ListSubstrateWorkers() = %+v, want enabled empty page", workers)
 	}
 
 	for _, namespace := range []string{"", "a", "team-1", strings.Repeat("a", 63), "INVALID_NAMESPACE", "-team", "team-", "team.name", " team", strings.Repeat("a", 64)} {
@@ -168,4 +174,35 @@ func TestSystemGeneratedClient(t *testing.T) {
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "workers")
 		})
 	}
+}
+
+// Empty upstream inventories still exercise each service read through the RPCs.
+type emptySystemATEClient struct{}
+
+var _ systemservice.ATEClient = emptySystemATEClient{}
+
+func (emptySystemATEClient) ListActors(context.Context, string) ([]*ateapipb.Actor, error) {
+	return nil, nil
+}
+
+func (emptySystemATEClient) ListWorkers(context.Context) ([]*ateapipb.Worker, error) {
+	return nil, nil
+}
+
+func (emptySystemATEClient) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
+	return nil, nil
+}
+
+func (emptySystemATEClient) ListActorsPage(context.Context, string, int32, string) ([]*ateapipb.Actor, string, error) {
+	return nil, "", nil
+}
+
+func (emptySystemATEClient) ListWorkersPage(context.Context, int32, string) ([]*ateapipb.Worker, string, error) {
+	return nil, "", nil
+}
+
+type emptySystemRevisionStore struct{}
+
+func (emptySystemRevisionStore) ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error) {
+	return nil, nil
 }

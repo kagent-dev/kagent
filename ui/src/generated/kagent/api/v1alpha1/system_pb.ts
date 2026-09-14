@@ -312,9 +312,7 @@ export const SubstrateActorStatusCountSchema: GenMessage<SubstrateActorStatusCou
  */
 export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstrateSummaryResponse"> & {
   /**
-   * False when the controller has no ate-api endpoint configured: a deployment choice,
-   * not a failure. Every other field is then empty — a configuration note to show, not
-   * an error and not an empty cluster.
+   * Always true: the controller requires Substrate at startup.
    *
    * @generated from field: bool enabled = 1;
    */
