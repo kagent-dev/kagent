@@ -1,88 +1,37 @@
 # Currency LangGraph Agent
 
-This is a currency LangGraph agent that demonstrates KAgent integration with session persistence via REST API.
+This sample serves a currency-conversion LangGraph agent over A2A. LangGraph conversation state is checkpointed to a local SQLite file.
 
 ## Features
 
-- Currency conversion agent using OpenAI
-- LangGraph state management with KAgent checkpointer
-- A2A protocol compatibility
-- Session persistence via KAgent REST API
+- Currency conversion using OpenAI and the Frankfurter API
+- LangGraph state checkpointing with `SqliteSaver`
+- A2A protocol support
 - Streaming responses
 
-## Quick Start
+## Deployment
 
-1. Build the agent image:
-
-Run the basic-langchain-sample target from the top-level Python directory.
-
-```bash
-make basic-langchain-sample
-```
-
-2. Push to local registry (if using one):
-
-```bash
-docker push localhost:5001/langgraph-currency:latest
-```
-
-3. Create a secret with the OpenAI API key:
-
-```bash
-kubectl create secret generic kagent-openai -n kagent \
-  --from-literal=OPENAI_API_KEY=$OPENAI_API_KEY \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-4. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   API v2 examples and E2E fixtures for the current resource shape.
-
-## Local Development
-
-1. Install dependencies:
-
-```bash
-uv sync
-```
-
-2. Set environment variables:
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
-export KAGENT_API_URL=http://localhost:8083
-export KAGENT_GATEWAY_URL=http://localhost:8083
-```
-
-3. Run the agent server:
-
-```bash
-uv run currency
-```
-
-4. Test the agent:
-
-```bash
-uv run currency test
-```
+The repository validates the packaged module import, ASGI application construction, and `GET /health` response. It does not validate the `main()` process lifecycle, port binding, container startup, OpenAI-backed execution, A2A requests, or checkpoint reuse after restart. This sample therefore has no documented end-to-end runtime command yet.
 
 ## Architecture
 
 This agent demonstrates:
 
-- **StateGraph**: Simple conversation flow with one node
-- **SqliteSaver**: Stores conversation state in a local SQLite file
-- **A2A Integration**: Compatible with KAgent's agent-to-agent protocol
-- **Streaming**: Real-time response streaming via A2A events
+- **StateGraph**: A ReAct conversation graph with a currency tool
+- **SqliteSaver**: Stores LangGraph conversation state in a local SQLite file
+- **A2A Integration**: Serves the graph through KAgent's A2A application wrapper
+- **Streaming**: Emits graph execution updates as A2A events
 
-The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). Mount a persistent volume and point the variable there for persistence across pod replacement.
+The agent stores LangGraph checkpoints in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). Mount a persistent volume and point the variable there to retain checkpoints across pod replacement. A2A task tracking inside the agent process remains in memory.
 
 ## Configuration
 
-The agent can be configured via environment variables:
-
 - `OPENAI_API_KEY`: Required for OpenAI API access
-- `KAGENT_API_URL`: Required. KAgent control-plane API URL; locally, `http://localhost:8083`
-- `KAGENT_GATEWAY_URL`: Required. KAgent A2A and MCP gateway URL; locally, `http://localhost:8083`
+- `KAGENT_API_URL`: Required by `KAgentConfig`; not used for outbound control-plane calls by this wrapper
+- `KAGENT_GATEWAY_URL`: Required by `KAgentConfig`; not used for outbound gateway calls by this wrapper
+- `KAGENT_NAME`: Required agent name
+- `KAGENT_NAMESPACE`: Required agent namespace
+- `KAGENT_CHECKPOINT_DB`: SQLite checkpoint path (default: `/tmp/currency-checkpoints.sqlite`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
 
@@ -107,5 +56,6 @@ High-level options for tracing this sample:
   - If you create custom tools, decorate them with the LangSmith SDK's `@traceable` decorator; this sample shows it for the exchange-rate tool.
 
 References:
-- LangSmith SDK: `https://github.com/langchain-ai/langsmith-sdk`
-- Trace with OpenTelemetry: `https://docs.langchain.com/langsmith/trace-with-opentelemetry`
+
+- LangSmith SDK: https://github.com/langchain-ai/langsmith-sdk
+- Trace with OpenTelemetry: https://docs.langchain.com/langsmith/trace-with-opentelemetry
