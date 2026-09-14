@@ -431,7 +431,7 @@ describe("the cluster", () => {
     expect(status.enabled).toBe(true);
     expect(status.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
     expect(status.actorTemplates[0]).toEqual({
-      namespace: "kagent",
+      atespace: "kagent",
       name: "tpl",
       phase: "Ready",
       goldenActorId: "golden-actor",
@@ -447,7 +447,7 @@ describe("the cluster", () => {
       actorId: "a1",
       atespace: "kagent",
       status: "Running",
-      actorTemplateNamespace: "team",
+      actorTemplateAtespace: "team",
       actorTemplateName: "tpl",
       ateomPodNamespace: "kagent",
       ateomPodName: "worker-0",
@@ -540,20 +540,20 @@ describe("the cluster", () => {
     expect((await apiClient.substrate.status()).ateApiError).toBeUndefined();
   });
 
-  it("passes the namespace filter through", async () => {
-    const asked: string[] = [];
+  it("passes independent namespace and atespace filters through", async () => {
+    const asked: { namespace: string; atespace: string }[] = [];
     serve(({ service }) => {
       service(SystemService, {
         getSubstrateStatus: (request) => {
-          asked.push(request.namespace);
+          asked.push({ namespace: request.namespace, atespace: request.atespace });
           return { enabled: true };
         },
       });
     });
 
-    await apiClient.substrate.status("kagent");
+    await apiClient.substrate.status({ namespace: "kagent", atespace: "team-a" });
     await apiClient.substrate.status();
-    expect(asked).toEqual(["kagent", ""]);
+    expect(asked).toEqual([{ namespace: "kagent", atespace: "team-a" }, { namespace: "", atespace: "" }]);
   });
 
   it("reads the summary's counts rather than counting rows", async () => {
@@ -621,7 +621,7 @@ describe("the cluster", () => {
   // `PageRequest`/`PageResponse`, the shape every other paged read on this API uses.
   it("sends the page size and token, and reads the next token back", async () => {
     const asked: {
-      namespace: string;
+      atespace: string;
       limit: number;
       pageToken: string;
       filter: string;
@@ -632,7 +632,7 @@ describe("the cluster", () => {
       service(SystemService, {
         listSubstrateActors: (request) => {
           asked.push({
-            namespace: request.namespace,
+            atespace: request.atespace,
             limit: request.page?.limit ?? 0,
             pageToken: request.page?.pageToken ?? "",
             filter: request.filter,
@@ -653,7 +653,7 @@ describe("the cluster", () => {
     });
 
     const page = await apiClient.substrate.actors({
-      namespace: "kagent",
+      atespace: "kagent",
       limit: 100,
       pageToken: "cursor-1",
       filter: "7f21",
@@ -664,7 +664,7 @@ describe("the cluster", () => {
     // client-side sort would never exercise.
     expect(asked).toEqual([
       {
-        namespace: "kagent",
+        atespace: "kagent",
         limit: 100,
         pageToken: "cursor-1",
         filter: "7f21",

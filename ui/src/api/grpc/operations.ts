@@ -107,6 +107,7 @@ import type {
   OperationCallOptions,
   SubstrateActorSortField,
   SubstratePageInput,
+  SubstrateScopeInput,
   SubstrateSortOrder,
   SubstrateWorkerSortField,
 } from "../operations";
@@ -1075,7 +1076,7 @@ function toActorTemplateEntry(
   );
   const golden = actorTemplate.status?.goldenSnapshotStatus;
   return {
-    namespace: metadata.atespace,
+    atespace: metadata.atespace,
     name: metadata.name,
     phase: golden?.errorMessage
       ? "Failed"
@@ -1115,9 +1116,9 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
   const assignment = actor.status?.workerAssignment;
   return {
     actorId: metadata.name,
-    atespace: orUndefined(metadata.atespace),
+    atespace: metadata.atespace,
     status: ACTOR_STATUS_LABELS[state] ?? String(state),
-    actorTemplateNamespace: orUndefined(actor.actorTemplate?.atespace),
+    actorTemplateAtespace: orUndefined(actor.actorTemplate?.atespace),
     actorTemplateName: orUndefined(actor.actorTemplate?.name),
     ateomPodNamespace: orUndefined(assignment?.workerNamespace),
     ateomPodName: orUndefined(assignment?.workerPod),
@@ -1140,12 +1141,12 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
 }
 
 async function substrateStatus(
-  namespace: string | undefined,
+  scope: SubstrateScopeInput,
   options: OperationCallOptions,
 ): Promise<SubstrateStatusResponse> {
   const response = await rpc("SystemService/GetSubstrateStatus", options.signal, () =>
     serviceClient(SystemService).getSubstrateStatus(
-      { namespace: namespace ?? "" },
+      scope,
       call("substrate.status", options),
     ),
   );
@@ -1194,7 +1195,6 @@ function substratePageRequest<Sort extends string>(
   sortFields: Record<Sort, number>,
 ) {
   return {
-    namespace: input.namespace ?? "",
     // `PageRequest`, as every other paged read on this API sends it. Zero is "the
     // controller's own default", which is a better answer than a number invented here
     // — and the schema refuses anything over 100 outright.
@@ -1247,13 +1247,13 @@ const cluster: Pick<
   },
 
   "substrate.status": async (input, options) => {
-    return substrateStatus(input.namespace, options);
+    return substrateStatus(input, options);
   },
 
   "substrate.summary": async (input, options) => {
     const response = await rpc("SystemService/GetSubstrateSummary", options.signal, () =>
       serviceClient(SystemService).getSubstrateSummary(
-        { namespace: input.namespace ?? "" },
+        input,
         call("substrate.summary", options),
       ),
     );
@@ -1277,7 +1277,7 @@ const cluster: Pick<
   "substrate.actors": async (input, options) => {
     const response = await rpc("SystemService/ListSubstrateActors", options.signal, () =>
       serviceClient(SystemService).listSubstrateActors(
-        substratePageRequest(input, ACTOR_SORT_FIELDS),
+        { ...substratePageRequest(input, ACTOR_SORT_FIELDS), atespace: input.atespace },
         call("substrate.actors", options),
       ),
     );
@@ -1294,7 +1294,7 @@ const cluster: Pick<
       options.signal,
       () =>
         serviceClient(SystemService).listSubstrateWorkers(
-          substratePageRequest(input, WORKER_SORT_FIELDS),
+          { ...substratePageRequest(input, WORKER_SORT_FIELDS), namespace: input.namespace },
           call("substrate.workers", options),
         ),
     );

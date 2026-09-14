@@ -87,15 +87,9 @@ function pollIntervalMs(seconds: number | null): number | undefined {
 
 /** Where the chosen scope lives, so a link carries what the reader is looking at. */
 const NAMESPACE_PARAM = "namespace";
+const ATESPACE_PARAM = "atespace";
 
-/**
- * The scope that means "everything the controller watches".
- *
- * Every request this page sends carries an empty `namespace` for it —
- * `substrateNamespaces("")` in the controller expands that to its observed namespaces —
- * so the absence of the URL param and the absence of the field are the same fact, and
- * neither needs a sentinel.
- */
+/** Empty Kubernetes scope means all watched namespaces. */
 const ALL_NAMESPACES = "";
 
 /**
@@ -1027,10 +1021,10 @@ export function SubstratePage() {
    * two different pages.
    */
   const namespace = searchParams.get(NAMESPACE_PARAM) ?? ALL_NAMESPACES;
-  const scope = namespace === ALL_NAMESPACES ? undefined : namespace;
+  const atespace = searchParams.get(ATESPACE_PARAM) ?? "";
 
   const namespaces = useNamespaces();
-  const summary = useSubstrateSummary(scope);
+  const summary = useSubstrateSummary({ namespace, atespace });
 
   /*
    * One search per section, and all four of them are applied here.
@@ -1071,14 +1065,14 @@ export function SubstratePage() {
    * the read has to start again at the first page.
    */
   const actorPage = usePageStack(
-    `${namespace}|${actorFilter}|${actorSort.field}|${actorSort.order}`,
+    `${atespace}|${actorFilter}|${actorSort.field}|${actorSort.order}`,
   );
   const workerPage = usePageStack(
     `${namespace}|${workerFilter}|${workerSort.field}|${workerSort.order}`,
   );
 
   const actors = useSubstrateActors({
-    namespace: scope,
+    atespace,
     filter: actorFilter,
     limit: PAGE_SIZE,
     pageToken: actorPage.current,
@@ -1086,7 +1080,7 @@ export function SubstratePage() {
     sortOrder: actorSort.order,
   });
   const workers = useSubstrateWorkers({
-    namespace: scope,
+    namespace,
     filter: workerFilter,
     limit: PAGE_SIZE,
     pageToken: workerPage.current,
@@ -1220,7 +1214,7 @@ export function SubstratePage() {
     () =>
       filterRows(inventory?.actorTemplates ?? [], templateQuery, (template) =>
         [
-          template.namespace,
+          template.atespace,
           template.name,
           template.goldenActorId,
           template.phase,
@@ -1358,10 +1352,10 @@ export function SubstratePage() {
       {
         title: "Template",
         key: "template",
-        sorter: { compare: byText((t) => `${t.namespace}/${t.name}`), multiple: 5 },
+        sorter: { compare: byText((t) => `${t.atespace}/${t.name}`), multiple: 5 },
         render: (_, template) => (
           <div>
-            {qualified(template.namespace, template.name)}
+            {qualified(template.atespace, template.name)}
             {/* The golden actor is the snapshot every new actor of this template is
                 cut from, so it is the one identifier worth carrying beside the name. */}
             {template.goldenActorId ? (
@@ -1432,7 +1426,7 @@ export function SubstratePage() {
         sorter: true,
         sortOrder: sortDirectionFor(actorSort, "actorId"),
         width: 300,
-        render: (_, actor) => <span css={mono}>{actor.actorId}</span>,
+        render: (_, actor) => qualified(actor.atespace, actor.actorId),
       },
       {
         title: "Status",
@@ -1450,7 +1444,7 @@ export function SubstratePage() {
         width: 260,
         render: (_, actor) =>
           actor.actorTemplateName
-            ? qualified(actor.actorTemplateNamespace, actor.actorTemplateName)
+            ? qualified(actor.actorTemplateAtespace, actor.actorTemplateName)
             : "—",
       },
       {
@@ -1601,8 +1595,8 @@ export function SubstratePage() {
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-        <Space size={8}>
-          <Text css={muted}>Scope</Text>
+        <Space size={8} wrap>
+          <Text css={muted}>Kubernetes namespace</Text>
           {/* The test id is on a wrapper rather than on the Select, because antd
               renders its own tree underneath and a prop that survives today is not
               something to assert on. The wrapper is this app's own markup. */}
@@ -1627,9 +1621,7 @@ export function SubstratePage() {
                 { value: ALL_NAMESPACES, label: "All watched namespaces" },
                 ...(namespaces.data ?? []).map((entry) => ({
                   value: entry.name,
-                  // A namespace that is going away can still hold actors, so it is
-                  // offered — with its condition said out loud rather than left for
-                  // the reader to wonder about when the tables come back empty.
+                  // Terminating namespaces can still contain workers and pools.
                   label:
                     entry.status === "Active"
                       ? entry.name
@@ -1638,6 +1630,22 @@ export function SubstratePage() {
               ]}
             />
           </div>
+          <Text css={muted}>ATE atespace</Text>
+          <Input.Search
+            key={atespace}
+            defaultValue={atespace}
+            aria-label="ATE atespace"
+            placeholder="All atespaces"
+            maxLength={63}
+            allowClear
+            css={{ width: 240 }}
+            onSearch={(value) => {
+              const next = new URLSearchParams(searchParams);
+              if (value) next.set(ATESPACE_PARAM, value);
+              else next.delete(ATESPACE_PARAM);
+              setSearchParams(next, { replace: true });
+            }}
+          />
         </Space>
 
         {namespaces.error ? (
@@ -1738,7 +1746,7 @@ export function SubstratePage() {
             // Not read from the response — it is what this page asked for, which is
             // known even when the read failed, and is the thing that explains an empty
             // table.
-            value={namespace === ALL_NAMESPACES ? "all" : namespace}
+            value={!namespace && !atespace ? "all" : `K8s: ${namespace || "all"}; ATE: ${atespace || "all"}`}
           />
         </div>
 
@@ -1800,7 +1808,7 @@ export function SubstratePage() {
         >
           <Table<SubstrateActorTemplateEntry>
             data-testid="substrate-templates-table"
-            rowKey={(template) => `${template.namespace}/${template.name}`}
+            rowKey={(template) => `${template.atespace}/${template.name}`}
             columns={actorTemplateColumns}
             dataSource={templates}
             loading={summary.isLoading}
@@ -1874,7 +1882,7 @@ export function SubstratePage() {
 
           <Table<SubstrateActorEntry>
             data-testid="substrate-actors-table"
-            rowKey={(actor) => actor.actorId}
+            rowKey={(actor) => `${actor.atespace}/${actor.actorId}`}
             columns={actorColumns}
             dataSource={actorRows}
             loading={actors.isLoading}

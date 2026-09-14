@@ -106,7 +106,6 @@ export type SubstrateWorkerSortField =
 
 /** What a paged, filtered substrate read takes. */
 export interface SubstratePageInput<Sort = string> {
-  namespace?: string;
   /**
    * Matched server-side against the fields the row displays. Empty matches everything.
    *
@@ -129,6 +128,19 @@ export interface SubstratePageInput<Sort = string> {
   sortOrder?: SubstrateSortOrder;
 }
 
+export interface SubstrateScopeInput {
+  namespace?: string;
+  atespace?: string;
+}
+
+export type SubstrateActorPageInput = SubstratePageInput<SubstrateActorSortField> & { atespace?: string };
+export type SubstrateWorkerPageInput = SubstratePageInput<SubstrateWorkerSortField> & { namespace?: string };
+
+type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
+  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
+  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
+};
+
 /**
  * The input and output of every operation, keyed by id.
  *
@@ -136,11 +148,6 @@ export interface SubstratePageInput<Sort = string> {
  * transform and a fake all see the same named fields as the implementation — a
  * positional signature cannot be inspected by any of them.
  */
-type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
-  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
-  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
-};
-
 export interface OperationMap {
   "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
   "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
@@ -303,7 +310,7 @@ export interface OperationMap {
    * replaced it, and raising the ceiling would only move the number.
    */
   "substrate.status": {
-    input: { namespace?: string };
+    input: SubstrateScopeInput;
     output: SubstrateStatusResponse;
   };
   /**
@@ -314,7 +321,7 @@ export interface OperationMap {
    * "20 actors" for a cluster running a hundred thousand.
    */
   "substrate.summary": {
-    input: { namespace?: string };
+    input: SubstrateScopeInput;
     output: SubstrateSummary;
   };
   /**
@@ -326,12 +333,12 @@ export interface OperationMap {
    * the cluster rather than the hundred rows in front of the reader.
    */
   "substrate.actors": {
-    input: SubstratePageInput<SubstrateActorSortField>;
+    input: SubstrateActorPageInput;
     output: SubstrateActorPage;
   };
   /** One page of worker assignments. The mirror of `substrate.actors`. */
   "substrate.workers": {
-    input: SubstratePageInput<SubstrateWorkerSortField>;
+    input: SubstrateWorkerPageInput;
     output: SubstrateWorkerPage;
   };
 }

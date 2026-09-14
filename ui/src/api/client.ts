@@ -44,9 +44,9 @@ import type {
   AgentTemplateResource,
 } from "./domain/agentTemplates";
 import type {
-  SubstrateActorSortField,
-  SubstratePageInput,
-  SubstrateWorkerSortField,
+  SubstrateActorPageInput,
+  SubstrateWorkerPageInput,
+  SubstrateScopeInput,
 } from "./operations";
 import type {
   AgentInstance,
@@ -113,17 +113,17 @@ export interface SubstrateApi {
    * operation's own note. `summary`, `actors` and `workers` are what the substrate
    * page reads.
    */
-  status(namespace?: string, options?: ReadOptions): Promise<SubstrateStatusResponse>;
+  status(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateStatusResponse>;
   /** Counts and the two small lists. The only honest source of a total. */
-  summary(namespace?: string, options?: ReadOptions): Promise<SubstrateSummary>;
+  summary(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateSummary>;
   /** One page of actors, ordered and narrowed server-side across the whole inventory. */
   actors(
-    input: SubstratePageInput<SubstrateActorSortField>,
+    input: SubstrateActorPageInput,
     options?: ReadOptions,
   ): Promise<SubstrateActorPage>;
   /** One page of workers. The mirror of `actors`. */
   workers(
-    input: SubstratePageInput<SubstrateWorkerSortField>,
+    input: SubstrateWorkerPageInput,
     options?: ReadOptions,
   ): Promise<SubstrateWorkerPage>;
 }
@@ -300,10 +300,10 @@ export function createApiClient(): KagentApiClient {
     },
 
     substrate: {
-      status: (namespace, options) =>
-        invoke("substrate.status", { namespace }, options),
-      summary: (namespace, options) =>
-        invoke("substrate.summary", { namespace }, options),
+      status: (scope = {}, options) =>
+        invoke("substrate.status", scope, options),
+      summary: (scope = {}, options) =>
+        invoke("substrate.summary", scope, options),
       // Not sorted here, unlike every other list: the server orders these pages across
       // the whole inventory, and re-sorting a page would order it within itself while
       // leaving it in the wrong place in the whole.

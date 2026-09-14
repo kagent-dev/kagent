@@ -51,7 +51,13 @@ message ListNamespacesResponse {
 }
 
 message GetSubstrateStatusRequest {
+  // Kubernetes namespace for workers and pools. Empty uses watched namespaces.
   string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+  // ATE atespace for actors and templates. Empty lists all atespaces.
+  string atespace = 2 [(buf.validate.field).string = {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
   }];
@@ -92,7 +98,13 @@ message SubstrateActorTemplate {
 // counts cross the wire, so there is no message-size ceiling — but a caller polling
 // this as often as it pages will spend most of its time here.
 message GetSubstrateSummaryRequest {
+  // Kubernetes namespace for workers and pools. Empty uses watched namespaces.
   string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
+  // ATE atespace for actors and templates. Empty lists all atespaces.
+  string atespace = 2 [(buf.validate.field).string = {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
   }];
@@ -135,7 +147,7 @@ enum SubstrateSortOrder {
   SUBSTRATE_SORT_ORDER_DESC = 2;
 }
 
-// The columns ListSubstrateActors can order by, each ending in the unique actor id:
+// The columns ListSubstrateActors can order by, each ending in the actor's atespace and name:
 // an order whose last key repeats gives a page boundary naming more than one row, and
 // paging across it drops or repeats them.
 enum SubstrateActorSortField {
@@ -159,13 +171,16 @@ enum SubstrateWorkerSortField {
 
 // One page of actors, ordered and narrowed across the whole inventory.
 //
-// ate-api offers paging and nothing else, so the controller reads all of its pages and
+// ate-api offers atespace filtering and paging, so the controller reads all of its pages and
 // applies the filter and the order before cutting this one. That is a walk of the
 // inventory per request — seconds on a large cluster — and it is what makes both mean
 // the cluster rather than the page.
 message ListSubstrateActorsRequest {
-  // Empty means every namespace the controller observes.
-  string namespace = 1 [(buf.validate.field).string = {
+  reserved 1;
+  reserved "namespace";
+
+  // ATE atespace of the actor itself. Empty lists all atespaces.
+  string atespace = 6 [(buf.validate.field).string = {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
   }];

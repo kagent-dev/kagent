@@ -59,7 +59,7 @@ func (s *systemServer) ListNamespaces(ctx context.Context, _ *apiv1alpha1.ListNa
 }
 
 func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alpha1.GetSubstrateStatusRequest) (*apiv1alpha1.GetSubstrateStatusResponse, error) {
-	result, err := s.service.GetSubstrateStatus(ctx, request.GetNamespace())
+	result, err := s.service.GetSubstrateStatus(ctx, request.GetNamespace(), request.GetAtespace())
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 }
 
 func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1alpha1.GetSubstrateSummaryRequest) (*apiv1alpha1.GetSubstrateSummaryResponse, error) {
-	result, err := s.service.GetSubstrateSummary(ctx, request.GetNamespace())
+	result, err := s.service.GetSubstrateSummary(ctx, request.GetNamespace(), request.GetAtespace())
 	if err != nil {
 		return nil, err
 	}

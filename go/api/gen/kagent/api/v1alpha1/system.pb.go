@@ -75,7 +75,7 @@ func (SubstrateSortOrder) EnumDescriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{0}
 }
 
-// The columns ListSubstrateActors can order by, each ending in the unique actor id:
+// The columns ListSubstrateActors can order by, each ending in the actor's atespace and name:
 // an order whose last key repeats gives a page boundary naming more than one row, and
 // paging across it drops or repeats them.
 type SubstrateActorSortField int32
@@ -498,8 +498,11 @@ func (x *ListNamespacesResponse) GetNamespaces() []*Namespace {
 }
 
 type GetSubstrateStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Kubernetes namespace for workers and pools. Empty uses watched namespaces.
+	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// ATE atespace for actors and templates. Empty lists all atespaces.
+	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -537,6 +540,13 @@ func (*GetSubstrateStatusRequest) Descriptor() ([]byte, []int) {
 func (x *GetSubstrateStatusRequest) GetNamespace() string {
 	if x != nil {
 		return x.Namespace
+	}
+	return ""
+}
+
+func (x *GetSubstrateStatusRequest) GetAtespace() string {
+	if x != nil {
+		return x.Atespace
 	}
 	return ""
 }
@@ -746,8 +756,11 @@ func (x *SubstrateActorTemplate) GetActorTemplate() *ateapipb.ActorTemplate {
 // counts cross the wire, so there is no message-size ceiling — but a caller polling
 // this as often as it pages will spend most of its time here.
 type GetSubstrateSummaryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Kubernetes namespace for workers and pools. Empty uses watched namespaces.
+	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// ATE atespace for actors and templates. Empty lists all atespaces.
+	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -785,6 +798,13 @@ func (*GetSubstrateSummaryRequest) Descriptor() ([]byte, []int) {
 func (x *GetSubstrateSummaryRequest) GetNamespace() string {
 	if x != nil {
 		return x.Namespace
+	}
+	return ""
+}
+
+func (x *GetSubstrateSummaryRequest) GetAtespace() string {
+	if x != nil {
+		return x.Atespace
 	}
 	return ""
 }
@@ -968,14 +988,14 @@ func (x *GetSubstrateSummaryResponse) GetComputedAt() *timestamppb.Timestamp {
 
 // One page of actors, ordered and narrowed across the whole inventory.
 //
-// ate-api offers paging and nothing else, so the controller reads all of its pages and
+// ate-api offers atespace filtering and paging, so the controller reads all of its pages and
 // applies the filter and the order before cutting this one. That is a walk of the
 // inventory per request — seconds on a large cluster — and it is what makes both mean
 // the cluster rather than the page.
 type ListSubstrateActorsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Empty means every namespace the controller observes.
-	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// ATE atespace of the actor itself. Empty lists all atespaces.
+	Atespace string `protobuf:"bytes,6,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	// `limit` is capped at 100 in common.proto and zero means the server's default;
 	// above the cap is refused rather than clamped.
 	Page *PageRequest `protobuf:"bytes,2,opt,name=page,proto3" json:"page,omitempty"`
@@ -1018,9 +1038,9 @@ func (*ListSubstrateActorsRequest) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *ListSubstrateActorsRequest) GetNamespace() string {
+func (x *ListSubstrateActorsRequest) GetAtespace() string {
 	if x != nil {
-		return x.Namespace
+		return x.Atespace
 	}
 	return ""
 }
@@ -1357,9 +1377,10 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x16ListNamespacesResponse\x12>\n" +
 	"\n" +
 	"namespaces\x18\x01 \x03(\v2\x1e.kagent.api.v1alpha1.NamespaceR\n" +
-	"namespaces\"f\n" +
+	"namespaces\"\xaf\x01\n" +
 	"\x19GetSubstrateStatusRequest\x12I\n" +
-	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\"\xce\x02\n" +
+	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x12G\n" +
+	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"\xce\x02\n" +
 	"\x1aGetSubstrateStatusResponse\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12K\n" +
@@ -1374,9 +1395,10 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\fharness_name\x18\b \x01(\tR\vharnessName\x12*\n" +
 	"\x11managed_by_kagent\x18\t \x01(\bR\x0fmanagedByKagent\x12<\n" +
 	"\x0eactor_template\x18\n" +
-	" \x01(\v2\x15.ateapi.ActorTemplateR\ractorTemplateJ\x04\b\x01\x10\bR\tnamespaceR\x04nameR\x05phaseR\x0fgolden_actor_idR\x0fgolden_snapshotR\rsandbox_classR\x0fworker_selector\"g\n" +
+	" \x01(\v2\x15.ateapi.ActorTemplateR\ractorTemplateJ\x04\b\x01\x10\bR\tnamespaceR\x04nameR\x05phaseR\x0fgolden_actor_idR\x0fgolden_snapshotR\rsandbox_classR\x0fworker_selector\"\xb0\x01\n" +
 	"\x1aGetSubstrateSummaryRequest\x12I\n" +
-	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\"i\n" +
+	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x12G\n" +
+	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"i\n" +
 	"\x19SubstrateActorStatusCount\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\x12(\n" +
 	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05stateJ\x04\b\x01\x10\x02R\x06status\"\xbb\x04\n" +
@@ -1393,15 +1415,15 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x13actor_status_counts\x18\t \x03(\v2..kagent.api.v1alpha1.SubstrateActorStatusCountR\x11actorStatusCounts\x12;\n" +
 	"\vcomputed_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"computedAt\"\xe8\x02\n" +
-	"\x1aListSubstrateActorsRequest\x12I\n" +
-	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x124\n" +
+	"computedAt\"\xf7\x02\n" +
+	"\x1aListSubstrateActorsRequest\x12G\n" +
+	"\batespace\x18\x06 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\x124\n" +
 	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12 \n" +
 	"\x06filter\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\xc8\x01R\x06filter\x12U\n" +
 	"\n" +
 	"sort_field\x18\x04 \x01(\x0e2,.kagent.api.v1alpha1.SubstrateActorSortFieldB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortField\x12P\n" +
 	"\n" +
-	"sort_order\x18\x05 \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortOrder\"\xc8\x03\n" +
+	"sort_order\x18\x05 \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortOrderJ\x04\b\x01\x10\x02R\tnamespace\"\xc8\x03\n" +
 	"\x1bListSubstrateActorsResponse\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12%\n" +

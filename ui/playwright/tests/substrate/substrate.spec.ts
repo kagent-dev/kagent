@@ -213,7 +213,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expect(page.getByTestId("substrate-pools-table")).toContainText("platform/gpu-pool");
   });
 
-  await test.step("2. choosing one namespace narrows every section", async () => {
+  await test.step("2. choosing one namespace narrows Kubernetes resources", async () => {
     await page.getByTestId("substrate-namespace").click();
     // The one place this suite reaches for an antd class name. The visible dropdown is a
     // portal outside the app's own markup, and `getByRole("option")` also matches the
@@ -225,7 +225,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
       .click();
 
     await expect(page).toHaveURL(/namespace=kagent/);
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("kagent");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: kagent; ATE: all");
 
     const pools = page.getByTestId("substrate-pools-table");
     await expect(pools).toContainText("kagent/default-pool");
@@ -233,7 +233,28 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
 
     const templates = page.getByTestId("substrate-templates-table");
     await expect(templates).toContainText("coder-template");
-    await expect(templates).not.toContainText("external-template");
+    await expect(templates).toContainText("external-template");
+    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
+  });
+
+  await test.step("an atespace filters actors by their own identity, independently of Kubernetes", async () => {
+    const atespace = page.getByRole("searchbox", { name: "ATE atespace", exact: true });
+    await atespace.fill("team-a");
+    await atespace.press("Enter");
+    await expect(page).toHaveURL(/atespace=team-a/);
+    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("1/1");
+    await expect(page.getByTestId("substrate-actors-table")).toContainText("team-a/actor-7f21");
+    await expect(page.getByTestId("substrate-actors-table")).toContainText("kagent/coder-template");
+    await expect(page.getByTestId("substrate-templates-table")).not.toContainText("coder-template");
+    await expect(page.getByTestId("substrate-pools-table")).toContainText("kagent/default-pool");
+    await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
+    await page.reload();
+    await expect(page.getByRole("searchbox", { name: "ATE atespace", exact: true })).toHaveValue("team-a");
+    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("1/1");
+    await atespace.fill("");
+    await atespace.press("Enter");
+    await expect(page).not.toHaveURL(/atespace=/);
+    await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
   });
 
   await test.step("3. the scope is the address, so a link to it opens on it", async () => {
@@ -241,7 +262,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     await expectSettled(page);
 
     await expect(page.getByTestId("substrate-namespace")).toContainText("platform");
-    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("platform");
+    await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("K8s: platform; ATE: all");
     await expect(page.getByTestId("substrate-pools-table")).toContainText("platform/gpu-pool");
   });
 
@@ -363,14 +384,14 @@ test("substrate: the actor list is ordered, and the page bounds it without a scr
 
   // Sorted by status, then by id, and the fixture lists them in none of that order.
   expect(await firstColumn(actors)).toEqual([
-    "actor-0aa1",
-    "actor-2e40",
-    "actor-5d17",
-    "actor-8b91",
-    "actor-3b55",
-    "actor-7f21",
-    "actor-c3f5",
-    "actor-9c03",
+    "kagent/actor-0aa1",
+    "kagent/actor-2e40",
+    "kagent/actor-5d17",
+    "kagent/actor-8b91",
+    "kagent/actor-3b55",
+    "team-a/actor-7f21",
+    "kagent/actor-c3f5",
+    "kagent/actor-9c03",
   ]);
 
   // Nothing windows the rows any more, so there is no virtual holder to scroll inside.

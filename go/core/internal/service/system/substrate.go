@@ -95,7 +95,7 @@ type SubstrateActorStatusCount struct {
 //
 // ate-api reports no totals, so every count costs a walk of its pages. The walk holds
 // one page at a time and keeps only tallies.
-func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace string) (SubstrateSummary, error) {
+func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, atespace string) (SubstrateSummary, error) {
 	namespaces, err := s.substrateScope(ctx, requestedNamespace)
 	if err != nil {
 		return SubstrateSummary{}, err
@@ -131,15 +131,15 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 
 	// Three independent reads: none gates the others, so one failure leaves the rest
 	// counted rather than zeroing the whole summary.
-	if templates, err := s.substrateActorTemplates(ctx, harnesses, allowAll, allowed); err != nil {
+	if templates, err := s.substrateActorTemplates(ctx, harnesses, atespace); err != nil {
 		result.recordATEError(ctx, err)
 	} else {
 		result.ActorTemplates = templates
 	}
 
 	statusCounts := map[ateapipb.ActorState]int64{}
-	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
-		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
+	if err := s.walkActors(ctx, atespace, func(actor *ateapipb.Actor) {
+		if actor == nil {
 			return
 		}
 		result.ActorCount++
@@ -176,8 +176,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 // ListSubstrateActors answers with one page of actors, ordered and narrowed across the
 // whole inventory.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
-	namespaces, err := s.substrateScope(ctx, input.GetNamespace())
-	if err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return SubstrateActorPage{}, err
 	}
 	pageSize := substratePageSize(input.GetPage().GetLimit())
@@ -195,11 +194,10 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.Li
 		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
 	}
 
-	allowAll, allowed := substrateScopeFilter(namespaces)
 	matching := []*ateapipb.Actor{}
 	needle := strings.ToLower(strings.TrimSpace(input.GetFilter()))
-	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
-		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
+	if err := s.walkActors(ctx, input.GetAtespace(), func(actor *ateapipb.Actor) {
+		if actor == nil {
 			return
 		}
 		if !matchesFilter(needle, actorSearchText(actor)) {
@@ -266,13 +264,10 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1alpha1.L
 	return result, nil
 }
 
-// walkActors calls visit for every actor ate-api holds, one page at a time.
-func (s *Service) walkActors(ctx context.Context, visit func(*ateapipb.Actor)) error {
-	// Every atespace, narrowed by the caller's own filter: an actor whose template has
-	// no atespace is in scope everywhere, and asking ate-api for one atespace would
-	// drop it.
+// walkActors visits every actor in the requested atespace, one page at a time.
+func (s *Service) walkActors(ctx context.Context, atespace string, visit func(*ateapipb.Actor)) error {
 	read := func(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
-		return s.ateClient.ListActorsPage(ctx, "", pageSize, pageToken)
+		return s.ateClient.ListActorsPage(ctx, atespace, pageSize, pageToken)
 	}
 	return walkSubstrate(ctx, read, visit)
 }
@@ -309,7 +304,7 @@ func walkSubstrate[Row any](
 }
 
 // substrateScope authorizes the caller and resolves the namespaces a read covers.
-// Shared by all four, so a new read cannot arrive without the check.
+// ATE-only actor reads authorize independently of Kubernetes scope.
 func (s *Service) substrateScope(ctx context.Context, requestedNamespace string) ([]string, error) {
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return nil, err
@@ -330,9 +325,7 @@ func substrateScopeFilter(namespaces []string) (bool, map[string]struct{}) {
 	return allowAll, allowed
 }
 
-// allowedWorkerNamespace mirrors allowedAtespace for workers, whose namespace is a
-// Kubernetes namespace rather than an atespace. An unnamespaced worker is in scope
-// everywhere, as an unnamespaced actor is.
+// allowedWorkerNamespace filters workers by their Kubernetes namespace.
 func allowedWorkerNamespace(namespace string, allowAll bool, allowed map[string]struct{}) bool {
 	namespace = strings.TrimSpace(namespace)
 	if allowAll || namespace == "" {
@@ -361,6 +354,8 @@ func matchesFilter(needle, text string) bool {
 func actorSearchText(actor *ateapipb.Actor) string {
 	return strings.Join([]string{
 		actor.GetMetadata().GetName(),
+		actor.GetMetadata().GetAtespace(),
+		actorIdentity(actor),
 		substrate.ActorStatusLabel(actor.GetStatus().GetState()),
 		actor.GetActorTemplate().GetAtespace(),
 		actor.GetActorTemplate().GetName(),
@@ -382,27 +377,31 @@ func workerSearchText(worker *ateapipb.Worker) string {
 	}, " ")
 }
 
+func actorIdentity(actor *ateapipb.Actor) string {
+	return actor.GetMetadata().GetAtespace() + "/" + actor.GetMetadata().GetName()
+}
+
 // actorSortKey turns a column into the string a row is ordered by. Every key ends in
-// the unique actor id: an order whose last key repeats gives a page boundary naming
+// the actor's atespace and name: an order whose last key repeats gives a page boundary naming
 // more than one row, and paging across it drops or repeats them.
 func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(*ateapipb.Actor) string {
 	switch field {
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID:
-		return func(a *ateapipb.Actor) string { return a.GetMetadata().GetName() }
+		return actorIdentity
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE:
 		return func(a *ateapipb.Actor) string {
-			return a.GetActorTemplate().GetAtespace() + "/" + a.GetActorTemplate().GetName() + "\x00" + a.GetMetadata().GetName()
+			return a.GetActorTemplate().GetAtespace() + "/" + a.GetActorTemplate().GetName() + "\x00" + actorIdentity(a)
 		}
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD:
 		return func(a *ateapipb.Actor) string {
 			assignment := a.GetStatus().GetWorkerAssignment()
-			return assignment.GetWorkerNamespace() + "/" + assignment.GetWorkerPod() + "\x00" + a.GetMetadata().GetName()
+			return assignment.GetWorkerNamespace() + "/" + assignment.GetWorkerPod() + "\x00" + actorIdentity(a)
 		}
 	default:
 		// Status and the default are one ordering, so the Status header changes nothing
 		// ascending and reverses descending. Correct, and not obvious.
 		return func(a *ateapipb.Actor) string {
-			return substrate.ActorStatusLabel(a.GetStatus().GetState()) + "\x00" + a.GetMetadata().GetName()
+			return substrate.ActorStatusLabel(a.GetStatus().GetState()) + "\x00" + actorIdentity(a)
 		}
 	}
 }

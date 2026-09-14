@@ -1264,26 +1264,13 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
 
   const status = mockSubstrateStatus;
 
-  /*
-   * The requested scope, narrowed the way the controller narrows it.
-   *
-   * `system.Service.GetSubstrateStatus` lists the Kubernetes halves per namespace and
-   * filters the ate-api halves by the actor's template namespace and the worker's pod
-   * namespace — keeping a row whose namespace is blank, because ate-api is not obliged
-   * to say. An empty request is every watched namespace, which for a fixture backend is
-   * everything it has. Filtering here rather than answering the whole inventory whatever
-   * was asked for is the difference between a scope control that is observably a filter
-   * and one that is decoration.
-   */
-  const scope = input.namespace.trim();
-  const inScope = (namespace: string | undefined) =>
-    scope === "" || !namespace || namespace === scope;
+  const inScope = substrateScope(input.namespace);
 
   const workerPools = status.workerPools.filter((pool) => inScope(pool.namespace));
   const actorTemplates = status.actorTemplates.filter((template) =>
-    inScope(template.namespace),
+    (!input.atespace || template.atespace === input.atespace),
   );
-  const actors = status.actors.filter((actor) => inScope(actor.actorTemplateNamespace));
+  const actors = status.actors.filter((actor) => (!input.atespace || actor.atespace === input.atespace));
   const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
 
   return {
@@ -1296,13 +1283,7 @@ on(SystemService.method.getSubstrateStatus, (input, call) => {
   };
 });
 
-/**
- * The scope, narrowed the way the controller narrows it.
- *
- * Kept alongside `inScope` above rather than folded into it, because the paged
- * handlers below need the same rule and a scope control that filters on one read and
- * not another is worse than one that filters on neither.
- */
+/** Kubernetes namespace scope for workers and pools. */
 function substrateScope(namespace: string) {
   const scope = namespace.trim();
   return (rowNamespace: string | undefined) =>
@@ -1327,7 +1308,7 @@ function substrateActorTemplateMessage(
   return {
     actorTemplate: {
       metadata: {
-        atespace: template.namespace,
+        atespace: template.atespace,
         name: template.name,
         uid: template.goldenActorId ?? "",
       },
@@ -1364,7 +1345,7 @@ function substrateActorMessage(
       version: BigInt(actor.version ?? 0),
     },
     actorTemplate: {
-      atespace: actor.actorTemplateNamespace ?? "",
+      atespace: actor.actorTemplateAtespace ?? "",
       name: actor.actorTemplateName ?? "",
     },
     status: {
@@ -1394,7 +1375,7 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     metadata: { version: BigInt(worker.version ?? 0) },
     status: {
       allocated: {
-        // Worker allocation includes actors from every template namespace.
+        // Worker allocation includes actors from every atespace.
         actors: mockSubstrateStatus.actors.filter((actor) =>
           actor.ateomPodNamespace === worker.workerNamespace && actor.ateomPodName === worker.workerPod
         ).length,
@@ -1425,7 +1406,7 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
 
   const status = mockSubstrateStatus;
   const inScope = substrateScope(input.namespace);
-  const actors = status.actors.filter((actor) => inScope(actor.actorTemplateNamespace));
+  const actors = status.actors.filter((actor) => (!input.atespace || actor.atespace === input.atespace));
   const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
 
   const statusCounts = new Map<ActorState, number>();
@@ -1456,7 +1437,7 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
       .filter((pool) => inScope(pool.namespace))
       .map(substrateWorkerPoolMessage),
     actorTemplates: status.actorTemplates
-      .filter((template) => inScope(template.namespace))
+      .filter((template) => (!input.atespace || template.atespace === input.atespace))
       .map(substrateActorTemplateMessage),
     actorCount: BigInt(actors.length),
     workerCount: BigInt(workers.length),
@@ -1492,7 +1473,7 @@ because that state has no fixture yet. See `playwright/DEFERRED.md`.
  */
 function substratePageResponse<Row, Message>(
   rows: readonly Row[],
-  input: { namespace: string; filter: string; page?: { limit: number; pageToken: string } },
+  input: { filter: string; page?: { limit: number; pageToken: string } },
   inScope: (row: Row) => boolean,
   searchText: (row: Row) => string,
   sortKey: (row: Row) => string,
@@ -1530,24 +1511,23 @@ function substratePageResponse<Row, Message>(
 on(SystemService.method.listSubstrateActors, (input, call) => {
   if (call.scenario === "empty") return { enabled: false };
 
-  const inScope = substrateScope(input.namespace);
-  const id = (actor: SubstrateActorEntry) => actor.actorId;
+  const id = (actor: SubstrateActorEntry) => `${actor.atespace}/${actor.actorId}`;
   // Every key ends in the id, as the controller's do: an order whose last key repeats
   // gives a page boundary that names more than one row.
   const keys: Record<number, (actor: SubstrateActorEntry) => string> = {
     [SubstrateActorSortField.ACTOR_ID]: id,
     [SubstrateActorSortField.TEMPLATE]: (a) =>
-      `${a.actorTemplateNamespace ?? ""}/${a.actorTemplateName ?? ""}\u0000${id(a)}`,
+      `${a.actorTemplateAtespace ?? ""}/${a.actorTemplateName ?? ""}\u0000${id(a)}`,
     [SubstrateActorSortField.WORKER_POD]: (a) =>
       `${a.ateomPodNamespace ?? ""}/${a.ateomPodName ?? ""}\u0000${id(a)}`,
   };
   const { rows, ...page } = substratePageResponse(
     mockSubstrateStatus.actors,
     input,
-    (actor) => inScope(actor.actorTemplateNamespace),
+    (actor) => (!input.atespace || actor.atespace === input.atespace),
     (a) =>
-      [a.actorId, a.status, a.actorTemplateNamespace, a.actorTemplateName, a.ateomPodNamespace, a.ateomPodName, a.ateomPodIp,
-        `${a.actorTemplateNamespace ?? ""}/${a.actorTemplateName ?? ""}`,
+      [a.actorId, a.atespace, id(a), a.status, a.actorTemplateAtespace, a.actorTemplateName, a.ateomPodNamespace, a.ateomPodName, a.ateomPodIp,
+        `${a.actorTemplateAtespace ?? ""}/${a.actorTemplateName ?? ""}`,
         `${a.ateomPodNamespace ?? ""}/${a.ateomPodName ?? ""}`]
         .filter(Boolean)
         .join(" "),

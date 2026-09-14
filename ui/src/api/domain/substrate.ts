@@ -31,9 +31,9 @@ export interface SubstrateWorkerPoolEntry {
   ateomImage: string;
 }
 
-/** An `ate.dev` ActorTemplate custom resource. */
+/** An ATE ActorTemplate, identified by atespace and name. */
 export interface SubstrateActorTemplateEntry {
-  namespace: string;
+  atespace: string;
   name: string;
   phase?: string;
   goldenActorId?: string;
@@ -46,9 +46,9 @@ export interface SubstrateActorTemplateEntry {
 /** Runtime actor state, from ate-api rather than from Kubernetes. */
 export interface SubstrateActorEntry {
   actorId: string;
-  atespace?: string;
+  atespace: string;
   status: string;
-  actorTemplateNamespace?: string;
+  actorTemplateAtespace?: string;
   actorTemplateName?: string;
   ateomPodNamespace?: string;
   ateomPodName?: string;

@@ -138,7 +138,7 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	return namespaces, nil
 }
 
-func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace string) (SubstrateStatus, error) {
+func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace, atespace string) (SubstrateStatus, error) {
 	namespaces, err := s.substrateScope(ctx, requestedNamespace)
 	if err != nil {
 		return SubstrateStatus{}, err
@@ -160,7 +160,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		result.WorkerPools = append(result.WorkerPools, workerPools...)
 	}
 
-	actorTemplates, actors, workers, err := s.listATEState(ctx, namespaces)
+	actorTemplates, actors, workers, err := s.listATEState(ctx, namespaces, atespace)
 	result.ActorTemplates = actorTemplates
 	result.Actors = actors
 	result.Workers = workers
@@ -173,7 +173,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
 	slices.SortStableFunc(result.Actors, func(left, right *ateapipb.Actor) int {
-		return strings.Compare(left.GetMetadata().GetName(), right.GetMetadata().GetName())
+		return strings.Compare(actorIdentity(left), actorIdentity(right))
 	})
 	slices.SortStableFunc(result.Workers, func(left, right *ateapipb.Worker) int {
 		return strings.Compare(
@@ -244,18 +244,18 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 	return workerPoolList.Items, nil
 }
 
-func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []*ateapipb.Worker, error) {
+func (s *Service) listATEState(ctx context.Context, namespaces []string, atespace string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []*ateapipb.Worker, error) {
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
 	harnesses, err := s.actorTemplateHarnesses(ctx)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	templates, err := s.substrateActorTemplates(ctx, harnesses, allowAll, allowed)
+	templates, err := s.substrateActorTemplates(ctx, harnesses, atespace)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	actorsFromAPI, err := s.ateClient.ListActors(ctx, "")
+	actorsFromAPI, err := s.ateClient.ListActors(ctx, atespace)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -266,9 +266,6 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 	actors := make([]*ateapipb.Actor, 0, len(actorsFromAPI))
 	for _, actor := range actorsFromAPI {
 		if actor == nil {
-			continue
-		}
-		if !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			continue
 		}
 		actors = append(actors, actor)
@@ -287,14 +284,6 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 	return templates, actors, workers, nil
 }
 
-func allowedAtespace(atespace string, allowAll bool, allowed map[string]struct{}) bool {
-	if allowAll || atespace == "" {
-		return true
-	}
-	_, ok := allowed[atespace]
-	return ok
-}
-
 /*
 substrateActorTemplates lists the ActorTemplates in scope, with the harness each one
 was compiled from.
@@ -307,16 +296,15 @@ database one.
 func (s *Service) substrateActorTemplates(
 	ctx context.Context,
 	harnesses map[actorTemplateKey]string,
-	allowAll bool,
-	allowed map[string]struct{},
+	atespace string,
 ) ([]SubstrateActorTemplate, error) {
-	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, "")
+	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
 	if err != nil {
 		return nil, err
 	}
 	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
 	for _, template := range templatesFromAPI {
-		if template == nil || !allowedAtespace(template.GetMetadata().GetAtespace(), allowAll, allowed) {
+		if template == nil {
 			continue
 		}
 		metadata := template.GetMetadata()

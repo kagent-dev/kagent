@@ -136,8 +136,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	}
 
 	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
-		Namespace: "alpha",
-		Page:      &apiv1alpha1.PageRequest{Limit: 100},
+		Atespace: "alpha",
+		Page:     &apiv1alpha1.PageRequest{Limit: 100},
 	})
 	if err != nil {
 		t.Fatalf("ListSubstrateActors() error = %v", err)
@@ -167,8 +167,12 @@ func TestSystemGeneratedClient(t *testing.T) {
 			assert.Equal(t, want, status.Code(err), "status")
 			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary")
-			_, err = systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{Namespace: namespace})
+			_, err = systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "actors")
+			_, err = systemClient.GetSubstrateStatus(userContext, &apiv1alpha1.GetSubstrateStatusRequest{Atespace: namespace})
+			assert.Equal(t, want, status.Code(err), "status atespace")
+			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Atespace: namespace})
+			assert.Equal(t, want, status.Code(err), "summary atespace")
 			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "workers")
 		})

@@ -6,47 +6,28 @@ import type {
   SubstrateWorkerPage,
 } from "../domain/substrate";
 import type {
-  SubstrateActorSortField,
-  SubstratePageInput,
-  SubstrateWorkerSortField,
+  SubstrateActorPageInput,
+  SubstrateWorkerPageInput,
+  SubstrateScopeInput,
 } from "../operations";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
-/**
- * Agent Substrate inventory, optionally narrowed to one namespace.
- *
- * Two things callers should read rather than assume: `enabled` is false when the
- * controller has no ate-api endpoint configured, which is a normal deployment
- * and not a failure; and `ateApiError` can be set on an otherwise successful
- * response, meaning the Kubernetes-derived halves are complete while the
- * runtime ones are partial. Both deserve their own message on screen — neither
- * is an `error`.
- */
+/** Inventory with independent ATE atespace and Kubernetes namespace filters. */
 export function useSubstrateStatus(
-  namespace?: string,
+  scope: SubstrateScopeInput = {},
 ): ApiResource<SubstrateStatusResponse> {
-  return useApiResource(["substrate.status", namespace ?? ""], () =>
-    apiClient.substrate.status(namespace),
+  return useApiResource(["substrate.status", scope.namespace ?? "", scope.atespace ?? ""], () =>
+    apiClient.substrate.status(scope),
   );
 }
 
 /**
- * The substrate inventory as counts, plus the two lists small enough to send whole.
- *
- * This is what the tiles read, and it is the only place a *total* comes from: the
- * actor and worker reads below are pages, and a page's length is not a total.
- * Counting rows on screen and labelling the result "Actors" would report 100 for a
- * cluster running four hundred thousand.
- *
- * It is also the expensive read on this page. ate-api reports no totals, so the
- * controller walks every one of its pages to count — seconds on a large cluster,
- * against milliseconds for a page. Poll it no faster than the counts need to be
- * right: a caller that does not show them beside a live table wants it far less often
- * than the pages, and `computedAt` says how old the answer it got is.
+ * Counts across every page in scope, plus worker pools and actor templates.
+ * ATE provides no aggregates, so computing these counts walks every page in scope.
  */
-export function useSubstrateSummary(namespace?: string): ApiResource<SubstrateSummary> {
-  return useApiResource(["substrate.summary", namespace ?? ""], () =>
-    apiClient.substrate.summary(namespace),
+export function useSubstrateSummary(scope: SubstrateScopeInput = {}): ApiResource<SubstrateSummary> {
+  return useApiResource(["substrate.summary", scope.namespace ?? "", scope.atespace ?? ""], () =>
+    apiClient.substrate.summary(scope),
   );
 }
 
@@ -64,10 +45,10 @@ export function useSubstrateSummary(namespace?: string): ApiResource<SubstrateSu
  * debounce, and each header click, is a walk of the inventory.
  */
 export function useSubstrateActors(
-  input: SubstratePageInput<SubstrateActorSortField>,
+  input: SubstrateActorPageInput,
 ): ApiResource<SubstrateActorPage> {
   const {
-    namespace = "",
+    atespace = "",
     filter = "",
     limit = 0,
     pageToken = "",
@@ -75,10 +56,10 @@ export function useSubstrateActors(
     sortOrder = "asc",
   } = input;
   return useApiResource(
-    ["substrate.actors", namespace, filter, limit, pageToken, sortField, sortOrder],
+    ["substrate.actors", atespace, filter, limit, pageToken, sortField, sortOrder],
     () =>
       apiClient.substrate.actors({
-        namespace,
+        atespace,
         filter,
         limit,
         pageToken,
@@ -90,7 +71,7 @@ export function useSubstrateActors(
 
 /** One page of workers. The mirror of `useSubstrateActors`. */
 export function useSubstrateWorkers(
-  input: SubstratePageInput<SubstrateWorkerSortField>,
+  input: SubstrateWorkerPageInput,
 ): ApiResource<SubstrateWorkerPage> {
   const {
     namespace = "",

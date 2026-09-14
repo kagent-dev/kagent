@@ -58,27 +58,33 @@ func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Contex
 	return store.harnesses, store.err
 }
 
-func (client *fakeATEClient) ListActors(context.Context, string) ([]*ateapipb.Actor, error) {
+func (client *fakeATEClient) ListActors(_ context.Context, atespace string) ([]*ateapipb.Actor, error) {
 	if client.err != nil {
 		return nil, client.err
 	}
-	return client.actors, nil
+	return actorsInAtespace(client.actors, atespace), nil
 }
 
 func (client *fakeATEClient) ListWorkers(context.Context) ([]*ateapipb.Worker, error) {
 	return client.workers, client.err
 }
 
-func (client *fakeATEClient) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
-	return client.templates, client.err
+func (client *fakeATEClient) ListActorTemplates(_ context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
+	templates := []*ateapipb.ActorTemplate{}
+	for _, template := range client.templates {
+		if atespace == "" || template.GetMetadata().GetAtespace() == atespace {
+			templates = append(templates, template)
+		}
+	}
+	return templates, client.err
 }
 
-func (client *fakeATEClient) ListActorsPage(_ context.Context, _ string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
+func (client *fakeATEClient) ListActorsPage(_ context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
 	client.actorReads++
 	if err := client.readError(client.actorReads); err != nil {
 		return nil, "", err
 	}
-	return fakePage(client.actors, client.pageSize, pageSize, pageToken)
+	return fakePage(actorsInAtespace(client.actors, atespace), client.pageSize, pageSize, pageToken)
 }
 
 func (client *fakeATEClient) ListWorkersPage(_ context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error) {
@@ -201,7 +207,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 				}},
 			}},
 			actors: []*ateapipb.Actor{{
-				Metadata:      &ateapipb.ResourceMetadata{Name: "actor-1"},
+				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "actor-1"},
 				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
 				Status: &ateapipb.ActorStatus{
 					State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
@@ -219,7 +225,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		}}}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions)
 
-		result, err := service.GetSubstrateStatus(ctx, "team")
+		result, err := service.GetSubstrateStatus(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.True(t, result.Enabled)
 		require.Len(t, result.WorkerPools, 1)
@@ -246,7 +252,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 
 	t.Run("authorizes", func(t *testing.T) {
 		service := system.NewService(nil, nil, systemDenyAuthorizer{}, nil, nil)
-		_, err := service.GetSubstrateStatus(ctx, "")
+		_, err := service.GetSubstrateStatus(ctx, "", "")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 	})
 }
@@ -262,7 +268,7 @@ func substrateActor(name, atespace string, state ateapipb.ActorState, workerName
 		}
 	}
 	return &ateapipb.Actor{
-		Metadata:      &ateapipb.ResourceMetadata{Name: name},
+		Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: atespace, Name: "template"},
 		Status:        status,
 	}
@@ -326,7 +332,7 @@ func TestListSubstrateActors(t *testing.T) {
 			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 		}}
 
-		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Namespace: "team", Page: &apiv1alpha1.PageRequest{Limit: 10}})
+		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: "team", Page: &apiv1alpha1.PageRequest{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
 		assert.Equal(t, "actor-1", page.Actors[0].GetMetadata().GetName())
@@ -410,7 +416,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
 		}}})
 
-		result, err := service.GetSubstrateSummary(ctx, "team")
+		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.True(t, result.Enabled)
 		assert.Empty(t, result.ATEAPIError)
@@ -433,7 +439,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 	t.Run("an ate-api failure leaves the Kubernetes halves complete", func(t *testing.T) {
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, &fakeATEClient{err: errors.New("ate-api unreachable")}, &fakeRuntimeRevisionStore{})
 
-		result, err := service.GetSubstrateSummary(ctx, "team")
+		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.Equal(t, "ate-api unreachable", result.ATEAPIError)
 		assert.Zero(t, result.ActorCount)
@@ -464,7 +470,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
 
-		result, err := service.GetSubstrateSummary(ctx, "team")
+		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.Equal(t, "templates unavailable", result.ATEAPIError)
 		assert.Empty(t, result.ActorTemplates)
@@ -478,7 +484,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 	t.Run("a failed actor walk still counts busy workers", func(t *testing.T) {
 		ateClient := &failingActorsATEClient{fakeATEClient: fakeATEClient{workers: workers}}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
-		result, err := service.GetSubstrateSummary(ctx, "team")
+		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.Equal(t, "actors unavailable", result.ATEAPIError)
 		assert.Zero(t, result.ActorCount)
@@ -497,7 +503,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
 
-		result, err := service.GetSubstrateSummary(ctx, "team")
+		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.Equal(t, "workers unavailable", result.ATEAPIError)
 		assert.Equal(t, int64(2), result.ActorCount)
@@ -507,7 +513,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 
 	t.Run("busy workers are counted on the same footing as the workers themselves", func(t *testing.T) {
 		/*
-		 * An actor's scope is its template's atespace; a worker's is its pod's
+		 * An actor's scope is its own atespace; a worker's is its pod's
 		 * Kubernetes namespace, and the two need not agree. Counting the actor here and
 		 * not the pod it sits on renders the tile as "1/0" — more workers busy than
 		 * exist.
@@ -522,7 +528,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 		}
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
 
-		result, err := service.GetSubstrateSummary(ctx, "team")
+		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), result.ActorCount)
 		assert.Equal(t, int64(0), result.WorkerCount)
@@ -532,7 +538,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 	t.Run("a database failure is an internal error, not a warning about ate-api", func(t *testing.T) {
 		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, &fakeATEClient{actors: actors, workers: workers}, &fakeRuntimeRevisionStore{err: errors.New("connection refused")})
 
-		_, err := service.GetSubstrateSummary(ctx, "team")
+		_, err := service.GetSubstrateSummary(ctx, "team", "team")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal), err)
 	})
 }
@@ -719,7 +725,7 @@ func TestBusyWorkerWithOutOfScopeActor(t *testing.T) {
 		},
 	}
 	service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
-	summary, err := service.GetSubstrateSummary(ctx, "kagent")
+	summary, err := service.GetSubstrateSummary(ctx, "kagent", "kagent")
 	require.NoError(t, err)
 	require.Empty(t, summary.ATEAPIError)
 	require.Equal(t, int64(0), summary.ActorCount)
@@ -758,4 +764,115 @@ type failingActorsATEClient struct{ fakeATEClient }
 
 func (client *failingActorsATEClient) ListActorsPage(context.Context, string, int32, string) ([]*ateapipb.Actor, string, error) {
 	return nil, "", errors.New("actors unavailable")
+}
+
+func actorsInAtespace(actors []*ateapipb.Actor, atespace string) []*ateapipb.Actor {
+	result := []*ateapipb.Actor{}
+	for _, actor := range actors {
+		if atespace == "" || actor.GetMetadata().GetAtespace() == atespace {
+			result = append(result, actor)
+		}
+	}
+	return result
+}
+
+func TestSubstrateScopesAreIndependent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "workers", Name: "pool"}},
+	).Build()
+	actor := substrateActor("same-name", "team-a", ateapipb.ActorState_ACTOR_STATE_RUNNING, "workers", "pod")
+	actor.ActorTemplate.Atespace = "shared"
+	ateClient := &fakeATEClient{
+		pageSize: 1,
+		actors:   []*ateapipb.Actor{actor, substrateActor("same-name", "shared", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", "")},
+		templates: []*ateapipb.ActorTemplate{
+			{Metadata: &ateapipb.ResourceMetadata{Atespace: "shared", Name: "template"}},
+			{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "own-template"}},
+		},
+		workers: []*ateapipb.Worker{{WorkerNamespace: "workers", WorkerPod: "pod"}},
+	}
+	service := system.NewService(kubeClient, []string{"workers"}, &authimpl.NoopAuthorizer{}, ateClient, &fakeRuntimeRevisionStore{})
+	for _, tc := range []struct {
+		atespace string
+		count    int64
+		running  int64
+	}{
+		{atespace: "", count: 2, running: 1},
+		{atespace: "team-a", count: 1, running: 1},
+		{atespace: "shared", count: 1, running: 0},
+		{atespace: "missing", count: 0, running: 0},
+	} {
+		t.Run(tc.atespace, func(t *testing.T) {
+			summary, err := service.GetSubstrateSummary(ctx, "", tc.atespace)
+			require.NoError(t, err)
+			assert.Equal(t, tc.count, summary.ActorCount)
+			assert.Equal(t, tc.running, summary.RunningActorCount)
+			assert.Len(t, summary.ActorTemplates, int(tc.count))
+			var counted int64
+			for _, bucket := range summary.ActorStatusCounts {
+				counted += bucket.Count
+			}
+			assert.Equal(t, tc.count, counted)
+			assert.Equal(t, int64(1), summary.WorkerCount)
+			require.Len(t, summary.WorkerPools, 1)
+			status, err := service.GetSubstrateStatus(ctx, "", tc.atespace)
+			require.NoError(t, err)
+			assert.Len(t, status.Actors, int(tc.count))
+			assert.Len(t, status.ActorTemplates, int(tc.count))
+			assert.Len(t, status.Workers, 1)
+			assert.Len(t, status.WorkerPools, 1)
+			for _, template := range status.ActorTemplates {
+				if tc.atespace != "" {
+					assert.Equal(t, tc.atespace, template.ActorTemplate.GetMetadata().GetAtespace())
+				}
+			}
+			page, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: tc.atespace, Page: &apiv1alpha1.PageRequest{Limit: 1}})
+			require.NoError(t, err)
+			assert.Equal(t, tc.count, page.TotalSize)
+			for _, row := range page.Actors {
+				if tc.atespace != "" {
+					assert.Equal(t, tc.atespace, row.GetMetadata().GetAtespace())
+				}
+			}
+		})
+	}
+	page, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Filter: "team-a/same-name"})
+	require.NoError(t, err)
+	require.Len(t, page.Actors, 1)
+	assert.Same(t, actor, page.Actors[0])
+}
+
+func TestActorPaginationUsesAtespaceAndName(t *testing.T) {
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	for _, field := range []apiv1alpha1.SubstrateActorSortField{
+		apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED,
+		apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_STATUS,
+		apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID,
+		apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE,
+		apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD,
+	} {
+		t.Run(field.String(), func(t *testing.T) {
+			a := substrateActor("same-name", "a", ateapipb.ActorState_ACTOR_STATE_RUNNING, "workers", "pod")
+			b := substrateActor("same-name", "b", ateapipb.ActorState_ACTOR_STATE_RUNNING, "workers", "pod")
+			a.ActorTemplate.Atespace, b.ActorTemplate.Atespace = "shared", "shared"
+			ateClient := &fakeATEClient{pageSize: 1, actors: []*ateapipb.Actor{b, a}}
+			service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, ateClient, nil)
+			request := &apiv1alpha1.ListSubstrateActorsRequest{SortField: field, Page: &apiv1alpha1.PageRequest{Limit: 1}}
+			first, err := service.ListSubstrateActors(ctx, request)
+			require.NoError(t, err)
+			require.Len(t, first.Actors, 1)
+			assert.Same(t, a, first.Actors[0])
+			// Upstream order may change between reads; the tie-breaker must not.
+			ateClient.actors = []*ateapipb.Actor{a, b}
+			request.Page.PageToken = first.NextPageToken
+			second, err := service.ListSubstrateActors(ctx, request)
+			require.NoError(t, err)
+			require.Len(t, second.Actors, 1)
+			assert.Same(t, b, second.Actors[0])
+			assert.Empty(t, second.NextPageToken)
+		})
+	}
 }
