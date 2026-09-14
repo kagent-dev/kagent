@@ -65,7 +65,7 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 		AteApiError:    result.ATEAPIError,
 		WorkerPools:    make([]*apiv1alpha1.SubstrateWorkerPool, 0, len(result.WorkerPools)),
 		ActorTemplates: make([]*apiv1alpha1.SubstrateActorTemplate, 0, len(result.ActorTemplates)),
-		Actors:         make([]*apiv1alpha1.SubstrateActor, 0, len(result.Actors)),
+		Actors:         result.Actors,
 		Workers:        make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
 	}
 	for _, workerPool := range result.WorkerPools {
@@ -73,9 +73,6 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 	}
 	for _, actorTemplate := range result.ActorTemplates {
 		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
-	}
-	for _, actor := range result.Actors {
-		response.Actors = append(response.Actors, substrateActorProto(actor))
 	}
 	for _, worker := range result.Workers {
 		response.Workers = append(response.Workers, substrateWorkerProto(worker))
@@ -130,15 +127,12 @@ func (s *systemServer) ListSubstrateActors(ctx context.Context, request *apiv1al
 	response := &apiv1alpha1.ListSubstrateActorsResponse{
 		Enabled:          result.Enabled,
 		AteApiError:      result.ATEAPIError,
-		Actors:           make([]*apiv1alpha1.SubstrateActor, 0, len(result.Actors)),
+		Actors:           result.Actors,
 		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
 		ComputedAt:       timestamppb.New(result.ComputedAt),
 		TotalSize:        result.TotalSize,
 		AppliedSortField: apiv1alpha1.SubstrateActorSortField(result.AppliedSortField),
 		AppliedSortOrder: apiv1alpha1.SubstrateSortOrder(result.AppliedSortOrder),
-	}
-	for _, actor := range result.Actors {
-		response.Actors = append(response.Actors, substrateActorProto(actor))
 	}
 	return response, nil
 }
@@ -185,32 +179,9 @@ func substrateWorkerPoolProto(workerPool systemservice.SubstrateWorkerPool) *api
 
 func substrateActorTemplateProto(actorTemplate systemservice.SubstrateActorTemplate) *apiv1alpha1.SubstrateActorTemplate {
 	return &apiv1alpha1.SubstrateActorTemplate{
-		Namespace:       actorTemplate.Namespace,
-		Name:            actorTemplate.Name,
-		Phase:           actorTemplate.Phase,
-		GoldenActorId:   actorTemplate.GoldenActorID,
-		GoldenSnapshot:  actorTemplate.GoldenSnapshot,
-		SandboxClass:    actorTemplate.SandboxClass,
-		WorkerSelector:  actorTemplate.WorkerSelector,
+		ActorTemplate:   actorTemplate.ActorTemplate,
 		HarnessName:     actorTemplate.HarnessName,
 		ManagedByKagent: actorTemplate.ManagedByKagent,
-	}
-}
-
-func substrateActorProto(actor systemservice.SubstrateActor) *apiv1alpha1.SubstrateActor {
-	return &apiv1alpha1.SubstrateActor{
-		ActorId:                actor.ActorID,
-		Atespace:               actor.Atespace,
-		Status:                 actor.Status,
-		ActorTemplateNamespace: actor.ActorTemplateNamespace,
-		ActorTemplateName:      actor.ActorTemplateName,
-		AteomPodNamespace:      actor.AteomPodNamespace,
-		AteomPodName:           actor.AteomPodName,
-		AteomPodIp:             actor.AteomPodIP,
-		LatestSnapshot:         actor.LatestSnapshot,
-		WorkerPoolName:         actor.WorkerPoolName,
-		InProgressSnapshot:     actor.InProgressSnapshot,
-		Version:                actor.Version,
 	}
 }
 

@@ -118,7 +118,7 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * `FNR`, not `NR`: `NR` keeps counting across files, so every line number after the
  * first schema comes out wrong — which is how this list drifted last time.
  *
- * - `system.proto:95`   — `SubstrateActor.version`     (reached by `substrate.actors`)
+ * - `ateapi.proto`      — `ResourceMetadata.version`  (reached by `substrate.actors`)
  * - `system.proto:106`  — `SubstrateWorker.version`    (reached by `substrate.workers`)
  * - `system.proto:127`  — `SubstrateActorStatusCount.count`      (`substrate.summary`)
  * - `system.proto:150`  — `GetSubstrateSummaryResponse.actor_count`         (the same)

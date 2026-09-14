@@ -60,7 +60,7 @@ type SubstrateListInput struct {
 type SubstrateActorPage struct {
 	Enabled       bool
 	ATEAPIError   string
-	Actors        []SubstrateActor
+	Actors        []*ateapipb.Actor
 	NextPageToken string
 	ComputedAt    time.Time
 	// How many actors match the filter across every page.
@@ -172,10 +172,9 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			return
 		}
-		entry := actorFromProto(actor)
 		result.ActorCount++
-		statusCounts[entry.Status]++
-		if strings.EqualFold(entry.Status, "Running") {
+		statusCounts[substrate.ActorStatusLabel(actor.GetStatus().GetState())]++
+		if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_RUNNING {
 			result.RunningActorCount++
 		}
 		/*
@@ -184,9 +183,10 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 		 * that it matches WorkerCount below — the two are shown as one fraction, and an
 		 * actor in atespace `team` on a pod in namespace `kagent` would render "1/0".
 		 */
-		if entry.AteomPodName != "" &&
-			allowedWorkerNamespace(entry.AteomPodNamespace, allowAll, allowed) {
-			busyWorkers[entry.AteomPodNamespace+"/"+entry.AteomPodName] = struct{}{}
+		assignment := actor.GetStatus().GetWorkerAssignment()
+		if assignment.GetWorkerPod() != "" &&
+			allowedWorkerNamespace(assignment.GetWorkerNamespace(), allowAll, allowed) {
+			busyWorkers[assignment.GetWorkerNamespace()+"/"+assignment.GetWorkerPod()] = struct{}{}
 		}
 	}); err != nil {
 		result.recordATEError(ctx, err)
@@ -236,7 +236,7 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 	}
 	result := SubstrateActorPage{
 		Enabled:          s.ateClient != nil,
-		Actors:           []SubstrateActor{},
+		Actors:           []*ateapipb.Actor{},
 		ComputedAt:       time.Now().UTC(),
 		AppliedSortField: int32(sortField),
 		AppliedSortOrder: int32(substrateSortOrder(input.SortOrder)),
@@ -246,17 +246,16 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
-	matching := []SubstrateActor{}
+	matching := []*ateapipb.Actor{}
 	needle := strings.ToLower(strings.TrimSpace(input.Filter))
 	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
 		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			return
 		}
-		entry := actorFromProto(actor)
-		if !matchesFilter(needle, actorSearchText(entry)) {
+		if !matchesFilter(needle, actorSearchText(actor)) {
 			return
 		}
-		matching = append(matching, entry)
+		matching = append(matching, actor)
 	}); err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
@@ -437,15 +436,15 @@ func matchesFilter(needle, text string) bool {
 
 // actorSearchText is everything an actor row shows, including what a column composes
 // out of several fields, so a search matches what the reader can see.
-func actorSearchText(actor SubstrateActor) string {
+func actorSearchText(actor *ateapipb.Actor) string {
 	return strings.Join([]string{
-		actor.ActorID,
-		actor.Status,
-		actor.ActorTemplateNamespace,
-		actor.ActorTemplateName,
-		actor.AteomPodNamespace,
-		actor.AteomPodName,
-		actor.AteomPodIP,
+		actor.GetMetadata().GetName(),
+		substrate.ActorStatusLabel(actor.GetStatus().GetState()),
+		actor.GetActorTemplate().GetAtespace(),
+		actor.GetActorTemplate().GetName(),
+		actor.GetStatus().GetWorkerAssignment().GetWorkerNamespace(),
+		actor.GetStatus().GetWorkerAssignment().GetWorkerPod(),
+		actor.GetStatus().GetWorkerAssignment().GetWorkerPodIp(),
 	}, " ")
 }
 
@@ -461,22 +460,25 @@ func workerSearchText(worker SubstrateWorker) string {
 // actorSortKey turns a column into the string a row is ordered by. Every key ends in
 // the unique actor id: an order whose last key repeats gives a page boundary naming
 // more than one row, and paging across it drops or repeats them.
-func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(SubstrateActor) string {
+func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(*ateapipb.Actor) string {
 	switch field {
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID:
-		return func(a SubstrateActor) string { return a.ActorID }
+		return func(a *ateapipb.Actor) string { return a.GetMetadata().GetName() }
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE:
-		return func(a SubstrateActor) string {
-			return a.ActorTemplateNamespace + "/" + a.ActorTemplateName + "\x00" + a.ActorID
+		return func(a *ateapipb.Actor) string {
+			return a.GetActorTemplate().GetAtespace() + "/" + a.GetActorTemplate().GetName() + "\x00" + a.GetMetadata().GetName()
 		}
 	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD:
-		return func(a SubstrateActor) string {
-			return a.AteomPodNamespace + "/" + a.AteomPodName + "\x00" + a.ActorID
+		return func(a *ateapipb.Actor) string {
+			assignment := a.GetStatus().GetWorkerAssignment()
+			return assignment.GetWorkerNamespace() + "/" + assignment.GetWorkerPod() + "\x00" + a.GetMetadata().GetName()
 		}
 	default:
 		// Status and the default are one ordering, so the Status header changes nothing
 		// ascending and reverses descending. Correct, and not obvious.
-		return func(a SubstrateActor) string { return a.Status + "\x00" + a.ActorID }
+		return func(a *ateapipb.Actor) string {
+			return substrate.ActorStatusLabel(a.GetStatus().GetState()) + "\x00" + a.GetMetadata().GetName()
+		}
 	}
 }
 

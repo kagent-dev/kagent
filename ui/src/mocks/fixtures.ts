@@ -280,7 +280,7 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       phase: "Ready",
       goldenActorId: "actor-golden-001",
       goldenSnapshot: "snap-2026-07-28",
-      sandboxClass: "standard",
+      sandboxClass: "gvisor",
       workerSelector: "pool=default-pool",
       harnessName: "openclaw",
     },
@@ -304,7 +304,7 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       workerPoolName: "default-pool",
       version: 4,
     },
-    { actorId: "actor-9c03", status: "Snapshotting", inProgressSnapshot: "snap-2026-07-30", version: 2 },
+    { actorId: "actor-9c03", status: "Suspending", inProgressSnapshot: "snap-2026-07-30", version: 2 },
     // Last in the fixture and first once sorted: ate-api returns actors in no
     // particular order, so a fixture that is already in the right order cannot tell
     // a page that sorts from one that does not.

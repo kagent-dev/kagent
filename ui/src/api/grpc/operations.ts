@@ -1,3 +1,4 @@
+import { ActorState, type Actor as PbActor, SandboxClass } from "@/generated/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -60,7 +61,6 @@ import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
   GetSubstrateStatusResponse,
-  SubstrateActor as PbSubstrateActor,
   SubstrateActorTemplate as PbSubstrateActorTemplate,
   SubstrateWorker as PbSubstrateWorker,
   SubstrateWorkerPool as PbSubstrateWorkerPool,
@@ -1059,32 +1059,69 @@ function toWorkerPoolEntry(pool: PbSubstrateWorkerPool): SubstrateWorkerPoolEntr
 function toActorTemplateEntry(
   template: PbSubstrateActorTemplate,
 ): SubstrateActorTemplateEntry {
+  const actorTemplate = required(
+    template.actorTemplate,
+    "Substrate",
+    "actor template",
+  );
+  const metadata = required(
+    actorTemplate.metadata,
+    "Substrate",
+    "actor template metadata",
+  );
+  const golden = actorTemplate.status?.goldenSnapshotStatus;
   return {
-    namespace: template.namespace,
-    name: template.name,
-    phase: orUndefined(template.phase),
-    goldenActorId: orUndefined(template.goldenActorId),
-    goldenSnapshot: orUndefined(template.goldenSnapshot),
-    sandboxClass: orUndefined(template.sandboxClass),
-    workerSelector: orUndefined(template.workerSelector),
+    namespace: metadata.atespace,
+    name: metadata.name,
+    phase: golden?.errorMessage
+      ? "Failed"
+      : golden?.goldenSnapshot ? "Ready" : "Pending",
+    goldenActorId: orUndefined(metadata.uid),
+    goldenSnapshot: orUndefined(golden?.goldenSnapshot?.snapshotUri),
+    sandboxClass:
+      SandboxClass[
+        actorTemplate.sandboxConfig?.sandboxClass ?? SandboxClass.UNSPECIFIED
+      ]?.toLowerCase(),
+    workerSelector: orUndefined(
+      Object.entries(actorTemplate.workerSelector?.matchLabels ?? {})
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, value]) => `${key}=${value}`)
+        .join(","),
+    ),
     harnessName: orUndefined(template.harnessName),
   };
 }
 
-function toActorEntry(actor: PbSubstrateActor): SubstrateActorEntry {
+// Match the server's ActorStatusLabel for sorting, searching, and summary counts.
+const ACTOR_STATUS_LABELS: Record<ActorState, string> = {
+  [ActorState.UNSPECIFIED]: "Unknown",
+  [ActorState.RESUMING]: "Resuming",
+  [ActorState.RUNNING]: "Running",
+  [ActorState.SUSPENDING]: "Suspending",
+  [ActorState.SUSPENDED]: "Suspended",
+  [ActorState.PAUSING]: "Pausing",
+  [ActorState.PAUSED]: "Paused",
+  [ActorState.CRASHED]: "ACTOR_STATE_CRASHED",
+  [ActorState.DELETING]: "ACTOR_STATE_DELETING",
+};
+
+function toActorEntry(actor: PbActor): SubstrateActorEntry {
+  const metadata = required(actor.metadata, "Substrate", "actor metadata");
+  const state = actor.status?.state ?? ActorState.UNSPECIFIED;
+  const assignment = actor.status?.workerAssignment;
   return {
-    actorId: actor.actorId,
-    atespace: orUndefined(actor.atespace),
-    status: actor.status,
-    actorTemplateNamespace: orUndefined(actor.actorTemplateNamespace),
-    actorTemplateName: orUndefined(actor.actorTemplateName),
-    ateomPodNamespace: orUndefined(actor.ateomPodNamespace),
-    ateomPodName: orUndefined(actor.ateomPodName),
-    ateomPodIp: orUndefined(actor.ateomPodIp),
-    latestSnapshot: orUndefined(actor.latestSnapshot),
-    workerPoolName: orUndefined(actor.workerPoolName),
-    inProgressSnapshot: orUndefined(actor.inProgressSnapshot),
-    version: toNumber(actor.version),
+    actorId: metadata.name,
+    atespace: orUndefined(metadata.atespace),
+    status: ACTOR_STATUS_LABELS[state] ?? String(state),
+    actorTemplateNamespace: orUndefined(actor.actorTemplate?.atespace),
+    actorTemplateName: orUndefined(actor.actorTemplate?.name),
+    ateomPodNamespace: orUndefined(assignment?.workerNamespace),
+    ateomPodName: orUndefined(assignment?.workerPod),
+    ateomPodIp: orUndefined(assignment?.workerPodIp),
+    latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
+    workerPoolName: orUndefined(assignment?.workerPool),
+    inProgressSnapshot: orUndefined(actor.status?.inProgressSnapshotName),
+    version: toNumber(metadata.version),
   };
 }
 

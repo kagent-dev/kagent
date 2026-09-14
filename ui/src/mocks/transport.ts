@@ -1,3 +1,5 @@
+import { ActorState, SandboxClass, type ActorSchema } from "@/generated/ateapi_pb";
+import type { SubstrateActorTemplateSchema } from "@/generated/kagent/api/v1alpha1/system_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
@@ -1316,34 +1318,67 @@ function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
   };
 }
 
-function substrateActorTemplateMessage(template: SubstrateActorTemplateEntry) {
+function substrateActorTemplateMessage(
+  template: SubstrateActorTemplateEntry,
+): MessageInitShape<typeof SubstrateActorTemplateSchema> {
   return {
-    namespace: template.namespace,
-    name: template.name,
-    phase: template.phase ?? "",
-    goldenActorId: template.goldenActorId ?? "",
-    goldenSnapshot: template.goldenSnapshot ?? "",
-    sandboxClass: template.sandboxClass ?? "",
-    workerSelector: template.workerSelector ?? "",
+    actorTemplate: {
+      metadata: {
+        atespace: template.namespace,
+        name: template.name,
+        uid: template.goldenActorId ?? "",
+      },
+      status: {
+        goldenSnapshotStatus: {
+          goldenSnapshot: template.goldenSnapshot
+            ? { snapshotUri: template.goldenSnapshot }
+            : undefined,
+          errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
+        },
+      },
+      sandboxConfig: {
+        sandboxClass:
+          SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
+          ?? SandboxClass.UNSPECIFIED,
+      },
+      workerSelector: {
+        matchLabels: template.workerSelector
+          ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))
+          : {},
+      },
+    },
     harnessName: template.harnessName ?? "",
   };
 }
 
-function substrateActorMessage(actor: SubstrateActorEntry) {
+function substrateActorMessage(
+  actor: SubstrateActorEntry,
+): MessageInitShape<typeof ActorSchema> {
   return {
-    actorId: actor.actorId,
-    atespace: actor.atespace ?? "",
-    status: actor.status ?? "",
-    actorTemplateNamespace: actor.actorTemplateNamespace ?? "",
-    actorTemplateName: actor.actorTemplateName ?? "",
-    ateomPodNamespace: actor.ateomPodNamespace ?? "",
-    ateomPodName: actor.ateomPodName ?? "",
-    ateomPodIp: actor.ateomPodIp ?? "",
-    latestSnapshot: actor.latestSnapshot ?? "",
-    workerPoolName: actor.workerPoolName ?? "",
-    inProgressSnapshot: actor.inProgressSnapshot ?? "",
-    // `int64` on the wire.
-    version: BigInt(actor.version ?? 0),
+    metadata: {
+      name: actor.actorId,
+      atespace: actor.atespace ?? "",
+      version: BigInt(actor.version ?? 0),
+    },
+    actorTemplate: {
+      atespace: actor.actorTemplateNamespace ?? "",
+      name: actor.actorTemplateName ?? "",
+    },
+    status: {
+      state: ActorState[
+        actor.status.replace(/^ACTOR_STATE_/, "").toUpperCase() as keyof typeof ActorState
+      ] ?? ActorState.UNSPECIFIED,
+      workerAssignment: actor.ateomPodName ? {
+        workerNamespace: actor.ateomPodNamespace ?? "",
+        workerPod: actor.ateomPodName,
+        workerPodIp: actor.ateomPodIp ?? "",
+        workerPool: actor.workerPoolName ?? "",
+      } : undefined,
+      externalSnapshot: actor.latestSnapshot
+        ? { snapshotUri: actor.latestSnapshot }
+        : undefined,
+      inProgressSnapshotName: actor.inProgressSnapshot ?? "",
+    },
   };
 }
 

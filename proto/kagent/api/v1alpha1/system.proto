@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "ateapi.proto";
 import "buf/validate/validate.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -58,7 +59,7 @@ message GetSubstrateStatusResponse {
   string ate_api_error = 2;
   repeated SubstrateWorkerPool worker_pools = 3;
   repeated SubstrateActorTemplate actor_templates = 4;
-  repeated SubstrateActor actors = 5;
+  repeated ateapi.Actor actors = 5;
   repeated SubstrateWorker workers = 6;
 }
 
@@ -70,30 +71,13 @@ message SubstrateWorkerPool {
 }
 
 message SubstrateActorTemplate {
-  string namespace = 1;
-  string name = 2;
-  string phase = 3;
-  string golden_actor_id = 4;
-  string golden_snapshot = 5;
-  string sandbox_class = 6;
-  string worker_selector = 7;
+  reserved 1 to 7;
+  reserved "namespace", "name", "phase", "golden_actor_id", "golden_snapshot", "sandbox_class", "worker_selector";
+
   string harness_name = 8;
   bool managed_by_kagent = 9;
-}
-
-message SubstrateActor {
-  string actor_id = 1;
-  string atespace = 2;
-  string status = 3;
-  string actor_template_namespace = 4;
-  string actor_template_name = 5;
-  string ateom_pod_namespace = 6;
-  string ateom_pod_name = 7;
-  string ateom_pod_ip = 8;
-  string latest_snapshot = 9;
-  string worker_pool_name = 10;
-  string in_progress_snapshot = 11;
-  int64 version = 12;
+  // Inventory metadata and status only; runtime configuration may contain credentials.
+  ateapi.ActorTemplate actor_template = 10;
 }
 
 message SubstrateWorker {
@@ -197,7 +181,7 @@ message ListSubstrateActorsRequest {
 message ListSubstrateActorsResponse {
   bool enabled = 1;
   string ate_api_error = 2;
-  repeated SubstrateActor actors = 3;
+  repeated ateapi.Actor actors = 3;
   // Empty next_page_token on the last page.
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;

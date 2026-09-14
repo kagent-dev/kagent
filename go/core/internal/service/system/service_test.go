@@ -203,6 +203,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 			templates: []*ateapipb.ActorTemplate{{
 				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
 				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
+				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 					GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
 				}},
@@ -232,14 +233,19 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.Len(t, result.WorkerPools, 1)
 		assert.Equal(t, int32(2), result.WorkerPools[0].Replicas)
 		require.Len(t, result.ActorTemplates, 1)
-		assert.Equal(t, "Ready", result.ActorTemplates[0].Phase)
-		assert.Equal(t, "template-uid", result.ActorTemplates[0].GoldenActorID)
-		assert.Equal(t, "s3://snapshots/golden", result.ActorTemplates[0].GoldenSnapshot)
-		assert.Equal(t, "gvisor", result.ActorTemplates[0].SandboxClass)
+		template := result.ActorTemplates[0].ActorTemplate
+		require.NotNil(t, template)
+		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
+		assert.Equal(t, "s3://snapshots/golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot().GetSnapshotUri())
+		assert.Equal(t, ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, template.GetSandboxConfig().GetSandboxClass())
+		assert.Empty(t, template.GetContainers())
+		require.Len(t, ateClient.templates[0].GetContainers(), 1)
+		assert.Equal(t, "secret", ateClient.templates[0].GetContainers()[0].GetEnv()[0].GetValue())
 		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
 		assert.True(t, result.ActorTemplates[0].ManagedByKagent)
 		require.Len(t, result.Actors, 1)
-		assert.Equal(t, "Running", result.Actors[0].Status)
+		assert.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, result.Actors[0].GetStatus().GetState())
+		assert.Same(t, ateClient.actors[0], result.Actors[0])
 		require.Len(t, result.Workers, 1)
 		assert.Equal(t, "worker-0", result.Workers[0].WorkerPod)
 		assert.Equal(t, int64(3), result.Workers[0].Version)
@@ -297,7 +303,7 @@ func TestListSubstrateActors(t *testing.T) {
 		// The default order is status then id, across the whole inventory rather than
 		// within the page: Paused sorts before Running, so actor-2 leads even though
 		// ate-api handed it over second.
-		assert.Equal(t, []string{"actor-2", "actor-1"}, []string{page.Actors[0].ActorID, page.Actors[1].ActorID})
+		assert.Equal(t, []string{"actor-2", "actor-1"}, []string{page.Actors[0].GetMetadata().GetName(), page.Actors[1].GetMetadata().GetName()})
 		assert.NotEmpty(t, page.NextPageToken)
 		// The count is of everything matching, not of the page.
 		assert.Equal(t, int64(3), page.TotalSize)
@@ -320,12 +326,12 @@ func TestListSubstrateActors(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Len(t, second.Actors, 1)
-		assert.Equal(t, "actor-3", second.Actors[0].ActorID)
+		assert.Equal(t, "actor-3", second.Actors[0].GetMetadata().GetName())
 		assert.Empty(t, second.NextPageToken, "the last page offers nowhere to go")
 		assert.Equal(t, int64(3), second.TotalSize)
 		// The two pages together are the whole result, in order and without repeats.
 		assert.Equal(t, []string{"actor-1", "actor-2", "actor-3"}, []string{
-			first.Actors[0].ActorID, first.Actors[1].ActorID, second.Actors[0].ActorID,
+			first.Actors[0].GetMetadata().GetName(), first.Actors[1].GetMetadata().GetName(), second.Actors[0].GetMetadata().GetName(),
 		})
 	})
 
@@ -338,7 +344,7 @@ func TestListSubstrateActors(t *testing.T) {
 		page, err := newService(ateClient).ListSubstrateActors(ctx, system.SubstrateListInput{Namespace: "team", PageSize: 10})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
-		assert.Equal(t, "actor-1", page.Actors[0].ActorID)
+		assert.Equal(t, "actor-1", page.Actors[0].GetMetadata().GetName())
 		// The total is of the scope, not of the cluster: counting the other namespace
 		// here would report "1 of 2" for a scope holding one.
 		assert.Equal(t, int64(1), page.TotalSize)
@@ -595,6 +601,37 @@ func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 		substrateActor("actor-alpha", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-9"),
 	}}
 
+	for _, tc := range []struct {
+		name  string
+		field apiv1alpha1.SubstrateActorSortField
+		want  []string
+	}{
+		{
+			name:  "template sort uses upstream references and breaks ties by actor name",
+			field: apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE,
+			want:  []string{"actor-alpha", "actor-mike", "actor-zulu"},
+		},
+		{
+			name:  "worker sort includes actors without an assignment",
+			field: apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD,
+			want:  []string{"actor-mike", "actor-zulu", "actor-alpha"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
+				PageSize:  10,
+				SortField: int32(tc.field),
+			})
+			require.NoError(t, err)
+			require.Len(t, page.Actors, 3)
+			assert.Equal(t, tc.want, []string{
+				page.Actors[0].GetMetadata().GetName(),
+				page.Actors[1].GetMetadata().GetName(),
+				page.Actors[2].GetMetadata().GetName(),
+			})
+		})
+	}
+
 	t.Run("the first page holds the first row of the whole order", func(t *testing.T) {
 		page, err := newService(actors).ListSubstrateActors(ctx, system.SubstrateListInput{
 			PageSize:  1,
@@ -604,7 +641,7 @@ func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 		require.Len(t, page.Actors, 1)
 		// Last out of ate-api, first in the order. A page-scoped sort would have put
 		// actor-zulu here, because that is the row the first ate-api page held.
-		assert.Equal(t, "actor-alpha", page.Actors[0].ActorID)
+		assert.Equal(t, "actor-alpha", page.Actors[0].GetMetadata().GetName())
 		assert.Equal(t, int64(3), page.TotalSize)
 	})
 
@@ -616,7 +653,7 @@ func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
-		assert.Equal(t, "actor-zulu", page.Actors[0].ActorID)
+		assert.Equal(t, "actor-zulu", page.Actors[0].GetMetadata().GetName())
 	})
 
 	t.Run("a filter narrows every page and the total with it", func(t *testing.T) {
@@ -627,7 +664,7 @@ func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
-		assert.Equal(t, "actor-alpha", page.Actors[0].ActorID)
+		assert.Equal(t, "actor-alpha", page.Actors[0].GetMetadata().GetName())
 		// The count is of matches, which is what makes "1 of 1" rather than "1 of 3".
 		assert.Equal(t, int64(1), page.TotalSize)
 		assert.Empty(t, page.NextPageToken)
@@ -640,7 +677,7 @@ func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
-		assert.Equal(t, "actor-alpha", page.Actors[0].ActorID)
+		assert.Equal(t, "actor-alpha", page.Actors[0].GetMetadata().GetName())
 	})
 
 	t.Run("the order applied comes back, rather than being assumed from the request", func(t *testing.T) {
@@ -663,7 +700,7 @@ func TestListSubstrateActorsSortsAndFiltersAcrossEveryPage(t *testing.T) {
 		assert.Equal(t, int32(apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED), page.AppliedSortField)
 		// Status then id: Paused before the two Running, and alpha before zulu within them.
 		assert.Equal(t, []string{"actor-mike", "actor-alpha", "actor-zulu"},
-			[]string{page.Actors[0].ActorID, page.Actors[1].ActorID, page.Actors[2].ActorID})
+			[]string{page.Actors[0].GetMetadata().GetName(), page.Actors[1].GetMetadata().GetName(), page.Actors[2].GetMetadata().GetName()})
 	})
 
 	t.Run("a page token past the end is the end of the list, not an error", func(t *testing.T) {

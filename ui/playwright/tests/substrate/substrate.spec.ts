@@ -45,7 +45,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(page.getByTestId("substrate-stat-pools-value")).toHaveText("2");
     await expect(page.getByTestId("substrate-stat-templates-value")).toHaveText("1/2");
     // Two running of eight: the rest are crashed, deleting, paused, resuming, suspended
-    // and snapshotting, which is exactly the case a bare count would hide.
+    // and suspending, which is exactly the case a bare count would hide.
     await expect(page.getByTestId("substrate-stat-actors-value")).toHaveText("2/8");
     await expect(page.getByTestId("substrate-stat-workers-value")).toHaveText("1/2");
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("all");
@@ -81,7 +81,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
       "Deleting Actors: 1",
       "Resuming Actors: 1",
       "Running Actors: 2",
-      "Snapshotting Actors: 1",
+      "Suspending Actors: 1",
       "Paused Actors: 1",
       "Suspended Actors: 1",
     ]) {
@@ -107,7 +107,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // reader nor a keyboard has one. Colour is never carrying this alone.
     await expect(bar).toHaveAttribute(
       "aria-label",
-      "Actor status. Crashed Actors: 1, Deleting Actors: 1, Resuming Actors: 1, Running Actors: 2, Snapshotting Actors: 1, Paused Actors: 1, Suspended Actors: 1",
+      "Actor status. Crashed Actors: 1, Deleting Actors: 1, Resuming Actors: 1, Running Actors: 2, Suspending Actors: 1, Paused Actors: 1, Suspended Actors: 1",
     );
   });
 
@@ -131,7 +131,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     await expect(templates).toContainText("golden: actor-golden-001");
 
     // The rest of what decides where and how a template runs.
-    await expect(templates).toContainText("standard");
+    await expect(templates).toContainText("gvisor");
     await expect(templates).toContainText("pool=default-pool");
     await expect(templates).toContainText("openclaw");
 
@@ -369,8 +369,8 @@ test("substrate: the actor list is ordered, and the page bounds it without a scr
     "actor-8b91",
     "actor-3b55",
     "actor-7f21",
-    "actor-9c03",
     "actor-c3f5",
+    "actor-9c03",
   ]);
 
   // Nothing windows the rows any more, so there is no virtual holder to scroll inside.

@@ -11,13 +11,11 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -60,7 +58,7 @@ type SubstrateStatus struct {
 	ATEAPIError    string
 	WorkerPools    []SubstrateWorkerPool
 	ActorTemplates []SubstrateActorTemplate
-	Actors         []SubstrateActor
+	Actors         []*ateapipb.Actor
 	Workers        []SubstrateWorker
 }
 
@@ -72,30 +70,9 @@ type SubstrateWorkerPool struct {
 }
 
 type SubstrateActorTemplate struct {
-	Namespace       string
-	Name            string
-	Phase           string
-	GoldenActorID   string
-	GoldenSnapshot  string
-	SandboxClass    string
-	WorkerSelector  string
+	ActorTemplate   *ateapipb.ActorTemplate
 	HarnessName     string
 	ManagedByKagent bool
-}
-
-type SubstrateActor struct {
-	ActorID                string
-	Atespace               string
-	Status                 string
-	ActorTemplateNamespace string
-	ActorTemplateName      string
-	AteomPodNamespace      string
-	AteomPodName           string
-	AteomPodIP             string
-	LatestSnapshot         string
-	WorkerPoolName         string
-	InProgressSnapshot     string
-	Version                int64
 }
 
 type SubstrateWorker struct {
@@ -202,7 +179,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		Enabled:        s.ateClient != nil,
 		WorkerPools:    []SubstrateWorkerPool{},
 		ActorTemplates: []SubstrateActorTemplate{},
-		Actors:         []SubstrateActor{},
+		Actors:         []*ateapipb.Actor{},
 		Workers:        []SubstrateWorker{},
 	}
 	if s.ateClient == nil {
@@ -236,11 +213,8 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 	slices.SortStableFunc(result.WorkerPools, func(left, right SubstrateWorkerPool) int {
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
-	slices.SortStableFunc(result.ActorTemplates, func(left, right SubstrateActorTemplate) int {
-		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
-	})
-	slices.SortStableFunc(result.Actors, func(left, right SubstrateActor) int {
-		return strings.Compare(left.ActorID, right.ActorID)
+	slices.SortStableFunc(result.Actors, func(left, right *ateapipb.Actor) int {
+		return strings.Compare(left.GetMetadata().GetName(), right.GetMetadata().GetName())
 	})
 	slices.SortStableFunc(result.Workers, func(left, right SubstrateWorker) int {
 		return strings.Compare(
@@ -321,7 +295,7 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]Subs
 	return workerPools, nil
 }
 
-func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []SubstrateActor, []SubstrateWorker, error) {
+func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []SubstrateWorker, error) {
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
 	harnesses, err := s.actorTemplateHarnesses(ctx)
@@ -340,7 +314,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	actors := make([]SubstrateActor, 0, len(actorsFromAPI))
+	actors := make([]*ateapipb.Actor, 0, len(actorsFromAPI))
 	for _, actor := range actorsFromAPI {
 		if actor == nil {
 			continue
@@ -348,7 +322,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		if !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			continue
 		}
-		actors = append(actors, actorFromProto(actor))
+		actors = append(actors, actor)
 	}
 
 	workers := make([]SubstrateWorker, 0, len(workersFromAPI))
@@ -372,24 +346,6 @@ func allowedAtespace(atespace string, allowAll bool, allowed map[string]struct{}
 	return ok
 }
 
-func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
-	assignment := actor.GetStatus().GetWorkerAssignment()
-	return SubstrateActor{
-		ActorID:                actor.GetMetadata().GetName(),
-		Atespace:               actor.GetMetadata().GetAtespace(),
-		Status:                 substrate.ActorStatusLabel(actor.GetStatus().GetState()),
-		ActorTemplateNamespace: actor.GetActorTemplate().GetAtespace(),
-		ActorTemplateName:      actor.GetActorTemplate().GetName(),
-		AteomPodNamespace:      assignment.GetWorkerNamespace(),
-		AteomPodName:           assignment.GetWorkerPod(),
-		AteomPodIP:             assignment.GetWorkerPodIp(),
-		LatestSnapshot:         actor.GetStatus().GetExternalSnapshot().GetSnapshotUri(),
-		WorkerPoolName:         assignment.GetWorkerPool(),
-		InProgressSnapshot:     actor.GetStatus().GetInProgressSnapshotName(),
-		Version:                actor.GetMetadata().GetVersion(),
-	}
-}
-
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
@@ -398,18 +354,6 @@ func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
 		IP:              worker.GetIp(),
 		Version:         worker.GetMetadata().GetVersion(),
 	}
-}
-
-func labelSelectorString(ctx context.Context, selector *metav1.LabelSelector) string {
-	if selector == nil {
-		return ""
-	}
-	result, err := metav1.LabelSelectorAsSelector(selector)
-	if err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "invalid agent template worker selector", "error", err)
-		return "<invalid selector>"
-	}
-	return result.String()
 }
 
 /*
@@ -436,29 +380,23 @@ func (s *Service) substrateActorTemplates(
 		if template == nil || !allowedAtespace(template.GetMetadata().GetAtespace(), allowAll, allowed) {
 			continue
 		}
-		golden := template.GetStatus().GetGoldenSnapshotStatus()
-		phase := "Pending"
-		if golden.GetErrorMessage() != "" {
-			phase = "Failed"
-		} else if golden.GetGoldenSnapshot() != nil {
-			phase = "Ready"
-		}
 		metadata := template.GetMetadata()
 		templates = append(templates, SubstrateActorTemplate{
-			Namespace:       metadata.GetAtespace(),
-			Name:            metadata.GetName(),
-			Phase:           phase,
-			GoldenActorID:   metadata.GetUid(),
-			GoldenSnapshot:  golden.GetGoldenSnapshot().GetSnapshotUri(),
-			SandboxClass:    strings.ToLower(strings.TrimPrefix(template.GetSandboxConfig().GetSandboxClass().String(), "SANDBOX_CLASS_")),
-			WorkerSelector:  labelSelectorString(ctx, &metav1.LabelSelector{MatchLabels: template.GetWorkerSelector().GetMatchLabels()}),
+			// Only expose inventory fields: containers can contain resolved credentials.
+			ActorTemplate: &ateapipb.ActorTemplate{
+				Metadata:       metadata,
+				Status:         template.GetStatus(),
+				SandboxConfig:  template.GetSandboxConfig(),
+				WorkerSelector: template.GetWorkerSelector(),
+			},
 			HarnessName:     harnesses[actorTemplateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
 			ManagedByKagent: true,
 		})
 	}
 
 	slices.SortStableFunc(templates, func(left, right SubstrateActorTemplate) int {
-		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
+		leftMetadata, rightMetadata := left.ActorTemplate.GetMetadata(), right.ActorTemplate.GetMetadata()
+		return strings.Compare(leftMetadata.GetAtespace()+"/"+leftMetadata.GetName(), rightMetadata.GetAtespace()+"/"+rightMetadata.GetName())
 	})
 	return templates, nil
 }

@@ -227,6 +227,25 @@ describe("the fixture backend", () => {
     expect(failures.filter(Boolean)).toEqual([]);
   });
 
+  it("serves upstream substrate messages through the UI conversions", async () => {
+    const [status, summary, page] = await Promise.all([
+      invoke("substrate.status", {}),
+      invoke("substrate.summary", {}),
+      invoke("substrate.actors", {}),
+    ]);
+    expect(status.actorTemplates[0]).toMatchObject({
+      name: "coder-template",
+      phase: "Ready",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=default-pool",
+    });
+    expect(summary.actorTemplates).toEqual(status.actorTemplates);
+    expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toEqual(
+      status.actors.find((actor) => actor.actorId === "actor-7f21"),
+    );
+    expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
+  });
+
   /*
    * `models.providers` is two RPCs merged, and a merge with nothing on one side is
    * wired rather than exercised — so the fixtures carry one provider of each kind and

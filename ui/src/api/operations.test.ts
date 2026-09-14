@@ -1,3 +1,4 @@
+import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -381,8 +382,36 @@ describe("the cluster", () => {
           workerPools: [
             { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
           ],
-          actorTemplates: [{ namespace: "kagent", name: "tpl", phase: "Ready" }],
-          actors: [{ actorId: "a1", atespace: "kagent", status: "Running", version: 3n }],
+          actorTemplates: [
+            {
+              actorTemplate: {
+                metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+                status: {
+                  goldenSnapshotStatus: {
+                    goldenSnapshot: { snapshotUri: "s3://golden" },
+                  },
+                },
+                sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+                workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
+              },
+              harnessName: "kagent",
+            },
+          ],
+          actors: [{
+            metadata: { name: "a1", atespace: "kagent", version: 3n },
+            actorTemplate: { atespace: "team", name: "tpl", uid: "template-uid" },
+            status: {
+              state: ActorState.RUNNING,
+              workerAssignment: {
+                workerNamespace: "kagent",
+                workerPod: "worker-0",
+                workerPool: "pool",
+                workerPodIp: "10.0.0.1",
+              },
+              externalSnapshot: { snapshotUri: "s3://snapshot" },
+              inProgressSnapshotName: "next-snapshot",
+            },
+          }],
           workers: [],
         }),
       });
@@ -390,11 +419,91 @@ describe("the cluster", () => {
 
     const status = await apiClient.substrate.status();
     expect(status.enabled).toBe(true);
+    expect(status.actorTemplates[0]).toEqual({
+      namespace: "kagent",
+      name: "tpl",
+      phase: "Ready",
+      goldenActorId: "golden-actor",
+      goldenSnapshot: "s3://golden",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=agents,zone=east",
+      harnessName: "kagent",
+    });
     // The request succeeded; the runtime halves may be incomplete. That is a
     // message to put beside the data, not an error to throw.
     expect(status.ateApiError).toMatch(/ate-api/);
-    expect(status.actors[0].atespace).toBe("kagent");
-    expect(status.actors[0].version).toBe(3);
+    expect(status.actors[0]).toEqual({
+      actorId: "a1",
+      atespace: "kagent",
+      status: "Running",
+      actorTemplateNamespace: "team",
+      actorTemplateName: "tpl",
+      ateomPodNamespace: "kagent",
+      ateomPodName: "worker-0",
+      ateomPodIp: "10.0.0.1",
+      latestSnapshot: "s3://snapshot",
+      workerPoolName: "pool",
+      inProgressSnapshot: "next-snapshot",
+      version: 3,
+    });
+  });
+
+  it.each([
+    { goldenSnapshotStatus: undefined, phase: "Pending" },
+    { goldenSnapshotStatus: { errorMessage: "warmup failed" }, phase: "Failed" },
+    {
+      goldenSnapshotStatus: {
+        errorMessage: "warmup failed",
+        goldenSnapshot: { snapshotUri: "s3://golden" },
+      },
+      phase: "Failed",
+    },
+  ])(
+    "derives template phase $phase from upstream status",
+    async ({ goldenSnapshotStatus, phase }) => {
+      serve(({ service }) => {
+        service(SystemService, {
+          getSubstrateStatus: () => ({
+            enabled: true,
+            actorTemplates: [
+              {
+                actorTemplate: {
+                  metadata: { atespace: "kagent", name: "tpl" },
+                  status: { goldenSnapshotStatus },
+                },
+              },
+            ],
+          }),
+        });
+      });
+      const { actorTemplates } = await apiClient.substrate.status();
+      expect(actorTemplates[0].phase).toBe(phase);
+      expect(actorTemplates[0].workerSelector).toBeUndefined();
+    },
+  );
+
+  it.each([
+    [ActorState.UNSPECIFIED, "Unknown"],
+    [ActorState.RESUMING, "Resuming"],
+    [ActorState.RUNNING, "Running"],
+    [ActorState.SUSPENDING, "Suspending"],
+    [ActorState.SUSPENDED, "Suspended"],
+    [ActorState.PAUSING, "Pausing"],
+    [ActorState.PAUSED, "Paused"],
+    [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
+    [ActorState.DELETING, "ACTOR_STATE_DELETING"],
+    [99 as ActorState, "99"],
+  ])("preserves the actor status label for state %s", async (state, label) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: () => ({
+          enabled: true,
+          actors: [{ metadata: { name: "a1" }, status: { state } }],
+        }),
+      });
+    });
+    const page = await apiClient.substrate.actors({});
+    expect(page.actors[0].status).toBe(label);
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
@@ -432,7 +541,21 @@ describe("the cluster", () => {
           workerPools: [
             { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
           ],
-          actorTemplates: [{ namespace: "kagent", name: "tpl", phase: "Ready" }],
+          actorTemplates: [
+            {
+              actorTemplate: {
+                metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+                status: {
+                  goldenSnapshotStatus: {
+                    goldenSnapshot: { snapshotUri: "s3://golden" },
+                  },
+                },
+                sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+                workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
+              },
+              harnessName: "kagent",
+            },
+          ],
           actorCount: 410110n,
           workerCount: 900n,
           runningActorCount: 12n,
@@ -449,6 +572,8 @@ describe("the cluster", () => {
     const summary = await apiClient.substrate.summary();
     // `int64` on the wire: a count that stayed a bigint formats as "410110n" and
     // arithmetic against it throws.
+    expect(summary.actorTemplates[0].phase).toBe("Ready");
+    expect(summary.actorTemplates[0].harnessName).toBe("kagent");
     expect(summary.actorCount).toBe(410110);
     expect(summary.runningActorCount).toBe(12);
     expect(summary.busyWorkerCount).toBe(11);
@@ -482,7 +607,10 @@ describe("the cluster", () => {
           });
           return {
             enabled: true,
-            actors: [{ actorId: "a1", status: "Running", version: 3n }],
+            actors: [{
+              metadata: { name: "a1", version: 3n },
+              status: { state: ActorState.RUNNING },
+            }],
             page: { nextPageToken: "cursor-2" },
             totalSize: 4312n,
           };
@@ -511,7 +639,10 @@ describe("the cluster", () => {
       },
     ]);
     expect(page.appliedSortField).toBe("default");
+    expect(page.actors[0].actorId).toBe("a1");
+    expect(page.actors[0].status).toBe("Running");
     expect(page.actors[0].version).toBe(3);
+    expect(page.actors[0].ateomPodName).toBeUndefined();
     expect(page.nextPageToken).toBe("cursor-2");
     // The matching total, which is what lets a heading say "1 of 4,312" rather than
     // reporting the page's own length as the result.

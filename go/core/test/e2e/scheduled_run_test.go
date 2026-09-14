@@ -17,6 +17,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
@@ -276,8 +277,9 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.
 			return false, fmt.Errorf("Substrate status: %s", status.GetAteApiError())
 		}
 		for _, actor := range status.GetActors() {
-			if actor.GetActorId() == actorName {
-				return actor.GetStatus() == "Suspended" || actor.GetStatus() == "Paused", nil
+			if actor.GetMetadata().GetName() == actorName {
+				state := actor.GetStatus().GetState()
+				return state == ateapipb.ActorState_ACTOR_STATE_SUSPENDED || state == ateapipb.ActorState_ACTOR_STATE_PAUSED, nil
 			}
 		}
 		return false, nil
