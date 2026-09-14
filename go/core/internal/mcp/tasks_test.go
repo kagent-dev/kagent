@@ -147,6 +147,54 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateRejectsMissingInputResponse(t *testing.T) {
+	ref, err := encodeTaskReference(taskReference{InstanceID: testInstanceID, TaskID: testTaskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, messageID := range []string{"request-id", ""} {
+		t.Run("messageID="+messageID, func(t *testing.T) {
+			key := messageID
+			if key == "" {
+				key = testTaskID
+			}
+			for _, tt := range []struct {
+				name      string
+				responses mcp.InputResponseMap
+			}{
+				{name: "nil map"},
+				{name: "empty map", responses: mcp.InputResponseMap{}},
+				{name: "unexpected key", responses: mcp.InputResponseMap{
+					"not-a-real-key": &mcp.ElicitResult{Action: "accept", Content: map[string]any{"response": "PostgreSQL"}},
+				}},
+				{name: "nil response", responses: mcp.InputResponseMap{key: nil}},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					gateway := &fakeGateway{task: &a2atype.Task{
+						ID: testTaskID, ContextID: testInstanceID,
+						Status: a2atype.TaskStatus{
+							State: a2atype.TaskStateInputRequired, Message: &a2atype.Message{ID: messageID},
+						},
+					}}
+					h := &Handler{gateway: gateway}
+					result, err := h.updateTask(authContext(), nil, &updateTaskParams{
+						ParamsBase: taskParamsBase(), TaskID: ref, InputResponses: tt.responses,
+					})
+					rpcErr, ok := err.(*jsonrpc.Error)
+					if result != nil || !ok || rpcErr.Code != jsonrpc.CodeInvalidParams || !strings.Contains(rpcErr.Message, key) {
+						t.Fatalf("tasks/update = %#v, %v; want invalidParams naming %q", result, err, key)
+					}
+					gateway.mu.Lock()
+					defer gateway.mu.Unlock()
+					if gateway.replies != 0 || gateway.task.Status.State != a2atype.TaskStateInputRequired {
+						t.Fatalf("invalid response changed task: replies=%d, status=%s", gateway.replies, gateway.task.Status.State)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	status := adka2a.AttachHitlExtension(
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),
