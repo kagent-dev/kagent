@@ -64,6 +64,17 @@ describe("the agent rail while the conversation is being read", () => {
     expect(screen.queryByTestId("agent-nav-agent-conversations")).toBeNull();
   });
 
+  it("keeps New chat in the rail, inert until the agent resolves", () => {
+    renderLoadingRail();
+
+    // Its address is the agent's own with `/new` appended, so it cannot be built until
+    // the record names the agent — but the entry holds its place rather than arriving
+    // late and pushing the nav down.
+    const newChat = screen.getByTestId("chat-new-session");
+    expect(newChat).toBeInTheDocument();
+    expect(newChat).toBeDisabled();
+  });
+
   it("reserves the identity card's second line", () => {
     renderLoadingRail();
 
