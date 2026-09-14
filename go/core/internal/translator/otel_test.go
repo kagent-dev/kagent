@@ -2,120 +2,86 @@ package translator_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	corev1 "k8s.io/api/core/v1"
 )
 
-func TestTraceConfigFromProcess(t *testing.T) {
+func TestTelemetryConfigFromProcess(t *testing.T) {
+	clearTelemetryEnvironment(t)
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://generic:4318/otel")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://traces:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "true")
 
-	got, err := translator.TraceConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
+	got, warnings := translator.TelemetryConfigFromProcess()
+	if len(warnings) != 0 {
+		t.Fatalf("TelemetryConfigFromProcess() warnings = %v", warnings)
 	}
-	if !got.Enabled || got.Endpoint != "http://traces:4317" || got.Protocol != "grpc" || got.CollectorHostname() != "traces" {
-		t.Fatalf("TraceConfigFromProcess() = %#v", got)
+	if !got.CaptureSensitiveContent || !got.CaptureRawAPIBodies {
+		t.Fatalf("content capture = sensitive:%t raw:%t", got.CaptureSensitiveContent, got.CaptureRawAPIBodies)
 	}
-	wantEnvironment := []corev1.EnvVar{
+	if !got.Traces.Enabled || got.Traces.Endpoint != "http://traces:4317" || got.Traces.Protocol != "grpc" || got.Traces.Hostname != "traces" {
+		t.Fatalf("traces = %#v", got.Traces)
+	}
+	if !got.Logs.Enabled || got.Logs.Endpoint != "http://generic:4318/otel/v1/logs" || got.Logs.Protocol != "http/protobuf" || got.Logs.Hostname != "generic" {
+		t.Fatalf("logs = %#v", got.Logs)
+	}
+	if want := []corev1.EnvVar{
 		{Name: "OTEL_TRACING_ENABLED", Value: "true"},
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: "http://traces:4317"},
 		{Name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", Value: "grpc"},
+	}; !reflect.DeepEqual(got.TraceEnvironment(), want) {
+		t.Errorf("trace environment = %#v, want %#v", got.TraceEnvironment(), want)
 	}
-	if !reflect.DeepEqual(got.Environment(), wantEnvironment) {
-		t.Errorf("Environment() = %#v, want %#v", got.Environment(), wantEnvironment)
-	}
-}
-
-func TestTraceConfigFromProcessNormalizesGenericHTTPEndpoint(t *testing.T) {
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318/otel/")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-
-	got, err := translator.TraceConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Endpoint != "http://collector:4318/otel/v1/traces" || got.Protocol != "http/protobuf" || got.CollectorHostname() != "collector" {
-		t.Fatalf("TraceConfigFromProcess() = %#v", got)
-	}
-}
-
-func TestLogConfigFromProcess(t *testing.T) {
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://generic:4318/otel")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
-
-	got, err := translator.LogConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Enabled || got.Endpoint != "http://logs:4317" || got.Protocol != "grpc" || got.CollectorHostname() != "logs" {
-		t.Fatalf("LogConfigFromProcess() = %#v", got)
-	}
-	wantEnvironment := []corev1.EnvVar{
+	if want := []corev1.EnvVar{
 		{Name: "OTEL_LOGGING_ENABLED", Value: "true"},
-		{Name: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", Value: "http://logs:4317"},
-		{Name: "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", Value: "grpc"},
-	}
-	if !reflect.DeepEqual(got.Environment(), wantEnvironment) {
-		t.Errorf("Environment() = %#v, want %#v", got.Environment(), wantEnvironment)
-	}
-}
-
-func TestLogConfigFromProcessNormalizesGenericHTTPEndpoint(t *testing.T) {
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318/otel/")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-
-	got, err := translator.LogConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Endpoint != "http://collector:4318/otel/v1/logs" || got.Protocol != "http/protobuf" || got.CollectorHostname() != "collector" {
-		t.Fatalf("LogConfigFromProcess() = %#v", got)
+		{Name: "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", Value: "http://generic:4318/otel/v1/logs"},
+		{Name: "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", Value: "http/protobuf"},
+	}; !reflect.DeepEqual(got.LogEnvironment(), want) {
+		t.Errorf("log environment = %#v, want %#v", got.LogEnvironment(), want)
 	}
 }
 
-func TestTraceAndLogConfigAreIndependent(t *testing.T) {
+func TestTelemetryConfigFromProcessKeepsSignalsIndependent(t *testing.T) {
+	clearTelemetryEnvironment(t)
 	t.Setenv("OTEL_TRACING_ENABLED", "false")
 	t.Setenv("OTEL_LOGGING_ENABLED", "true")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
 
-	traces, err := translator.TraceConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
+	got, warnings := translator.TelemetryConfigFromProcess()
+	if len(warnings) != 0 {
+		t.Fatalf("TelemetryConfigFromProcess() warnings = %v", warnings)
 	}
-	logs, err := translator.LogConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if traces.Enabled || !logs.Enabled {
-		t.Fatalf("traces = %#v, logs = %#v", traces, logs)
+	if got.Traces.Enabled || got.TraceEnvironment() != nil || got.Traces.Hostname != "" || !got.Logs.Enabled {
+		t.Fatalf("telemetry = %#v", got)
 	}
 }
 
-func TestTraceConfigFromProcessDisabled(t *testing.T) {
-	t.Setenv("OTEL_TRACING_ENABLED", "false")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "not a URL")
+func TestTelemetryConfigFromProcessDisablesInvalidSignals(t *testing.T) {
+	clearTelemetryEnvironment(t)
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "not a URL")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "zipkin")
 
-	got, err := translator.TraceConfigFromProcess()
-	if err != nil {
-		t.Fatal(err)
+	got, warnings := translator.TelemetryConfigFromProcess()
+	if got.Traces.Enabled || got.Logs.Enabled {
+		t.Fatalf("invalid telemetry signals remain enabled: %#v", got)
 	}
-	if got.Enabled || got.Environment() != nil || got.CollectorHostname() != "" {
-		t.Fatalf("TraceConfigFromProcess() = %#v", got)
+	if len(warnings) != 2 || !strings.Contains(warnings[0].Error(), "traces endpoint") || !strings.Contains(warnings[1].Error(), "logs protocol") {
+		t.Fatalf("warnings = %v", warnings)
 	}
 }
 
-func TestTraceConfigFromProcessRejectsInvalidConfiguration(t *testing.T) {
+func TestTelemetryConfigFromProcessRejectsInvalidSignalConfiguration(t *testing.T) {
 	for _, test := range []struct {
 		name, endpoint, protocol string
 	}{
@@ -124,21 +90,66 @@ func TestTraceConfigFromProcessRejectsInvalidConfiguration(t *testing.T) {
 		{name: "unsupported protocol", endpoint: "http://collector:4317", protocol: "zipkin"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			clearTelemetryEnvironment(t)
 			t.Setenv("OTEL_TRACING_ENABLED", "true")
 			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", test.endpoint)
 			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", test.protocol)
-			if _, err := translator.TraceConfigFromProcess(); err == nil {
-				t.Fatal("TraceConfigFromProcess() error = nil")
+
+			got, warnings := translator.TelemetryConfigFromProcess()
+			if got.Traces.Enabled || len(warnings) != 1 {
+				t.Fatalf("telemetry = %#v, warnings = %v", got, warnings)
 			}
 		})
 	}
 }
 
-func TestLogConfigFromProcessRejectsInvalidConfiguration(t *testing.T) {
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://collector:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "zipkin")
-	if _, err := translator.LogConfigFromProcess(); err == nil {
-		t.Fatal("LogConfigFromProcess() error = nil")
+func TestTelemetryConfigFromProcessDefaultsContentCaptureOff(t *testing.T) {
+	clearTelemetryEnvironment(t)
+	got, warnings := translator.TelemetryConfigFromProcess()
+	if len(warnings) != 0 {
+		t.Fatalf("TelemetryConfigFromProcess() warnings = %v", warnings)
+	}
+	if got.CaptureSensitiveContent || got.CaptureRawAPIBodies {
+		t.Fatalf("content capture defaults = sensitive:%t raw:%t", got.CaptureSensitiveContent, got.CaptureRawAPIBodies)
+	}
+}
+
+func TestOwnsTelemetryEnvironment(t *testing.T) {
+	for _, name := range []string{
+		"OTEL_TRACING_ENABLED",
+		"OTEL_LOGGING_ENABLED",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+	} {
+		if !translator.OwnsTelemetryEnvironment(name) {
+			t.Errorf("OwnsTelemetryEnvironment(%q) = false", name)
+		}
+	}
+	for _, name := range []string{"OTEL_BSP_SCHEDULE_DELAY", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_RESOURCE_ATTRIBUTES"} {
+		if translator.OwnsTelemetryEnvironment(name) {
+			t.Errorf("OwnsTelemetryEnvironment(%q) = true", name)
+		}
+	}
+}
+
+func clearTelemetryEnvironment(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"OTEL_TRACING_ENABLED",
+		"OTEL_LOGGING_ENABLED",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+		"KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT",
+		"KAGENT_OTEL_CAPTURE_RAW_API_BODIES",
+	} {
+		t.Setenv(name, "")
 	}
 }

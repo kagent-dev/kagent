@@ -31,14 +31,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err := requireModels(input.Root); err != nil {
 		return nil, err
 	}
-	traceConfig, err := v2translator.TraceConfigFromProcess()
-	if err != nil {
-		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
-	}
-	logConfig, err := v2translator.LogConfigFromProcess()
-	if err != nil {
-		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
-	}
+	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	compiled, err := c.config.Build(ctx, input.Root)
 	if err != nil {
 		return nil, err
@@ -77,8 +71,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
-	environment = append(environment, traceConfig.Environment()...)
-	environment = append(environment, logConfig.Environment()...)
+	environment = append(environment, telemetryConfig.TraceEnvironment()...)
+	environment = append(environment, telemetryConfig.LogEnvironment()...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -89,10 +83,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}
 	if traceConfig.Enabled {
-		compiled.Egress = append(compiled.Egress, traceConfig.CollectorHostname())
+		compiled.Egress = append(compiled.Egress, traceConfig.Hostname)
 	}
 	if logConfig.Enabled {
-		compiled.Egress = append(compiled.Egress, logConfig.CollectorHostname())
+		compiled.Egress = append(compiled.Egress, logConfig.Hostname)
 	}
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)

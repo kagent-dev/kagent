@@ -117,7 +117,6 @@ type nativeAnalytics struct {
 
 type nativeOtel struct {
 	LogUserPrompt bool                `toml:"log_user_prompt"`
-	Environment   string              `toml:"environment"`
 	Exporter      *nativeOtelExporter `toml:"exporter,omitempty"`
 	TraceExporter *nativeOtelExporter `toml:"trace_exporter,omitempty"`
 }
@@ -183,7 +182,6 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 	if cfg.Telemetry != nil {
 		native.Otel = &nativeOtel{
 			LogUserPrompt: cfg.Telemetry.CaptureContent,
-			Environment:   "kagent",
 			Exporter:      nativeExporter(cfg.Telemetry.Logs),
 			TraceExporter: nativeExporter(cfg.Telemetry.Traces),
 		}

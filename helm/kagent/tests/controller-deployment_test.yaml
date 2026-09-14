@@ -219,6 +219,31 @@ tests:
           path: data.OTEL_EXPORTER_OTLP_LOGS_PROTOCOL
           value: "http/protobuf"
 
+  - it: should disable sensitive telemetry capture by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT
+          value: "false"
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
+          value: "false"
+
+  - it: should configure sensitive telemetry capture independently
+    template: controller-configmap.yaml
+    set:
+      otel:
+        captureSensitiveContent: true
+        logging:
+          captureRawApiBodies: true
+    asserts:
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT
+          value: "true"
+      - equal:
+          path: data.KAGENT_OTEL_CAPTURE_RAW_API_BODIES
+          value: "true"
+
   - it: should not set PROXY_URL when not set
     template: controller-configmap.yaml
     asserts:

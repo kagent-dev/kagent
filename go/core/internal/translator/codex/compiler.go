@@ -31,7 +31,6 @@ const (
 	awsSessionTokenEnv       = "AWS_SESSION_TOKEN"
 	mcpCredentialPrefix      = "KAGENT_CODEX_MCP_CREDENTIAL_"
 	preResponseTraceFlushEnv = "KAGENT_PRE_RESPONSE_TRACE_FLUSH"
-	otelEnvironmentPrefix    = "OTEL_"
 )
 
 var ownedEnvironment = map[string]struct{}{
@@ -61,14 +60,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, v2translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough")
 	}
-	traceConfig, err := v2translator.TraceConfigFromProcess()
-	if err != nil {
-		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
-	}
-	logConfig, err := v2translator.LogConfigFromProcess()
-	if err != nil {
-		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
-	}
+	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 
 	provider, providerEnvironment, egress, err := c.compileProvider(ctx, model)
 	if err != nil {
@@ -85,7 +78,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	environment := append(providerEnvironment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
 		_, reserved := ownedEnvironment[variable.Name]
-		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || strings.HasPrefix(variable.Name, otelEnvironmentPrefix) {
+		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
@@ -102,8 +95,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: preResponseTraceFlushEnv, Value: "true"},
 	)
-	environment = append(environment, traceConfig.Environment()...)
-	environment = append(environment, logConfig.Environment()...)
+	environment = append(environment, telemetryConfig.TraceEnvironment()...)
+	environment = append(environment, telemetryConfig.LogEnvironment()...)
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
@@ -111,7 +104,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	if traceConfig.Enabled || logConfig.Enabled {
-		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: true}
+		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
 		if traceConfig.Enabled {
 			cfg.Telemetry.Traces = &codexconfig.OTLPExporter{Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol}
 		}
@@ -144,10 +137,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	if traceConfig.Enabled {
-		egress = append(egress, traceConfig.CollectorHostname())
+		egress = append(egress, traceConfig.Hostname)
 	}
 	if logConfig.Enabled {
-		egress = append(egress, logConfig.CollectorHostname())
+		egress = append(egress, logConfig.Hostname)
 	}
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
