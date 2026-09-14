@@ -240,6 +240,8 @@ describe("the fixture backend", () => {
       workerSelector: "pool=default-pool",
     });
     expect(summary.actorTemplates).toEqual(status.actorTemplates);
+    expect(summary.workerPools).toEqual(status.workerPools);
+    expect(status.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
     expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toEqual(
       status.actors.find((actor) => actor.actorId === "actor-7f21"),
     );

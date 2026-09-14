@@ -67,10 +67,12 @@ message GetSubstrateStatusResponse {
 }
 
 message SubstrateWorkerPool {
-  string namespace = 1;
-  string name = 2;
-  int32 replicas = 3;
-  string ateom_image = 4;
+  reserved 1 to 4;
+  reserved "namespace", "name", "replicas", "ateom_image";
+
+  ResourceReference ref = 5;
+  // The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
+  StructuredObject resource = 6;
 }
 
 message SubstrateActorTemplate {

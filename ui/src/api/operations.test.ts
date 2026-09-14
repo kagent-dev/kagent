@@ -380,7 +380,17 @@ describe("the cluster", () => {
           enabled: true,
           ateApiError: "ate-api list calls failed",
           workerPools: [
-            { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
+            {
+              ref: { namespace: "kagent", name: "pool" },
+              resource: {
+                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                value: {
+                  metadata: { namespace: "kagent", name: "pool" },
+                  spec: { replicas: 2, workerImage: "ateom:1" },
+                  status: { replicas: 1, readyReplicas: 1 },
+                },
+              },
+            },
           ],
           actorTemplates: [
             {
@@ -419,6 +429,7 @@ describe("the cluster", () => {
 
     const status = await apiClient.substrate.status();
     expect(status.enabled).toBe(true);
+    expect(status.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
     expect(status.actorTemplates[0]).toEqual({
       namespace: "kagent",
       name: "tpl",
@@ -506,6 +517,18 @@ describe("the cluster", () => {
     expect(page.actors[0].status).toBe(label);
   });
 
+  it("rejects worker pools without a resource instead of displaying empty columns", async () => {
+    const inventory = () => ({
+      enabled: true,
+      workerPools: [{ ref: { namespace: "kagent", name: "pool" } }],
+    });
+    serve(({ service }) => {
+      service(SystemService, { getSubstrateStatus: inventory, getSubstrateSummary: inventory });
+    });
+    await expect(apiClient.substrate.status()).rejects.toMatchObject({ kind: "parse" });
+    await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
+  });
+
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
   // renders as a warning with no text in it.
   it("reads an empty warning as no warning", async () => {
@@ -539,7 +562,17 @@ describe("the cluster", () => {
         getSubstrateSummary: () => ({
           enabled: true,
           workerPools: [
-            { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
+            {
+              ref: { namespace: "kagent", name: "pool" },
+              resource: {
+                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                value: {
+                  metadata: { namespace: "kagent", name: "pool" },
+                  spec: { replicas: 2, workerImage: "ateom:1" },
+                  status: { replicas: 1, readyReplicas: 1 },
+                },
+              },
+            },
           ],
           actorTemplates: [
             {
@@ -572,6 +605,7 @@ describe("the cluster", () => {
     const summary = await apiClient.substrate.summary();
     // `int64` on the wire: a count that stayed a bigint formats as "410110n" and
     // arithmetic against it throws.
+    expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
     expect(summary.actorTemplates[0].phase).toBe("Ready");
     expect(summary.actorTemplates[0].harnessName).toBe("kagent");
     expect(summary.actorCount).toBe(410110);

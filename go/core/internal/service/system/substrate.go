@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -65,7 +66,7 @@ type SubstrateWorkerPage struct {
 type SubstrateSummary struct {
 	Enabled           bool
 	ATEAPIError       string
-	WorkerPools       []SubstrateWorkerPool
+	WorkerPools       []atev1alpha1.WorkerPool
 	ActorTemplates    []SubstrateActorTemplate
 	ActorCount        int64
 	WorkerCount       int64
@@ -102,7 +103,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 
 	result := SubstrateSummary{
 		Enabled:           true,
-		WorkerPools:       []SubstrateWorkerPool{},
+		WorkerPools:       []atev1alpha1.WorkerPool{},
 		ActorTemplates:    []SubstrateActorTemplate{},
 		ActorStatusCounts: []SubstrateActorStatusCount{},
 		ComputedAt:        time.Now().UTC(),
@@ -115,7 +116,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 		}
 		result.WorkerPools = append(result.WorkerPools, workerPools...)
 	}
-	slices.SortStableFunc(result.WorkerPools, func(left, right SubstrateWorkerPool) int {
+	slices.SortStableFunc(result.WorkerPools, func(left, right atev1alpha1.WorkerPool) int {
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
 

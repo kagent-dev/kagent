@@ -223,7 +223,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, result.Enabled)
 		require.Len(t, result.WorkerPools, 1)
-		assert.Equal(t, int32(2), result.WorkerPools[0].Replicas)
+		assert.Equal(t, int32(2), result.WorkerPools[0].Spec.Replicas)
 		require.Len(t, result.ActorTemplates, 1)
 		template := result.ActorTemplates[0].ActorTemplate
 		require.NotNil(t, template)

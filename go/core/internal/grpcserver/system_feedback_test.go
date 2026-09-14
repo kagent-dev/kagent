@@ -9,11 +9,13 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -34,7 +36,16 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err := atev1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("atev1alpha1.AddToScheme() error = %v", err)
 	}
+	workerPool := &atev1alpha1.WorkerPool{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "alpha", Name: "pool", Labels: map[string]string{"team": "agents"}},
+		Spec: atev1alpha1.WorkerPoolSpec{
+			Replicas: 2, WorkerImage: "ateom:test",
+			Template: &atev1alpha1.WorkerPoolPodTemplate{NodeSelector: map[string]string{"disk": "ssd"}},
+		},
+		Status: atev1alpha1.WorkerPoolStatus{Replicas: 2, ReadyReplicas: 1},
+	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		workerPool,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "Zoo"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceActive}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alpha"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceTerminating}},
 	).Build()
@@ -90,8 +101,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubstrateStatus() error = %v", err)
 	}
-	if !substrateStatus.GetEnabled() || len(substrateStatus.GetWorkerPools()) != 0 {
-		t.Fatalf("GetSubstrateStatus() = %+v, want enabled empty inventory", substrateStatus)
+	if !substrateStatus.GetEnabled() || len(substrateStatus.GetWorkerPools()) != 1 {
+		t.Fatalf("GetSubstrateStatus() = %+v, want enabled inventory with one worker pool", substrateStatus)
 	}
 
 	/*
@@ -106,8 +117,22 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubstrateSummary() error = %v", err)
 	}
-	if !summary.GetEnabled() || summary.GetActorCount() != 0 || len(summary.GetWorkerPools()) != 0 {
-		t.Fatalf("GetSubstrateSummary() = %+v, want enabled empty summary", summary)
+	if !summary.GetEnabled() || summary.GetActorCount() != 0 || len(summary.GetWorkerPools()) != 1 {
+		t.Fatalf("GetSubstrateSummary() = %+v, want enabled summary with one worker pool", summary)
+	}
+
+	for _, pools := range [][]*apiv1alpha1.SubstrateWorkerPool{substrateStatus.GetWorkerPools(), summary.GetWorkerPools()} {
+		pool := pools[0]
+		assert.Equal(t, "alpha", pool.GetRef().GetNamespace())
+		assert.Equal(t, "pool", pool.GetRef().GetName())
+		assert.Equal(t, atev1alpha1.GroupVersion.String(), pool.GetResource().GetApiVersion())
+		var decoded atev1alpha1.WorkerPool
+		require.NoError(t, structuredobject.ToGo(pool.GetResource(), "WorkerPool", &decoded, DefaultMaxMessageSize))
+		assert.Equal(t, workerPool.Labels, decoded.Labels)
+		assert.Equal(t, workerPool.Name, decoded.Name)
+		assert.Equal(t, workerPool.Namespace, decoded.Namespace)
+		assert.Equal(t, workerPool.Spec, decoded.Spec)
+		assert.Equal(t, workerPool.Status, decoded.Status)
 	}
 
 	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{

@@ -1311,10 +1311,13 @@ function substrateScope(namespace: string) {
 
 function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
   return {
-    namespace: pool.namespace,
-    name: pool.name,
-    replicas: pool.replicas ?? 0,
-    ateomImage: pool.ateomImage ?? "",
+    ref: { namespace: pool.namespace, name: pool.name },
+    resource: structured("WorkerPool", {
+      apiVersion: "ate.dev/v1alpha1",
+      kind: "WorkerPool",
+      metadata: { namespace: pool.namespace, name: pool.name },
+      spec: { replicas: pool.replicas ?? 0, workerImage: pool.ateomImage ?? "" },
+    }, "ate.dev/v1alpha1"),
   };
 }
 

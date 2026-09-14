@@ -55,17 +55,10 @@ type Namespace struct {
 type SubstrateStatus struct {
 	Enabled        bool
 	ATEAPIError    string
-	WorkerPools    []SubstrateWorkerPool
+	WorkerPools    []atev1alpha1.WorkerPool
 	ActorTemplates []SubstrateActorTemplate
 	Actors         []*ateapipb.Actor
 	Workers        []*ateapipb.Worker
-}
-
-type SubstrateWorkerPool struct {
-	Namespace  string
-	Name       string
-	Replicas   int32
-	AteomImage string
 }
 
 type SubstrateActorTemplate struct {
@@ -153,7 +146,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 
 	result := SubstrateStatus{
 		Enabled:        true,
-		WorkerPools:    []SubstrateWorkerPool{},
+		WorkerPools:    []atev1alpha1.WorkerPool{},
 		ActorTemplates: []SubstrateActorTemplate{},
 		Actors:         []*ateapipb.Actor{},
 		Workers:        []*ateapipb.Worker{},
@@ -176,7 +169,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api state", "error", err)
 	}
 
-	slices.SortStableFunc(result.WorkerPools, func(left, right SubstrateWorkerPool) int {
+	slices.SortStableFunc(result.WorkerPools, func(left, right atev1alpha1.WorkerPool) int {
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
 	slices.SortStableFunc(result.Actors, func(left, right *ateapipb.Actor) int {
@@ -237,7 +230,7 @@ func (s *Service) substrateNamespaces(requested string) []string {
 	return []string{""}
 }
 
-func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]SubstrateWorkerPool, error) {
+func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev1alpha1.WorkerPool, error) {
 	var options []client.ListOption
 	if namespace != "" {
 		options = append(options, client.InNamespace(namespace))
@@ -248,17 +241,7 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]Subs
 		return nil, err
 	}
 
-	workerPools := make([]SubstrateWorkerPool, 0, len(workerPoolList.Items))
-	for index := range workerPoolList.Items {
-		workerPool := &workerPoolList.Items[index]
-		workerPools = append(workerPools, SubstrateWorkerPool{
-			Namespace:  workerPool.Namespace,
-			Name:       workerPool.Name,
-			Replicas:   workerPool.Spec.Replicas,
-			AteomImage: workerPool.Spec.WorkerImage,
-		})
-	}
-	return workerPools, nil
+	return workerPoolList.Items, nil
 }
 
 func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []*ateapipb.Worker, error) {

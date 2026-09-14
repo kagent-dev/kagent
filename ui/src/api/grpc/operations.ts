@@ -1047,11 +1047,16 @@ function toSubstrateStatus(
 
 /** The four substrate row conversions, shared by the unpaged read and the paged ones. */
 function toWorkerPoolEntry(pool: PbSubstrateWorkerPool): SubstrateWorkerPoolEntry {
+  const ref = required(pool.ref, "Substrate", "worker pool reference");
+  const resource = unwrap<{ spec: { replicas: number; workerImage: string } }>(
+    pool.resource, "Substrate", "worker pool resource",
+  );
+  const spec = required(resource.spec, "Substrate", "worker pool spec");
   return {
-    namespace: pool.namespace,
-    name: pool.name,
-    replicas: pool.replicas,
-    ateomImage: pool.ateomImage,
+    namespace: ref.namespace,
+    name: ref.name,
+    replicas: spec.replicas,
+    ateomImage: spec.workerImage,
   };
 }
 

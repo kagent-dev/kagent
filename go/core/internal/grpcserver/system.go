@@ -3,7 +3,9 @@ package grpcserver
 import (
 	"context"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -12,11 +14,12 @@ import (
 
 type systemServer struct {
 	apiv1alpha1.UnimplementedSystemServiceServer
-	service *systemservice.Service
+	service         *systemservice.Service
+	maxMessageBytes int
 }
 
-func newSystemServer(service *systemservice.Service) *systemServer {
-	return &systemServer{service: service}
+func newSystemServer(service *systemservice.Service, maxMessageBytes int) *systemServer {
+	return &systemServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 
 func (s *systemServer) GetVersion(context.Context, *apiv1alpha1.GetVersionRequest) (*apiv1alpha1.GetVersionResponse, error) {
@@ -69,7 +72,11 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 		Workers:        result.Workers,
 	}
 	for _, workerPool := range result.WorkerPools {
-		response.WorkerPools = append(response.WorkerPools, substrateWorkerPoolProto(workerPool))
+		encoded, err := s.workerPool(&workerPool)
+		if err != nil {
+			return nil, err
+		}
+		response.WorkerPools = append(response.WorkerPools, encoded)
 	}
 	for _, actorTemplate := range result.ActorTemplates {
 		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
@@ -95,7 +102,11 @@ func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1al
 		ComputedAt:        timestamppb.New(result.ComputedAt),
 	}
 	for _, workerPool := range result.WorkerPools {
-		response.WorkerPools = append(response.WorkerPools, substrateWorkerPoolProto(workerPool))
+		encoded, err := s.workerPool(&workerPool)
+		if err != nil {
+			return nil, err
+		}
+		response.WorkerPools = append(response.WorkerPools, encoded)
 	}
 	for _, actorTemplate := range result.ActorTemplates {
 		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
@@ -148,13 +159,15 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1a
 // Row conversions, shared by the whole-inventory read and the paged ones so
 // that a column cannot be filled on one path and left blank on the other.
 
-func substrateWorkerPoolProto(workerPool systemservice.SubstrateWorkerPool) *apiv1alpha1.SubstrateWorkerPool {
-	return &apiv1alpha1.SubstrateWorkerPool{
-		Namespace:  workerPool.Namespace,
-		Name:       workerPool.Name,
-		Replicas:   workerPool.Replicas,
-		AteomImage: workerPool.AteomImage,
+func (s *systemServer) workerPool(workerPool *atev1alpha1.WorkerPool) (*apiv1alpha1.SubstrateWorkerPool, error) {
+	resource, err := structuredobject.FromGo(workerPool, atev1alpha1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to encode WorkerPool resource", err)
 	}
+	return &apiv1alpha1.SubstrateWorkerPool{
+		Ref:      &apiv1alpha1.ResourceReference{Namespace: workerPool.Namespace, Name: workerPool.Name},
+		Resource: resource,
+	}, nil
 }
 
 func substrateActorTemplateProto(actorTemplate systemservice.SubstrateActorTemplate) *apiv1alpha1.SubstrateActorTemplate {
