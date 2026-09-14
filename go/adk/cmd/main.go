@@ -196,7 +196,7 @@ func main() {
 	}
 
 	// A nil *sts.TokenPropagationPlugin held in an interface is not nil, so only
-	// assign when there is a plugin.
+	// assign when there is a plugin. The plugin decides what each request gets.
 	var exchangedTokens models.ExchangedTokenProvider
 	if stsPlugin != nil {
 		exchangedTokens = stsPlugin
