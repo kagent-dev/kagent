@@ -153,10 +153,11 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 // IMAGE_TAG is parsed as a tag, a tag@digest, or a digest-only value. The
 // "-full" suffix is applied only to the tag name. A digest embedded in IMAGE_TAG
 // is never reused on the full variant (the slim and full images have different
-// manifests). If IMAGE_TAG includes a digest, the full image is referenced by
-// tag only unless the operator set an explicit runtime full digest (Helm
-// fullDigest / APP_FULL_IMAGE_DIGEST / --app-full-image-digest). The link-time
-// baked digest is not that signal: released builds always populate it.
+// manifests). If IMAGE_TAG includes a digest, the full image must be
+// digest-pinned via an explicit runtime full digest (Helm fullDigest /
+// APP_FULL_IMAGE_DIGEST / --app-full-image-digest). Reconciliation fails closed
+// rather than silently downgrading to a mutable tag. The link-time baked digest
+// is not that signal: released builds always populate it.
 //
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)
@@ -192,10 +193,18 @@ func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, f
 		)
 	}
 
-	// Never reuse the slim digest on the full image.
+	// Never reuse the slim digest on the full image. When the operator pinned
+	// IMAGE_TAG by digest, require an explicit full-variant digest instead of
+	// silently dropping digest pinning.
 	var fullDigest string
 	if embeddedDigest != "" {
 		fullDigest = normalizeImageDigest(digest)
+		if fullDigest == "" {
+			return "", fmt.Errorf(
+				"cannot derive %s image from tag@digest %q without an explicit full-variant digest: set --%s-image-digest (Helm controller.agentImage.fullDigest / APP_FULL_IMAGE_DIGEST); the slim digest cannot be reused on the full image",
+				imageLabel, tag, imageLabel,
+			)
+		}
 	}
 	return formatImageRef(registry, repository, fullTag, fullDigest), nil
 }
