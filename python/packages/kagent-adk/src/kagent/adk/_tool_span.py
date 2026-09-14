@@ -7,8 +7,10 @@ Backends that follow the OTel GenAI semantic conventions read
 span named after the tool rendered with an empty body
 (kagent-dev/kagent#2734). ADK runs after-tool callbacks inside the
 ``execute_tool`` span, so the callback stamps the two attributes onto the
-current span. Content capture follows the same ``TelemetryConfig`` switch ADK
-uses for its legacy span payloads.
+current span. Content capture follows the OTel GenAI switch
+(``OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`` / per-request
+``capture_message_content``) rather than ADK's legacy-span knob, because these
+are semconv ``gen_ai.*`` attributes.
 """
 
 from typing import Any
@@ -24,11 +26,15 @@ GEN_AI_TOOL_CALL_RESULT = "gen_ai.tool.call.result"
 
 
 def _should_capture_content(tool_context: ToolContext) -> bool:
-    """Mirrors ADK's telemetry config lookup: per-request RunConfig first, then env defaults."""
+    """Mirrors ADK's telemetry config lookup: per-request RunConfig first, then env defaults.
+
+    Uses the OTel-spec content routing (span-bearing ``SPAN_ONLY`` / ``SPAN_AND_EVENT``
+    modes), the same switch ADK applies to its own ``gen_ai.*`` span content.
+    """
     invocation_context = getattr(tool_context, "_invocation_context", None)
     run_config = getattr(invocation_context, "run_config", None)
     config = getattr(run_config, "telemetry", None) or TelemetryConfig()
-    return bool(config.should_add_content_to_legacy_spans)
+    return bool(config.should_add_content_to_experimental_spans)
 
 
 def make_tool_span_attributes_callback():

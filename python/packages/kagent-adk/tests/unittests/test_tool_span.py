@@ -40,8 +40,11 @@ def _run_callback(provider: TracerProvider, tool_context, args, tool_response):
         assert callback(tool=tool, args=args, tool_context=tool_context, tool_response=tool_response) is None
 
 
+OTEL_CAPTURE_ENV = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+
+
 def test_records_arguments_and_result(tracing, monkeypatch):
-    monkeypatch.delenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", raising=False)
+    monkeypatch.setenv(OTEL_CAPTURE_ENV, "SPAN_ONLY")
     exporter, provider = tracing
     _run_callback(provider, _tool_context(), {"namespace": "default"}, {"pods": ["a", "b"]})
 
@@ -51,7 +54,7 @@ def test_records_arguments_and_result(tracing, monkeypatch):
 
 
 def test_wraps_non_dict_result(tracing, monkeypatch):
-    monkeypatch.delenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", raising=False)
+    monkeypatch.setenv(OTEL_CAPTURE_ENV, "SPAN_AND_EVENT")
     exporter, provider = tracing
     _run_callback(provider, _tool_context(), {}, "plain text")
 
@@ -59,8 +62,12 @@ def test_wraps_non_dict_result(tracing, monkeypatch):
     assert json.loads(span.attributes[GEN_AI_TOOL_CALL_RESULT]) == {"result": "plain text"}
 
 
-def test_emits_empty_payload_when_content_capture_disabled_by_env(tracing, monkeypatch):
-    monkeypatch.setenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
+@pytest.mark.parametrize("mode", [None, "NO_CONTENT", "EVENT_ONLY", "true"])
+def test_emits_empty_payload_unless_content_is_routed_to_spans(tracing, monkeypatch, mode):
+    if mode is None:
+        monkeypatch.delenv(OTEL_CAPTURE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(OTEL_CAPTURE_ENV, mode)
     exporter, provider = tracing
     _run_callback(provider, _tool_context(), {"namespace": "default"}, {"pods": 2})
 
@@ -70,7 +77,7 @@ def test_emits_empty_payload_when_content_capture_disabled_by_env(tracing, monke
 
 
 def test_honours_per_request_telemetry_config(tracing, monkeypatch):
-    monkeypatch.delenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", raising=False)
+    monkeypatch.setenv(OTEL_CAPTURE_ENV, "SPAN_ONLY")
     exporter, provider = tracing
     _run_callback(
         provider,
@@ -81,6 +88,20 @@ def test_honours_per_request_telemetry_config(tracing, monkeypatch):
 
     (span,) = exporter.get_finished_spans()
     assert span.attributes[GEN_AI_TOOL_CALL_ARGUMENTS] == "{}"
+
+
+def test_per_request_config_can_enable_capture(tracing, monkeypatch):
+    monkeypatch.delenv(OTEL_CAPTURE_ENV, raising=False)
+    exporter, provider = tracing
+    _run_callback(
+        provider,
+        _tool_context(TelemetryConfig(capture_message_content=ContentCapturingMode.SPAN_ONLY)),
+        {"namespace": "default"},
+        {"pods": 2},
+    )
+
+    (span,) = exporter.get_finished_spans()
+    assert json.loads(span.attributes[GEN_AI_TOOL_CALL_ARGUMENTS]) == {"namespace": "default"}
 
 
 def test_noop_without_recording_span():
