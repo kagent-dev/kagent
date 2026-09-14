@@ -41,7 +41,7 @@ Implement a protected collection request in this order:
 
 1. Validate caller-supplied filters.
 2. Call the required `CollectionAuthorizer.Scope` with `VerbList` and the protected resource type.
-3. Compile the scope with [`kubeauth.ScopeMatcher`](../../../../go/core/internal/service/kubeauth/scope.go).
+3. Compile the scope with [`kubeauth.CompileScope`](../../../../go/core/internal/service/kubeauth/scope.go).
 4. List a safe, complete Kubernetes resource set.
 5. Apply the matcher to object metadata.
 6. Sort and build the response from authorized objects only.

@@ -50,7 +50,7 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	if err != nil {
 		return nil, err
 	}
-	matches, err := kubeauth.ScopeMatcher(scope)
+	matcher, err := kubeauth.CompileScope(scope)
 	if err != nil {
 		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
@@ -61,7 +61,7 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	items := make([]T, 0)
 	if err := meta.EachListItem(list, func(item runtime.Object) error {
 		object := item.(T)
-		if matches(object) {
+		if matcher.Matches(object) {
 			items = append(items, object)
 		}
 		return nil

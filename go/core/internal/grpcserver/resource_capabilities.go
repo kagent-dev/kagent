@@ -10,46 +10,72 @@ import (
 )
 
 type resourceCapabilities struct {
-	canCreate bool
-	canUpdate func(metav1.Object) bool
-	canDelete func(metav1.Object) bool
+	canCreate     bool
+	updateMatcher kubeauth.Matcher
+	deleteMatcher kubeauth.Matcher
+}
+
+type resourceScopeSource interface {
+	Scope(context.Context, auth.Verb) (auth.AuthorizationScope, error)
+}
+
+func loadCollectionResourceCapabilities(
+	ctx context.Context,
+	source resourceScopeSource,
+	withUpdate bool,
+) (resourceCapabilities, error) {
+	create, err := source.Scope(ctx, auth.VerbCreate)
+	if err != nil {
+		return resourceCapabilities{}, err
+	}
+	if _, err := kubeauth.CompileScope(create); err != nil {
+		return resourceCapabilities{}, serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	capabilities, err := loadResourceCapabilities(ctx, source, withUpdate)
+	if err != nil {
+		return resourceCapabilities{}, err
+	}
+	capabilities.canCreate = create.Kind != auth.ScopeNone
+	return capabilities, nil
 }
 
 func loadResourceCapabilities(
 	ctx context.Context,
-	scope func(context.Context, auth.Verb) (auth.AuthorizationScope, error),
+	source resourceScopeSource,
 	withUpdate bool,
 ) (resourceCapabilities, error) {
-	create, err := scope(ctx, auth.VerbCreate)
-	if err != nil {
-		return resourceCapabilities{}, err
-	}
-	if _, err := kubeauth.ScopeMatcher(create); err != nil {
-		return resourceCapabilities{}, serviceerrors.NewPermissionDenied("Not authorized", err)
-	}
-	capabilities := resourceCapabilities{canCreate: create.Kind != auth.ScopeNone}
+	capabilities := resourceCapabilities{}
+	var err error
 	if withUpdate {
-		capabilities.canUpdate, err = capabilityMatcher(ctx, scope, auth.VerbUpdate)
+		capabilities.updateMatcher, err = capabilityMatcher(ctx, source, auth.VerbUpdate)
 		if err != nil {
 			return resourceCapabilities{}, err
 		}
 	}
-	capabilities.canDelete, err = capabilityMatcher(ctx, scope, auth.VerbDelete)
+	capabilities.deleteMatcher, err = capabilityMatcher(ctx, source, auth.VerbDelete)
 	return capabilities, err
+}
+
+func (c resourceCapabilities) canUpdate(object metav1.Object) bool {
+	return c.updateMatcher.Matches(object)
+}
+
+func (c resourceCapabilities) canDelete(object metav1.Object) bool {
+	return c.deleteMatcher.Matches(object)
 }
 
 func capabilityMatcher(
 	ctx context.Context,
-	scope func(context.Context, auth.Verb) (auth.AuthorizationScope, error),
+	source resourceScopeSource,
 	verb auth.Verb,
-) (func(metav1.Object) bool, error) {
-	result, err := scope(ctx, verb)
+) (kubeauth.Matcher, error) {
+	result, err := source.Scope(ctx, verb)
 	if err != nil {
-		return nil, err
+		return kubeauth.Matcher{}, err
 	}
-	matches, err := kubeauth.ScopeMatcher(result)
+	matcher, err := kubeauth.CompileScope(result)
 	if err != nil {
-		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
+		return kubeauth.Matcher{}, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
-	return matches, nil
+	return matcher, nil
 }

@@ -37,7 +37,7 @@ func (s *harnessServer) ListHarnesses(ctx context.Context, request *apiv1alpha1.
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, false)
+	capabilities, err := loadCollectionResourceCapabilities(ctx, s.service, false)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.
 		return nil, err
 	}
 	incoming.Status = v1alpha3.HarnessStatus{}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, false)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, false)
 	if err != nil {
 		return nil, err
 	}

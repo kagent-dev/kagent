@@ -30,7 +30,7 @@ func (s *modelServer) ListModelConfigs(ctx context.Context, _ *apiv1alpha1.ListM
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadCollectionResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (s *modelServer) GetModelConfig(ctx context.Context, request *apiv1alpha1.G
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (s *modelServer) CreateModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (s *modelServer) UpdateModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}

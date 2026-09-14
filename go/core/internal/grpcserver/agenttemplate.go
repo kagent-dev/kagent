@@ -29,7 +29,7 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadCollectionResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *api
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *
 		return nil, err
 	}
 	incoming.Status = v1alpha3.AgentTemplateStatus{}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service.Scope, true)
+	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
 	if err != nil {
 		return nil, err
 	}

@@ -72,7 +72,7 @@ func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfi
 	if err != nil {
 		return nil, err
 	}
-	matches, err := kubeauth.ScopeMatcher(scope)
+	matcher, err := kubeauth.CompileScope(scope)
 	if err != nil {
 		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
@@ -83,7 +83,7 @@ func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfi
 	}
 	authorized := make([]v1alpha3.ModelConfig, 0, len(modelConfigs.Items))
 	for index := range modelConfigs.Items {
-		if matches(&modelConfigs.Items[index]) {
+		if matcher.Matches(&modelConfigs.Items[index]) {
 			authorized = append(authorized, modelConfigs.Items[index])
 		}
 	}

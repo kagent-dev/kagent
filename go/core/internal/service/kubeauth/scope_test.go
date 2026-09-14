@@ -7,7 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestScopeMatcher(t *testing.T) {
+func TestMatcher(t *testing.T) {
 	object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent-a"}}
 	tests := []struct {
 		name  string
@@ -43,18 +43,21 @@ func TestScopeMatcher(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			matches, err := ScopeMatcher(test.scope)
+			matcher, err := CompileScope(test.scope)
 			if err != nil {
-				t.Fatalf("ScopeMatcher() error = %v", err)
+				t.Fatalf("CompileScope() error = %v", err)
 			}
-			if got := matches(object); got != test.want {
-				t.Fatalf("matches() = %v, want %v", got, test.want)
+			if got := matcher.Matches(object); got != test.want {
+				t.Fatalf("Matches() = %v, want %v", got, test.want)
 			}
 		})
 	}
+	if (Matcher{}).Matches(object) {
+		t.Fatal("zero Matcher matches object")
+	}
 }
 
-func TestScopeMatcherRejectsInvalidScopes(t *testing.T) {
+func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 	tests := []auth.AuthorizationScope{
 		{},
 		{Kind: auth.ScopeAll, AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{Attribute: auth.AttributeName, Operator: auth.ScopeIn, Values: []string{"x"}}}}}},
@@ -69,8 +72,8 @@ func TestScopeMatcherRejectsInvalidScopes(t *testing.T) {
 	}
 
 	for index, scope := range tests {
-		if _, err := ScopeMatcher(scope); err == nil {
-			t.Errorf("ScopeMatcher(invalid scope %d) error = nil", index)
+		if _, err := CompileScope(scope); err == nil {
+			t.Errorf("CompileScope(invalid scope %d) error = nil", index)
 		}
 	}
 }
