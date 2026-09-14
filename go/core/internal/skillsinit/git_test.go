@@ -138,3 +138,88 @@ func TestCloneGitFailedSubPathRetryDoesNotAcceptRootSkill(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "requested skill\n", string(content))
 }
+
+func TestCloneGitReplacesLegacyFailedSubPathCheckout(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+	}
+	runGit("", "init", "--initial-branch", "main", source)
+	runGit(source, "config", "user.email", "test@example.com")
+	runGit(source, "config", "user.name", "Test User")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("legacy root skill\n"), 0o644))
+	runGit(source, "add", "SKILL.md")
+	runGit(source, "commit", "-m", "root skill")
+
+	destination := filepath.Join(root, "destination")
+	runGit("", "clone", "--", source, destination)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "requested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "requested", "SKILL.md"), []byte("requested skill\n"), 0o644))
+	runGit(source, "add", "requested/SKILL.md")
+	runGit(source, "commit", "-m", "requested skill")
+
+	err := CloneGit(GitRef{URL: source, Ref: "main", Dest: destination, SubPath: "requested"})
+	require.NoError(t, err)
+	content, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "requested skill\n", string(content))
+	assert.NoDirExists(t, filepath.Join(destination, ".git"))
+}
+
+func TestCloneGitRejectsStagedSubPathWithoutSkill(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+	}
+	runGit("", "init", "--initial-branch", "main", source)
+	runGit(source, "config", "user.email", "test@example.com")
+	runGit(source, "config", "user.name", "Test User")
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "requested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "requested", "README.md"), []byte("not a skill\n"), 0o644))
+	runGit(source, "add", "requested/README.md")
+	runGit(source, "commit", "-m", "directory without skill metadata")
+
+	destination := filepath.Join(root, "destination")
+	err := CloneGit(GitRef{URL: source, Ref: "main", Dest: destination, SubPath: "requested"})
+	require.ErrorContains(t, err, "SKILL.md")
+	assert.NoDirExists(t, destination)
+}
+
+func TestCloneGitFailedSubPathPreservesValidExistingSkill(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+	}
+	runGit("", "init", "--initial-branch", "main", source)
+	runGit(source, "config", "user.email", "test@example.com")
+	runGit(source, "config", "user.name", "Test User")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("source skill\n"), 0o644))
+	runGit(source, "add", "SKILL.md")
+	runGit(source, "commit", "-m", "root skill")
+
+	destination := filepath.Join(root, "destination")
+	require.NoError(t, os.MkdirAll(destination, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(destination, "SKILL.md"), []byte("existing completion\n"), 0o644))
+
+	err := CloneGit(GitRef{URL: source, Ref: "main", Dest: destination, SubPath: "missing"})
+	require.Error(t, err)
+	content, readErr := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "existing completion\n", string(content))
+}
