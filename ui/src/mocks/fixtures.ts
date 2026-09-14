@@ -294,7 +294,6 @@ export const mockSubstrateInventory: {
       goldenSnapshot: "snap-2026-07-28",
       sandboxClass: "gvisor",
       workerSelector: "pool=default-pool",
-      harnessName: "openclaw",
     },
     {
       atespace: "platform",

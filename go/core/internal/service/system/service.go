@@ -9,7 +9,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -31,16 +30,11 @@ type ATEClient interface {
 	ListWorkersPage(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error)
 }
 
-type runtimeRevisionStore interface {
-	ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error)
-}
-
 type Service struct {
 	kubeClient         client.Client
 	observedNamespaces []string
 	authorizer         auth.Authorizer
 	ateClient          ATEClient
-	revisions          runtimeRevisionStore
 }
 
 type Namespace struct {
@@ -48,25 +42,17 @@ type Namespace struct {
 	Status string
 }
 
-type SubstrateActorTemplate struct {
-	ActorTemplate   *ateapipb.ActorTemplate
-	HarnessName     string
-	ManagedByKagent bool
-}
-
 func NewService(
 	kubeClient client.Client,
 	observedNamespaces []string,
 	authorizer auth.Authorizer,
 	ateClient ATEClient,
-	revisions runtimeRevisionStore,
 ) *Service {
 	return &Service{
 		kubeClient:         kubeClient,
 		observedNamespaces: slices.Clone(observedNamespaces),
 		authorizer:         authorizer,
 		ateClient:          ateClient,
-		revisions:          revisions,
 	}
 }
 
@@ -185,64 +171,29 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 	return workerPoolList.Items, nil
 }
 
-/*
-substrateActorTemplates lists the ActorTemplates in scope, with the harness each one
-was compiled from.
-
-Drains ate-api's pagination where the actor and worker reads page it: templates are
-configuration, so the list is small enough to answer with whole. The harnesses are
-passed in rather than read here, so a caller can tell an ate-api failure from a
-database one.
-*/
-func (s *Service) substrateActorTemplates(
-	ctx context.Context,
-	harnesses map[actorTemplateKey]string,
-	atespace string,
-) ([]SubstrateActorTemplate, error) {
+// substrateActorTemplates drains upstream pagination for the configuration-sized list.
+func (s *Service) substrateActorTemplates(ctx context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
 	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
 	if err != nil {
 		return nil, err
 	}
-	templates := make([]SubstrateActorTemplate, 0, len(templatesFromAPI))
+	templates := make([]*ateapipb.ActorTemplate, 0, len(templatesFromAPI))
 	for _, template := range templatesFromAPI {
 		if template == nil {
 			continue
 		}
-		metadata := template.GetMetadata()
-		templates = append(templates, SubstrateActorTemplate{
-			// Only expose inventory fields: containers can contain resolved credentials.
-			ActorTemplate: &ateapipb.ActorTemplate{
-				Metadata:       metadata,
-				Status:         template.GetStatus(),
-				SandboxConfig:  template.GetSandboxConfig(),
-				WorkerSelector: template.GetWorkerSelector(),
-			},
-			HarnessName:     harnesses[actorTemplateKey{metadata.GetAtespace(), metadata.GetName(), metadata.GetUid()}],
-			ManagedByKagent: true,
+		// Only expose inventory fields: containers can contain resolved credentials.
+		templates = append(templates, &ateapipb.ActorTemplate{
+			Metadata:       template.GetMetadata(),
+			Status:         template.GetStatus(),
+			SandboxConfig:  template.GetSandboxConfig(),
+			WorkerSelector: template.GetWorkerSelector(),
 		})
 	}
 
-	slices.SortStableFunc(templates, func(left, right SubstrateActorTemplate) int {
-		leftMetadata, rightMetadata := left.ActorTemplate.GetMetadata(), right.ActorTemplate.GetMetadata()
+	slices.SortStableFunc(templates, func(left, right *ateapipb.ActorTemplate) int {
+		leftMetadata, rightMetadata := left.GetMetadata(), right.GetMetadata()
 		return strings.Compare(leftMetadata.GetAtespace()+"/"+leftMetadata.GetName(), rightMetadata.GetAtespace()+"/"+rightMetadata.GetName())
 	})
 	return templates, nil
-}
-
-// actorTemplateKey identifies one ActorTemplate revision, which is what a compiled
-// harness is keyed by.
-type actorTemplateKey struct{ atespace, name, uid string }
-
-// actorTemplateHarnesses reads from the control-plane database which harness each
-// ActorTemplate revision was compiled from. Nothing here touches ate-api.
-func (s *Service) actorTemplateHarnesses(ctx context.Context) (map[actorTemplateKey]string, error) {
-	harnessesFromDB, err := s.revisions.ListActorTemplateHarnesses(ctx)
-	if err != nil {
-		return nil, err
-	}
-	harnesses := make(map[actorTemplateKey]string, len(harnessesFromDB))
-	for _, template := range harnessesFromDB {
-		harnesses[actorTemplateKey{template.Atespace, template.Name, template.UID}] = template.HarnessName
-	}
-	return harnesses, nil
 }

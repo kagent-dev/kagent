@@ -1,5 +1,5 @@
 import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
-import type { SubstrateActorTemplateSchema } from "@/generated/kagent/api/v1alpha1/system_pb";
+import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
@@ -1277,34 +1277,31 @@ function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
 
 function substrateActorTemplateMessage(
   template: SubstrateActorTemplateEntry,
-): MessageInitShape<typeof SubstrateActorTemplateSchema> {
+): MessageInitShape<typeof ActorTemplateSchema> {
   return {
-    actorTemplate: {
-      metadata: {
-        atespace: template.atespace,
-        name: template.name,
-        uid: template.goldenActorId ?? "",
-      },
-      status: {
-        goldenSnapshotStatus: {
-          goldenSnapshot: template.goldenSnapshot
-            ? { snapshotUri: template.goldenSnapshot }
-            : undefined,
-          errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
-        },
-      },
-      sandboxConfig: {
-        sandboxClass:
-          SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
-          ?? SandboxClass.UNSPECIFIED,
-      },
-      workerSelector: {
-        matchLabels: template.workerSelector
-          ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))
-          : {},
+    metadata: {
+      atespace: template.atespace,
+      name: template.name,
+      uid: template.goldenActorId ?? "",
+    },
+    status: {
+      goldenSnapshotStatus: {
+        goldenSnapshot: template.goldenSnapshot
+          ? { snapshotUri: template.goldenSnapshot }
+          : undefined,
+        errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
     },
-    harnessName: template.harnessName ?? "",
+    sandboxConfig: {
+      sandboxClass:
+        SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
+        ?? SandboxClass.UNSPECIFIED,
+    },
+    workerSelector: {
+      matchLabels: template.workerSelector
+        ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))
+        : {},
+    },
   };
 }
 

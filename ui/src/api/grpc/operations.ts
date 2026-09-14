@@ -1,4 +1,4 @@
-import { ActorState, type Actor as PbActor, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -60,7 +60,6 @@ import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kag
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
-  SubstrateActorTemplate as PbSubstrateActorTemplate,
   SubstrateWorkerPool as PbSubstrateWorkerPool,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
@@ -1044,13 +1043,8 @@ function toWorkerPoolEntry(pool: PbSubstrateWorkerPool): SubstrateWorkerPoolEntr
 }
 
 function toActorTemplateEntry(
-  template: PbSubstrateActorTemplate,
+  actorTemplate: PbActorTemplate,
 ): SubstrateActorTemplateEntry {
-  const actorTemplate = required(
-    template.actorTemplate,
-    "Substrate",
-    "actor template",
-  );
   const metadata = required(
     actorTemplate.metadata,
     "Substrate",
@@ -1075,7 +1069,6 @@ function toActorTemplateEntry(
         .map(([key, value]) => `${key}=${value}`)
         .join(","),
     ),
-    harnessName: orUndefined(template.harnessName),
   };
 }
 

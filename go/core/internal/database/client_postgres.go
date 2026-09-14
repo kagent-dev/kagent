@@ -125,21 +125,6 @@ func toRuntimeRevision(row dbgen.RuntimeRevision) (*RuntimeRevision, error) {
 	}, nil
 }
 
-func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplateHarness, error) {
-	rows, err := c.q.ListActorTemplateHarnesses(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
-	}
-	result := make([]ActorTemplateHarness, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, ActorTemplateHarness{
-			Atespace: row.ActorTemplateAtespace, Name: row.ActorTemplateName,
-			UID: row.ActorTemplateUid, HarnessName: row.HarnessName,
-		})
-	}
-	return result, nil
-}
-
 func (c *Client) MarkRuntimeRevisionSuccessful(ctx context.Context, pair AgentTemplateHarnessPair) error {
 	revision := pair.DesiredRevision
 	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{

@@ -15,7 +15,6 @@ export interface SubstrateActorTemplateEntry {
   goldenSnapshot?: string;
   sandboxClass?: string;
   workerSelector?: string;
-  harnessName?: string;
 }
 
 /** Runtime actor state, from ate-api rather than from Kubernetes. */

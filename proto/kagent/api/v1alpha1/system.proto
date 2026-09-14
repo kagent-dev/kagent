@@ -53,16 +53,6 @@ message SubstrateWorkerPool {
   StructuredObject resource = 6;
 }
 
-message SubstrateActorTemplate {
-  reserved 1 to 7;
-  reserved "namespace", "name", "phase", "golden_actor_id", "golden_snapshot", "sandbox_class", "worker_selector";
-
-  string harness_name = 8;
-  bool managed_by_kagent = 9;
-  // Inventory metadata and status only; runtime configuration may contain credentials.
-  ateapi.ActorTemplate actor_template = 10;
-}
-
 // The inventory as counts, plus the two lists whose length is set by configuration
 // rather than by the cluster.
 //
@@ -91,15 +81,15 @@ message SubstrateActorStatusCount {
 }
 
 message GetSubstrateSummaryResponse {
+  reserved 4;
+
   // Always true: the controller requires Substrate at startup.
   bool enabled = 1;
   // Set when one of the three ate-api reads behind this answer failed. They do not gate
   // each other, so the counts here may be short while the Kubernetes-derived lists are
-  // complete: a warning to show beside the data rather than a failed call. Never a
-  // database failure — those are internal errors.
+  // complete: a warning to show beside the data rather than a failed call.
   string ate_api_error = 2;
   repeated SubstrateWorkerPool worker_pools = 3;
-  repeated SubstrateActorTemplate actor_templates = 4;
   int64 actor_count = 5;
   int64 worker_count = 6;
   int64 running_actor_count = 7;
@@ -110,6 +100,8 @@ message GetSubstrateSummaryResponse {
   repeated SubstrateActorStatusCount actor_status_counts = 9;
   // When this answer was computed, which is not when it was received.
   google.protobuf.Timestamp computed_at = 10;
+  // Inventory metadata and status only; runtime configuration may contain credentials.
+  repeated ateapi.ActorTemplate actor_templates = 11;
 }
 
 // Which way a sorted substrate read runs.

@@ -58,7 +58,7 @@ type SubstrateSummary struct {
 	Enabled           bool
 	ATEAPIError       string
 	WorkerPools       []atev1alpha1.WorkerPool
-	ActorTemplates    []SubstrateActorTemplate
+	ActorTemplates    []*ateapipb.ActorTemplate
 	ActorCount        int64
 	WorkerCount       int64
 	RunningActorCount int64
@@ -95,7 +95,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	result := SubstrateSummary{
 		Enabled:           true,
 		WorkerPools:       []atev1alpha1.WorkerPool{},
-		ActorTemplates:    []SubstrateActorTemplate{},
+		ActorTemplates:    []*ateapipb.ActorTemplate{},
 		ActorStatusCounts: []SubstrateActorStatusCount{},
 		ComputedAt:        time.Now().UTC(),
 	}
@@ -113,16 +113,9 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
-	// Read here rather than inside the template listing below, so a PostgreSQL outage
-	// is an internal error instead of being reported as an ate-api one.
-	harnesses, err := s.actorTemplateHarnesses(ctx)
-	if err != nil {
-		return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", err)
-	}
-
 	// Three independent reads: none gates the others, so one failure leaves the rest
 	// counted rather than zeroing the whole summary.
-	if templates, err := s.substrateActorTemplates(ctx, harnesses, atespace); err != nil {
+	if templates, err := s.substrateActorTemplates(ctx, atespace); err != nil {
 		result.recordATEError(ctx, err)
 	} else {
 		result.ActorTemplates = templates

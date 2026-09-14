@@ -67,7 +67,7 @@ func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1al
 		Enabled:           result.Enabled,
 		AteApiError:       result.ATEAPIError,
 		WorkerPools:       make([]*apiv1alpha1.SubstrateWorkerPool, 0, len(result.WorkerPools)),
-		ActorTemplates:    make([]*apiv1alpha1.SubstrateActorTemplate, 0, len(result.ActorTemplates)),
+		ActorTemplates:    result.ActorTemplates,
 		ActorCount:        result.ActorCount,
 		WorkerCount:       result.WorkerCount,
 		RunningActorCount: result.RunningActorCount,
@@ -81,9 +81,6 @@ func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1al
 			return nil, err
 		}
 		response.WorkerPools = append(response.WorkerPools, encoded)
-	}
-	for _, actorTemplate := range result.ActorTemplates {
-		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
 	}
 	for _, statusCount := range result.ActorStatusCounts {
 		response.ActorStatusCounts = append(response.ActorStatusCounts, &apiv1alpha1.SubstrateActorStatusCount{
@@ -130,9 +127,6 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1a
 	return response, nil
 }
 
-// Row conversions, shared by the whole-inventory read and the paged ones so
-// that a column cannot be filled on one path and left blank on the other.
-
 func (s *systemServer) workerPool(workerPool *atev1alpha1.WorkerPool) (*apiv1alpha1.SubstrateWorkerPool, error) {
 	resource, err := structuredobject.FromGo(workerPool, atev1alpha1.GroupVersion.String(), "WorkerPool", s.maxMessageBytes)
 	if err != nil {
@@ -142,12 +136,4 @@ func (s *systemServer) workerPool(workerPool *atev1alpha1.WorkerPool) (*apiv1alp
 		Ref:      &apiv1alpha1.ResourceReference{Namespace: workerPool.Namespace, Name: workerPool.Name},
 		Resource: resource,
 	}, nil
-}
-
-func substrateActorTemplateProto(actorTemplate systemservice.SubstrateActorTemplate) *apiv1alpha1.SubstrateActorTemplate {
-	return &apiv1alpha1.SubstrateActorTemplate{
-		ActorTemplate:   actorTemplate.ActorTemplate,
-		HarnessName:     actorTemplate.HarnessName,
-		ManagedByKagent: actorTemplate.ManagedByKagent,
-	}
 }

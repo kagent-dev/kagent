@@ -1212,7 +1212,6 @@ export function SubstratePage() {
           template.phase,
           template.sandboxClass,
           template.workerSelector,
-          template.harnessName,
         ]
           .filter(Boolean)
           .join(" "),
@@ -1382,15 +1381,6 @@ export function SubstratePage() {
           ) : (
             "—"
           ),
-      },
-      {
-        // Text and not a link: the agents list has no namespace filter to send a
-        // reader to, so a link here would land them on an unfiltered page and imply
-        // otherwise.
-        title: "Harness",
-        key: "harness",
-        sorter: { compare: byText((t) => t.harnessName ?? ""), multiple: 1 },
-        render: (_, template) => template.harnessName ?? "—",
       },
     ],
     [mono, muted, qualified],

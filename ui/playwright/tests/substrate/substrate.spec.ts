@@ -133,7 +133,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // The rest of what decides where and how a template runs.
     await expect(templates).toContainText("gvisor");
     await expect(templates).toContainText("pool=default-pool");
-    await expect(templates).toContainText("openclaw");
+    await expect(templates.getByRole("columnheader", { name: "Harness", exact: true })).toHaveCount(0);
 
     // Both phases, and coloured by what they mean rather than all alike: a Ready template
     // reads as healthy, a Pending one does not.

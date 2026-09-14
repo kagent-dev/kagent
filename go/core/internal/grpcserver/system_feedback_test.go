@@ -10,7 +10,6 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/prometheus/client_golang/prometheus"
@@ -54,7 +53,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
-		SystemService: systemservice.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, emptySystemATEClient{}, emptySystemRevisionStore{}),
+		SystemService: systemservice.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, emptySystemATEClient{}),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -207,10 +206,4 @@ func (emptySystemATEClient) ListActorsPage(context.Context, string, int32, strin
 
 func (emptySystemATEClient) ListWorkersPage(context.Context, int32, string) ([]*ateapipb.Worker, string, error) {
 	return nil, "", nil
-}
-
-type emptySystemRevisionStore struct{}
-
-func (emptySystemRevisionStore) ListActorTemplateHarnesses(context.Context) ([]database.ActorTemplateHarness, error) {
-	return nil, nil
 }

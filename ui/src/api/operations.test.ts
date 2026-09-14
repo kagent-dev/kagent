@@ -394,17 +394,14 @@ describe("the cluster", () => {
           ],
           actorTemplates: [
             {
-              actorTemplate: {
-                metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
-                status: {
-                  goldenSnapshotStatus: {
-                    goldenSnapshot: { snapshotUri: "s3://golden" },
-                  },
+              metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+              status: {
+                goldenSnapshotStatus: {
+                  goldenSnapshot: { snapshotUri: "s3://golden" },
                 },
-                sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
-                workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
               },
-              harnessName: "kagent",
+              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+              workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
         }),
@@ -440,7 +437,6 @@ describe("the cluster", () => {
       goldenSnapshot: "s3://golden",
       sandboxClass: "gvisor",
       workerSelector: "pool=agents,zone=east",
-      harnessName: "kagent",
     });
     // The request succeeded; the runtime halves may be incomplete. That is a
     // message to put beside the data, not an error to throw.
@@ -480,10 +476,8 @@ describe("the cluster", () => {
             enabled: true,
             actorTemplates: [
               {
-                actorTemplate: {
-                  metadata: { atespace: "kagent", name: "tpl" },
-                  status: { goldenSnapshotStatus },
-                },
+                metadata: { atespace: "kagent", name: "tpl" },
+                status: { goldenSnapshotStatus },
               },
             ],
           }),
@@ -577,17 +571,14 @@ describe("the cluster", () => {
           ],
           actorTemplates: [
             {
-              actorTemplate: {
-                metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
-                status: {
-                  goldenSnapshotStatus: {
-                    goldenSnapshot: { snapshotUri: "s3://golden" },
-                  },
+              metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+              status: {
+                goldenSnapshotStatus: {
+                  goldenSnapshot: { snapshotUri: "s3://golden" },
                 },
-                sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
-                workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
               },
-              harnessName: "kagent",
+              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+              workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
           actorCount: 410110n,
@@ -608,7 +599,6 @@ describe("the cluster", () => {
     // arithmetic against it throws.
     expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
     expect(summary.actorTemplates[0].phase).toBe("Ready");
-    expect(summary.actorTemplates[0].harnessName).toBe("kagent");
     expect(summary.actorCount).toBe(410110);
     expect(summary.runningActorCount).toBe(12);
     expect(summary.busyWorkerCount).toBe(11);
