@@ -139,6 +139,46 @@ func TestCloneGitFailedSubPathRetryDoesNotAcceptRootSkill(t *testing.T) {
 	assert.Equal(t, "requested skill\n", string(content))
 }
 
+func TestCloneGitRetriesAfterRootSkillWasLeftByFailedSubPath(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+	}
+	runGit("", "init", "--initial-branch", "main", source)
+	runGit(source, "config", "user.email", "test@example.com")
+	runGit(source, "config", "user.name", "Test User")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("root skill\\n"), 0o644))
+	runGit(source, "add", "SKILL.md")
+	runGit(source, "commit", "-m", "root skill")
+
+	destination := filepath.Join(root, "destination")
+	ref := GitRef{URL: source, Ref: "main", Dest: destination, SubPath: "requested"}
+
+	// Simulate the legacy implementation's failed first attempt: the clone
+	// completed, but applying the requested subpath did not.
+	runGit("", "clone", "--", source, destination)
+	require.Error(t, CloneGit(ref), "missing requested subpath was accepted")
+	content, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "root skill\\n", string(content))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "requested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "requested", "SKILL.md"), []byte("requested skill\\n"), 0o644))
+	runGit(source, "add", "requested/SKILL.md")
+	runGit(source, "commit", "-m", "requested skill")
+
+	require.NoError(t, CloneGit(ref), "retry did not materialize the requested subpath")
+	content, err = os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "requested skill\\n", string(content))
+	assert.NoDirExists(t, filepath.Join(destination, ".git"))
+}
+
 func TestCloneGitReplacesLegacyFailedSubPathCheckout(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
