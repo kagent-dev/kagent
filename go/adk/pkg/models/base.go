@@ -79,10 +79,10 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
 var BearerTokenKey = &contextKey{name: "bearer-token"}
 
-// SessionIDKey is the context key for storing the ADK session ID. It exists
-// because ADK's ToolContext.SessionID method stops being reachable once
-// http.Client wraps the request context in a deadline; the A2A executor stamps
-// the value here so the outbound MCP path can recover it.
+// SessionIDKey is the context key for the ADK session ID. The A2A executor
+// stamps it on the request context so downstream code can recover the session
+// from a derived context, where ADK's ToolContext.SessionID method is no longer
+// reachable.
 var SessionIDKey = &contextKey{name: "session-id"}
 
 // PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough

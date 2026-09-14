@@ -3,12 +3,11 @@ package mcp
 // End-to-end regression test for STS token injection on the MCP transport.
 //
 // Nothing is stubbed except the LLM: a real runner drives a real llmagent and
-// mcptoolset through CreateToolsets/createTransport (so a real http.Client with a
-// non-zero Timeout), a real TokenPropagationPlugin exchanges against an httptest
-// STS, and a real MCP server records every Authorization it receives.
+// mcptoolset through CreateToolsets/createTransport, a real
+// TokenPropagationPlugin exchanges against an httptest STS, and a real MCP
+// server records every Authorization it receives.
 //
-// It fails when the session is recovered by type assertion alone, which stops
-// matching once http.Client has wrapped the request context in a deadline.
+// It fails when the session is recovered by type assertion alone.
 
 import (
 	"context"
@@ -46,7 +45,7 @@ const (
 	stsInjectionSession  = "01a01e53-cfc7-7c25-9783-d0e5203b6451"
 	stsInjectionAppName  = "sts-injection"
 	stsInjectionUserID   = "u1"
-	stsInjectionMCPLimit = 5.0 // seconds; any non-zero value adds the deadline wrapper
+	stsInjectionMCPLimit = 5.0 // seconds
 )
 
 // authRecorder captures the Authorization header of every request the MCP server
@@ -165,8 +164,7 @@ func TestSTSExchangedTokenReachesMCPTool(t *testing.T) {
 	plugin := sts.NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
 
 	// --- the real toolset construction, with the real header provider. The short
-	// timeout only keeps the SSE stream from holding the test open; any non-zero
-	// value produces the deadline wrapper under test.
+	// timeout only keeps the SSE stream from holding the test open.
 	mcpTimeout := stsInjectionMCPLimit
 	toolsets := CreateToolsets(
 		context.Background(),
