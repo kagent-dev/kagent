@@ -974,11 +974,16 @@ export function AgentRail({
             css={{
               ...rowStyles(theme, false),
               fontSize: 13,
+              /* A button takes its font from the user agent rather than the page, and
+                 `border: none` used to throw away the 1px transparent border every row
+                 carries — so this stood 2px shorter than the link it stands in for, and
+                 the rail changed height the moment the agent resolved. */
+              fontFamily: "inherit",
+              lineHeight: "inherit",
               width: "100%",
               cursor: onNewChat ? "pointer" : "not-allowed",
               opacity: onNewChat ? 1 : 0.5,
               background: "none",
-              border: "none",
               textAlign: "left",
             }}
           >
