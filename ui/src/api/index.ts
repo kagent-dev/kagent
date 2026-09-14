@@ -37,6 +37,9 @@ export type {
   OperationOutput,
   SubstrateActorSortField,
   SubstratePageInput,
+  SubstrateActorPageInput,
+  SubstrateWorkerPageInput,
+  SubstrateScopeInput,
   SubstrateSortOrder,
   SubstrateWorkerSortField,
 } from "./operations";
@@ -85,7 +88,6 @@ export { usePrompt, usePrompts } from "./hooks/usePrompts";
 export { useNamespaces } from "./hooks/useNamespaces";
 export {
   useSubstrateActors,
-  useSubstrateStatus,
   useSubstrateSummary,
   useSubstrateWorkers,
 } from "./hooks/useSubstrate";

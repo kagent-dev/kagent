@@ -17,6 +17,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
@@ -265,22 +266,34 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.
 	result, err := f.instances.GetAgentInstance(f.ctx, &apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: execution.GetAgentInstanceId()})
 	require.NoError(t, err)
 	// The public A2A authority identifies the Actor without reading internal DB state.
-	actorName, _, _ := strings.Cut(result.GetAgentInstance().GetA2AAuthority(), ".")
+	actorName, rest, _ := strings.Cut(result.GetAgentInstance().GetA2AAuthority(), ".")
+	atespace, _, _ := strings.Cut(rest, ".")
+	require.NotEmpty(t, atespace)
 	require.NotEmpty(t, actorName)
 	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
-		status, err := f.system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
-		if err != nil {
-			return false, err
-		}
-		if status.GetAteApiError() != "" {
-			return false, fmt.Errorf("Substrate status: %s", status.GetAteApiError())
-		}
-		for _, actor := range status.GetActors() {
-			if actor.GetActorId() == actorName {
-				return actor.GetStatus() == "Suspended" || actor.GetStatus() == "Paused", nil
+		for token := ""; ; {
+			page, err := f.system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
+				Atespace: atespace,
+				Filter:   actorName,
+				Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
+			})
+			if err != nil {
+				return false, err
+			}
+			if page.GetAteApiError() != "" {
+				return false, fmt.Errorf("Substrate actors: %s", page.GetAteApiError())
+			}
+			for _, actor := range page.GetActors() {
+				if actor.GetMetadata().GetName() == actorName && actor.GetMetadata().GetAtespace() == atespace {
+					state := actor.GetStatus().GetState()
+					return state == ateapipb.ActorState_ACTOR_STATE_SUSPENDED || state == ateapipb.ActorState_ACTOR_STATE_PAUSED, nil
+				}
+			}
+			token = page.GetPage().GetNextPageToken()
+			if token == "" {
+				return false, nil
 			}
 		}
-		return false, nil
 	}), "scheduled Actor %s should release its worker", actorName)
 }
 

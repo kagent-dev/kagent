@@ -127,7 +127,7 @@ func New(config Config) (*Server, error) {
 	grpcServer := grpc.NewServer(serverOptions...)
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService))
+	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
 	if config.AgentTemplateService != nil {
 		apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
 	}

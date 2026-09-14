@@ -15,7 +15,12 @@ import type {
 } from "@/api/domain/models";
 import type { PromptTemplateDetail, PromptTemplateSummary } from "@/api/domain/prompts";
 import type { NamespaceResponse } from "@/api/domain/namespaces";
-import type { SubstrateStatusResponse } from "@/api/domain/substrate";
+import type {
+  SubstrateActorEntry,
+  SubstrateActorTemplateEntry,
+  SubstrateWorkerEntry,
+  SubstrateWorkerPoolEntry,
+} from "@/api/domain/substrate";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 
@@ -266,7 +271,14 @@ export const mockNamespaces: NamespaceResponse[] = [
  * are partial is the state most likely to be rendered as though everything were
  * fine, so the fixture makes it the default rather than a special case.
  */
-export const mockSubstrateStatus: SubstrateStatusResponse = {
+export const mockSubstrateInventory: {
+  enabled: boolean;
+  ateApiError?: string;
+  workerPools: SubstrateWorkerPoolEntry[];
+  actorTemplates: SubstrateActorTemplateEntry[];
+  actors: SubstrateActorEntry[];
+  workers: SubstrateWorkerEntry[];
+} = {
   enabled: true,
   ateApiError: "ate-api list actors timed out after 5s; actors may be incomplete",
   workerPools: [
@@ -275,17 +287,17 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
   ],
   actorTemplates: [
     {
-      namespace: "kagent",
+      atespace: "kagent",
       name: "coder-template",
       phase: "Ready",
       goldenActorId: "actor-golden-001",
       goldenSnapshot: "snap-2026-07-28",
-      sandboxClass: "standard",
+      sandboxClass: "gvisor",
       workerSelector: "pool=default-pool",
       harnessName: "openclaw",
     },
     {
-      namespace: "platform",
+      atespace: "platform",
       name: "external-template",
       phase: "Pending",
     },
@@ -293,9 +305,9 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
   actors: [
     {
       actorId: "actor-7f21",
-      atespace: "kagent",
+      atespace: "team-a",
       status: "Running",
-      actorTemplateNamespace: "kagent",
+      actorTemplateAtespace: "kagent",
       actorTemplateName: "coder-template",
       ateomPodNamespace: "kagent",
       ateomPodName: "ateom-default-pool-0",
@@ -304,7 +316,7 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       workerPoolName: "default-pool",
       version: 4,
     },
-    { actorId: "actor-9c03", status: "Snapshotting", inProgressSnapshot: "snap-2026-07-30", version: 2 },
+    { actorId: "actor-9c03", atespace: "kagent", status: "Suspending", inProgressSnapshot: "snap-2026-07-30", version: 2 },
     // Last in the fixture and first once sorted: ate-api returns actors in no
     // particular order, so a fixture that is already in the right order cannot tell
     // a page that sorts from one that does not.
@@ -312,30 +324,34 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
     // The raw wire constant, because that is what a real controller sends for a state
     // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
     // reach the page unread and no test object.
-    { actorId: "actor-0aa1", status: "ACTOR_STATE_CRASHED", version: 1 },
+    { actorId: "actor-0aa1", atespace: "kagent", status: "ACTOR_STATE_CRASHED", version: 1 },
     // Shares "Running" with actor-7f21, which is what makes a two-key sort observable:
     // with every status distinct, sorting by status then by id looks the same as
     // sorting by status alone.
-    { actorId: "actor-3b55", status: "Running", version: 1 },
+    { actorId: "actor-3b55", atespace: "kagent", status: "Running", version: 1 },
     // Parked rather than broken, and the only status here that reads as neither:
     // without it nothing on the page is drawn in the idle tone.
-    { actorId: "actor-5d17", status: "Paused", version: 1 },
+    { actorId: "actor-5d17", atespace: "kagent", status: "Paused", version: 1 },
     // The controller's other unnamed state. `ACTOR_STATE_CRASHED` alone would pass a
     // humaniser that special-cased that one word; two of them do not.
-    { actorId: "actor-2e40", status: "ACTOR_STATE_DELETING", version: 1 },
+    { actorId: "actor-2e40", atespace: "kagent", status: "ACTOR_STATE_DELETING", version: 1 },
     // A transition, and a word the page recognises by its shape rather than from a
     // list — the same rule that has to carry `Suspending` and `Pausing`.
-    { actorId: "actor-8b91", status: "Resuming", version: 1 },
-    { actorId: "actor-c3f5", status: "Suspended", version: 3 },
+    { actorId: "actor-8b91", atespace: "kagent", status: "Resuming", version: 1 },
+    { actorId: "actor-c3f5", atespace: "kagent", status: "Suspended", version: 3 },
   ],
+  /*
+   * No actor on any worker, because the controller cannot put one there: ate-api's
+   * `Worker` carries capacity and allocation and no actor reference. This fixture used
+   * to name an actor and a template on the first worker, which made the columns look
+   * populated in mock mode and blank against every real cluster — a fixture agreeing
+   * with a type and a test while all three disagreed with the controller.
+   */
   workers: [
     {
       workerNamespace: "kagent",
       workerPool: "default-pool",
       workerPod: "ateom-default-pool-0",
-      actorNamespace: "kagent",
-      actorTemplate: "coder-template",
-      actorId: "actor-7f21",
       ip: "10.42.1.19",
       version: 4,
     },

@@ -54,7 +54,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -103,12 +102,17 @@ export type SubstrateWorkerSortField =
   | "default"
   | "pool"
   | "pod"
-  | "actor";
+  | "ip";
 
 /** What a paged, filtered substrate read takes. */
 export interface SubstratePageInput<Sort = string> {
-  namespace?: string;
-  /** Matched server-side against the fields the row displays. Empty matches everything. */
+  /**
+   * Matched server-side against the fields the row displays. Empty matches everything.
+   *
+   * Sent rather than applied here: the rows are one page of an inventory that can run
+   * to hundreds of thousands, so filtering them locally would search that page and
+   * report a match nine pages away as "no matches".
+   */
   filter?: string;
   /** Rows per page. The controller refuses anything over 100 rather than clamping. */
   limit?: number;
@@ -117,13 +121,25 @@ export interface SubstratePageInput<Sort = string> {
   /**
    * Which column to order by, and in which direction.
    *
-   * Sent rather than applied here, for the same reason the filter is: the rows are
-   * one page of hundreds of thousands, so ordering them locally reorders the page
-   * rather than the result — which looks like sorting and is not.
+   * Sent for the same reason the filter is: ordering a page orders the page, and the
+   * first row of the sorted cluster is almost certainly not on it.
    */
   sortField?: Sort;
   sortOrder?: SubstrateSortOrder;
 }
+
+export interface SubstrateScopeInput {
+  namespace?: string;
+  atespace?: string;
+}
+
+export type SubstrateActorPageInput = SubstratePageInput<SubstrateActorSortField> & { atespace?: string };
+export type SubstrateWorkerPageInput = SubstratePageInput<SubstrateWorkerSortField> & { namespace?: string };
+
+type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
+  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
+  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
+};
 
 /**
  * The input and output of every operation, keyed by id.
@@ -132,11 +148,6 @@ export interface SubstratePageInput<Sort = string> {
  * transform and a fake all see the same named fields as the implementation — a
  * positional signature cannot be inspected by any of them.
  */
-type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
-  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
-  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
-};
-
 export interface OperationMap {
   "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
   "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
@@ -345,19 +356,6 @@ export interface OperationMap {
 
   "namespaces.list": { input: NoInput; output: NamespaceResponse[] };
   /**
-   * The whole substrate inventory in one read.
-   *
-   * Kept for the small clusters where it still works, and used by nothing on
-   * screen: it does not survive a real one. A deployment reporting 103,134 actors
-   * answers with a message gRPC refuses to send — 43MB against a 16MB ceiling — so
-   * the page that depended on it could not load at all. The three operations below
-   * replaced it, and raising the ceiling would only move the number.
-   */
-  "substrate.status": {
-    input: { namespace?: string };
-    output: SubstrateStatusResponse;
-  };
-  /**
    * Counts, and the two lists small enough to travel whole.
    *
    * The only honest source of a total on the substrate page: every other read
@@ -365,23 +363,24 @@ export interface OperationMap {
    * "20 actors" for a cluster running a hundred thousand.
    */
   "substrate.summary": {
-    input: { namespace?: string };
+    input: SubstrateScopeInput;
     output: SubstrateSummary;
   };
   /**
-   * One page of actors, narrowed server-side.
+   * One page of actors, ordered and narrowed across the whole inventory.
    *
-   * The filter is sent rather than applied here, because filtering a page that has
-   * already been fetched searches only what was fetched — a match on page nine
-   * reads on screen as "no matches".
+   * ate-api offers paging and nothing else, so the controller reads every one of its
+   * pages to apply the order and the filter before cutting this one. That costs a walk
+   * of the inventory per request, and it is what makes the order and the filter mean
+   * the cluster rather than the hundred rows in front of the reader.
    */
   "substrate.actors": {
-    input: SubstratePageInput<SubstrateActorSortField>;
+    input: SubstrateActorPageInput;
     output: SubstrateActorPage;
   };
   /** One page of worker assignments. The mirror of `substrate.actors`. */
   "substrate.workers": {
-    input: SubstratePageInput<SubstrateWorkerSortField>;
+    input: SubstrateWorkerPageInput;
     output: SubstrateWorkerPage;
   };
 }

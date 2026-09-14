@@ -1,34 +1,3 @@
-import type {
-  SubstrateActorSortField,
-  SubstrateSortOrder,
-  SubstrateWorkerSortField,
-} from "../operations";
-
-/**
- * Agent Substrate inventory.
- *
- * Mirrors `GetSubstrateStatusResponse` in `system.proto` field for field — this is one response the UI only ever reads, so drifting from the Go
- * shape would show up as blank columns rather than as a type error.
- */
-
-/** `SystemService.GetSubstrateStatus` — controller and Kubernetes state, aggregated. */
-export interface SubstrateStatusResponse {
-  /** True when the controller is configured with an ate-api endpoint. */
-  enabled: boolean;
-  /**
-   * Set when ate-api list calls failed.
-   *
-   * The response is still a success: `actors` and `workers` may be partial or
-   * empty while the Kubernetes-derived halves are complete, so this is a warning
-   * to surface beside the data rather than an error to throw.
-   */
-  ateApiError?: string;
-  workerPools: SubstrateWorkerPoolEntry[];
-  actorTemplates: SubstrateActorTemplateEntry[];
-  actors: SubstrateActorEntry[];
-  workers: SubstrateWorkerEntry[];
-}
-
 /** An `ate.dev` WorkerPool custom resource. */
 export interface SubstrateWorkerPoolEntry {
   namespace: string;
@@ -37,9 +6,9 @@ export interface SubstrateWorkerPoolEntry {
   ateomImage: string;
 }
 
-/** An `ate.dev` ActorTemplate custom resource. */
+/** An ATE ActorTemplate, identified by atespace and name. */
 export interface SubstrateActorTemplateEntry {
-  namespace: string;
+  atespace: string;
   name: string;
   phase?: string;
   goldenActorId?: string;
@@ -52,9 +21,9 @@ export interface SubstrateActorTemplateEntry {
 /** Runtime actor state, from ate-api rather than from Kubernetes. */
 export interface SubstrateActorEntry {
   actorId: string;
-  atespace?: string;
+  atespace: string;
   status: string;
-  actorTemplateNamespace?: string;
+  actorTemplateAtespace?: string;
   actorTemplateName?: string;
   ateomPodNamespace?: string;
   ateomPodName?: string;
@@ -65,14 +34,19 @@ export interface SubstrateActorEntry {
   version?: number;
 }
 
-/** A worker assignment, from ate-api. */
+/**
+ * A worker, from ate-api.
+ *
+ * Which actor is on it is not here, and is not on the wire either. ate-api's `Worker`
+ * carries capacity and allocation but no actor reference: the binding lives on the
+ * *actor*, so filling these rows in would mean reading every actor in the cluster to
+ * join them — the whole-inventory read the paged calls exist to remove. The summary's
+ * `busyWorkerCount` is what that join is worth doing once for.
+ */
 export interface SubstrateWorkerEntry {
   workerNamespace: string;
   workerPool: string;
   workerPod: string;
-  actorNamespace?: string;
-  actorTemplate?: string;
-  actorId?: string;
   ip?: string;
   version?: number;
 }
@@ -122,19 +96,38 @@ export interface SubstrateStatusCount {
 /**
  * When an answer was computed, which is not necessarily when it was received.
  *
- * The controller memoises these reads briefly, because each one walks ate-api's
- * whole actor list — about 1.6 seconds on a cluster holding 410,110 of them. A
- * cache is also exactly how a polling control becomes a lie, so the age travels
- * with the answer and the page shows it: a reader can tell a cluster that is not
- * changing from a read that is not happening.
+ * The summary walks every ate-api page to count, which on a cluster holding 410,110
+ * actors is seconds rather than milliseconds. Stamping the answer with when it was
+ * computed lets the page show its age, so a reader can tell a cluster that is not
+ * changing from a read that is not finishing.
  */
 export interface Timed {
   /** RFC3339, or `undefined` when the controller did not say. */
   computedAt?: string;
 }
 
+import type {
+  SubstrateActorSortField,
+  SubstrateSortOrder,
+  SubstrateWorkerSortField,
+} from "../operations";
+
 /** What every paged substrate read has in common. */
 interface SubstratePage extends Timed {
+  /** True when the controller is configured with an ate-api endpoint. */
+  enabled: boolean;
+  /**
+   * Set when the ate-api read failed on an otherwise successful call.
+   *
+   * There are no rows with it. Every read walks all of ate-api's pages so that the
+   * order and the filter mean the whole scope, and a walk that fails part-way has an
+   * inventory it can neither order nor count — so the page comes back empty, with
+   * `totalSize` zero and no `nextPageToken`.
+   *
+   * A warning to show beside the table rather than an error to throw: the call
+   * succeeded, and the other reads on the page may well have too.
+   */
+  ateApiError?: string;
   /**
    * A token for the next page, or `undefined` on the last one.
    *
@@ -151,14 +144,15 @@ interface SubstratePage extends Timed {
   totalSize: number;
 }
 
+/** One page of actors, ordered and narrowed across the whole inventory. */
 export interface SubstrateActorPage extends SubstratePage {
   actors: SubstrateActorEntry[];
   /**
    * The order the server actually applied.
    *
-   * Reported rather than assumed, so the table can say how its rows are sorted
-   * instead of showing the control's own state — which would still read as "sorted
-   * by status" if the request had been ignored.
+   * Reported rather than assumed, so the table can say how its rows are sorted instead
+   * of showing the control's own state — which would still read as "sorted by status"
+   * if the request had been ignored.
    */
   appliedSortField: SubstrateActorSortField;
   appliedSortOrder: SubstrateSortOrder;
