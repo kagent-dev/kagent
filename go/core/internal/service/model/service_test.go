@@ -45,10 +45,14 @@ type recordingAuthorizer struct {
 	scopeVerb  pkgauth.Verb
 	scopeType  string
 	checkCalls []authorizationCall
+	denyCheck  int
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resource pkgauth.Resource) error {
 	a.checkCalls = append(a.checkCalls, authorizationCall{verb: verb, resource: resource})
+	if len(a.checkCalls) == a.denyCheck {
+		return errors.New("denied")
+	}
 	return nil
 }
 
@@ -304,13 +308,33 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		}
 		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{}, config)
 
-		deleted, err := service.Delete(ctx, model.DeleteRequest{Ref: types.NamespacedName{Namespace: "default", Name: "cfg"}})
+		err := service.Delete(ctx, model.DeleteRequest{Ref: types.NamespacedName{Namespace: "default", Name: "cfg"}})
 		require.NoError(t, err)
-		assert.Equal(t, "cfg", deleted.Name)
 
 		fetched := &v1alpha3.ModelConfig{}
 		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, fetched)
 		assert.Error(t, err)
+	})
+
+	t.Run("update permission denied before write", func(t *testing.T) {
+		config := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
+			Spec:       v1alpha3.ModelConfigSpec{Model: "original", Provider: v1alpha3.ModelProviderOpenAI},
+		}
+		authorizer := &recordingAuthorizer{denyCheck: 2}
+		service, kubeClient, ctx := newService(authorizer, config)
+
+		_, err := service.Update(ctx, model.UpdateRequest{
+			Ref:  types.NamespacedName{Namespace: "default", Name: "cfg"},
+			Spec: v1alpha3.ModelConfigSpec{Model: "updated", Provider: v1alpha3.ModelProviderOpenAI},
+		})
+		require.Error(t, err)
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+		require.Len(t, authorizer.checkCalls, 2)
+
+		stored := &v1alpha3.ModelConfig{}
+		require.NoError(t, kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, stored))
+		assert.Equal(t, "original", stored.Spec.Model)
 	})
 
 	t.Run("permission denied", func(t *testing.T) {
@@ -381,7 +405,7 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if _, err := service.Delete(ctx, model.DeleteRequest{Ref: types.NamespacedName{Namespace: "team", Name: "existing"}}); err != nil {
+	if err := service.Delete(ctx, model.DeleteRequest{Ref: types.NamespacedName{Namespace: "team", Name: "existing"}}); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -391,7 +415,7 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 	for index, call := range authorizer.checkCalls {
 		assert.Equal(t, wantVerbs[index], call.verb)
 		assert.Equal(t, "ModelConfig", call.resource.Type)
-		assert.Equal(t, []string{"team"}, call.resource.Attributes[apiauthorization.AttributeNamespace])
-		assert.Equal(t, []string{wantNames[index]}, call.resource.Attributes[apiauthorization.AttributeName])
+		assert.Equal(t, "team", call.resource.Attributes[apiauthorization.AttributeNamespace])
+		assert.Equal(t, wantNames[index], call.resource.Attributes[apiauthorization.AttributeName])
 	}
 }

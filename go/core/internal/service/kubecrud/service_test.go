@@ -1,11 +1,13 @@
-package kubecrud
+package kubecrud_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,10 +32,14 @@ type recordingAuthorizer struct {
 	scopeVerb  auth.Verb
 	scopeType  string
 	checkCalls []authorizationCall
+	denyCheck  int
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
 	a.checkCalls = append(a.checkCalls, authorizationCall{verb: verb, resource: resource})
+	if len(a.checkCalls) == a.denyCheck {
+		return errors.New("denied")
+	}
 	return nil
 }
 
@@ -62,7 +68,7 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "a"}},
 		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "mutable"}},
 	).Build()
-	service := NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
 	ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
 	listed, err := service.List(ctx, "team")
@@ -100,12 +106,44 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		if call.verb != wantVerbs[index] {
 			t.Errorf("Check() call %d verb = %q, want %q", index, call.verb, wantVerbs[index])
 		}
-		if call.resource.Type != "AgentTemplate" || len(call.resource.Attributes[apiauthorization.AttributeNamespace]) != 1 || call.resource.Attributes[apiauthorization.AttributeNamespace][0] != "team" {
+		if call.resource.Type != "AgentTemplate" || call.resource.Attributes[apiauthorization.AttributeNamespace] != "team" {
 			t.Errorf("Check() call %d resource = %+v", index, call.resource)
 		}
-		if got := call.resource.Attributes[apiauthorization.AttributeName]; len(got) != 1 || got[0] != wantNames[index] {
+		if got := call.resource.Attributes[apiauthorization.AttributeName]; got != wantNames[index] {
 			t.Errorf("Check() call %d name = %v, want %q", index, got, wantNames[index])
 		}
+	}
+}
+
+func TestServiceRejectsProposedUpdateWithoutWriting(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "original"},
+		Spec:       v1alpha3.AgentTemplateSpec{Description: "original"},
+	}).Build()
+	authorizer := &recordingAuthorizer{denyCheck: 2}
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+	_, err := service.Update(ctx, types.NamespacedName{Namespace: "team", Name: "original"}, func(proposed *v1alpha3.AgentTemplate) {
+		proposed.Name = "moved"
+		proposed.Spec.Description = "updated"
+	})
+	if err == nil || !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		t.Fatalf("Update() error = %v, want permission denied", err)
+	}
+	if len(authorizer.checkCalls) != 2 || authorizer.checkCalls[1].resource.Name != "team/moved" {
+		t.Fatalf("Check() calls = %+v, want stored then proposed resource", authorizer.checkCalls)
+	}
+	stored := &v1alpha3.AgentTemplate{}
+	if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "original"}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Spec.Description != "original" {
+		t.Fatalf("stored description = %q, want original", stored.Spec.Description)
 	}
 }
 
@@ -126,7 +164,7 @@ func TestHarnessServiceFiltersList(t *testing.T) {
 		&v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
 		&v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "denied"}},
 	).Build()
-	service := NewService(kubeClient, authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness")
 	ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
 	listed, err := service.List(ctx, "team")
@@ -147,7 +185,7 @@ func TestServiceRejectsInvalidScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}}
-	service := NewService(
+	service := kubecrud.NewService(
 		fake.NewClientBuilder().WithScheme(scheme).Build(),
 		authorizer,
 		&v1alpha3.AgentTemplate{},

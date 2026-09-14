@@ -21,7 +21,7 @@ const (
 type Resource struct {
 	Type       string
 	Name       string
-	Attributes map[string][]string
+	Attributes map[string]string
 }
 
 type User struct {

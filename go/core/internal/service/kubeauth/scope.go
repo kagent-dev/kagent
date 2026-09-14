@@ -12,12 +12,12 @@ import (
 
 // Resource builds authorization input from trusted Kubernetes metadata.
 func Resource(resourceType string, object metav1.Object) auth.Resource {
-	attributes := make(map[string][]string, 2)
+	attributes := make(map[string]string, 2)
 	if object.GetNamespace() != "" {
-		attributes[apiauthorization.AttributeNamespace] = []string{object.GetNamespace()}
+		attributes[apiauthorization.AttributeNamespace] = object.GetNamespace()
 	}
 	if object.GetName() != "" {
-		attributes[apiauthorization.AttributeName] = []string{object.GetName()}
+		attributes[apiauthorization.AttributeName] = object.GetName()
 	}
 	return auth.Resource{
 		Type: resourceType,
@@ -71,6 +71,14 @@ func CompileScope(scope apiauthorization.AuthorizationScope) (Matcher, error) {
 			if slices.Contains(predicate.Values, "") {
 				return Matcher{}, fmt.Errorf("scope predicate %d.%d contains an empty value", clauseIndex, predicateIndex)
 			}
+		}
+	}
+	scope.AnyOf = slices.Clone(scope.AnyOf)
+	for clauseIndex := range scope.AnyOf {
+		scope.AnyOf[clauseIndex].All = slices.Clone(scope.AnyOf[clauseIndex].All)
+		for predicateIndex := range scope.AnyOf[clauseIndex].All {
+			predicate := &scope.AnyOf[clauseIndex].All[predicateIndex]
+			predicate.Values = slices.Clone(predicate.Values)
 		}
 	}
 

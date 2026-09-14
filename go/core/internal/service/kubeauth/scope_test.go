@@ -1,9 +1,10 @@
-package kubeauth
+package kubeauth_test
 
 import (
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -43,7 +44,7 @@ func TestMatcher(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			matcher, err := CompileScope(test.scope)
+			matcher, err := kubeauth.CompileScope(test.scope)
 			if err != nil {
 				t.Fatalf("CompileScope() error = %v", err)
 			}
@@ -52,42 +53,78 @@ func TestMatcher(t *testing.T) {
 			}
 		})
 	}
-	if (Matcher{}).Matches(object) {
+	if (kubeauth.Matcher{}).Matches(object) {
 		t.Fatal("zero Matcher matches object")
 	}
 }
 
-func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
-	tests := []apiauthorization.AuthorizationScope{
-		{},
-		{Kind: apiauthorization.ScopeAll, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"x"}}}}}},
-		{Kind: apiauthorization.ScopeNone, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"x"}}}}}},
-		{Kind: apiauthorization.ScopeAnyOf},
-		{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{}}},
-		{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: "label", Operator: apiauthorization.ScopeIn, Values: []string{"x"}}}}}},
-		{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: "MISSING"}}}}},
-		{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: "EQUALS", Values: []string{"x"}}}}}},
-		{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn}}}}},
-		{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{""}}}}}},
+func TestMatcherOwnsCompiledScope(t *testing.T) {
+	values := []string{"team-a"}
+	predicates := []apiauthorization.ScopePredicate{{
+		Attribute: apiauthorization.AttributeNamespace,
+		Operator:  apiauthorization.ScopeIn,
+		Values:    values,
+	}}
+	clauses := []apiauthorization.ScopeClause{{All: predicates}}
+	matcher, err := kubeauth.CompileScope(apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: clauses})
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	for index, scope := range tests {
-		if _, err := CompileScope(scope); err == nil {
-			t.Errorf("CompileScope(invalid scope %d) error = nil", index)
-		}
+	clauses[0] = apiauthorization.ScopeClause{All: []apiauthorization.ScopePredicate{{
+		Attribute: apiauthorization.AttributeName,
+		Operator:  apiauthorization.ScopeIn,
+		Values:    []string{"other"},
+	}}}
+	predicates[0] = apiauthorization.ScopePredicate{
+		Attribute: apiauthorization.AttributeName,
+		Operator:  apiauthorization.ScopeIn,
+		Values:    []string{"other"},
+	}
+	values[0] = "other"
+
+	object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent-a"}}
+	if !matcher.Matches(object) {
+		t.Fatal("matcher changed after its source scope was mutated")
+	}
+}
+
+func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope apiauthorization.AuthorizationScope
+	}{
+		{name: "missing kind"},
+		{name: "all with clauses", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"x"}}}}}}},
+		{name: "none with clauses", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"x"}}}}}}},
+		{name: "any of with no clauses", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}},
+		{name: "empty clause", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{}}}},
+		{name: "unknown attribute", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: "label", Operator: apiauthorization.ScopeIn, Values: []string{"x"}}}}}}},
+		{name: "unknown operator", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: "MISSING"}}}}}},
+		{name: "unsupported operator", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: "EQUALS", Values: []string{"x"}}}}}}},
+		{name: "missing values", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn}}}}}},
+		{name: "empty value", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{""}}}}}}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := kubeauth.CompileScope(test.scope); err == nil {
+				t.Error("CompileScope() error = nil")
+			}
+		})
 	}
 }
 
 func TestResourceUsesObjectMetadata(t *testing.T) {
 	object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent-a"}}
-	resource := Resource("Harness", object)
+	resource := kubeauth.Resource("Harness", object)
 	if resource.Type != "Harness" || resource.Name != "team-a/agent-a" {
 		t.Fatalf("Resource() = %+v", resource)
 	}
-	if got := resource.Attributes[apiauthorization.AttributeNamespace]; len(got) != 1 || got[0] != "team-a" {
+	if got := resource.Attributes[apiauthorization.AttributeNamespace]; got != "team-a" {
 		t.Fatalf("namespace attribute = %v", got)
 	}
-	if got := resource.Attributes[apiauthorization.AttributeName]; len(got) != 1 || got[0] != "agent-a" {
+	if got := resource.Attributes[apiauthorization.AttributeName]; got != "agent-a" {
 		t.Fatalf("name attribute = %v", got)
 	}
 }

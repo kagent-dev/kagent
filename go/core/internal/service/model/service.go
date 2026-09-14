@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -27,6 +27,7 @@ const modelConfigResource = "ModelConfig"
 
 type Service struct {
 	kubeClient             client.Client
+	modelConfigs           *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
 	authorizer             auth.CollectionAuthorizer
 	defaultNamespace       string
 	providerModelRefresher ProviderModelRefresher
@@ -59,6 +60,7 @@ type DeleteRequest struct {
 func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, defaultNamespace string, options ...ServiceOption) *Service {
 	service := &Service{
 		kubeClient:       kubeClient,
+		modelConfigs:     kubecrud.NewService(kubeClient, authorizer, &v1alpha3.ModelConfig{}, &v1alpha3.ModelConfigList{}, modelConfigResource),
 		authorizer:       authorizer,
 		defaultNamespace: defaultNamespace,
 	}
@@ -69,41 +71,19 @@ func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, 
 }
 
 func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfigList, error) {
-	scope, err := s.scope(ctx, auth.VerbList)
+	items, err := s.modelConfigs.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	matcher, err := kubeauth.CompileScope(scope)
-	if err != nil {
-		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
+	result := &v1alpha3.ModelConfigList{Items: make([]v1alpha3.ModelConfig, len(items))}
+	for index, item := range items {
+		result.Items[index] = *item
 	}
-
-	modelConfigs := &v1alpha3.ModelConfigList{}
-	if err := s.kubeClient.List(ctx, modelConfigs); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to list ModelConfigs from Kubernetes", err)
-	}
-	authorized := make([]v1alpha3.ModelConfig, 0, len(modelConfigs.Items))
-	for index := range modelConfigs.Items {
-		if matcher.Matches(&modelConfigs.Items[index]) {
-			authorized = append(authorized, modelConfigs.Items[index])
-		}
-	}
-	modelConfigs.Items = authorized
-	return modelConfigs, nil
+	return result, nil
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (*v1alpha3.ModelConfig, error) {
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, request.Ref, modelConfig); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
-		}
-		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
-	}
-	if err := s.authorize(ctx, auth.VerbGet, kubeauth.Resource(modelConfigResource, modelConfig)); err != nil {
-		return nil, err
-	}
-	return modelConfig, nil
+	return s.modelConfigs.Get(ctx, request.Ref)
 }
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.ModelConfig, error) {
@@ -132,18 +112,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 		},
 		Spec: spec,
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, kubeauth.Resource(modelConfigResource, modelConfig)); err != nil {
+	modelConfig, err = s.modelConfigs.Create(ctx, modelConfig)
+	if err != nil {
 		return nil, err
-	}
-	existingConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, ref, existingConfig); err == nil {
-		return nil, serviceerrors.NewAlreadyExists("ModelConfig already exists", nil)
-	} else if !apierrors.IsNotFound(err) {
-		return nil, serviceerrors.NewInternal("Failed to check if ModelConfig exists", err)
-	}
-
-	if err := s.kubeClient.Create(ctx, modelConfig); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to create ModelConfig", err)
 	}
 
 	if request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
@@ -172,6 +143,8 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 	return modelConfig, nil
 }
 
+// Update stays in this workflow because its Secret writes must happen after
+// authorization but before the retrying ModelConfig write.
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.ModelConfig, error) {
 	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
 		return nil, err
@@ -255,34 +228,8 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 	return modelConfig, nil
 }
 
-func (s *Service) Delete(ctx context.Context, request DeleteRequest) (*v1alpha3.ModelConfig, error) {
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, request.Ref, modelConfig); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
-		}
-		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
-	}
-	if err := s.authorize(ctx, auth.VerbDelete, kubeauth.Resource(modelConfigResource, modelConfig)); err != nil {
-		return nil, err
-	}
-
-	if err := s.kubeClient.Delete(ctx, modelConfig); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to delete ModelConfig", err)
-	}
-	return modelConfig, nil
-}
-
-func (s *Service) scope(ctx context.Context, verb auth.Verb) (apiauthorization.AuthorizationScope, error) {
-	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session == nil {
-		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
-	}
-	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, modelConfigResource)
-	if err != nil {
-		return apiauthorization.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
-	}
-	return scope, nil
+func (s *Service) Delete(ctx context.Context, request DeleteRequest) error {
+	return s.modelConfigs.Delete(ctx, request.Ref)
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
