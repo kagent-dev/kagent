@@ -17,6 +17,11 @@ import (
 	"google.golang.org/genai"
 )
 
+// callerCtx carries the bearer token every real request presents.
+func callerCtx() context.Context {
+	return context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "caller-token")
+}
+
 type fakeSessionContext struct {
 	context.Context
 	sessionID string
@@ -69,7 +74,7 @@ func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	plugin.setCachedToken("sess-123", "token-abc", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
-		Context:   context.Background(),
+		Context:   callerCtx(),
 		sessionID: "sess-123",
 	})
 
@@ -91,7 +96,7 @@ func TestHeaderProvider_RecoversSessionID(t *testing.T) {
 	// valueCtx is the context the A2A executor produces: the session ID stored
 	// as a value, not exposed as a method.
 	valueCtx := func() context.Context {
-		return context.WithValue(context.Background(), kagentmodels.SessionIDKey, sessionID)
+		return context.WithValue(callerCtx(), kagentmodels.SessionIDKey, sessionID)
 	}
 
 	tests := []struct {
@@ -120,10 +125,19 @@ func TestHeaderProvider_RecoversSessionID(t *testing.T) {
 			// A caller still holding ADK's ToolContext keeps working.
 			name: "session only via SessionID()",
 			ctx: func(*testing.T) context.Context {
-				return fakeSessionContext{Context: context.Background(), sessionID: sessionID}
+				return fakeSessionContext{Context: callerCtx(), sessionID: sessionID}
 			},
 			cache: true,
 			want:  "Bearer " + exchangedToken,
+		},
+		{
+			// A later turn on the same session, presenting no caller token.
+			name: "cached token but no caller token on this request",
+			ctx: func(*testing.T) context.Context {
+				return context.WithValue(context.Background(), kagentmodels.SessionIDKey, sessionID)
+			},
+			cache: true,
+			want:  "",
 		},
 		{
 			// Startup toolset discovery: a plain context, no user to act for.
@@ -170,7 +184,7 @@ func TestHeaderProvider_ContextValueBeatsSessionIDMethod(t *testing.T) {
 	plugin.setCachedToken(methodSession, "TOKEN-FOR-METHOD", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
-		Context:   context.WithValue(context.Background(), kagentmodels.SessionIDKey, valueSession),
+		Context:   context.WithValue(callerCtx(), kagentmodels.SessionIDKey, valueSession),
 		sessionID: methodSession,
 	})
 

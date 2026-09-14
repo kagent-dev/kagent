@@ -259,6 +259,13 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 		return nil
 	}
 
+	// The cache outlives the run, so without this a turn carrying no caller
+	// token would go out as whoever sent an earlier turn.
+	if token, ok := ctx.Value(models.BearerTokenKey).(string); !ok || token == "" {
+		p.logger.DebugContext(ctx, "no caller token on this request, MCP request will use existing headers", "session_id", sessionID)
+		return nil
+	}
+
 	entry, ok := p.getCachedToken(sessionID)
 	if !ok {
 		p.logger.DebugContext(ctx, "no cached STS token for session, MCP request will use existing headers", "session_id", sessionID)
