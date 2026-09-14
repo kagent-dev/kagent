@@ -747,7 +747,7 @@ export function AgentChatPage() {
               css={{
                 flexShrink: 0,
                 position: "sticky",
-                top: theme.layout.headerHeight + 24,
+                top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
                 alignSelf: "start",
                 marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
                 transition: "margin-inline-end 180ms ease",
@@ -786,7 +786,7 @@ export function AgentChatPage() {
                 // travels within its parent's box, and this wrapper is exactly as tall
                 // as the panel. See the rail, which had the same fault.
                 position: "sticky",
-                top: theme.layout.headerHeight + 24,
+                top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
                 alignSelf: "start",
                 /* Hidden for real once closed rather than clipped to zero width — a
                    child of a zero-width box still has a bounding box. Delayed by the

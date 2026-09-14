@@ -689,7 +689,7 @@ export function AgentPage() {
         css={{
           flexShrink: 0,
           position: "sticky",
-          top: theme.layout.headerHeight + 24,
+          top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
           alignSelf: "start",
           width: 248,
         }}
