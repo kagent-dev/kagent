@@ -57,7 +57,11 @@ func existingGitSkill(destination string) (bool, error) {
 // SubPath, if set, rewrites the destination so the final layout matches the
 // requested in-repo subdirectory.
 func CloneGit(ref GitRef) error {
-	exists, err := existingGitSkill(ref.Dest)
+	destination, err := filepath.Abs(ref.Dest)
+	if err != nil {
+		return fmt.Errorf("resolve git destination: %w", err)
+	}
+	exists, err := existingGitSkill(destination)
 	if err != nil {
 		return err
 	}
@@ -65,27 +69,45 @@ func CloneGit(ref GitRef) error {
 		return nil
 	}
 
+	staged, err := os.MkdirTemp(filepath.Dir(destination), ".skill-clone-*")
+	if err != nil {
+		return fmt.Errorf("create staged git destination: %w", err)
+	}
+	cleanupStaged := true
+	defer func() {
+		if cleanupStaged {
+			_ = os.RemoveAll(staged)
+		}
+	}()
+
 	if ref.Full {
-		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
+		if err := runGit("clone", "--", ref.URL, staged); err != nil {
 			return err
 		}
 		// `--` separator prevents a ref starting with `-` from being parsed
 		// as a flag. Refs are already validated upstream as 40-char hex when
 		// Full is true, but defense in depth costs nothing.
-		if err := runGitIn(ref.Dest, "checkout", "--", ref.Ref); err != nil {
+		if err := runGitIn(staged, "checkout", "--", ref.Ref); err != nil {
 			return err
 		}
 	} else {
-		if err := runGit("clone", "--depth", "1", "--branch", ref.Ref, "--", ref.URL, ref.Dest); err != nil {
+		if err := runGit("clone", "--depth", "1", "--branch", ref.Ref, "--", ref.URL, staged); err != nil {
 			return err
 		}
 	}
 
 	if ref.SubPath != "" {
-		if err := applySubPath(ref.Dest, ref.SubPath); err != nil {
+		if err := applySubPath(staged, ref.SubPath); err != nil {
 			return fmt.Errorf("apply subPath %q: %w", ref.SubPath, err)
 		}
 	}
+	if err := os.Chmod(staged, 0o755); err != nil {
+		return fmt.Errorf("set staged git destination permissions: %w", err)
+	}
+	if err := os.Rename(staged, destination); err != nil {
+		return fmt.Errorf("publish git destination: %w", err)
+	}
+	cleanupStaged = false
 	return nil
 }
 

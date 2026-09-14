@@ -2,6 +2,7 @@ package skillsinit
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -99,4 +100,41 @@ func TestExistingGitSkillRejectsSymlinks(t *testing.T) {
 		_, err := existingGitSkill(destination)
 		require.ErrorContains(t, err, "symbolic link")
 	})
+}
+
+func TestCloneGitFailedSubPathRetryDoesNotAcceptRootSkill(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+	}
+	runGit("", "init", "--initial-branch", "main", source)
+	runGit(source, "config", "user.email", "test@example.com")
+	runGit(source, "config", "user.name", "Test User")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("root skill\n"), 0o644))
+	runGit(source, "add", "SKILL.md")
+	runGit(source, "commit", "-m", "root skill")
+
+	ref := GitRef{
+		URL:     source,
+		Ref:     "main",
+		Dest:    filepath.Join(root, "destination"),
+		SubPath: "missing-skill",
+	}
+	require.Error(t, CloneGit(ref), "first attempt unexpectedly succeeded")
+	assert.NoDirExists(t, ref.Dest, "failed attempt left a completed-looking destination")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "missing-skill"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "missing-skill", "SKILL.md"), []byte("requested skill\n"), 0o644))
+	runGit(source, "add", "missing-skill/SKILL.md")
+	runGit(source, "commit", "-m", "requested skill")
+
+	require.NoError(t, CloneGit(ref), "retry did not recover after the requested subpath became available")
+	content, err := os.ReadFile(filepath.Join(ref.Dest, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "requested skill\n", string(content))
 }
