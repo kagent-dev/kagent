@@ -32,6 +32,36 @@ import { expect, type Locator, type Page } from "@playwright/test";
 export const LIFECYCLE_TIMEOUT = 90_000;
 
 /**
+ * Presses a dialog's button until the dialog has acted on it.
+ *
+ * antd animates a modal and a popconfirm in, and a click that lands while one is still
+ * arriving is dropped — often enough on Firefox under a loaded parallel run to be the
+ * single largest source of flake in these specs. It fails in the worst possible way: the
+ * dialog simply stays up until the assertion times out, which reads as a confirmation
+ * that cannot be dismissed rather than as a click that missed.
+ *
+ * Retrying is safe because every button this is used on is idempotent in the only sense
+ * that matters here — `Keep` and `Keep editing` close a dialog, `Delete` deletes a thing
+ * that is then gone — and the `isVisible` guard means a button that has already done its
+ * job is not pressed again. `settled` is the caller's own proof that it did: the row has
+ * gone, the address has changed, the dialog is down.
+ *
+ * Measured rather than assumed: with this at every dialog in these specs, five
+ * consecutive full runs produced no failure in one. Without it, schedules failed three
+ * times in five and prompts once.
+ */
+export async function pressUntil(
+  button: Locator,
+  settled: () => Promise<unknown>,
+  timeout = 30_000,
+): Promise<void> {
+  await expect(async () => {
+    if (await button.isVisible()) await button.click();
+    await settled();
+  }).toPass({ timeout });
+}
+
+/**
  * Clicks Refresh once it is actually clickable.
  *
  * The control carries the list's own loading state, and antd ignores a click on a

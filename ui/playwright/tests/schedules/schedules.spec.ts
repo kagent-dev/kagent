@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { tick } from "../../helpers/controls";
-import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, pressUntil } from "../../helpers/resource";
 
 /**
  * Schedules — the whole life of one, in a single journey.
@@ -344,7 +344,9 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       .click();
     await expect(page.getByRole("button", { name: "Keep", exact: true })).toBeVisible();
     await expect(page).toHaveURL(/\/schedules(\?.*)?$/);
-    await page.getByRole("button", { name: "Keep", exact: true }).click();
+    await pressUntil(page.getByRole("button", { name: "Keep", exact: true }), () =>
+      expect(page.getByRole("button", { name: "Keep", exact: true })).toBeHidden(),
+    );
     await expect(rowNamed(RENAMED)).toHaveCount(1);
   });
 
@@ -370,8 +372,9 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       exact: true,
     });
     await expect(confirmation).toContainText("Stops future executions.");
-    await confirmation.getByRole("button", { name: "Keep", exact: true }).click();
-    await expect(confirmation).toBeHidden({ timeout: 30_000 });
+    await pressUntil(confirmation.getByRole("button", { name: "Keep", exact: true }), () =>
+      expect(confirmation).toBeHidden(),
+    );
     // Still usable afterwards, so a dismissed confirmation leaves no disabled page.
     await expect(page.getByRole("button", { name: "Run", exact: true })).toBeEnabled();
   });
@@ -381,20 +384,22 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       .getByTestId("schedule-danger")
       .getByRole("button", { name: `Delete schedule ${RENAMED}`, exact: true })
       .click();
-    await page
-      .getByRole("dialog", { name: `Delete schedule ${RENAMED}?`, exact: true })
-      .getByRole("button", { name: "Delete", exact: true })
-      .click();
-
     /*
-     * Deleting leaves for the list, which is where the reader can act next: this page is
-     * now about a schedule that is gone.
+     * Pressed until it takes, and this is the site that most needed it: the Delete click
+     * was being dropped on Firefox often enough that this step failed three runs in five,
+     * always as "the page never navigated" rather than as a missed click. See
+     * `pressUntil`.
      *
-     * A longer budget than the default, because this is a write, a list invalidation and
-     * a navigation rather than a render — and under a full parallel run it does not fit
-     * in five seconds. It failed exactly here on Firefox.
+     * Deleting leaves for the list, which is where the reader can act next: this page is
+     * now about a schedule that is gone — so the navigation is what proves the press
+     * landed.
      */
-    await expect(page).toHaveURL(/\/schedules(\?.*)?$/, { timeout: 30_000 });
+    await pressUntil(
+      page
+        .getByRole("dialog", { name: `Delete schedule ${RENAMED}?`, exact: true })
+        .getByRole("button", { name: "Delete", exact: true }),
+      () => expect(page).toHaveURL(/\/schedules(\?.*)?$/),
+    );
     await expect(rowNamed(RENAMED)).toHaveCount(0);
     // One row went, not the table.
     await expect(

@@ -14,6 +14,7 @@ import {
   clickRefresh,
   confirmDelete,
   expectRequired,
+  pressUntil,
 } from "../../helpers/resource";
 import { operationCallCounts, rpc } from "../../helpers/mockCalls";
 
@@ -169,17 +170,16 @@ test("prompt libraries: a library is created, read, changed and deleted", async 
     // The body rather than the modal: antd hangs the outer testid on a wrapper it keeps
     // hidden, so asserting on that one passes without the dialog being up.
     await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
-    await page.getByRole("button", { name: "Keep editing" }).click();
-    await expect(page).toHaveURL(/\/prompts\/new$/);
-    // Waited out rather than assumed gone: a field filled while the dialog is still
-    // closing can be re-rendered back to its previous value by the state change that
-    // closes it.
-    await expect(page.getByTestId("prompt-discard-body")).toBeHidden({
-      // A dismissal is an animation plus the re-render behind it, and under a full
-      // parallel run those do not reliably fit in the default five seconds — this
-      // failed exactly here on Firefox. Waiting longer costs nothing when it passes.
-      timeout: 30_000,
+    // Pressed until it takes — see `pressUntil`. A dismissal aimed at a dialog that is
+    // still animating in is dropped, and this is one of the two sites where that was
+    // measurably happening.
+    await pressUntil(page.getByRole("button", { name: "Keep editing" }), async () => {
+      // Waited out rather than assumed gone: a field filled while the dialog is still
+      // closing can be re-rendered back to its previous value by the state change that
+      // closes it.
+      await expect(page.getByTestId("prompt-discard-body")).toBeHidden();
     });
+    await expect(page).toHaveURL(/\/prompts\/new$/);
 
     await expect(page.getByTestId("prompt-name")).toHaveValue(CREATED);
     await page.getByTestId("fragment-key").first().fill("changelog");
@@ -275,23 +275,11 @@ test("prompt libraries: a library is created, read, changed and deleted", async 
       await leave.click();
       await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
 
-      /*
-       * Dismissed by polling the button rather than by clicking it once.
-       *
-       * The click lands on a dialog that is still animating in, and on Firefox it is
-       * dropped often enough to matter — the dialog then sits there until the step times
-       * out, which reads as a guard that cannot be dismissed rather than as a click that
-       * missed. Re-clicking while it is still up is safe: `Keep editing` only closes the
-       * dialog, so a second press on a closed one has nothing to hit.
-       *
-       * This flake predates the merge into this journey — the old
-       * `prompt-editing.spec.ts` carried the same loop and failed the same way.
-       */
-      const keepEditing = page.getByRole("button", { name: "Keep editing" });
-      await expect(async () => {
-        if (await keepEditing.isVisible()) await keepEditing.click();
+      // This flake predates the merge into this journey — the old
+      // `prompt-editing.spec.ts` carried the same loop and failed the same way.
+      await pressUntil(page.getByRole("button", { name: "Keep editing" }), async () => {
         await expect(page.getByTestId("prompt-discard-body")).toBeHidden();
-      }).toPass({ timeout: 30_000 });
+      });
 
       // Waited out before the next exit is tried: the dialog's overlay outlives the
       // click that dismissed it, and swallows whatever is aimed at the page beneath.
