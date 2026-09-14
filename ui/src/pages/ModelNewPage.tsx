@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { paths } from "@/router/routes";
-import { apiClient, type CreateModelConfigRequest } from "@/api";
+import { apiClient, useModels, type CreateModelConfigRequest } from "@/api";
 
 /**
  * Create a model configuration.
@@ -13,9 +13,12 @@ import { apiClient, type CreateModelConfigRequest } from "@/api";
  */
 export function ModelNewPage() {
   const navigate = useNavigate();
+  // The list this page is about to navigate to.
+  const models = useModels();
 
   async function createModel(payload: CreateModelConfigRequest): Promise<void> {
     await apiClient.models.create(payload);
+    await models.refresh();
     // Straight to the list, where the new configuration can be seen — the row is
     // better evidence than a message on the form the user is still looking at.
     await navigate(paths.models);

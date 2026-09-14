@@ -30,7 +30,7 @@ import {
   validateMcpServerForm,
 } from "@/components/mcp/mcpServerRequest";
 import { paths } from "@/router/routes";
-import { apiClient } from "@/api";
+import { apiClient, useMcpServers } from "@/api";
 
 const { Text } = Typography;
 
@@ -54,6 +54,8 @@ export function McpServerNewPage() {
   const [caCertFileName, setCaCertFileName] = useState<string>();
   const [caCertError, setCaCertError] = useState<string>();
   const navigate = useNavigate();
+  // The list this page is about to navigate to.
+  const servers = useMcpServers();
 
   const set = <K extends keyof McpServerFormValues>(
     key: K,
@@ -148,6 +150,7 @@ export function McpServerNewPage() {
     setSaving(true);
     try {
       await apiClient.mcpServers.create(toCreateRequest(values));
+      await servers.refresh();
       // Straight to the list, which is where the new server can actually be
       // seen — a success message on a form the user is still looking at proves
       // less than the row itself.
