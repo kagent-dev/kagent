@@ -2,13 +2,9 @@
 
 ## Summary
 
-Kagent uses `Authorizer.Check` for resource authorization.
+Kagent needs resource-scoped authorization for configuration resources without coupling its API to a particular policy system.
 
-This design adds scoped authorization for `AgentTemplate`, `Harness`, and `ModelConfig` resources.
-
-Kagent supplies trusted resource attributes and enforces authorization before it builds a response.
-
-An `Authorizer` implementation defines roles, policies, identity rules, and catalog keys.
+Authorization decisions use trusted resource identity. Unauthorized resources are omitted from collections, and unauthorized operations fail with the standard permission-denied response.
 
 ## Initial scope
 
@@ -18,179 +14,67 @@ An `Authorizer` implementation defines roles, policies, identity rules, and cata
 | `Harness` | list, create, delete | `namespace`, `name` |
 | `ModelConfig` | list, get, create, update, delete | `namespace`, `name` |
 
-`ListConfiguredProviders` derives entries from the separate `ModelProviderConfig` resource. This design does not change its authorization.
-
-Provider discovery does not return `ModelConfig` resources. This design does not change its authorization.
+`ListConfiguredProviders` derives entries from the separate `ModelProviderConfig` resource and is not changed by this design.
 
 ## Goals
 
-- Support partial access to the three protected resource collections.
-- Apply authorization before sorting and response construction.
-- Use trusted stored or validated resource attributes.
-- Keep authorization rules outside storage code.
-- Keep the extension contract independent from one policy system.
+- Support partial access to the protected resource collections.
+- Make authorization decisions from trusted resource attributes.
+- Preserve the relationships between multiple authorization constraints.
+- Keep authorization policy independent from storage and transport concerns.
+- Keep the default OSS experience unchanged when no external policy integration is installed.
 
 ## Non-goals
 
-- This design does not define roles, policies, claims, or catalog keys.
-- This design does not protect `SandboxAgent`, `AgentHarness`, `AgentInstance`, or `ModelProviderConfig` resources.
-- This design does not protect tool servers or prompt templates.
-- This design does not add SQL or backend expressions to the authorization API.
-- This design does not predict authorization for UI controls. Denied operations use the standard `PermissionDenied` response.
+- Define roles, policies, claims, subjects, grants, or catalog keys.
+- Protect `SandboxAgent`, `AgentHarness`, `AgentInstance`, `ModelProviderConfig`, tool server, or prompt template resources.
+- Expose policy-engine, SQL, Kubernetes, or other backend expressions.
+- Predict authorization for UI controls.
 
-## Authorization API
+## Authorization model
 
-Kagent will keep the current `Authorizer.Check` interface.
+Kagent needs two forms of authorization decision:
 
-The `Resource` type will carry trusted attributes:
+- Whether a principal may perform an operation on a specific resource.
+- Which resources a principal may receive from a collection request.
 
-```go
-type Resource struct {
-	Type       string
-	Name       string
-	Attributes map[string][]string
-}
-```
+A collection decision may allow the complete collection, deny the complete collection, or describe allowed alternatives. Each alternative may constrain both namespace and name. Alternatives are combined with OR, while constraints within an alternative are combined with AND. Each constraint may allow one or more exact values.
 
-Services will construct attributes from stored or validated resource data.
+For example, a principal may be allowed resources named `agent-a` or `agent-b` in `team-a`, as well as any resource in `shared`. The relationship between name and namespace must remain intact in the authorization decision.
 
-Kagent will use `CollectionAuthorizer` for protected collection operations:
+Only namespace and name are supported for the initial resource set. Additional attributes or operations require a separate design decision based on a concrete authorization need.
 
-```go
-type CollectionAuthorizer interface {
-	Authorizer
-	Scope(
-		ctx context.Context,
-		principal Principal,
-		verb Verb,
-		resourceType string,
-	) (authorization.AuthorizationScope, error)
-}
-```
+Unsupported or invalid authorization decisions fail closed.
 
-An `authorization.AuthorizationScope` describes the required collection restriction:
+## Resource identity
 
-```go
-type ScopeKind string
+Authorization uses identity derived from stored or validated resource data. A request reference identifies what to load; it is not trusted evidence about the resource itself.
 
-const (
-	ScopeAll   ScopeKind = "ALL"
-	ScopeNone  ScopeKind = "NONE"
-	ScopeAnyOf ScopeKind = "ANY_OF"
-)
+- Reads and deletes are decided from the stored resource.
+- Creates are decided from the validated proposed resource.
+- Updates are decided from both the stored and proposed resource, preventing a caller from moving a resource into or out of an unauthorized scope.
 
-type ScopeOperator string
+## Collection behavior
 
-const (
-	ScopeIn ScopeOperator = "IN"
-)
+A protected collection returns only resources permitted by its collection decision. Authorization is applied before sorting, totals, pagination, or response construction so unauthorized resources cannot affect observable collection behavior.
 
-type AuthorizationScope struct {
-	Kind  ScopeKind
-	AnyOf []ScopeClause
-}
+A decision that permits no resources returns an empty collection. An authorization failure or a decision that cannot be safely applied fails the request; it never broadens access.
 
-type ScopeClause struct {
-	All []ScopePredicate
-}
+## Client behavior
 
-type ScopePredicate struct {
-	Attribute string
-	Operator  ScopeOperator
-	Values    []string
-}
-```
+Catalog responses do not include create, update, or delete capability hints for presentation logic. Such hints duplicate policy decisions, can become stale, and couple the public API to a particular client experience.
 
-`ScopeAll` permits the complete collection. `ScopeNone` permits no items.
-
-`ScopeAnyOf` joins clauses with OR. Each clause joins predicates with AND.
-
-`ScopeIn` matches a listed value.
-
-The initial protected attributes, `namespace` and `name`, are always present and non-empty. An absent-attribute operator would therefore describe a state these resources cannot produce. Add another operator only when a protected resource introduces an attribute whose absence has authorization meaning.
-
-The scope contains no SQL, Kubernetes field paths, policy types, or backend expressions.
-
-## Single-resource enforcement
-
-For a read, the service will load the stored resource before authorization.
-
-For a create, the service will authorize the validated proposed resource.
-
-For an update, the service will authorize the stored and proposed resources.
-
-For a delete, the service will load and authorize the stored resource.
-
-The service will use `namespace` and `name` from the Kubernetes object metadata.
-
-The service must not trust a request reference as stored resource data.
-
-## Collection enforcement
-
-For each protected collection request:
-
-1. Validate the caller query.
-2. Request the `AuthorizationScope` with `VerbList`.
-3. Query a safe Kubernetes resource set.
-4. Apply the scope to trusted object metadata.
-5. Sort the authorized items.
-6. Build the response from the authorized items.
-
-`ScopeNone` returns an empty protected collection.
-
-An authorization error fails the request. Kagent must not convert an error to `ScopeAll`.
-
-The matcher will accept only `namespace` and `name` for these resources.
-
-The matcher will reject an unsupported scope kind, attribute, operator, or empty value.
-
-The services will pass the scope through an explicit function argument. They will not store it in request context.
-
-The current Kubernetes lists do not use server pagination. A complete in-memory filter is correct for the initial release.
-
-If a list adds pagination, it must apply the scope before totals, sorting, and pagination.
+A client may therefore display an action that the caller cannot complete. The attempted operation remains authoritative and returns permission denied. Clients should handle that response without treating it as an unexpected server failure.
 
 ## Default OSS behavior
 
-The default no-op authorizer will return `ScopeAll`.
+The default OSS installation permits the complete protected collections and their existing operations. External authorization integrations may narrow that access.
 
-This default keeps existing OSS behavior when no scoped authorizer is installed.
+Resources outside the initial scope retain their existing authorization behavior.
 
-Services outside the initial scope will continue to accept their current authorizer type.
+## Alternatives considered
 
-Kagent will not define policy resources, subjects, grants, or access levels.
-
-## Validation
-
-Tests must cover `ScopeAll`, `ScopeNone`, and `ScopeAnyOf`.
-
-Tests must verify OR clauses, AND predicates, and `ScopeIn`.
-
-Tests must verify trusted attributes for each single-resource operation.
-
-Tests must prove that list filtering occurs before sorting and response construction.
-
-Tests must prove that each protected list requests the correct resource type and filters unauthorized entries.
-
-Tests must verify fail-closed behavior for invalid scopes.
-
-## Implementation checklist
-
-- [x] Add `name` to the shared authorization attributes.
-- [x] Add one Kubernetes scope matcher for `namespace` and `name`.
-- [x] Require `CollectionAuthorizer` for `AgentTemplate` collection operations.
-- [x] Require `CollectionAuthorizer` for `Harness` collection operations.
-- [x] Require `CollectionAuthorizer` for `ModelConfig` collection operations.
-- [x] Populate trusted attributes for reads and writes.
-- [x] Filter each protected list before response construction.
-- [x] Add focused service and matcher tests.
-
-## Alternatives
-
-Per-item checks after pagination produce incomplete pages and incorrect totals.
-
-Separate allowed-name and allowed-namespace lists can lose required AND relationships.
-
-Raw query fragments couple an `Authorizer` to storage and create an unsafe trust boundary.
-
-An absent-attribute predicate adds contract and validation complexity without matching any initial protected resource.
+- Checking items after pagination was rejected because it can produce incomplete pages and incorrect totals.
+- Separate allowed-name and allowed-namespace lists were rejected because they cannot preserve required relationships between attributes.
+- Backend query fragments were rejected because they couple authorization policy to storage and create an unsafe trust boundary.
+- UI capability hints were rejected because the operation itself is the only authoritative authorization decision.
