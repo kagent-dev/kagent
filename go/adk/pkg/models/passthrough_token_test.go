@@ -112,6 +112,17 @@ func TestPassthroughToken(t *testing.T) {
 			wantToken: "",
 			wantOK:    false,
 		},
+		{
+			// A later turn on the same session, presenting no caller token.
+			name:              "nothing when the request presented no caller token",
+			apiKeyPassthrough: true,
+			buildCtx: func() context.Context {
+				ctx := context.WithValue(context.Background(), SessionIDKey, sessionID)
+				return context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
+			},
+			wantToken: "",
+			wantOK:    false,
+		},
 	}
 
 	for _, tt := range tests {
