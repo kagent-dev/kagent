@@ -45,9 +45,6 @@ message ListNamespacesResponse {
 }
 
 message SubstrateWorkerPool {
-  reserved 1 to 4;
-  reserved "namespace", "name", "replicas", "ateom_image";
-
   ResourceReference ref = 5;
   // The whole upstream ate.dev/v1alpha1 WorkerPool CR, including spec and status.
   StructuredObject resource = 6;
@@ -73,16 +70,11 @@ message GetSubstrateSummaryRequest {
 }
 
 message SubstrateActorStatusCount {
-  reserved 1;
-  reserved "status";
-
   int64 count = 2;
   ateapi.ActorState state = 3;
 }
 
 message GetSubstrateSummaryResponse {
-  reserved 4;
-
   // Always true: the controller requires Substrate at startup.
   bool enabled = 1;
   // Set when one of the three ate-api reads behind this answer failed. They do not gate
@@ -140,9 +132,6 @@ enum SubstrateWorkerSortField {
 // inventory per request — seconds on a large cluster — and it is what makes both mean
 // the cluster rather than the page.
 message ListSubstrateActorsRequest {
-  reserved 1;
-  reserved "namespace";
-
   // ATE atespace of the actor itself. Empty lists all atespaces.
   string atespace = 6 [(buf.validate.field).string = {
     max_len: 63

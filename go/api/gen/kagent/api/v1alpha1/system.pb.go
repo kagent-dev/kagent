@@ -1178,16 +1178,16 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x16ListNamespacesResponse\x12>\n" +
 	"\n" +
 	"namespaces\x18\x01 \x03(\v2\x1e.kagent.api.v1alpha1.NamespaceR\n" +
-	"namespaces\"\xc0\x01\n" +
+	"namespaces\"\x92\x01\n" +
 	"\x13SubstrateWorkerPool\x128\n" +
 	"\x03ref\x18\x05 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
-	"\bresource\x18\x06 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresourceJ\x04\b\x01\x10\x05R\tnamespaceR\x04nameR\breplicasR\vateom_image\"\xb0\x01\n" +
+	"\bresource\x18\x06 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"\xb0\x01\n" +
 	"\x1aGetSubstrateSummaryRequest\x12I\n" +
 	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x12G\n" +
-	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"i\n" +
+	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"[\n" +
 	"\x19SubstrateActorStatusCount\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\x12(\n" +
-	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05stateJ\x04\b\x01\x10\x02R\x06status\"\xab\x04\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\"\xa5\x04\n" +
 	"\x1bGetSubstrateSummaryResponse\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12K\n" +
@@ -1201,7 +1201,7 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\vcomputed_at\x18\n" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"computedAt\x12>\n" +
-	"\x0factor_templates\x18\v \x03(\v2\x15.ateapi.ActorTemplateR\x0eactorTemplatesJ\x04\b\x04\x10\x05\"\xf7\x02\n" +
+	"\x0factor_templates\x18\v \x03(\v2\x15.ateapi.ActorTemplateR\x0eactorTemplates\"\xe6\x02\n" +
 	"\x1aListSubstrateActorsRequest\x12G\n" +
 	"\batespace\x18\x06 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\x124\n" +
 	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12 \n" +
@@ -1209,7 +1209,7 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\n" +
 	"sort_field\x18\x04 \x01(\x0e2,.kagent.api.v1alpha1.SubstrateActorSortFieldB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortField\x12P\n" +
 	"\n" +
-	"sort_order\x18\x05 \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortOrderJ\x04\b\x01\x10\x02R\tnamespace\"\xc8\x03\n" +
+	"sort_order\x18\x05 \x01(\x0e2'.kagent.api.v1alpha1.SubstrateSortOrderB\b\xbaH\x05\x82\x01\x02\x10\x01R\tsortOrder\"\xc8\x03\n" +
 	"\x1bListSubstrateActorsResponse\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12%\n" +
