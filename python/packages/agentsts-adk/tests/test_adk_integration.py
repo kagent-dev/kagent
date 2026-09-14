@@ -1350,6 +1350,85 @@ class TestADKTokenPropagationPlugin:
         assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer opaque-alice"}
 
     @pytest.mark.asyncio
+    async def test_capacity_eviction_drops_a_caller_that_makes_no_tool_call(self):
+        """Case: use order is the only signal the capacity bound has, so a run
+        that pauses long enough loses its entry and injects no credential.
+
+        The bound has to drop something. This pins which run it drops, and that
+        the run it drops fails closed rather than serving another caller's token.
+        """
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        idle = self._make_invocation_context("sess-idle-burst", headers={"Authorization": "Bearer opaque-alice"})
+        await plugin.before_run_callback(invocation_context=idle)
+        idle_ctx = self._make_readonly_context(idle)
+        assert plugin.header_provider(idle_ctx) == {"Authorization": "Bearer opaque-alice"}
+
+        # The run waits on a model turn, so it renews nothing while the burst runs.
+        for index in range(MAX_CACHE_ENTRIES + 5):
+            ic = self._make_invocation_context("sess-idle-burst", headers={"Authorization": f"Bearer token-{index}"})
+            await plugin.before_run_callback(invocation_context=ic)
+
+        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        assert plugin.cache_key(idle) not in plugin.token_cache
+        assert plugin.header_provider(idle_ctx) == {}
+
+    @pytest.mark.asyncio
+    async def test_refused_run_drops_the_entry_when_nothing_names_the_caller(self):
+        """Case: with no inbound header the hook names the caller, so a run the
+        hook refuses must not leave an entry behind.
+
+        header_provider resolves the hook again on every tool call. A hook that
+        resolves nothing at the start of the run and a token a moment later would
+        otherwise rebuild the key of the entry the run was refused.
+        """
+        refuse = False
+
+        def flaky_hook(state):
+            nonlocal refuse
+            if refuse:
+                refuse = False
+                raise RuntimeError("subject lookup is down")
+            return state.get("subject-token")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = flaky_hook
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="delegated-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context(
+            "sess-hook-only",
+            headers=None,
+            extra_state={"subject-token": "custom-subject-token"},
+        )
+        await plugin.before_run_callback(invocation_context=ic)
+        assert len(plugin.token_cache) == 1
+
+        refuse = True
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_refused_run_without_a_caller_leaves_other_sessions_alone(self):
+        """Case: dropping a session whose caller cannot be named must not reach
+        the entries of the other sessions."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_alice = self._make_invocation_context("sess-other", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic_alice)
+
+        ic_anon = self._make_invocation_context("sess-anon", headers=None)
+        await plugin.before_run_callback(invocation_context=ic_anon)
+
+        assert plugin.cache_key(ic_alice) in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic_alice)) == {"Authorization": f"Bearer {alice}"}
+
+    @pytest.mark.asyncio
     async def test_get_subject_token_identifies_a_caller_that_sends_no_header(self):
         """Case: with no inbound Authorization header the hook is the only thing
         that names the caller, so header_provider consults it on every tool call.
