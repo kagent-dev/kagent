@@ -18,6 +18,7 @@ import { ShareDialog } from "@/components/chat/ShareDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
+  Bot,
   ChevronsUpDown,
   Copy,
   FileText,
@@ -294,7 +295,18 @@ export function AgentRail({
    * ignored. Only with an `instance`, because the link is addressed by one.
    */
   const agentHref =
-    (instance?.id ? links.details?.({ id: instance.id }) : undefined) ?? agentPageHref;
+    (ref.id ? links.details?.({ id: ref.id }) : undefined) ?? agentPageHref;
+
+  /*
+   * Whether the conversation named by the route is still being read.
+   *
+   * Its address is built from the instance's own template and harness, so until the
+   * record lands there is nothing for Agent Details to point at and the entry was left
+   * out — it then appeared under the reader's pointer and pushed the rest of the nav
+   * down. The pair-keyed pages name no conversation, so this is false there and the
+   * entry is genuinely absent rather than late.
+   */
+  const isReadingConversation = Boolean(ref.id) && !instance;
 
   /*
    * Where "New chat" goes.
@@ -823,7 +835,19 @@ export function AgentRail({
           </Text>
           {/* Which conversation, under which agent. Named the way the reader named
               it, so the card and the row below it agree. */}
-          <Text ellipsis css={{ fontSize: 11, color: theme.color.textMuted }}>
+          <Text
+            ellipsis
+            css={{
+              fontSize: 11,
+              color: theme.color.textMuted,
+              /* Holds its line while the instance is being read. The harness is the
+                 only thing that fills it on a conversation, so before the record
+                 lands this is empty — and an empty line is no line, so the card grew
+                 by one row the moment the read returned. */
+              lineHeight: "16px",
+              minHeight: 16,
+            }}
+          >
             {/* Where it runs, which is the other half of what an agent *is* — a
                 template paired with a harness. The conversation is named in the list
                 below, where it is one row among its siblings; naming it here made the
@@ -886,6 +910,23 @@ export function AgentRail({
           New chat used to live with the conversation list, which put a nav entry inside
           a section it did not belong to and left the two gaps visibly different. */}
       <nav data-testid="chat-sessions-nav" css={{ display: "grid", gap: theme.space(3) }}>
+        {!agentHref && isReadingConversation ? (
+          <span
+            // Its own testid, not the entry's: a suite that clicks Agent Details must
+            // not find this standing in for it and click something inert.
+            data-testid="agent-nav-agent-conversations-pending"
+            aria-disabled="true"
+            css={{
+              ...rowStyles(theme, false),
+              fontSize: 13,
+              opacity: 0.5,
+              cursor: "default",
+            }}
+          >
+            <Bot size={14} aria-hidden />
+            Agent Details
+          </span>
+        ) : null}
         {railEntries.map((entry) =>
           entry.kind === "core" ? (
             <RailEntry
@@ -998,7 +1039,7 @@ export function AgentRail({
           selection exists anyway. The button sits at the end of the row behind an auto
           margin, so its arrival moves nothing.
         */}
-        {chats.length > 0 ? (
+        {chats.length > 0 || conversations.isLoading ? (
           <div
             css={{
               display: "flex",
@@ -1022,6 +1063,9 @@ export function AgentRail({
               checked={allVisibleSelected}
               indeterminate={selected.size > 0 && !allVisibleSelected}
               onChange={toggleAllVisible}
+              // Drawn while the list is read so the bar does not arrive under the
+              // reader's pointer, but there is nothing to select until it lands.
+              disabled={conversations.isLoading}
               data-testid="chat-select-all"
               css={checkboxStyles(theme)}
             >
