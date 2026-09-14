@@ -466,14 +466,9 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 	}
 }
 
-// sessionIDFromContext recovers the ADK session ID from ctx.
-//
-// The value lookup comes first because it is the one that works on the outbound
-// MCP path: createTransport always sets a non-zero Timeout, and http.Client then
-// re-wraps the request context in a deadline (net/http.setRequestCancel), so by
-// the time this runs the context is no longer ADK's ToolContext. Value lookups
-// traverse the parent chain; a type assertion does not. The assertion is kept as
-// a fallback for callers still holding the ToolContext directly.
+// sessionIDFromContext recovers the ADK session ID: the value the executor
+// stamps on the context, else ADK's SessionID() method when ctx is the
+// ToolContext itself.
 func sessionIDFromContext(ctx context.Context) string {
 	if sessionID, ok := ctx.Value(models.SessionIDKey).(string); ok && sessionID != "" {
 		return sessionID

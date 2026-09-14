@@ -805,8 +805,7 @@ func TestEarlierExpiry(t *testing.T) {
 }
 
 // TestHeaderProvider_RecoversSessionID pins the identity HeaderProvider presents
-// for each shape of context it can be handed on the outbound MCP path. The
-// deadline-wrapped case is the regression: a type assertion stops matching there.
+// for each shape of context it can be handed, including a derived one.
 func TestHeaderProvider_RecoversSessionID(t *testing.T) {
 	t.Parallel()
 
