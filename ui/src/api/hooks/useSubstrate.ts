@@ -1,7 +1,6 @@
 import { apiClient } from "../client";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "../domain/substrate";
@@ -11,15 +10,6 @@ import type {
   SubstrateScopeInput,
 } from "../operations";
 import { type ApiResource, useApiResource } from "./useApiResource";
-
-/** Inventory with independent ATE atespace and Kubernetes namespace filters. */
-export function useSubstrateStatus(
-  scope: SubstrateScopeInput = {},
-): ApiResource<SubstrateStatusResponse> {
-  return useApiResource(["substrate.status", scope.namespace ?? "", scope.atespace ?? ""], () =>
-    apiClient.substrate.status(scope),
-  );
-}
 
 /**
  * Counts across every page in scope, plus worker pools and actor templates.

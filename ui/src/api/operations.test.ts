@@ -376,7 +376,7 @@ describe("the cluster", () => {
   it("returns the substrate inventory, and a partial-data warning as a warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: () => ({
+        getSubstrateSummary: () => ({
           enabled: true,
           ateApiError: "ate-api list calls failed",
           workerPools: [
@@ -407,6 +407,9 @@ describe("the cluster", () => {
               harnessName: "kagent",
             },
           ],
+        }),
+        listSubstrateActors: () => ({
+          enabled: true,
           actors: [{
             metadata: { name: "a1", atespace: "kagent", version: 3n },
             actorTemplate: { atespace: "team", name: "tpl", uid: "template-uid" },
@@ -422,15 +425,14 @@ describe("the cluster", () => {
               inProgressSnapshotName: "next-snapshot",
             },
           }],
-          workers: [],
         }),
       });
     });
 
-    const status = await apiClient.substrate.status();
-    expect(status.enabled).toBe(true);
-    expect(status.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
-    expect(status.actorTemplates[0]).toEqual({
+    const [summary, actors] = await Promise.all([apiClient.substrate.summary(), apiClient.substrate.actors({})]);
+    expect(summary.enabled).toBe(true);
+    expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
+    expect(summary.actorTemplates[0]).toEqual({
       atespace: "kagent",
       name: "tpl",
       phase: "Ready",
@@ -442,8 +444,8 @@ describe("the cluster", () => {
     });
     // The request succeeded; the runtime halves may be incomplete. That is a
     // message to put beside the data, not an error to throw.
-    expect(status.ateApiError).toMatch(/ate-api/);
-    expect(status.actors[0]).toEqual({
+    expect(summary.ateApiError).toMatch(/ate-api/);
+    expect(actors.actors[0]).toEqual({
       actorId: "a1",
       atespace: "kagent",
       status: "Running",
@@ -474,7 +476,7 @@ describe("the cluster", () => {
     async ({ goldenSnapshotStatus, phase }) => {
       serve(({ service }) => {
         service(SystemService, {
-          getSubstrateStatus: () => ({
+          getSubstrateSummary: () => ({
             enabled: true,
             actorTemplates: [
               {
@@ -487,7 +489,7 @@ describe("the cluster", () => {
           }),
         });
       });
-      const { actorTemplates } = await apiClient.substrate.status();
+      const { actorTemplates } = await apiClient.substrate.summary();
       expect(actorTemplates[0].phase).toBe(phase);
       expect(actorTemplates[0].workerSelector).toBeUndefined();
     },
@@ -523,9 +525,8 @@ describe("the cluster", () => {
       workerPools: [{ ref: { namespace: "kagent", name: "pool" } }],
     });
     serve(({ service }) => {
-      service(SystemService, { getSubstrateStatus: inventory, getSubstrateSummary: inventory });
+      service(SystemService, { getSubstrateSummary: inventory });
     });
-    await expect(apiClient.substrate.status()).rejects.toMatchObject({ kind: "parse" });
     await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
   });
 
@@ -534,25 +535,25 @@ describe("the cluster", () => {
   it("reads an empty warning as no warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: () => ({ enabled: false, ateApiError: "" }),
+        getSubstrateSummary: () => ({ enabled: false, ateApiError: "" }),
       });
     });
-    expect((await apiClient.substrate.status()).ateApiError).toBeUndefined();
+    expect((await apiClient.substrate.summary()).ateApiError).toBeUndefined();
   });
 
   it("passes independent namespace and atespace filters through", async () => {
     const asked: { namespace: string; atespace: string }[] = [];
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: (request) => {
+        getSubstrateSummary: (request) => {
           asked.push({ namespace: request.namespace, atespace: request.atespace });
           return { enabled: true };
         },
       });
     });
 
-    await apiClient.substrate.status({ namespace: "kagent", atespace: "team-a" });
-    await apiClient.substrate.status();
+    await apiClient.substrate.summary({ namespace: "kagent", atespace: "team-a" });
+    await apiClient.substrate.summary();
     expect(asked).toEqual([{ namespace: "kagent", atespace: "team-a" }, { namespace: "", atespace: "" }]);
   });
 

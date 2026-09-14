@@ -22,7 +22,6 @@ const (
 	SystemService_GetVersion_FullMethodName           = "/kagent.api.v1alpha1.SystemService/GetVersion"
 	SystemService_GetCurrentUser_FullMethodName       = "/kagent.api.v1alpha1.SystemService/GetCurrentUser"
 	SystemService_ListNamespaces_FullMethodName       = "/kagent.api.v1alpha1.SystemService/ListNamespaces"
-	SystemService_GetSubstrateStatus_FullMethodName   = "/kagent.api.v1alpha1.SystemService/GetSubstrateStatus"
 	SystemService_GetSubstrateSummary_FullMethodName  = "/kagent.api.v1alpha1.SystemService/GetSubstrateSummary"
 	SystemService_ListSubstrateActors_FullMethodName  = "/kagent.api.v1alpha1.SystemService/ListSubstrateActors"
 	SystemService_ListSubstrateWorkers_FullMethodName = "/kagent.api.v1alpha1.SystemService/ListSubstrateWorkers"
@@ -35,11 +34,6 @@ type SystemServiceClient interface {
 	GetVersion(ctx context.Context, in *GetVersionRequest, opts ...grpc.CallOption) (*GetVersionResponse, error)
 	GetCurrentUser(ctx context.Context, in *GetCurrentUserRequest, opts ...grpc.CallOption) (*GetCurrentUserResponse, error)
 	ListNamespaces(ctx context.Context, in *ListNamespacesRequest, opts ...grpc.CallOption) (*ListNamespacesResponse, error)
-	// Every actor and worker in one message, which a large cluster cannot fit: 410,110
-	// actors is roughly 43MB against gRPC's 16MB ceiling, and the call fails outright.
-	// Anything rendering the inventory wants the three calls below. Not deprecated: it
-	// is still the only way to look one actor up by id without paging to find it.
-	GetSubstrateStatus(ctx context.Context, in *GetSubstrateStatusRequest, opts ...grpc.CallOption) (*GetSubstrateStatusResponse, error)
 	GetSubstrateSummary(ctx context.Context, in *GetSubstrateSummaryRequest, opts ...grpc.CallOption) (*GetSubstrateSummaryResponse, error)
 	ListSubstrateActors(ctx context.Context, in *ListSubstrateActorsRequest, opts ...grpc.CallOption) (*ListSubstrateActorsResponse, error)
 	ListSubstrateWorkers(ctx context.Context, in *ListSubstrateWorkersRequest, opts ...grpc.CallOption) (*ListSubstrateWorkersResponse, error)
@@ -83,16 +77,6 @@ func (c *systemServiceClient) ListNamespaces(ctx context.Context, in *ListNamesp
 	return out, nil
 }
 
-func (c *systemServiceClient) GetSubstrateStatus(ctx context.Context, in *GetSubstrateStatusRequest, opts ...grpc.CallOption) (*GetSubstrateStatusResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetSubstrateStatusResponse)
-	err := c.cc.Invoke(ctx, SystemService_GetSubstrateStatus_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *systemServiceClient) GetSubstrateSummary(ctx context.Context, in *GetSubstrateSummaryRequest, opts ...grpc.CallOption) (*GetSubstrateSummaryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetSubstrateSummaryResponse)
@@ -130,11 +114,6 @@ type SystemServiceServer interface {
 	GetVersion(context.Context, *GetVersionRequest) (*GetVersionResponse, error)
 	GetCurrentUser(context.Context, *GetCurrentUserRequest) (*GetCurrentUserResponse, error)
 	ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error)
-	// Every actor and worker in one message, which a large cluster cannot fit: 410,110
-	// actors is roughly 43MB against gRPC's 16MB ceiling, and the call fails outright.
-	// Anything rendering the inventory wants the three calls below. Not deprecated: it
-	// is still the only way to look one actor up by id without paging to find it.
-	GetSubstrateStatus(context.Context, *GetSubstrateStatusRequest) (*GetSubstrateStatusResponse, error)
 	GetSubstrateSummary(context.Context, *GetSubstrateSummaryRequest) (*GetSubstrateSummaryResponse, error)
 	ListSubstrateActors(context.Context, *ListSubstrateActorsRequest) (*ListSubstrateActorsResponse, error)
 	ListSubstrateWorkers(context.Context, *ListSubstrateWorkersRequest) (*ListSubstrateWorkersResponse, error)
@@ -156,9 +135,6 @@ func (UnimplementedSystemServiceServer) GetCurrentUser(context.Context, *GetCurr
 }
 func (UnimplementedSystemServiceServer) ListNamespaces(context.Context, *ListNamespacesRequest) (*ListNamespacesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListNamespaces not implemented")
-}
-func (UnimplementedSystemServiceServer) GetSubstrateStatus(context.Context, *GetSubstrateStatusRequest) (*GetSubstrateStatusResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetSubstrateStatus not implemented")
 }
 func (UnimplementedSystemServiceServer) GetSubstrateSummary(context.Context, *GetSubstrateSummaryRequest) (*GetSubstrateSummaryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetSubstrateSummary not implemented")
@@ -244,24 +220,6 @@ func _SystemService_ListNamespaces_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SystemService_GetSubstrateStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetSubstrateStatusRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(SystemServiceServer).GetSubstrateStatus(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: SystemService_GetSubstrateStatus_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SystemServiceServer).GetSubstrateStatus(ctx, req.(*GetSubstrateStatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _SystemService_GetSubstrateSummary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetSubstrateSummaryRequest)
 	if err := dec(in); err != nil {
@@ -334,10 +292,6 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNamespaces",
 			Handler:    _SystemService_ListNamespaces_Handler,
-		},
-		{
-			MethodName: "GetSubstrateStatus",
-			Handler:    _SystemService_GetSubstrateStatus_Handler,
 		},
 		{
 			MethodName: "GetSubstrateSummary",

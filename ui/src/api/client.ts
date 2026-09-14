@@ -34,7 +34,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -106,14 +105,6 @@ export interface NamespacesApi {
 }
 
 export interface SubstrateApi {
-  /**
-   * The whole inventory in one read, optionally narrowed to one namespace.
-   *
-   * Does not survive a large cluster and is used by nothing on screen — see the
-   * operation's own note. `summary`, `actors` and `workers` are what the substrate
-   * page reads.
-   */
-  status(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateStatusResponse>;
   /** Counts and the two small lists. The only honest source of a total. */
   summary(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateSummary>;
   /** One page of actors, ordered and narrowed server-side across the whole inventory. */
@@ -300,8 +291,6 @@ export function createApiClient(): KagentApiClient {
     },
 
     substrate: {
-      status: (scope = {}, options) =>
-        invoke("substrate.status", scope, options),
       summary: (scope = {}, options) =>
         invoke("substrate.summary", scope, options),
       // Not sorted here, unlike every other list: the server orders these pages across

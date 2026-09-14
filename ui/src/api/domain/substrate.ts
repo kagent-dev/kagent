@@ -1,28 +1,3 @@
-/**
- * Agent Substrate inventory.
- *
- * Mirrors `GetSubstrateStatusResponse` in `system.proto` field for field — this is one response the UI only ever reads, so drifting from the Go
- * shape would show up as blank columns rather than as a type error.
- */
-
-/** `SystemService.GetSubstrateStatus` — controller and Kubernetes state, aggregated. */
-export interface SubstrateStatusResponse {
-  /** True when the controller is configured with an ate-api endpoint. */
-  enabled: boolean;
-  /**
-   * Set when ate-api list calls failed.
-   *
-   * The response is still a success: `actors` and `workers` may be partial or
-   * empty while the Kubernetes-derived halves are complete, so this is a warning
-   * to surface beside the data rather than an error to throw.
-   */
-  ateApiError?: string;
-  workerPools: SubstrateWorkerPoolEntry[];
-  actorTemplates: SubstrateActorTemplateEntry[];
-  actors: SubstrateActorEntry[];
-  workers: SubstrateWorkerEntry[];
-}
-
 /** An `ate.dev` WorkerPool custom resource. */
 export interface SubstrateWorkerPoolEntry {
   namespace: string;

@@ -282,7 +282,7 @@ before designing another paged read.
 - **A total from ate-api.** `ListActorsResponse` reports no count, so
   `GetSubstrateSummary` walks every page to produce one — about 1.6s on a cluster of
   410,110 actors. The answer is a handful of integers, so it has no message-size ceiling
-  the way `GetSubstrateStatus` does, but it is the read to poll least often and the page
+  the way the removed unpaginated endpoint did, but it is the read to poll least often and the page
   shows its age for that reason.
 
 **A page carrying rows *and* an ate-api error has no fixture.** Filling one page can take
@@ -301,8 +301,7 @@ walk per page.
 **A single-message read is defensible only while the message really holds everything.**
 `GetSubstrateStatus` is the read that failed this way once: a cluster of 410,110 actors
 produces a response gRPC refused to send, which is why the substrate page was split into
-three reads in the first place. It is still on `SystemService`, deprecated, and the UI no
-longer calls it. For the three reads at the top of this table that do still answer with
+three reads in the first place. That endpoint has been removed from `SystemService`. For the three reads at the top of this table that do still answer with
 everything, **the moment one starts paging — or starts truncating to survive — its
 client-side search and sort must be labelled or removed in the same change**, because an
 unlabelled filter over a page reports "no matches" about a row on page nine.

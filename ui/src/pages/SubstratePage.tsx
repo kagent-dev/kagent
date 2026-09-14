@@ -963,15 +963,7 @@ function PageWarning({ message, testId }: { message: string; testId: string }) {
  * configured) or partial (`ateApiError` on an otherwise successful response). Each of
  * those is said in the place it applies rather than as one banner over everything.
  *
- * ## Three reads, not one
- *
- * This page used to make a single call for the whole inventory, and it stopped
- * working: `GetSubstrateStatus` answers with every actor and every worker in one
- * message, and on a cluster reporting 410,110 actors that is a message gRPC refuses
- * to send — *"trying to send message larger than max"*. The page reported it honestly
- * as a failed read, which was right, and the read could not succeed.
- *
- * So it reads three things:
+ * The inventory is read through three endpoints:
  *
  * - **the summary** (`GetSubstrateSummary`), for the tiles and for the two lists that
  *   are inherently small — worker pools and actor templates ride inline;

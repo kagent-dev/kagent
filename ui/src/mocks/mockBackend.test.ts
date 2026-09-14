@@ -196,7 +196,6 @@ const INPUTS = {
   },
 
   "namespaces.list": {},
-  "substrate.status": {},
   "substrate.summary": {},
   "substrate.actors": {},
   "substrate.workers": {},
@@ -228,23 +227,20 @@ describe("the fixture backend", () => {
   });
 
   it("serves upstream substrate messages through the UI conversions", async () => {
-    const [status, summary, page] = await Promise.all([
-      invoke("substrate.status", {}),
+    const [summary, page] = await Promise.all([
       invoke("substrate.summary", {}),
       invoke("substrate.actors", {}),
     ]);
-    expect(status.actorTemplates[0]).toMatchObject({
+    expect(summary.actorTemplates[0]).toMatchObject({
       name: "coder-template",
       phase: "Ready",
       sandboxClass: "gvisor",
       workerSelector: "pool=default-pool",
     });
-    expect(summary.actorTemplates).toEqual(status.actorTemplates);
-    expect(summary.workerPools).toEqual(status.workerPools);
-    expect(status.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
-    expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toEqual(
-      status.actors.find((actor) => actor.actorId === "actor-7f21"),
-    );
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
+      atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
+    });
     expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
   });
 
@@ -257,8 +253,6 @@ describe("the fixture backend", () => {
     const page = await invoke("substrate.workers", { filter: "kagent/ateom-default-pool-0" });
     expect(page.totalSize).toBe(1);
     expect(page.workers[0]).toMatchObject({ workerPod: "ateom-default-pool-0", version: 4 });
-    const status = await invoke("substrate.status", {});
-    expect(page.workers[0]).toEqual(status.workers[0]);
   });
 
   /*

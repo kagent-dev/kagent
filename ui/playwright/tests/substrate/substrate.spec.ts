@@ -190,15 +190,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
   });
 });
 
-/**
- * The scope control.
- *
- * `GetSubstrateStatusRequest` takes a namespace and an empty one means every namespace the
- * controller watches, so the page offers both. The test is not that a dropdown opens: it is
- * that choosing a namespace narrows what is read — the fixture backend filters the way the
- * controller filters — and that the choice is in the address, so a link to what somebody is
- * looking at is a link to what they are looking at.
- */
+/** Namespace and atespace filters are independent and survive sharing the URL. */
 test("substrate: the scope narrows what is read, and is carried in the URL", async ({
   page,
 }) => {

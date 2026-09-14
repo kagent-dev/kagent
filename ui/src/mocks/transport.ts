@@ -124,7 +124,7 @@ import {
   mockNamespaces,
   mockProviderModels,
   mockProviders,
-  mockSubstrateStatus,
+  mockSubstrateInventory,
   mockTools,
 } from "./fixtures";
 import {
@@ -1256,33 +1256,6 @@ on(SystemService.method.listNamespaces, (_input, call) => ({
   namespaces: call.scenario === "empty" ? [] : mockNamespaces,
 }));
 
-on(SystemService.method.getSubstrateStatus, (input, call) => {
-  // `empty` is a cluster with the substrate switched off rather than a truncated
-  // inventory: every list absent and `enabled` false is a state the page renders,
-  // where half an inventory is not.
-  if (call.scenario === "empty") return { enabled: false };
-
-  const status = mockSubstrateStatus;
-
-  const inScope = substrateScope(input.namespace);
-
-  const workerPools = status.workerPools.filter((pool) => inScope(pool.namespace));
-  const actorTemplates = status.actorTemplates.filter((template) =>
-    (!input.atespace || template.atespace === input.atespace),
-  );
-  const actors = status.actors.filter((actor) => (!input.atespace || actor.atespace === input.atespace));
-  const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
-
-  return {
-    enabled: status.enabled,
-    ateApiError: status.ateApiError ?? "",
-    workerPools: workerPools.map(substrateWorkerPoolMessage),
-    actorTemplates: actorTemplates.map(substrateActorTemplateMessage),
-    actors: actors.map(substrateActorMessage),
-    workers: workers.map(substrateWorkerMessage),
-  };
-});
-
 /** Kubernetes namespace scope for workers and pools. */
 function substrateScope(namespace: string) {
   const scope = namespace.trim();
@@ -1376,7 +1349,7 @@ function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<
     status: {
       allocated: {
         // Worker allocation includes actors from every atespace.
-        actors: mockSubstrateStatus.actors.filter((actor) =>
+        actors: mockSubstrateInventory.actors.filter((actor) =>
           actor.ateomPodNamespace === worker.workerNamespace && actor.ateomPodName === worker.workerPod
         ).length,
       },
@@ -1404,7 +1377,7 @@ function substratePage<T>(rows: T[], pageSize: number, pageToken: string) {
 on(SystemService.method.getSubstrateSummary, (input, call) => {
   if (call.scenario === "empty") return { enabled: false };
 
-  const status = mockSubstrateStatus;
+  const status = mockSubstrateInventory;
   const inScope = substrateScope(input.namespace);
   const actors = status.actors.filter((actor) => (!input.atespace || actor.atespace === input.atespace));
   const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
@@ -1500,7 +1473,7 @@ function substratePageResponse<Row, Message>(
 
   const page = substratePage(matching, input.page?.limit ?? 0, input.page?.pageToken ?? "");
   return {
-    enabled: mockSubstrateStatus.enabled,
+    enabled: mockSubstrateInventory.enabled,
     rows: page.rows.map(message),
     page: { nextPageToken: page.nextPageToken },
     computedAt: timestampFromDate(new Date()),
@@ -1522,7 +1495,7 @@ on(SystemService.method.listSubstrateActors, (input, call) => {
       `${a.ateomPodNamespace ?? ""}/${a.ateomPodName ?? ""}\u0000${id(a)}`,
   };
   const { rows, ...page } = substratePageResponse(
-    mockSubstrateStatus.actors,
+    mockSubstrateInventory.actors,
     input,
     (actor) => (!input.atespace || actor.atespace === input.atespace),
     (a) =>
@@ -1553,7 +1526,7 @@ on(SystemService.method.listSubstrateWorkers, (input, call) => {
     [SubstrateWorkerSortField.IP]: (w) => `${w.ip ?? ""}\u0000${pod(w)}`,
   };
   const { rows, ...page } = substratePageResponse(
-    mockSubstrateStatus.workers,
+    mockSubstrateInventory.workers,
     input,
     (worker) => inScope(worker.workerNamespace),
     (w) => [w.workerNamespace, w.workerPool, w.workerPod, w.ip, pod(w)].filter(Boolean).join(" "),

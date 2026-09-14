@@ -14,7 +14,6 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.SystemService_GetVersion_FullMethodName:                   auth.AccessPublic,
 		apiv1alpha1.SystemService_GetCurrentUser_FullMethodName:               auth.AccessRead,
 		apiv1alpha1.SystemService_ListNamespaces_FullMethodName:               auth.AccessRead,
-		apiv1alpha1.SystemService_GetSubstrateStatus_FullMethodName:           auth.AccessRead,
 		apiv1alpha1.SystemService_GetSubstrateSummary_FullMethodName:          auth.AccessRead,
 		apiv1alpha1.SystemService_ListSubstrateActors_FullMethodName:          auth.AccessRead,
 		apiv1alpha1.SystemService_ListSubstrateWorkers_FullMethodName:         auth.AccessRead,

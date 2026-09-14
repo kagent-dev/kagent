@@ -56,7 +56,7 @@ func (c *Client) ListActorsPage(ctx context.Context, atespace string, pageSize i
 	}
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ListActors(ctx, &ateapipb.ListActorsRequest{
+	resp, err := c.ListActors(ctx, &ateapipb.ListActorsRequest{
 		Atespace:  atespace,
 		PageSize:  pageSize,
 		PageToken: pageToken,
@@ -67,20 +67,6 @@ func (c *Client) ListActorsPage(ctx context.Context, atespace string, pageSize i
 	return resp.GetActors(), resp.GetNextPageToken(), nil
 }
 
-// ListActors returns every actor in the given atespace, following pagination.
-//
-// The whole inventory in memory at once, and never small enough to answer a request
-// with: callers that do want ListActorsPage. This is for callers that reduce the rows
-// to something small, such as counts.
-func (c *Client) ListActors(ctx context.Context, atespace string) ([]*ateapipb.Actor, error) {
-	if c == nil {
-		return nil, nil
-	}
-	return drainPages(ctx, func(ctx context.Context, pageToken string) ([]*ateapipb.Actor, string, error) {
-		return c.ListActorsPage(ctx, atespace, 0, pageToken)
-	})
-}
-
 // ListWorkersPage returns one page of workers, with the token for the next page or ""
 // on the last one.
 func (c *Client) ListWorkersPage(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error) {
@@ -89,7 +75,7 @@ func (c *Client) ListWorkersPage(ctx context.Context, pageSize int32, pageToken 
 	}
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ListWorkers(ctx, &ateapipb.ListWorkersRequest{
+	resp, err := c.ListWorkers(ctx, &ateapipb.ListWorkersRequest{
 		PageSize:  pageSize,
 		PageToken: pageToken,
 	})
@@ -97,18 +83,6 @@ func (c *Client) ListWorkersPage(ctx context.Context, pageSize int32, pageToken 
 		return nil, "", err
 	}
 	return resp.GetWorkers(), resp.GetNextPageToken(), nil
-}
-
-// ListWorkers returns every worker reflected in ate-api, following pagination. It is
-// paged exactly as ListActors is; reading one page and dropping the token silently
-// truncates any fleet past ate-api's page ceiling.
-func (c *Client) ListWorkers(ctx context.Context) ([]*ateapipb.Worker, error) {
-	if c == nil {
-		return nil, nil
-	}
-	return drainPages(ctx, func(ctx context.Context, pageToken string) ([]*ateapipb.Worker, string, error) {
-		return c.ListWorkersPage(ctx, 0, pageToken)
-	})
 }
 
 // ListActorTemplatesPage returns one page of templates in the given atespace, with the

@@ -26,11 +26,7 @@ type Version struct {
 }
 
 type ATEClient interface {
-	ListActors(context.Context, string) ([]*ateapipb.Actor, error)
-	ListWorkers(context.Context) ([]*ateapipb.Worker, error)
 	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
-	// The paged reads. Kept alongside the draining ones above, not replacing them: an
-	// answer is built from a page, a count from a drain.
 	ListActorsPage(ctx context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error)
 	ListWorkersPage(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error)
 }
@@ -50,15 +46,6 @@ type Service struct {
 type Namespace struct {
 	Name   string
 	Status string
-}
-
-type SubstrateStatus struct {
-	Enabled        bool
-	ATEAPIError    string
-	WorkerPools    []atev1alpha1.WorkerPool
-	ActorTemplates []SubstrateActorTemplate
-	Actors         []*ateapipb.Actor
-	Workers        []*ateapipb.Worker
 }
 
 type SubstrateActorTemplate struct {
@@ -138,52 +125,6 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	return namespaces, nil
 }
 
-func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace, atespace string) (SubstrateStatus, error) {
-	namespaces, err := s.substrateScope(ctx, requestedNamespace)
-	if err != nil {
-		return SubstrateStatus{}, err
-	}
-
-	result := SubstrateStatus{
-		Enabled:        true,
-		WorkerPools:    []atev1alpha1.WorkerPool{},
-		ActorTemplates: []SubstrateActorTemplate{},
-		Actors:         []*ateapipb.Actor{},
-		Workers:        []*ateapipb.Worker{},
-	}
-
-	for _, namespace := range namespaces {
-		workerPools, err := s.listWorkerPools(ctx, namespace)
-		if err != nil {
-			return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", err)
-		}
-		result.WorkerPools = append(result.WorkerPools, workerPools...)
-	}
-
-	actorTemplates, actors, workers, err := s.listATEState(ctx, namespaces, atespace)
-	result.ActorTemplates = actorTemplates
-	result.Actors = actors
-	result.Workers = workers
-	if err != nil {
-		result.ATEAPIError = err.Error()
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api state", "error", err)
-	}
-
-	slices.SortStableFunc(result.WorkerPools, func(left, right atev1alpha1.WorkerPool) int {
-		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
-	})
-	slices.SortStableFunc(result.Actors, func(left, right *ateapipb.Actor) int {
-		return strings.Compare(actorIdentity(left), actorIdentity(right))
-	})
-	slices.SortStableFunc(result.Workers, func(left, right *ateapipb.Worker) int {
-		return strings.Compare(
-			left.WorkerNamespace+"/"+left.WorkerPool+"/"+left.WorkerPod,
-			right.WorkerNamespace+"/"+right.WorkerPool+"/"+right.WorkerPod,
-		)
-	})
-	return result, nil
-}
-
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
 	principal, err := authenticatedPrincipal(ctx)
 	if err != nil {
@@ -242,46 +183,6 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 	}
 
 	return workerPoolList.Items, nil
-}
-
-func (s *Service) listATEState(ctx context.Context, namespaces []string, atespace string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []*ateapipb.Worker, error) {
-	allowAll, allowed := substrateScopeFilter(namespaces)
-
-	harnesses, err := s.actorTemplateHarnesses(ctx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	templates, err := s.substrateActorTemplates(ctx, harnesses, atespace)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	actorsFromAPI, err := s.ateClient.ListActors(ctx, atespace)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	workersFromAPI, err := s.ateClient.ListWorkers(ctx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	actors := make([]*ateapipb.Actor, 0, len(actorsFromAPI))
-	for _, actor := range actorsFromAPI {
-		if actor == nil {
-			continue
-		}
-		actors = append(actors, actor)
-	}
-
-	workers := make([]*ateapipb.Worker, 0, len(workersFromAPI))
-	for _, worker := range workersFromAPI {
-		if worker == nil {
-			continue
-		}
-		if !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
-			continue
-		}
-		workers = append(workers, worker)
-	}
-	return templates, actors, workers, nil
 }
 
 /*

@@ -14,12 +14,6 @@ service SystemService {
   rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
   rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
   rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
-  // Every actor and worker in one message, which a large cluster cannot fit: 410,110
-  // actors is roughly 43MB against gRPC's 16MB ceiling, and the call fails outright.
-  // Anything rendering the inventory wants the three calls below. Not deprecated: it
-  // is still the only way to look one actor up by id without paging to find it.
-  rpc GetSubstrateStatus(GetSubstrateStatusRequest) returns (GetSubstrateStatusResponse);
-
   rpc GetSubstrateSummary(GetSubstrateSummaryRequest) returns (GetSubstrateSummaryResponse);
   rpc ListSubstrateActors(ListSubstrateActorsRequest) returns (ListSubstrateActorsResponse);
   rpc ListSubstrateWorkers(ListSubstrateWorkersRequest) returns (ListSubstrateWorkersResponse);
@@ -48,28 +42,6 @@ message Namespace {
 
 message ListNamespacesResponse {
   repeated Namespace namespaces = 1;
-}
-
-message GetSubstrateStatusRequest {
-  // Kubernetes namespace for workers and pools. Empty uses watched namespaces.
-  string namespace = 1 [(buf.validate.field).string = {
-    max_len: 63
-    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
-  }];
-  // ATE atespace for actors and templates. Empty lists all atespaces.
-  string atespace = 2 [(buf.validate.field).string = {
-    max_len: 63
-    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
-  }];
-}
-
-message GetSubstrateStatusResponse {
-  bool enabled = 1;
-  string ate_api_error = 2;
-  repeated SubstrateWorkerPool worker_pools = 3;
-  repeated SubstrateActorTemplate actor_templates = 4;
-  repeated ateapi.Actor actors = 5;
-  repeated ateapi.Worker workers = 6;
 }
 
 message SubstrateWorkerPool {

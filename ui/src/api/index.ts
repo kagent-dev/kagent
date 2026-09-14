@@ -87,7 +87,6 @@ export { usePrompt, usePrompts } from "./hooks/usePrompts";
 export { useNamespaces } from "./hooks/useNamespaces";
 export {
   useSubstrateActors,
-  useSubstrateStatus,
   useSubstrateSummary,
   useSubstrateWorkers,
 } from "./hooks/useSubstrate";

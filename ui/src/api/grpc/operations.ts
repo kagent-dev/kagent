@@ -60,7 +60,6 @@ import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kag
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
-  GetSubstrateStatusResponse,
   SubstrateActorTemplate as PbSubstrateActorTemplate,
   SubstrateWorkerPool as PbSubstrateWorkerPool,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
@@ -86,7 +85,6 @@ import type { PromptTemplateDetail, PromptTemplateSummary } from "../domain/prom
 import type {
   SubstrateActorEntry,
   SubstrateActorTemplateEntry,
-  SubstrateStatusResponse,
   SubstrateWorkerEntry,
   SubstrateWorkerPoolEntry,
 } from "../domain/substrate";
@@ -107,7 +105,6 @@ import type {
   OperationCallOptions,
   SubstrateActorSortField,
   SubstratePageInput,
-  SubstrateScopeInput,
   SubstrateSortOrder,
   SubstrateWorkerSortField,
 } from "../operations";
@@ -1031,22 +1028,7 @@ const agentBuildingBlocks: Pick<
 
 // region Cluster
 
-function toSubstrateStatus(
-  response: GetSubstrateStatusResponse,
-): SubstrateStatusResponse {
-  return {
-    enabled: response.enabled,
-    // Empty means nothing went wrong. Left as `undefined` so a page can test the
-    // field rather than testing it for emptiness.
-    ateApiError: orUndefined(response.ateApiError),
-    workerPools: list(response.workerPools).map(toWorkerPoolEntry),
-    actorTemplates: list(response.actorTemplates).map(toActorTemplateEntry),
-    actors: list(response.actors).map(toActorEntry),
-    workers: list(response.workers).map(toWorkerEntry),
-  };
-}
-
-/** The four substrate row conversions, shared by the unpaged read and the paged ones. */
+/** Convert upstream inventory rows for the UI. */
 function toWorkerPoolEntry(pool: PbSubstrateWorkerPool): SubstrateWorkerPoolEntry {
   const ref = required(pool.ref, "Substrate", "worker pool reference");
   const resource = unwrap<{ spec: { replicas: number; workerImage: string } }>(
@@ -1140,32 +1122,6 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
   };
 }
 
-async function substrateStatus(
-  scope: SubstrateScopeInput,
-  options: OperationCallOptions,
-): Promise<SubstrateStatusResponse> {
-  const response = await rpc("SystemService/GetSubstrateStatus", options.signal, () =>
-    serviceClient(SystemService).getSubstrateStatus(
-      scope,
-      call("substrate.status", options),
-    ),
-  );
-  return toSubstrateStatus(response);
-}
-
-/**
- * What both paged substrate reads send, and what both read back from the answer.
- *
- * Shared so the two cannot drift: they are the same request and the same envelope
- * around a different row type, and a `pageSize` defaulted one way here and another way
- * below is the kind of difference nothing would notice.
- */
-/*
- * The two sort enums, as words on this side and numbers on the wire.
- *
- * Tables rather than a switch so the mapping back is the same fact read the other way:
- * a field added to one and forgotten in the other fails to compile.
- */
 const ACTOR_SORT_FIELDS = {
   default: PbActorSortField.UNSPECIFIED,
   status: PbActorSortField.STATUS,
@@ -1231,7 +1187,6 @@ function substratePageResult(response: {
 const cluster: Pick<
   ApiOperations,
   | "namespaces.list"
-  | "substrate.status"
   | "substrate.summary"
   | "substrate.actors"
   | "substrate.workers"
@@ -1244,10 +1199,6 @@ const cluster: Pick<
       name: namespace.name,
       status: namespace.status,
     }));
-  },
-
-  "substrate.status": async (input, options) => {
-    return substrateStatus(input, options);
   },
 
   "substrate.summary": async (input, options) => {

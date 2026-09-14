@@ -97,14 +97,6 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("ListNamespaces() = %+v, want [alpha Zoo]", namespaces.GetNamespaces())
 	}
 
-	substrateStatus, err := systemClient.GetSubstrateStatus(userContext, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "alpha"})
-	if err != nil {
-		t.Fatalf("GetSubstrateStatus() error = %v", err)
-	}
-	if !substrateStatus.GetEnabled() || len(substrateStatus.GetWorkerPools()) != 1 {
-		t.Fatalf("GetSubstrateStatus() = %+v, want enabled inventory with one worker pool", substrateStatus)
-	}
-
 	/*
 	 * The three paged reads, over the wire rather than against the service directly.
 	 *
@@ -121,8 +113,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("GetSubstrateSummary() = %+v, want enabled summary with one worker pool", summary)
 	}
 
-	for _, pools := range [][]*apiv1alpha1.SubstrateWorkerPool{substrateStatus.GetWorkerPools(), summary.GetWorkerPools()} {
-		pool := pools[0]
+	for _, pool := range summary.GetWorkerPools() {
 		assert.Equal(t, "alpha", pool.GetRef().GetNamespace())
 		assert.Equal(t, "pool", pool.GetRef().GetName())
 		assert.Equal(t, atev1alpha1.GroupVersion.String(), pool.GetResource().GetApiVersion())
@@ -163,14 +154,10 @@ func TestSystemGeneratedClient(t *testing.T) {
 			if namespace == "" || namespace == "a" || namespace == "team-1" || namespace == strings.Repeat("a", 63) {
 				want = codes.OK
 			}
-			_, err := systemClient.GetSubstrateStatus(userContext, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: namespace})
-			assert.Equal(t, want, status.Code(err), "status")
-			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: namespace})
+			_, err := systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary")
 			_, err = systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "actors")
-			_, err = systemClient.GetSubstrateStatus(userContext, &apiv1alpha1.GetSubstrateStatusRequest{Atespace: namespace})
-			assert.Equal(t, want, status.Code(err), "status atespace")
 			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary atespace")
 			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: namespace})
@@ -209,14 +196,6 @@ func TestSystemGeneratedClient(t *testing.T) {
 type emptySystemATEClient struct{}
 
 var _ systemservice.ATEClient = emptySystemATEClient{}
-
-func (emptySystemATEClient) ListActors(context.Context, string) ([]*ateapipb.Actor, error) {
-	return nil, nil
-}
-
-func (emptySystemATEClient) ListWorkers(context.Context) ([]*ateapipb.Worker, error) {
-	return nil, nil
-}
 
 func (emptySystemATEClient) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
 	return nil, nil

@@ -19,15 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-/*
-Paged substrate reads.
-
-ate-api pages and does nothing else — no order, no filter, no total — so every read
-here walks all of its pages and does those three itself. The walks cost time, but
-they answer with a page or a tally rather than the inventory, which is the whole
-difference from GetSubstrateStatus and its message-size ceiling.
-*/
-
 // How many rows a list call asks ate-api for when the caller names no page size.
 const defaultSubstratePageSize int32 = 50
 

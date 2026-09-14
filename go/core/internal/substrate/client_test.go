@@ -228,17 +228,6 @@ func (f *listWorkersFake) ListWorkers(_ context.Context, in *ateapipb.ListWorker
 	}, nil
 }
 
-// ListWorkers used to read one page and drop the token, so a fleet past ate-api's page
-// ceiling was silently truncated and reported as the whole of it.
-func TestListWorkersFollowsPagination(t *testing.T) {
-	fake := &listWorkersFake{}
-	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-	workers, err := client.ListWorkers(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, []string{"first", "second"}, []string{workers[0].GetWorkerPod(), workers[1].GetWorkerPod()})
-	require.Equal(t, []string{"", "next"}, fake.pageTokens)
-}
-
 func TestListWorkersPageReturnsOnePageAndItsToken(t *testing.T) {
 	fake := &listWorkersFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
@@ -284,16 +273,6 @@ func TestListActorsPagePassesPageSizeAndTokenThrough(t *testing.T) {
 	require.Equal(t, "cursor", fake.requests[0].GetPageToken())
 }
 
-func TestListActorsDrainsPagination(t *testing.T) {
-	fake := &listActorsFake{}
-	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
-
-	actors, err := client.ListActors(t.Context(), "team-a")
-	require.NoError(t, err)
-	require.Len(t, actors, 2)
-	require.Equal(t, []string{"", "next"}, []string{fake.requests[0].GetPageToken(), fake.requests[1].GetPageToken()})
-}
-
 // stuckPageFake answers every request with the token it was given, which is a server
 // that is not advancing.
 type stuckPageFake struct {
@@ -301,21 +280,21 @@ type stuckPageFake struct {
 	reads int
 }
 
-func (f *stuckPageFake) ListActors(_ context.Context, in *ateapipb.ListActorsRequest, _ ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
+func (f *stuckPageFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {
 	f.reads++
-	return &ateapipb.ListActorsResponse{
-		Actors:        []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Name: "actor"}}},
-		NextPageToken: "stuck",
+	return &ateapipb.ListActorTemplatesResponse{
+		ActorTemplates: []*ateapipb.ActorTemplate{{Metadata: &ateapipb.ResourceMetadata{Name: "template"}}},
+		NextPageToken:  "stuck",
 	}, nil
 }
 
 // A drain that follows a repeated token re-reads the same page until whatever cap sits
 // above it, spending a request per attempt on a backend that is already misbehaving.
-func TestListActorsRefusesAPageTokenThatDoesNotAdvance(t *testing.T) {
+func TestListActorTemplatesRefusesAPageTokenThatDoesNotAdvance(t *testing.T) {
 	fake := &stuckPageFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 
-	_, err := client.ListActors(t.Context(), "team-a")
+	_, err := client.ListActorTemplates(t.Context(), "team-a")
 	require.ErrorContains(t, err, "repeated page token")
 	// Caught on the second read, where the reason is still obvious — not after
 	// maxDrainPages of them.

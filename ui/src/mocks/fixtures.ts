@@ -15,7 +15,12 @@ import type {
 } from "@/api/domain/models";
 import type { PromptTemplateDetail, PromptTemplateSummary } from "@/api/domain/prompts";
 import type { NamespaceResponse } from "@/api/domain/namespaces";
-import type { SubstrateStatusResponse } from "@/api/domain/substrate";
+import type {
+  SubstrateActorEntry,
+  SubstrateActorTemplateEntry,
+  SubstrateWorkerEntry,
+  SubstrateWorkerPoolEntry,
+} from "@/api/domain/substrate";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 
@@ -266,7 +271,14 @@ export const mockNamespaces: NamespaceResponse[] = [
  * are partial is the state most likely to be rendered as though everything were
  * fine, so the fixture makes it the default rather than a special case.
  */
-export const mockSubstrateStatus: SubstrateStatusResponse = {
+export const mockSubstrateInventory: {
+  enabled: boolean;
+  ateApiError?: string;
+  workerPools: SubstrateWorkerPoolEntry[];
+  actorTemplates: SubstrateActorTemplateEntry[];
+  actors: SubstrateActorEntry[];
+  workers: SubstrateWorkerEntry[];
+} = {
   enabled: true,
   ateApiError: "ate-api list actors timed out after 5s; actors may be incomplete",
   workerPools: [

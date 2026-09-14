@@ -58,17 +58,6 @@ func (store *fakeRuntimeRevisionStore) ListActorTemplateHarnesses(context.Contex
 	return store.harnesses, store.err
 }
 
-func (client *fakeATEClient) ListActors(_ context.Context, atespace string) ([]*ateapipb.Actor, error) {
-	if client.err != nil {
-		return nil, client.err
-	}
-	return actorsInAtespace(client.actors, atespace), nil
-}
-
-func (client *fakeATEClient) ListWorkers(context.Context) ([]*ateapipb.Worker, error) {
-	return client.workers, client.err
-}
-
 func (client *fakeATEClient) ListActorTemplates(_ context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
 	templates := []*ateapipb.ActorTemplate{}
 	for _, template := range client.templates {
@@ -181,79 +170,6 @@ func TestListNamespaces(t *testing.T) {
 		result, err := service.ListNamespaces(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, []system.Namespace{{Name: "team-a"}, {Name: "team-b"}}, result)
-	})
-}
-
-func TestGetSubstrateStatus(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, atev1alpha1.AddToScheme(scheme))
-	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
-
-	t.Run("lists and filters typed inventory", func(t *testing.T) {
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-			&atev1alpha1.WorkerPool{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "pool"},
-				Spec:       atev1alpha1.WorkerPoolSpec{Replicas: 2, WorkerImage: "ateom:test"},
-			},
-		).Build()
-		ateClient := &fakeATEClient{
-			templates: []*ateapipb.ActorTemplate{{
-				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
-				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
-				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
-				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
-					GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
-				}},
-			}},
-			actors: []*ateapipb.Actor{{
-				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "actor-1"},
-				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team", Name: "template"},
-				Status: &ateapipb.ActorStatus{
-					State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
-				},
-			}},
-			workers: []*ateapipb.Worker{{
-				Metadata:        &ateapipb.ResourceMetadata{Version: 3},
-				WorkerNamespace: "team",
-				WorkerPool:      "pool",
-				WorkerPod:       "worker-0",
-			}},
-		}
-		revisions := &fakeRuntimeRevisionStore{harnesses: []database.ActorTemplateHarness{{
-			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
-		}}}
-		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions)
-
-		result, err := service.GetSubstrateStatus(ctx, "team", "team")
-		require.NoError(t, err)
-		assert.True(t, result.Enabled)
-		require.Len(t, result.WorkerPools, 1)
-		assert.Equal(t, int32(2), result.WorkerPools[0].Spec.Replicas)
-		require.Len(t, result.ActorTemplates, 1)
-		template := result.ActorTemplates[0].ActorTemplate
-		require.NotNil(t, template)
-		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
-		assert.Equal(t, "s3://snapshots/golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot().GetSnapshotUri())
-		assert.Equal(t, ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, template.GetSandboxConfig().GetSandboxClass())
-		assert.Empty(t, template.GetContainers())
-		require.Len(t, ateClient.templates[0].GetContainers(), 1)
-		assert.Equal(t, "secret", ateClient.templates[0].GetContainers()[0].GetEnv()[0].GetValue())
-		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
-		assert.True(t, result.ActorTemplates[0].ManagedByKagent)
-		require.Len(t, result.Actors, 1)
-		assert.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, result.Actors[0].GetStatus().GetState())
-		assert.Same(t, ateClient.actors[0], result.Actors[0])
-		require.Len(t, result.Workers, 1)
-		assert.Equal(t, "worker-0", result.Workers[0].WorkerPod)
-		assert.Equal(t, int64(3), result.Workers[0].GetMetadata().GetVersion())
-		assert.Same(t, ateClient.workers[0], result.Workers[0])
-	})
-
-	t.Run("authorizes", func(t *testing.T) {
-		service := system.NewService(nil, nil, systemDenyAuthorizer{}, nil, nil)
-		_, err := service.GetSubstrateStatus(ctx, "", "")
-		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 	})
 }
 
@@ -395,7 +311,9 @@ func TestGetSubstrateSummary(t *testing.T) {
 			// count of one rather than as a passing test.
 			pageSize: 1,
 			templates: []*ateapipb.ActorTemplate{{
-				Metadata: &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
+				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
+				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
+				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 					GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"},
 				}},
@@ -433,6 +351,13 @@ func TestGetSubstrateSummary(t *testing.T) {
 		require.Len(t, result.WorkerPools, 1)
 		require.Len(t, result.ActorTemplates, 1)
 		assert.Equal(t, "kagent", result.ActorTemplates[0].HarnessName)
+		template := result.ActorTemplates[0].ActorTemplate
+		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
+		assert.Equal(t, "s3://snapshots/golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenSnapshot().GetSnapshotUri())
+		assert.Equal(t, ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, template.GetSandboxConfig().GetSandboxClass())
+		assert.Empty(t, template.GetContainers())
+		require.Len(t, ateClient.templates[0].GetContainers(), 1)
+		assert.Equal(t, "secret", ateClient.templates[0].GetContainers()[0].GetEnv()[0].GetValue())
 		assert.False(t, result.ComputedAt.IsZero())
 	})
 
@@ -818,13 +743,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 			assert.Equal(t, tc.count, counted)
 			assert.Equal(t, int64(1), summary.WorkerCount)
 			require.Len(t, summary.WorkerPools, 1)
-			status, err := service.GetSubstrateStatus(ctx, "", tc.atespace)
-			require.NoError(t, err)
-			assert.Len(t, status.Actors, int(tc.count))
-			assert.Len(t, status.ActorTemplates, int(tc.count))
-			assert.Len(t, status.Workers, 1)
-			assert.Len(t, status.WorkerPools, 1)
-			for _, template := range status.ActorTemplates {
+			for _, template := range summary.ActorTemplates {
 				if tc.atespace != "" {
 					assert.Equal(t, tc.atespace, template.ActorTemplate.GetMetadata().GetAtespace())
 				}

@@ -54,7 +54,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -300,19 +299,6 @@ export interface OperationMap {
   "agentTemplates.delete": { input: ResourceRefInput; output: void };
 
   "namespaces.list": { input: NoInput; output: NamespaceResponse[] };
-  /**
-   * The whole substrate inventory in one read.
-   *
-   * Kept for the small clusters where it still works, and used by nothing on
-   * screen: it does not survive a real one. A deployment reporting 103,134 actors
-   * answers with a message gRPC refuses to send — 43MB against a 16MB ceiling — so
-   * the page that depended on it could not load at all. The three operations below
-   * replaced it, and raising the ceiling would only move the number.
-   */
-  "substrate.status": {
-    input: SubstrateScopeInput;
-    output: SubstrateStatusResponse;
-  };
   /**
    * Counts, and the two lists small enough to travel whole.
    *
