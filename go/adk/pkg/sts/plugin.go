@@ -297,6 +297,11 @@ func sessionIDFromContext(ctx context.Context) string {
 
 var _ models.ExchangedTokenProvider = (*TokenPropagationPlugin)(nil)
 
+// ExchangesTokens reports whether the plugin performs an STS exchange.
+func (p *TokenPropagationPlugin) ExchangesTokens() bool {
+	return p.integration != nil
+}
+
 // GetTokenForSession retrieves the cached token for a specific session.
 // Returns empty string if no valid token is cached.
 func (p *TokenPropagationPlugin) GetTokenForSession(sessionID string) string {

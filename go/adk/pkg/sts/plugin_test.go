@@ -371,3 +371,20 @@ func TestExtractJWTExpiryUsesUnverifiedClaims(t *testing.T) {
 		t.Fatalf("extractJWTExpiry() = %d, want %d", got, want)
 	}
 }
+
+// TestExchangesTokens pins what gates the plugin off the LLM path.
+func TestExchangesTokens(t *testing.T) {
+	t.Parallel()
+
+	if NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil).ExchangesTokens() {
+		t.Error("ExchangesTokens() = true with no STS integration, want false")
+	}
+
+	integration, err := NewSTSIntegration("https://sts.example/.well-known/oauth-authorization-server", "", nil, nil, 5, true, false)
+	if err != nil {
+		t.Fatalf("NewSTSIntegration() error = %v", err)
+	}
+	if !NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil).ExchangesTokens() {
+		t.Error("ExchangesTokens() = false with an STS integration, want true")
+	}
+}

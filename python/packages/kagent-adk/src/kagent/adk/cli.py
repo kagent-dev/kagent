@@ -52,7 +52,10 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
         plugin = ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
-        set_exchanged_token_provider(plugin)
+        if sts_integration:
+            # Propagate-only mode caches the caller's own token, which the LLM
+            # path already reads from the request.
+            set_exchanged_token_provider(plugin)
         return plugin
 
 

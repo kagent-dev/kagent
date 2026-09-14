@@ -191,9 +191,10 @@ func main() {
 	}
 
 	// A nil *sts.TokenPropagationPlugin held in an interface is not nil, so only
-	// assign when there is a plugin.
+	// assign when there is a plugin. Propagate-only mode caches the caller's own
+	// token, which the LLM path reads from the request context anyway.
 	var exchangedTokens models.ExchangedTokenProvider
-	if stsPlugin != nil {
+	if stsPlugin != nil && stsPlugin.ExchangesTokens() {
 		exchangedTokens = stsPlugin
 	}
 
