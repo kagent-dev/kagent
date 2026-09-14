@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -25,7 +26,7 @@ type authorizationCall struct {
 }
 
 type recordingAuthorizer struct {
-	scope      auth.AuthorizationScope
+	scope      apiauthorization.AuthorizationScope
 	scopeVerb  auth.Verb
 	scopeType  string
 	checkCalls []authorizationCall
@@ -36,7 +37,7 @@ func (a *recordingAuthorizer) Check(_ context.Context, _ auth.Principal, verb au
 	return nil
 }
 
-func (a *recordingAuthorizer) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resourceType string) (auth.AuthorizationScope, error) {
+func (a *recordingAuthorizer) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
 	a.scopeVerb = verb
 	a.scopeType = resourceType
 	return a.scope, nil
@@ -47,11 +48,11 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	authorizer := &recordingAuthorizer{scope: auth.AuthorizationScope{
-		Kind: auth.ScopeAnyOf,
-		AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{
-			Attribute: auth.AttributeName,
-			Operator:  auth.ScopeIn,
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{
+		Kind: apiauthorization.ScopeAnyOf,
+		AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{
+			Attribute: apiauthorization.AttributeName,
+			Operator:  apiauthorization.ScopeIn,
 			Values:    []string{"a", "b"},
 		}}}},
 	}}
@@ -99,10 +100,10 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		if call.verb != wantVerbs[index] {
 			t.Errorf("Check() call %d verb = %q, want %q", index, call.verb, wantVerbs[index])
 		}
-		if call.resource.Type != "AgentTemplate" || len(call.resource.Attributes[auth.AttributeNamespace]) != 1 || call.resource.Attributes[auth.AttributeNamespace][0] != "team" {
+		if call.resource.Type != "AgentTemplate" || len(call.resource.Attributes[apiauthorization.AttributeNamespace]) != 1 || call.resource.Attributes[apiauthorization.AttributeNamespace][0] != "team" {
 			t.Errorf("Check() call %d resource = %+v", index, call.resource)
 		}
-		if got := call.resource.Attributes[auth.AttributeName]; len(got) != 1 || got[0] != wantNames[index] {
+		if got := call.resource.Attributes[apiauthorization.AttributeName]; len(got) != 1 || got[0] != wantNames[index] {
 			t.Errorf("Check() call %d name = %v, want %q", index, got, wantNames[index])
 		}
 	}
@@ -113,11 +114,11 @@ func TestHarnessServiceFiltersList(t *testing.T) {
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	authorizer := &recordingAuthorizer{scope: auth.AuthorizationScope{
-		Kind: auth.ScopeAnyOf,
-		AnyOf: []auth.ScopeClause{{All: []auth.ScopePredicate{{
-			Attribute: auth.AttributeName,
-			Operator:  auth.ScopeIn,
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{
+		Kind: apiauthorization.ScopeAnyOf,
+		AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{
+			Attribute: apiauthorization.AttributeName,
+			Operator:  apiauthorization.ScopeIn,
 			Values:    []string{"allowed"},
 		}}}},
 	}}
@@ -145,7 +146,7 @@ func TestServiceRejectsInvalidScope(t *testing.T) {
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	authorizer := &recordingAuthorizer{scope: auth.AuthorizationScope{Kind: auth.ScopeAnyOf}}
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}}
 	service := NewService(
 		fake.NewClientBuilder().WithScheme(scheme).Build(),
 		authorizer,

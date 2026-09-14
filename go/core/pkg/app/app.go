@@ -115,7 +115,7 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 	}
 	authorizer := o.Authorizer
 	if authorizer == nil {
-		authorizer = &authimpl.NoopAuthorizer{}
+		authorizer = &auth.NoopAuthorizer{}
 	}
 	return authenticator, authorizer
 }

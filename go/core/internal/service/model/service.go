@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -68,7 +69,7 @@ func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, 
 }
 
 func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfigList, error) {
-	scope, err := s.Scope(ctx, auth.VerbList)
+	scope, err := s.scope(ctx, auth.VerbList)
 	if err != nil {
 		return nil, err
 	}
@@ -272,14 +273,14 @@ func (s *Service) Delete(ctx context.Context, request DeleteRequest) (*v1alpha3.
 	return modelConfig, nil
 }
 
-func (s *Service) Scope(ctx context.Context, verb auth.Verb) (auth.AuthorizationScope, error) {
+func (s *Service) scope(ctx context.Context, verb auth.Verb) (apiauthorization.AuthorizationScope, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
-		return auth.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
 	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, modelConfigResource)
 	if err != nil {
-		return auth.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return scope, nil
 }

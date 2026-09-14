@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -30,8 +31,8 @@ func (denyAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Ve
 	return errors.New("denied")
 }
 
-func (denyAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ string) (pkgauth.AuthorizationScope, error) {
-	return pkgauth.AuthorizationScope{}, errors.New("denied")
+func (denyAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ string) (apiauthorization.AuthorizationScope, error) {
+	return apiauthorization.AuthorizationScope{}, errors.New("denied")
 }
 
 type authorizationCall struct {
@@ -40,7 +41,7 @@ type authorizationCall struct {
 }
 
 type recordingAuthorizer struct {
-	scope      pkgauth.AuthorizationScope
+	scope      apiauthorization.AuthorizationScope
 	scopeVerb  pkgauth.Verb
 	scopeType  string
 	checkCalls []authorizationCall
@@ -51,7 +52,7 @@ func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, verb
 	return nil
 }
 
-func (a *recordingAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resourceType string) (pkgauth.AuthorizationScope, error) {
+func (a *recordingAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
 	a.scopeVerb = verb
 	a.scopeType = resourceType
 	return a.scope, nil
@@ -91,7 +92,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	}
 
 	t.Run("list and get", func(t *testing.T) {
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{}, &v1alpha3.ModelConfig{
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{}, &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
 			Spec:       v1alpha3.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha3.ModelProviderOpenAI},
 		})
@@ -106,7 +107,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	})
 
 	t.Run("create defaults api key secret and writes secret", func(t *testing.T) {
-		service, kubeClient, ctx := newService(&authimpl.NoopAuthorizer{})
+		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{})
 
 		created, err := service.Create(ctx, model.CreateRequest{
 			Ref:    "test-config",
@@ -127,7 +128,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	})
 
 	t.Run("create conflict", func(t *testing.T) {
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{}, &v1alpha3.ModelConfig{
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{}, &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
 			Spec:       v1alpha3.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha3.ModelProviderOpenAI},
 		})
@@ -141,7 +142,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	})
 
 	t.Run("create invalid secret material", func(t *testing.T) {
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{})
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{})
 
 		_, err := service.Create(ctx, model.CreateRequest{
 			Ref: "default/cfg",
@@ -162,7 +163,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 			Type:       corev1.SecretTypeOpaque,
 			Data:       map[string][]byte{"credentials.json": []byte("original")},
 		}
-		service, kubeClient, ctx := newService(&authimpl.NoopAuthorizer{}, existingSecret)
+		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{}, existingSecret)
 
 		_, err := service.Create(ctx, model.CreateRequest{
 			Ref: "default/test-config",
@@ -213,7 +214,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 			Type: corev1.SecretTypeOpaque,
 			Data: map[string][]byte{"ca.crt": []byte("OLD")},
 		}
-		service, kubeClient, ctx := newService(&authimpl.NoopAuthorizer{}, config, oldSecret)
+		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{}, config, oldSecret)
 
 		updated, err := service.Update(ctx, model.UpdateRequest{
 			Ref: types.NamespacedName{Namespace: "default", Name: "cfg"},
@@ -261,7 +262,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		}
 		baseClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(config, secret).Build()
 		kubeClient := &modelUpdateConflictOnceClient{Client: baseClient}
-		service := model.NewService(kubeClient, &authimpl.NoopAuthorizer{}, "default")
+		service := model.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, "default")
 		ctx := pkgauth.AuthSessionTo(
 			context.Background(),
 			&authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}},
@@ -289,7 +290,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 	})
 
 	t.Run("get not found", func(t *testing.T) {
-		service, _, ctx := newService(&authimpl.NoopAuthorizer{})
+		service, _, ctx := newService(&pkgauth.NoopAuthorizer{})
 
 		_, err := service.Get(ctx, model.GetRequest{Ref: types.NamespacedName{Namespace: "default", Name: "missing"}})
 		require.Error(t, err)
@@ -301,7 +302,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
 			Spec:       v1alpha3.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha3.ModelProviderOpenAI},
 		}
-		service, kubeClient, ctx := newService(&authimpl.NoopAuthorizer{}, config)
+		service, kubeClient, ctx := newService(&pkgauth.NoopAuthorizer{}, config)
 
 		deleted, err := service.Delete(ctx, model.DeleteRequest{Ref: types.NamespacedName{Namespace: "default", Name: "cfg"}})
 		require.NoError(t, err)
@@ -324,11 +325,11 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 func TestListAppliesModelConfigScope(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
-	authorizer := &recordingAuthorizer{scope: pkgauth.AuthorizationScope{
-		Kind: pkgauth.ScopeAnyOf,
-		AnyOf: []pkgauth.ScopeClause{{All: []pkgauth.ScopePredicate{{
-			Attribute: pkgauth.AttributeNamespace,
-			Operator:  pkgauth.ScopeIn,
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{
+		Kind: apiauthorization.ScopeAnyOf,
+		AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{
+			Attribute: apiauthorization.AttributeNamespace,
+			Operator:  apiauthorization.ScopeIn,
 			Values:    []string{"team-a"},
 		}}}},
 	}}
@@ -346,7 +347,7 @@ func TestListAppliesModelConfigScope(t *testing.T) {
 	assert.Equal(t, pkgauth.VerbList, authorizer.scopeVerb)
 	assert.Equal(t, "ModelConfig", authorizer.scopeType)
 
-	authorizer.scope = pkgauth.AuthorizationScope{Kind: pkgauth.ScopeAnyOf}
+	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
 	_, err = service.List(ctx, model.ListRequest{})
 	require.Error(t, err)
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
@@ -361,7 +362,7 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		Spec:       v1alpha3.ModelConfigSpec{Model: "old", Provider: v1alpha3.ModelProviderOpenAI},
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
-	authorizer := &recordingAuthorizer{scope: pkgauth.AuthorizationScope{Kind: pkgauth.ScopeAll}}
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}}
 	service := model.NewService(kubeClient, authorizer, "default")
 	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
 
@@ -390,7 +391,7 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 	for index, call := range authorizer.checkCalls {
 		assert.Equal(t, wantVerbs[index], call.verb)
 		assert.Equal(t, "ModelConfig", call.resource.Type)
-		assert.Equal(t, []string{"team"}, call.resource.Attributes[pkgauth.AttributeNamespace])
-		assert.Equal(t, []string{wantNames[index]}, call.resource.Attributes[pkgauth.AttributeName])
+		assert.Equal(t, []string{"team"}, call.resource.Attributes[apiauthorization.AttributeNamespace])
+		assert.Equal(t, []string{wantNames[index]}, call.resource.Attributes[apiauthorization.AttributeName])
 	}
 }

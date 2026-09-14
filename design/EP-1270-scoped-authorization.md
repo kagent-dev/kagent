@@ -10,8 +10,6 @@ Kagent supplies trusted resource attributes and enforces authorization before it
 
 An `Authorizer` implementation defines roles, policies, identity rules, and catalog keys.
 
-The protected RPC responses will also report the actions that the caller can use.
-
 ## Initial scope
 
 | Resource type | Operations | Attributes |
@@ -38,6 +36,7 @@ Provider discovery does not return `ModelConfig` resources. This design does not
 - This design does not protect `SandboxAgent`, `AgentHarness`, `AgentInstance`, or `ModelProviderConfig` resources.
 - This design does not protect tool servers or prompt templates.
 - This design does not add SQL or backend expressions to the authorization API.
+- This design does not predict authorization for UI controls. Denied operations use the standard `PermissionDenied` response.
 
 ## Authorization API
 
@@ -65,11 +64,11 @@ type CollectionAuthorizer interface {
 		principal Principal,
 		verb Verb,
 		resourceType string,
-	) (AuthorizationScope, error)
+	) (authorization.AuthorizationScope, error)
 }
 ```
 
-An `AuthorizationScope` describes the required collection restriction:
+An `authorization.AuthorizationScope` describes the required collection restriction:
 
 ```go
 type ScopeKind string
@@ -111,18 +110,6 @@ type ScopePredicate struct {
 The initial protected attributes, `namespace` and `name`, are always present and non-empty. An absent-attribute operator would therefore describe a state these resources cannot produce. Add another operator only when a protected resource introduces an attribute whose absence has authorization meaning.
 
 The scope contains no SQL, Kubernetes field paths, policy types, or backend expressions.
-
-## Response capabilities
-
-Each protected list response will include `can_create`.
-
-Each returned `AgentTemplate` and `ModelConfig` will include `can_update` and `can_delete`.
-
-Each returned `Harness` will include `can_delete` because the service has no update RPC.
-
-Kagent will calculate these fields from `AuthorizationScope` values for each action.
-
-The fields help a client control its actions. They do not replace authorization on an RPC.
 
 ## Single-resource enforcement
 
@@ -197,7 +184,6 @@ Tests must verify fail-closed behavior for invalid scopes.
 - [x] Populate trusted attributes for reads and writes.
 - [x] Filter each protected list before response construction.
 - [x] Add focused service and matcher tests.
-- [x] Add action capabilities to the protected RPC responses.
 
 ## Alternatives
 

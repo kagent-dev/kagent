@@ -30,20 +30,16 @@ func (s *modelServer) ListModelConfigs(ctx context.Context, _ *apiv1alpha1.ListM
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadCollectionResourceCapabilities(ctx, s.service, true)
-	if err != nil {
-		return nil, err
-	}
 
 	modelConfigs := make([]*apiv1alpha1.ModelConfig, 0, len(result.Items))
 	for index := range result.Items {
-		modelConfig, err := s.modelConfig(&result.Items[index], capabilities)
+		modelConfig, err := s.modelConfig(&result.Items[index])
 		if err != nil {
 			return nil, err
 		}
 		modelConfigs = append(modelConfigs, modelConfig)
 	}
-	return &apiv1alpha1.ListModelConfigsResponse{ModelConfigs: modelConfigs, CanCreate: capabilities.canCreate}, nil
+	return &apiv1alpha1.ListModelConfigsResponse{ModelConfigs: modelConfigs}, nil
 }
 
 func (s *modelServer) GetModelConfig(ctx context.Context, request *apiv1alpha1.GetModelConfigRequest) (*apiv1alpha1.GetModelConfigResponse, error) {
@@ -55,11 +51,7 @@ func (s *modelServer) GetModelConfig(ctx context.Context, request *apiv1alpha1.G
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
-	if err != nil {
-		return nil, err
-	}
-	modelConfig, err := s.modelConfig(result, capabilities)
+	modelConfig, err := s.modelConfig(result)
 	if err != nil {
 		return nil, err
 	}
@@ -75,10 +67,6 @@ func (s *modelServer) CreateModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
-	if err != nil {
-		return nil, err
-	}
 	result, err := s.service.Create(ctx, modelservice.CreateRequest{
 		Ref:     ref,
 		APIKey:  request.GetApiKey(),
@@ -88,7 +76,7 @@ func (s *modelServer) CreateModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	modelConfig, err := s.modelConfig(result, capabilities)
+	modelConfig, err := s.modelConfig(result)
 	if err != nil {
 		return nil, err
 	}
@@ -104,10 +92,6 @@ func (s *modelServer) UpdateModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := loadResourceCapabilities(ctx, s.service, true)
-	if err != nil {
-		return nil, err
-	}
 	result, err := s.service.Update(ctx, modelservice.UpdateRequest{
 		Ref:     ref,
 		APIKey:  request.ApiKey,
@@ -117,7 +101,7 @@ func (s *modelServer) UpdateModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	modelConfig, err := s.modelConfig(result, capabilities)
+	modelConfig, err := s.modelConfig(result)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +176,7 @@ func (s *modelServer) ListSupportedModels(ctx context.Context, _ *apiv1alpha1.Li
 	return &apiv1alpha1.ListSupportedModelsResponse{Providers: providers}, nil
 }
 
-func (s *modelServer) modelConfig(modelConfig *v1alpha3.ModelConfig, capabilities resourceCapabilities) (*apiv1alpha1.ModelConfig, error) {
+func (s *modelServer) modelConfig(modelConfig *v1alpha3.ModelConfig) (*apiv1alpha1.ModelConfig, error) {
 	resource, err := structuredobject.FromGo(
 		modelConfig,
 		v1alpha3.GroupVersion.String(),
@@ -207,9 +191,7 @@ func (s *modelServer) modelConfig(modelConfig *v1alpha3.ModelConfig, capabilitie
 			Namespace: modelConfig.Namespace,
 			Name:      modelConfig.Name,
 		},
-		Resource:  resource,
-		CanUpdate: capabilities.canUpdate(modelConfig),
-		CanDelete: capabilities.canDelete(modelConfig),
+		Resource: resource,
 	}, nil
 }
 

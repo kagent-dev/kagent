@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"net/url"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/api/authorization"
 )
 
 type Verb string
@@ -88,31 +88,21 @@ type Authorizer interface {
 
 type CollectionAuthorizer interface {
 	Authorizer
-	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (AuthorizationScope, error)
+	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (authorization.AuthorizationScope, error)
 }
 
-type ScopeKind = apiauthorization.ScopeKind
+// NoopAuthorizer permits every action and collection entry.
+type NoopAuthorizer struct{}
 
-const (
-	AttributeNamespace = apiauthorization.AttributeNamespace
-	AttributeName      = apiauthorization.AttributeName
+var _ CollectionAuthorizer = NoopAuthorizer{}
 
-	ScopeAll   = apiauthorization.ScopeAll
-	ScopeNone  = apiauthorization.ScopeNone
-	ScopeAnyOf = apiauthorization.ScopeAnyOf
-)
+func (NoopAuthorizer) Check(context.Context, Principal, Verb, Resource) error {
+	return nil
+}
 
-type ScopeOperator = apiauthorization.ScopeOperator
-
-const (
-	ScopeIn = apiauthorization.ScopeIn
-)
-
-type AuthorizationScope = apiauthorization.AuthorizationScope
-
-type ScopeClause = apiauthorization.ScopeClause
-
-type ScopePredicate = apiauthorization.ScopePredicate
+func (NoopAuthorizer) Scope(context.Context, Principal, Verb, string) (authorization.AuthorizationScope, error) {
+	return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
+}
 
 // context utils
 

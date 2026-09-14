@@ -21,7 +21,7 @@ OR namespace IN [shared]
 
 is represented as two `AnyOf` clauses. The first contains both predicates in `All`; the second contains one predicate.
 
-The shared scope types and attribute names live in [`go/api/authorization`](../../../../go/api/authorization/scope.go). The core authorization package aliases them for service use.
+The shared scope types and attribute names live in [`go/api/authorization`](../../../../go/api/authorization/scope.go). Services use those public types directly.
 
 ## Trusted resource attributes
 
