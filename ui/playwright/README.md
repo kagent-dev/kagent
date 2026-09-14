@@ -63,13 +63,26 @@ which is convenient in a browser and a trap in a test.
 
 ```
 playwright/
-  tests/           app-shell, routing, and <area>/<area>{,-errors}.spec.ts
-  helpers/         app (navigation, tables, scenarios), nav (shell chrome),
-                   extensions (extension slots)
+  tests/           one <resource>/<resource>.spec.ts per resource, plus the
+                   cross-cutting ones: app-shell, routing, auth, chat, substrate,
+                   extensions, dashboard, theme-contrast
+  helpers/         app (navigation, tables, scenarios), resource (the moves every
+                   CRUD journey makes), nav (shell chrome), extensions (slots),
+                   chat, controls, style, mockCalls
   fixtures/test.ts import { test, expect } from here — never @playwright/test
   live/            the live suite: specs, plus helpers/ of its own
   DEFERRED.md      the specs not yet portable, and what each one is waiting on
 ```
+
+The resources with a lifecycle spec are **models**, **MCP servers**, **prompt
+libraries**, **agent templates**, **harnesses** and **schedules**. Two of them are
+narrower than CRUD, and in both cases that is the product rather than a gap: a
+registered MCP server's address is its identity, so `ToolService` serves no update;
+and the harnesses tab offers no edit, though `HarnessService` would take one.
+
+**Agents are not on that list, because an agent is not created.** An agent is an
+`AgentTemplate` paired with a `Harness` — it exists the moment a harness admits a
+template — so `agents/` covers what the pairing means rather than a lifecycle.
 
 ## App extensions: two servers, two projects
 
@@ -110,12 +123,32 @@ distinctness and deliberately says nothing about the values.
   own green — a page can satisfy every assertion while throwing in an effect.
   Deliberate noise (the 500 the error scenario provokes) is filtered there, in
   one place, with a reason.
-- **Two specs per area**: `<area>.spec.ts` for the success journey,
-  `<area>-errors.spec.ts` for the failure journey.
-- **One test per journey**, with each criterion a numbered `test.step`. Playwright
-  records one trace per test, and a journey split across tests loses the thing
-  worth watching — that the state one step established is the state the next one
-  acted on.
+- **One spec per resource, holding one test: that resource's whole life.** Create
+  it, read it back, change it, delete it, and the empty and failure states around
+  those — all in one `test`, each criterion a numbered `test.step`. Playwright
+  records one video and one trace per *test*, so a lifecycle split across four of
+  them is one you have to reassemble from four recordings, none of which shows
+  that the thing the delete removed is the thing the create made.
+
+  The trade is deliberate: a step that fails stops the ones after it, so a broken
+  create hides whether delete works. That is the right way round here — a resource
+  whose create is broken is broken, and the recording shows where it stopped.
+
+  This replaced a `<area>.spec.ts` / `<area>-errors.spec.ts` pair per area, plus
+  four cross-cutting specs (`forms/required-fields`, `lists/list-filters`,
+  `refresh-toast`, `mcp-servers/row-interaction`) that each asserted one property
+  across five pages. Those properties now sit in the journey of the resource they
+  are about, which costs one page load instead of five and puts the claim where
+  somebody changing that page will see it.
+- **Keep the writes in one browsing context.** The fixture backend keeps writes in
+  the page's own memory, so a `page.goto` starts a backend that has never heard of
+  the thing just created — and the failure reads as "the create did not stick"
+  when nothing is wrong. Click through from the list once the journey has written
+  something.
+- **A lifecycle gets a longer budget than a journey.** Each resource spec sets
+  `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })`. Per file, not across
+  the suite: the thirty-second default is load-bearing everywhere else, where a
+  mock-backed page that needs longer is stuck rather than merely long.
 - **Prefer roles and test ids over prose.** Most of these pages are still going to
   be rebuilt; a spec anchored to copy will not survive that, and one anchored to
   `nav-agents` or `getByRole("row")` will.

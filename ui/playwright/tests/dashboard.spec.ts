@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures/test";
 import { expectSettled, loadPage, routes } from "../helpers/app";
+import { clickRefresh } from "../helpers/resource";
 
 /**
  * The dashboard's recent list, which is conversations and now reads like it.
@@ -19,6 +20,13 @@ test("dashboard: recent conversations read as names, not as ids", async ({ page 
 
   await test.step("1. the card says what it lists", async () => {
     await expect(card).toContainText("Recent agent conversations");
+
+    // And Refresh confirms here too. A refresh usually returns the same rows, so a
+    // successful one is otherwise indistinguishable from a button that did nothing —
+    // which is the kind of thing that gets wired up on the page being worked on and
+    // forgotten on the four beside it. Each list asserts its own.
+    await clickRefresh(page);
+    await expect(page.getByText("Dashboard refreshed")).toBeVisible();
   });
 
   await test.step("2. and no row is a bare id", async () => {
