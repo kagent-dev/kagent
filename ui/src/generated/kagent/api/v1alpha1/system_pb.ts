@@ -4,7 +4,7 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Actor, ActorTemplate } from "../../../ateapi_pb";
+import type { Actor, ActorState, ActorTemplate, Worker } from "../../../ateapi_pb";
 import { file_ateapi } from "../../../ateapi_pb";
 import { file_buf_validate_validate } from "../../../buf/validate/validate_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
@@ -17,7 +17,7 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1alpha1/system.proto.
  */
 export const file_kagent_api_v1alpha1_system: GenFile = /*@__PURE__*/
-  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL3N5c3RlbS5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSITChFHZXRWZXJzaW9uUmVxdWVzdCJUChJHZXRWZXJzaW9uUmVzcG9uc2USFgoOa2FnZW50X3ZlcnNpb24YASABKAkSEgoKZ2l0X2NvbW1pdBgCIAEoCRISCgpidWlsZF9kYXRlGAMgASgJIhcKFUdldEN1cnJlbnRVc2VyUmVxdWVzdCJBChZHZXRDdXJyZW50VXNlclJlc3BvbnNlEicKBmNsYWltcxgBIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiFwoVTGlzdE5hbWVzcGFjZXNSZXF1ZXN0IikKCU5hbWVzcGFjZRIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJMChZMaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEjIKCm5hbWVzcGFjZXMYASADKAsyHi5rYWdlbnQuYXBpLnYxYWxwaGExLk5hbWVzcGFjZSIuChlHZXRTdWJzdHJhdGVTdGF0dXNSZXF1ZXN0EhEKCW5hbWVzcGFjZRgBIAEoCSKgAgoaR2V0U3Vic3RyYXRlU3RhdHVzUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEj4KDHdvcmtlcl9wb29scxgDIAMoCzIoLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlV29ya2VyUG9vbBJECg9hY3Rvcl90ZW1wbGF0ZXMYBCADKAsyKy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZUFjdG9yVGVtcGxhdGUSHQoGYWN0b3JzGAUgAygLMg0uYXRlYXBpLkFjdG9yEjUKB3dvcmtlcnMYBiADKAsyJC5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVdvcmtlciJdChNTdWJzdHJhdGVXb3JrZXJQb29sEhEKCW5hbWVzcGFjZRgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCHJlcGxpY2FzGAMgASgFEhMKC2F0ZW9tX2ltYWdlGAQgASgJItgBChZTdWJzdHJhdGVBY3RvclRlbXBsYXRlEhQKDGhhcm5lc3NfbmFtZRgIIAEoCRIZChFtYW5hZ2VkX2J5X2thZ2VudBgJIAEoCBItCg5hY3Rvcl90ZW1wbGF0ZRgKIAEoCzIVLmF0ZWFwaS5BY3RvclRlbXBsYXRlSgQIARAIUgluYW1lc3BhY2VSBG5hbWVSBXBoYXNlUg9nb2xkZW5fYWN0b3JfaWRSD2dvbGRlbl9zbmFwc2hvdFINc2FuZGJveF9jbGFzc1IPd29ya2VyX3NlbGVjdG9yIrQBCg9TdWJzdHJhdGVXb3JrZXISGAoQd29ya2VyX25hbWVzcGFjZRgBIAEoCRITCgt3b3JrZXJfcG9vbBgCIAEoCRISCgp3b3JrZXJfcG9kGAMgASgJEhcKD2FjdG9yX25hbWVzcGFjZRgEIAEoCRIWCg5hY3Rvcl90ZW1wbGF0ZRgFIAEoCRIQCghhY3Rvcl9pZBgGIAEoCRIKCgJpcBgHIAEoCRIPCgd2ZXJzaW9uGAggASgDIi8KGkdldFN1YnN0cmF0ZVN1bW1hcnlSZXF1ZXN0EhEKCW5hbWVzcGFjZRgBIAEoCSI6ChlTdWJzdHJhdGVBY3RvclN0YXR1c0NvdW50Eg4KBnN0YXR1cxgBIAEoCRINCgVjb3VudBgCIAEoAyKsAwobR2V0U3Vic3RyYXRlU3VtbWFyeVJlc3BvbnNlEg8KB2VuYWJsZWQYASABKAgSFQoNYXRlX2FwaV9lcnJvchgCIAEoCRI+Cgx3b3JrZXJfcG9vbHMYAyADKAsyKC5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVdvcmtlclBvb2wSRAoPYWN0b3JfdGVtcGxhdGVzGAQgAygLMisua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVBY3RvclRlbXBsYXRlEhMKC2FjdG9yX2NvdW50GAUgASgDEhQKDHdvcmtlcl9jb3VudBgGIAEoAxIbChNydW5uaW5nX2FjdG9yX2NvdW50GAcgASgDEhkKEWJ1c3lfd29ya2VyX2NvdW50GAggASgDEksKE2FjdG9yX3N0YXR1c19jb3VudHMYCSADKAsyLi5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZUFjdG9yU3RhdHVzQ291bnQSLwoLY29tcHV0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIowCChpMaXN0U3Vic3RyYXRlQWN0b3JzUmVxdWVzdBIRCgluYW1lc3BhY2UYASABKAkSLgoEcGFnZRgCIAEoCzIgLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlcXVlc3QSGAoGZmlsdGVyGAMgASgJQgi6SAVyAxjIARJKCgpzb3J0X2ZpZWxkGAQgASgOMiwua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVBY3RvclNvcnRGaWVsZEIIukgFggECEAESRQoKc29ydF9vcmRlchgFIAEoDjInLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlU29ydE9yZGVyQgi6SAWCAQIQASLpAgobTGlzdFN1YnN0cmF0ZUFjdG9yc1Jlc3BvbnNlEg8KB2VuYWJsZWQYASABKAgSFQoNYXRlX2FwaV9lcnJvchgCIAEoCRIdCgZhY3RvcnMYAyADKAsyDS5hdGVhcGkuQWN0b3ISLwoEcGFnZRgEIAEoCzIhLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlc3BvbnNlEi8KC2NvbXB1dGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgp0b3RhbF9zaXplGAYgASgDEkgKEmFwcGxpZWRfc29ydF9maWVsZBgHIAEoDjIsLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlQWN0b3JTb3J0RmllbGQSQwoSYXBwbGllZF9zb3J0X29yZGVyGAggASgOMicua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVTb3J0T3JkZXIijgIKG0xpc3RTdWJzdHJhdGVXb3JrZXJzUmVxdWVzdBIRCgluYW1lc3BhY2UYASABKAkSLgoEcGFnZRgCIAEoCzIgLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlcXVlc3QSGAoGZmlsdGVyGAMgASgJQgi6SAVyAxjIARJLCgpzb3J0X2ZpZWxkGAQgASgOMi0ua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVXb3JrZXJTb3J0RmllbGRCCLpIBYIBAhABEkUKCnNvcnRfb3JkZXIYBSABKA4yJy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVNvcnRPcmRlckIIukgFggECEAEigwMKHExpc3RTdWJzdHJhdGVXb3JrZXJzUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEjUKB3dvcmtlcnMYAyADKAsyJC5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVdvcmtlchIvCgRwYWdlGAQgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVzcG9uc2USLwoLY29tcHV0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCnRvdGFsX3NpemUYBiABKAMSSQoSYXBwbGllZF9zb3J0X2ZpZWxkGAcgASgOMi0ua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVXb3JrZXJTb3J0RmllbGQSQwoSYXBwbGllZF9zb3J0X29yZGVyGAggASgOMicua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVTb3J0T3JkZXIqdwoSU3Vic3RyYXRlU29ydE9yZGVyEiQKIFNVQlNUUkFURV9TT1JUX09SREVSX1VOU1BFQ0lGSUVEEAASHAoYU1VCU1RSQVRFX1NPUlRfT1JERVJfQVNDEAESHQoZU1VCU1RSQVRFX1NPUlRfT1JERVJfREVTQxACKukBChdTdWJzdHJhdGVBY3RvclNvcnRGaWVsZBIqCiZTVUJTVFJBVEVfQUNUT1JfU09SVF9GSUVMRF9VTlNQRUNJRklFRBAAEiUKIVNVQlNUUkFURV9BQ1RPUl9TT1JUX0ZJRUxEX1NUQVRVUxABEicKI1NVQlNUUkFURV9BQ1RPUl9TT1JUX0ZJRUxEX0FDVE9SX0lEEAISJwojU1VCU1RSQVRFX0FDVE9SX1NPUlRfRklFTERfVEVNUExBVEUQAxIpCiVTVUJTVFJBVEVfQUNUT1JfU09SVF9GSUVMRF9XT1JLRVJfUE9EEAQqtgEKGFN1YnN0cmF0ZVdvcmtlclNvcnRGaWVsZBIrCidTVUJTVFJBVEVfV09SS0VSX1NPUlRfRklFTERfVU5TUEVDSUZJRUQQABIkCiBTVUJTVFJBVEVfV09SS0VSX1NPUlRfRklFTERfUE9PTBABEiMKH1NVQlNUUkFURV9XT1JLRVJfU09SVF9GSUVMRF9QT0QQAhIiCh5TVUJTVFJBVEVfV09SS0VSX1NPUlRfRklFTERfSVAQAzKsBgoNU3lzdGVtU2VydmljZRJdCgpHZXRWZXJzaW9uEiYua2FnZW50LmFwaS52MWFscGhhMS5HZXRWZXJzaW9uUmVxdWVzdBonLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0VmVyc2lvblJlc3BvbnNlEmkKDkdldEN1cnJlbnRVc2VyEioua2FnZW50LmFwaS52MWFscGhhMS5HZXRDdXJyZW50VXNlclJlcXVlc3QaKy5rYWdlbnQuYXBpLnYxYWxwaGExLkdldEN1cnJlbnRVc2VyUmVzcG9uc2USaQoOTGlzdE5hbWVzcGFjZXMSKi5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3ROYW1lc3BhY2VzUmVxdWVzdBorLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdE5hbWVzcGFjZXNSZXNwb25zZRJ1ChJHZXRTdWJzdHJhdGVTdGF0dXMSLi5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFN1YnN0cmF0ZVN0YXR1c1JlcXVlc3QaLy5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFN1YnN0cmF0ZVN0YXR1c1Jlc3BvbnNlEngKE0dldFN1YnN0cmF0ZVN1bW1hcnkSLy5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFN1YnN0cmF0ZVN1bW1hcnlSZXF1ZXN0GjAua2FnZW50LmFwaS52MWFscGhhMS5HZXRTdWJzdHJhdGVTdW1tYXJ5UmVzcG9uc2USeAoTTGlzdFN1YnN0cmF0ZUFjdG9ycxIvLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdFN1YnN0cmF0ZUFjdG9yc1JlcXVlc3QaMC5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RTdWJzdHJhdGVBY3RvcnNSZXNwb25zZRJ7ChRMaXN0U3Vic3RyYXRlV29ya2VycxIwLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXF1ZXN0GjEua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U3Vic3RyYXRlV29ya2Vyc1Jlc3BvbnNlQklaR2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxYWxwaGExO2FwaXYxYWxwaGExYgZwcm90bzM", [file_ateapi, file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_common]);
+  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL3N5c3RlbS5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSITChFHZXRWZXJzaW9uUmVxdWVzdCJUChJHZXRWZXJzaW9uUmVzcG9uc2USFgoOa2FnZW50X3ZlcnNpb24YASABKAkSEgoKZ2l0X2NvbW1pdBgCIAEoCRISCgpidWlsZF9kYXRlGAMgASgJIhcKFUdldEN1cnJlbnRVc2VyUmVxdWVzdCJBChZHZXRDdXJyZW50VXNlclJlc3BvbnNlEicKBmNsYWltcxgBIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QiFwoVTGlzdE5hbWVzcGFjZXNSZXF1ZXN0IikKCU5hbWVzcGFjZRIMCgRuYW1lGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJMChZMaXN0TmFtZXNwYWNlc1Jlc3BvbnNlEjIKCm5hbWVzcGFjZXMYASADKAsyHi5rYWdlbnQuYXBpLnYxYWxwaGExLk5hbWVzcGFjZSJbChlHZXRTdWJzdHJhdGVTdGF0dXNSZXF1ZXN0Ej4KCW5hbWVzcGFjZRgBIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JCKKAgoaR2V0U3Vic3RyYXRlU3RhdHVzUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEj4KDHdvcmtlcl9wb29scxgDIAMoCzIoLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlV29ya2VyUG9vbBJECg9hY3Rvcl90ZW1wbGF0ZXMYBCADKAsyKy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZUFjdG9yVGVtcGxhdGUSHQoGYWN0b3JzGAUgAygLMg0uYXRlYXBpLkFjdG9yEh8KB3dvcmtlcnMYBiADKAsyDi5hdGVhcGkuV29ya2VyIl0KE1N1YnN0cmF0ZVdvcmtlclBvb2wSEQoJbmFtZXNwYWNlGAEgASgJEgwKBG5hbWUYAiABKAkSEAoIcmVwbGljYXMYAyABKAUSEwoLYXRlb21faW1hZ2UYBCABKAki2AEKFlN1YnN0cmF0ZUFjdG9yVGVtcGxhdGUSFAoMaGFybmVzc19uYW1lGAggASgJEhkKEW1hbmFnZWRfYnlfa2FnZW50GAkgASgIEi0KDmFjdG9yX3RlbXBsYXRlGAogASgLMhUuYXRlYXBpLkFjdG9yVGVtcGxhdGVKBAgBEAhSCW5hbWVzcGFjZVIEbmFtZVIFcGhhc2VSD2dvbGRlbl9hY3Rvcl9pZFIPZ29sZGVuX3NuYXBzaG90Ug1zYW5kYm94X2NsYXNzUg93b3JrZXJfc2VsZWN0b3IiXAoaR2V0U3Vic3RyYXRlU3VtbWFyeVJlcXVlc3QSPgoJbmFtZXNwYWNlGAEgASgJQiu6SChyJhg/MiJeKFthLXowLTldKFstYS16MC05XSpbYS16MC05XSk/KT8kIlsKGVN1YnN0cmF0ZUFjdG9yU3RhdHVzQ291bnQSDQoFY291bnQYAiABKAMSIQoFc3RhdGUYAyABKA4yEi5hdGVhcGkuQWN0b3JTdGF0ZUoECAEQAlIGc3RhdHVzIqwDChtHZXRTdWJzdHJhdGVTdW1tYXJ5UmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEj4KDHdvcmtlcl9wb29scxgDIAMoCzIoLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlV29ya2VyUG9vbBJECg9hY3Rvcl90ZW1wbGF0ZXMYBCADKAsyKy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZUFjdG9yVGVtcGxhdGUSEwoLYWN0b3JfY291bnQYBSABKAMSFAoMd29ya2VyX2NvdW50GAYgASgDEhsKE3J1bm5pbmdfYWN0b3JfY291bnQYByABKAMSGQoRYnVzeV93b3JrZXJfY291bnQYCCABKAMSSwoTYWN0b3Jfc3RhdHVzX2NvdW50cxgJIAMoCzIuLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlQWN0b3JTdGF0dXNDb3VudBIvCgtjb21wdXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiuQIKGkxpc3RTdWJzdHJhdGVBY3RvcnNSZXF1ZXN0Ej4KCW5hbWVzcGFjZRgBIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JBIuCgRwYWdlGAIgASgLMiAua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVxdWVzdBIYCgZmaWx0ZXIYAyABKAlCCLpIBXIDGMgBEkoKCnNvcnRfZmllbGQYBCABKA4yLC5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZUFjdG9yU29ydEZpZWxkQgi6SAWCAQIQARJFCgpzb3J0X29yZGVyGAUgASgOMicua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVTb3J0T3JkZXJCCLpIBYIBAhABIukCChtMaXN0U3Vic3RyYXRlQWN0b3JzUmVzcG9uc2USDwoHZW5hYmxlZBgBIAEoCBIVCg1hdGVfYXBpX2Vycm9yGAIgASgJEh0KBmFjdG9ycxgDIAMoCzINLmF0ZWFwaS5BY3RvchIvCgRwYWdlGAQgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVzcG9uc2USLwoLY29tcHV0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCnRvdGFsX3NpemUYBiABKAMSSAoSYXBwbGllZF9zb3J0X2ZpZWxkGAcgASgOMiwua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVBY3RvclNvcnRGaWVsZBJDChJhcHBsaWVkX3NvcnRfb3JkZXIYCCABKA4yJy5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVNvcnRPcmRlciK7AgobTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXF1ZXN0Ej4KCW5hbWVzcGFjZRgBIAEoCUIrukgociYYPzIiXihbYS16MC05XShbLWEtejAtOV0qW2EtejAtOV0pPyk/JBIuCgRwYWdlGAIgASgLMiAua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVxdWVzdBIYCgZmaWx0ZXIYAyABKAlCCLpIBXIDGMgBEksKCnNvcnRfZmllbGQYBCABKA4yLS5rYWdlbnQuYXBpLnYxYWxwaGExLlN1YnN0cmF0ZVdvcmtlclNvcnRGaWVsZEIIukgFggECEAESRQoKc29ydF9vcmRlchgFIAEoDjInLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlU29ydE9yZGVyQgi6SAWCAQIQASLtAgocTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXNwb25zZRIPCgdlbmFibGVkGAEgASgIEhUKDWF0ZV9hcGlfZXJyb3IYAiABKAkSHwoHd29ya2VycxgDIAMoCzIOLmF0ZWFwaS5Xb3JrZXISLwoEcGFnZRgEIAEoCzIhLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlc3BvbnNlEi8KC2NvbXB1dGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgp0b3RhbF9zaXplGAYgASgDEkkKEmFwcGxpZWRfc29ydF9maWVsZBgHIAEoDjItLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlV29ya2VyU29ydEZpZWxkEkMKEmFwcGxpZWRfc29ydF9vcmRlchgIIAEoDjInLmthZ2VudC5hcGkudjFhbHBoYTEuU3Vic3RyYXRlU29ydE9yZGVyKncKElN1YnN0cmF0ZVNvcnRPcmRlchIkCiBTVUJTVFJBVEVfU09SVF9PUkRFUl9VTlNQRUNJRklFRBAAEhwKGFNVQlNUUkFURV9TT1JUX09SREVSX0FTQxABEh0KGVNVQlNUUkFURV9TT1JUX09SREVSX0RFU0MQAirpAQoXU3Vic3RyYXRlQWN0b3JTb3J0RmllbGQSKgomU1VCU1RSQVRFX0FDVE9SX1NPUlRfRklFTERfVU5TUEVDSUZJRUQQABIlCiFTVUJTVFJBVEVfQUNUT1JfU09SVF9GSUVMRF9TVEFUVVMQARInCiNTVUJTVFJBVEVfQUNUT1JfU09SVF9GSUVMRF9BQ1RPUl9JRBACEicKI1NVQlNUUkFURV9BQ1RPUl9TT1JUX0ZJRUxEX1RFTVBMQVRFEAMSKQolU1VCU1RSQVRFX0FDVE9SX1NPUlRfRklFTERfV09SS0VSX1BPRBAEKrYBChhTdWJzdHJhdGVXb3JrZXJTb3J0RmllbGQSKwonU1VCU1RSQVRFX1dPUktFUl9TT1JUX0ZJRUxEX1VOU1BFQ0lGSUVEEAASJAogU1VCU1RSQVRFX1dPUktFUl9TT1JUX0ZJRUxEX1BPT0wQARIjCh9TVUJTVFJBVEVfV09SS0VSX1NPUlRfRklFTERfUE9EEAISIgoeU1VCU1RSQVRFX1dPUktFUl9TT1JUX0ZJRUxEX0lQEAMyrAYKDVN5c3RlbVNlcnZpY2USXQoKR2V0VmVyc2lvbhImLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0VmVyc2lvblJlcXVlc3QaJy5rYWdlbnQuYXBpLnYxYWxwaGExLkdldFZlcnNpb25SZXNwb25zZRJpCg5HZXRDdXJyZW50VXNlchIqLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0Q3VycmVudFVzZXJSZXF1ZXN0Gisua2FnZW50LmFwaS52MWFscGhhMS5HZXRDdXJyZW50VXNlclJlc3BvbnNlEmkKDkxpc3ROYW1lc3BhY2VzEioua2FnZW50LmFwaS52MWFscGhhMS5MaXN0TmFtZXNwYWNlc1JlcXVlc3QaKy5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3ROYW1lc3BhY2VzUmVzcG9uc2USdQoSR2V0U3Vic3RyYXRlU3RhdHVzEi4ua2FnZW50LmFwaS52MWFscGhhMS5HZXRTdWJzdHJhdGVTdGF0dXNSZXF1ZXN0Gi8ua2FnZW50LmFwaS52MWFscGhhMS5HZXRTdWJzdHJhdGVTdGF0dXNSZXNwb25zZRJ4ChNHZXRTdWJzdHJhdGVTdW1tYXJ5Ei8ua2FnZW50LmFwaS52MWFscGhhMS5HZXRTdWJzdHJhdGVTdW1tYXJ5UmVxdWVzdBowLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0U3Vic3RyYXRlU3VtbWFyeVJlc3BvbnNlEngKE0xpc3RTdWJzdHJhdGVBY3RvcnMSLy5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RTdWJzdHJhdGVBY3RvcnNSZXF1ZXN0GjAua2FnZW50LmFwaS52MWFscGhhMS5MaXN0U3Vic3RyYXRlQWN0b3JzUmVzcG9uc2USewoUTGlzdFN1YnN0cmF0ZVdvcmtlcnMSMC5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RTdWJzdHJhdGVXb3JrZXJzUmVxdWVzdBoxLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdFN1YnN0cmF0ZVdvcmtlcnNSZXNwb25zZUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z", [file_ateapi, file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_common]);
 
 /**
  * @generated from message kagent.api.v1alpha1.GetVersionRequest
@@ -188,9 +188,9 @@ export type GetSubstrateStatusResponse = Message<"kagent.api.v1alpha1.GetSubstra
   actors: Actor[];
 
   /**
-   * @generated from field: repeated kagent.api.v1alpha1.SubstrateWorker workers = 6;
+   * @generated from field: repeated ateapi.Worker workers = 6;
    */
-  workers: SubstrateWorker[];
+  workers: Worker[];
 };
 
 /**
@@ -262,58 +262,6 @@ export const SubstrateActorTemplateSchema: GenMessage<SubstrateActorTemplate> = 
   messageDesc(file_kagent_api_v1alpha1_system, 10);
 
 /**
- * @generated from message kagent.api.v1alpha1.SubstrateWorker
- */
-export type SubstrateWorker = Message<"kagent.api.v1alpha1.SubstrateWorker"> & {
-  /**
-   * @generated from field: string worker_namespace = 1;
-   */
-  workerNamespace: string;
-
-  /**
-   * @generated from field: string worker_pool = 2;
-   */
-  workerPool: string;
-
-  /**
-   * @generated from field: string worker_pod = 3;
-   */
-  workerPod: string;
-
-  /**
-   * @generated from field: string actor_namespace = 4;
-   */
-  actorNamespace: string;
-
-  /**
-   * @generated from field: string actor_template = 5;
-   */
-  actorTemplate: string;
-
-  /**
-   * @generated from field: string actor_id = 6;
-   */
-  actorId: string;
-
-  /**
-   * @generated from field: string ip = 7;
-   */
-  ip: string;
-
-  /**
-   * @generated from field: int64 version = 8;
-   */
-  version: bigint;
-};
-
-/**
- * Describes the message kagent.api.v1alpha1.SubstrateWorker.
- * Use `create(SubstrateWorkerSchema)` to create a new message.
- */
-export const SubstrateWorkerSchema: GenMessage<SubstrateWorker> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 11);
-
-/**
  * The inventory as counts, plus the two lists whose length is set by configuration
  * rather than by the cluster.
  *
@@ -335,21 +283,21 @@ export type GetSubstrateSummaryRequest = Message<"kagent.api.v1alpha1.GetSubstra
  * Use `create(GetSubstrateSummaryRequestSchema)` to create a new message.
  */
 export const GetSubstrateSummaryRequestSchema: GenMessage<GetSubstrateSummaryRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 12);
+  messageDesc(file_kagent_api_v1alpha1_system, 11);
 
 /**
  * @generated from message kagent.api.v1alpha1.SubstrateActorStatusCount
  */
 export type SubstrateActorStatusCount = Message<"kagent.api.v1alpha1.SubstrateActorStatusCount"> & {
   /**
-   * @generated from field: string status = 1;
-   */
-  status: string;
-
-  /**
    * @generated from field: int64 count = 2;
    */
   count: bigint;
+
+  /**
+   * @generated from field: ateapi.ActorState state = 3;
+   */
+  state: ActorState;
 };
 
 /**
@@ -357,7 +305,7 @@ export type SubstrateActorStatusCount = Message<"kagent.api.v1alpha1.SubstrateAc
  * Use `create(SubstrateActorStatusCountSchema)` to create a new message.
  */
 export const SubstrateActorStatusCountSchema: GenMessage<SubstrateActorStatusCount> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 13);
+  messageDesc(file_kagent_api_v1alpha1_system, 12);
 
 /**
  * @generated from message kagent.api.v1alpha1.GetSubstrateSummaryResponse
@@ -408,7 +356,7 @@ export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstr
   runningActorCount: bigint;
 
   /**
-   * A worker is busy when an actor is bound to it.
+   * A worker is busy when its reported allocated actor count is positive.
    *
    * @generated from field: int64 busy_worker_count = 8;
    */
@@ -435,7 +383,7 @@ export type GetSubstrateSummaryResponse = Message<"kagent.api.v1alpha1.GetSubstr
  * Use `create(GetSubstrateSummaryResponseSchema)` to create a new message.
  */
 export const GetSubstrateSummaryResponseSchema: GenMessage<GetSubstrateSummaryResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 14);
+  messageDesc(file_kagent_api_v1alpha1_system, 13);
 
 /**
  * One page of actors, ordered and narrowed across the whole inventory.
@@ -487,7 +435,7 @@ export type ListSubstrateActorsRequest = Message<"kagent.api.v1alpha1.ListSubstr
  * Use `create(ListSubstrateActorsRequestSchema)` to create a new message.
  */
 export const ListSubstrateActorsRequestSchema: GenMessage<ListSubstrateActorsRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 15);
+  messageDesc(file_kagent_api_v1alpha1_system, 14);
 
 /**
  * @generated from message kagent.api.v1alpha1.ListSubstrateActorsResponse
@@ -546,7 +494,7 @@ export type ListSubstrateActorsResponse = Message<"kagent.api.v1alpha1.ListSubst
  * Use `create(ListSubstrateActorsResponseSchema)` to create a new message.
  */
 export const ListSubstrateActorsResponseSchema: GenMessage<ListSubstrateActorsResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 16);
+  messageDesc(file_kagent_api_v1alpha1_system, 15);
 
 /**
  * One page of worker assignments. The mirror of ListSubstrateActors.
@@ -587,7 +535,7 @@ export type ListSubstrateWorkersRequest = Message<"kagent.api.v1alpha1.ListSubst
  * Use `create(ListSubstrateWorkersRequestSchema)` to create a new message.
  */
 export const ListSubstrateWorkersRequestSchema: GenMessage<ListSubstrateWorkersRequest> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 17);
+  messageDesc(file_kagent_api_v1alpha1_system, 16);
 
 /**
  * @generated from message kagent.api.v1alpha1.ListSubstrateWorkersResponse
@@ -604,9 +552,9 @@ export type ListSubstrateWorkersResponse = Message<"kagent.api.v1alpha1.ListSubs
   ateApiError: string;
 
   /**
-   * @generated from field: repeated kagent.api.v1alpha1.SubstrateWorker workers = 3;
+   * @generated from field: repeated ateapi.Worker workers = 3;
    */
-  workers: SubstrateWorker[];
+  workers: Worker[];
 
   /**
    * @generated from field: kagent.api.v1alpha1.PageResponse page = 4;
@@ -639,7 +587,7 @@ export type ListSubstrateWorkersResponse = Message<"kagent.api.v1alpha1.ListSubs
  * Use `create(ListSubstrateWorkersResponseSchema)` to create a new message.
  */
 export const ListSubstrateWorkersResponseSchema: GenMessage<ListSubstrateWorkersResponse> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_system, 18);
+  messageDesc(file_kagent_api_v1alpha1_system, 17);
 
 /**
  * Which way a sorted substrate read runs.

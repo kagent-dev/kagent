@@ -1,4 +1,4 @@
-import { ActorState, SandboxClass, type ActorSchema } from "@/generated/ateapi_pb";
+import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { SubstrateActorTemplateSchema } from "@/generated/kagent/api/v1alpha1/system_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
@@ -1382,18 +1382,21 @@ function substrateActorMessage(
   };
 }
 
-function substrateWorkerMessage(worker: SubstrateWorkerEntry) {
+function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<typeof WorkerSchema> {
   return {
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    // Always empty, as the controller leaves them: ate-api's Worker has no actor
-    // reference to fill them from.
-    actorNamespace: "",
-    actorTemplate: "",
-    actorId: "",
     ip: worker.ip ?? "",
-    version: BigInt(worker.version ?? 0),
+    metadata: { version: BigInt(worker.version ?? 0) },
+    status: {
+      allocated: {
+        // Worker allocation includes actors from every template namespace.
+        actors: mockSubstrateStatus.actors.filter((actor) =>
+          actor.ateomPodNamespace === worker.workerNamespace && actor.ateomPodName === worker.workerPod
+        ).length,
+      },
+    },
   };
 }
 
@@ -1422,17 +1425,14 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
   const actors = status.actors.filter((actor) => inScope(actor.actorTemplateNamespace));
   const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
 
-  const statusCounts = new Map<string, number>();
+  const statusCounts = new Map<ActorState, number>();
   for (const actor of actors) {
-    statusCounts.set(actor.status, (statusCounts.get(actor.status) ?? 0) + 1);
+    const state = substrateActorMessage(actor).status?.state ?? ActorState.UNSPECIFIED;
+    statusCounts.set(state, (statusCounts.get(state) ?? 0) + 1);
   }
-  // A worker is busy when an actor is placed on it, counted once however many actors
-  // it holds — the controller counts distinct pods, so the fixture has to as well.
-  const busyPods = new Set(
-    actors
-      .filter((actor) => actor.ateomPodName)
-      .map((actor) => `${actor.ateomPodNamespace ?? ""}/${actor.ateomPodName}`),
-  );
+  const busyWorkerCount = workers.filter((worker) =>
+    (substrateWorkerMessage(worker).status?.allocated?.actors ?? 0) > 0
+  ).length;
 
   /*
    * The error and the complete counts together, which is a state the controller really
@@ -1460,10 +1460,10 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
     runningActorCount: BigInt(
       actors.filter((actor) => actor.status.toLowerCase() === "running").length,
     ),
-    busyWorkerCount: BigInt(busyPods.size),
+    busyWorkerCount: BigInt(busyWorkerCount),
     actorStatusCounts: [...statusCounts]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([status, count]) => ({ status, count: BigInt(count) })),
+      .sort(([left], [right]) => left - right)
+      .map(([state, count]) => ({ state, count: BigInt(count) })),
     computedAt: timestampFromDate(new Date()),
   };
 });
@@ -1543,7 +1543,9 @@ on(SystemService.method.listSubstrateActors, (input, call) => {
     input,
     (actor) => inScope(actor.actorTemplateNamespace),
     (a) =>
-      [a.actorId, a.status, a.actorTemplateNamespace, a.actorTemplateName, a.ateomPodNamespace, a.ateomPodName, a.ateomPodIp]
+      [a.actorId, a.status, a.actorTemplateNamespace, a.actorTemplateName, a.ateomPodNamespace, a.ateomPodName, a.ateomPodIp,
+        `${a.actorTemplateNamespace ?? ""}/${a.actorTemplateName ?? ""}`,
+        `${a.ateomPodNamespace ?? ""}/${a.ateomPodName ?? ""}`]
         .filter(Boolean)
         .join(" "),
     keys[input.sortField] ?? ((a) => `${a.status}\u0000${id(a)}`),
@@ -1571,7 +1573,7 @@ on(SystemService.method.listSubstrateWorkers, (input, call) => {
     mockSubstrateStatus.workers,
     input,
     (worker) => inScope(worker.workerNamespace),
-    (w) => [w.workerNamespace, w.workerPool, w.workerPod, w.ip].filter(Boolean).join(" "),
+    (w) => [w.workerNamespace, w.workerPool, w.workerPod, w.ip, pod(w)].filter(Boolean).join(" "),
     keys[input.sortField] ?? ((w) => `${w.workerPool}\u0000${pod(w)}`),
     input.sortOrder === SubstrateSortOrder.DESC,
     substrateWorkerMessage,

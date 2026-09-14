@@ -561,8 +561,8 @@ describe("the cluster", () => {
           runningActorCount: 12n,
           busyWorkerCount: 11n,
           actorStatusCounts: [
-            { status: "Crashed", count: 410098n },
-            { status: "Running", count: 12n },
+            { state: ActorState.CRASHED, count: 410098n },
+            { state: ActorState.RUNNING, count: 12n },
           ],
           computedAt: timestampFromDate(new Date("2026-09-04T12:00:00Z")),
         }),
@@ -578,7 +578,7 @@ describe("the cluster", () => {
     expect(summary.runningActorCount).toBe(12);
     expect(summary.busyWorkerCount).toBe(11);
     expect(summary.actorStatusCounts).toEqual([
-      { status: "Crashed", count: 410098 },
+      { status: "ACTOR_STATE_CRASHED", count: 410098 },
       { status: "Running", count: 12 },
     ]);
     expect(summary.computedAt).toBe("2026-09-04T12:00:00.000Z");

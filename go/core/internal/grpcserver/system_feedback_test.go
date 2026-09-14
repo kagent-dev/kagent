@@ -3,12 +3,14 @@ package grpcserver
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -124,13 +126,46 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("ListSubstrateWorkers() = %+v, want disabled empty page", workers)
 	}
 
-	// The cap lives on PageRequest.limit rather than on these requests, so this is what
-	// says the shared rule still reaches them: the interceptor refuses before a handler
-	// runs, and the service's own guard never gets the chance.
-	if _, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
-		Namespace: "alpha",
-		Page:      &apiv1alpha1.PageRequest{Limit: 101},
-	}); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("ListSubstrateActors(limit 101) code = %v, want %v", status.Code(err), codes.InvalidArgument)
+	for _, namespace := range []string{"", "a", "team-1", strings.Repeat("a", 63), "INVALID_NAMESPACE", "-team", "team-", "team.name", " team", strings.Repeat("a", 64)} {
+		t.Run("namespace/"+namespace, func(t *testing.T) {
+			want := codes.InvalidArgument
+			if namespace == "" || namespace == "a" || namespace == "team-1" || namespace == strings.Repeat("a", 63) {
+				want = codes.OK
+			}
+			_, err := systemClient.GetSubstrateStatus(userContext, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: namespace})
+			assert.Equal(t, want, status.Code(err), "status")
+			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: namespace})
+			assert.Equal(t, want, status.Code(err), "summary")
+			_, err = systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{Namespace: namespace})
+			assert.Equal(t, want, status.Code(err), "actors")
+			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: namespace})
+			assert.Equal(t, want, status.Code(err), "workers")
+		})
+	}
+
+	for _, tc := range []struct {
+		name        string
+		limit       int32
+		filter      string
+		actorField  apiv1alpha1.SubstrateActorSortField
+		workerField apiv1alpha1.SubstrateWorkerSortField
+		order       apiv1alpha1.SubstrateSortOrder
+	}{
+		{name: "negative limit", limit: -1},
+		{name: "oversized limit", limit: 101},
+		{name: "oversized filter", filter: strings.Repeat("a", 201)},
+		{name: "unknown field", actorField: 999, workerField: 999},
+		{name: "unknown order", order: 999},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
+				Page: &apiv1alpha1.PageRequest{Limit: tc.limit}, Filter: tc.filter, SortField: tc.actorField, SortOrder: tc.order,
+			})
+			assert.Equal(t, codes.InvalidArgument, status.Code(err), "actors")
+			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
+				Page: &apiv1alpha1.PageRequest{Limit: tc.limit}, Filter: tc.filter, SortField: tc.workerField, SortOrder: tc.order,
+			})
+			assert.Equal(t, codes.InvalidArgument, status.Code(err), "workers")
+		})
 	}
 }

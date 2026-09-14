@@ -66,16 +66,13 @@ func (s *systemServer) GetSubstrateStatus(ctx context.Context, request *apiv1alp
 		WorkerPools:    make([]*apiv1alpha1.SubstrateWorkerPool, 0, len(result.WorkerPools)),
 		ActorTemplates: make([]*apiv1alpha1.SubstrateActorTemplate, 0, len(result.ActorTemplates)),
 		Actors:         result.Actors,
-		Workers:        make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
+		Workers:        result.Workers,
 	}
 	for _, workerPool := range result.WorkerPools {
 		response.WorkerPools = append(response.WorkerPools, substrateWorkerPoolProto(workerPool))
 	}
 	for _, actorTemplate := range result.ActorTemplates {
 		response.ActorTemplates = append(response.ActorTemplates, substrateActorTemplateProto(actorTemplate))
-	}
-	for _, worker := range result.Workers {
-		response.Workers = append(response.Workers, substrateWorkerProto(worker))
 	}
 	return response, nil
 }
@@ -105,22 +102,15 @@ func (s *systemServer) GetSubstrateSummary(ctx context.Context, request *apiv1al
 	}
 	for _, statusCount := range result.ActorStatusCounts {
 		response.ActorStatusCounts = append(response.ActorStatusCounts, &apiv1alpha1.SubstrateActorStatusCount{
-			Status: statusCount.Status,
-			Count:  statusCount.Count,
+			State: statusCount.State,
+			Count: statusCount.Count,
 		})
 	}
 	return response, nil
 }
 
 func (s *systemServer) ListSubstrateActors(ctx context.Context, request *apiv1alpha1.ListSubstrateActorsRequest) (*apiv1alpha1.ListSubstrateActorsResponse, error) {
-	result, err := s.service.ListSubstrateActors(ctx, systemservice.SubstrateListInput{
-		Namespace: request.GetNamespace(),
-		PageSize:  int(request.GetPage().GetLimit()),
-		PageToken: request.GetPage().GetPageToken(),
-		Filter:    request.GetFilter(),
-		SortField: int32(request.GetSortField()),
-		SortOrder: int32(request.GetSortOrder()),
-	})
+	result, err := s.service.ListSubstrateActors(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -131,41 +121,31 @@ func (s *systemServer) ListSubstrateActors(ctx context.Context, request *apiv1al
 		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
 		ComputedAt:       timestamppb.New(result.ComputedAt),
 		TotalSize:        result.TotalSize,
-		AppliedSortField: apiv1alpha1.SubstrateActorSortField(result.AppliedSortField),
-		AppliedSortOrder: apiv1alpha1.SubstrateSortOrder(result.AppliedSortOrder),
+		AppliedSortField: result.AppliedSortField,
+		AppliedSortOrder: result.AppliedSortOrder,
 	}
 	return response, nil
 }
 
 func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1alpha1.ListSubstrateWorkersRequest) (*apiv1alpha1.ListSubstrateWorkersResponse, error) {
-	result, err := s.service.ListSubstrateWorkers(ctx, systemservice.SubstrateListInput{
-		Namespace: request.GetNamespace(),
-		PageSize:  int(request.GetPage().GetLimit()),
-		PageToken: request.GetPage().GetPageToken(),
-		Filter:    request.GetFilter(),
-		SortField: int32(request.GetSortField()),
-		SortOrder: int32(request.GetSortOrder()),
-	})
+	result, err := s.service.ListSubstrateWorkers(ctx, request)
 	if err != nil {
 		return nil, err
 	}
 	response := &apiv1alpha1.ListSubstrateWorkersResponse{
 		Enabled:          result.Enabled,
 		AteApiError:      result.ATEAPIError,
-		Workers:          make([]*apiv1alpha1.SubstrateWorker, 0, len(result.Workers)),
+		Workers:          result.Workers,
 		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
 		ComputedAt:       timestamppb.New(result.ComputedAt),
 		TotalSize:        result.TotalSize,
-		AppliedSortField: apiv1alpha1.SubstrateWorkerSortField(result.AppliedSortField),
-		AppliedSortOrder: apiv1alpha1.SubstrateSortOrder(result.AppliedSortOrder),
-	}
-	for _, worker := range result.Workers {
-		response.Workers = append(response.Workers, substrateWorkerProto(worker))
+		AppliedSortField: result.AppliedSortField,
+		AppliedSortOrder: result.AppliedSortOrder,
 	}
 	return response, nil
 }
 
-// The four row conversions, shared by the whole-inventory read and the paged ones so
+// Row conversions, shared by the whole-inventory read and the paged ones so
 // that a column cannot be filled on one path and left blank on the other.
 
 func substrateWorkerPoolProto(workerPool systemservice.SubstrateWorkerPool) *apiv1alpha1.SubstrateWorkerPool {
@@ -182,18 +162,5 @@ func substrateActorTemplateProto(actorTemplate systemservice.SubstrateActorTempl
 		ActorTemplate:   actorTemplate.ActorTemplate,
 		HarnessName:     actorTemplate.HarnessName,
 		ManagedByKagent: actorTemplate.ManagedByKagent,
-	}
-}
-
-func substrateWorkerProto(worker systemservice.SubstrateWorker) *apiv1alpha1.SubstrateWorker {
-	return &apiv1alpha1.SubstrateWorker{
-		WorkerNamespace: worker.WorkerNamespace,
-		WorkerPool:      worker.WorkerPool,
-		WorkerPod:       worker.WorkerPod,
-		ActorNamespace:  worker.ActorNamespace,
-		ActorTemplate:   worker.ActorTemplate,
-		ActorId:         worker.ActorID,
-		Ip:              worker.IP,
-		Version:         worker.Version,
 	}
 }

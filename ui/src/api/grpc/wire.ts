@@ -119,12 +119,12 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * first schema comes out wrong — which is how this list drifted last time.
  *
  * - `ateapi.proto`      — `ResourceMetadata.version`  (reached by `substrate.actors`)
- * - `system.proto:106`  — `SubstrateWorker.version`    (reached by `substrate.workers`)
- * - `system.proto:127`  — `SubstrateActorStatusCount.count`      (`substrate.summary`)
- * - `system.proto:150`  — `GetSubstrateSummaryResponse.actor_count`         (the same)
- * - `system.proto:151`  — `GetSubstrateSummaryResponse.worker_count`        (the same)
- * - `system.proto:152`  — `GetSubstrateSummaryResponse.running_actor_count` (the same)
- * - `system.proto:154`  — `GetSubstrateSummaryResponse.busy_worker_count`   (the same)
+ * - `ateapi.proto`      — `Worker.metadata.version`    (reached by `substrate.workers`)
+ * - `system.proto`  — `SubstrateActorStatusCount.count`      (`substrate.summary`)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.actor_count`         (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.worker_count`        (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.running_actor_count` (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.busy_worker_count`   (the same)
  * - `memory.proto:38`   — `MemorySummary.access_count` (no operation id yet)
  * - `checkpoints.proto:32` — `Checkpoint.history_sequence` (no operation id yet)
  *

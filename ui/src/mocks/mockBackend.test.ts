@@ -246,6 +246,19 @@ describe("the fixture backend", () => {
     expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
   });
 
+  it("searches the qualified template and pod references displayed in the inventory", async () => {
+    for (const filter of ["kagent/coder-template", "kagent/ateom-default-pool-0"]) {
+      const page = await invoke("substrate.actors", { filter });
+      expect(page.totalSize).toBe(1);
+      expect(page.actors[0].actorId).toBe("actor-7f21");
+    }
+    const page = await invoke("substrate.workers", { filter: "kagent/ateom-default-pool-0" });
+    expect(page.totalSize).toBe(1);
+    expect(page.workers[0]).toMatchObject({ workerPod: "ateom-default-pool-0", version: 4 });
+    const status = await invoke("substrate.status", {});
+    expect(page.workers[0]).toEqual(status.workers[0]);
+  });
+
   /*
    * `models.providers` is two RPCs merged, and a merge with nothing on one side is
    * wired rather than exercised — so the fixtures carry one provider of each kind and

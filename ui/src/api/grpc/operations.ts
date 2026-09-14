@@ -1,4 +1,4 @@
-import { ActorState, type Actor as PbActor, SandboxClass } from "@/generated/ateapi_pb";
+import { ActorState, type Actor as PbActor, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -62,7 +62,6 @@ import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1
 import type {
   GetSubstrateStatusResponse,
   SubstrateActorTemplate as PbSubstrateActorTemplate,
-  SubstrateWorker as PbSubstrateWorker,
   SubstrateWorkerPool as PbSubstrateWorkerPool,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
@@ -1125,21 +1124,13 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
   };
 }
 
-/*
- * `actorNamespace`, `actorTemplate` and `actorId` are on the message and are not read.
- * The controller never fills them: ate-api's `Worker` carries capacity and allocation
- * and no actor reference, so the only way to say which actor is on a worker is to read
- * every actor and join. They stayed on the wire because removing a field is a breaking
- * change; they are dropped here because a column that is always blank claims the
- * cluster has no placements.
- */
-function toWorkerEntry(worker: PbSubstrateWorker): SubstrateWorkerEntry {
+function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
   return {
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
     ip: orUndefined(worker.ip),
-    version: toNumber(worker.version),
+    version: toNumber(worker.metadata?.version),
   };
 }
 
@@ -1271,7 +1262,7 @@ const cluster: Pick<
       runningActorCount: toNumber(response.runningActorCount) ?? 0,
       busyWorkerCount: toNumber(response.busyWorkerCount) ?? 0,
       actorStatusCounts: list(response.actorStatusCounts).map((entry) => ({
-        status: entry.status,
+        status: ACTOR_STATUS_LABELS[entry.state] ?? String(entry.state),
         count: toNumber(entry.count) ?? 0,
       })),
       computedAt: orUndefined(isoFrom(response.computedAt)),

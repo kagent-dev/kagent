@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -59,7 +58,7 @@ type SubstrateStatus struct {
 	WorkerPools    []SubstrateWorkerPool
 	ActorTemplates []SubstrateActorTemplate
 	Actors         []*ateapipb.Actor
-	Workers        []SubstrateWorker
+	Workers        []*ateapipb.Worker
 }
 
 type SubstrateWorkerPool struct {
@@ -73,17 +72,6 @@ type SubstrateActorTemplate struct {
 	ActorTemplate   *ateapipb.ActorTemplate
 	HarnessName     string
 	ManagedByKagent bool
-}
-
-type SubstrateWorker struct {
-	WorkerNamespace string
-	WorkerPool      string
-	WorkerPod       string
-	ActorNamespace  string
-	ActorTemplate   string
-	ActorID         string
-	IP              string
-	Version         int64
 }
 
 func NewService(
@@ -161,18 +149,9 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 }
 
 func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace string) (SubstrateStatus, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
+	namespaces, err := s.substrateScope(ctx, requestedNamespace)
+	if err != nil {
 		return SubstrateStatus{}, err
-	}
-
-	requestedNamespace = strings.TrimSpace(requestedNamespace)
-	if requestedNamespace != "" {
-		if validationErrors := utilvalidation.IsDNS1123Label(requestedNamespace); len(validationErrors) > 0 {
-			return SubstrateStatus{}, serviceerrors.NewInvalidArgument(
-				fmt.Sprintf("invalid namespace %q: %s", requestedNamespace, strings.Join(validationErrors, ", ")),
-				nil,
-			)
-		}
 	}
 
 	result := SubstrateStatus{
@@ -180,7 +159,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		WorkerPools:    []SubstrateWorkerPool{},
 		ActorTemplates: []SubstrateActorTemplate{},
 		Actors:         []*ateapipb.Actor{},
-		Workers:        []SubstrateWorker{},
+		Workers:        []*ateapipb.Worker{},
 	}
 	if s.ateClient == nil {
 		return result, nil
@@ -192,7 +171,6 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list ActorTemplate harnesses", fmt.Errorf("runtime revision store is not configured"))
 	}
 
-	namespaces := s.substrateNamespaces(requestedNamespace)
 	for _, namespace := range namespaces {
 		workerPools, err := s.listWorkerPools(ctx, namespace)
 		if err != nil {
@@ -216,7 +194,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 	slices.SortStableFunc(result.Actors, func(left, right *ateapipb.Actor) int {
 		return strings.Compare(left.GetMetadata().GetName(), right.GetMetadata().GetName())
 	})
-	slices.SortStableFunc(result.Workers, func(left, right SubstrateWorker) int {
+	slices.SortStableFunc(result.Workers, func(left, right *ateapipb.Worker) int {
 		return strings.Compare(
 			left.WorkerNamespace+"/"+left.WorkerPool+"/"+left.WorkerPod,
 			right.WorkerNamespace+"/"+right.WorkerPool+"/"+right.WorkerPod,
@@ -295,7 +273,7 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]Subs
 	return workerPools, nil
 }
 
-func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []SubstrateWorker, error) {
+func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]SubstrateActorTemplate, []*ateapipb.Actor, []*ateapipb.Worker, error) {
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
 	harnesses, err := s.actorTemplateHarnesses(ctx)
@@ -325,7 +303,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		actors = append(actors, actor)
 	}
 
-	workers := make([]SubstrateWorker, 0, len(workersFromAPI))
+	workers := make([]*ateapipb.Worker, 0, len(workersFromAPI))
 	for _, worker := range workersFromAPI {
 		if worker == nil {
 			continue
@@ -333,7 +311,7 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 		if !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
 			continue
 		}
-		workers = append(workers, workerFromProto(worker))
+		workers = append(workers, worker)
 	}
 	return templates, actors, workers, nil
 }
@@ -344,16 +322,6 @@ func allowedAtespace(atespace string, allowAll bool, allowed map[string]struct{}
 	}
 	_, ok := allowed[atespace]
 	return ok
-}
-
-func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
-	return SubstrateWorker{
-		WorkerNamespace: worker.GetWorkerNamespace(),
-		WorkerPool:      worker.GetWorkerPool(),
-		WorkerPod:       worker.GetWorkerPod(),
-		IP:              worker.GetIp(),
-		Version:         worker.GetMetadata().GetVersion(),
-	}
 }
 
 /*

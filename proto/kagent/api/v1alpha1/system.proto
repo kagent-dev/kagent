@@ -51,7 +51,10 @@ message ListNamespacesResponse {
 }
 
 message GetSubstrateStatusRequest {
-  string namespace = 1;
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
 }
 
 message GetSubstrateStatusResponse {
@@ -60,7 +63,7 @@ message GetSubstrateStatusResponse {
   repeated SubstrateWorkerPool worker_pools = 3;
   repeated SubstrateActorTemplate actor_templates = 4;
   repeated ateapi.Actor actors = 5;
-  repeated SubstrateWorker workers = 6;
+  repeated ateapi.Worker workers = 6;
 }
 
 message SubstrateWorkerPool {
@@ -80,17 +83,6 @@ message SubstrateActorTemplate {
   ateapi.ActorTemplate actor_template = 10;
 }
 
-message SubstrateWorker {
-  string worker_namespace = 1;
-  string worker_pool = 2;
-  string worker_pod = 3;
-  string actor_namespace = 4;
-  string actor_template = 5;
-  string actor_id = 6;
-  string ip = 7;
-  int64 version = 8;
-}
-
 // The inventory as counts, plus the two lists whose length is set by configuration
 // rather than by the cluster.
 //
@@ -98,12 +90,18 @@ message SubstrateWorker {
 // counts cross the wire, so there is no message-size ceiling — but a caller polling
 // this as often as it pages will spend most of its time here.
 message GetSubstrateSummaryRequest {
-  string namespace = 1;
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
 }
 
 message SubstrateActorStatusCount {
-  string status = 1;
+  reserved 1;
+  reserved "status";
+
   int64 count = 2;
+  ateapi.ActorState state = 3;
 }
 
 message GetSubstrateSummaryResponse {
@@ -121,7 +119,7 @@ message GetSubstrateSummaryResponse {
   int64 actor_count = 5;
   int64 worker_count = 6;
   int64 running_actor_count = 7;
-  // A worker is busy when an actor is bound to it.
+  // A worker is busy when its reported allocated actor count is positive.
   int64 busy_worker_count = 8;
   // Every actor status present, with how many hold it: knowing 12 of 410,110 are
   // running says nothing about the other 410,098.
@@ -167,7 +165,10 @@ enum SubstrateWorkerSortField {
 // the cluster rather than the page.
 message ListSubstrateActorsRequest {
   // Empty means every namespace the controller observes.
-  string namespace = 1;
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
   // `limit` is capped at 100 in common.proto and zero means the server's default;
   // above the cap is refused rather than clamped.
   PageRequest page = 2;
@@ -195,7 +196,10 @@ message ListSubstrateActorsResponse {
 
 // One page of worker assignments. The mirror of ListSubstrateActors.
 message ListSubstrateWorkersRequest {
-  string namespace = 1;
+  string namespace = 1 [(buf.validate.field).string = {
+    max_len: 63
+    pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
+  }];
   PageRequest page = 2;
   // Matched against the namespace, pool, pod and IP a row shows.
   string filter = 3 [(buf.validate.field).string.max_len = 200];
@@ -206,7 +210,7 @@ message ListSubstrateWorkersRequest {
 message ListSubstrateWorkersResponse {
   bool enabled = 1;
   string ate_api_error = 2;
-  repeated SubstrateWorker workers = 3;
+  repeated ateapi.Worker workers = 3;
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
   int64 total_size = 6;

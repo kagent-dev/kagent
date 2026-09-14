@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 /*
@@ -31,30 +30,10 @@ difference from GetSubstrateStatus and its message-size ceiling.
 // How many rows a list call asks ate-api for when the caller names no page size.
 const defaultSubstratePageSize int32 = 50
 
-// The largest page a caller may ask for. Refused rather than clamped; system.proto
-// declares the same cap and rejects an oversized request before this runs.
-const maxSubstratePageSize int32 = 100
-
 // How many ate-api pages a walk will read before giving up. Each page carries its own
 // timeout, so nothing else bounds the loop against a cyclic next_page_token. At
 // ate-api's 1,000 rows a page this allows ten million.
 const maxATEPagesPerWalk = 10_000
-
-// SubstrateListInput is what both paged substrate reads take.
-type SubstrateListInput struct {
-	// Empty means every namespace the controller observes.
-	Namespace string
-	// Zero means defaultSubstratePageSize.
-	PageSize int
-	// Empty for the first page; otherwise the previous answer's NextPageToken.
-	PageToken string
-	// Matched case-insensitively as a substring of what the row shows. Empty matches
-	// everything.
-	Filter string
-	// Zero values are the read's default order.
-	SortField int32
-	SortOrder int32
-}
 
 // SubstrateActorPage is one page of actors, as read.
 type SubstrateActorPage struct {
@@ -65,20 +44,20 @@ type SubstrateActorPage struct {
 	ComputedAt    time.Time
 	// How many actors match the filter across every page.
 	TotalSize        int64
-	AppliedSortField int32
-	AppliedSortOrder int32
+	AppliedSortField apiv1alpha1.SubstrateActorSortField
+	AppliedSortOrder apiv1alpha1.SubstrateSortOrder
 }
 
 // SubstrateWorkerPage is one page of workers. The mirror of SubstrateActorPage.
 type SubstrateWorkerPage struct {
 	Enabled          bool
 	ATEAPIError      string
-	Workers          []SubstrateWorker
+	Workers          []*ateapipb.Worker
 	NextPageToken    string
 	ComputedAt       time.Time
 	TotalSize        int64
-	AppliedSortField int32
-	AppliedSortOrder int32
+	AppliedSortField apiv1alpha1.SubstrateWorkerSortField
+	AppliedSortOrder apiv1alpha1.SubstrateSortOrder
 }
 
 // SubstrateSummary is the inventory as counts, plus the two lists whose length is set
@@ -107,8 +86,8 @@ func (summary *SubstrateSummary) recordATEError(ctx context.Context, err error) 
 
 // SubstrateActorStatusCount is one status and how many actors hold it.
 type SubstrateActorStatusCount struct {
-	Status string
-	Count  int64
+	State ateapipb.ActorState
+	Count int64
 }
 
 // GetSubstrateSummary counts the inventory without sending it.
@@ -166,27 +145,15 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 		result.ActorTemplates = templates
 	}
 
-	statusCounts := map[string]int64{}
-	busyWorkers := map[string]struct{}{}
+	statusCounts := map[ateapipb.ActorState]int64{}
 	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
 		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			return
 		}
 		result.ActorCount++
-		statusCounts[substrate.ActorStatusLabel(actor.GetStatus().GetState())]++
+		statusCounts[actor.GetStatus().GetState()]++
 		if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_RUNNING {
 			result.RunningActorCount++
-		}
-		/*
-		 * Counted here because ate-api's Worker carries no actor reference: the binding
-		 * is on the actor. Scoped by the pod's namespace, not the actor's atespace, so
-		 * that it matches WorkerCount below — the two are shown as one fraction, and an
-		 * actor in atespace `team` on a pod in namespace `kagent` would render "1/0".
-		 */
-		assignment := actor.GetStatus().GetWorkerAssignment()
-		if assignment.GetWorkerPod() != "" &&
-			allowedWorkerNamespace(assignment.GetWorkerNamespace(), allowAll, allowed) {
-			busyWorkers[assignment.GetWorkerNamespace()+"/"+assignment.GetWorkerPod()] = struct{}{}
 		}
 	}); err != nil {
 		result.recordATEError(ctx, err)
@@ -197,18 +164,18 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 			return
 		}
 		result.WorkerCount++
+		if worker.GetStatus().GetAllocated().GetActors() > 0 {
+			result.BusyWorkerCount++
+		}
 	}); err != nil {
 		result.recordATEError(ctx, err)
 	}
 
-	// Clamped because the two counts come from different walks: a failed worker walk
-	// beside a successful actor one would render the tile as "11/0".
-	result.BusyWorkerCount = min(int64(len(busyWorkers)), result.WorkerCount)
 	result.ActorStatusCounts = make([]SubstrateActorStatusCount, 0, len(statusCounts))
 	for _, status := range slices.Sorted(maps.Keys(statusCounts)) {
 		result.ActorStatusCounts = append(result.ActorStatusCounts, SubstrateActorStatusCount{
-			Status: status,
-			Count:  statusCounts[status],
+			State: status,
+			Count: statusCounts[status],
 		})
 	}
 	return result, nil
@@ -216,30 +183,24 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace st
 
 // ListSubstrateActors answers with one page of actors, ordered and narrowed across the
 // whole inventory.
-func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListInput) (SubstrateActorPage, error) {
-	namespaces, err := s.substrateScope(ctx, input.Namespace)
+func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
+	namespaces, err := s.substrateScope(ctx, input.GetNamespace())
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
-	pageSize, err := substratePageSize(input.PageSize)
-	if err != nil {
-		return SubstrateActorPage{}, err
-	}
-	offset, err := decodeSubstrateOffset(input.PageToken)
+	pageSize := substratePageSize(input.GetPage().GetLimit())
+	offset, err := decodeSubstrateOffset(input.GetPage().GetPageToken())
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
 
-	sortField := apiv1alpha1.SubstrateActorSortField(input.SortField)
-	if _, known := apiv1alpha1.SubstrateActorSortField_name[input.SortField]; !known {
-		sortField = apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED
-	}
+	sortField := input.GetSortField()
 	result := SubstrateActorPage{
 		Enabled:          s.ateClient != nil,
 		Actors:           []*ateapipb.Actor{},
 		ComputedAt:       time.Now().UTC(),
-		AppliedSortField: int32(sortField),
-		AppliedSortOrder: int32(substrateSortOrder(input.SortOrder)),
+		AppliedSortField: sortField,
+		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
 	}
 	if s.ateClient == nil {
 		return result, nil
@@ -247,7 +208,7 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
 	matching := []*ateapipb.Actor{}
-	needle := strings.ToLower(strings.TrimSpace(input.Filter))
+	needle := strings.ToLower(strings.TrimSpace(input.GetFilter()))
 	if err := s.walkActors(ctx, func(actor *ateapipb.Actor) {
 		if actor == nil || !allowedAtespace(actor.GetActorTemplate().GetAtespace(), allowAll, allowed) {
 			return
@@ -262,7 +223,7 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 		return result, nil
 	}
 
-	slices.SortStableFunc(matching, substrateOrder(actorSortKey(sortField), input.SortOrder))
+	slices.SortStableFunc(matching, substrateOrder(actorSortKey(sortField), input.GetSortOrder()))
 	page, next := sliceSubstratePage(matching, offset, pageSize)
 	result.Actors = page
 	result.NextPageToken = next
@@ -271,54 +232,47 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input SubstrateListIn
 }
 
 // ListSubstrateWorkers answers with one page of workers. The mirror of ListSubstrateActors.
-func (s *Service) ListSubstrateWorkers(ctx context.Context, input SubstrateListInput) (SubstrateWorkerPage, error) {
-	namespaces, err := s.substrateScope(ctx, input.Namespace)
+func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1alpha1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
+	namespaces, err := s.substrateScope(ctx, input.GetNamespace())
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
-	pageSize, err := substratePageSize(input.PageSize)
-	if err != nil {
-		return SubstrateWorkerPage{}, err
-	}
-	offset, err := decodeSubstrateOffset(input.PageToken)
+	pageSize := substratePageSize(input.GetPage().GetLimit())
+	offset, err := decodeSubstrateOffset(input.GetPage().GetPageToken())
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
 
-	sortField := apiv1alpha1.SubstrateWorkerSortField(input.SortField)
-	if _, known := apiv1alpha1.SubstrateWorkerSortField_name[input.SortField]; !known {
-		sortField = apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED
-	}
+	sortField := input.GetSortField()
 	result := SubstrateWorkerPage{
 		Enabled:          s.ateClient != nil,
-		Workers:          []SubstrateWorker{},
+		Workers:          []*ateapipb.Worker{},
 		ComputedAt:       time.Now().UTC(),
-		AppliedSortField: int32(sortField),
-		AppliedSortOrder: int32(substrateSortOrder(input.SortOrder)),
+		AppliedSortField: sortField,
+		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
 	}
 	if s.ateClient == nil {
 		return result, nil
 	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
-	matching := []SubstrateWorker{}
-	needle := strings.ToLower(strings.TrimSpace(input.Filter))
+	matching := []*ateapipb.Worker{}
+	needle := strings.ToLower(strings.TrimSpace(input.GetFilter()))
 	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
 		if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
 			return
 		}
-		entry := workerFromProto(worker)
-		if !matchesFilter(needle, workerSearchText(entry)) {
+		if !matchesFilter(needle, workerSearchText(worker)) {
 			return
 		}
-		matching = append(matching, entry)
+		matching = append(matching, worker)
 	}); err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
 		return result, nil
 	}
 
-	slices.SortStableFunc(matching, substrateOrder(workerSortKey(sortField), input.SortOrder))
+	slices.SortStableFunc(matching, substrateOrder(workerSortKey(sortField), input.GetSortOrder()))
 	page, next := sliceSubstratePage(matching, offset, pageSize)
 	result.Workers = page
 	result.NextPageToken = next
@@ -374,15 +328,6 @@ func (s *Service) substrateScope(ctx context.Context, requestedNamespace string)
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return nil, err
 	}
-	requestedNamespace = strings.TrimSpace(requestedNamespace)
-	if requestedNamespace != "" {
-		if validationErrors := utilvalidation.IsDNS1123Label(requestedNamespace); len(validationErrors) > 0 {
-			return nil, serviceerrors.NewInvalidArgument(
-				fmt.Sprintf("invalid namespace %q: %s", requestedNamespace, strings.Join(validationErrors, ", ")),
-				nil,
-			)
-		}
-	}
 	return s.substrateNamespaces(requestedNamespace), nil
 }
 
@@ -411,20 +356,11 @@ func allowedWorkerNamespace(namespace string, allowAll bool, allowed map[string]
 	return ok
 }
 
-func substratePageSize(requested int) (int32, error) {
-	switch {
-	case requested < 0:
-		return 0, serviceerrors.NewInvalidArgument(fmt.Sprintf("invalid page size %d: must not be negative", requested), nil)
-	case requested == 0:
-		return defaultSubstratePageSize, nil
-	case requested > int(maxSubstratePageSize):
-		return 0, serviceerrors.NewInvalidArgument(
-			fmt.Sprintf("invalid page size %d: the maximum is %d", requested, maxSubstratePageSize),
-			nil,
-		)
-	default:
-		return int32(requested), nil
+func substratePageSize(requested int32) int32 {
+	if requested == 0 {
+		return defaultSubstratePageSize
 	}
+	return requested
 }
 
 // The order, the filter and the slice, which ate-api offers none of.
@@ -442,18 +378,21 @@ func actorSearchText(actor *ateapipb.Actor) string {
 		substrate.ActorStatusLabel(actor.GetStatus().GetState()),
 		actor.GetActorTemplate().GetAtespace(),
 		actor.GetActorTemplate().GetName(),
+		actor.GetActorTemplate().GetAtespace() + "/" + actor.GetActorTemplate().GetName(),
 		actor.GetStatus().GetWorkerAssignment().GetWorkerNamespace(),
 		actor.GetStatus().GetWorkerAssignment().GetWorkerPod(),
+		actor.GetStatus().GetWorkerAssignment().GetWorkerNamespace() + "/" + actor.GetStatus().GetWorkerAssignment().GetWorkerPod(),
 		actor.GetStatus().GetWorkerAssignment().GetWorkerPodIp(),
 	}, " ")
 }
 
-func workerSearchText(worker SubstrateWorker) string {
+func workerSearchText(worker *ateapipb.Worker) string {
 	return strings.Join([]string{
 		worker.WorkerNamespace,
 		worker.WorkerPool,
 		worker.WorkerPod,
-		worker.IP,
+		worker.WorkerNamespace + "/" + worker.WorkerPod,
+		worker.GetIp(),
 	}, " ")
 }
 
@@ -482,21 +421,21 @@ func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(*ateapipb.Acto
 	}
 }
 
-func workerSortKey(field apiv1alpha1.SubstrateWorkerSortField) func(SubstrateWorker) string {
-	pod := func(w SubstrateWorker) string { return w.WorkerNamespace + "/" + w.WorkerPod }
+func workerSortKey(field apiv1alpha1.SubstrateWorkerSortField) func(*ateapipb.Worker) string {
+	pod := func(w *ateapipb.Worker) string { return w.WorkerNamespace + "/" + w.WorkerPod }
 	switch field {
 	case apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_POD:
 		return pod
 	case apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_IP:
-		return func(w SubstrateWorker) string { return w.IP + "\x00" + pod(w) }
+		return func(w *ateapipb.Worker) string { return w.GetIp() + "\x00" + pod(w) }
 	default:
 		// Pool and the default are one ordering, as status and the default are above.
-		return func(w SubstrateWorker) string { return w.WorkerPool + "\x00" + pod(w) }
+		return func(w *ateapipb.Worker) string { return w.WorkerPool + "\x00" + pod(w) }
 	}
 }
 
 // substrateOrder compares two rows by their sort key, reversed for a descending read.
-func substrateOrder[Row any](key func(Row) string, order int32) func(Row, Row) int {
+func substrateOrder[Row any](key func(Row) string, order apiv1alpha1.SubstrateSortOrder) func(Row, Row) int {
 	descending := substrateSortOrder(order) == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC
 	return func(left, right Row) int {
 		compared := strings.Compare(key(left), key(right))
@@ -507,12 +446,12 @@ func substrateOrder[Row any](key func(Row) string, order int32) func(Row, Row) i
 	}
 }
 
-// substrateSortOrder reads an unset or unknown order as ascending.
-func substrateSortOrder(order int32) apiv1alpha1.SubstrateSortOrder {
-	if apiv1alpha1.SubstrateSortOrder(order) == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC {
-		return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC
+// substrateSortOrder defaults an unset order to ascending.
+func substrateSortOrder(order apiv1alpha1.SubstrateSortOrder) apiv1alpha1.SubstrateSortOrder {
+	if order == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED {
+		return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_ASC
 	}
-	return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_ASC
+	return order
 }
 
 /*
