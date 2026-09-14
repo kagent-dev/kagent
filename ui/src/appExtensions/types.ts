@@ -110,6 +110,18 @@ export interface ExtensionAgentRef {
   id: string;
 }
 
+/**
+ * An agent named by its template and harness rather than by a conversation.
+ *
+ * The rail's own pages address an agent both ways, and only this one is available on a
+ * page with no conversation open.
+ */
+export interface ExtensionAgentPair {
+  namespace: string;
+  agentTemplate?: string;
+  harness?: string;
+}
+
 /** What the agent rail tells a contributed entry about where it is being drawn. */
 export interface ExtensionAgentRailItemProps {
   /** True when the current location matches the item's `path`. */
@@ -123,6 +135,15 @@ export interface ExtensionAgentRailItemProps {
    * left out when their destination cannot be derived.
    */
   agent?: ExtensionAgentRef;
+  /**
+   * The agent this rail is scoped to, wherever it can be named.
+   *
+   * Present on every surface the rail is mounted on, including the ones with no
+   * conversation open — so an entry that would otherwise render nothing there has an
+   * agent to address. `agent` stays the narrower fact: which conversation, when there
+   * is one.
+   */
+  pair?: ExtensionAgentPair;
 }
 
 /**
