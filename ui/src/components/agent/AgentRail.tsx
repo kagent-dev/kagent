@@ -279,7 +279,7 @@ export function AgentRail({
    * places holding the same facts. The details entry stays lit while editing, because
    * that is where the reader came from and where saving returns them.
    */
-  const agentHref =
+  const agentPageHref =
     agentHrefFromCaller ??
     (instance?.harness && instance.agentTemplate
       ? agentPageUrl({
@@ -290,6 +290,16 @@ export function AgentRail({
       : undefined);
 
   /*
+   * Where "Agent Details" goes, which is not always the agent's own page.
+   *
+   * Through `agentLinks.details` when a distribution declares one and a conversation is
+   * open — the redirection that point exists to make, and which was computed and then
+   * ignored. Only with an `instance`, because the link is addressed by one.
+   */
+  const agentHref =
+    (instance?.id ? links.details?.({ id: instance.id }) : undefined) ?? agentPageHref;
+
+  /*
    * Where "New chat" goes.
    *
    * The new-conversation route is the agent's own address with `/new` on the end, so
@@ -297,8 +307,11 @@ export function AgentRail({
    * instance, which is exactly where this button used to be disabled. It was gated on
    * `instance` because it once *created* the conversation and needed a pair to copy;
    * nothing is created now, so all it needs is somewhere to go.
+   *
+   * Built from `agentPageHref`, never `agentHref`: a redirected details link addresses
+   * the conversation, and `/new` under it is a route nothing serves.
    */
-  const newChatHref = agentHref ? `${agentHref}/new` : undefined;
+  const newChatHref = agentPageHref ? `${agentPageHref}/new` : undefined;
 
   /*
    * The rail's navigation, as data an extension can reach.
