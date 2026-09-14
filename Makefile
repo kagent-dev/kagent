@@ -254,7 +254,7 @@ SUBSTRATE_ENABLED ?= false
 # it — so the chart version is set here, not derived from go.mod, and the two
 # move together at a re-pin. Upstream: SUBSTRATE_VERSION from the go.mod
 # replace target, SUBSTRATE_REPO oci://ghcr.io/kagent-dev/substrate/helm.
-SUBSTRATE_VERSION ?= 0.0.30-dev.giantswarm.2026-09-14.19-48-17.h21027aa
+SUBSTRATE_VERSION ?= 0.0.30-gs.1
 SUBSTRATE_REPO ?= oci://ghcr.io/giantswarm/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
 SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
 SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
