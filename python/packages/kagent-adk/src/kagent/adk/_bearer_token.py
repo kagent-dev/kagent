@@ -59,11 +59,15 @@ def resolve_passthrough_token(
     token: it names the user delegated to this agent, which is the identity the
     backend should see. Without STS configured no provider is registered and the
     caller's token is returned, as before.
+
+    A request presenting no caller token gets None: the exchanged token replaces
+    the caller's, it never stands in for its absence.
     """
+    inbound = inbound_token if inbound_token is not None else bearer_token.get()
+    if not inbound:
+        return None
     exchanged = _exchanged_token(current_session_id if current_session_id is not None else session_id.get())
-    if exchanged:
-        return exchanged
-    return inbound_token if inbound_token is not None else bearer_token.get()
+    return exchanged or inbound
 
 
 def _exchanged_token(current_session_id: Optional[str]) -> Optional[str]:

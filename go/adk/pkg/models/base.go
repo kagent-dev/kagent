@@ -106,16 +106,18 @@ type ExchangedTokenProvider interface {
 // token: it names the user delegated to this agent, which is the identity the
 // backend should see. Without STS configured no provider is stamped and the
 // caller's token is returned, as before.
+// A request presenting no caller token gets none: the exchanged token replaces
+// the caller's, it never stands in for its absence.
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
 	}
-	if exchanged := exchangedToken(ctx); exchanged != "" {
-		return exchanged, true
-	}
 	token, ok = ctx.Value(BearerTokenKey).(string)
 	if !ok || token == "" {
 		return "", false
+	}
+	if exchanged := exchangedToken(ctx); exchanged != "" {
+		return exchanged, true
 	}
 	return token, true
 }

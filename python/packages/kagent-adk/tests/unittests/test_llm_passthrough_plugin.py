@@ -60,7 +60,8 @@ async def test_sets_the_exchanged_token_when_one_is_cached():
 
 
 @pytest.mark.asyncio
-async def test_sets_the_exchanged_token_even_with_no_inbound_header():
+async def test_sets_nothing_with_no_inbound_header():
+    """A later turn on the same session, carrying no Authorization."""
     set_exchanged_token_provider(FakeProvider({SESSION: EXCHANGED}))
     model = FakeModel()
 
@@ -69,7 +70,7 @@ async def test_sets_the_exchanged_token_even_with_no_inbound_header():
         llm_request=None,
     )
 
-    assert model.key == EXCHANGED
+    assert model.key is None
 
 
 @pytest.mark.asyncio

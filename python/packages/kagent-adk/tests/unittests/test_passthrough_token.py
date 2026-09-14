@@ -66,6 +66,12 @@ def test_returns_none_when_neither_source_has_a_token():
     assert resolve_passthrough_token(inbound_token=None, current_session_id=SESSION) is None
 
 
+def test_returns_none_when_the_request_presented_no_caller_token():
+    """A later turn on the same session, carrying no Authorization."""
+    set_exchanged_token_provider(FakeProvider({SESSION: EXCHANGED}))
+    assert resolve_passthrough_token(inbound_token=None, current_session_id=SESSION) is None
+
+
 def test_reads_the_context_vars_when_no_arguments_are_given():
     """The embedding path has no callback_context, so it relies on the ContextVars."""
     set_exchanged_token_provider(FakeProvider({SESSION: EXCHANGED}))
