@@ -3,10 +3,9 @@ package models_test
 // End-to-end regression test for STS token injection on the model transport.
 //
 // Nothing is stubbed except the LLM endpoint: a real runner drives a real
-// llmagent over a real OpenAIModel built by NewOpenAIModel (so a real
-// http.Client with a non-zero Timeout), a real TokenPropagationPlugin exchanges
-// against an httptest STS, and an httptest LLM records every Authorization it
-// receives.
+// llmagent over a real OpenAIModel built by NewOpenAIModel, a real
+// TokenPropagationPlugin exchanges against an httptest STS, and an httptest LLM
+// records every Authorization it receives.
 //
 // It fails when the model transport sends the caller's own token, which is what
 // happens with no exchanged-token step in models.PassthroughToken.

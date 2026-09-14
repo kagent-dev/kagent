@@ -53,8 +53,6 @@ func TestPassthroughToken(t *testing.T) {
 				ctx := context.WithValue(context.Background(), BearerTokenKey, inbound)
 				ctx = context.WithValue(ctx, SessionIDKey, sessionID)
 				ctx = context.WithValue(ctx, ExchangedTokenProviderKey, ExchangedTokenProvider(provider))
-				// http.Client re-wraps the request context whenever Timeout > 0,
-				// which is always for model transports. See kagent #2795.
 				wrapped, cancel := context.WithTimeout(ctx, time.Minute)
 				t.Cleanup(cancel)
 				return wrapped
