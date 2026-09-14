@@ -163,9 +163,22 @@ test("schedules: create, read, update and delete from the list", async ({ page }
 test("schedules: read failures stay distinct from an empty list", async ({ page }) => {
   await page.goto("/schedules?mock=error");
   await expect(page.getByText("Could not load schedules", { exact: true })).toBeVisible();
-  await expect(page.getByText("No schedules yet", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("No schedules were found.", { exact: true })).toHaveCount(0);
   await page.goto("/schedules?mock=empty");
-  await expect(page.getByText("No schedules yet", { exact: true })).toBeVisible();
+  await expect(page.getByText("No schedules were found.", { exact: true })).toBeVisible();
+});
+
+test("schedules: an empty list has nothing to scroll sideways", async ({ page }) => {
+  await page.goto("/schedules?mock=empty");
+  await expect(page.getByText("No schedules were found.", { exact: true })).toBeVisible();
+
+  // The width floor is what the columns need, and an empty table has no columns to
+  // fit — reserving it put a scrollbar under the empty state with nowhere to go.
+  const overflows = await page
+    .locator(".ant-table-content, .ant-table-body")
+    .first()
+    .evaluate((el) => el.scrollWidth > el.clientWidth);
+  expect(overflows).toBe(false);
 });
 
 test("schedules: a list that fits on one page shows no pagination", async ({ page }) => {

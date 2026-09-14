@@ -660,7 +660,16 @@ export function AgentRail({
          * the element in normal flow, so it is the one that sticks.
          */
         position: "sticky",
-        top: theme.layout.headerHeight + 24,
+        /*
+         * Cleared from whatever sits above this rail's scroll container — the
+         * application's own header by default.
+         *
+         * A distribution that replaces the shell puts its own chrome there and starts
+         * the page below it, so the default is applied a second time and the rail and
+         * its gutter come to rest well below the content beside them. It sets this
+         * variable rather than restyling the rail.
+         */
+        top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
         alignSelf: "start",
         /* Hidden for real once it has finished closing, not merely clipped to zero
            width: a child of a zero-width box still has a bounding box, so assistive
@@ -1295,7 +1304,7 @@ export function AgentRail({
       css={{
         flexShrink: 0,
         position: "sticky",
-        top: theme.layout.headerHeight + 24,
+        top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
         alignSelf: "start",
         marginInlineStart: -theme.space(2),
         display: "grid",
