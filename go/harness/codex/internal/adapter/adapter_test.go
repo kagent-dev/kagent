@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -51,6 +52,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if bytes.Contains(configContents, []byte("environment =")) {
+		t.Fatalf("generated OTEL configuration overrides Codex's environment default:\n%s", configContents)
+	}
 	var native nativeConfig
 	if err := toml.Unmarshal(configContents, &native); err != nil {
 		t.Fatalf("decode generated Codex configuration: %v", err)
@@ -64,7 +68,7 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
 	}
-	if native.Otel == nil || !native.Otel.LogUserPrompt || native.Otel.Environment != "kagent" ||
+	if native.Otel == nil || !native.Otel.LogUserPrompt ||
 		native.Otel.TraceExporter == nil || native.Otel.TraceExporter.OTLPHTTP == nil ||
 		native.Otel.TraceExporter.OTLPHTTP.Endpoint != cfg.Telemetry.Traces.Endpoint || native.Otel.TraceExporter.OTLPHTTP.Protocol != "binary" ||
 		native.Otel.Exporter == nil || native.Otel.Exporter.OTLPGRPC == nil || native.Otel.Exporter.OTLPGRPC.Endpoint != cfg.Telemetry.Logs.Endpoint {

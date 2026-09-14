@@ -42,14 +42,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, v2translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
 	}
-	traceConfig, err := v2translator.TraceConfigFromProcess()
-	if err != nil {
-		return nil, v2translator.NewValidationError("invalid tracing configuration: %v", err)
-	}
-	logConfig, err := v2translator.LogConfigFromProcess()
-	if err != nil {
-		return nil, v2translator.NewValidationError("invalid logging configuration: %v", err)
-	}
+	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 
 	providerEnvironment, egress, err := c.provider(ctx, model)
 	if err != nil {
@@ -66,7 +60,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if claudeconfig.OwnsEnvironment(variable.Name) {
+		if claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
@@ -86,8 +80,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 	)
-	environment = append(environment, traceConfig.Environment()...)
-	environment = append(environment, logConfig.Environment()...)
+	environment = append(environment, telemetryConfig.TraceEnvironment()...)
+	environment = append(environment, telemetryConfig.LogEnvironment()...)
 	if traceConfig.Enabled || logConfig.Enabled {
 		tracesExporter := "none"
 		if traceConfig.Enabled {
@@ -103,17 +97,21 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 			corev1.EnvVar{Name: "OTEL_TRACES_EXPORTER", Value: tracesExporter},
 			corev1.EnvVar{Name: "OTEL_METRICS_EXPORTER", Value: "none"},
 			corev1.EnvVar{Name: "OTEL_LOGS_EXPORTER", Value: logsExporter},
-			corev1.EnvVar{Name: "OTEL_LOG_USER_PROMPTS", Value: "1"},
-			corev1.EnvVar{Name: "OTEL_LOG_TOOL_DETAILS", Value: "1"},
 		)
-		if traceConfig.Enabled {
-			environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_TOOL_CONTENT", Value: "1"})
-		}
-		if logConfig.Enabled {
+		if telemetryConfig.CaptureSensitiveContent {
 			environment = append(environment,
-				corev1.EnvVar{Name: "OTEL_LOG_ASSISTANT_RESPONSES", Value: "1"},
-				corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"},
+				corev1.EnvVar{Name: "OTEL_LOG_USER_PROMPTS", Value: "1"},
+				corev1.EnvVar{Name: "OTEL_LOG_TOOL_DETAILS", Value: "1"},
 			)
+			if traceConfig.Enabled {
+				environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_TOOL_CONTENT", Value: "1"})
+			}
+			if logConfig.Enabled {
+				environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_ASSISTANT_RESPONSES", Value: "1"})
+			}
+		}
+		if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
+			environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
 		}
 	}
 
@@ -150,10 +148,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	if traceConfig.Enabled {
-		egress = append(egress, traceConfig.CollectorHostname())
+		egress = append(egress, traceConfig.Hostname)
 	}
 	if logConfig.Enabled {
-		egress = append(egress, logConfig.CollectorHostname())
+		egress = append(egress, logConfig.Hostname)
 	}
 	slices.Sort(egress)
 	egress = slices.Compact(egress)

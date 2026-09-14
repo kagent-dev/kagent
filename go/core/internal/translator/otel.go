@@ -18,62 +18,56 @@ const (
 	otelExporterOTLPProtocol       = "OTEL_EXPORTER_OTLP_PROTOCOL"
 	otelExporterOTLPTracesProtocol = "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"
 	otelExporterOTLPLogsProtocol   = "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"
+	otelCaptureSensitiveContent    = "KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT"
+	otelCaptureRawAPIBodies        = "KAGENT_OTEL_CAPTURE_RAW_API_BODIES"
 	defaultOTLPProtocol            = "grpc"
 )
 
-// TraceConfig is the controller-owned trace export configuration compiled into
-// each runtime revision.
-type TraceConfig struct {
+// TelemetryConfig is the controller-owned telemetry configuration compiled
+// into runtime revisions. Invalid signals are disabled before compilation.
+type TelemetryConfig struct {
+	Traces                  SignalConfig
+	Logs                    SignalConfig
+	CaptureSensitiveContent bool
+	CaptureRawAPIBodies     bool
+}
+
+// SignalConfig is the resolved export configuration for one telemetry signal.
+type SignalConfig struct {
 	Enabled  bool
 	Endpoint string
 	Protocol string
-	hostname string
+	Hostname string
 }
 
-// LogConfig is the controller-owned log export configuration compiled into
-// each runtime revision.
-type LogConfig struct {
-	Enabled  bool
-	Endpoint string
-	Protocol string
-	hostname string
-}
-
-// TraceConfigFromProcess resolves the standard OTLP trace settings used by all
-// harness compilers. Signal-specific settings take precedence over generic
-// settings.
-func TraceConfigFromProcess() (TraceConfig, error) {
-	config, err := signalConfigFromProcess(otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol, "traces")
-	if err != nil {
-		return TraceConfig{}, err
+// TelemetryConfigFromProcess resolves the telemetry settings inherited by
+// agent runtimes. Invalid enabled signals are returned as warnings and left
+// disabled so observability configuration cannot invalidate AgentTemplates.
+func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
+	traces, traceWarning := signalConfigFromProcess(
+		"traces", otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol,
+	)
+	logs, logWarning := signalConfigFromProcess(
+		"logs", otelLoggingEnabled, otelExporterOTLPLogsEndpoint, otelExporterOTLPLogsProtocol,
+	)
+	warnings := make([]error, 0, 2)
+	if traceWarning != nil {
+		warnings = append(warnings, traceWarning)
 	}
-	return TraceConfig(config), nil
-}
-
-// LogConfigFromProcess resolves the standard OTLP log settings used by all
-// harness compilers. Signal-specific settings take precedence over generic
-// settings.
-func LogConfigFromProcess() (LogConfig, error) {
-	config, err := signalConfigFromProcess(otelLoggingEnabled, otelExporterOTLPLogsEndpoint, otelExporterOTLPLogsProtocol, "logs")
-	if err != nil {
-		return LogConfig{}, err
+	if logWarning != nil {
+		warnings = append(warnings, logWarning)
 	}
-	return LogConfig(config), nil
+	return TelemetryConfig{
+		Traces:                  traces,
+		Logs:                    logs,
+		CaptureSensitiveContent: environmentEnabled(otelCaptureSensitiveContent),
+		CaptureRawAPIBodies:     environmentEnabled(otelCaptureRawAPIBodies),
+	}, warnings
 }
 
-type signalConfig struct {
-	Enabled  bool
-	Endpoint string
-	Protocol string
-	hostname string
-}
-
-// signalConfigFromProcess resolves the standard OTLP settings used by all
-// harness compilers. Signal-specific settings take precedence over generic
-// settings.
-func signalConfigFromProcess(enabledVariable, endpointVariable, protocolVariable, signal string) (signalConfig, error) {
-	if !strings.EqualFold(strings.TrimSpace(os.Getenv(enabledVariable)), "true") {
-		return signalConfig{}, nil
+func signalConfigFromProcess(signal, enabledVariable, endpointVariable, protocolVariable string) (SignalConfig, error) {
+	if !environmentEnabled(enabledVariable) {
+		return SignalConfig{}, nil
 	}
 
 	endpoint := strings.TrimSpace(os.Getenv(endpointVariable))
@@ -82,7 +76,7 @@ func signalConfigFromProcess(enabledVariable, endpointVariable, protocolVariable
 		endpoint = strings.TrimSpace(os.Getenv(otelExporterOTLPEndpoint))
 	}
 	if endpoint == "" {
-		return signalConfig{}, fmt.Errorf("OTLP %s endpoint is required when %s export is enabled", signal, signal)
+		return SignalConfig{}, fmt.Errorf("OTLP %s endpoint is required when %s export is enabled", signal, signal)
 	}
 
 	protocol := strings.ToLower(strings.TrimSpace(os.Getenv(protocolVariable)))
@@ -92,58 +86,57 @@ func signalConfigFromProcess(enabledVariable, endpointVariable, protocolVariable
 	if protocol == "" {
 		protocol = defaultOTLPProtocol
 	}
-	switch protocol {
-	case "grpc", "http/protobuf":
-	default:
-		return signalConfig{}, fmt.Errorf("unsupported OTLP %s protocol %q", signal, protocol)
+	if protocol != "grpc" && protocol != "http/protobuf" {
+		return SignalConfig{}, fmt.Errorf("unsupported OTLP %s protocol %q", signal, protocol)
 	}
 
 	parsed, err := url.Parse(endpoint)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return signalConfig{}, fmt.Errorf("OTLP %s endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment", signal)
+		return SignalConfig{}, fmt.Errorf("OTLP %s endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment", signal)
 	}
-	if protocol != "grpc" && !signalSpecificEndpoint {
+	if protocol == "http/protobuf" && !signalSpecificEndpoint {
 		parsed.Path = strings.TrimSuffix(parsed.Path, "/") + "/v1/" + signal
 		endpoint = parsed.String()
 	}
 
-	return signalConfig{Enabled: true, Endpoint: endpoint, Protocol: protocol, hostname: parsed.Hostname()}, nil
+	return SignalConfig{Enabled: true, Endpoint: endpoint, Protocol: protocol, Hostname: parsed.Hostname()}, nil
 }
 
-// Environment renders the standard settings consumed by the Go runtime
-// telemetry initializer.
-func (c TraceConfig) Environment() []corev1.EnvVar {
-	if !c.Enabled {
+func environmentEnabled(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(name)), "true")
+}
+
+// OwnsTelemetryEnvironment reports whether Kagent resolves and compiles the
+// variable into runtime revisions. Other OTEL variables remain available for
+// harness-specific tuning.
+func OwnsTelemetryEnvironment(name string) bool {
+	switch name {
+	case otelTracingEnabled, otelLoggingEnabled,
+		otelExporterOTLPEndpoint, otelExporterOTLPTracesEndpoint, otelExporterOTLPLogsEndpoint,
+		otelExporterOTLPProtocol, otelExporterOTLPTracesProtocol, otelExporterOTLPLogsProtocol:
+		return true
+	default:
+		return false
+	}
+}
+
+// TraceEnvironment renders the resolved trace settings for an agent runtime.
+func (c TelemetryConfig) TraceEnvironment() []corev1.EnvVar {
+	return signalEnvironment(c.Traces, otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol)
+}
+
+// LogEnvironment renders the resolved log settings for an agent runtime.
+func (c TelemetryConfig) LogEnvironment() []corev1.EnvVar {
+	return signalEnvironment(c.Logs, otelLoggingEnabled, otelExporterOTLPLogsEndpoint, otelExporterOTLPLogsProtocol)
+}
+
+func signalEnvironment(config SignalConfig, enabledVariable, endpointVariable, protocolVariable string) []corev1.EnvVar {
+	if !config.Enabled {
 		return nil
 	}
 	return []corev1.EnvVar{
-		{Name: otelTracingEnabled, Value: "true"},
-		{Name: otelExporterOTLPTracesEndpoint, Value: c.Endpoint},
-		{Name: otelExporterOTLPTracesProtocol, Value: c.Protocol},
+		{Name: enabledVariable, Value: "true"},
+		{Name: endpointVariable, Value: config.Endpoint},
+		{Name: protocolVariable, Value: config.Protocol},
 	}
-}
-
-// CollectorHostname returns the hostname that must be reachable from the
-// runtime revision.
-func (c TraceConfig) CollectorHostname() string {
-	return c.hostname
-}
-
-// Environment renders the standard settings consumed by runtime log
-// providers and native CLI exporters.
-func (c LogConfig) Environment() []corev1.EnvVar {
-	if !c.Enabled {
-		return nil
-	}
-	return []corev1.EnvVar{
-		{Name: otelLoggingEnabled, Value: "true"},
-		{Name: otelExporterOTLPLogsEndpoint, Value: c.Endpoint},
-		{Name: otelExporterOTLPLogsProtocol, Value: c.Protocol},
-	}
-}
-
-// CollectorHostname returns the hostname that must be reachable from the
-// runtime revision.
-func (c LogConfig) CollectorHostname() string {
-	return c.hostname
 }

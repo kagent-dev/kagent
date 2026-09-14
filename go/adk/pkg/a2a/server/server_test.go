@@ -171,11 +171,9 @@ func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
 	}
 }
 
-// runA2ARequest builds a server against an in-memory batch exporter, serves
-// one message/send, and returns the span names exported by the time ServeHTTP
-// returned — the last instant before net/http closes the response body (on
-// Agent Substrate, the checkpoint instant).
-func runA2ARequest(t *testing.T) map[string]bool {
+// runA2ARequest builds a server against an in-memory batch exporter and serves
+// one message/send.
+func runA2ARequest(t *testing.T) tracetest.SpanStubs {
 	t.Helper()
 
 	exporter := tracetest.NewInMemoryExporter()
@@ -213,36 +211,56 @@ func runA2ARequest(t *testing.T) map[string]bool {
 		t.Fatalf("unexpected status %d: %s", rec.Code, rec.Body.String())
 	}
 
-	exported := map[string]bool{}
-	for _, s := range exporter.GetSpans() {
-		exported[s.Name] = true
-	}
-	return exported
+	return exporter.GetSpans()
 }
 
 // With KAGENT_PRE_RESPONSE_TRACE_FLUSH (set by the controller on Agent
-// Substrate actors), every span of a request's trace — including the otelhttp
-// server span, which only ends after the inner handler returns — must be
-// exported before the response body closes: substrate checkpoints the actor at
-// body close, freezing any still-buffered spans into the snapshot.
+// Substrate actors), the interceptor-owned request span and its invocation
+// descendants are ended and flushed at the quiescent event. The otelhttp span
+// remains open until its handler returns so it can retain response attributes.
 func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
 	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
 
-	exported := runA2ARequest(t)
-	if !exported["invocation"] {
+	spans := runA2ARequest(t)
+	exported := map[string]tracetest.SpanStub{}
+	for _, span := range spans {
+		exported[span.Name] = span
+	}
+	if _, ok := exported["invocation"]; !ok {
 		t.Errorf("invocation span not exported before body close, got %v", exported)
 	}
-	if !exported["POST /"] {
-		t.Errorf("server span not exported before body close, got %v", exported)
+	if _, ok := exported["a2a.request"]; !ok {
+		t.Errorf("A2A request span not exported before body close, got %v", exported)
+	}
+	requestSpan := exported["a2a.request"]
+	httpSpan, ok := exported["POST /"]
+	if !ok {
+		t.Errorf("HTTP server span not exported after handler return, got %v", exported)
+		return
+	}
+	var statusCode int64
+	for _, attr := range httpSpan.Attributes {
+		if attr.Key == "http.response.status_code" {
+			statusCode = attr.Value.AsInt64()
+		}
+	}
+	if statusCode != http.StatusOK {
+		t.Errorf("HTTP server span response status = %d, want %d", statusCode, http.StatusOK)
+	}
+	if requestSpan.Parent.SpanID() != httpSpan.SpanContext.SpanID() {
+		t.Errorf("A2A request parent = %s, want HTTP span %s", requestSpan.Parent.SpanID(), httpSpan.SpanContext.SpanID())
+	}
+	if invocation := exported["invocation"]; invocation.Parent.SpanID() != requestSpan.SpanContext.SpanID() {
+		t.Errorf("invocation parent = %s, want A2A request span %s", invocation.Parent.SpanID(), requestSpan.SpanContext.SpanID())
 	}
 }
 
 // Without the opt-in, spans stay in the batch processor for its timer to
 // export — no per-request flush.
 func TestNoPreResponseFlushByDefault(t *testing.T) {
-	exported := runA2ARequest(t)
-	if len(exported) != 0 {
-		t.Errorf("spans exported at handler return without opt-in, got %v", exported)
+	spans := runA2ARequest(t)
+	if len(spans) != 0 {
+		t.Errorf("spans exported at handler return without opt-in, got %v", spans)
 	}
 }
 
@@ -378,7 +396,7 @@ func (o *exportBoundaryObserver) After(_ context.Context, _ *a2asrv.CallContext,
 	}
 	exported := false
 	for _, span := range o.exporter.GetSpans() {
-		if strings.HasPrefix(span.Name, "POST ") {
+		if span.Name == "a2a.request" {
 			exported = true
 		}
 	}
@@ -441,7 +459,7 @@ func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
 			select {
 			case exported := <-observer.observed:
 				if !exported {
-					t.Fatal("wrapper span was not exported before the quiescent event was sent")
+					t.Fatal("A2A request span was not exported before the quiescent event was sent")
 				}
 			default:
 				t.Fatal("quiescent event was not observed")
