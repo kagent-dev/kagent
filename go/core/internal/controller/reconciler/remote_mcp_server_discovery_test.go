@@ -31,10 +31,12 @@ type recordingToolServerStore struct {
 		name, groupKind string
 		tools           []*v1alpha2.MCPTool
 	}
+	writes int
 }
 
 func (s *recordingToolServerStore) StoreToolServer(_ context.Context, toolServer *database.ToolServer) (*database.ToolServer, error) {
 	s.stored = toolServer
+	s.writes++
 	return toolServer, nil
 }
 
@@ -43,6 +45,7 @@ func (s *recordingToolServerStore) RefreshToolsForServer(_ context.Context, serv
 		name, groupKind string
 		tools           []*v1alpha2.MCPTool
 	}{serverName, groupKind, tools}
+	s.writes++
 	return nil
 }
 
@@ -105,6 +108,22 @@ func TestReconcileKagentRemoteMCPServer_DiscoveryDisabled(t *testing.T) {
 	assert.Equal(t, store.stored.Name, store.refreshed.name)
 	assert.Equal(t, store.stored.GroupKind, store.refreshed.groupKind)
 	assert.Empty(t, store.refreshed.tools)
+	assert.Equal(t, 2, store.writes, "the server row and the empty inventory are written once")
+
+	// The periodic refresh re-enters the same path; nothing changed, so the
+	// database is not touched again.
+	require.NoError(t, reconciler.ReconcileKagentRemoteMCPServer(context.Background(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "per-caller"}}))
+	assert.Equal(t, 2, store.writes, "an unchanged opted-out server is not rewritten")
+
+	// A description change is a new snapshot and is written again.
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(server), updated))
+	updated.Spec.Description = "renamed"
+	require.NoError(t, kube.Update(context.Background(), updated))
+	require.NoError(t, reconciler.ReconcileKagentRemoteMCPServer(context.Background(),
+		reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "per-caller"}}))
+	assert.Equal(t, 4, store.writes)
+	assert.Equal(t, "renamed", store.stored.Description)
 }
 
 // TestReconcileKagentRemoteMCPServer_DiscoveryDisabledKeepsSecretHash verifies

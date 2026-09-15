@@ -695,11 +695,8 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		// published (agents fold it into their rollout hash), and a broken
 		// spec.tls Secret reference still fails the server.
 		l.Info("skipping tool discovery for remote MCP server", "url", server.Spec.URL, "label", consts.DiscoveryLabel)
-		if _, err := a.dbClient.StoreToolServer(ctx, dbServer); err != nil {
-			return fmt.Errorf("failed to store toolServer %s: %w", dbServer.Name, err)
-		}
-		if err := a.dbClient.RefreshToolsForServer(ctx, dbServer.Name, dbServer.GroupKind); err != nil {
-			return fmt.Errorf("failed to clear tools for toolServer %s: %w", dbServer.Name, err)
+		if err := a.storeToolServerWithoutTools(ctx, dbServer); err != nil {
+			return err
 		}
 		if secretErr != nil {
 			if err := a.reconcileRemoteMCPServerStatus(ctx, server, nil, secretHash, secretErr); err != nil {
@@ -1246,6 +1243,28 @@ func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Contex
 
 	a.rememberToolSnapshot(toolServer, tools)
 	return tools, nil
+}
+
+// storeToolServerWithoutTools persists the server with an empty inventory,
+// once: the periodic refresh re-enters the discovery-disabled path every
+// interval and must not write to Postgres while nothing changed. The snapshot
+// is taken over an empty, non-nil tool list so it differs from the row
+// ensureToolServerRow writes after a failed discovery, which leaves the
+// previously discovered tools in place.
+func (a *kagentReconciler) storeToolServerWithoutTools(ctx context.Context, toolServer *database.ToolServer) error {
+	noTools := []*v1alpha2.MCPTool{}
+	if a.toolSnapshotUnchanged(toolServer, noTools) {
+		return nil
+	}
+	a.evictToolSnapshot(toolServer.Name, toolServer.GroupKind)
+	if _, err := a.dbClient.StoreToolServer(ctx, toolServer); err != nil {
+		return fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
+	}
+	if err := a.dbClient.RefreshToolsForServer(ctx, toolServer.Name, toolServer.GroupKind); err != nil {
+		return fmt.Errorf("failed to clear tools for toolServer %s: %w", toolServer.Name, err)
+	}
+	a.rememberToolSnapshot(toolServer, noTools)
+	return nil
 }
 
 func toolSnapshotKey(name, groupKind string) string {
