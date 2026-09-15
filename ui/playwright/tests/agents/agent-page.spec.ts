@@ -1,6 +1,5 @@
 import { test, expect } from "../../fixtures/test";
 import {
-  agentChat,
   agentNewChat,
   agentPage,
   agents,
@@ -13,6 +12,7 @@ import {
   routes,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
+import { pressUntil } from "../../helpers/resource";
 
 /**
  * An agent's own page — the surface between the agents list and a chat.
@@ -114,19 +114,29 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 
   await test.step("3. renaming one changes what the list shows", async () => {
-    await page.getByTestId(`conversation-rename-${instances.suspended}`).click();
+    /*
+     * Both clicks pressed until they take. This test was the suite's last standing
+     * flake — it failed two runs in eight, always here, because the rename dialog
+     * animates in and a click aimed at it mid-transition is dropped. The report was
+     * "the list never showed the new name", which points at the save rather than at
+     * the press that never landed.
+     */
+    const rename = page.getByTestId("conversation-rename-input");
+    await pressUntil(page.getByTestId(`conversation-rename-${instances.suspended}`), () =>
+      expect(rename).toBeVisible(),
+    );
     // The box opens *empty* for an unnamed conversation rather than pre-filled with
     // the placeholder, or clearing a title would be impossible: saving would turn an
     // honest "Untitled" into a literal one.
-    const field = page.getByTestId("conversation-rename-input").locator("input");
+    const field = rename.locator("input");
     await expect(field).toHaveValue("");
 
     await field.fill("Rollback rehearsal");
-    await page.getByRole("button", { name: "Save" }).click();
-
     // The list is the proof, not the toast: a success message says the app thinks it
     // worked, and a rename that failed would still show one on a broken backend.
-    await expect(rowNamed(page, "Rollback rehearsal")).toHaveCount(1);
+    await pressUntil(page.getByRole("button", { name: "Save" }), () =>
+      expect(rowNamed(page, "Rollback rehearsal")).toHaveCount(1),
+    );
     await expect(
       page.getByTestId(`conversation-link-${instances.suspended}`),
     ).toHaveText("Rollback rehearsal");
@@ -158,38 +168,6 @@ test("agents: a conversation is named by the reader, and never renders as a bare
       page.getByTestId(`conversation-link-${instances.suspended}`),
     ).toContainText("Untitled");
   });
-});
-
-/**
- * Auto-titling, which is the other half of naming a conversation.
- *
- * Its own test rather than a step, because it needs a different seed state: a
- * conversation nobody has named that nonetheless has something said in it. Every
- * other seeded transcript belongs to a *named* conversation, where the stored name
- * wins and this path is unreachable.
- *
- * And it is asserted on the chat page deliberately. Deriving a title needs the
- * conversation's transcript; this page has it because it is rendering it, while a
- * *list* would pay a read per row to do the same — so a list falls back to the id
- * and says so. Claiming otherwise would be promising a feature that costs a round
- * trip per row to deliver.
- */
-test("agents: an unnamed conversation is titled from its first message where that is free", async ({
-  page,
-}) => {
-  await loadPage(page, agentChat("2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0"));
-  await expect(page.getByTestId("chat-panel")).toBeVisible();
-
-  // In the conversation list, which is where conversations are named. The card above
-  // it names the *agent* — the pair being switched between — not this conversation.
-  const row = page.getByTestId("chat-session-2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0");
-  await expect(row).toContainText("Summarise last night's deploy");
-  // A title, not the message: cut at a word boundary with an ellipsis, which is what
-  // says it is a summary rather than the text itself.
-  await expect(row).toContainText("…");
-  // And emphatically not the id, which is what an unnamed conversation falls back to
-  // when there is nothing said in it to derive from.
-  await expect(row).not.toContainText("Untitled");
 });
 
 /**

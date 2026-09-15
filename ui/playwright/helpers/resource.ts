@@ -14,6 +14,8 @@
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
+import { withScenario } from "./app";
+
 /**
  * How long one resource's whole lifecycle is allowed to take.
  *
@@ -24,12 +26,15 @@ import { expect, type Locator, type Page } from "@playwright/test";
  * would turn a useful failure into a slow pass.
  *
  * A CRUD journey is a different shape. It is a dozen-odd steps with four round trips
- * through forms, and the longest of them takes about thirty seconds on an idle machine
- * — so the default is not a claim about health here, only about length. Ninety leaves
- * roughly three times that, which is the headroom the run needs when two browser
- * engines and two dev servers are competing for one laptop.
+ * through forms, so the default is not a claim about health here, only about length.
+ *
+ * Sixty rather than ninety, and the difference is the point: a budget has to be loose
+ * enough for a contended run and tight enough that a journey which doubles in cost is
+ * still a failure. The slowest of these is prompts at about forty seconds under full
+ * parallel load — its list fans out one call per namespace — so sixty clears the worst
+ * observed run with room, where ninety left space for a regression to hide in.
  */
-export const LIFECYCLE_TIMEOUT = 90_000;
+export const LIFECYCLE_TIMEOUT = 60_000;
 
 /**
  * Presses a dialog's button until the dialog has acted on it.
@@ -49,6 +54,14 @@ export const LIFECYCLE_TIMEOUT = 90_000;
  * Measured rather than assumed: with this at every dialog in these specs, five
  * consecutive full runs produced no failure in one. Without it, schedules failed three
  * times in five and prompts once.
+ *
+ * **What it gives up, so that nobody has to rediscover it.** A control that genuinely
+ * needed pressing twice would now pass here. That is a real product bug this can no
+ * longer catch, and it is the price of the stability above — taken knowingly, because
+ * the cause is antd's open animation rather than anything the page does, and because a
+ * suite that fails one run in two catches nothing at all. If a "click does nothing the
+ * first time" report ever arrives, this is the first place to look, and the assertion
+ * that would catch it is a plain `click()` plus `settled` rather than this.
  */
 export async function pressUntil(
   button: Locator,
@@ -59,6 +72,20 @@ export async function pressUntil(
     if (await button.isVisible()) await button.click();
     await settled();
   }).toPass({ timeout });
+}
+
+/**
+ * Navigates with the backend slowed down, and waits for the spinner it makes visible.
+ *
+ * The one antd internal the specs still needed, and the reason the lint rule stops short
+ * of banning every `.ant-` class: there was nothing to point people at. `?mock=slow`
+ * delays each call by 2.5 seconds, which is what makes the loading state observable at
+ * all — and what makes it a trap, because the scenario persists for the browsing session
+ * and every step after this one pays it until something navigates back to `ok`.
+ */
+export async function expectLoading(page: Page, path: string): Promise<void> {
+  await page.goto(withScenario(path, "slow"));
+  await expect(page.locator(".ant-spin-spinning")).toBeVisible();
 }
 
 /**

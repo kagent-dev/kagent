@@ -54,6 +54,9 @@ async function chooseFromRowMenu(
   }).toPass({ timeout: 30_000 });
 }
 
+/** Unnamed, with a first message — so the rail has something to derive a title from. */
+const AUTO_TITLED = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+
 const AGENT_CHAT = agentChat(instances.ready);
 const AGENT_DETAILS = agentDetail(instances.ready);
 
@@ -298,6 +301,29 @@ test("chat agent rail: conversations are named and show their state", async ({ p
       others,
       "at least one conversation should be named by its first message",
     ).not.toHaveCount(0, { timeout: 30_000 });
+  });
+
+  await test.step("3. and the derived name is a title, not the message", async () => {
+    /*
+     * The specific fixture rather than the property above, because "some row is not
+     * Untitled" is satisfied by a row that simply has a name somebody typed. This one
+     * has no name and something said in it, which is the case the derivation exists
+     * for.
+     *
+     * This lived in `agents/agent-page.spec.ts` while driving the rail — the same
+     * claim, made twice and weakly in the place that owns the surface.
+     */
+    await page.goto(agentChat(AUTO_TITLED));
+    await expect(page.getByTestId("chat-panel")).toBeVisible({ timeout: 30_000 });
+
+    const row = page.getByTestId(`chat-session-${AUTO_TITLED}`);
+    await expect(row).toContainText("Summarise last night's deploy");
+    // Cut at a word boundary with an ellipsis, which is what says it is a summary
+    // rather than the text itself.
+    await expect(row).toContainText("…");
+    // And emphatically not the id, which is what an unnamed conversation falls back to
+    // when there is nothing said in it to derive from.
+    await expect(row).not.toContainText("Untitled");
   });
 });
 

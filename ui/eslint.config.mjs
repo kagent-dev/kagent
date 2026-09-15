@@ -66,16 +66,16 @@ export default tseslint.config(
         "error",
         {
           /*
-           * The three antd internals a helper already covers.
+           * The antd internals a helper already covers.
            *
            * Deliberately not every `.ant-` class. A spec sometimes has to reach for a
            * table or a tag that nothing wraps yet, and banning those outright would
-           * only teach people to write the disable comment. These three have a real
+           * only teach people to write the disable comment. These four have a real
            * alternative, and each had already regrown as an inline copy: the option
-           * picker in five specs, the popconfirm in three.
+           * picker in five specs, the popconfirm in three, the spinner in three.
            */
           selector:
-            "Literal[value=/\\.ant-(popconfirm|modal|select-item-option)/]",
+            "Literal[value=/\\.ant-(popconfirm|modal|select-item-option|spin-spinning)/]",
           message:
             "Use the helper rather than antd's own class: chooseFilter for a select option, confirmDelete for a row's delete, pressUntil for any button inside a modal or popconfirm. See playwright/helpers/resource.ts.",
         },

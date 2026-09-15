@@ -6,10 +6,10 @@ import {
   loadPage,
   rowNamed,
   routes,
-  withScenario,
 } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
+  expectLoading,
   anyDialog,
   chooseFilter,
   clickRefresh,
@@ -69,8 +69,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   page,
 }) => {
   await test.step("1. a loading state precedes the data", async () => {
-    await page.goto(withScenario(routes.prompts, "slow"));
-    await expect(page.locator(".ant-spin-spinning")).toBeVisible();
+    await expectLoading(page, routes.prompts);
   });
 
   await test.step("2. every library is listed with its key count", async () => {

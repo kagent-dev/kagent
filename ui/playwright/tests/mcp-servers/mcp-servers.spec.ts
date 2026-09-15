@@ -5,10 +5,10 @@ import {
   loadPage,
   rowNamed,
   routes,
-  withScenario,
 } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
+  expectLoading,
   clickRefresh,
   confirmDelete,
   confirmation,
@@ -52,8 +52,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
   page,
 }) => {
   await test.step("1. a loading state precedes the data", async () => {
-    await page.goto(withScenario(routes.mcpServers, "slow"));
-    await expect(page.locator(".ant-spin-spinning")).toBeVisible();
+    await expectLoading(page, routes.mcpServers);
   });
 
   await test.step("2. every server is listed, with its namespace, kind and tool count", async () => {

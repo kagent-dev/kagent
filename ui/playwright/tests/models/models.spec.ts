@@ -5,10 +5,10 @@ import {
   loadPage,
   rowNamed,
   routes,
-  withScenario,
 } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
+  expectLoading,
   chooseFilter,
   clickRefresh,
   confirmDelete,
@@ -71,8 +71,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
   page,
 }) => {
   await test.step("1. a loading state precedes the data", async () => {
-    await page.goto(withScenario(routes.models, "slow"));
-    await expect(page.locator(".ant-spin-spinning")).toBeVisible();
+    await expectLoading(page, routes.models);
   });
 
   await test.step("2. every configuration is listed, with its ref taken apart", async () => {
