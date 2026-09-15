@@ -770,80 +770,92 @@ export function AgentChatPage() {
           — and find it away next time rather than having to close it on every
           conversation.
 
-          Rendered only once the instance has loaded: the panel's whole content is
-          derived from the template that instance names, so an empty one would be a
-          frame around nothing.
-        */}
-        {instance.data ? (
-          <>
-            {/* One control that stays put and changes its icon, mirroring the rail's
-                across the transcript. */}
-            <div
-              css={{
-                flexShrink: 0,
-                position: "sticky",
-                top: theme.layout.headerHeight + 24,
-                alignSelf: "start",
-                marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
-                transition: "margin-inline-end 180ms ease",
-              }}
-            >
-              <Button
-                type="text"
-                size="small"
-                css={iconControlStyles(theme)}
-                icon={
-                  isContextOpen ? (
-                    <PanelRightClose size={16} aria-hidden />
-                  ) : (
-                    <PanelRightOpen size={16} aria-hidden />
-                  )
-                }
-                onClick={toggleContext}
-                aria-label={
-                  isContextOpen ? "Hide the agent panel" : "Show the agent panel"
-                }
-                data-testid={
-                  isContextOpen ? "chat-context-collapse" : "chat-context-expand"
-                }
-              />
-            </div>
+          Present from the first frame, and only its *contents* wait for the instance.
 
-            {/* Slides rather than vanishing, for the same reason the rail does: an
-                unmounted panel makes the transcript jump its whole width in one frame,
-                which reads as a layout fault rather than as something closing. */}
+          The whole of this used to be `{instance.data ? … : null}`, and the conversation
+          moved when the read landed: the control is forty pixels of this flex row, so
+          the transcript beside it was laid out that much wider and then shifted twenty
+          pixels left the moment the record arrived. Two reads race on this page — the
+          A2A history draws the messages, this one draws the panel — so the jump landed
+          after the conversation was already on screen and readable, and on a loaded
+          machine it could land seconds later.
+
+          Which is the fault the panel below already avoids by sliding to zero width
+          rather than unmounting. The same reasoning, one element further out: hold the
+          space, and let what goes in it arrive when it arrives.
+
+          The control holding it is one button that stays put and changes its icon,
+          mirroring the rail's across the transcript.
+        */}
+        <div
+          css={{
+            flexShrink: 0,
+            position: "sticky",
+            top: theme.layout.headerHeight + 24,
+            alignSelf: "start",
+            marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
+            transition: "margin-inline-end 180ms ease",
+            /* Hidden rather than absent, so it keeps its place in the row while there
+               is nothing yet to show or hide. `visibility` also takes it out of the
+               accessibility tree and off the focus order, which `opacity` would not. */
+            visibility: instance.data ? "visible" : "hidden",
+          }}
+        >
+          <Button
+            type="text"
+            size="small"
+            css={iconControlStyles(theme)}
+            icon={
+              isContextOpen ? (
+                <PanelRightClose size={16} aria-hidden />
+              ) : (
+                <PanelRightOpen size={16} aria-hidden />
+              )
+            }
+            onClick={toggleContext}
+            aria-label={isContextOpen ? "Hide the agent panel" : "Show the agent panel"}
+            data-testid={isContextOpen ? "chat-context-collapse" : "chat-context-expand"}
+          />
+        </div>
+
+        {/* Slides rather than vanishing, for the same reason the rail does: an
+            unmounted panel makes the transcript jump its whole width in one frame,
+            which reads as a layout fault rather than as something closing. */}
+        <div
+          css={{
+            flexShrink: 0,
+            width: isContextOpen ? 248 : 0,
+            overflow: "hidden",
+            // Sticky on the wrapper, not on the panel inside it: a sticky element
+            // travels within its parent's box, and this wrapper is exactly as tall
+            // as the panel. See the rail, which had the same fault.
+            position: "sticky",
+            top: theme.layout.headerHeight + 24,
+            alignSelf: "start",
+            /* Hidden for real once closed rather than clipped to zero width — a
+               child of a zero-width box still has a bounding box. Delayed by the
+               width transition when closing, immediate when opening. */
+            visibility: isContextOpen ? "visible" : "hidden",
+            transition: `width 180ms ease, visibility 0s linear ${isContextOpen ? "0s" : "180ms"}`,
+          }}
+          aria-hidden={!isContextOpen}
+        >
+          {/* The panel's own content is what waits for the read: it is derived from the
+              template the instance names, so an empty one would be a frame around
+              nothing. The box holding it keeps its width either way. */}
+          {instance.data ? (
+            /* No drag handle. The panel had one, and the wrapper above clips to a
+               fixed 248 with `overflow: hidden` — so dragging widened the aside
+               inside a box that never grew, and the only visible effect was a grab
+               cursor on an edge that did nothing. */
             <div
-              css={{
-                flexShrink: 0,
-                width: isContextOpen ? 248 : 0,
-                overflow: "hidden",
-                // Sticky on the wrapper, not on the panel inside it: a sticky element
-                // travels within its parent's box, and this wrapper is exactly as tall
-                // as the panel. See the rail, which had the same fault.
-                position: "sticky",
-                top: theme.layout.headerHeight + 24,
-                alignSelf: "start",
-                /* Hidden for real once closed rather than clipped to zero width — a
-                   child of a zero-width box still has a bounding box. Delayed by the
-                   width transition when closing, immediate when opening. */
-                visibility: isContextOpen ? "visible" : "hidden",
-                transition: `width 180ms ease, visibility 0s linear ${isContextOpen ? "0s" : "180ms"}`,
-              }}
-              aria-hidden={!isContextOpen}
+              data-testid="chat-context-aside"
+              css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
             >
-              {/* No drag handle. The panel had one, and the wrapper above clips to a
-                  fixed 248 with `overflow: hidden` — so dragging widened the aside
-                  inside a box that never grew, and the only visible effect was a grab
-                  cursor on an edge that did nothing. */}
-              <div
-                data-testid="chat-context-aside"
-                css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
-              >
-                <AgentContextPanel agent={instance.data} />
-              </div>
+              <AgentContextPanel agent={instance.data} />
             </div>
-          </>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       <ConversationDetailsModal

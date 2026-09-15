@@ -1,5 +1,6 @@
 import { expect, test } from "../../fixtures/test";
 import { agentChat, instances } from "../../helpers/app";
+import { pressOnce } from "../../helpers/resource";
 
 /**
  * Sharing a conversation: create a link, see it listed, revoke it, open one.
@@ -40,7 +41,16 @@ test("chat sharing: a link is created, shown once, listed and revoked", async ({
   });
 
   await test.step("3. a created link is shown once, and says so", async () => {
-    await page.getByTestId("share-create").click();
+    /*
+     * Pressed once and only once, which is what makes this the clearest case for
+     * `pressOnce` over the `pressUntil` the rest of this suite still uses: every answer
+     * to this button issues another share, so a retry would put a second link in the
+     * list and fail the count in the step below rather than here.
+     *
+     * The dialog opened a step ago and antd is still zooming it in, which is exactly
+     * the window in which a click is computed against geometry it no longer has.
+     */
+    await pressOnce(page.getByTestId("share-create"));
 
     const fresh = page.getByTestId("share-fresh-link");
     await expect(fresh).toBeVisible({ timeout: 15_000 });

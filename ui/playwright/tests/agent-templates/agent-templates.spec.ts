@@ -4,6 +4,7 @@ import {
   LIFECYCLE_TIMEOUT,
   confirmation,
   expectRequired,
+  pressOnce,
   selectOption,
 } from "../../helpers/resource";
 
@@ -262,7 +263,18 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-discard-body")).toContainText(
       "have not been saved",
     );
-    await page.getByRole("button", { name: "Keep editing" }).click();
+    /*
+     * Pressed once the prompt has stopped arriving, and then checked that it went.
+     *
+     * Both halves are the fix for a failure that was reported a whole step later. A
+     * click computed while antd is still zooming a modal in lands where the button no
+     * longer is, so the prompt stayed up — and nothing here noticed, because the only
+     * assertion left was `toHaveValue`, which reads a field it does not need to see. The
+     * step passed with a modal over the page, and step 10 then spent sixty seconds
+     * failing to click Save through `.ant-modal-wrap`.
+     */
+    await pressOnce(page.getByRole("button", { name: "Keep editing" }));
+    await expect(page.getByTestId("template-discard-body")).toBeHidden();
     // Kept, not lost — the point of asking.
     await expect(page.getByTestId("template-form-description")).toHaveValue(
       "Edited by the suite.",

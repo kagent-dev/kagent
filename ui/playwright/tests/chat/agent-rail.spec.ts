@@ -10,7 +10,7 @@ import {
   loadPage,
   withScenario,
 } from "../../helpers/app";
-import { dialog, pressUntil } from "../../helpers/resource";
+import { dialog, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * The agent rail — the navigation for when you are inside one agent.
@@ -564,7 +564,23 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
 
     const field = rename.locator("input");
     await field.fill("Named from the rail");
-    await page.getByRole("button", { name: "Save" }).click();
+    /*
+     * The flake this test had, and the reason it is `pressOnce` rather than the
+     * `pressUntil` every other dialog button in this file uses.
+     *
+     * Measured: on a loaded Firefox run the click landed 238px left and 224px below the
+     * Save button, on the backdrop behind the modal — with the button in the same place
+     * before the click and after it. antd was still zooming the modal in when the
+     * coordinates were taken. The box was then left open with the new name typed into
+     * it, and the failure was reported thirty seconds later as a rename that did not
+     * work, nowhere near the click that never happened.
+     *
+     * `pressUntil` would answer that by clicking again, and a second click is the one
+     * thing that must not happen here: the first one may have landed, and by the time
+     * the second goes out this modal is gone and the conversation list is what is under
+     * the pointer. See the helper — pressing again is safe far less often than it looks.
+     */
+    await pressOnce(page.getByRole("button", { name: "Save" }));
 
     // The rail row's own text rather than the toast: a success message says the app
     // believes it worked, and a rename that failed would still show one.
@@ -602,7 +618,9 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     // for the unnamed sibling in step 1, which is the other half of the same rule.
     await expect(field).toHaveValue("Tuesday cluster review");
     await field.fill("Named from the details");
-    await page.getByRole("button", { name: "Save" }).click();
+    // The third animated control in this step, and the one the note above missed. Once,
+    // for the reason step 1 gives.
+    await pressOnce(page.getByRole("button", { name: "Save" }));
 
     // Asserted through the modal rather than after closing it, because the rail is
     // behind it the whole time and this is the moment the old value would still be on

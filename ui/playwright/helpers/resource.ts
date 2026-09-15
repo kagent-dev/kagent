@@ -62,6 +62,17 @@ export const LIFECYCLE_TIMEOUT = 60_000;
  * without pressing anything and the failure surfaces somewhere else entirely. Give it a
  * button that only acts in one direction, and a proof that is false until it has acted.
  *
+ * **And a third, which is the one that keeps being missed: a second click has to be
+ * harmless where it *lands*, not only on the button it was aimed at.** A dialog sits over
+ * the page, so a retry that goes out after the dialog has closed lands on whatever was
+ * underneath — and that is rarely nothing. Measured, by trying it in four more places at
+ * once: a popconfirm sits directly over its own trigger, so the stray click reopened what
+ * the first one closed and the two took turns until the test timed out, and a modal over a
+ * conversation list put the stray click on a row link and navigated the test off the page
+ * it was asserting on. Three specs that had been clean for five full runs went to between
+ * one failure in six and one in three. Where the button cannot be pressed twice — or the
+ * page under it cannot take a stray click — use `pressOnce` below instead.
+ *
  * **What it gives up, so that nobody has to rediscover it.** A control that genuinely
  * needed pressing twice would now pass here. That is a real product bug this can no
  * longer catch, and it is the price of the stability above — taken knowingly, because
@@ -88,6 +99,40 @@ export async function pressUntil(
     if (await button.isVisible()) await button.click();
     await settled();
   }).toPass({ timeout });
+}
+
+/**
+ * Presses a dialog button that must not be pressed twice, once the dialog has arrived.
+ *
+ * `pressUntil` above answers the same failure by pressing again, which needs a button
+ * that can be pressed again *and* a page underneath that can take a stray click. Both are
+ * rarer than they look: "Create a link" issues a share every time it is answered, and the
+ * page under a dialog is usually a list of links. See that helper's third precondition for
+ * what pressing again cost when it was tried in four more places at once. So this is the
+ * one to reach for when a dialog button is pressed, and `pressUntil` the one that needs an
+ * argument for why retrying is safe there.
+ *
+ * What it waits for is the cause rather than the symptom. antd zooms a modal in from a
+ * fifth of its size, and a click aimed at a button inside one lands wherever that button
+ * was when the coordinates were taken. Measured once on a loaded Firefox run: the click
+ * landed 238px left and 224px below the button, on the backdrop behind it — while the
+ * button itself was in the same place before the click and after it. Only during.
+ *
+ * Playwright already waits for an element to hold still, and repeating that check here is
+ * the point rather than an oversight: it compares two animation frames, and a starved main
+ * thread can serve both from the same frame of the animation, which reads as stillness. A
+ * clock cannot be fooled that way — the animation is over in 200ms whatever else the
+ * machine is doing — so this samples on one.
+ */
+export async function pressOnce(button: Locator): Promise<void> {
+  let previous: string | undefined;
+  await expect(async () => {
+    const where = JSON.stringify(await button.boundingBox());
+    const held = where === previous;
+    previous = where;
+    expect(held, `still arriving, at ${where}`).toBe(true);
+  }).toPass({ timeout: 10_000, intervals: [100] });
+  await button.click();
 }
 
 /**

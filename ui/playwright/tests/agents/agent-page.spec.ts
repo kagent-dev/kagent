@@ -12,7 +12,7 @@ import {
   routes,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { confirmation, pressUntil } from "../../helpers/resource";
+import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * An agent's own page — the surface between the agents list and a chat.
@@ -162,7 +162,8 @@ test("agents: a conversation is named by the reader, and never renders as a bare
     const field = page.getByTestId("conversation-rename-input").locator("input");
     await expect(field).toHaveValue("Rollback rehearsal");
     await field.fill("");
-    await page.getByRole("button", { name: "Save" }).click();
+    // Once the box has stopped arriving, for the reason the delete step below gives.
+    await pressOnce(page.getByRole("button", { name: "Save" }));
 
     await expect(
       page.getByTestId(`conversation-link-${instances.suspended}`),
@@ -462,10 +463,19 @@ test("agents: deleting an agent says what goes with it, and takes both halves", 
   });
 
   await test.step("2. confirming removes this reader's conversations", async () => {
-    // The same `DeleteResourceButton` every resource spec drives, so the same helper:
-    // it scopes to the open confirmation — every row carries a delete, and an unscoped
-    // match answers a prompt nobody is looking at — and presses until it takes.
-    await confirmation(page).getByRole("button", { name: "Delete" }).click();
+    /*
+     * The same `DeleteResourceButton` every resource spec drives, so the same helper for
+     * finding its prompt: `confirmation` scopes to the open one, because every row
+     * carries a delete and an unscoped match answers a prompt nobody is looking at.
+     *
+     * Pressed once the prompt has stopped moving, which is what this line used to claim
+     * and not do. A popconfirm zooms in like a modal, and a click computed while it is
+     * still arriving lands where it no longer is — measured twice in twelve under a
+     * loaded run, both times as this step timing out with the confirmation still up and
+     * the address unchanged. Once rather than until it takes: a retry would go out after
+     * the prompt had closed, onto the agent list underneath it.
+     */
+    await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
     await page.waitForURL(/\/agents(\?|$)/, { timeout: 30_000 });
     await expectSettled(page);
     // The agent is still listed, because somebody else's conversations are still under

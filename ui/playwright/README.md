@@ -245,6 +245,21 @@ instead: the shared fixture import, and antd's class names.
   dropped — often enough on Firefox under a loaded run to have been this suite's
   largest source of flake. It fails as "the dialog would not close" rather than as
   a missed click, which is why it costs an afternoon each time.
+
+  What that costs, measured: on one captured run the click landed 238px left and 224px
+  below the button it was aimed at, on the backdrop — with the button in the same place
+  before the click and after it. Playwright does wait for an element to hold still, but
+  it compares two animation frames, and a starved main thread serves both from the same
+  frame of the animation.
+- **Reach for `pressOnce` first; `pressUntil` needs a reason.** `pressOnce` waits for the
+  dialog to stop moving and presses once, which fixes the cause above without a retry.
+  Retrying needs a button that can be pressed twice *and* a page underneath that can take
+  a stray click — because a retry that goes out after the dialog has closed lands on
+  whatever was behind it. Tried in four more places at once, that turned three specs which
+  had been clean for five full runs into one failure in six to one in three: a popconfirm
+  sits over its own trigger, so the stray click reopened what the first had closed; a
+  modal over a conversation list put the stray click on a row link and navigated the test
+  off the page it was asserting on.
 - **Assert against the list a user would read**, not against a toast or a closed
   modal. A success message proves the app thinks it worked.
 
