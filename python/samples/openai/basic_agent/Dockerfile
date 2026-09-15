@@ -29,6 +29,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 
-# Run the agent
-CMD ["python", "samples/openai/basic_agent/basic_agent/agent.py"]
+# Run the installed console entry point so package imports resolve.
+CMD ["uv", "run", "--package", "basic-openai-agent", "basic-openai-agent"]
 
