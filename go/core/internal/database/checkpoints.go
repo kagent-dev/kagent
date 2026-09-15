@@ -57,8 +57,10 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err != nil {
 			return fmt.Errorf("get checkpoint runtime revision: %w", err)
 		}
+		// Serialize new lineage with deletion of any checkpoint in its inherited prefix.
+		// NO KEY UPDATE leaves foreign-key checks free to read the history.
 		sourceContextID, err := queryOne(ctx, tx, `
-			SELECT context_id FROM a2a_context WHERE id = $1
+			SELECT context_id FROM agent_history WHERE id = $1 FOR NO KEY UPDATE
 		`, pgx.RowTo[uuid.UUID], checkpoint.SourceHistoryID)
 		if err != nil {
 			return fmt.Errorf("get checkpoint context: %w", err)
@@ -75,7 +77,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			Operation:        apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
 			CreatedAt:        now, UpdatedAt: now,
 		}
-		row, err = insertAgentInstanceRecords(ctx, tx, instance, requestID, historyID, &checkpoint.ID)
+		row, err = insertAgentInstanceRecords(ctx, tx, instance, requestID, historyID, &checkpoint)
 		if err != nil {
 			return err
 		}
@@ -384,20 +386,42 @@ func checkpointSnapshot(row agentInstanceCheckpointRow) *AgentInstanceTaskSnapsh
 	}
 }
 
-// ListAgentInstanceCheckpoints returns an owner's READY checkpoints for the source
-// instance in ascending ID order after afterID, up to limit. Retained checkpoints remain
-// listable after the source instance is deleted.
+// ListAgentInstanceCheckpoints returns an owner's READY checkpoints in the instance's
+// history and inherited prefixes, in ascending ID order after afterID, up to limit.
+// Checkpoint fields retain their source provenance. Locally created checkpoints remain
+// listable after the instance is deleted.
 func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
+	// Limit candidates per history before fetching payloads. Filtering the entire
+	// checkpoint table by lineage can otherwise turn a small page into a full scan.
 	rows, err := queryMany(ctx, c.db, `
-		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_name FROM agent_instance_checkpoint
-		WHERE source_instance_id = $1
-		  AND user_id = $2
-		  AND state = 'READY'
-		  AND (NULLIF($3::text, '') IS NULL OR id > NULLIF($3::text, '')::uuid)
-		ORDER BY id
-		LIMIT $4
+		WITH RECURSIVE lineage (history_id, boundary) AS (
+		    SELECT history_id, NULL::bigint FROM agent_instance WHERE id = $1 AND user_id = $2
+		    UNION
+		    SELECT h.parent_history_id, h.parent_history_sequence
+		    FROM lineage l
+		    JOIN agent_history h ON h.id = l.history_id
+		    WHERE h.user_id = $2 AND h.parent_history_id IS NOT NULL
+		), page AS MATERIALIZED (
+		    (SELECT id FROM agent_instance_checkpoint
+		     WHERE source_instance_id = $1 AND user_id = $2 AND state = 'READY'
+		       AND (NULLIF($3::text, '') IS NULL OR id > NULLIF($3::text, '')::uuid)
+		     ORDER BY id LIMIT $4)
+		    UNION
+		    SELECT c.id FROM lineage l
+		    CROSS JOIN LATERAL (
+		        SELECT id FROM agent_instance_checkpoint
+		        WHERE source_history_id = l.history_id AND user_id = $2 AND state = 'READY'
+		          AND (l.boundary IS NULL OR history_sequence <= l.boundary)
+		          AND (NULLIF($3::text, '') IS NULL OR id > NULLIF($3::text, '')::uuid)
+		        ORDER BY id LIMIT $4
+		    ) c
+		    ORDER BY id LIMIT $4
+		)
+		SELECT c.id, c.source_instance_id, c.user_id, c.request_id, c.head_task_id, c.history_sequence,
+		    c.snapshot_atespace, c.snapshot_uri, c.snapshot_content_scope, c.tag_uid, c.state, c.data,
+		    c.source_history_id, c.prepared_revision, c.source_name
+		FROM page p JOIN agent_instance_checkpoint c ON c.id = p.id
+		ORDER BY c.id
 	`,
 		pgx.RowToStructByName[agentInstanceCheckpointRow], instanceID, userID, afterID, int32(limit),
 	)
@@ -417,8 +441,9 @@ func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, u
 
 // BeginDeleteAgentInstanceCheckpoint marks an owned READY checkpoint DELETING and returns
 // the snapshot and tag identity for external cleanup. Retrying a DELETING checkpoint is
-// allowed. A fork reference, another lifecycle state, or a missing/unowned checkpoint
-// returns ErrNotFound.
+// allowed even if new forks have since inherited the boundary. An inherited history
+// reference blocks starting deletion; another state or a missing/unowned checkpoint
+// also returns ErrNotFound.
 func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, userID string) (*AgentInstanceTaskSnapshot, string, error) {
 	var snapshot *AgentInstanceTaskSnapshot
 	var tagUID string
@@ -426,6 +451,12 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 		row, err := lockCheckpoint(ctx, tx, id, false, userID, nil)
 		if err != nil {
 			return notFoundOr(err)
+		}
+		// Take the same history lock as ForkAgentInstance before checking its descendants.
+		if _, err := queryOne(ctx, tx, `
+			SELECT id FROM agent_history WHERE id = $1 FOR NO KEY UPDATE
+		`, pgx.RowTo[uuid.UUID], row.SourceHistoryID); err != nil {
+			return fmt.Errorf("lock checkpoint history: %w", err)
 		}
 		checkpoint, err := toAgentInstanceCheckpoint(row)
 		if err != nil {
@@ -441,9 +472,11 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 			SET state = 'DELETING', data = $3
 			WHERE agent_instance_checkpoint.id = $1 AND agent_instance_checkpoint.user_id = $2
 			  AND agent_instance_checkpoint.state IN ('READY', 'DELETING')
-			  AND NOT EXISTS (
-			      SELECT 1 FROM agent_instance i WHERE i.source_checkpoint_id = agent_instance_checkpoint.id
-			  )
+			  AND (agent_instance_checkpoint.state = 'DELETING' OR NOT EXISTS (
+			      SELECT 1 FROM agent_history h
+			      WHERE h.parent_history_id = agent_instance_checkpoint.source_history_id
+			        AND h.parent_history_sequence >= agent_instance_checkpoint.history_sequence
+			  ))
 		`, row.ID, userID, data)
 		if err != nil {
 			return err

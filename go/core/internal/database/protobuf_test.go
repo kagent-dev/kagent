@@ -238,6 +238,16 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.Equal(t, a2apb.TaskState_TASK_STATE_COMPLETED, forkTask.Status.State)
 	require.NoError(t, client.DeleteAgentInstance(ctx, fork.Id))
 	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
+	require.ErrorIs(t, err, ErrNotFound)
+	// Exercise deletion with unknown fields on a boundary outside the retained fork.
+	require.NoError(t, client.StoreAgentInstanceTaskEvent(ctx, instance.Id, task, task,
+		&AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/later", ContentScope: "DATA"}))
+	checkpointRequest.Id = uuid.NewString()
+	checkpoint, _, err = client.ReserveAgentInstanceCheckpoint(ctx, checkpointRequest, "alice", "later-checkpoint")
+	require.NoError(t, err)
+	checkpoint, err = client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.Id, "later-tag", "s3://tags/later", "")
+	require.NoError(t, err)
+	_, _, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.Id, "alice")
 	require.NoError(t, err)
 	checkpointRow, err = readCheckpoint(ctx, q, checkpoint.Id, "alice", nil)
 	require.NoError(t, err)

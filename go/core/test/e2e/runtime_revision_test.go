@@ -26,6 +26,21 @@ import (
 // TestRuntimeRevisionLifecycle exercises actual Substrate runtimes through
 // invalid edits, template retirement, checkpoint retention, and later preparation.
 func TestRuntimeRevisionLifecycle(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		fork bool
+	}{
+		{"unforked_checkpoint_allows_collection", false},
+		{"fork_history_retains_checkpoint", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			testRuntimeRevisionLifecycle(t, tt.fork)
+		})
+	}
+}
+
+func testRuntimeRevisionLifecycle(t *testing.T, fork bool) {
+	t.Helper()
 	target := interactionTarget(t)
 	modelURL := startInteractionMock(t)
 	templateName := createInteractionTemplate(t, modelURL)
@@ -144,37 +159,46 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		deleteInstance(response.GetAgentInstance().GetId())
 		return false, nil
 	}))
-	forked, err := checkpoints.ForkAgentInstance(ctx, &apiv1alpha1.ForkAgentInstanceRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
-	require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
-	forkID := forked.GetAgentInstance().GetId()
-	t.Cleanup(func() { deleteInstance(forkID) })
-	send(forkID)
-	deleteInstance(forkID)
+	if fork {
+		forked, err := checkpoints.ForkAgentInstance(ctx, &apiv1alpha1.ForkAgentInstanceRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
+		require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
+		forkID := forked.GetAgentInstance().GetId()
+		t.Cleanup(func() { deleteInstance(forkID) })
+		send(forkID)
+		deleteInstance(forkID)
+	}
 	_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
-	require.NoError(t, err)
-
-	// GC must remove both the template and golden actor after the final
-	// checkpoint disappears, without another template event to drive cleanup.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		backend, err := system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
-		if err != nil {
-			return false, err
-		}
-		require.Empty(t, backend.GetAteApiError())
-		for _, actorTemplate := range backend.GetActorTemplates() {
-			if actorTemplate.GetNamespace() == runtimeNamespace && actorTemplate.GetName() == runtimeName {
-				return false, nil
+	if fork {
+		require.Equal(t, codes.NotFound, status.Code(err), "retained fork history must protect the checkpoint after instance deletion")
+		retained, err := checkpoints.GetCheckpoint(ctx, &apiv1alpha1.GetCheckpointRequest{CheckpointId: checkpointID})
+		require.NoError(t, err)
+		require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, retained.GetCheckpoint().GetState())
+	} else {
+		require.NoError(t, err)
+		// GC must remove both the template and golden actor after the final
+		// checkpoint disappears, without another template event to drive cleanup.
+		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+			backend, err := system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
+			if err != nil {
+				return false, err
 			}
-		}
-		for _, actor := range backend.GetActors() {
-			if actor.GetAtespace() == "ate-golden" && actor.GetActorId() == goldenActorID {
-				return false, nil
+			require.Empty(t, backend.GetAteApiError())
+			for _, actorTemplate := range backend.GetActorTemplates() {
+				if actorTemplate.GetNamespace() == runtimeNamespace && actorTemplate.GetName() == runtimeName {
+					return false, nil
+				}
 			}
-		}
-		return true, nil
-	}), "final checkpoint deletion must eventually collect its runtime without template changes")
+			for _, actor := range backend.GetActors() {
+				if actor.GetAtespace() == "ate-golden" && actor.GetActorId() == goldenActorID {
+					return false, nil
+				}
+			}
+			return true, nil
+		}), "final checkpoint deletion must eventually collect its runtime without template changes")
+	}
 
-	// Recreating the name must prepare a new identity after collection.
+	// Recreating the name must prepare a new identity, including when the old
+	// revision remains pinned by retained fork history.
 	replacement := template.DeepCopy()
 	replacement.ObjectMeta = metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name, Labels: template.Labels}
 	replacement.Spec.ModelConfig.Name = originalModelName
