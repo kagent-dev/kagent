@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, Select, Space, Typography } from "antd";
+import { Alert, Button, Card, Form, Input, Select, Space, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { apiClient, useNamespaces } from "@/api";
+import { apiClient, useHarnesses, useNamespaces } from "@/api";
 import {
   HARNESS_ADAPTERS,
   HARNESS_IMAGE_PATTERN,
@@ -38,6 +38,7 @@ export function HarnessNewPage() {
   const namespaces = useNamespaces();
 
   const [namespace, setNamespace] = useState<string>();
+  const harnesses = useHarnesses(namespace);
   const [name, setName] = useState("");
   const [adapter, setAdapter] = useState<HarnessAdapter>("kagent");
   const [image, setImage] = useState("");
@@ -230,15 +231,22 @@ export function HarnessNewPage() {
           </Paragraph>
 
           <Space size={8}>
-            <Button
-              type="primary"
-              data-testid="harness-create"
-              loading={saving}
-              disabled={!ready}
-              onClick={() => void create()}
+            <Tooltip
+              title={harnesses.canCreate ? undefined : "You do not have permission to create a harness"}
             >
-              Create harness
-            </Button>
+              {/* antd disables pointer events on a disabled button. */}
+              <span>
+              <Button
+                type="primary"
+                data-testid="harness-create"
+                loading={saving}
+                disabled={!harnesses.canCreate || !ready}
+                onClick={() => void create()}
+              >
+                Create harness
+              </Button>
+              </span>
+            </Tooltip>
             <Button onClick={() => navigate(`${paths.agents}?tab=harnesses`)}>Cancel</Button>
           </Space>
         </Form>

@@ -4,11 +4,16 @@ import type {
   Provider,
   ProviderModelsResponse,
 } from "../domain/models";
-import { type ApiResource, useApiResource } from "./useApiResource";
+import {
+  type ApiCollectionResource,
+  type ApiResource,
+  useApiCollection,
+  useApiResource,
+} from "./useApiResource";
 
 /** Every model configuration agents can be pointed at. */
-export function useModels(): ApiResource<ModelConfig[]> {
-  return useApiResource(["models.list"], () => apiClient.models.list());
+export function useModels(): ApiCollectionResource<ModelConfig> {
+  return useApiCollection(["models.list"], () => apiClient.models.list());
 }
 
 /** One model configuration. Holds off until both parts of the ref are known. */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, Button, Select, Space, Typography } from "antd";
+import { Alert, Button, Select, Space, Tooltip, Typography } from "antd";
 import toast from "react-hot-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
@@ -144,15 +144,22 @@ export function AgentTemplateNewPage() {
             borderTop: `1px solid ${theme.color.border}`,
           }}
         >
-          <Button
-            type="primary"
-            loading={isSubmitting}
-            disabled={problems.length > 0}
-            onClick={() => void create()}
-            data-testid="template-submit"
+          <Tooltip
+            title={templates.canCreate ? undefined : "You do not have permission to create an agent template"}
           >
-            Create template
-          </Button>
+            {/* antd disables pointer events on a disabled button. */}
+            <span>
+            <Button
+              type="primary"
+              loading={isSubmitting}
+              disabled={!templates.canCreate || problems.length > 0}
+              onClick={() => void create()}
+              data-testid="template-submit"
+            >
+              Create template
+            </Button>
+            </span>
+          </Tooltip>
           <Button onClick={() => navigate(agentTemplatesTab)}>Cancel</Button>
         </div>
       </Space>

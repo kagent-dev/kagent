@@ -38,6 +38,9 @@ message AgentTemplate {
   // caller may legally pair with this template in CreateAgentInstance, and it
   // is derivable only from the Harness side, so a caller cannot compute it.
   repeated string admitting_harnesses = 5;
+
+  bool can_update = 6;
+  bool can_delete = 7;
 }
 
 message ListAgentTemplatesRequest {
@@ -46,6 +49,7 @@ message ListAgentTemplatesRequest {
 
 message ListAgentTemplatesResponse {
   repeated AgentTemplate agent_templates = 1;
+  bool can_create = 2;
 }
 
 message GetAgentTemplateRequest {

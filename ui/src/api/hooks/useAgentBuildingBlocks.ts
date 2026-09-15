@@ -10,24 +10,29 @@
 import { apiClient } from "../client";
 import { admitsHarness, type AgentTemplate } from "../domain/agentTemplates";
 import type { Harness } from "../domain/harnesses";
-import { type ApiResource, useApiResource } from "./useApiResource";
+import {
+  type ApiCollectionResource,
+  type ApiResource,
+  useApiCollection,
+  useApiResource,
+} from "./useApiResource";
 
 /**
- * The harnesses in one namespace, or in every observed namespace.
+ * The harnesses in one namespace.
  *
- * Unlike agent instances, `HarnessService` reads across namespaces when given an
- * empty one — it is a Kubernetes list, not a per-namespace database query — so
- * "all namespaces" is one request rather than a fan-out.
+ * The hook waits for a namespace because `HarnessService` rejects an empty one.
  */
-export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
-  return useApiResource(["harnesses.list", namespace ?? ""], () =>
+export function useHarnesses(namespace?: string): ApiCollectionResource<Harness> {
+  return useApiCollection(namespace ? ["harnesses.list", namespace] : null, () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
 }
 
-/** The agent templates in one namespace, or in every observed namespace. */
-export function useAgentTemplates(namespace?: string): ApiResource<AgentTemplate[]> {
-  return useApiResource(["agentTemplates.list", namespace ?? ""], () =>
+/** The agent templates in one namespace. */
+export function useAgentTemplates(
+  namespace?: string,
+): ApiCollectionResource<AgentTemplate> {
+  return useApiCollection(namespace ? ["agentTemplates.list", namespace] : null, () =>
     apiClient.agentBuildingBlocks.agentTemplates(namespace),
   );
 }
@@ -47,20 +52,23 @@ export function useAgentTemplates(namespace?: string): ApiResource<AgentTemplate
  */
 export function useHarnessesAcrossNamespaces(
   namespaces: readonly string[] | undefined,
-): ApiResource<Harness[]> {
+): ApiCollectionResource<Harness> {
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
 
-  return useApiResource(key ? ["harnesses.listAll", key] : null, async () => {
+  return useApiCollection(key ? ["harnesses.listAll", key] : null, async () => {
     const names = key ? key.split(",").filter(Boolean) : [];
     const settled = await Promise.allSettled(
       names.map((namespace) => apiClient.agentBuildingBlocks.harnesses(namespace)),
     );
 
     const harnesses: Harness[] = [];
+    let canCreate = false;
     const refused: string[] = [];
     settled.forEach((outcome, index) => {
-      if (outcome.status === "fulfilled") harnesses.push(...outcome.value);
-      else
+      if (outcome.status === "fulfilled") {
+        harnesses.push(...outcome.value.items);
+        canCreate ||= outcome.value.canCreate;
+      } else
         refused.push(
           `${names[index]}: ${
             outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
@@ -71,14 +79,21 @@ export function useHarnessesAcrossNamespaces(
     if (names.length > 0 && refused.length === names.length) {
       throw new Error(refused.join("; "));
     }
-    return harnesses;
+    return { items: harnesses, canCreate };
   });
 }
 
 /** Templates and the namespaces that refused, when reading more than one. */
+/** Lifts canCreate alongside the payload, as every other collection hook does. */
+export interface AgentTemplatesAcrossNamespacesResource
+  extends ApiResource<AgentTemplatesAcrossNamespaces> {
+  canCreate: boolean;
+}
+
 export interface AgentTemplatesAcrossNamespaces {
   templates: AgentTemplate[];
   refused: { namespace: string; reason: string }[];
+  canCreate: boolean;
 }
 
 /**
@@ -102,12 +117,12 @@ export interface AgentTemplatesAcrossNamespaces {
  */
 export function useAgentTemplatesAcrossNamespaces(
   namespaces: readonly string[] | undefined,
-): ApiResource<AgentTemplatesAcrossNamespaces> {
+): AgentTemplatesAcrossNamespacesResource {
   // Sorted into the key, so the same set in a different order is the same read rather
   // than a cache miss that refetches everything.
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
 
-  return useApiResource(
+  const resource = useApiResource(
     key ? ["agentTemplates.listAll", key] : null,
     async () => {
       const names = key ? key.split(",").filter(Boolean) : [];
@@ -117,9 +132,11 @@ export function useAgentTemplatesAcrossNamespaces(
 
       const templates: AgentTemplate[] = [];
       const refused: { namespace: string; reason: string }[] = [];
+      let canCreate = false;
       settled.forEach((outcome, index) => {
         if (outcome.status === "fulfilled") {
-          templates.push(...outcome.value);
+          templates.push(...outcome.value.items);
+          canCreate ||= outcome.value.canCreate;
           return;
         }
         const cause = outcome.reason;
@@ -145,9 +162,10 @@ export function useAgentTemplatesAcrossNamespaces(
       templates.sort(
         (a, b) => a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name),
       );
-      return { templates, refused };
+      return { templates, refused, canCreate };
     },
   );
+  return { ...resource, canCreate: resource.data?.canCreate ?? false };
 }
 
 /** One agent template, whole. Held back until the route has given us its address. */

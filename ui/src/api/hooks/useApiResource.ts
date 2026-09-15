@@ -9,6 +9,7 @@
 
 import useSWR, { type SWRConfiguration } from "swr";
 import { ApiError } from "../ApiError";
+import type { ResourceCollection } from "../domain/common";
 
 export interface ApiResource<T> {
   data: T | undefined;
@@ -21,6 +22,10 @@ export interface ApiResource<T> {
   isEmpty: boolean;
   /** Refetches and resolves once the new data has landed. */
   refresh: () => Promise<void>;
+}
+
+export interface ApiCollectionResource<T> extends ApiResource<T[]> {
+  canCreate: boolean;
 }
 
 /**
@@ -64,6 +69,22 @@ export function useApiResource<T>(
     refresh: async () => {
       await mutate(fetcher(), { revalidate: false });
     },
+  };
+}
+
+export function useApiCollection<T>(
+  key: readonly unknown[] | null,
+  fetcher: () => Promise<ResourceCollection<T>>,
+): ApiCollectionResource<T> {
+  const resource = useApiResource(key, fetcher);
+  return {
+    ...resource,
+    data: resource.data?.items,
+    canCreate: resource.data?.canCreate ?? false,
+    isEmpty:
+      resource.data !== undefined &&
+      !resource.error &&
+      resource.data.items.length === 0,
   };
 }
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Modal, Popconfirm } from "antd";
+import { Button, Modal, Popconfirm, Tooltip } from "antd";
 import { Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -21,6 +21,7 @@ export function DeleteResourceButton({
   onDelete,
   onDeleted,
   disabled,
+  disabledReason,
   description,
   label,
   outlined = false,
@@ -65,6 +66,14 @@ export function DeleteResourceButton({
   /** Called after a successful delete, to refresh whatever listed it. */
   onDeleted: () => void | Promise<void>;
   disabled?: boolean;
+  /**
+   * Why the control is disabled, shown on hover and focus.
+   *
+   * A greyed-out delete with no reason reads as a bug as easily as a permission,
+   * and a disabled button takes no focus, so without this a keyboard or screen
+   * reader gets nothing at all.
+   */
+  disabledReason?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [isDeleting, setDeleting] = useState(false);
@@ -114,6 +123,16 @@ export function DeleteResourceButton({
       {label}
     </Button>
   );
+  if (disabled && disabledReason) {
+    return (
+      <Tooltip title={disabledReason}>
+        {/* antd disables pointer events on a disabled button, so the tooltip needs
+            an enabled element of its own to sit on. */}
+        <span>{button}</span>
+      </Tooltip>
+    );
+  }
+
   const title = `Delete ${kind} ${name}?`;
   const message = description ?? "This removes it from the cluster and cannot be undone.";
 

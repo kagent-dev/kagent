@@ -371,7 +371,7 @@ describe("the fixture backend", () => {
     beforeEach(() => setScenario("empty"));
 
     it("empties the lists", async () => {
-      expect(await invoke("models.list", {})).toEqual([]);
+      expect(await invoke("models.list", {})).toEqual({ items: [], canCreate: true });
       expect(await invoke("namespaces.list", {})).toEqual([]);
     });
 

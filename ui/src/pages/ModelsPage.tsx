@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Pencil, Plus } from "lucide-react";
-import { Alert, Button, Space, Table, Tag, Typography } from "antd";
+import { Pencil } from "lucide-react";
+import { Alert, Button, Space, Table, Tag, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { CreateResourceButton } from "@/components/table/CreateResourceButton";
 import { buildPath, paths } from "@/router/routes";
 import { apiClient, parseRef, useModels, type ModelConfig } from "@/api";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
@@ -49,9 +50,22 @@ const PAGE_SIZE = 25;
  * provider filter, a sort on every column and a page control, all held in the URL so
  * a narrowed view can be linked to and survives a reload.
  */
+function editButton(name: string, disabled: boolean) {
+  return (
+    <Button
+      type="text"
+      size="small"
+      icon={<Pencil size={14} />}
+      disabled={disabled}
+      data-testid={`edit-${name}`}
+      aria-label={`Edit model configuration ${name}`}
+    />
+  );
+}
+
 export function ModelsPage() {
   const theme = useTheme();
-  const { data, isLoading, error, isEmpty, refresh } = useModels();
+  const { data, canCreate, isLoading, error, isEmpty, refresh } = useModels();
   const view = useListView(FILTER_IDS);
 
   const models = useMemo(() => data ?? [], [data]);
@@ -156,18 +170,19 @@ export function ModelsPage() {
           const { namespace, name } = parseRef(row.ref);
           return (
             <Space size={0}>
-              <Link to={buildPath(paths.modelEdit, { namespace, name })}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<Pencil size={14} />}
-                  data-testid={`edit-${name}`}
-                  aria-label={`Edit model configuration ${name}`}
-                />
-              </Link>
+              {row.canUpdate ? (
+                <Link to={buildPath(paths.modelEdit, { namespace, name })}>{editButton(name, false)}</Link>
+              ) : (
+                <Tooltip title="You do not have permission to edit this model configuration">
+                  {/* antd disables pointer events on a disabled button. */}
+                  <span>{editButton(name, true)}</span>
+                </Tooltip>
+              )}
               <DeleteResourceButton
                 kind="model configuration"
                 name={name}
+                disabled={!row.canDelete}
+                disabledReason="You do not have permission to delete this model configuration"
                 onDelete={() => apiClient.models.remove(namespace, name)}
                 onDeleted={refresh}
               />
@@ -191,11 +206,13 @@ export function ModelsPage() {
               shell, and a distribution that supplies its own layout does not inherit it —
               leaving `/models/new` reachable only by typing the URL. An action on the
               list itself belongs to the page, so it survives whatever frames it. */}
-          <Link to={paths.modelNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="models-new">
-              New Model
-            </Button>
-          </Link>
+          <CreateResourceButton
+            kind="a model configuration"
+            to={paths.modelNew}
+            allowed={canCreate}
+            label="New model"
+            testId="models-new"
+          />
         </Space>
       }
     >

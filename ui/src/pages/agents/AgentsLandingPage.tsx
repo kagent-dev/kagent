@@ -1,12 +1,17 @@
-import { Button, Space, Tabs } from "antd";
+import { Space, Tabs } from "antd";
 import { useTheme } from "@emotion/react";
-import { Plus } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { ExtensionSlot } from "@/appExtensions";
 import { paths } from "@/router/routes";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { CreateResourceButton } from "@/components/table/CreateResourceButton";
 import { AgentsTab } from "@/pages/AgentsPage";
 import { AgentTemplatesTab } from "@/pages/AgentTemplatesPage";
+import {
+  useAgentTemplatesAcrossNamespaces,
+  useHarnessesAcrossNamespaces,
+  useNamespaces,
+} from "@/api";
 import { AgentConcepts } from "./AgentConcepts";
 import { HarnessesTab } from "./HarnessesTab";
 
@@ -29,6 +34,10 @@ type TabKey = (typeof TABS)[number];
 export function AgentsLandingPage() {
   const theme = useTheme();
   const [params, setParams] = useSearchParams();
+  const namespaces = useNamespaces();
+  const namespaceNames = namespaces.data?.map((entry) => entry.name);
+  const templates = useAgentTemplatesAcrossNamespaces(namespaceNames);
+  const harnesses = useHarnessesAcrossNamespaces(namespaceNames);
 
   /*
    * No page-level refresh, deliberately.
@@ -64,16 +73,20 @@ export function AgentsLandingPage() {
           {/* The point the agents list has always offered, kept where the controls
               now are rather than left behind in the tab they moved out of. */}
           <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
-          <Link to={paths.agentTemplateNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
-              New Template
-            </Button>
-          </Link>
-          <Link to={paths.harnessNew}>
-            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-harness">
-              New Harness
-            </Button>
-          </Link>
+          <CreateResourceButton
+            kind="an agent template"
+            to={paths.agentTemplateNew}
+            allowed={templates.canCreate}
+            label="New template"
+            testId="agents-new-template"
+          />
+          <CreateResourceButton
+            kind="a harness"
+            to={paths.harnessNew}
+            allowed={harnesses.canCreate}
+            label="New harness"
+            testId="agents-new-harness"
+          />
         </Space>
       }
     >

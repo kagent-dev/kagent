@@ -36,6 +36,7 @@ type Harness struct {
 	// Ready mirrors the Ready status condition. False also covers a Harness the
 	// controller has not yet observed.
 	Ready         bool `protobuf:"varint,5,opt,name=ready,proto3" json:"ready,omitempty"`
+	CanDelete     bool `protobuf:"varint,6,opt,name=can_delete,json=canDelete,proto3" json:"can_delete,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -105,6 +106,13 @@ func (x *Harness) GetReady() bool {
 	return false
 }
 
+func (x *Harness) GetCanDelete() bool {
+	if x != nil {
+		return x.CanDelete
+	}
+	return false
+}
+
 type ListHarnessesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -152,6 +160,7 @@ func (x *ListHarnessesRequest) GetNamespace() string {
 type ListHarnessesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Harnesses     []*Harness             `protobuf:"bytes,1,rep,name=harnesses,proto3" json:"harnesses,omitempty"`
+	CanCreate     bool                   `protobuf:"varint,2,opt,name=can_create,json=canCreate,proto3" json:"can_create,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -191,6 +200,13 @@ func (x *ListHarnessesResponse) GetHarnesses() []*Harness {
 		return x.Harnesses
 	}
 	return nil
+}
+
+func (x *ListHarnessesResponse) GetCanCreate() bool {
+	if x != nil {
+		return x.CanCreate
+	}
+	return false
 }
 
 type CreateHarnessRequest struct {
@@ -373,17 +389,21 @@ var File_kagent_api_v1alpha1_harnesses_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_harnesses_proto_rawDesc = "" +
 	"\n" +
-	"#kagent/api/v1alpha1/harnesses.proto\x12\x13kagent.api.v1alpha1\x1a kagent/api/v1alpha1/common.proto\"\xdd\x01\n" +
+	"#kagent/api/v1alpha1/harnesses.proto\x12\x13kagent.api.v1alpha1\x1a kagent/api/v1alpha1/common.proto\"\xfc\x01\n" +
 	"\aHarness\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
 	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\x12\x18\n" +
 	"\aruntime\x18\x03 \x01(\tR\aruntime\x12%\n" +
 	"\x0eworkload_image\x18\x04 \x01(\tR\rworkloadImage\x12\x14\n" +
-	"\x05ready\x18\x05 \x01(\bR\x05ready\"4\n" +
+	"\x05ready\x18\x05 \x01(\bR\x05ready\x12\x1d\n" +
+	"\n" +
+	"can_delete\x18\x06 \x01(\bR\tcanDelete\"4\n" +
 	"\x14ListHarnessesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"S\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"r\n" +
 	"\x15ListHarnessesResponse\x12:\n" +
-	"\tharnesses\x18\x01 \x03(\v2\x1c.kagent.api.v1alpha1.HarnessR\tharnesses\"\x93\x01\n" +
+	"\tharnesses\x18\x01 \x03(\v2\x1c.kagent.api.v1alpha1.HarnessR\tharnesses\x12\x1d\n" +
+	"\n" +
+	"can_create\x18\x02 \x01(\bR\tcanCreate\"\x93\x01\n" +
 	"\x14CreateHarnessRequest\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
 	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"O\n" +
