@@ -56,20 +56,8 @@ export function PromptEditPage() {
     }
 
     await apiClient.prompts.update(namespace, name, { data: payload.data });
-    /*
-     * Re-read before navigating, so the page that opens shows the saved fragments
-     * rather than the ones just replaced — which would read as a save that did not
-     * take.
-     *
-     * A key sweep rather than this library's own read: the list's key count and
-     * fragment tags change with an edit too, and its key carries the namespace
-     * filter, so refreshing one read would leave whichever list is behind this
-     * stale.
-     */
-    // Swallowed: this is the list re-read, not the write. It has already succeeded by
-    // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
-    // through reports a created resource as "not saved", beside a Try again that
-    // re-posts and comes back 409. The list shows its own read error on arrival.
+    // Swept rather than re-reading this library alone: an edit changes the list's key
+    // count and tags too. Swallowed — the write has already succeeded.
     await invalidatePrompts().catch(() => {});
     toast.success(`Prompt library ${name} saved`);
     await navigate(detail);

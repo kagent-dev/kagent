@@ -57,18 +57,8 @@ export function HarnessesTab() {
   const namespaces = useNamespaces();
   const harnesses = useHarnessesAcrossNamespaces(namespaces.data?.map((row) => row.name));
 
-  /*
-   * Either read failing is this tab failing, and the namespace one is the half that was
-   * being lost.
-   *
-   * `ListHarnesses` needs a namespace, so the namespace list is an *input* to the
-   * harness read rather than a nicety beside it: when it fails there is nothing to
-   * iterate, the harness read is never issued, and `harnesses.error` is therefore
-   * empty. The tab then rendered a table with no rows and no alert — a failed read
-   * presented as "there are no harnesses", which is the one thing every other list in
-   * this app is careful not to do. `AgentTemplatesPage` reads the same two and already
-   * folds them the same way.
-   */
+  // `ListHarnesses` needs a namespace, so a failed namespace read means the harness read
+  // is never issued and `harnesses.error` stays empty — an empty table, not a failure.
   const loadFailure = namespaces.error ?? harnesses.error;
 
   const view = useListView(FILTER_IDS);

@@ -62,14 +62,8 @@ export function AgentTemplateNewPage() {
           spec: specFromDraft(draft),
         },
       });
-      /*
-       * Before navigating, so the list lands showing the template just made rather than
-       * the cached set without it, which reads as a create that silently failed.
-       *
-       * Swallowed: the create has already succeeded, and these re-reads reject
-       * deliberately (see `useApiResource`), so letting one through would report a
-       * template that exists as "not created". The list reports its own read failure.
-       */
+      // Before navigating, so the list lands showing it. Swallowed: the write has
+      // already succeeded, and the list reports its own read failure on arrival.
       await invalidateTemplates().catch(() => {});
       toast.success(`Agent template ${created.name} created`);
       // The address the reader ends up at, with the parameter the list reads. Through

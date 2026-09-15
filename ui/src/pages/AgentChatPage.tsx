@@ -735,17 +735,9 @@ export function AgentChatPage() {
           — and find it away next time rather than having to close it on every
           conversation.
 
-          Present from the first frame, with only its *contents* waiting for the
-          instance read. This column is forty pixels of the flex row and the panel is
-          248 more, so gating it on that read lays the conversation out wider and then
-          shifts it sideways when the record lands — and two reads race here, the A2A
-          history drawing the messages and this one the panel, so it lands after the
-          conversation is already on screen and readable. Which is the fault the panel
-          below avoids by sliding to zero width rather than unmounting: hold the space,
-          and let what goes in it arrive when it arrives.
-
-          The control holding it is one button that stays put and changes its icon,
-          mirroring the rail's across the transcript.
+          Present from the first frame, with only its contents waiting for the instance
+          read: this column and the panel are 288px of the row, so gating them on that
+          read shifts the conversation sideways when the record lands.
         */}
         <div
           css={{

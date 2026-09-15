@@ -89,16 +89,8 @@ export function HarnessNewPage() {
           },
         },
       });
-      /*
-       * Before navigating, so the tab lands showing the harness just made rather than
-       * the cached set without it — which reads as a create that silently failed.
-       *
-       * And swallowed, because this is the list re-read rather than the write. The
-       * create has already succeeded by here, and these refreshes reject deliberately
-       * (see `useApiResource`) — so letting one through reports a harness that exists
-       * as "not created", beside a Try again that re-posts and comes back 409. The tab
-       * reports its own read failure on arrival.
-       */
+      // Before navigating, so the tab lands showing it. Swallowed: the write has
+      // already succeeded, and the tab reports its own read failure on arrival.
       await invalidateHarnesses().catch(() => {});
       navigate(`${paths.agents}?tab=harnesses`);
     } catch (cause: unknown) {
