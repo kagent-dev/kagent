@@ -238,7 +238,9 @@ instead: the shared fixture import, and antd's class names.
   and an upgrade that renames one should be a change to a helper rather than to a
   dozen specs. `chooseFilter`, `confirmDelete` and `pressUntil` exist for the three
   that come up most.
-- **Press dialog buttons with `pressUntil`, not `click`.** antd animates a modal
+- **Press buttons *inside* a dialog with `pressUntil`, not `click`** — and click the
+  trigger that opens one exactly once, because a popconfirm's trigger is a toggle and
+  retrying it closes what the first press opened. antd animates a modal
   and a popconfirm in, and a click that lands while one is still arriving is
   dropped — often enough on Firefox under a loaded run to have been this suite's
   largest source of flake. It fails as "the dialog would not close" rather than as

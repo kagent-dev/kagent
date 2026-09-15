@@ -30,7 +30,7 @@ import {
   validateMcpServerForm,
 } from "@/components/mcp/mcpServerRequest";
 import { paths } from "@/router/routes";
-import { apiClient, useMcpServers } from "@/api";
+import { apiClient, useInvalidateMcpServers } from "@/api";
 
 const { Text } = Typography;
 
@@ -54,8 +54,7 @@ export function McpServerNewPage() {
   const [caCertFileName, setCaCertFileName] = useState<string>();
   const [caCertError, setCaCertError] = useState<string>();
   const navigate = useNavigate();
-  // The list this page is about to navigate to.
-  const servers = useMcpServers();
+  const invalidateServers = useInvalidateMcpServers();
 
   const set = <K extends keyof McpServerFormValues>(
     key: K,
@@ -150,11 +149,17 @@ export function McpServerNewPage() {
     setSaving(true);
     try {
       await apiClient.mcpServers.create(toCreateRequest(values));
-      // Swallowed: this is the list re-read, not the write. It has already succeeded by
-      // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
-      // through reports a created resource as "not created", beside a Try again that
-      // re-posts and comes back 409. The list shows its own read error on arrival.
-      await servers.refresh().catch(() => {});
+      /*
+       * A key sweep rather than a subscription. `useMcpServers()` here meant the form
+       * read every registered server on mount purely to have something to call
+       * `refresh` on, and rendered none of it.
+       *
+       * Swallowed, because this is the list re-read rather than the write: the create
+       * has already succeeded, and letting a failed re-read through reports a server
+       * that exists as "not created", beside a Try again that re-posts and comes back
+       * 409. The list reports its own read failure on arrival.
+       */
+      await invalidateServers().catch(() => {});
       // Straight to the list, which is where the new server can actually be
       // seen — a success message on a form the user is still looking at proves
       // less than the row itself.

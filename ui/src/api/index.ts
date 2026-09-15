@@ -105,6 +105,8 @@ export {
 export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
 export { useInvalidatePrompts } from "./hooks/useInvalidatePrompts";
 export { useInvalidateHarnesses } from "./hooks/useInvalidateHarnesses";
+export { useInvalidateModels } from "./hooks/useInvalidateModels";
+export { useInvalidateMcpServers } from "./hooks/useInvalidateMcpServers";
 export type {
   AgentConversations,
 } from "./hooks/useAgentInstances";

@@ -12,7 +12,7 @@ import {
   routes,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { pressUntil } from "../../helpers/resource";
+import { confirmation, pressUntil } from "../../helpers/resource";
 
 /**
  * An agent's own page — the surface between the agents list and a chat.
@@ -462,9 +462,10 @@ test("agents: deleting an agent says what goes with it, and takes both halves", 
   });
 
   await test.step("2. confirming removes this reader's conversations", async () => {
-    // Scoped to the open popconfirm: every row carries a delete, so an unscoped match
-    // answers a prompt nobody is looking at.
-    await page.locator(".ant-popover:visible").getByRole("button", { name: "Delete" }).click();
+    // The same `DeleteResourceButton` every resource spec drives, so the same helper:
+    // it scopes to the open confirmation — every row carries a delete, and an unscoped
+    // match answers a prompt nobody is looking at — and presses until it takes.
+    await confirmation(page).getByRole("button", { name: "Delete" }).click();
     await page.waitForURL(/\/agents(\?|$)/, { timeout: 30_000 });
     await expectSettled(page);
     // The agent is still listed, because somebody else's conversations are still under
@@ -503,8 +504,10 @@ test("agents: conversations can be picked and deleted together from the table to
   });
 
   await test.step("3. and deleting says what goes with it", async () => {
-    await page.getByTestId("delete-1 selected").click();
-    const prompt = page.locator(".ant-popover:visible");
+    const prompt = confirmation(page);
+    await pressUntil(page.getByTestId("delete-1 selected"), () =>
+      expect(prompt).toBeVisible(),
+    );
     await expect(prompt).toContainText("can be recovered");
     // The reason it matters here rather than only being tidy.
     await expect(prompt).toContainText("workers they hold");

@@ -384,4 +384,25 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await page.waitForURL(/\/agents\/kagent\/k8s-agent-7f3a91c\/on\/k8s-agent$/);
     await expect(page.getByTestId("chat-new-session")).toBeVisible({ timeout: 30_000 });
   });
+
+  await test.step("15. an empty result says so instead of showing a bare table", async () => {
+    // Last, after the delete, because reaching these needs the backend answering
+    // differently and `?mock=` is per-navigation — which discards what the journey made.
+    // By here there is nothing left to discard.
+    await loadPage(page, routes.agentTemplates, { scenario: "empty", title: "Agents" });
+    await expect(page.getByText("No agent templates yet.")).toBeVisible();
+    await expect(dataRows(page)).toHaveCount(0);
+  });
+
+  await test.step("16. a failed load is reported, not disguised as an empty list", async () => {
+    await loadPage(page, routes.agentTemplates, { scenario: "error", title: "Agents" });
+
+    const alert = page.getByTestId("templates-error");
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText("Could not load agent templates");
+    // The distinction the step exists for: "there are none" and "we could not find out"
+    // lead a reader to opposite conclusions, and only one of them is true.
+    await expect(page.getByText("No agent templates yet.")).toHaveCount(0);
+    await expect(dataRows(page)).toHaveCount(0);
+  });
 });

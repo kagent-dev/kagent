@@ -185,4 +185,24 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before - 1);
     await expect(page.getByTestId("harnesses-delete-error")).toHaveCount(0);
   });
+
+  await test.step("10. an empty result leaves the tab standing, with no rows", async () => {
+    // Last, after the delete: reaching these needs the backend answering differently and
+    // `?mock=` is per-navigation, which discards what the journey made.
+    await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
+    await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(table).locator("tbody tr.ant-table-row")).toHaveCount(0);
+    await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
+  });
+
+  await test.step("11. a failed load is reported, not disguised as an empty tab", async () => {
+    await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
+
+    const alert = page.getByTestId("harnesses-error");
+    await expect(alert).toBeVisible({ timeout: 30_000 });
+    await expect(alert).toContainText("Could not load harnesses");
+    // An empty tab and a tab that could not be read lead to opposite conclusions, and
+    // this page has only the alert to tell them apart.
+    await expect(page.getByTestId(table).locator("tbody tr.ant-table-row")).toHaveCount(0);
+  });
 });

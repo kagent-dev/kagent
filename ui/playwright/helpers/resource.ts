@@ -55,6 +55,13 @@ export const LIFECYCLE_TIMEOUT = 60_000;
  * consecutive full runs produced no failure in one. Without it, schedules failed three
  * times in five and prompts once.
  *
+ * **`settled` must not be satisfiable by doing nothing, and `button` must not toggle.**
+ * Two preconditions, learned by breaking both at once. Retrying a control that toggles
+ * undoes the press that worked — an antd popconfirm trigger is one. And a `settled` like
+ * "the dialog is gone" is already true before the dialog opens, so the helper returns
+ * without pressing anything and the failure surfaces somewhere else entirely. Give it a
+ * button that only acts in one direction, and a proof that is false until it has acted.
+ *
  * **What it gives up, so that nobody has to rediscover it.** A control that genuinely
  * needed pressing twice would now pass here. That is a real product bug this can no
  * longer catch, and it is the price of the stability above — taken knowingly, because
@@ -223,7 +230,22 @@ export async function confirmDelete(page: Page, name: string): Promise<void> {
   const open = confirmation(page);
   await expect(open).toHaveCount(0);
 
+  /*
+   * Both of these are plain clicks, and that is the finding rather than an oversight.
+   *
+   * `pressUntil` was tried here and broke four resource specs on Firefox — worse, it
+   * broke them silently. A popconfirm's trigger is a toggle, so retrying it closes what
+   * the first click opened; and the press after it asked for "the confirmation is gone",
+   * which a confirmation that never opened satisfies at once. The helper then clicked
+   * nothing, returned happily, and the row was still there three steps later. Restoring
+   * the clicks restored the green.
+   *
+   * The `toBeVisible` between them is the part worth keeping from that attempt: it
+   * proves the trigger opened the confirmation, so a Delete aimed at nothing fails here
+   * rather than several assertions downstream.
+   */
   await page.getByTestId(`delete-${name}`).click();
+  await expect(open).toBeVisible();
   await open.getByRole("button", { name: "Delete" }).click();
 }
 

@@ -83,6 +83,27 @@ describe("playwright layout", () => {
     ).toHaveLength(1);
   });
 
+  it.each(RESOURCES)("%s covers its empty and failure states", (resource) => {
+    /*
+     * The states a list can be in that are not "here are the rows", and the pair a
+     * reader must never see confused: "there are none" and "we could not find out" lead
+     * to opposite conclusions.
+     *
+     * Checked here because it is the kind of coverage that goes missing quietly —
+     * `agent-templates` and `harnesses` had neither, on this branch and on main, and
+     * adding the failure step to `harnesses` immediately found a page that rendered a
+     * failed read as an empty table.
+     */
+    const [spec] = specsIn(join(TESTS, resource));
+    const source = readFileSync(join(TESTS, resource, spec), "utf8");
+    for (const scenario of ["empty", "error"]) {
+      expect(
+        new RegExp(`scenario: "${scenario}"|mock=${scenario}`).test(source),
+        `${resource}/${spec} should drive the "${scenario}" scenario`,
+      ).toBe(true);
+    }
+  });
+
   it("every spec outside a folder is about the application, not a resource", () => {
     // Top level means the shell, routing, the dashboard, theme contrast — things that
     // are about the app rather than about something it manages. A resource folder
