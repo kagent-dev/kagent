@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -14,13 +15,13 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	logglobal "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 	"go.opentelemetry.io/otel/trace"
-	adktelemetry "google.golang.org/adk/v2/telemetry"
 )
 
 // SetKAgentSpanAttributes sets kagent span attributes in the OpenTelemetry context
@@ -59,14 +60,19 @@ func PreResponseFlushEnabled() bool {
 // 3s and is configurable via KAGENT_TRACE_FLUSH_TIMEOUT_MS.
 func ForceFlush(ctx context.Context) {
 	type flusher interface{ ForceFlush(context.Context) error }
-	fp, ok := otel.GetTracerProvider().(flusher)
-	if !ok {
-		return
-	}
 	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
 	defer cancel()
-	if err := fp.ForceFlush(flushCtx); err != nil {
-		otel.Handle(err)
+	if fp, ok := otel.GetTracerProvider().(flusher); ok {
+		if err := fp.ForceFlush(flushCtx); err != nil {
+			otel.Handle(err)
+		}
+	}
+	// A periodic metric reader may never fire before the actor is suspended,
+	// so drain it alongside spans (see newMeterProvider).
+	if mp, ok := otel.GetMeterProvider().(flusher); ok {
+		if err := mp.ForceFlush(flushCtx); err != nil {
+			otel.Handle(err)
+		}
 	}
 }
 
@@ -98,6 +104,17 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 	if !isTelemetryEnabled() {
 		return func(context.Context) error { return nil }, false, nil
 	}
+	var shutdowns []func(context.Context) error
+	shutdownAll := func(shutdownCtx context.Context) error {
+		return shutdownProviders(shutdownCtx, shutdowns)
+	}
+	defer func() {
+		if err != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			err = errors.Join(err, shutdownAll(cleanupCtx))
+		}
+	}()
 
 	telemetryResource, err := newTelemetryResource(ctx, serviceName, serviceNamespace)
 	if err != nil {
@@ -106,39 +123,60 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 
 	tracingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true")
 	loggingEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
-	otelOpts := []adktelemetry.Option{adktelemetry.WithResource(telemetryResource)}
+	metricsEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_METRICS_ENABLED")), "true")
+	var tracerProvider *sdktrace.TracerProvider
+	var loggerProvider *sdklog.LoggerProvider
 	if tracingEnabled {
-		tracerProvider, tpErr := newTracerProvider(ctx, telemetryResource)
-		if tpErr != nil {
-			return nil, true, tpErr
+		tracerProvider, err = newTracerProvider(ctx, telemetryResource)
+		if err != nil {
+			return nil, true, err
 		}
-		otelOpts = append(otelOpts, adktelemetry.WithTracerProvider(tracerProvider))
+		shutdowns = append(shutdowns, tracerProvider.Shutdown)
 	}
 	if loggingEnabled {
-		loggerProvider, lpErr := newLoggerProvider(ctx, telemetryResource)
-		if lpErr != nil {
-			return nil, true, lpErr
+		loggerProvider, err = newLoggerProvider(ctx, telemetryResource)
+		if err != nil {
+			return nil, true, err
 		}
-		otelOpts = append(otelOpts, adktelemetry.WithLoggerProvider(loggerProvider))
+		shutdowns = append(shutdowns, loggerProvider.Shutdown)
 	}
 
-	telemetryProviders, telErr := adktelemetry.New(ctx, otelOpts...)
-	if telErr != nil {
-		return nil, true, telErr
+	if metricsEnabled {
+		meterProvider, mpErr := newMeterProvider(ctx, telemetryResource)
+		if mpErr != nil {
+			return nil, true, mpErr
+		}
+		otel.SetMeterProvider(meterProvider)
+		initTokenUsageRecorder(meterProvider)
+		shutdowns = append(shutdowns, meterProvider.Shutdown)
+	}
+	if tracerProvider != nil {
+		otel.SetTracerProvider(tracerProvider)
+	}
+	if loggerProvider != nil {
+		logglobal.SetLoggerProvider(loggerProvider)
 	}
 
-	telemetryProviders.SetGlobalOtelProviders()
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
 
-	return telemetryProviders.Shutdown, true, nil
+	return shutdownAll, true, nil
+}
+
+func shutdownProviders(ctx context.Context, shutdowns []func(context.Context) error) error {
+	var shutdownErrors []error
+	for _, shutdown := range shutdowns {
+		shutdownErrors = append(shutdownErrors, shutdown(ctx))
+	}
+	return errors.Join(shutdownErrors...)
 }
 
 func isTelemetryEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true") ||
-		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true")
+		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_LOGGING_ENABLED")), "true") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_METRICS_ENABLED")), "true")
 }
 
 // resolveOTLPProtocol returns the OTLP protocol for the given signal,
