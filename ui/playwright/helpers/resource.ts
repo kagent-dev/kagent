@@ -24,6 +24,11 @@ import { withScenario } from "./app";
  * merely long. A lifecycle is a dozen steps and four round trips through forms, so
  * the default says nothing about its health there — only about its length.
  *
+ * **By shape, not by folder.** Any one test of ten or more steps needs it, wherever it
+ * lives — `conventions.test.ts` checks that. Applying it to the resource folders alone
+ * left `chat/questions.spec.ts` with twelve steps on the default, which is what timed
+ * out in CI at step eight while passing twenty times in isolation.
+ *
  * Sixty rather than ninety, and the difference is the point: loose enough for a
  * contended run, tight enough that a journey which doubles in cost is still a
  * failure. The slowest is prompts at about forty seconds under full parallel load,

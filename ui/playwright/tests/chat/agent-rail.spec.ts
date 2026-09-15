@@ -421,9 +421,10 @@ test("chat agent rail: several conversations can be picked and deleted together"
     await expect(confirm).toContainText("can be recovered");
     // And why it is worth doing on a cluster that keeps running out of workers.
     await expect(confirm).toContainText("workers they hold");
-    await pressUntil(confirm.getByRole("button", { name: "Delete" }), () =>
-      expect(dialog(page)).toHaveCount(0),
-    );
+    // Once, not until: the modal's mask sits over the conversation list, so a retry
+    // going out after it unmounts lands on a row and navigates.
+    await pressOnce(confirm.getByRole("button", { name: "Delete" }));
+    await expect(dialog(page)).toHaveCount(0);
 
     await expect(rows).toHaveCount(before - 2, { timeout: 20_000 });
     await expect(confirm).toHaveCount(0);
@@ -620,9 +621,9 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     // The menu makes deleting deliberate; it does not make it recoverable. A
     // conversation is gone with its whole transcript and there is no undo.
     await expect(confirm).toContainText("cannot be recovered");
-    await pressUntil(confirm.getByRole("button", { name: "Keep" }), () =>
-      expect(dialog(page)).toHaveCount(0),
-    );
+    // Once, for the reason the bulk delete above gives.
+    await pressOnce(confirm.getByRole("button", { name: "Keep" }));
+    await expect(dialog(page)).toHaveCount(0);
     await expect(rows).toHaveCount(before);
   });
 

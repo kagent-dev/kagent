@@ -1,5 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { operationCallCounts, rpc } from "../../helpers/mockCalls";
+import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
 
 /**
  * Watching the substrate move.
@@ -48,6 +49,12 @@ const READS = [POLLED, NOT_POLLED] as const;
 
 const readCounts = (page: import("@playwright/test").Page) =>
   operationCallCounts(page, READS);
+
+/*
+ * A journey in one test, so it gets the lifecycle budget rather than the default.
+ * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`.
+ */
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("substrate polling: it is off until asked for, and its rate is the reader's", async ({
   page,

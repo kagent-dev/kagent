@@ -23,23 +23,29 @@ import { describe, expect, it } from "vitest";
 
 const TESTS = join(__dirname, "tests");
 
+/**
+ * Folders whose subject is the application rather than a resource it manages.
+ *
+ * Named so that `RESOURCES` can be everything else. The list used to run the other way
+ * and a new resource folder then had to be remembered into it — which is the drift this
+ * file exists to catch, so it should not need remembering here either.
+ */
+const NOT_RESOURCES = ["agents", "auth", "chat", "extension-points", "substrate"];
+
 /** Folders whose subject is one resource, and which therefore hold one spec. */
-const RESOURCES = [
-  "models",
-  "mcp-servers",
-  "prompts",
-  "agent-templates",
-  "harnesses",
-  "schedules",
-];
+function resources(): string[] {
+  return folders().filter((name) => !NOT_RESOURCES.includes(name));
+}
 
 function specsIn(dir: string): string[] {
   return readdirSync(dir).filter((name) => name.endsWith(".spec.ts"));
 }
 
 function folders(): string[] {
-  return readdirSync(TESTS).filter((name) =>
-    statSync(join(TESTS, name)).isDirectory(),
+  return readdirSync(TESTS).filter(
+    // Dot-directories are whatever a contributor's local tooling dropped here; they are
+    // gitignored and are not part of the suite's layout.
+    (name) => !name.startsWith(".") && statSync(join(TESTS, name)).isDirectory(),
   );
 }
 
@@ -71,19 +77,21 @@ describe("playwright layout", () => {
     }
   });
 
-  it.each(RESOURCES)("%s holds exactly one spec, holding one test", (resource) => {
+  it.each(resources())("%s holds exactly one spec, holding one test", (resource) => {
     const specs = specsIn(join(TESTS, resource));
     expect(specs, `${resource}/ should hold one spec`).toHaveLength(1);
 
     const source = readFileSync(join(TESTS, resource, specs[0]), "utf8");
-    const tests = [...source.matchAll(/^test\(/gm)];
+    // `test.skip(` counts: a skipped test is still a test, and not counting it let one
+    // sit in a resource folder while the file still claimed to hold a single journey.
+    const tests = [...source.matchAll(/^test(\.skip)?\(/gm)];
     expect(
       tests,
       `${resource}/${specs[0]} should hold one test: the resource's whole life`,
     ).toHaveLength(1);
   });
 
-  it.each(RESOURCES)("%s covers its empty and failure states", (resource) => {
+  it.each(resources())("%s covers its empty and failure states", (resource) => {
     /*
      * The states a list can be in that are not "here are the rows", and the pair a
      * reader must never see confused: "there are none" and "we could not find out" lead
@@ -104,11 +112,35 @@ describe("playwright layout", () => {
     }
   });
 
+  it("a journey in one test carries the lifecycle budget", () => {
+    /*
+     * Applied by shape rather than by folder, which is how `chat/questions.spec.ts`
+     * came to hold twelve steps on the thirty-second default and time out in CI at
+     * step eight. A resource folder is not what makes a test long; the number of
+     * steps sharing one budget is.
+     */
+    const offenders: string[] = [];
+    for (const dir of [TESTS, ...folders().map((name) => join(TESTS, name))]) {
+      for (const spec of specsIn(dir)) {
+        const source = readFileSync(join(dir, spec), "utf8");
+        const tests = [...source.matchAll(/^test(\.skip)?\(/gm)].length;
+        const steps = [...source.matchAll(/test\.step\(/g)].length;
+        if (tests === 1 && steps >= 10 && !source.includes("LIFECYCLE_TIMEOUT")) {
+          offenders.push(`${spec} (${steps} steps)`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      "a single test of ten or more steps needs `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })`",
+    ).toEqual([]);
+  });
+
   it("every spec outside a folder is about the application, not a resource", () => {
     // Top level means the shell, routing, the dashboard, theme contrast — things that
     // are about the app rather than about something it manages. A resource folder
     // appearing here would mean the rule above was never applied to it.
     const loose = specsIn(TESTS).map((name) => name.replace(".spec.ts", ""));
-    expect(loose.filter((name) => RESOURCES.includes(name))).toEqual([]);
+    expect(loose.filter((name) => resources().includes(name))).toEqual([]);
   });
 });

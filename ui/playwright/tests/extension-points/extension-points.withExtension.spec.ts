@@ -18,6 +18,7 @@ import {
   navOrder,
   slot,
 } from "../../helpers/extensions";
+import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
 
 /**
  * Extension points — the framework's contract, with an extension installed.
@@ -28,6 +29,12 @@ import {
  * the point declares. None of it asserts what the bundled example renders, so
  * reshaping the example does not churn this file.
  */
+
+/*
+ * A journey in one test, so it gets the lifecycle budget rather than the default.
+ * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`.
+ */
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("extension points: configured components mount where the point promises", async ({
   page,

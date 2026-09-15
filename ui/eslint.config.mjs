@@ -46,7 +46,7 @@ export default tseslint.config(
    * regrows as an exception.
    */
   {
-    files: ["playwright/tests/**/*.spec.ts"],
+    files: ["playwright/**/*.spec.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

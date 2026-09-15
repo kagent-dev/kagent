@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useSWRConfig } from "swr";
 
 /**
@@ -16,14 +16,23 @@ import { useSWRConfig } from "swr";
  * Resolves once the re-reads have landed, so a caller can await it before navigating.
  */
 export function useInvalidateKeys(names: (name: string) => boolean): () => Promise<void> {
+  /*
+   * Read through a ref rather than closed over, so the returned callback keeps a stable
+   * identity without pinning the predicate it was created with. Every caller today
+   * builds a fresh one per render from module constants, where the difference does not
+   * show; one closing over props or state would otherwise be silently stuck on its
+   * first render's values.
+   */
+  const match = useRef(names);
+  match.current = names;
+
   const { mutate } = useSWRConfig();
 
   return useCallback(async () => {
     await mutate(
-      (key) => Array.isArray(key) && typeof key[0] === "string" && names(key[0]),
+      (key) =>
+        Array.isArray(key) && typeof key[0] === "string" && match.current(key[0]),
     );
-    // `names` is a module constant at every call site, so it is stable by construction.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mutate]);
 }
 

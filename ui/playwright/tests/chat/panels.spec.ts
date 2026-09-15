@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { agentChat, instances } from "../../helpers/app";
+import { agentChat, instances, withScenario } from "../../helpers/app";
 
 /**
  * What sits beside the conversation: the record, and the agent.
@@ -83,4 +83,28 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
     await page.getByTestId("chat-context-expand").click();
     await expect(page.getByTestId("chat-agent-context")).toBeVisible();
   });
+});
+
+/**
+ * The column the panel sits in, when the conversation could not be read.
+ *
+ * It holds its width from the first frame so the transcript does not shift sideways when
+ * the record lands — but the panel draws from that record, and the toggle beside it is
+ * hidden while there is nothing to toggle. Held open on a failed read, that is 288px of
+ * empty column with no way to reclaim it, which is worse than the shift it prevents.
+ */
+test("chat: a conversation that cannot be read gives the column back", async ({
+  page,
+}) => {
+  await page.goto(withScenario(AGENT_CHAT, "error"));
+
+  await expect(page.getByTestId("chat-instance-error")).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Zero-width rather than merely empty: the aside is what the reader would be left
+  // staring at, and a box that still occupies the row is the fault being checked.
+  await expect(page.getByTestId("chat-agent-context")).toHaveCount(0);
+  await expect(page.getByTestId("chat-context-collapse")).toBeHidden();
+  await expect(page.getByTestId("chat-context-expand")).toBeHidden();
 });

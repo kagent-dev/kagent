@@ -3,7 +3,12 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { Alert, Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
-import { useHarnessesAcrossNamespaces, useNamespaces, type Harness } from "@/api";
+import {
+  useHarnessesAcrossNamespaces,
+  useInvalidateAgentTemplates,
+  useNamespaces,
+  type Harness,
+} from "@/api";
 import { admitsLabels, harnessSelector } from "@/api/domain/harnesses";
 import { apiClient, useAgentTemplatesAcrossNamespaces } from "@/api";
 import { FilterBar } from "@/components/table/FilterBar";
@@ -103,6 +108,7 @@ export function HarnessesTab() {
 
   const [deleting, setDeleting] = useState<string>();
   const [failure, setFailure] = useState<string>();
+  const invalidateTemplates = useInvalidateAgentTemplates();
 
   async function remove(row: Harness) {
     setDeleting(row.ref);
@@ -112,6 +118,10 @@ export function HarnessesTab() {
       // Swallowed for the reason the create pages give: the delete has already
       // succeeded, and `refresh` rethrows into the catch below.
       await harnesses.refresh().catch(() => {});
+      // And the templates, because an agent is a template paired with a harness — the
+      // confirmation above says every agent built on this one stops existing, and the
+      // agents list is derived from the template read rather than from this one.
+      await invalidateTemplates().catch(() => {});
     } catch (cause: unknown) {
       setFailure(cause instanceof Error ? cause.message : String(cause));
     } finally {

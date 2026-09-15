@@ -11,6 +11,7 @@ import { paths } from "@/router/routes";
 import {
   apiClient,
   parseRef,
+  useInvalidateMcpServers,
   useMcpServers,
   useTools,
   type DiscoveredTool,
@@ -103,6 +104,9 @@ export function McpServersPage() {
   // shown only when the two disagree, which is the case worth noticing. A
   // failure here is deliberately not fatal: the list is still worth reading.
   const tools = useTools();
+  // Swept rather than `refresh()`: the registry count beside the rows is a second read,
+  // so refreshing the list alone leaves it counting a deregistered server's tools.
+  const invalidateServers = useInvalidateMcpServers();
   const view = useListView(FILTER_IDS);
 
   const servers = useMemo(() => data ?? [], [data]);
@@ -226,7 +230,7 @@ export function McpServersPage() {
               kind="tool server"
               name={name}
               onDelete={() => apiClient.mcpServers.remove(namespace, name)}
-              onDeleted={refresh}
+              onDeleted={invalidateServers}
             />
           );
         },

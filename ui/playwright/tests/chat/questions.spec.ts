@@ -2,6 +2,7 @@ import { test, expect } from "../../fixtures/test";
 import { sendAndAwaitTurn } from "../../helpers/chat";
 import { agentChat, instances } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
+import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
 
 /**
  * A turn that ends by asking rather than by finishing.
@@ -24,6 +25,12 @@ import { tick } from "../../helpers/controls";
  */
 
 const AGENT_CHAT = agentChat(instances.ready);
+
+/*
+ * A journey in one test, so it gets the lifecycle budget rather than the default.
+ * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`.
+ */
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("chat: a question is asked, answered, given up, and answered with the keyboard", async ({
   page,
