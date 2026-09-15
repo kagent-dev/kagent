@@ -500,8 +500,6 @@ func (x *SubstrateActorStatusCount) GetState() ateapipb.ActorState {
 
 type GetSubstrateSummaryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Always true: the controller requires Substrate at startup.
-	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	// Set when one of the three ate-api reads behind this answer failed. They do not gate
 	// each other, so the counts here may be short while the Kubernetes-derived lists are
 	// complete: a warning to show beside the data rather than a failed call.
@@ -551,13 +549,6 @@ func (x *GetSubstrateSummaryResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetSubstrateSummaryResponse.ProtoReflect.Descriptor instead.
 func (*GetSubstrateSummaryResponse) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *GetSubstrateSummaryResponse) GetEnabled() bool {
-	if x != nil {
-		return x.Enabled
-	}
-	return false
 }
 
 func (x *GetSubstrateSummaryResponse) GetAteApiError() string {
@@ -681,7 +672,6 @@ func (x *ListSubstrateActorsRequest) GetPage() *PageRequest {
 
 type ListSubstrateActorsResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
-	Enabled     bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
 	Actors      []*ateapipb.Actor      `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
 	// Upstream continuation token. A page can be empty even when another page exists.
@@ -719,13 +709,6 @@ func (x *ListSubstrateActorsResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListSubstrateActorsResponse.ProtoReflect.Descriptor instead.
 func (*ListSubstrateActorsResponse) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *ListSubstrateActorsResponse) GetEnabled() bool {
-	if x != nil {
-		return x.Enabled
-	}
-	return false
 }
 
 func (x *ListSubstrateActorsResponse) GetAteApiError() string {
@@ -812,7 +795,6 @@ func (x *ListSubstrateWorkersRequest) GetPage() *PageRequest {
 
 type ListSubstrateWorkersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Enabled       bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AteApiError   string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
 	Workers       []*ateapipb.Worker     `protobuf:"bytes,3,rep,name=workers,proto3" json:"workers,omitempty"`
 	Page          *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
@@ -849,13 +831,6 @@ func (x *ListSubstrateWorkersResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListSubstrateWorkersResponse.ProtoReflect.Descriptor instead.
 func (*ListSubstrateWorkersResponse) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_system_proto_rawDescGZIP(), []int{14}
-}
-
-func (x *ListSubstrateWorkersResponse) GetEnabled() bool {
-	if x != nil {
-		return x.Enabled
-	}
-	return false
 }
 
 func (x *ListSubstrateWorkersResponse) GetAteApiError() string {
@@ -917,9 +892,8 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\batespace\x18\x02 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\"[\n" +
 	"\x19SubstrateActorStatusCount\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\x12(\n" +
-	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\"\xa5\x04\n" +
-	"\x1bGetSubstrateSummaryResponse\x12\x18\n" +
-	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
+	"\x05state\x18\x03 \x01(\x0e2\x12.ateapi.ActorStateR\x05state\"\x8b\x04\n" +
+	"\x1bGetSubstrateSummaryResponse\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12K\n" +
 	"\fworker_pools\x18\x03 \x03(\v2(.kagent.api.v1alpha1.SubstrateWorkerPoolR\vworkerPools\x12\x1f\n" +
 	"\vactor_count\x18\x05 \x01(\x03R\n" +
@@ -934,9 +908,8 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"\x0factor_templates\x18\v \x03(\v2\x15.ateapi.ActorTemplateR\x0eactorTemplates\"\x9b\x01\n" +
 	"\x1aListSubstrateActorsRequest\x12G\n" +
 	"\batespace\x18\x06 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\batespace\x124\n" +
-	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\xf6\x01\n" +
-	"\x1bListSubstrateActorsResponse\x12\x18\n" +
-	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
+	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\xdc\x01\n" +
+	"\x1bListSubstrateActorsResponse\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12%\n" +
 	"\x06actors\x18\x03 \x03(\v2\r.ateapi.ActorR\x06actors\x125\n" +
 	"\x04page\x18\x04 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\x12;\n" +
@@ -944,9 +917,8 @@ const file_kagent_api_v1alpha1_system_proto_rawDesc = "" +
 	"computedAt\"\x9e\x01\n" +
 	"\x1bListSubstrateWorkersRequest\x12I\n" +
 	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\x124\n" +
-	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\xfa\x01\n" +
-	"\x1cListSubstrateWorkersResponse\x12\x18\n" +
-	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\"\n" +
+	"\x04page\x18\x02 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\"\xe0\x01\n" +
+	"\x1cListSubstrateWorkersResponse\x12\"\n" +
 	"\rate_api_error\x18\x02 \x01(\tR\vateApiError\x12(\n" +
 	"\aworkers\x18\x03 \x03(\v2\x0e.ateapi.WorkerR\aworkers\x125\n" +
 	"\x04page\x18\x04 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\x12;\n" +

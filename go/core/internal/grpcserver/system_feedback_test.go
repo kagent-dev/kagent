@@ -108,8 +108,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubstrateSummary() error = %v", err)
 	}
-	if !summary.GetEnabled() || summary.GetActorCount() != 0 || len(summary.GetWorkerPools()) != 1 {
-		t.Fatalf("GetSubstrateSummary() = %+v, want enabled summary with one worker pool", summary)
+	if summary.GetActorCount() != 0 || len(summary.GetWorkerPools()) != 1 {
+		t.Fatalf("GetSubstrateSummary() = %+v, want summary with one worker pool", summary)
 	}
 
 	for _, pool := range summary.GetWorkerPools() {
@@ -132,8 +132,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSubstrateActors() error = %v", err)
 	}
-	if !actors.GetEnabled() || len(actors.GetActors()) != 0 || actors.GetPage().GetNextPageToken() != "" {
-		t.Fatalf("ListSubstrateActors() = %+v, want enabled empty page", actors)
+	if len(actors.GetActors()) != 0 || actors.GetPage().GetNextPageToken() != "" {
+		t.Fatalf("ListSubstrateActors() = %+v, want empty page", actors)
 	}
 
 	workers, err := systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
@@ -143,8 +143,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSubstrateWorkers() error = %v", err)
 	}
-	if !workers.GetEnabled() || len(workers.GetWorkers()) != 0 || workers.GetPage().GetNextPageToken() != "" {
-		t.Fatalf("ListSubstrateWorkers() = %+v, want enabled empty page", workers)
+	if len(workers.GetWorkers()) != 0 || workers.GetPage().GetNextPageToken() != "" {
+		t.Fatalf("ListSubstrateWorkers() = %+v, want empty page", workers)
 	}
 
 	for _, namespace := range []string{"", "a", "team-1", strings.Repeat("a", 63), "INVALID_NAMESPACE", "-team", "team-", "team.name", " team", strings.Repeat("a", 64)} {

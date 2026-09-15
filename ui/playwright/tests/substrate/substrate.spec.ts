@@ -4,27 +4,8 @@ import { expectSettled, loadPage, routes } from "../../helpers/app";
 import { paint, settledPaint } from "../../helpers/style";
 
 /**
- * Substrate — the inventory, its scope, and the three ways the read can answer.
- *
- * The page used to carry a banner reading "worker pool and actor inventory is not
- * available here… comes from a status endpoint this UI's data layer does not expose yet".
- * That was true when it was written and quietly stopped being true: the endpoint, the
- * client method, the hook and the types were all in place, and only the page had not been
- * told.
- *
- * So this covers what it now shows — four sections, all of them the substrate's own — and,
- * more importantly, that the read's three answers stay distinct. `enabled: false` is a
- * deployment without an ate-api endpoint, which is ordinary rather than broken, and is
- * said in the two tables it actually applies to. `ateApiError` means the Kubernetes-derived
- * halves are complete while the runtime ones may be partial, which is a warning *beside*
- * the data rather than an error instead of it. A page that flattened those into one message
- * would tell an operator their substrate was broken when it was merely switched off.
- *
- * The fixture is built for exactly this: `enabled: true` with an `ateApiError` set, two
- * worker pools across two namespaces, two templates — one Ready in `kagent`, one Pending in
- * `platform` — eight actors and two workers, one of the workers holding nothing. The crashed
- * actor sits last in the fixture and first once sorted, which is what makes the ordering
- * testable at all.
+ * Substrate inventory, scope, and successful, empty, and failed reads.
+ * An ateApiError warns that runtime data may be partial while Kubernetes data is complete.
  */
 
 test("substrate: the inventory renders, and partial runtime data says so", async ({
@@ -268,21 +249,12 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
   });
 });
 
-/**
- * A controller with no ate-api endpoint.
- *
- * `enabled: false` is a deployment choice, not a fault, and the page has to say so in the
- * two places it applies without dressing it up as a failure anywhere. The `empty` scenario
- * is exactly this: `enabled` false and every list absent.
- */
-test("substrate: an unconfigured ate-api is explained, not reported as broken", async ({
+test("substrate: an empty inventory is shown without errors", async ({
   page,
 }) => {
   await loadPage(page, routes.substrate, { scenario: "empty", title: "Substrate" });
   await expectSettled(page);
 
-  // Said by the two tables it applies to, not by a tile: a tile is for a number that
-  // moves, and this one read `connected` above ate-api's own timeout banner.
   await expect(page.getByTestId("substrate-stat-ateapi")).toHaveCount(0);
   await expect(page.getByTestId("substrate-inventory-error")).toHaveCount(0);
   await expect(page.getByTestId("substrate-partial")).toHaveCount(0);
@@ -293,17 +265,14 @@ test("substrate: an unconfigured ate-api is explained, not reported as broken", 
   await expect(page.getByTestId("substrate-actor-status-counts")).toBeVisible();
   await expect(page.getByTestId("substrate-actor-status-counts").locator("[data-tone]")).toHaveCount(0);
   await expect(page.getByTestId("substrate-actor-status-counts-empty")).toHaveText(
-    "ate-api is not configured, so there are no actors to show.",
+    "No actors in this scope.",
   );
 
-  // The two runtime sections name the setting to change. The two Kubernetes ones do not —
-  // they are empty for an unrelated reason, and saying "ate-api" over them would send an
-  // operator to fix the wrong thing.
   await expect(page.getByTestId("substrate-actors-table")).toContainText(
-    "substrate-ate-api-endpoint",
+    "No actors on this page.",
   );
   await expect(page.getByTestId("substrate-workers-table")).toContainText(
-    "ate-api, which is not configured",
+    "No worker assignments in this namespace scope on this page.",
   );
   await expect(page.getByTestId("substrate-pools-table")).toContainText(
     "Create one in the cluster",

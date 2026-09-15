@@ -52,8 +52,6 @@ export interface SubstrateWorkerEntry {
  * server counts instead.
  */
 export interface SubstrateSummary extends Timed {
-  /** True when the controller is configured with an ate-api endpoint. */
-  enabled: boolean;
   /**
    * Set when the ate-api read failed on an otherwise successful call.
    *
@@ -99,7 +97,6 @@ export interface Timed {
 
 /** One upstream page; an empty page may still have a continuation token. */
 interface SubstratePage extends Timed {
-  enabled: boolean;
   /** Upstream read failure. No rows or continuation token accompany it. */
   ateApiError?: string;
   nextPageToken?: string;

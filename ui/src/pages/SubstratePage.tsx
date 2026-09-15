@@ -1094,9 +1094,6 @@ export function SubstratePage() {
     [mono, muted, qualified],
   );
 
-  const ateApiEnabled =
-    actors.data?.enabled ?? workers.data?.enabled ?? inventory?.enabled ?? false;
-
   return (
     <PageFrame
       title="Substrate"
@@ -1441,11 +1438,7 @@ export function SubstratePage() {
             noun="Actors"
             unread={Boolean(summary.error)}
             counts={inventory?.actorStatusCounts ?? []}
-            emptyText={
-              ateApiEnabled
-                ? "No actors in this scope."
-                : "ate-api is not configured, so there are no actors to show."
-            }
+            emptyText="No actors in this scope."
           />
 
           <Table<SubstrateActorEntry>
@@ -1469,9 +1462,7 @@ export function SubstratePage() {
                 ? " "
                 : actors.data?.ateApiError
                   ? "This read could not reach ate-api, so there may be actors it did not see."
-                  : ateApiEnabled
-                    ? "No actors on this page."
-                    : "ate-api is not configured on this controller. Set substrate-ate-api-endpoint to see live actors.",
+                  : "No actors on this page.",
             }}
           />
 
@@ -1549,9 +1540,7 @@ export function SubstratePage() {
                 ? " "
                 : workers.data?.ateApiError
                   ? "This read could not reach ate-api, so there may be workers it did not see."
-                  : ateApiEnabled
-                    ? "No worker assignments in this namespace scope on this page."
-                    : "Worker assignments come from ate-api, which is not configured on this controller.",
+                  : "No worker assignments in this namespace scope on this page.",
             }}
           />
 

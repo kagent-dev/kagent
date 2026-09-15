@@ -75,8 +75,6 @@ message SubstrateActorStatusCount {
 }
 
 message GetSubstrateSummaryResponse {
-  // Always true: the controller requires Substrate at startup.
-  bool enabled = 1;
   // Set when one of the three ate-api reads behind this answer failed. They do not gate
   // each other, so the counts here may be short while the Kubernetes-derived lists are
   // complete: a warning to show beside the data rather than a failed call.
@@ -109,7 +107,6 @@ message ListSubstrateActorsRequest {
 }
 
 message ListSubstrateActorsResponse {
-  bool enabled = 1;
   string ate_api_error = 2;
   repeated ateapi.Actor actors = 3;
   // Upstream continuation token. A page can be empty even when another page exists.
@@ -128,7 +125,6 @@ message ListSubstrateWorkersRequest {
 }
 
 message ListSubstrateWorkersResponse {
-  bool enabled = 1;
   string ate_api_error = 2;
   repeated ateapi.Worker workers = 3;
   PageResponse page = 4;

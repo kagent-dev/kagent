@@ -272,14 +272,12 @@ export const mockNamespaces: NamespaceResponse[] = [
  * fine, so the fixture makes it the default rather than a special case.
  */
 export const mockSubstrateInventory: {
-  enabled: boolean;
   ateApiError?: string;
   workerPools: SubstrateWorkerPoolEntry[];
   actorTemplates: SubstrateActorTemplateEntry[];
   actors: SubstrateActorEntry[];
   workers: SubstrateWorkerEntry[];
 } = {
-  enabled: true,
   ateApiError: "ate-api list actors timed out after 5s; actors may be incomplete",
   workerPools: [
     { namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" },

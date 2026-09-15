@@ -197,7 +197,6 @@ func TestListSubstrateActors(t *testing.T) {
 
 		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Page: &apiv1alpha1.PageRequest{Limit: 2}})
 		require.NoError(t, err)
-		assert.True(t, page.Enabled)
 		require.Len(t, page.Actors, 2)
 		// Preserve upstream order, including across different actor states.
 		assert.Equal(t, []string{"actor-1", "actor-2"}, []string{page.Actors[0].GetMetadata().GetName(), page.Actors[1].GetMetadata().GetName()})
@@ -325,7 +324,6 @@ func TestGetSubstrateSummary(t *testing.T) {
 
 		result, err := service.GetSubstrateSummary(ctx, "team", "team")
 		require.NoError(t, err)
-		assert.True(t, result.Enabled)
 		assert.Empty(t, result.ATEAPIError)
 		assert.Equal(t, int64(3), result.ActorCount)
 		assert.Equal(t, int64(2), result.RunningActorCount)

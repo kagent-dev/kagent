@@ -1363,7 +1363,7 @@ function substratePage<T>(rows: T[], pageSize: number, pageToken: string) {
 }
 
 on(SystemService.method.getSubstrateSummary, (input, call) => {
-  if (call.scenario === "empty") return { enabled: false };
+  if (call.scenario === "empty") return {};
 
   const status = mockSubstrateInventory;
   const inScope = substrateScope(input.namespace);
@@ -1392,7 +1392,6 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
    * every count, and this shape could not have occurred.
    */
   return {
-    enabled: status.enabled,
     ateApiError: status.ateApiError ?? "",
     workerPools: status.workerPools
       .filter((pool) => inScope(pool.namespace))
@@ -1414,11 +1413,10 @@ on(SystemService.method.getSubstrateSummary, (input, call) => {
 });
 
 on(SystemService.method.listSubstrateActors, (input, call) => {
-  if (call.scenario === "empty") return { enabled: false };
+  if (call.scenario === "empty") return {};
   const actors = mockSubstrateInventory.actors.filter((actor) => !input.atespace || actor.atespace === input.atespace);
   const page = substratePage(actors, input.page?.limit ?? 0, input.page?.pageToken ?? "");
   return {
-    enabled: mockSubstrateInventory.enabled,
     actors: page.rows.map(substrateActorMessage),
     page: { nextPageToken: page.nextPageToken },
     computedAt: timestampFromDate(new Date()),
@@ -1426,12 +1424,11 @@ on(SystemService.method.listSubstrateActors, (input, call) => {
 });
 
 on(SystemService.method.listSubstrateWorkers, (input, call) => {
-  if (call.scenario === "empty") return { enabled: false };
+  if (call.scenario === "empty") return {};
   const inScope = substrateScope(input.namespace);
   // Substrate pages before kagent applies the namespace filter.
   const page = substratePage(mockSubstrateInventory.workers, input.page?.limit ?? 0, input.page?.pageToken ?? "");
   return {
-    enabled: mockSubstrateInventory.enabled,
     workers: page.rows.filter((worker) => inScope(worker.workerNamespace)).map(substrateWorkerMessage),
     page: { nextPageToken: page.nextPageToken },
     computedAt: timestampFromDate(new Date()),

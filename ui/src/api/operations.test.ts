@@ -374,7 +374,6 @@ describe("the cluster", () => {
     serve(({ service }) => {
       service(SystemService, {
         getSubstrateSummary: () => ({
-          enabled: true,
           ateApiError: "ate-api list calls failed",
           workerPools: [
             {
@@ -403,7 +402,6 @@ describe("the cluster", () => {
           ],
         }),
         listSubstrateActors: () => ({
-          enabled: true,
           actors: [{
             metadata: { name: "a1", atespace: "kagent", version: 3n },
             actorTemplate: { atespace: "team", name: "tpl", uid: "template-uid" },
@@ -424,7 +422,6 @@ describe("the cluster", () => {
     });
 
     const [summary, actors] = await Promise.all([apiClient.substrate.summary(), apiClient.substrate.actors({})]);
-    expect(summary.enabled).toBe(true);
     expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
     expect(summary.actorTemplates[0]).toEqual({
       atespace: "kagent",
@@ -470,7 +467,6 @@ describe("the cluster", () => {
       serve(({ service }) => {
         service(SystemService, {
           getSubstrateSummary: () => ({
-            enabled: true,
             actorTemplates: [
               {
                 metadata: { atespace: "kagent", name: "tpl" },
@@ -501,7 +497,6 @@ describe("the cluster", () => {
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateActors: () => ({
-          enabled: true,
           actors: [{ metadata: { name: "a1" }, status: { state } }],
         }),
       });
@@ -512,7 +507,6 @@ describe("the cluster", () => {
 
   it("rejects worker pools without a resource instead of displaying empty columns", async () => {
     const inventory = () => ({
-      enabled: true,
       workerPools: [{ ref: { namespace: "kagent", name: "pool" } }],
     });
     serve(({ service }) => {
@@ -526,7 +520,7 @@ describe("the cluster", () => {
   it("reads an empty warning as no warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateSummary: () => ({ enabled: false, ateApiError: "" }),
+        getSubstrateSummary: () => ({ ateApiError: "" }),
       });
     });
     expect((await apiClient.substrate.summary()).ateApiError).toBeUndefined();
@@ -538,7 +532,7 @@ describe("the cluster", () => {
       service(SystemService, {
         getSubstrateSummary: (request) => {
           asked.push({ namespace: request.namespace, atespace: request.atespace });
-          return { enabled: true };
+          return {};
         },
       });
     });
@@ -552,7 +546,6 @@ describe("the cluster", () => {
     serve(({ service }) => {
       service(SystemService, {
         getSubstrateSummary: () => ({
-          enabled: true,
           workerPools: [
             {
               ref: { namespace: "kagent", name: "pool" },
@@ -622,7 +615,6 @@ describe("the cluster", () => {
             pageToken: request.page?.pageToken ?? "",
           });
           return {
-            enabled: true,
             actors: [{
               metadata: { name: "a1", version: 3n },
               status: { state: ActorState.RUNNING },
@@ -658,7 +650,6 @@ describe("the cluster", () => {
     serve(({ service }) => {
       service(SystemService, {
         listSubstrateWorkers: () => ({
-          enabled: true,
           workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
           page: { nextPageToken: "" },
         }),

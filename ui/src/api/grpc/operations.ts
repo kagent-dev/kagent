@@ -1114,13 +1114,11 @@ function substratePageRequest(input: SubstratePageInput) {
 }
 
 function substratePageResult(response: {
-  enabled: boolean;
   ateApiError: string;
   page?: { nextPageToken: string };
   computedAt?: Timestamp;
 }) {
   return {
-    enabled: response.enabled,
     ateApiError: orUndefined(response.ateApiError),
     // Absent rather than empty: a caller testing presence must not be handed `""`,
     // which would send it back to page one for ever.
@@ -1154,7 +1152,6 @@ const cluster: Pick<
       ),
     );
     return {
-      enabled: response.enabled,
       ateApiError: orUndefined(response.ateApiError),
       workerPools: list(response.workerPools).map(toWorkerPoolEntry),
       actorTemplates: list(response.actorTemplates).map(toActorTemplateEntry),

@@ -27,7 +27,6 @@ const maxATEPagesPerWalk = 10_000
 
 // SubstrateActorPage is one page of actors, as read.
 type SubstrateActorPage struct {
-	Enabled       bool
 	ATEAPIError   string
 	Actors        []*ateapipb.Actor
 	NextPageToken string
@@ -36,7 +35,6 @@ type SubstrateActorPage struct {
 
 // SubstrateWorkerPage is one page of workers. The mirror of SubstrateActorPage.
 type SubstrateWorkerPage struct {
-	Enabled       bool
 	ATEAPIError   string
 	Workers       []*ateapipb.Worker
 	NextPageToken string
@@ -46,7 +44,6 @@ type SubstrateWorkerPage struct {
 // SubstrateSummary is the inventory as counts, plus the two lists whose length is set
 // by configuration rather than by the cluster.
 type SubstrateSummary struct {
-	Enabled           bool
 	ATEAPIError       string
 	WorkerPools       []atev1alpha1.WorkerPool
 	ActorTemplates    []*ateapipb.ActorTemplate
@@ -84,7 +81,6 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	}
 
 	result := SubstrateSummary{
-		Enabled:           true,
 		WorkerPools:       []atev1alpha1.WorkerPool{},
 		ActorTemplates:    []*ateapipb.ActorTemplate{},
 		ActorStatusCounts: []SubstrateActorStatusCount{},
@@ -153,7 +149,7 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.Li
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return SubstrateActorPage{}, err
 	}
-	result := SubstrateActorPage{Enabled: true, ComputedAt: time.Now().UTC()}
+	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
 	actors, next, err := s.ateClient.ListActorsPage(ctx, input.GetAtespace(), substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
 	if err != nil {
 		result.ATEAPIError = err.Error()
@@ -172,7 +168,7 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1alpha1.L
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
-	result := SubstrateWorkerPage{Enabled: true, ComputedAt: time.Now().UTC()}
+	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
 	workers, next, err := s.ateClient.ListWorkersPage(ctx, substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
 	if err != nil {
 		result.ATEAPIError = err.Error()
