@@ -81,8 +81,35 @@ export interface HarnessResource {
  * `allowedAgentTemplates` is optional and omitting it admits *no* templates, which is
  * a harness that runs nothing. That is legal and almost never intended.
  */
+/** `spec.kagent.compaction.summarizer`: the model and prompt that write the summaries. */
+export interface KagentHarnessSummarizer {
+  /** A ModelConfig in the harness namespace. Omitted summarizes with the agent's own model. */
+  modelConfigRef?: { name: string };
+  /** Must contain `{conversation_history}`. */
+  promptTemplate?: string;
+}
+
+/**
+ * `spec.kagent.compaction`: the sliding window (`compactionInterval`, `overlapSize`)
+ * and tail retention (`tokenThreshold`, `eventRetentionSize`) strategies. At least
+ * one strategy is required; `tokenThreshold` and `eventRetentionSize` go together.
+ */
+export interface KagentHarnessCompaction {
+  compactionInterval?: number;
+  overlapSize?: number;
+  tokenThreshold?: number;
+  eventRetentionSize?: number;
+  summarizer?: KagentHarnessSummarizer;
+}
+
+/** `spec.kagent`: runtime policy of the kagent adapter. */
+export interface KagentHarnessSpec {
+  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
+  compaction?: KagentHarnessCompaction;
+}
+
 export interface HarnessSpec {
-  kagent?: Record<string, never>;
+  kagent?: KagentHarnessSpec;
   codex?: Record<string, never>;
   claude?: Record<string, never>;
   workload: { image: string };
