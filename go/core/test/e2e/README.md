@@ -59,15 +59,18 @@ KAGENT_E2E_METRICS_CA_FILE=<path-to-trusted-metrics-ca>
 Export these settings in the approved test environment; the CA file can be
 omitted when the listener certificate is already trusted by the system.
 The scraper identity needs `get` on the `/metrics` non-resource URL.
-The test rejects anonymous access and requires real metric families and a
-fresh empty-backlog observation after public lifecycle cleanup. Without a
-metrics URL it explicitly skips; a skipped test is not scrape evidence.
+The test rejects anonymous access and requires the pending gauge and failure
+counter with exactly the `discovery` and `collection` stages. It waits for an
+initialized, empty backlog and exercises actual public lifecycle cleanup.
+Without a metrics URL it explicitly skips; a skipped test is not scrape evidence.
 Run it only against the intended disposable cluster and API target.
 
-This scenario does not inject persistent Substrate deletion failures or
-restart a controller. Those live recovery scenarios require a separately
-controlled fault/restart environment; unit and PostgreSQL/fake-Substrate
-coverage must not be reported as equivalent live evidence.
+This scenario does not prove a positive-to-zero count transition: a zero after
+cleanup can also be an earlier empty observation. It does not inject persistent
+Substrate deletion failures or restart a controller. Those metric transition and
+live recovery scenarios require a separately controlled fault/restart
+environment; unit and PostgreSQL/fake-Substrate coverage must not be reported as
+equivalent live evidence.
 
 For local interaction debugging, start any retained response fixture from the
 `go` directory:

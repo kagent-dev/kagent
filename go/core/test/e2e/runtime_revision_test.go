@@ -29,7 +29,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	testRuntimeRevisionLifecycle(t, nil)
 }
 
-func testRuntimeRevisionLifecycle(t *testing.T, afterCleanup func(context.Context, time.Time)) {
+func testRuntimeRevisionLifecycle(t *testing.T, afterCleanup func(context.Context)) {
 	t.Helper()
 	target := interactionTarget(t)
 	modelURL := startInteractionMock(t)
@@ -155,7 +155,6 @@ func testRuntimeRevisionLifecycle(t *testing.T, afterCleanup func(context.Contex
 	t.Cleanup(func() { deleteInstance(forkID) })
 	send(forkID)
 	deleteInstance(forkID)
-	releasedAt := time.Now()
 	_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 	require.NoError(t, err)
 
@@ -180,7 +179,7 @@ func testRuntimeRevisionLifecycle(t *testing.T, afterCleanup func(context.Contex
 		return true, nil
 	}), "final checkpoint deletion must eventually collect its runtime without template changes")
 	if afterCleanup != nil {
-		afterCleanup(ctx, releasedAt)
+		afterCleanup(ctx)
 	}
 
 	// Recreating the name must prepare a new identity after collection.

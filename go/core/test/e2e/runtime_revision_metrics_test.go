@@ -3,9 +3,11 @@ package e2e_test
 import (
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,8 +54,6 @@ func TestRuntimeRevisionGCMetricsLifecycle(t *testing.T) {
 
 	const (
 		pendingMetric  = "kagent_runtime_revision_gc_pending"
-		ageMetric      = "kagent_runtime_revision_gc_oldest_pending_age_seconds"
-		observedMetric = "kagent_runtime_revision_gc_last_successful_backlog_observation_timestamp_seconds"
 		failuresMetric = "kagent_runtime_revision_gc_failures_total"
 	)
 	scrape := func(ctx context.Context) map[string]float64 {
@@ -68,8 +68,13 @@ func TestRuntimeRevisionGCMetricsLifecycle(t *testing.T) {
 		parser := expfmt.NewTextParser(model.LegacyValidation)
 		families, err := parser.TextToMetricFamilies(io.LimitReader(response.Body, 4<<20))
 		require.NoError(t, err)
+		for name := range families {
+			if strings.HasPrefix(name, "kagent_runtime_revision_gc_") {
+				require.Contains(t, []string{pendingMetric, failuresMetric}, name)
+			}
+		}
 		gauges := make(map[string]float64)
-		for _, name := range []string{pendingMetric, ageMetric, observedMetric} {
+		for _, name := range []string{pendingMetric} {
 			family := families[name]
 			require.NotNil(t, family, "metric %s missing; target the active GC leader", name)
 			require.Len(t, family.GetMetric(), 1)
@@ -78,25 +83,27 @@ func TestRuntimeRevisionGCMetricsLifecycle(t *testing.T) {
 			require.NotNil(t, metric.Gauge)
 			gauges[name] = metric.GetGauge().GetValue()
 		}
-		require.Positive(t, gauges[observedMetric], "an empty 200 response or an uninitialized registry does not prove metrics")
 		failures := families[failuresMetric]
 		require.NotNil(t, failures)
-		require.Len(t, failures.GetMetric(), 7)
+		require.Len(t, failures.GetMetric(), 2)
+		var stages []string
 		for _, metric := range failures.GetMetric() {
 			require.NotNil(t, metric.Counter)
 			require.Len(t, metric.GetLabel(), 1)
 			require.Equal(t, "stage", metric.GetLabel()[0].GetName())
+			stages = append(stages, metric.GetLabel()[0].GetValue())
 		}
+		require.ElementsMatch(t, []string{"discovery", "collection"}, stages)
 		return gauges
 	}
 	require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		return scrape(ctx)[pendingMetric] == 0, nil
+		pending := scrape(ctx)[pendingMetric]
+		return !math.IsNaN(pending) && pending == 0, nil
 	}), "this aggregate-metrics test requires an isolated installation without unrelated pending cleanup")
-	testRuntimeRevisionLifecycle(t, func(ctx context.Context, releasedAt time.Time) {
+	testRuntimeRevisionLifecycle(t, func(ctx context.Context) {
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
 			gauges := scrape(ctx)
-			return gauges[pendingMetric] == 0 && gauges[ageMetric] == 0 &&
-				gauges[observedMetric] >= float64(releasedAt.UnixNano())/float64(time.Second), nil
-		}), "a fresh post-cleanup observation must report zero pending count and age")
+			return gauges[pendingMetric] == 0, nil
+		}), "the isolated installation must report zero pending count after public lifecycle cleanup")
 	})
 }
