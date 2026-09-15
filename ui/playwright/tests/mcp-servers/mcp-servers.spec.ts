@@ -142,9 +142,6 @@ test("mcp servers: a server is registered, read and deregistered", async ({
       .poll(() => operationCalls(page, rpc.listToolServers), { timeout: 10_000 })
       .toBeGreaterThan(before);
 
-    // A refresh usually returns the same rows, so a successful one is otherwise
-    // indistinguishable from a button that did nothing.
-    await expect(page.getByText("Tool servers refreshed")).toBeVisible();
   });
 
   await test.step("7. the create form marks what it will not submit without", async () => {

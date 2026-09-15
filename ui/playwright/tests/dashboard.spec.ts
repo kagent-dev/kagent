@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures/test";
 import { expectSettled, loadPage, routes } from "../helpers/app";
+import { operationCalls, rpc } from "../helpers/mockCalls";
 import { clickRefresh } from "../helpers/resource";
 
 /**
@@ -21,12 +22,14 @@ test("dashboard: recent conversations read as names, not as ids", async ({ page 
   await test.step("1. the card says what it lists", async () => {
     await expect(card).toContainText("Recent agent conversations");
 
-    // And Refresh confirms here too. A refresh usually returns the same rows, so a
-    // successful one is otherwise indistinguishable from a button that did nothing —
-    // which is the kind of thing that gets wired up on the page being worked on and
-    // forgotten on the four beside it. Each list asserts its own.
+    // And Refresh confirms here too — wired up on the page being worked on and
+    // forgotten on the four beside it is exactly how this goes wrong. Counted rather
+    // than read off the toast, which lives two seconds.
+    const before = await operationCalls(page, rpc.listAgentInstances);
     await clickRefresh(page);
-    await expect(page.getByText("Dashboard refreshed")).toBeVisible();
+    await expect
+      .poll(() => operationCalls(page, rpc.listAgentInstances), { timeout: 10_000 })
+      .toBeGreaterThan(before);
   });
 
   await test.step("2. and no row is a bare id", async () => {

@@ -511,9 +511,10 @@ test("agents: conversations can be picked and deleted together from the table to
 
   await test.step("3. and deleting says what goes with it", async () => {
     const prompt = confirmation(page);
-    await pressUntil(page.getByTestId("delete-1 selected"), () =>
-      expect(prompt).toBeVisible(),
-    );
+    // Clicked once, not pressed until: this is the popconfirm's own trigger, and a
+    // retry closes what the first press opened.
+    await page.getByTestId("delete-1 selected").click();
+    await expect(prompt).toBeVisible();
     await expect(prompt).toContainText("can be recovered");
     // The reason it matters here rather than only being tidy.
     await expect(prompt).toContainText("workers they hold");

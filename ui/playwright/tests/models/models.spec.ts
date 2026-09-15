@@ -97,9 +97,6 @@ test("models: a configuration is created, read, changed and deleted", async ({
       .poll(() => operationCalls(page, rpc.listModelConfigs), { timeout: 10_000 })
       .toBeGreaterThan(before);
 
-    // A refresh usually returns the same rows, so a successful one is otherwise
-    // indistinguishable from a button that did nothing.
-    await expect(page.getByText("Models refreshed")).toBeVisible();
     await expectSettled(page);
     await expect(dataRows(page)).toHaveCount(SEEDED.length);
   });
@@ -231,7 +228,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
       .getByText("API key", { exact: true })
       .click();
     await expectRequired(page, {
-      marked: [],
+      marked: ["Name", "Namespace"],
       unmarked: ["API key (leave blank to keep existing)"],
     });
   });

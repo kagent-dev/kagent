@@ -776,7 +776,10 @@ export function AgentChatPage() {
         <div
           css={{
             flexShrink: 0,
-            width: isContextOpen ? 248 : 0,
+            // Nothing to hold space for when the conversation could not be read: the
+            // panel draws from the instance, and the toggle beside it is hidden, so the
+            // reader would be left with an empty column they cannot collapse.
+            width: isContextOpen && !instance.error ? 248 : 0,
             overflow: "hidden",
             // Sticky on the wrapper, not on the panel inside it: a sticky element
             // travels within its parent's box, and this wrapper is exactly as tall

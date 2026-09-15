@@ -17,7 +17,7 @@ import {
   expectRequired,
   pressUntil,
 } from "../../helpers/resource";
-import { operationCallCounts, rpc } from "../../helpers/mockCalls";
+import { operationCallCounts, operationCalls, rpc } from "../../helpers/mockCalls";
 
 /**
  * Prompt libraries — the whole life of one, in a single journey.
@@ -113,10 +113,13 @@ test("prompts: a library is created, read, changed and deleted", async ({
     });
 
     // A refresh usually returns the same rows, so a successful one is otherwise
-    // indistinguishable from a button that did nothing — hence the confirmation, and
-    // hence asserting it on each list rather than only on the first one wired up.
+    // indistinguishable from a button that did nothing. Counted rather than read off
+    // the toast, which lives two seconds.
+    const before = await operationCalls(page, rpc.listPromptTemplates);
     await clickRefresh(page);
-    await expect(page.getByText("Prompt libraries refreshed")).toBeVisible();
+    await expect
+      .poll(() => operationCalls(page, rpc.listPromptTemplates), { timeout: 10_000 })
+      .toBeGreaterThan(before);
   });
 
   await test.step("5. the namespace filter is asked of the server, not applied after", async () => {

@@ -49,10 +49,15 @@ export const LIFECYCLE_TIMEOUT = 60_000;
  * argument for why a second click is safe.
  */
 export async function pressOnce(button: Locator): Promise<void> {
+  // Visible first, and `box !== null` below: an element with no box measures `null`,
+  // and two of those compare equal — so a button inside a closed dialog would pass the
+  // wait on its first pair and fall through to the click this exists to protect.
+  await expect(button).toBeVisible();
   let previous: string | undefined;
   await expect(async () => {
-    const where = JSON.stringify(await button.boundingBox());
-    const held = where === previous;
+    const box = await button.boundingBox();
+    const where = JSON.stringify(box);
+    const held = box !== null && where === previous;
     previous = where;
     expect(held, `still arriving, at ${where}`).toBe(true);
   }).toPass({ timeout: 10_000, intervals: [100] });
@@ -92,7 +97,10 @@ export async function pressUntil(
   timeout = 15_000,
 ): Promise<void> {
   await expect(async () => {
-    if (await button.isVisible()) await button.click();
+    // Bounded, because `toPass` checks its deadline between attempts and no
+    // `actionTimeout` is configured: a click blocked by an overlay would otherwise hang
+    // inside one attempt until the test budget, which is the failure this reports on.
+    if (await button.isVisible()) await button.click({ timeout: 5_000 });
     await settled();
   }).toPass({ timeout });
 }
@@ -224,7 +232,7 @@ export async function confirmDelete(page: Page, name: string): Promise<void> {
 
   await page.getByTestId(`delete-${name}`).click();
   await expect(open).toBeVisible();
-  await open.getByRole("button", { name: "Delete" }).click();
+  await pressOnce(open.getByRole("button", { name: "Delete" }));
 }
 
 /** One field's label, by the text a reader sees on it. */
@@ -251,6 +259,13 @@ export async function expectRequired(
   page: Page,
   { marked, unmarked }: { marked: string[]; unmarked: string[] },
 ): Promise<void> {
+  // Both empty is a call that asserts nothing, which is how an edit step kept passing
+  // over a form that marks two fields.
+  expect(
+    marked.length + unmarked.length,
+    "expectRequired needs at least one field to be a claim",
+  ).toBeGreaterThan(0);
+
   for (const text of marked) {
     const label = fieldLabel(page, text);
     await expect(label, `"${text}" is required, so it must be marked`).toHaveCount(1);

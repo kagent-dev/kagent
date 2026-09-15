@@ -109,7 +109,7 @@ Two things worth keeping from writing it, because both cost time and neither is 
   version of this spec passes and proves less than it looks like it does.
 
 **Every resource reads its create back through its list now**, not only harnesses — see
-*No longer deferred: the lifecycle half* above, which also records the create-cache defect
+*Covered: form validation, and every resource's lifecycle* above, which also records the create-cache defect
 that used to make that impossible for three of them and how the fix was proved.
 
 ---
