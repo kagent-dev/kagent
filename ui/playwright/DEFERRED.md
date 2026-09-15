@@ -359,7 +359,7 @@ Two ways it could stop being a trade-off, both server-side and neither invented 
   callers that do not are unaffected.
 
 Either would let a list show what the chat page already shows. Until then, what a list
-renders for an unnamed conversation is pinned by `agents/agent-conversations.spec.ts` —
+renders for an unnamed conversation is pinned by `agents/agent-page.spec.ts` —
 both that it is never a bare UUID, and that the derived title appears where the
 transcript is in hand.
 

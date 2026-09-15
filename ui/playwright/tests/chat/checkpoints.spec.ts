@@ -47,7 +47,21 @@ test("chat: the checkpoint is taken from the composer, and marks where a fork wo
   });
 });
 
-test("chat: a fork of an earlier checkpoint opens holding only what was above its line", async ({
+/*
+ * What a fork carries, and what it must not.
+ *
+ * Two claims about one action, so one action proves both. Forking the *seeded*
+ * boundary once a second one exists leaves the later turn behind — which is the whole
+ * point of forking a boundary rather than a conversation — and the copy arrives with
+ * no lines on it at all.
+ *
+ * The second half is subtler than it looks. A boundary saved on this page is
+ * remembered against the message it was taken at, because the reader's newest message
+ * has no turn id yet. A fork is handed copies of its source's messages under the same
+ * ids — so without dropping that memory when the conversation changes, a fork opened
+ * from here drew a line it does not have.
+ */
+test("chat: a fork holds only what was above its line, and inherits none of its marks", async ({
   page,
 }) => {
   await page.goto(agentChat(instances.ready));
@@ -57,11 +71,14 @@ test("chat: a fork of an earlier checkpoint opens holding only what was above it
   const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
   await expect(mine).toHaveCount(1, { timeout: 30_000 });
 
-  // A second turn, so the seeded boundary is no longer the conversation's latest and
-  // forking it has something to leave behind.
+  // A second turn and a second boundary, so the seeded one is no longer the latest and
+  // forking it has something to leave behind — and so this page is holding a locally
+  // saved mark for the fork to fail to inherit.
   await page.getByTestId("chat-input").fill("A second turn, after the saved boundary.");
   await page.getByTestId("chat-send").click();
   await expect(mine).toHaveCount(2, { timeout: 30_000 });
+  await page.getByTestId("chat-checkpoint").click();
+  await expect(dividers(page)).toHaveCount(2);
 
   await dividers(page).first().locator('[data-testid^="chat-checkpoint-fork-"]').click();
 
@@ -71,38 +88,9 @@ test("chat: a fork of an earlier checkpoint opens holding only what was above it
   });
   await expect(rows).toHaveCount(before + 1);
   await expect(page.getByTestId("chat-sessions")).toContainText("(fork)");
-  // The whole point of forking a boundary rather than the conversation: the second
-  // turn is below the line, so it is not in the copy.
+  // Only what was above the line: the second turn is below it.
   await expect(mine).toHaveCount(1, { timeout: 30_000 });
-});
-
-/*
- * The marks a fork must not inherit.
- *
- * A boundary saved on this page is remembered against the message it was taken at,
- * because the reader's newest message has no turn id yet. A fork is handed copies of
- * its source's messages under the same ids — so without dropping that memory when the
- * conversation changes, a fork opened from here drew a line it does not have.
- */
-test("chat: a fork does not inherit the marks of the page it was made from", async ({
-  page,
-}) => {
-  await page.goto(agentChat(instances.ready));
-  const mine = page.locator('[data-testid="chat-message"][data-role="user"]');
-  await expect(mine.first()).toBeVisible({ timeout: 30_000 });
-
-  await page.getByTestId("chat-input").fill("A turn to save a boundary at.");
-  await page.getByTestId("chat-send").click();
-  await expect(mine).toHaveCount(2, { timeout: 30_000 });
-  await page.getByTestId("chat-checkpoint").click();
-  await expect(dividers(page)).toHaveCount(2);
-
-  await dividers(page).last().locator('[data-testid^="chat-checkpoint-fork-"]').click();
-  await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {
-    timeout: 30_000,
-  });
-
-  await expect(mine.first()).toBeVisible({ timeout: 30_000 });
+  // And none of the source page's marks came with it.
   await expect(dividers(page)).toHaveCount(0);
 });
 

@@ -7,25 +7,23 @@ import {
   agents,
   instances,
   SIBLING_OF_READY,
+  loadPage,
+  withScenario,
 } from "../../helpers/app";
 import { dialog, pressUntil } from "../../helpers/resource";
 
 /**
  * The agent rail — the navigation for when you are inside one agent.
  *
- * Narrowed to a single agent: which agent you are in, the things you can do to it,
- * and every conversation you have had with it. The last of those is the sibling
- * instances of the same `(Harness, AgentTemplate)` pair, because an `AgentInstance`
- * *is* one conversation — so a second conversation with an agent is a second
- * instance of the same pair, and "New chat" creates rather than navigates.
+ * Narrowed to a single agent: which agent you are in, the things you can do to it, and
+ * every conversation you have had with it. The last of those is the sibling instances
+ * of the same `(Harness, AgentTemplate)` pair, because an `AgentInstance` *is* one
+ * conversation — so a second conversation with an agent is a second instance of the
+ * same pair, and "New chat" creates rather than navigates.
  *
- * ## What is no longer here
- *
- * The capabilities panel — an agent's tools and skills beside its conversation. It
- * read them from an AgentTemplate, and an instance has neither: what an agent can
- * reach is described by its `AgentTemplate`, which has no surface in this build yet.
- * Recorded in `playwright/DEFERRED.md` rather than left as a passing test of
- * something that is gone.
+ * What is beside the conversation rather than in the rail — its record, and the agent
+ * panel — is `panels.spec.ts`. What the rail *does* to a conversation is owned by
+ * `agents/agent-page.spec.ts`; this file keeps only what that table cannot say.
  */
 
 /**
@@ -58,33 +56,6 @@ async function chooseFromRowMenu(
 
 const AGENT_CHAT = agentChat(instances.ready);
 const AGENT_DETAILS = agentDetail(instances.ready);
-
-test("chat: a conversation's record is read without leaving the conversation", async ({
-  page,
-}) => {
-  /*
-   * This was an entry in the rail, and reading four facts about a conversation meant
-   * leaving it and then finding the way back. Reference that costs a navigation is
-   * reference nobody consults, so it is a modal over the conversation now — in the
-   * gutter under Share, which is where the conversation's other controls live.
-   */
-  await page.goto(AGENT_CHAT);
-  await page.getByTestId("chat-details").click();
-
-  const fields = page.getByTestId("conversation-details-fields");
-  await expect(fields).toBeVisible({ timeout: 30_000 });
-  // The record, not a summary: the id is what a reader copies into a CLI.
-  await expect(fields).toContainText(instances.ready);
-
-  // Still on the conversation behind it — the point of not making this a page.
-  await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
-  await expect(page.getByTestId("chat-input")).toBeVisible();
-
-  // There is no Edit anywhere on it: an instance has no spec to change. What the agent
-  // *is* lives on its AgentTemplate and how it *runs* on its Harness, so a control here
-  // would offer something that does not exist.
-  await expect(page.getByTestId("agent-details-edit")).toHaveCount(0);
-});
 
 /**
  * The agent you are on stays out of its own switcher, wherever you opened it from.
@@ -276,48 +247,6 @@ test("chat agent rail: it can be got out of the way, and stays that way", async 
     await page.getByTestId("agent-rail-expand").click();
     await expect(page.getByTestId("agent-rail")).toBeVisible();
     await expect(page.getByTestId("chat-sessions")).toBeVisible();
-  });
-});
-
-test("chat: the agent panel says what the conversation cannot", async ({ page }) => {
-  /*
-   * A conversation is an `AgentInstance`, and an instance holds no configuration —
-   * what model is answering, what it was told to do and what tools it can reach all
-   * live on the `AgentTemplate` it was cut from. So this panel reads the template,
-   * which is also a thing the reader can open and change.
-   */
-  /*
-   * Wider than the project's 1280, because the panel folds itself away below 1440 —
-   * see `CONTEXT_COLLAPSES_BELOW`. At the default width this asserts the responsive
-   * behaviour rather than the panel's content, which is what it is about.
-   */
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto(AGENT_CHAT);
-  const panel = page.getByTestId("chat-agent-context");
-  await expect(panel).toBeVisible({ timeout: 30_000 });
-
-  await test.step("1. it names the template, and the template is a link", async () => {
-    // Not a dead label: every conversation with this agent reads the same template, and
-    // the page behind this link is where that is said before anybody edits it.
-    await expect(page.getByTestId("chat-agent-context-template")).toBeVisible();
-  });
-
-  await test.step("2. the model and the tools, read from that template", async () => {
-    await expect(panel).toContainText("Model");
-    await expect(panel).toContainText("Tools");
-  });
-
-  await test.step("3. and it can be put away, and stays away", async () => {
-    await page.getByTestId("chat-context-collapse").click();
-    await expect(panel).toBeHidden();
-    await expect(page.getByTestId("chat-context-expand")).toBeVisible();
-
-    // Remembered per reader, like the rail: closing it on one conversation and finding
-    // it back on the next is what makes people stop using the control.
-    await page.reload();
-    await expect(page.getByTestId("chat-context-expand")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("chat-context-expand").click();
-    await expect(page.getByTestId("chat-agent-context")).toBeVisible();
   });
 });
 
@@ -567,7 +496,7 @@ test("chat agent rail: only the page you are on is marked as current", async ({ 
 /**
  * Renaming and deleting a conversation from the rail — the surface, not the operation.
  *
- * Both operations are owned by `agents/agent-conversations.spec.ts`, which asserts them
+ * Both operations are owned by `agents/agent-page.spec.ts`, which asserts them
  * against the agent's conversations table: what a name may be, what a rename does to the
  * list, what deleting costs. None of that is repeated here.
  *
@@ -698,5 +627,40 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     await expect(
       page.locator('[data-testid^="chat-session-menu-"]').first(),
     ).toHaveCount(1);
+  });
+});
+
+/**
+ * The rail's own read, failing on its own.
+ *
+ * Moved here from the chat error spec, where it sat among failing *turns*. It is not
+ * one: the conversation and the list of the agent's other conversations fail
+ * independently — `?chat=…` drives the turn, `?mock=…` drives the API — and this is
+ * the list. It belongs beside the rail that shows it.
+ */
+test("chat agent rail: a failed read says so, and is not an empty list", async ({
+  page,
+}) => {
+  await test.step("1. the list says it failed", async () => {
+    // The API scenario, not the chat one: the conversation itself and the list of the
+    // agent's other conversations fail independently, and this is the list.
+    await loadPage(page, AGENT_CHAT, { scenario: "error" });
+
+    const error = page.getByTestId("chat-sessions-error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Could not load conversations");
+  });
+
+  await test.step("2. it is not mistaken for having no conversations", async () => {
+    await expect(page.getByTestId("chat-sessions-empty")).toHaveCount(0);
+  });
+
+  await test.step("3. it recovers", async () => {
+    await page.goto(withScenario(AGENT_CHAT, "ok"));
+    await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
+    // This conversation is in its own rail, marked as the one that is open.
+    await expect(
+      page.getByTestId(`chat-session-${instances.ready}`),
+    ).toBeVisible();
   });
 });

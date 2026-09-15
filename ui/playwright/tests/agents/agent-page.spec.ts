@@ -15,10 +15,17 @@ import {
 import { tick } from "../../helpers/controls";
 
 /**
- * One agent, and the conversations people have had with it.
+ * An agent's own page — the surface between the agents list and a chat.
  *
- * The surface between the agents list and a chat. Three things about it are worth
- * pinning, and each is a claim a screenshot cannot check:
+ * Named for the page rather than for conversations, because a conversation shows up
+ * on three surfaces and only one of them is here: this page's table, the rail on the
+ * chat page, and the transcript in the middle of it. The folder is the surface, so
+ * "which spec owns this" has an answer — see `README.md`. **This file owns renaming
+ * and deleting a conversation**; the rail keeps one test for doing either without
+ * leaving the conversation, which is the only thing that table cannot say.
+ *
+ * Three things about the page are worth pinning, and each is a claim a screenshot
+ * cannot check:
  *
  * - **The list is this agent's conversations, narrowed by the server.** Two agents
  *   cut from one template must not show each other's, and `ListAgentInstances` takes

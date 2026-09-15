@@ -140,6 +140,28 @@ because a convention nothing checks is a convention that regrows as an exception
 3. **Everything that is not a resource sits at the top level** — the shell,
    routing, the dashboard, theme contrast. If it is about the application rather
    than about a thing the application manages, it belongs there.
+
+   **A folder is a surface, not a subject.** `agents/` is the agents list and an
+   agent's own page; `chat/` is the chat page. That distinction is load-bearing
+   because one subject can appear on several surfaces: a *conversation* is listed
+   in a table on the agent's page, listed again in the rail on the chat page, and
+   read as a transcript in the middle of it. Asking "which page is this about" has
+   an answer; asking "which spec owns conversations" does not.
+
+   It was unstated for a while, and the cost was exactly what you would predict:
+   renaming and deleting a conversation ended up asserted in two files, because
+   the surfaces differ and nothing said which one owned the claim. **Where an
+   operation exists on two surfaces, one owns it and the other asserts only what
+   is different about reaching it there** — the agent's table owns conversation
+   rename and delete; the rail keeps one test for doing either without leaving the
+   conversation.
+
+   **A journey between surfaces lives with the one it starts from.**
+   `agents/agent-chat-entry.spec.ts` covers getting from the list to a
+   conversation, and it is in `agents/` because that is where the reader starts.
+   It exists at all because every other spec deep-links into the chat page, which
+   tests the chat and cannot test that anything *links* to it — and for a while
+   nothing did, with the suite green throughout.
 4. **Fixture identity comes from `helpers/app.ts`**, not from a UUID pasted into a
    spec. `instances` and `agents` name each fixture for what it is *for*, so a
    changed fixture is one edit. Where a spec needs one the helper has no name for,

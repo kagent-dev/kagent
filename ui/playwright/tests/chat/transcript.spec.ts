@@ -1,5 +1,12 @@
 import { test, expect } from "../../fixtures/test";
-import { SIBLING_OF_READY, agentChat, instances, loadPage } from "../../helpers/app";
+import {
+  SIBLING_OF_READY,
+  agentChat,
+  agentNewChat,
+  agents,
+  instances,
+  loadPage,
+} from "../../helpers/app";
 import {
   beginTurn,
   expectTurnFinished,
@@ -459,4 +466,30 @@ test("chat: a mermaid block renders as a diagram, not as source text", async ({ 
   await expect(diagram).not.toContainText("flowchart TD");
   await expect(diagram).toContainText("Container starts");
   await expect(diagram).toContainText("Kubelet restarts container");
+});
+
+test("chat: opening a conversation puts the caret in its box", async ({ page }) => {
+  /*
+   * Both ways in, because they reach the composer differently and only one of them
+   * could be done declaratively.
+   *
+   * The new-conversation page is two lines of text and one box, so `autoFocus` on
+   * mount is the whole of it. An existing conversation mounts its composer *disabled* —
+   * `canSend` is read from an instance still being fetched — so a focus on mount is a
+   * focus that never happens, and the page waits for the state that enables the box.
+   * That difference is why the second step is not a duplicate of the first.
+   */
+  await test.step("1. a conversation that does not exist yet", async () => {
+    await loadPage(page, agentNewChat(agents.k8s));
+    await expect(page.getByTestId("new-chat-composer")).toBeVisible();
+    await expect(page.getByTestId("chat-input")).toBeFocused();
+  });
+
+  await test.step("2. and one opened from the rail, whose box starts disabled", async () => {
+    await loadPage(page, AGENT_CHAT);
+    // Waited for rather than assumed: this is the transition the effect exists for,
+    // and asserting focus before it would pass on the wrong thing.
+    await expect(page.getByTestId("chat-input")).toBeEnabled({ timeout: 30_000 });
+    await expect(page.getByTestId("chat-input")).toBeFocused();
+  });
 });
