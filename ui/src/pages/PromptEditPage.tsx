@@ -57,7 +57,7 @@ export function PromptEditPage() {
 
     await apiClient.prompts.update(namespace, name, { data: payload.data });
     // Swept rather than re-reading this library alone: an edit changes the list's key
-    // count and tags too. Swallowed — the write has already succeeded.
+    // count and tags too, on whichever surfaces are still mounted.
     await invalidatePrompts().catch(() => {});
     toast.success(`Prompt library ${name} saved`);
     await navigate(detail);

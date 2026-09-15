@@ -89,8 +89,8 @@ export function HarnessNewPage() {
           },
         },
       });
-      // Before navigating, so the tab lands showing it. Swallowed: the write has
-      // already succeeded, and the tab reports its own read failure on arrival.
+      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
       await invalidateHarnesses().catch(() => {});
       navigate(`${paths.agents}?tab=harnesses`);
     } catch (cause: unknown) {

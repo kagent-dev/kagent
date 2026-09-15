@@ -149,8 +149,8 @@ export function McpServerNewPage() {
     setSaving(true);
     try {
       await apiClient.mcpServers.create(toCreateRequest(values));
-      // Before navigating, so the list lands showing it. Swallowed: the write has
-      // already succeeded, and the list reports its own read failure on arrival.
+      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
       await invalidateServers().catch(() => {});
       // Straight to the list, which is where the new server can actually be
       // seen — a success message on a form the user is still looking at proves

@@ -219,7 +219,9 @@ export function AgentTemplateDetailsPage() {
       // copy. The other order shows the values that were just replaced, which reads
       // as a save that did not take. The sweep reaches the list and the agents derived
       // from it, which this page's own read does not.
-      await template.refresh();
+      // Swallowed: `refresh` rethrows, so an unguarded re-read here would land in the
+      // catch below and report a save that succeeded as one that failed.
+      await template.refresh().catch(() => {});
       await invalidateTemplates();
       toast.success(`Agent template ${updated.name} saved`);
       setEditingRef(undefined);
@@ -239,7 +241,7 @@ export function AgentTemplateDetailsPage() {
     );
   }
 
-  /** Back to the list, having re-read it — this page is about an object that is gone. */
+  /** Back to the list — this page is about an object that is gone. */
   async function afterDelete(): Promise<void> {
     await invalidateTemplates();
     // See the note on the same navigation after a create: the list narrows on `ns`, and

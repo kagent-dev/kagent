@@ -720,8 +720,8 @@ export function AgentPage() {
               label="Delete agent"
               outlined
               onDelete={removeAgent}
-              /* The agents list is derived from the template read, so it is swept
-                 before leaving — without it the deleted agent is still listed. */
+              /* The agents list derives its agents from the template read, so it is
+                 swept — though being unmounted here, it re-reads on mount instead. */
               onDeleted={async () => {
                 await invalidateTemplates().catch(() => {});
                 navigate(paths.agents);

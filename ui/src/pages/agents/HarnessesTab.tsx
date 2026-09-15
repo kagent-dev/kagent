@@ -109,7 +109,9 @@ export function HarnessesTab() {
     setFailure(undefined);
     try {
       await apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name);
-      await harnesses.refresh();
+      // Swallowed for the reason the create pages give: the delete has already
+      // succeeded, and `refresh` rethrows into the catch below.
+      await harnesses.refresh().catch(() => {});
     } catch (cause: unknown) {
       setFailure(cause instanceof Error ? cause.message : String(cause));
     } finally {

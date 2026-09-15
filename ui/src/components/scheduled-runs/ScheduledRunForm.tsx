@@ -81,9 +81,8 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
         })).scheduledRun;
       }
       if (!saved) throw new Error("The API returned no schedule.");
-      // Before the caller navigates, so the list and the agent page's section agree
-      // with what was written. Swallowed: the write has already succeeded, and each
-      // surface reports its own read failure when it arrives.
+      // Refreshes any schedule surface still on screen; SWR does not fetch a key with
+      // no mounted subscriber, so what the caller navigates to re-reads on mount.
       await invalidateSchedules().catch(() => {});
       onSaved(saved);
     } catch (cause) {
