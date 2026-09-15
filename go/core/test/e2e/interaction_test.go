@@ -528,6 +528,7 @@ type interactionFixture struct {
 	client      a2apb.A2AServiceClient
 	instances   apiv1alpha1.AgentInstanceServiceClient
 	checkpoints apiv1alpha1.CheckpointServiceClient
+	system      apiv1alpha1.SystemServiceClient
 	instanceID  string
 	contextID   string
 }
@@ -611,6 +612,7 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 		client:      a2apb.NewA2AServiceClient(conn),
 		instances:   instances,
 		checkpoints: apiv1alpha1.NewCheckpointServiceClient(conn),
+		system:      apiv1alpha1.NewSystemServiceClient(conn),
 		instanceID:  instance.GetId(),
 		contextID:   instance.GetContextId(),
 	}
