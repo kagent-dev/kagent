@@ -19,10 +19,8 @@ import { operationCalls, rpc } from "../../helpers/mockCalls";
 /**
  * MCP servers — the whole life of one, in a single journey.
  *
- * One test rather than several because a video and a trace are recorded per test: a
- * lifecycle split across four of them is one you have to reassemble from four
- * recordings, none of which shows that the state one established is the state the
- * next acted on.
+ * One test, because a video and a trace are recorded per *test* — see
+ * `playwright/README.md`.
  *
  * **There is no update half, and that is the product rather than an omission.**
  * `ToolService` serves create, list and delete and no update: a registered server's
@@ -32,8 +30,7 @@ import { operationCalls, rpc } from "../../helpers/mockCalls";
  * The thing worth pinning on the read is the tool count per server, because it is
  * derived rather than reported: the API returns a server with its discovered tools
  * nested, and the list has to count them. A server that discovered none is the case
- * most likely to be got wrong — an earlier listing of these dropped such a server from
- * the page entirely — so it is asserted explicitly.
+ * most likely to be got wrong, so it is asserted explicitly.
  */
 
 const SEEDED = ["kagent-tool-server", "grafana-mcp", "warehouse-mcp"];

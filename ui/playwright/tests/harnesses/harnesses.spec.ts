@@ -10,15 +10,12 @@ import {
 /**
  * Harnesses — the whole life of one, in a single journey.
  *
- * One test rather than several because a video and a trace are recorded per test: a
- * lifecycle split across two of them is one you have to reassemble from two recordings,
- * neither of which shows that the harness the second deletes is the one the first made.
+ * One test, because a video and a trace are recorded per *test* — see
+ * `playwright/README.md`.
  *
  * **There is no update half.** The tab offers create and delete and no edit, so the
  * journey is create, read back, remove. That is narrower than `HarnessService`, which
- * implements update too — the application has never called it. Worth stating because the
- * opposite mistake was already made here once: this tab was read-only on a note claiming
- * the service was, and the service never was.
+ * implements update too — this application has never called it.
  *
  * ## What the tab exists to say
  *

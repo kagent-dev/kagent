@@ -11,9 +11,8 @@ import {
 /**
  * Agent templates — the whole life of one, in a single journey.
  *
- * One test rather than several because a video and a trace are recorded per test: a
- * lifecycle split across six of them is one you have to reassemble from six recordings,
- * none of which shows that the state one established is the state the next acted on.
+ * One test, because a video and a trace are recorded per *test* — see
+ * `playwright/README.md`.
  *
  * ## The property this spec exists for
  *
@@ -34,9 +33,9 @@ import {
  *
  * ## The second property
  *
- * **Reading a template is not the same act as changing one.** A row used to open the
- * edit form, so looking at a template put the reader in a page of inputs with Save
- * waiting. It now opens a details page with editing as a mode, which is why steps 6 and
+ * **Reading a template is not the same act as changing one.** A row opens a details
+ * page with editing as a mode rather than a page of inputs with Save waiting, which is
+ * why steps 6 and
  * 7 assert the *reading* state as well as the writing one — and why they assert both are
  * the same component, since a separate read-only view is what would drift.
  *
@@ -264,14 +263,11 @@ test("agent templates: a template is created, read, edited and deleted", async (
       "have not been saved",
     );
     /*
-     * Pressed once the prompt has stopped arriving, and then checked that it went.
+     * Pressed once it has stopped arriving, then checked that it went.
      *
-     * Both halves are the fix for a failure that was reported a whole step later. A
-     * click computed while antd is still zooming a modal in lands where the button no
-     * longer is, so the prompt stayed up — and nothing here noticed, because the only
-     * assertion left was `toHaveValue`, which reads a field it does not need to see. The
-     * step passed with a modal over the page, and step 10 then spent sixty seconds
-     * failing to click Save through `.ant-modal-wrap`.
+     * The check earns its place: `toHaveValue` below reads a field it does not need to
+     * see, so without it this step passes with the prompt still over the page and step
+     * 10 spends its whole budget failing to click Save through `.ant-modal-wrap`.
      */
     await pressOnce(page.getByRole("button", { name: "Keep editing" }));
     await expect(page.getByTestId("template-discard-body")).toBeHidden();

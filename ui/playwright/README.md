@@ -75,12 +75,11 @@ playwright/
 ```
 
 The resources with a lifecycle spec are **models**, **MCP servers**, **prompt
-libraries**, **agent templates**, **harnesses** and **schedules**. Two of them are
-narrower than CRUD, and in both cases that is the product rather than a gap: a
-registered MCP server's address is its identity, so `ToolService` serves no update;
-and the harnesses tab offers no edit, though `HarnessService` would take one.
+libraries**, **agent templates**, **harnesses** and **schedules**. Two are narrower
+than CRUD because the product is: an MCP server's address is its identity, so
+`ToolService` serves no update, and the harnesses tab offers no edit.
 
-**Agents are not on that list, because an agent is not created.** An agent is an
+**Agents are not among them, because an agent is not created.** An agent is an
 `AgentTemplate` paired with a `Harness` — it exists the moment a harness admits a
 template — so `agents/` covers what the pairing means rather than a lifecycle.
 
@@ -118,148 +117,92 @@ distinctness and deliberately says nothing about the values.
 
 ## Where a new spec goes
 
-Four rules, so that the file a test lives in is predictable from its name and the
-other way round. Rules 1 to 3 are checked by `playwright/conventions.test.ts`, which
-runs with the unit tests — a convention nothing checks is a convention that regrows
-as an exception, and this one had: `auth/` drifted and nothing said so.
-
-It is a vitest test rather than a lint rule because these are claims about the
-*tree* — which folder a file sits in, how many specs a folder holds — and a lint
-rule sees one file at a time. ESLint enforces two of the **Conventions** below
-instead: the shared fixture import, and antd's class names.
+Four rules. `playwright/conventions.test.ts` checks 1 to 3 alongside the unit tests,
+because they are claims about the *tree* — which folder a file sits in, how many specs
+a folder holds — and a lint rule sees one file at a time. ESLint covers the other two
+conventions below: the shared fixture import, and antd's class names.
 
 1. **One folder per area, and a test title begins with that folder.**
    `models/models.spec.ts` holds `models: …`, and everything in `chat/` begins
-   `chat…` whichever file it is in — so `--grep "^chat"` is the whole area, and a
-   title tells you where to look.
+   `chat…`, so `--grep "^chat"` is the whole area. A file with a narrower subject
+   keeps both halves — `chat agent rail: …` — so the title says the area *and* what
+   in it. A file whose subject is the folder needs no second word.
+2. **A resource's folder holds one spec, holding one test**: that resource's whole
+   life. **Its empty and failure states go last**, because they need `?mock=`, which
+   is per-navigation — so reaching them resets the fixture backend's memory and
+   discards whatever the lifecycle created.
+3. **Everything that is not a resource sits at the top level** — the shell, routing,
+   the dashboard, theme contrast.
 
-   **Where a file covers a narrower subject, it follows the folder rather than
-   replacing it**: `chat agent rail: …`, `chat sharing: …`. Both halves earn their
-   place. Dropping the folder meant `--grep` could not select an area and a title
-   did not say which one it belonged to; dropping the subject cost the sentence
-   its own — "chat: stays clear of the header" has to be reworded to say what
-   stays clear, and "chat agent rail: stays clear of the header" does not. A file
-   whose subject *is* the folder needs no second word.
-2. **A resource's folder holds exactly one spec, holding one test**: that
-   resource's whole life. The resources are models, MCP servers, prompt
-   libraries, agent templates, harnesses and schedules.
-
-   **The empty and failure states go last.** They need the backend answering
-   differently, and `?mock=` is per-navigation — so reaching them resets the
-   fixture backend's memory and discards whatever the lifecycle has created. Run
-   last, after the delete, there is nothing left to discard. `schedules` briefly
-   kept them as a second test on the reasoning that the reset made folding them
-   in impossible; the other five specs had already disproved it.
-3. **Everything that is not a resource sits at the top level** — the shell,
-   routing, the dashboard, theme contrast. If it is about the application rather
-   than about a thing the application manages, it belongs there.
-
-   **A folder is a surface, not a subject.** `agents/` is the agents list and an
-   agent's own page; `chat/` is the chat page. That distinction is load-bearing
-   because one subject can appear on several surfaces: a *conversation* is listed
-   in a table on the agent's page, listed again in the rail on the chat page, and
-   read as a transcript in the middle of it. Asking "which page is this about" has
-   an answer; asking "which spec owns conversations" does not.
-
-   It was unstated for a while, and the cost was exactly what you would predict:
-   renaming and deleting a conversation ended up asserted in two files, because
-   the surfaces differ and nothing said which one owned the claim. **Where an
-   operation exists on two surfaces, one owns it and the other asserts only what
-   is different about reaching it there** — the agent's table owns conversation
-   rename and delete; the rail keeps one test for doing either without leaving the
-   conversation.
-
-   **A journey between surfaces lives with the one it starts from.**
-   `agents/agent-chat-entry.spec.ts` covers getting from the list to a
-   conversation, and it is in `agents/` because that is where the reader starts.
-   It exists at all because every other spec deep-links into the chat page, which
-   tests the chat and cannot test that anything *links* to it — and for a while
-   nothing did, with the suite green throughout.
-4. **Fixture identity comes from `helpers/app.ts`**, not from a UUID pasted into a
-   spec. `instances` and `agents` name each fixture for what it is *for*, so a
-   changed fixture is one edit. Where a spec needs one the helper has no name for,
-   give it a named constant at the top of the file with a comment saying what it
-   stands for — never an inline literal.
+   **A folder is a surface, not a subject**, because one subject appears on several:
+   a conversation is a row on the agent's page, a row in the chat rail, and the
+   transcript between them. "Which page is this about" has an answer; "which spec
+   owns conversations" does not. So **where an operation exists on two surfaces, one
+   owns it** and the other asserts only what differs about reaching it there — the
+   agent's table owns conversation rename and delete, and the rail keeps one test for
+   doing either without leaving the conversation. **A journey between surfaces lives
+   with the one it starts from**: `agents/agent-chat-entry.spec.ts` sits in `agents/`
+   because that is where the reader starts, and it exists because every other spec
+   deep-links into the chat page and so cannot test that anything *links* to it.
+4. **Fixture identity comes from `helpers/app.ts`**, not a UUID pasted into a spec.
+   `instances` and `agents` name each fixture for what it is *for*, so a changed
+   fixture is one edit. Where a spec needs one the helper has no name for, give it a
+   named constant at the top of the file saying what it stands for — never an inline
+   literal.
 
 ## Conventions
 
-- **Import `{ test, expect }` from `../fixtures/test`.** That fixture fails any
-  test where the app logged an error or threw, which is how a spec can trust its
-  own green — a page can satisfy every assertion while throwing in an effect.
-  Deliberate noise (the 500 the error scenario provokes) is filtered there, in
-  one place, with a reason.
-- **One spec per resource, holding one test: that resource's whole life.** Create
-  it, read it back, change it, delete it, and the empty and failure states around
-  those — all in one `test`, each criterion a numbered `test.step`. Playwright
-  records one video and one trace per *test*, so a lifecycle split across four of
-  them is one you have to reassemble from four recordings, none of which shows
-  that the thing the delete removed is the thing the create made.
+- **Import `{ test, expect }` from `../fixtures/test`.** That fixture fails any test
+  whose page logged an error or threw, which is what lets a spec trust its own green —
+  a page can satisfy every assertion while throwing in an effect. Deliberate noise is
+  filtered there, in one place, with a reason.
+- **One spec per resource, holding one test: that resource's whole life.** Create it,
+  read it back, change it, delete it, and the empty and failure states around those —
+  one `test`, each criterion a numbered `test.step`. Playwright records one video and
+  one trace per *test*, so a lifecycle split across four of them is one you have to
+  reassemble from four recordings, none of which shows that the thing the delete
+  removed is the thing the create made.
 
-  The trade is deliberate: a step that fails stops the ones after it, so a broken
-  create hides whether delete works. That is the right way round here — a resource
-  whose create is broken is broken, and the recording shows where it stopped.
-
-  This replaced a `<area>.spec.ts` / `<area>-errors.spec.ts` pair per area, plus
-  four cross-cutting specs (`forms/required-fields`, `lists/list-filters`,
-  `refresh-toast`, `mcp-servers/row-interaction`) that each asserted one property
-  across five pages. Those properties now sit in the journey of the resource they
-  are about, which costs one page load instead of five and puts the claim where
-  somebody changing that page will see it.
-- **Keep the writes in one browsing context.** The fixture backend keeps writes in
-  the page's own memory, so a `page.goto` starts a backend that has never heard of
-  the thing just created — and the failure reads as "the create did not stick"
-  when nothing is wrong. Click through from the list once the journey has written
-  something.
+  The trade is deliberate: a failed step stops the ones after it, so a broken create
+  hides whether delete works. That is the right way round — a resource whose create is
+  broken is broken, and the recording shows where it stopped.
+- **Keep the writes in one browsing context.** The fixture backend keeps writes in the
+  page's own memory, so a `page.goto` starts a backend that has never heard of the
+  thing just created, and the failure reads as "the create did not stick" when nothing
+  is wrong. Click through from the list instead.
 - **A lifecycle gets a longer budget than a journey.** Each resource spec sets
-  `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })`. Per file, not across
-  the suite: the thirty-second default is load-bearing everywhere else, where a
-  mock-backed page that needs longer is stuck rather than merely long.
-- **Prefer roles and test ids over prose.** Most of these pages are still going to
-  be rebuilt; a spec anchored to copy will not survive that, and one anchored to
-  `nav-agents` or `getByRole("row")` will. `schedules` used to be the counter-example
-  — ported with ninety label and button-copy selectors against seventeen ids — and is
-  now the illustration instead: the pages grew ids for their own controls, and the
-  five prose selectors left are data, a validation message, and two labelled
-  checkboxes.
+  `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })`. Per file, not across the
+  suite: the thirty-second default is load-bearing everywhere else, where a
+  mock-backed page needing longer is stuck rather than merely long.
+- **Prefer roles and test ids over prose.** Most of these pages are still going to be
+  rebuilt; a spec anchored to copy will not survive that, and one anchored to
+  `nav-agents` or `getByRole("row")` will.
 
   **Drive by test id, assert on text.** A `data-testid` reached with `getByTestId` —
-  not the HTML `id`, which is a different attribute and is the page's rather than
-  ours. antd generates one per form control from `Form.Item`'s `name`, and that is
-  what `getByLabel` resolves through, so a spec leaning on it is coupled to both the
-  label's wording *and* a field name it never chose.
-
-  The test id says which control; the words are usually what the test is actually
-  about. `schedule-pause` is the clearest case — one button whose label flips between
-  Pause and Resume, so selecting it by name asks for two different controls that are
-  the same control, while `getByTestId("schedule-pause")` lets the label be the
-  assertion instead.
+  not the HTML `id`, which is a different attribute and the page's rather than ours.
+  antd generates one per form control from `Form.Item`'s `name`, and that is what
+  `getByLabel` resolves through, so a spec leaning on it is coupled to both the
+  label's wording *and* a field name it never chose. The id says which control; the
+  words are usually what the test is about. `schedule-pause` is one button whose label
+  flips between Pause and Resume — the id selects it, and the label is free to be the
+  assertion.
 - **Reach for antd's own class names only inside `helpers/`.** `.ant-popconfirm`,
   `.ant-select-item-option`, `.ant-modal` and friends are that library's internals,
   and an upgrade that renames one should be a change to a helper rather than to a
-  dozen specs. `chooseFilter`, `confirmDelete` and `pressUntil` exist for the three
-  that come up most.
-- **Press buttons *inside* a dialog with `pressUntil`, not `click`** — and click the
-  trigger that opens one exactly once, because a popconfirm's trigger is a toggle and
-  retrying it closes what the first press opened. antd animates a modal
-  and a popconfirm in, and a click that lands while one is still arriving is
-  dropped — often enough on Firefox under a loaded run to have been this suite's
-  largest source of flake. It fails as "the dialog would not close" rather than as
-  a missed click, which is why it costs an afternoon each time.
+  dozen specs. `chooseFilter`, `confirmDelete` and `pressOnce` exist for the ones that
+  come up most.
+- **Press a dialog's button with `pressOnce`, not `click`.** antd animates a modal and
+  a popconfirm in, and Playwright can compute a click's coordinates while one is still
+  arriving — measured once at 238px left and 224px below the button, on the backdrop,
+  with the button itself never having moved. Its stability check compares two animation
+  frames, and a starved main thread serves both from the same frame of the animation;
+  `pressOnce` samples on a clock instead.
 
-  What that costs, measured: on one captured run the click landed 238px left and 224px
-  below the button it was aimed at, on the backdrop — with the button in the same place
-  before the click and after it. Playwright does wait for an element to hold still, but
-  it compares two animation frames, and a starved main thread serves both from the same
-  frame of the animation.
-- **Reach for `pressOnce` first; `pressUntil` needs a reason.** `pressOnce` waits for the
-  dialog to stop moving and presses once, which fixes the cause above without a retry.
-  Retrying needs a button that can be pressed twice *and* a page underneath that can take
-  a stray click — because a retry that goes out after the dialog has closed lands on
-  whatever was behind it. Tried in four more places at once, that turned three specs which
-  had been clean for five full runs into one failure in six to one in three: a popconfirm
-  sits over its own trigger, so the stray click reopened what the first had closed; a
-  modal over a conversation list put the stray click on a row link and navigated the test
-  off the page it was asserting on.
+  **`pressUntil` retries rather than waiting, and needs an argument for why that is
+  safe here.** Retrying wants a button that can be pressed twice *and* a page
+  underneath that can take a stray click, because a retry going out after the dialog
+  has closed lands on whatever is behind it — a popconfirm sits over its own trigger,
+  and a modal usually sits over a list of links.
 - **Assert against the list a user would read**, not against a toast or a closed
   modal. A success message proves the app thinks it worked.
 

@@ -770,19 +770,14 @@ export function AgentChatPage() {
           — and find it away next time rather than having to close it on every
           conversation.
 
-          Present from the first frame, and only its *contents* wait for the instance.
-
-          The whole of this used to be `{instance.data ? … : null}`, and the conversation
-          moved when the read landed: the control is forty pixels of this flex row, so
-          the transcript beside it was laid out that much wider and then shifted twenty
-          pixels left the moment the record arrived. Two reads race on this page — the
-          A2A history draws the messages, this one draws the panel — so the jump landed
-          after the conversation was already on screen and readable, and on a loaded
-          machine it could land seconds later.
-
-          Which is the fault the panel below already avoids by sliding to zero width
-          rather than unmounting. The same reasoning, one element further out: hold the
-          space, and let what goes in it arrive when it arrives.
+          Present from the first frame, with only its *contents* waiting for the
+          instance read. This column is forty pixels of the flex row and the panel is
+          248 more, so gating it on that read lays the conversation out wider and then
+          shifts it sideways when the record lands — and two reads race here, the A2A
+          history drawing the messages and this one the panel, so it lands after the
+          conversation is already on screen and readable. Which is the fault the panel
+          below avoids by sliding to zero width rather than unmounting: hold the space,
+          and let what goes in it arrive when it arrives.
 
           The control holding it is one button that stays put and changes its icon,
           mirroring the rail's across the transcript.

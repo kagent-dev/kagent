@@ -115,11 +115,9 @@ test("agents: a conversation is named by the reader, and never renders as a bare
 
   await test.step("3. renaming one changes what the list shows", async () => {
     /*
-     * Both clicks pressed until they take. This test was the suite's last standing
-     * flake — it failed two runs in eight, always here, because the rename dialog
-     * animates in and a click aimed at it mid-transition is dropped. The report was
-     * "the list never showed the new name", which points at the save rather than at
-     * the press that never landed.
+     * Both clicks pressed until they take: the rename dialog animates in, and a click
+     * aimed at it mid-transition is dropped. That reports as "the list never showed the
+     * new name", which points at the save rather than at the press that never landed.
      */
     const rename = page.getByTestId("conversation-rename-input");
     await pressUntil(page.getByTestId(`conversation-rename-${instances.suspended}`), () =>
@@ -468,12 +466,10 @@ test("agents: deleting an agent says what goes with it, and takes both halves", 
      * finding its prompt: `confirmation` scopes to the open one, because every row
      * carries a delete and an unscoped match answers a prompt nobody is looking at.
      *
-     * Pressed once the prompt has stopped moving, which is what this line used to claim
-     * and not do. A popconfirm zooms in like a modal, and a click computed while it is
-     * still arriving lands where it no longer is — measured twice in twelve under a
-     * loaded run, both times as this step timing out with the confirmation still up and
-     * the address unchanged. Once rather than until it takes: a retry would go out after
-     * the prompt had closed, onto the agent list underneath it.
+     * Pressed once it has stopped arriving — a popconfirm zooms in like a modal, and a
+     * click computed mid-animation lands where the button no longer is. Once rather than
+     * until it takes: a retry would go out after the prompt closed, onto the list under
+     * it.
      */
     await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
     await page.waitForURL(/\/agents(\?|$)/, { timeout: 30_000 });

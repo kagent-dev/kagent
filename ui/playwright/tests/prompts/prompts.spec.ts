@@ -22,10 +22,8 @@ import { operationCallCounts, rpc } from "../../helpers/mockCalls";
 /**
  * Prompt libraries — the whole life of one, in a single journey.
  *
- * One test rather than several because a video and a trace are recorded per test: a
- * lifecycle split across four of them is one you have to reassemble from four
- * recordings, none of which shows that the state one established is the state the next
- * acted on.
+ * One test, because a video and a trace are recorded per *test* — see
+ * `playwright/README.md`.
  *
  * ## The two things a fragment list has that other resources do not
  *
@@ -275,8 +273,6 @@ test("prompts: a library is created, read, changed and deleted", async ({
       await leave.click();
       await expect(page.getByTestId("prompt-discard-body")).toBeVisible();
 
-      // This flake predates the merge into this journey — the old
-      // `prompt-editing.spec.ts` carried the same loop and failed the same way.
       await pressUntil(page.getByRole("button", { name: "Keep editing" }), async () => {
         await expect(page.getByTestId("prompt-discard-body")).toBeHidden();
       });

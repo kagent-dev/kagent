@@ -7,9 +7,9 @@ const SERVER_KEYS = ["mcpServers.list", "tools.list"];
 /**
  * Re-reads every MCP server list on screen.
  *
- * A key sweep rather than `useMcpServers().refresh()`, which is what the create page
- * used to do: that subscribes the form to a list it never renders, so opening "New MCP
- * server" issued a read of every server purely to have something to call `refresh` on.
+ * A key sweep rather than `useMcpServers().refresh()`, which would subscribe the create
+ * form to a list it never renders — issuing a read of every server purely to have
+ * something to call `refresh` on.
  *
  * Resolves once the re-reads have landed, so a caller can await it before navigating.
  */

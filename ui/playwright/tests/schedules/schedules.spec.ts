@@ -5,13 +5,10 @@ import { LIFECYCLE_TIMEOUT, optionNamed, pressUntil } from "../../helpers/resour
 /**
  * Schedules — the whole life of one, in a single journey.
  *
- * One test rather than the twelve this used to be. A video and a trace are recorded per
- * test, so a lifecycle split across a dozen of them is one you have to reassemble from a
- * dozen recordings, none of which shows that the schedule the delete removes is the one
- * the create made. Most of those twelve also re-navigated to the same fixture schedule
- * and re-asserted the same page, which cost a page load each and said nothing new.
+ * One test, because a video and a trace are recorded per *test* — see
+ * `playwright/README.md`.
  *
- * ## What is distinctive about this resource, and therefore what is kept
+ * ## What is distinctive about this resource, and therefore what is covered
  *
  * **A schedule is the only resource here that runs.** So the journey covers pausing one,
  * invoking it by hand while paused, and reading the execution it produced — none of which
@@ -404,13 +401,11 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       .getByRole("button", { name: `Delete schedule ${RENAMED}`, exact: true })
       .click();
     /*
-     * Pressed until it takes, and this is the site that most needed it: the Delete click
-     * was being dropped on Firefox often enough that this step failed three runs in five,
-     * always as "the page never navigated" rather than as a missed click. See
-     * `pressUntil`.
+     * Pressed until it takes: a Delete click dropped on Firefox reports as "the page
+     * never navigated" rather than as a missed click. See `pressUntil`.
      *
-     * Deleting leaves for the list, which is where the reader can act next: this page is
-     * now about a schedule that is gone — so the navigation is what proves the press
+     * Deleting leaves for the list, which is where the reader can act next — this page
+     * is now about a schedule that is gone — so the navigation is what proves the press
      * landed.
      */
     await pressUntil(

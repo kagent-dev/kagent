@@ -5,10 +5,8 @@ plus a good deal it did not have: a lifecycle spec per resource, routing, auth, 
 two extension-point specs. The rest is listed here rather than committed as skipped
 tests, because a skipped or vacuous spec reads as coverage and this list does not.
 
-The per-area `<area>.spec.ts` / `<area>-errors.spec.ts` pairs this file refers to in
-places are gone — each resource is now one spec holding one test, its failure states
-among the steps. Where an entry below names a spec that no longer exists under that
-filename, the coverage moved rather than went; `README.md` has the current layout.
+Where an entry below names a spec that no longer exists under that filename, the
+coverage moved rather than went; `README.md` has the current layout.
 
 Each entry names the surface that has to exist before the spec can assert
 anything real. In every case the data layer is already in place — what is
@@ -32,80 +30,19 @@ and four *distinguishable* contributions, so per-message context is proven rathe
 than assumed. Every extension point the app declares now has a runtime
 assertion.
 
-## Mostly no longer deferred: client-side form validation
+## Covered: form validation, and every resource's lifecycle
 
-Each resource's lifecycle spec asserts its own form's gate, in the create step: that
-the submit is refused while a required field is empty, that the refusal names the
-field, and that the address stays on the form. Each also asserts the *marks* against
-the gate — which fields carry an asterisk and which must not — because antd draws the
-mark from `required` on a `Form.Item` while every form here gates its submit in code,
-so the two are separate statements about the same field. They had already come apart
-twice.
-
-`helpers/resource.ts` holds `expectRequired`, which takes both lists so a call site
-reads as the claim it is making. A check of the marks alone would pass on a form that
-marked every field.
+Each resource's lifecycle spec asserts its own form's gate in the create step — the
+submit refused while a required field is empty, the refusal naming the field, the
+address staying on the form — and checks the required *marks* against that gate with
+`expectRequired`. antd draws the mark from `required` on a `Form.Item` while these
+forms gate their submit in code, so the two are separate statements about the same
+field and only a test keeps them agreeing.
 
 **What is still missing is the agent form, because there is no agent form.** An agent
 is an `AgentTemplate` paired with a `Harness` and is not created, so the old
 "declarative agent create blocks submit" assertion has no page to run against. If a
-create-an-agent surface ever lands, its validation belongs in that change.
-
-## No longer deferred: the lifecycle half
-
-**Every resource now has one, and this section records what the old reasoning got
-wrong, because the same argument will be made again.**
-
-The write half used to be deferred to a live cluster on the grounds that "a create
-that posts to a mock proves the mock". That is true of the *controller contract* and
-false of everything this suite exists for. What a mock-backed lifecycle checks is
-whether the form gates its own submit, whether the list is re-read after a write,
-whether an edit changes a row rather than adding one, and whether a delete leaves the
-rest of the table alone — none of which is a claim about the backend, and all of which
-had at least one page getting it wrong.
-
-The fixture backend was already built for this: `src/mocks/state.ts` records writes
-precisely so the reads afterwards can contradict the form, and its own header says a
-create that reports success over a list that stays empty "is its own kind of lie".
-
-Each resource is one spec holding one test, because a video and a trace are recorded
-per test. See `README.md` for the shape and for the two things that cost time to
-rediscover (stay inside one browsing context; a lifecycle needs a longer budget than a
-journey).
-
-### And the defect that was waiting on it
-
-This file used to say that a created prompt library, model configuration or MCP server
-did not appear on its list until the reader pressed Refresh, because `AgentTemplateNewPage`
-refreshed its list after a create and `PromptNewPage`, `ModelNewPage` and
-`McpServerNewPage` did not. It called that a shipping defect rather than a regression,
-declined to fix it inside a large port, and said: *"The journey for those three belongs
-in the change that fixes them, where it is what proves the fix, rather than sitting red
-in the suite describing a known bug."*
-
-That is what happened. `PromptNewPage` had been fixed in the meantime; `ModelNewPage`,
-`McpServerNewPage` and `HarnessNewPage` now re-read their list before navigating, and the
-create steps of `models.spec.ts`, `mcp-servers.spec.ts` and `harnesses.spec.ts` are what
-proves it — each asserts the new row off the list rather than off a toast, and each failed
-against the unfixed page.
-
-`HarnessNewPage` was a fourth instance nobody had counted, and it is the one worth
-remembering, because it failed *intermittently*: the harnesses tab is keyed
-`["harnesses.listAll", …]` and SWR's revalidate-on-mount sometimes beat the stale render
-and sometimes did not. It passed in isolation and failed under a loaded parallel run,
-which is the reading that sends somebody hunting a flaky test instead of a real bug. Its
-two readers are keyed differently, so the fix is a key sweep — `useInvalidateHarnesses`,
-the same shape as `useInvalidatePrompts` — rather than a `refresh()` the create page
-cannot address.
-
-Two things the fix is worth remembering for. The defect was invisible to the old specs
-because they only ever opened `/models/new` cold, where there is no cached list to be
-stale; it needed a journey that had *already read the list* to show up at all. And it
-was found by the console guard in `fixtures/test.ts` on the way: opening the provider
-picker for the first time in this suite surfaced a duplicate React key, because
-`models.providers` concatenates the stock providers with the operator's configured ones
-and the fixtures deliberately model an OpenAI-compatible proxy reported as
-`type: "OpenAI"`. Two options, same value, same key. Deduped in `ModelForm`.
+create-an-agent surface lands, its validation belongs in that change.
 
 ## Not started by request
 
@@ -114,9 +51,8 @@ contract is not frozen; the team lead will ask for these once it lands.
 
 ## Ported since: MCP servers and prompt libraries
 
-`mcp-servers/mcp-servers.spec.ts` and `prompts/prompts.spec.ts` are live. They were two
-files each — a success journey and an error one — and are now one lifecycle apiece; the
-failure states are steps of it.
+`mcp-servers/mcp-servers.spec.ts` and `prompts/prompts.spec.ts` are live: one lifecycle
+spec apiece, with the failure states among the steps.
 
 **These were listed above as blocked on pages that did not exist. The pages did
 exist** — `McpServersPage`, `PromptsPage` and `PromptDetailPage` are all real, and were

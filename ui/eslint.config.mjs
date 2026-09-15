@@ -43,8 +43,7 @@ export default tseslint.config(
    * The browser suite's conventions, enforced rather than only written down.
    *
    * `playwright/README.md` states these; a convention nothing checks is one that
-   * regrows as an exception, and each of the three below had already regrown at
-   * least once by the time it was noticed.
+   * regrows as an exception.
    */
   {
     files: ["playwright/tests/**/*.spec.ts"],
@@ -71,13 +70,12 @@ export default tseslint.config(
            * Deliberately not every `.ant-` class. A spec sometimes has to reach for a
            * table or a tag that nothing wraps yet, and banning those outright would
            * only teach people to write the disable comment. These have a real
-           * alternative, and each had already regrown as an inline copy: the option
+           * alternative — a helper that already holds the knowledge: the option
            * picker in five specs, the popconfirm in three, the spinner in three.
            *
            * `popover` is in the list because a popconfirm *is* one — antd renders it
-           * as `<div class="ant-popover ant-popconfirm">` — so two inline copies of
-           * the exact thing this rule was written to catch sat under it unreported.
-           * A guard that names one of a component's two class names catches half of it.
+           * as `<div class="ant-popover ant-popconfirm">`, and a guard naming one of a
+           * component's two class names catches half of it.
            */
           selector:
             "Literal[value=/\\.ant-(popconfirm|popover|modal|select-item-option|spin-spinning)/]",

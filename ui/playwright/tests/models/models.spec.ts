@@ -21,32 +21,14 @@ import { operationCalls, rpc } from "../../helpers/mockCalls";
 /**
  * Model configurations — the whole life of one, in a single journey.
  *
- * ## Why one test rather than several
+ * One test, because a video and a trace are recorded per *test* — see
+ * `playwright/README.md` for the shape and the trade it makes.
  *
- * Playwright records one video and one trace per *test*, so a resource split across
- * several tests is a resource whose failure you have to reassemble from several
- * recordings — none of which shows that the state one test established is the state
- * the next one acted on. The lifecycle is the thing worth watching, so it is one
- * test: create, read it back, change it, delete it, and the failure and empty states
- * around them.
- *
- * The trade is deliberate and worth stating: a step that fails stops the ones after
- * it, so a broken create hides whether delete works. That is the right way round for
- * this suite — a resource whose create is broken is broken, and the recording shows
- * where it stopped.
- *
- * ## What used to be somewhere else
- *
- * The create half was deferred to a live cluster on the reasoning that "a create that
- * posts to a fixture proves the fixture". That is true of the *controller* contract
- * and false of everything this suite exists for: whether the form gates its submit,
- * whether the list is re-read after a write, whether a delete leaves the rest of the
- * table alone. The mock records writes (`src/mocks/state.ts`) precisely so the reads
- * afterwards can contradict the form — which is what steps 6, 8 and 10 rely on.
- *
- * Three cross-cutting specs folded in here rather than asserting the same page from
- * their own files: the required-field marks (step 5), the refresh confirmation
- * (step 3) and the filter-in-the-address behaviour (step 4).
+ * The fixture backend records writes (`src/mocks/state.ts`) so the reads afterwards
+ * can contradict the form, which is what steps 6, 8 and 10 rely on. Three claims that
+ * would otherwise each cost their own page load are steps here rather than files of
+ * their own: the required-field marks (5), the refresh confirmation (3) and the
+ * filter in the address (4).
  */
 
 /** The four seeded configurations, which is what "nothing narrowed" has to mean. */
