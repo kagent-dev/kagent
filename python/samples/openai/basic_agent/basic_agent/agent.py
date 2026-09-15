@@ -99,25 +99,29 @@ agent_card = ParseDict(
     AgentCard(),
 )
 
-config = KAgentConfig()
 
-# Create KAgent app
-app = KAgentApp(
-    agent=agent,
-    agent_card=agent_card,
-    config=config,
-)
-
-
-# Build the FastAPI application
-fastapi_app = app.build()
+def build_app():
+    """Build the basic OpenAI agent ASGI application."""
+    return KAgentApp(
+        agent=agent,
+        agent_card=agent_card,
+        config=KAgentConfig(),
+    ).build()
 
 
-if __name__ == "__main__":
+app = build_app()
+
+
+def main():
+    """Run the basic OpenAI agent server."""
     import uvicorn
 
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Basic OpenAI Agent...")
     logger.info("Server will be available at http://0.0.0.0:8080")
 
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8080)
+
+
+if __name__ == "__main__":
+    main()
