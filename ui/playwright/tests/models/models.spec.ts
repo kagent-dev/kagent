@@ -12,7 +12,9 @@ import {
   chooseFilter,
   clickRefresh,
   confirmDelete,
+  confirmation,
   expectRequired,
+  selectOption,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 
@@ -189,8 +191,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
   await test.step("6. a filled-in configuration is created and appears on the list", async () => {
     // The provider is picked by the name a reader sees, which is not the enum the
     // draft stores: `providerDisplayName` turns `AmazonBedrock` into "AWS Bedrock".
-    await page.getByTestId("model-provider").click();
-    await page.locator('.ant-select-item-option[title="Anthropic"]').click();
+    await selectOption(page, "model-provider", "Anthropic");
 
     // The model is an AutoComplete, not a Select — the test id is on the wrapper and
     // the caret goes in the input inside it. Typed rather than picked, because the
@@ -203,8 +204,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
     // addressed as `/name` and never appears on the list — which is why the form
     // marks it required and why this step chooses one rather than leaving the
     // default.
-    await page.getByTestId("model-namespace").click();
-    await page.locator('.ant-select-item-option[title="kagent"]').click();
+    await selectOption(page, "model-namespace", "kagent");
     await page.getByTestId("model-api-key").fill("sk-not-a-real-key");
 
     await page.getByTestId("model-submit").click();
@@ -277,15 +277,15 @@ test("models: a configuration is created, read, changed and deleted", async ({
 
   await test.step("9. deleting asks first, and Keep leaves it alone", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
-    const confirmation = page.locator(".ant-popconfirm:visible");
+    const prompt = confirmation(page);
     // The confirmation names the row. "Delete this model configuration?" is no help
     // in a table of five of them, and *which* is the one question the reader has.
-    await expect(confirmation).toContainText(CREATED);
-    await confirmation.getByRole("button", { name: "Keep" }).click();
+    await expect(prompt).toContainText(CREATED);
+    await prompt.getByRole("button", { name: "Keep" }).click();
     await expect(rowNamed(page, CREATED)).toHaveCount(1);
     // Waited out rather than assumed gone: the dialog stays visible while it animates
     // away, and the next step's click would land on it.
-    await expect(page.locator(".ant-popconfirm:visible")).toHaveCount(0);
+    await expect(prompt).toHaveCount(0);
   });
 
   await test.step("10. confirming removes that row and leaves the rest", async () => {

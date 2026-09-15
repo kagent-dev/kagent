@@ -11,6 +11,7 @@ import {
   LIFECYCLE_TIMEOUT,
   clickRefresh,
   confirmDelete,
+  confirmation,
   expectRequired,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
@@ -189,15 +190,15 @@ test("mcp servers: a server is registered, read and deregistered", async ({
 
   await test.step("9. deleting asks first, and Keep leaves it alone", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
-    const confirmation = page.locator(".ant-popconfirm:visible");
+    const prompt = confirmation(page);
     // The confirmation names the row. "Delete this server?" is no help in a table of
     // four of them, and *which* is the one question the reader has.
-    await expect(confirmation).toContainText(CREATED);
-    await confirmation.getByRole("button", { name: "Keep" }).click();
+    await expect(prompt).toContainText(CREATED);
+    await prompt.getByRole("button", { name: "Keep" }).click();
     await expect(rowNamed(page, CREATED)).toHaveCount(1);
     // Waited out rather than assumed gone: the dialog stays visible while it animates
     // away, and the next step's click would land on it.
-    await expect(confirmation).toHaveCount(0);
+    await expect(prompt).toHaveCount(0);
   });
 
   await test.step("10. confirming removes that row and leaves the rest", async () => {

@@ -10,6 +10,7 @@ import {
 } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
+  anyDialog,
   chooseFilter,
   clickRefresh,
   confirmDelete,
@@ -64,7 +65,7 @@ const fragmentValue = (page: Page, index: number) =>
  */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("prompt libraries: a library is created, read, changed and deleted", async ({
+test("prompts: a library is created, read, changed and deleted", async ({
   page,
 }) => {
   await test.step("1. a loading state precedes the data", async () => {
@@ -283,7 +284,7 @@ test("prompt libraries: a library is created, read, changed and deleted", async 
 
       // Waited out before the next exit is tried: the dialog's overlay outlives the
       // click that dismissed it, and swallows whatever is aimed at the page beneath.
-      await expect(page.locator(".ant-modal-wrap")).toBeHidden();
+      await expect(anyDialog(page)).toBeHidden();
       await expect(page).toHaveURL(/\/edit$/);
       // Kept, not lost — the point of asking. A prompt fragment is prose somebody
       // wrote, which is exactly the thing a silent discard costs most.

@@ -1,6 +1,10 @@
 import { test, expect } from "../../fixtures/test";
 import { dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
-import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
+import {
+  LIFECYCLE_TIMEOUT,
+  confirmation,
+  selectOption,
+} from "../../helpers/resource";
 
 /**
  * Agent templates — the whole life of one, in a single journey.
@@ -129,10 +133,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
 
   await test.step("5. one button makes it admissible, and it saves", async () => {
     await page.getByTestId("template-form-name").fill(CREATED);
-    await page.getByTestId("template-form-model").click();
-    const model = page.locator('.ant-select-item-option[title="default-model-config"]');
-    await expect(model).toBeVisible({ timeout: 30_000 });
-    await model.click();
+    await selectOption(page, "template-form-model", "default-model-config");
 
     // The step that is easiest to miss, and the one that makes a template usable: it
     // applies whatever labels that harness's selector matches on.
@@ -299,10 +300,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
   await test.step("12. confirming removes it, and the list that opens does not show it", async () => {
     // Scoped to the visible popconfirm: every row's confirmation is in the DOM at once,
     // so an unscoped Delete can answer a prompt nobody is looking at.
-    await page
-      .locator(".ant-popconfirm:visible")
-      .getByRole("button", { name: "Delete" })
-      .click();
+    await confirmation(page).getByRole("button", { name: "Delete" }).click();
     await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 30_000 });
 
     // The claim worth making. The list is cached, so landing on it without re-reading

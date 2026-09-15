@@ -12,6 +12,7 @@ import {
 } from "../../helpers/app";
 import { clickRefresh } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
+import { optionNamed } from "../../helpers/resource";
 import { background, settledPaint } from "../../helpers/style";
 
 /**
@@ -176,7 +177,7 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
     // Located by `title` on the option element, not by role: rc-select renders a
     // second, zero-sized `role=listbox` for screen readers, and Playwright resolves
     // it happily and then waits for a visibility that never arrives.
-    await page.locator('.ant-select-item-option[title="analytics"]').click();
+    await optionNamed(page, "analytics").click();
     await page.keyboard.press("Escape");
 
     await expect(page.getByTestId("agents-filters-pill-ns-analytics")).toBeVisible();

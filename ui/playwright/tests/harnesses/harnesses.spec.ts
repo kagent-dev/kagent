@@ -4,6 +4,7 @@ import {
   LIFECYCLE_TIMEOUT,
   confirmDelete,
   expectRequired,
+  selectFirstOption,
 } from "../../helpers/resource";
 
 /**
@@ -124,8 +125,9 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
   });
 
   await test.step("5. an image that is not pinned cannot be submitted", async () => {
-    await page.getByTestId("harness-namespace").click();
-    await page.locator(".ant-select-item-option").first().click();
+    // Any namespace will do: this step is about the image, not about where the harness
+    // lives.
+    await selectFirstOption(page, "harness-namespace");
     await page.getByTestId("harness-name").fill(CREATED);
     await page.getByTestId("harness-worker-pool").fill("kagent-default");
 

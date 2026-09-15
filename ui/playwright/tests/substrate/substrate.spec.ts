@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import { expectSettled, loadPage, routes } from "../../helpers/app";
 import { paint, settledPaint } from "../../helpers/style";
+import { optionNamed } from "../../helpers/resource";
 
 /**
  * Substrate — the inventory, its scope, and the three ways the read can answer.
@@ -210,10 +211,7 @@ test("substrate: the scope narrows what is read, and is carried in the URL", asy
     // portal outside the app's own markup, and `getByRole("option")` also matches the
     // zero-sized accessibility listbox rc-select keeps inside the combobox — which can
     // never be clicked, so a role query here waits for actionability until it times out.
-    await page
-      .locator(".ant-select-item-option")
-      .filter({ hasText: /^kagent$/ })
-      .click();
+    await optionNamed(page, "kagent").click();
 
     await expect(page).toHaveURL(/namespace=kagent/);
     await expect(page.getByTestId("substrate-stat-scope-value")).toHaveText("kagent");

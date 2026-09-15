@@ -116,6 +116,36 @@ satisfy any text assertion. What proves context is per-row is that the
 contributions are **distinguishable from each other** — so that spec asserts
 distinctness and deliberately says nothing about the values.
 
+## Where a new spec goes
+
+Four rules, so that the file a test lives in is predictable from its name and the
+other way round. Two of them are enforced by ESLint (see `eslint.config.mjs`),
+because a convention nothing checks is a convention that regrows as an exception.
+
+1. **One folder per area, and a test title begins with that folder.**
+   `models/models.spec.ts` holds `models: …`, and everything in `chat/` begins
+   `chat…` whichever file it is in — so `--grep "^chat"` is the whole area, and a
+   title tells you where to look.
+
+   **Where a file covers a narrower subject, it follows the folder rather than
+   replacing it**: `chat agent rail: …`, `chat sharing: …`. Both halves earn their
+   place. Dropping the folder meant `--grep` could not select an area and a title
+   did not say which one it belonged to; dropping the subject cost the sentence
+   its own — "chat: stays clear of the header" has to be reworded to say what
+   stays clear, and "chat agent rail: stays clear of the header" does not. A file
+   whose subject *is* the folder needs no second word.
+2. **A resource's folder holds exactly one spec, holding one test**: that
+   resource's whole life. The resources are models, MCP servers, prompt
+   libraries, agent templates, harnesses and schedules.
+3. **Everything that is not a resource sits at the top level** — the shell,
+   routing, the dashboard, theme contrast. If it is about the application rather
+   than about a thing the application manages, it belongs there.
+4. **Fixture identity comes from `helpers/app.ts`**, not from a UUID pasted into a
+   spec. `instances` and `agents` name each fixture for what it is *for*, so a
+   changed fixture is one edit. Where a spec needs one the helper has no name for,
+   give it a named constant at the top of the file with a comment saying what it
+   stands for — never an inline literal.
+
 ## Conventions
 
 - **Import `{ test, expect }` from `../fixtures/test`.** That fixture fails any
@@ -151,7 +181,19 @@ distinctness and deliberately says nothing about the values.
   mock-backed page that needs longer is stuck rather than merely long.
 - **Prefer roles and test ids over prose.** Most of these pages are still going to
   be rebuilt; a spec anchored to copy will not survive that, and one anchored to
-  `nav-agents` or `getByRole("row")` will.
+  `nav-agents` or `getByRole("row")` will. `schedules` is the outlier and is the
+  proof: it is anchored to labels and button copy because it was ported that way,
+  and it is the one resource spec a rewording of the page would break.
+- **Reach for antd's own class names only inside `helpers/`.** `.ant-popconfirm`,
+  `.ant-select-item-option`, `.ant-modal` and friends are that library's internals,
+  and an upgrade that renames one should be a change to a helper rather than to a
+  dozen specs. `chooseFilter`, `confirmDelete` and `pressUntil` exist for the three
+  that come up most.
+- **Press dialog buttons with `pressUntil`, not `click`.** antd animates a modal
+  and a popconfirm in, and a click that lands while one is still arriving is
+  dropped — often enough on Firefox under a loaded run to have been this suite's
+  largest source of flake. It fails as "the dialog would not close" rather than as
+  a missed click, which is why it costs an afternoon each time.
 - **Assert against the list a user would read**, not against a toast or a closed
   modal. A success message proves the app thinks it worked.
 

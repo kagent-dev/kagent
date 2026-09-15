@@ -78,13 +78,51 @@ export async function clickRefresh(page: Page): Promise<void> {
 }
 
 /**
- * Opens a filter's popup and ticks one option by the label the reader sees.
+ * The dropdown an antd Select or AutoComplete opens, and the one option in it.
  *
  * rc-select renders a *second*, invisible `role="listbox"` for screen readers, and
  * `getByRole("option")` resolves to that one and then waits forever for a visibility
  * that never arrives — reporting the option as absent while it is on screen the whole
- * time. Locating `.ant-select-item-option` by its title is what actually points at the
- * row a person clicks.
+ * time. Locating `.ant-select-item-option` is what actually points at the row a person
+ * clicks, and keeping that knowledge here is why specs do not have to hold it.
+ */
+export function optionNamed(page: Page, label?: string): Locator {
+  // Matched on `title`, not on text. antd sets the attribute from the option's label
+  // while the rendered text may carry more — a namespace prefix, a provider icon's
+  // alt — so a text match silently finds nothing and waits out the whole timeout.
+  return page.locator(
+    label === undefined
+      ? ".ant-select-item-option"
+      : `.ant-select-item-option[title="${label}"]`,
+  );
+}
+
+/** Opens a Select by its test id and picks one option by the label a reader sees. */
+export async function selectOption(
+  page: Page,
+  testId: string,
+  label: string,
+): Promise<void> {
+  await page.getByTestId(testId).click();
+  await optionNamed(page, label).click();
+}
+
+/**
+ * The same, where any option will do.
+ *
+ * For a field a form requires but the assertion does not care about — a namespace on a
+ * harness, say, where the point of the step is the image rather than where it lives.
+ */
+export async function selectFirstOption(page: Page, testId: string): Promise<void> {
+  await page.getByTestId(testId).click();
+  await optionNamed(page).first().click();
+}
+
+/**
+ * Opens a filter bar's popup and ticks one option.
+ *
+ * A filter is multi-select, so unlike `selectOption` the popup stays open over the pill
+ * row the caller is about to assert on — hence the confirmation and the Escape.
  */
 export async function chooseFilter(
   page: Page,
@@ -92,14 +130,33 @@ export async function chooseFilter(
   label: string,
 ): Promise<void> {
   await page.getByTestId(filterTestId).click();
-  const option = page.locator(`.ant-select-item-option[title="${label}"]`);
-  await option.click();
-  // The click, confirmed where it happened: a click on a popup that has moved or
-  // closed under it selects nothing, silently, and is reported much later as a pill
-  // that never appeared.
-  await expect(option).toHaveAttribute("aria-selected", "true");
-  // Otherwise the popup covers the pill row the caller is about to assert on.
+  const chosen = optionNamed(page, label);
+  await chosen.click();
+  // The click, confirmed where it happened: a click on a popup that has moved or closed
+  // under it selects nothing, silently, and is reported much later as a pill that never
+  // appeared.
+  await expect(chosen).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Escape");
+}
+
+/**
+ * The confirmation a row's delete opens, and the modal a page-level one opens.
+ *
+ * Scoped to the visible one, which is the part worth having written down: every row's
+ * popconfirm is in the DOM at once, so an unscoped "Delete" can answer a prompt nobody
+ * is looking at — and pass while deleting the wrong resource.
+ */
+export function confirmation(page: Page): Locator {
+  return page.locator(".ant-popconfirm:visible");
+}
+
+export function dialog(page: Page): Locator {
+  return page.locator(".ant-modal:visible");
+}
+
+/** Whether any modal is still on screen, overlay included — see `pressUntil`. */
+export function anyDialog(page: Page): Locator {
+  return page.locator(".ant-modal-wrap");
 }
 
 /**
@@ -116,7 +173,7 @@ export async function chooseFilter(
  *   that is on its way off the page.
  */
 export async function confirmDelete(page: Page, name: string): Promise<void> {
-  const open = page.locator(".ant-popconfirm:visible");
+  const open = confirmation(page);
   await expect(open).toHaveCount(0);
 
   await page.getByTestId(`delete-${name}`).click();

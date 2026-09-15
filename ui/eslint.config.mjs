@@ -38,4 +38,48 @@ export default tseslint.config(
       "@typescript-eslint/no-namespace": "off",
     },
   },
+
+  /*
+   * The browser suite's conventions, enforced rather than only written down.
+   *
+   * `playwright/README.md` states these; a convention nothing checks is one that
+   * regrows as an exception, and each of the three below had already regrown at
+   * least once by the time it was noticed.
+   */
+  {
+    files: ["playwright/tests/**/*.spec.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@playwright/test",
+              importNames: ["test", "expect"],
+              message:
+                "Import { test, expect } from the shared fixture instead — it fails any test where the app logged an error or threw, which is how a spec can trust its own green. Types may still be imported from here.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          /*
+           * The three antd internals a helper already covers.
+           *
+           * Deliberately not every `.ant-` class. A spec sometimes has to reach for a
+           * table or a tag that nothing wraps yet, and banning those outright would
+           * only teach people to write the disable comment. These three have a real
+           * alternative, and each had already regrown as an inline copy: the option
+           * picker in five specs, the popconfirm in three.
+           */
+          selector:
+            "Literal[value=/\\.ant-(popconfirm|modal|select-item-option)/]",
+          message:
+            "Use the helper rather than antd's own class: chooseFilter for a select option, confirmDelete for a row's delete, pressUntil for any button inside a modal or popconfirm. See playwright/helpers/resource.ts.",
+        },
+      ],
+    },
+  },
 );
