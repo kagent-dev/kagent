@@ -10,6 +10,58 @@ import (
 
 var immutableGitCommit = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 
+// existingGitSkill reports whether destination already contains a materialized
+// skill. A destination without a regular SKILL.md is not safe to treat as a
+// completed download, because Run would otherwise continue with an unusable
+// skill after a partial initialization.
+func existingGitSkill(destination string) (bool, error) {
+	_, err := os.Lstat(destination)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect git destination: %w", err)
+	}
+	if err := validateGitSkill(destination); err != nil {
+		return false, fmt.Errorf("existing git destination is not a skill: %w", err)
+	}
+	return true, nil
+}
+
+// validateGitSkill verifies that destination is a materialized skill. Unlike
+// existingGitSkill, it treats a missing destination as an error because it is
+// used for the staged tree immediately before publication.
+func validateGitSkill(destination string) error {
+	info, err := os.Lstat(destination)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("destination does not exist")
+	}
+	if err != nil {
+		return fmt.Errorf("inspect destination: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("destination is a symbolic link")
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("destination is not a directory")
+	}
+
+	skill, err := os.Lstat(filepath.Join(destination, "SKILL.md"))
+	if os.IsNotExist(err) {
+		return fmt.Errorf("SKILL.md is required")
+	}
+	if err != nil {
+		return fmt.Errorf("inspect SKILL.md: %w", err)
+	}
+	if skill.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("SKILL.md is a symbolic link")
+	}
+	if !skill.Mode().IsRegular() {
+		return fmt.Errorf("SKILL.md is not a regular file")
+	}
+	return nil
+}
+
 // CloneGit fetches a single git ref into ref.Dest. All user-controlled
 // strings (URL, Ref, SubPath) are passed to git as separate argv entries via
 // exec.Command — they never pass through a shell, so metacharacters in any of
@@ -22,26 +74,104 @@ var immutableGitCommit = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$
 // SubPath, if set, rewrites the destination so the final layout matches the
 // requested in-repo subdirectory.
 func CloneGit(ref GitRef) error {
+	destination, err := filepath.Abs(ref.Dest)
+	if err != nil {
+		return fmt.Errorf("resolve git destination: %w", err)
+	}
+	// A SubPath destination is always rebuilt: a legacy failed applySubPath
+	// leaves a root SKILL.md that is indistinguishable from valid completion.
+	// The old destination is preserved until the staged replacement validates.
+	if ref.SubPath == "" {
+		exists, err := existingGitSkill(destination)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
+	}
+
+	staged, err := os.MkdirTemp(filepath.Dir(destination), ".skill-clone-*")
+	if err != nil {
+		return fmt.Errorf("create staged git destination: %w", err)
+	}
+	cleanupStaged := true
+	defer func() {
+		if cleanupStaged {
+			_ = os.RemoveAll(staged)
+		}
+	}()
+
 	if ref.Full {
-		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
+		if err := runGit("clone", "--", ref.URL, staged); err != nil {
 			return err
 		}
 		// `--` separator prevents a ref starting with `-` from being parsed
 		// as a flag. Refs are already validated upstream as 40-char hex when
 		// Full is true, but defense in depth costs nothing.
-		if err := runGitIn(ref.Dest, "checkout", "--", ref.Ref); err != nil {
+		if err := runGitIn(staged, "checkout", "--", ref.Ref); err != nil {
 			return err
 		}
 	} else {
-		if err := runGit("clone", "--depth", "1", "--branch", ref.Ref, "--", ref.URL, ref.Dest); err != nil {
+		if err := runGit("clone", "--depth", "1", "--branch", ref.Ref, "--", ref.URL, staged); err != nil {
 			return err
 		}
 	}
 
 	if ref.SubPath != "" {
-		if err := applySubPath(ref.Dest, ref.SubPath); err != nil {
+		if err := applySubPath(staged, ref.SubPath); err != nil {
 			return fmt.Errorf("apply subPath %q: %w", ref.SubPath, err)
 		}
+	}
+	if err := validateGitSkill(staged); err != nil {
+		return fmt.Errorf("staged git destination is not a skill: %w", err)
+	}
+	if err := os.Chmod(staged, 0o755); err != nil {
+		return fmt.Errorf("set staged git destination permissions: %w", err)
+	}
+	if err := replaceGitDestination(staged, destination); err != nil {
+		return err
+	}
+	cleanupStaged = false
+	return nil
+}
+
+// replaceGitDestination publishes staged after the new tree is complete. An
+// existing destination is moved aside first, so a failed publication can be
+// rolled back and valid data is never removed before the replacement is ready.
+func replaceGitDestination(staged, destination string) error {
+	parent := filepath.Dir(destination)
+	backup, err := os.MkdirTemp(parent, ".skill-backup-*")
+	if err != nil {
+		return fmt.Errorf("create git destination backup: %w", err)
+	}
+	if err := os.Remove(backup); err != nil {
+		return fmt.Errorf("prepare git destination backup: %w", err)
+	}
+
+	_, err = os.Lstat(destination)
+	destinationExists := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("inspect git destination: %w", err)
+	}
+	if destinationExists {
+		if err := os.Rename(destination, backup); err != nil {
+			return fmt.Errorf("backup git destination: %w", err)
+		}
+	}
+
+	if err := os.Rename(staged, destination); err != nil {
+		if destinationExists {
+			if restoreErr := os.Rename(backup, destination); restoreErr != nil {
+				return fmt.Errorf("publish git destination: %w (restore backup: %v)", err, restoreErr)
+			}
+		}
+		return fmt.Errorf("publish git destination: %w", err)
+	}
+	if destinationExists {
+		// The new destination is installed; backup cleanup is best-effort and
+		// must not turn a successful publication into a reported failure.
+		_ = os.RemoveAll(backup)
 	}
 	return nil
 }
