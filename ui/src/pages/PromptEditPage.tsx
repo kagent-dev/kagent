@@ -66,7 +66,11 @@ export function PromptEditPage() {
      * filter, so refreshing one read would leave whichever list is behind this
      * stale.
      */
-    await invalidatePrompts();
+    // Swallowed: this is the list re-read, not the write. It has already succeeded by
+    // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
+    // through reports a created resource as "not saved", beside a Try again that
+    // re-posts and comes back 409. The list shows its own read error on arrival.
+    await invalidatePrompts().catch(() => {});
     toast.success(`Prompt library ${name} saved`);
     await navigate(detail);
   }

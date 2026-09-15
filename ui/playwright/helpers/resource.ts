@@ -66,7 +66,16 @@ export const LIFECYCLE_TIMEOUT = 60_000;
 export async function pressUntil(
   button: Locator,
   settled: () => Promise<unknown>,
-  timeout = 30_000,
+  /*
+   * Half the tight default, so the helper can still say what happened.
+   *
+   * It was thirty, which is exactly Playwright's own test budget in mock mode — so in
+   * every spec that does not raise it, the test expired first and reported its own
+   * timeout instead of this one's. That is the failure `tick` was fixed for a few lines
+   * below: a message naming the helper and saying nothing about which button, or what
+   * the caller was waiting to see. Fifteen is far past any press that is going to land.
+   */
+  timeout = 15_000,
 ): Promise<void> {
   await expect(async () => {
     if (await button.isVisible()) await button.click();
@@ -75,17 +84,28 @@ export async function pressUntil(
 }
 
 /**
- * Navigates with the backend slowed down, and waits for the spinner it makes visible.
+ * Shows that a list says it is loading, and hands back a responsive backend.
  *
  * The one antd internal the specs still needed, and the reason the lint rule stops short
- * of banning every `.ant-` class: there was nothing to point people at. `?mock=slow`
- * delays each call by 2.5 seconds, which is what makes the loading state observable at
- * all — and what makes it a trap, because the scenario persists for the browsing session
- * and every step after this one pays it until something navigates back to `ok`.
+ * of banning every `.ant-` class: there was nothing to point people at.
+ *
+ * `?mock=slow` delays every call by 2.5 seconds, which is what makes the loading state
+ * observable — and a trap, because the scenario persists for the browsing session. Left
+ * in force it charges 2.5 seconds to every request in every step that follows: measured
+ * at six seconds on the prompts journey alone, whose list fans out one call per
+ * namespace. So this returns to `ok` before handing back.
+ *
+ * What that gives up is the assertion that *this* slow read resolves into data, and it
+ * is worth being clear that the loss is nominal: the claim being made is that a list
+ * says it is loading rather than sitting there looking empty, and every step after this
+ * one reads the same list on a responsive backend anyway. Waiting the slow read out
+ * instead costs the delay twice — once for the read, once for the reset — which is what
+ * the obvious alternative was measured doing.
  */
 export async function expectLoading(page: Page, path: string): Promise<void> {
   await page.goto(withScenario(path, "slow"));
   await expect(page.locator(".ant-spin-spinning")).toBeVisible();
+  await page.goto(withScenario(path, "ok"));
 }
 
 /**

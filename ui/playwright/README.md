@@ -119,8 +119,14 @@ distinctness and deliberately says nothing about the values.
 ## Where a new spec goes
 
 Four rules, so that the file a test lives in is predictable from its name and the
-other way round. Two of them are enforced by ESLint (see `eslint.config.mjs`),
-because a convention nothing checks is a convention that regrows as an exception.
+other way round. Rules 1 to 3 are checked by `playwright/conventions.test.ts`, which
+runs with the unit tests — a convention nothing checks is a convention that regrows
+as an exception, and this one had: `auth/` drifted and nothing said so.
+
+It is a vitest test rather than a lint rule because these are claims about the
+*tree* — which folder a file sits in, how many specs a folder holds — and a lint
+rule sees one file at a time. ESLint enforces two of the **Conventions** below
+instead: the shared fixture import, and antd's class names.
 
 1. **One folder per area, and a test title begins with that folder.**
    `models/models.spec.ts` holds `models: …`, and everything in `chat/` begins
@@ -137,6 +143,13 @@ because a convention nothing checks is a convention that regrows as an exception
 2. **A resource's folder holds exactly one spec, holding one test**: that
    resource's whole life. The resources are models, MCP servers, prompt
    libraries, agent templates, harnesses and schedules.
+
+   **The empty and failure states go last.** They need the backend answering
+   differently, and `?mock=` is per-navigation — so reaching them resets the
+   fixture backend's memory and discards whatever the lifecycle has created. Run
+   last, after the delete, there is nothing left to discard. `schedules` briefly
+   kept them as a second test on the reasoning that the reset made folding them
+   in impossible; the other five specs had already disproved it.
 3. **Everything that is not a resource sits at the top level** — the shell,
    routing, the dashboard, theme contrast. If it is about the application rather
    than about a thing the application manages, it belongs there.

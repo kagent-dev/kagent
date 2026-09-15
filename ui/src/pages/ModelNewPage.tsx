@@ -18,7 +18,11 @@ export function ModelNewPage() {
 
   async function createModel(payload: CreateModelConfigRequest): Promise<void> {
     await apiClient.models.create(payload);
-    await models.refresh();
+    // Swallowed: this is the list re-read, not the write. It has already succeeded by
+    // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
+    // through reports a created resource as "not created", beside a Try again that
+    // re-posts and comes back 409. The list shows its own read error on arrival.
+    await models.refresh().catch(() => {});
     // Straight to the list, where the new configuration can be seen — the row is
     // better evidence than a message on the form the user is still looking at.
     await navigate(paths.models);

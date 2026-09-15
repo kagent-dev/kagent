@@ -425,20 +425,19 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       page.getByTestId("schedule-link-Daily cluster report"),
     ).toBeVisible();
   });
-});
 
-/**
- * The states that need a backend answering differently, which is a different browsing
- * session and therefore cannot be a step of the journey above.
- *
- * A `page.goto` resets the fixture backend's memory, so folding these in would throw away
- * the schedule the lifecycle is holding. They are one test rather than three for the same
- * reason the lifecycle is: one recording of the whole thing.
- */
-test("schedules: the states a reader must not confuse with each other", async ({
-  page,
-}) => {
-  await test.step("1. a read failure is not an empty list", async () => {
+  /*
+   * The states that need the backend answering differently, folded in here rather than
+   * kept as a second test.
+   *
+   * They were split out on the reasoning that a `page.goto` resets the fixture backend
+   * and would throw away the schedule the lifecycle is holding. True, and beside the
+   * point once they run *last*: by here the schedule has been deleted and there is
+   * nothing left to lose. `models`, `mcp-servers` and `prompts` all end the same way,
+   * and this file reading differently from them was the contradiction rather than the
+   * reset.
+   */
+  await test.step("17. a read failure is not an empty list", async () => {
     await page.goto("/schedules?mock=error");
     await expect(page.getByTestId("schedules-error")).toContainText(
       "Could not load schedules",
@@ -448,12 +447,12 @@ test("schedules: the states a reader must not confuse with each other", async ({
     await expect(page.getByTestId("schedules-empty")).toHaveCount(0);
   });
 
-  await test.step("2. and an empty list says so plainly", async () => {
+  await test.step("18. and an empty list says so plainly", async () => {
     await page.goto("/schedules?mock=empty");
     await expect(page.getByTestId("schedules-empty")).toBeVisible();
   });
 
-  await test.step("3. a link held from before a delete still opens, and says what it is", async () => {
+  await test.step("19. a link held from before a delete still opens, and says what it is", async () => {
     // The executions are retained, so the address is not a 404 — and must not render as
     // a live schedule either, or a reader will try to act on one that is gone.
     await page.goto(`/schedules/${RETIRED}?mock=ok`);
@@ -467,10 +466,9 @@ test("schedules: the states a reader must not confuse with each other", async ({
     await expect(page.getByTestId("schedule-meta")).toContainText("Deleted");
   });
 
-  await test.step("4. and it is not offered in the list it was removed from", async () => {
+  await test.step("20. and it is not offered in the list it was removed from", async () => {
     await page.goto("/schedules?mock=ok");
     await expect(
       page.getByTestId("schedule-link-Retired sweep"),
     ).toHaveCount(0);
-  });
-});
+  });});

@@ -24,7 +24,7 @@ import { expect, test } from "../../fixtures/test";
 /** The proxy's start endpoint. Not served by anything, so the SPA fallback answers it. */
 const START = "/oauth2/start";
 
-test.describe("authentication", () => {
+test.describe("auth", () => {
   test("unsecured: the app works, and never redirects", async ({ page }) => {
     // No `?auth=`, which is the default and what mock mode should say: there is no
     // backend to have signed in to.

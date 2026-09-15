@@ -70,7 +70,11 @@ export function AgentTemplateNewPage() {
           spec: specFromDraft(draft),
         },
       });
-      await templates.refresh();
+      // Swallowed: this is the list re-read, not the write. It has already succeeded by
+      // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
+      // through reports a created resource as "not created", beside a Try again that
+      // re-posts and comes back 409. The list shows its own read error on arrival.
+      await templates.refresh().catch(() => {});
       toast.success(`Agent template ${created.name} created`);
       // The address the reader ends up at, with the parameter the list reads. Through
       // `paths.agentTemplates` this was lost twice over: that route is a redirect and

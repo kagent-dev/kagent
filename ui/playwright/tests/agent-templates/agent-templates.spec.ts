@@ -3,6 +3,7 @@ import { dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpe
 import {
   LIFECYCLE_TIMEOUT,
   confirmation,
+  expectRequired,
   selectOption,
 } from "../../helpers/resource";
 
@@ -129,6 +130,23 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-form-problems")).toContainText(
       "model configuration is required",
     );
+
+    /*
+     * And the marks agree with that gate — which this form, of all of them, has to be
+     * checked for. antd draws the asterisk from `required` on a `Form.Item` while
+     * `draftProblems` refuses the submit in code, and the two came apart here first:
+     * the whole agent-template form carried no mark at all while refusing to save
+     * without a model configuration. That is one of the two regressions `expectRequired`
+     * was written for, so leaving this form the only one not using it would be the
+     * worst possible omission.
+     *
+     * Everything else here is genuinely optional, including the system prompt — a
+     * template may take one from its harness instead.
+     */
+    await expectRequired(page, {
+      marked: ["Name", "Model configuration"],
+      unmarked: ["Description", "System prompt"],
+    });
   });
 
   await test.step("5. one button makes it admissible, and it saves", async () => {

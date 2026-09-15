@@ -19,7 +19,11 @@ export function PromptNewPage() {
     await apiClient.prompts.create(payload);
     // Re-read before navigating, so the list lands showing the new library rather
     // than the set that was cached without it.
-    await invalidatePrompts();
+    // Swallowed: this is the list re-read, not the write. It has already succeeded by
+    // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
+    // through reports a created resource as "not created", beside a Try again that
+    // re-posts and comes back 409. The list shows its own read error on arrival.
+    await invalidatePrompts().catch(() => {});
     // Straight to the list, where the new library can actually be seen — a success
     // message on a form the user is still looking at proves less than the row itself.
     await navigate(paths.prompts);

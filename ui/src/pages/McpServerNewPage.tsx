@@ -150,7 +150,11 @@ export function McpServerNewPage() {
     setSaving(true);
     try {
       await apiClient.mcpServers.create(toCreateRequest(values));
-      await servers.refresh();
+      // Swallowed: this is the list re-read, not the write. It has already succeeded by
+      // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
+      // through reports a created resource as "not created", beside a Try again that
+      // re-posts and comes back 409. The list shows its own read error on arrival.
+      await servers.refresh().catch(() => {});
       // Straight to the list, which is where the new server can actually be
       // seen — a success message on a form the user is still looking at proves
       // less than the row itself.
