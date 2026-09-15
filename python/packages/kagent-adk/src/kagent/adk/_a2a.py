@@ -36,6 +36,7 @@ from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
+from ._tool_error_plugin import ToolErrorPlugin
 from .types import AgentConfig
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,9 @@ class KAgentApp:
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
-        self.plugins = plugins if plugins is not None else []
+        # Custom handlers get the first chance to recover. The final fallback turns
+        # unhandled tool errors into responses the model can reason about.
+        self.plugins = [*(plugins or []), ToolErrorPlugin()]
         self.stream = stream
         self.agent_config = agent_config
 
@@ -248,9 +251,9 @@ class KAgentApp:
         )
 
         root_agent = self.root_agent_factory()
+        adk_app = App(name=self.app_name, root_agent=root_agent, plugins=self.plugins)
         runner = Runner(
-            agent=root_agent,
-            app_name=self.app_name,
+            app=adk_app,
             session_service=session_service,
             artifact_service=InMemoryArtifactService(),
         )
