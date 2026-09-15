@@ -353,3 +353,22 @@ will run it").
 **What would close it:** a fixture scenario with a single harness. Worth doing when
 something else needs one; a scenario knob added for one assertion is a second fixture
 backend to keep honest.
+
+## A broken create takes that resource's failure states with it
+
+Each resource spec runs its empty, failure and retry states after the lifecycle, and a
+journey is ordered — so a create that breaks aborts the three steps least likely to be
+broken by the same change. `agent-templates` did exactly that during this port: step 10
+failed and steps 11 to 14 never ran.
+
+The README justifies the position by the fixture reset — reaching those states needs
+`?mock=`, which is per-navigation and discards what the lifecycle created. That is a
+reason they cannot sit in the *middle*; it does not choose an end, because the reload
+starts a fresh backend whichever end they are at.
+
+Moving them first is not the fix either: they would then run against a pristine backend,
+which is not the state they are about, and the lifecycle would start from one a
+navigation had just reset. What actually removes the coupling is a second `test` in the
+same file — one recording for the lifecycle, one for the states, neither able to abort
+the other. That costs `conventions.test.ts` its "one spec, one test" rule, so it is an
+amendment to the convention rather than a reshuffle, and belongs in its own change.
