@@ -41,7 +41,8 @@ func TestCompileSupportedProviders(t *testing.T) {
 			name: "Anthropic gateway",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic"}},
+				// cacheTTL is defaulted to "5m" by the CRD whenever the anthropic block is set.
+				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic", CacheTTL: "5m"}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
 			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
@@ -132,6 +133,8 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeyPassthrough: true}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
+		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
+		{name: "Anthropic cache TTL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{CacheTTL: "1h"}}},
 		{name: "Anthropic relative base URL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "/v1"}}},
 		{name: "Anthropic base URL credentials", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://user:password@example.com"}}},
 		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}}},

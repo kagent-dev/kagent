@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -40,44 +41,8 @@ func (m *AnthropicModel) Name() string {
 // GenerateContent implements model.LLM. Uses only ADK/genai types.
 func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
-		messages, systemPrompt := genaiContentsToAnthropicMessages(req.Contents, req.Config)
-		// Always prefer config model - req.Model may contain the model type ("anthropic") instead of model name
-		modelName := m.Config.Model
-		if modelName == "" {
-			modelName = req.Model
-		}
-		if modelName == "" || modelName == "anthropic" {
-			modelName = "claude-sonnet-4-20250514"
-		}
-		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
-
-		// Build request parameters
-		params := anthropic.MessageNewParams{
-			Model:    anthropic.Model(modelName),
-			Messages: messages,
-		}
-
-		// Set max tokens (required for Anthropic)
-		maxTokens := int64(defaultAnthropicMaxTokens)
-		if m.Config.MaxTokens != nil {
-			maxTokens = int64(*m.Config.MaxTokens)
-		}
-		params.MaxTokens = maxTokens
-
-		// Set system prompt if provided
-		if systemPrompt != "" {
-			params.System = []anthropic.TextBlockParam{
-				{Text: systemPrompt},
-			}
-		}
-
-		// Apply config options
-		applyAnthropicConfig(&params, m.Config)
-
-		// Add tools if provided
-		if req.Config != nil && len(req.Config.Tools) > 0 {
-			params.Tools = genaiToolsToAnthropicTools(req.Config.Tools)
-		}
+		params := buildAnthropicParams(req, m.Config)
+		telemetry.SetLLMRequestAttributes(ctx, string(params.Model), req)
 
 		if stream {
 			runAnthropicStreaming(ctx, m, params, yield)
@@ -87,10 +52,46 @@ func (m *AnthropicModel) GenerateContent(ctx context.Context, req *model.LLMRequ
 	}
 }
 
-func applyAnthropicConfig(params *anthropic.MessageNewParams, cfg *AnthropicConfig) {
+// buildAnthropicParams translates an ADK request into a Messages API request:
+// model, system prompt, conversation, sampling options and tools, plus the
+// prompt-cache breakpoints when cfg enables them.
+func buildAnthropicParams(req *model.LLMRequest, cfg *AnthropicConfig) anthropic.MessageNewParams {
 	if cfg == nil {
-		return
+		cfg = &AnthropicConfig{}
 	}
+	messages, systemPrompt := genaiContentsToAnthropicMessages(req.Contents, req.Config)
+
+	// Always prefer config model - req.Model may contain the model type ("anthropic") instead of model name
+	modelName := cfg.Model
+	if modelName == "" {
+		modelName = req.Model
+	}
+	if modelName == "" || modelName == "anthropic" {
+		modelName = "claude-sonnet-4-20250514"
+	}
+
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(modelName),
+		Messages:  messages,
+		MaxTokens: int64(defaultAnthropicMaxTokens), // required by the Messages API
+	}
+	if cfg.MaxTokens != nil {
+		params.MaxTokens = int64(*cfg.MaxTokens)
+	}
+	if systemPrompt != "" {
+		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
+	}
+	applyAnthropicConfig(&params, cfg)
+	if req.Config != nil && len(req.Config.Tools) > 0 {
+		params.Tools = genaiToolsToAnthropicTools(req.Config.Tools)
+	}
+	if cfg.PromptCaching {
+		markAnthropicCacheBreakpoints(&params, anthropicCacheControl(cfg.CacheTTL))
+	}
+	return params
+}
+
+func applyAnthropicConfig(params *anthropic.MessageNewParams, cfg *AnthropicConfig) {
 	if cfg.Temperature != nil {
 		params.Temperature = anthropic.Float(*cfg.Temperature)
 	}
@@ -99,6 +100,69 @@ func applyAnthropicConfig(params *anthropic.MessageNewParams, cfg *AnthropicConf
 	}
 	if cfg.TopK != nil {
 		params.TopK = anthropic.Int(int64(*cfg.TopK))
+	}
+}
+
+// anthropicCacheControl builds the cache_control marker for the configured
+// retention window. "" or "5m" leaves the TTL unset, which is the API's default
+// 5-minute cache; "1h" opts into the 1-hour cache, which is billed at a higher
+// cache-write rate (see v1alpha3.AnthropicConfig.CacheTTL for the trade-off).
+func anthropicCacheControl(cacheTTL string) anthropic.CacheControlEphemeralParam {
+	control := anthropic.NewCacheControlEphemeralParam()
+	if cacheTTL == string(anthropic.CacheControlEphemeralTTLTTL1h) {
+		control.TTL = anthropic.CacheControlEphemeralTTLTTL1h
+	}
+	return control
+}
+
+// markAnthropicCacheBreakpoints places the prompt-cache breakpoints on a request.
+//
+// The Messages API renders tools, then system, then messages, and caches the
+// prefix up to each breakpoint, so marking the last tool definition, the last
+// system block and the last block of the latest turn keeps the stable head of
+// an agent loop cached while the conversation grows: each call reads the
+// previous prefix from the cache and writes only the new turn. That uses three
+// of the four breakpoints Anthropic allows per request.
+//
+// The conversation breakpoint walks back from the end because a turn can end
+// in a block Anthropic refuses to cache (a thinking block, for which the SDK
+// reports no cache_control slot).
+func markAnthropicCacheBreakpoints(params *anthropic.MessageNewParams, control anthropic.CacheControlEphemeralParam) {
+	if n := len(params.Tools); n > 0 {
+		if slot := params.Tools[n-1].GetCacheControl(); slot != nil {
+			*slot = control
+		}
+	}
+	if n := len(params.System); n > 0 {
+		params.System[n-1].CacheControl = control
+	}
+	for _, message := range slices.Backward(params.Messages) {
+		for _, block := range slices.Backward(message.Content) {
+			if slot := block.GetCacheControl(); slot != nil {
+				*slot = control
+				return
+			}
+		}
+	}
+}
+
+// anthropicUsageToGenai folds Anthropic usage into the GenAI shape.
+//
+// Anthropic reports tokens served from the prompt cache and tokens written to
+// it in their own fields, disjoint from input_tokens, whereas GenAI expects one
+// prompt count with the cached portion as a breakdown of it. Folding them in
+// keeps PromptTokenCount equal to the prompt the model actually saw whether or
+// not caching is on, and CachedContentTokenCount says how much of it was a
+// cache read.
+func anthropicUsageToGenai(usage anthropic.Usage) *genai.GenerateContentResponseUsageMetadata {
+	prompt := usage.InputTokens + usage.CacheReadInputTokens + usage.CacheCreationInputTokens
+	if prompt == 0 && usage.OutputTokens == 0 {
+		return nil
+	}
+	return &genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount:        int32(prompt),
+		CachedContentTokenCount: int32(usage.CacheReadInputTokens),
+		CandidatesTokenCount:    int32(usage.OutputTokens),
 	}
 }
 
@@ -264,14 +328,16 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		inputJSON string
 	})
 	var stopReason anthropic.StopReason
-	var inputTokens, outputTokens int64
+	// message_start carries the input-side counts (including the prompt-cache
+	// breakdown); message_delta carries the final output count.
+	var usage anthropic.Usage
 
 	for stream.Next() {
 		event := stream.Current()
 
 		switch e := event.AsAny().(type) {
 		case anthropic.MessageStartEvent:
-			inputTokens = e.Message.Usage.InputTokens
+			usage = e.Message.Usage
 		case anthropic.ContentBlockStartEvent:
 			idx := int(e.Index)
 			if e.ContentBlock.Type == "tool_use" {
@@ -308,7 +374,7 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 			}
 		case anthropic.MessageDeltaEvent:
 			stopReason = e.Delta.StopReason
-			outputTokens = e.Usage.OutputTokens
+			usage.OutputTokens = e.Usage.OutputTokens
 		}
 	}
 
@@ -338,18 +404,11 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 		}
 	}
 
-	var usage *genai.GenerateContentResponseUsageMetadata
-	if inputTokens > 0 || outputTokens > 0 {
-		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(inputTokens),
-			CandidatesTokenCount: int32(outputTokens),
-		}
-	}
 	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  anthropicStopReasonToGenai(stopReason),
-		UsageMetadata: usage,
+		UsageMetadata: anthropicUsageToGenai(usage),
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: finalParts},
 	}
 	telemetry.SetLLMResponseAttributes(ctx, resp)
@@ -384,20 +443,11 @@ func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params ant
 		}
 	}
 
-	// Build usage metadata
-	var usage *genai.GenerateContentResponseUsageMetadata
-	if message.Usage.InputTokens > 0 || message.Usage.OutputTokens > 0 {
-		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(message.Usage.InputTokens),
-			CandidatesTokenCount: int32(message.Usage.OutputTokens),
-		}
-	}
-
 	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
 		FinishReason:  anthropicStopReasonToGenai(message.StopReason),
-		UsageMetadata: usage,
+		UsageMetadata: anthropicUsageToGenai(message.Usage),
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}
 	telemetry.SetLLMResponseAttributes(ctx, resp)

@@ -347,6 +347,8 @@ func (c *Builder) translateModel(ctx context.Context, resolved *v2translator.Res
 			if spec.TopK > 0 {
 				anthropic.TopK = &spec.TopK
 			}
+			anthropic.PromptCaching = spec.PromptCaching
+			anthropic.CacheTTL = spec.CacheTTL
 		}
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAzureOpenAI:
