@@ -13,6 +13,9 @@ image:
   tag: "1.4.1" # docker.io/mcp/grafana (Docker's MCP Catalog mirror) only ever ships "latest";
                # pin to the upstream grafana/mcp-grafana image instead, which tags releases.
 
+# -- Pull secrets for the pod, merged (union) with global.imagePullSecrets.
+imagePullSecrets: []
+
 nameOverride: ""
 fullnameOverride: ""
 
