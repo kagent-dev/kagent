@@ -29,6 +29,8 @@ export interface McpToolDraft {
   serverRef: string;
   /** The tool names selected. Empty means every tool the server exposes. */
   tools: string[];
+  /** Pause before each invocation of a tool this binding exposes. */
+  requireApproval?: boolean;
 }
 
 /** One sub-agent binding, flattened for a form to hold. */
@@ -106,6 +108,7 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
       .map((binding) => ({
         serverRef: binding.mcp?.server.name ?? "",
         tools: [...(binding.mcp?.tools ?? [])],
+        requireApproval: binding.mcp?.requireApproval,
       })),
     agentTools: tools
       .filter((binding) => binding.agent)
@@ -142,6 +145,8 @@ export function specFromDraft(
           // The only kind the CRD's enum allows.
           server: { kind: "RemoteMCPServer" as const, name: bareName(tool.serverRef) },
           ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
+          // omitempty on the CRD: false is the default, so only true is sent.
+          ...(tool.requireApproval ? { requireApproval: true } : {}),
         },
       })),
     ...draft.agentTools
