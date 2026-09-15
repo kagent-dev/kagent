@@ -1,5 +1,7 @@
 package env
 
+import "time"
+
 // Core kagent environment variables used by the controller and agent runtime.
 var (
 	LeaderElect = RegisterBoolVar(
@@ -82,6 +84,34 @@ var (
 		"KAGENT_PROPAGATE_TOKEN",
 		"",
 		"When set, propagates the authentication token to downstream services.",
+		ComponentAgentRuntime,
+	)
+
+	KagentA2ARetryEnabled = RegisterBoolVar(
+		"KAGENT_A2A_RETRY_ENABLED",
+		false,
+		"Enable retrying same-cluster, pod-to-pod A2A requests that fail with a "+
+			"transport-level error (connection refused/reset/EOF), such as when the "+
+			"target agent pod is evicted or replaced mid-request. Disabled by default "+
+			"since this traffic never passes agentgateway and has no other retry.",
+		ComponentAgentRuntime,
+	)
+
+	KagentA2ARetryMaxAttempts = RegisterIntVar(
+		"KAGENT_A2A_RETRY_MAX_ATTEMPTS",
+		3,
+		"Maximum number of attempts (including the first) for an A2A request "+
+			"that fails with a transport-level error. Only used when "+
+			"KAGENT_A2A_RETRY_ENABLED is true.",
+		ComponentAgentRuntime,
+	)
+
+	KagentA2ARetryBaseDelay = RegisterDurationVar(
+		"KAGENT_A2A_RETRY_BASE_DELAY",
+		250*time.Millisecond,
+		"Base delay before the first retry of a failed A2A request, doubling "+
+			"after each subsequent attempt. Only used when "+
+			"KAGENT_A2A_RETRY_ENABLED is true.",
 		ComponentAgentRuntime,
 	)
 
