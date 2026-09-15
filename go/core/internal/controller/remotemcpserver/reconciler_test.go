@@ -25,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +40,7 @@ type fakeDiscoverer struct {
 	tools []toolservice.MCPAppTool
 	err   error
 	ref   toolservice.MCPServerRef
+	calls int
 }
 
 type fakeCatalog struct {
@@ -60,6 +62,7 @@ func (f *fakeCatalog) DeleteToolServer(_ context.Context, name, groupKind string
 
 func (f *fakeDiscoverer) ListTools(_ context.Context, ref toolservice.MCPServerRef) ([]toolservice.MCPAppTool, error) {
 	f.ref = ref
+	f.calls++
 	return f.tools, f.err
 }
 
@@ -124,6 +127,38 @@ func TestReconcilePublishesFailureAndClearsStaleTools(t *testing.T) {
 	}
 	if catalog.server == nil || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
 		t.Fatalf("failed discovery catalog = server %#v, tools %#v", catalog.server, catalog.tools)
+	}
+}
+
+func TestReconcileAcceptsWithoutDiscoveryWhenDisabled(t *testing.T) {
+	server := testServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
+	server.Status.DiscoveredTools = []*v1alpha3.MCPTool{{Name: "stale", Description: "stale"}}
+	kube := testClient(t, server)
+	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
+	catalog := &fakeCatalog{}
+
+	result, err := New(kube, discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 5*time.Minute {
+		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
+	}
+	if discoverer.calls != 0 {
+		t.Fatalf("discovery calls = %d, want 0", discoverer.calls)
+	}
+
+	updated := getServer(t, kube, server)
+	if updated.Status.ObservedGeneration != server.Generation || len(updated.Status.DiscoveredTools) != 0 {
+		t.Fatalf("disabled discovery status = %#v", updated.Status)
+	}
+	condition := apiMeta.FindStatusCondition(updated.Status.Conditions, conditionAccepted)
+	if condition == nil || condition.Status != metav1.ConditionTrue || condition.Reason != "DiscoveryDisabled" || condition.Message != discoveryDisabledMessage {
+		t.Fatalf("Accepted condition = %#v", condition)
+	}
+	if catalog.server == nil || catalog.server.Name != "test/tools" || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
+		t.Fatalf("disabled discovery catalog = server %#v, tools %#v", catalog.server, catalog.tools)
 	}
 }
 
