@@ -42,6 +42,7 @@ import (
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
+	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -151,6 +152,10 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
+	_, telemetryWarnings := v2translator.TelemetryConfigFromProcess()
+	for _, warning := range telemetryWarnings {
+		logger.WarnContext(ctx, "invalid agent telemetry configuration; disabling signal", "error", warning)
+	}
 	// otelgrpc snapshots the global TracerProvider and propagator when its handler
 	// is constructed, so tracing has to be registered before any server is built.
 	shutdownTracing, err := telemetry.InitTracerProvider(ctx, version.Version)

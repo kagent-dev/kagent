@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	Version            = 1
+	Version            = 2
 	PinnedCodexVersion = "0.148.0"
 )
 
@@ -35,9 +35,23 @@ type Config struct {
 	Agents               map[string]Agent       `json:"agents,omitempty"`
 	SkillResources       *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers           map[string]MCPServer   `json:"mcp_servers,omitempty"`
+	Telemetry            *Telemetry             `json:"telemetry,omitempty"`
 	MaxFrameBytes        int                    `json:"max_frame_bytes"`
 	MaxStderrBytes       int                    `json:"max_stderr_bytes"`
 	InterruptGraceMillis int                    `json:"interrupt_grace_millis"`
+}
+
+// Telemetry contains the compiler-owned native signal exporter settings.
+type Telemetry struct {
+	CaptureContent bool          `json:"capture_content"`
+	Traces         *OTLPExporter `json:"traces,omitempty"`
+	Logs           *OTLPExporter `json:"logs,omitempty"`
+}
+
+// OTLPExporter identifies one native OTLP signal destination.
+type OTLPExporter struct {
+	Endpoint string `json:"endpoint"`
+	Protocol string `json:"protocol"`
 }
 
 type Provider struct {
@@ -98,6 +112,17 @@ func (c Config) Validate() error {
 	if c.Provider.Name != "openai" && c.Provider.Name != "amazon-bedrock" {
 		return fmt.Errorf("unsupported Codex provider %q", c.Provider.Name)
 	}
+	if c.Telemetry != nil {
+		if c.Telemetry.Traces == nil && c.Telemetry.Logs == nil {
+			return fmt.Errorf("telemetry requires at least one exporter")
+		}
+		if err := validateExporter("trace", c.Telemetry.Traces); err != nil {
+			return err
+		}
+		if err := validateExporter("log", c.Telemetry.Logs); err != nil {
+			return err
+		}
+	}
 	if c.Provider.BaseURL != "" {
 		if c.Provider.Name != "openai" {
 			return fmt.Errorf("base URL is supported only for the OpenAI provider")
@@ -133,6 +158,21 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateExporter(signal string, exporter *OTLPExporter) error {
+	if exporter == nil {
+		return nil
+	}
+	if err := validateURL(exporter.Endpoint); err != nil {
+		return fmt.Errorf("invalid telemetry %s endpoint: %w", signal, err)
+	}
+	switch exporter.Protocol {
+	case "grpc", "http/protobuf":
+		return nil
+	default:
+		return fmt.Errorf("unsupported telemetry %s protocol %q", signal, exporter.Protocol)
+	}
 }
 
 func validateURL(raw string) error {
