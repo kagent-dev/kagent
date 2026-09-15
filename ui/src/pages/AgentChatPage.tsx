@@ -18,8 +18,6 @@ import {
   useAgentInstance,
   useAgentInstances,
   useChat,
-  type AgentInstanceOperation,
-  type AgentInstanceState,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
@@ -114,42 +112,11 @@ export function AgentChatPage() {
    * awaited rather than fired alongside the send: sending into an instance that has
    * not finished resuming is the refusal this exists to avoid.
    */
-  /*
-   * What this page has just asked the conversation to become.
-   *
-   * Both changes it makes — resuming to send, and suspending when a turn ends — are
-   * asynchronous, so the record still reports the old state for a second or two
-   * afterwards. The rail's indicator went on showing that, which reads as the send or
-   * the change not having happened. This is handed to the rail so the row answers
-   * immediately, and cleared once the record agrees.
-   */
-  const [askedFor, setPendingState] = useState<AgentInstanceState>();
-  /*
-   * The operation this page has claimed but the record does not show yet.
-   *
-   * Separate from the state because they are different facts and the indicator draws
-   * them differently: suspending is amber and travelling, suspended is grey and still.
-   * Without this the button here jumped straight to grey while the same action from the
-   * rail's row menu showed the amber step — the same request reported two ways.
-   */
-  const [pendingOperation] = useState<AgentInstanceOperation>();
-  /* Derived, not cleared in an effect: once the record reports what was asked for there
-     is nothing standing in for anything, and comparing here says that without a second
-     render to undo the first. */
-  const pendingState = askedFor === instance.data?.state ? undefined : askedFor;
 
   const resumeFirst = useCallback(async () => {
     if (instance.data?.state !== "suspended" || !id) return;
-    setPendingState("ready");
-    try {
-      await apiClient.agentInstances.resume(id);
-      await instance.refresh();
-    } catch (cause: unknown) {
-      // Back to the truth: the turn is about to fail too, and a row claiming ready
-      // would outlive the error that says otherwise.
-      setPendingState(undefined);
-      throw cause;
-    }
+    await apiClient.agentInstances.resume(id);
+    await instance.refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.data?.state, id]);
 
@@ -575,8 +542,6 @@ export function AgentChatPage() {
             instance={instance.data}
             instances={instances}
             autoTitle={autoTitle}
-            pendingState={pendingState}
-            pendingOperation={pendingOperation}
             // Only the chat needs to know: deleting the conversation it is showing
             // leaves it on an address that no longer resolves.
             onDeleted={(target) => {
@@ -786,7 +751,7 @@ export function AgentChatPage() {
           css={{
             flexShrink: 0,
             position: "sticky",
-            top: theme.layout.headerHeight + 24,
+            top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
             alignSelf: "start",
             marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
             transition: "margin-inline-end 180ms ease",
@@ -825,7 +790,7 @@ export function AgentChatPage() {
             // travels within its parent's box, and this wrapper is exactly as tall
             // as the panel. See the rail, which had the same fault.
             position: "sticky",
-            top: theme.layout.headerHeight + 24,
+            top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
             alignSelf: "start",
             /* Hidden for real once closed rather than clipped to zero width — a
                child of a zero-width box still has a bounding box. Delayed by the

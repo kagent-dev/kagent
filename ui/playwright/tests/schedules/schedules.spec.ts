@@ -442,9 +442,17 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(page.getByTestId("schedules-empty")).toHaveCount(0);
   });
 
-  await test.step("18. and an empty list says so plainly", async () => {
+  await test.step("18. and an empty list says so plainly, with nothing to scroll", async () => {
     await page.goto("/schedules?mock=empty");
     await expect(page.getByTestId("schedules-empty")).toBeVisible();
+
+    // The width floor is what the columns need, and an empty table has no columns to
+    // fit — reserving it put a scrollbar under the empty state with nowhere to go.
+    const overflows = await page
+      .locator(".ant-table-content, .ant-table-body")
+      .first()
+      .evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(overflows).toBe(false);
   });
 
   await test.step("19. a link held from before a delete still opens, and says what it is", async () => {

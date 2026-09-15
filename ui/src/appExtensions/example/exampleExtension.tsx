@@ -42,6 +42,13 @@ export const exampleAppExtension: AppExtensionConfig = {
     { key: "exampleRail", order: 150, path: EXAMPLE_PATH, Component: ExampleRailItem },
   ],
 
+  // Retargets the rail's "Agent Details" for a distribution serving that surface
+  // itself. Only reachable with a conversation open, which is where the instance id
+  // the link takes comes from.
+  agentLinks: {
+    details: (ref) => `${EXAMPLE_PATH}?agent=${ref.id}`,
+  },
+
   // Site-wide: a whole page merged into the router.
   routes: [{ path: EXAMPLE_PATH, element: <ExamplePage /> }],
 

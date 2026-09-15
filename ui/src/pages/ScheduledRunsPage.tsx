@@ -31,6 +31,8 @@ export function ScheduledRunsPage() {
   const runs = useApiResource(["scheduledRuns.list", page.current],
     () => invoke("scheduledRuns.list", { page: { limit: 25, pageToken: page.current } }), { refreshInterval: 10000 });
 
+  const scheduledRuns = runs.data?.scheduledRuns ?? [];
+
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
     actions={<Space size={8}><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
       <Link to={paths.scheduledRunNew}>
@@ -38,11 +40,15 @@ export function ScheduledRunsPage() {
       </Link></Space>}>
     <Space orientation="vertical" css={{ display: "flex", ...linkStyles(theme) }} size="middle">
       {runs.error && <Alert data-testid="schedules-error" type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
-      <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false} scroll={{ x: 800 }}
+      {/* The width floor is what the columns need, and an empty table has no columns to
+          fit — so reserving it left the empty state with a horizontal scrollbar under it
+          and nothing to scroll to. */}
+      <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false}
+        scroll={scheduledRuns.length > 0 ? { x: 800 } : undefined}
         data-testid="schedules-table"
-        dataSource={runs.data?.scheduledRuns ?? []} locale={{ emptyText: runs.error
+        dataSource={scheduledRuns} locale={{ emptyText: runs.error
           ? <span data-testid="schedules-unavailable">Schedules unavailable</span>
-          : <span data-testid="schedules-empty">No schedules yet</span> }} columns={[
+          : <span data-testid="schedules-empty">No schedules were found.</span> }} columns={[
           { title: "Name", key: "name", render: (_, row) => <Link data-testid={`schedule-link-${row.config?.name || row.id}`}
             to={buildPath(paths.scheduledRun, { id: row.id })}>{row.config?.name || row.id}</Link> },
           { title: "Agent", key: "agent", render: (_, row) => `${row.agentTemplate?.name ?? "—"} on ${row.harness?.name ?? "—"}` },

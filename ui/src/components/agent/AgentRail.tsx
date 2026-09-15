@@ -8,7 +8,6 @@ import {
   Input,
   Modal,
   Skeleton,
-  Tooltip,
   Typography,
 } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
@@ -19,6 +18,7 @@ import { ShareDialog } from "@/components/chat/ShareDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
+  Bot,
   ChevronsUpDown,
   Copy,
   FileText,
@@ -37,8 +37,6 @@ import {
   apiClient,
   bareName,
   type AgentInstance,
-  type AgentInstanceOperation,
-  type AgentInstanceState,
   type ApiResource,
 } from "@/api";
 import {
@@ -183,17 +181,6 @@ export interface AgentRailProps {
    * ignore it — the list has already been re-read.
    */
   onDeleted?: (instance: AgentInstance) => void;
-  /**
-   * What the open conversation's state is about to be, from the surface that changed it.
-   *
-   * The rail keeps its own stand-in states for suspends *it* started, but sending a
-   * message and suspending by hand both happen on the chat page — and both change the
-   * conversation's state asynchronously, so the row went on showing the old one until
-   * something else refreshed the list. This is that page saying what it just asked for.
-   */
-  pendingState?: AgentInstanceState;
-  /** The operation that surface has claimed, drawn before the record shows it. */
-  pendingOperation?: AgentInstanceOperation;
 }
 
 export function AgentRail({
@@ -207,8 +194,6 @@ export function AgentRail({
   autoTitle,
   onNewChat,
   onDeleted,
-  pendingState,
-  pendingOperation,
 }: AgentRailProps) {
   const theme = useTheme();
   const { mode } = useThemeMode();
@@ -279,7 +264,7 @@ export function AgentRail({
    * places holding the same facts. The details entry stays lit while editing, because
    * that is where the reader came from and where saving returns them.
    */
-  const agentHref =
+  const agentPageHref =
     agentHrefFromCaller ??
     (instance?.harness && instance.agentTemplate
       ? agentPageUrl({
@@ -290,6 +275,40 @@ export function AgentRail({
       : undefined);
 
   /*
+   * The agent as a pair, for everything that is about the agent rather than the
+   * conversation open within it. From the surface when it knows, otherwise read off the
+   * instance — the pages with no conversation open have only the first.
+   */
+  const pair = agentPair ?? {
+    namespace: instance?.agentTemplate?.split("/")[0] ?? "",
+    agentTemplate: instance?.agentTemplate
+      ? bareName(instance.agentTemplate)
+      : agentTitle?.primary,
+    harness: instance?.harness ? bareName(instance.harness) : undefined,
+  };
+
+  /*
+   * Where "Agent Details" goes, which is not always the agent's own page.
+   *
+   * Through `agentLinks.details` when a distribution declares one and a conversation is
+   * open — the redirection that point exists to make, and which was computed and then
+   * ignored. Only with an `instance`, because the link is addressed by one.
+   */
+  const agentHref =
+    (ref.id ? links.details?.({ id: ref.id }) : undefined) ?? agentPageHref;
+
+  /*
+   * Whether the conversation named by the route is still being read.
+   *
+   * Its address is built from the instance's own template and harness, so until the
+   * record lands there is nothing for Agent Details to point at and the entry was left
+   * out — it then appeared under the reader's pointer and pushed the rest of the nav
+   * down. The pair-keyed pages name no conversation, so this is false there and the
+   * entry is genuinely absent rather than late.
+   */
+  const isReadingConversation = Boolean(ref.id) && !instance;
+
+  /*
    * Where "New chat" goes.
    *
    * The new-conversation route is the agent's own address with `/new` on the end, so
@@ -297,8 +316,11 @@ export function AgentRail({
    * instance, which is exactly where this button used to be disabled. It was gated on
    * `instance` because it once *created* the conversation and needed a pair to copy;
    * nothing is created now, so all it needs is somewhere to go.
+   *
+   * Built from `agentPageHref`, never `agentHref`: a redirected details link addresses
+   * the conversation, and `/new` under it is a route nothing serves.
    */
-  const newChatHref = agentHref ? `${agentHref}/new` : undefined;
+  const newChatHref = agentPageHref ? `${agentPageHref}/new` : undefined;
 
   /*
    * The rail's navigation, as data an extension can reach.
@@ -584,6 +606,14 @@ export function AgentRail({
     }
   }
 
+  /* The gap between this rail and what follows it. Measured because the surfaces do
+     not agree on it; see where it is subtracted, below. */
+  const [rowGap, setRowGap] = useState(0);
+  const measureRow = useCallback((wrapper: HTMLDivElement | null) => {
+    const row = wrapper?.parentElement;
+    if (row) setRowGap(parseFloat(getComputedStyle(row).columnGap) || 0);
+  }, []);
+
   const [isNarrow, setNarrow] = useCollapsedBelow(RAIL_COLLAPSES_BELOW);
   const [wantsCollapsed, setWantsCollapsed] = useState(
     () => window.localStorage.getItem(RAIL_COLLAPSED) === "true",
@@ -616,6 +646,7 @@ export function AgentRail({
       page anyway and handed in, so a collapsed rail issues no requests of its own.
     */}
     <div
+      ref={measureRow}
       css={{
         flexShrink: 0,
         width: isCollapsed ? 0 : 248,
@@ -629,7 +660,16 @@ export function AgentRail({
          * the element in normal flow, so it is the one that sticks.
          */
         position: "sticky",
-        top: theme.layout.headerHeight + 24,
+        /*
+         * Cleared from whatever sits above this rail's scroll container — the
+         * application's own header by default.
+         *
+         * A distribution that replaces the shell puts its own chrome there and starts
+         * the page below it, so the default is applied a second time and the rail and
+         * its gutter come to rest well below the content beside them. It sets this
+         * variable rather than restyling the rail.
+         */
+        top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
         alignSelf: "start",
         /* Hidden for real once it has finished closing, not merely clipped to zero
            width: a child of a zero-width box still has a bounding box, so assistive
@@ -647,8 +687,11 @@ export function AgentRail({
          * the too-wide margin a reader sees. Cancelling it here rather than nudging the
          * gutter keeps the correction where its cause is, and it animates with the width
          * so nothing jumps at the end of the slide.
+         *
+         * The surface's own gap, not a constant: a constant is right on one surface and
+         * too large on the rest, where it dragged the gutter off the left of the page.
          */
-        marginInlineEnd: isCollapsed ? `-${theme.space(6)}` : 0,
+        marginInlineEnd: isCollapsed ? -rowGap : 0,
         transition: `width 180ms ease, margin-inline-end 180ms ease, visibility 0s linear ${isCollapsed ? "180ms" : "0s"}`,
       }}
       aria-hidden={isCollapsed}
@@ -801,7 +844,19 @@ export function AgentRail({
           </Text>
           {/* Which conversation, under which agent. Named the way the reader named
               it, so the card and the row below it agree. */}
-          <Text ellipsis css={{ fontSize: 11, color: theme.color.textMuted }}>
+          <Text
+            ellipsis
+            css={{
+              fontSize: 11,
+              color: theme.color.textMuted,
+              /* Holds its line while the instance is being read. The harness is the
+                 only thing that fills it on a conversation, so before the record
+                 lands this is empty — and an empty line is no line, so the card grew
+                 by one row the moment the read returned. */
+              lineHeight: "16px",
+              minHeight: 16,
+            }}
+          >
             {/* Where it runs, which is the other half of what an agent *is* — a
                 template paired with a harness. The conversation is named in the list
                 below, where it is one row among its siblings; naming it here made the
@@ -852,15 +907,7 @@ export function AgentRail({
                 within it. The switcher lists agents, so "which one am I on" is a
                 question about the pair. */}
             <AgentSwitcher
-              current={
-                agentPair ?? {
-                      namespace: instance?.agentTemplate?.split("/")[0] ?? "",
-                  agentTemplate: instance?.agentTemplate
-                    ? bareName(instance.agentTemplate)
-                    : agentTitle?.primary,
-                  harness: instance?.harness ? bareName(instance.harness) : undefined,
-                }
-              }
+              current={pair}
               onPicked={() => setSwitcherFor(undefined)}
             />
           </div>
@@ -872,6 +919,23 @@ export function AgentRail({
           New chat used to live with the conversation list, which put a nav entry inside
           a section it did not belong to and left the two gaps visibly different. */}
       <nav data-testid="chat-sessions-nav" css={{ display: "grid", gap: theme.space(3) }}>
+        {!agentHref && isReadingConversation ? (
+          <span
+            // Its own testid, not the entry's: a suite that clicks Agent Details must
+            // not find this standing in for it and click something inert.
+            data-testid="agent-nav-agent-conversations-pending"
+            aria-disabled="true"
+            css={{
+              ...rowStyles(theme, false),
+              fontSize: 13,
+              opacity: 0.5,
+              cursor: "default",
+            }}
+          >
+            <Bot size={14} aria-hidden />
+            Agent Details
+          </span>
+        ) : null}
         {railEntries.map((entry) =>
           entry.kind === "core" ? (
             <RailEntry
@@ -887,6 +951,7 @@ export function AgentRail({
               key={entry.contribution.key}
               isActive={railItemIsActive(entry.contribution, location)}
               agent={ref.id ? { id: ref.id } : undefined}
+              pair={pair}
             />
           ),
         )}
@@ -909,11 +974,16 @@ export function AgentRail({
             css={{
               ...rowStyles(theme, false),
               fontSize: 13,
+              /* A button takes its font from the user agent rather than the page, and
+                 `border: none` used to throw away the 1px transparent border every row
+                 carries — so this stood 2px shorter than the link it stands in for, and
+                 the rail changed height the moment the agent resolved. */
+              fontFamily: "inherit",
+              lineHeight: "inherit",
               width: "100%",
               cursor: onNewChat ? "pointer" : "not-allowed",
               opacity: onNewChat ? 1 : 0.5,
               background: "none",
-              border: "none",
               textAlign: "left",
             }}
           >
@@ -983,7 +1053,7 @@ export function AgentRail({
           selection exists anyway. The button sits at the end of the row behind an auto
           margin, so its arrival moves nothing.
         */}
-        {chats.length > 0 ? (
+        {chats.length > 0 || conversations.isLoading ? (
           <div
             css={{
               display: "flex",
@@ -1007,6 +1077,9 @@ export function AgentRail({
               checked={allVisibleSelected}
               indeterminate={selected.size > 0 && !allVisibleSelected}
               onChange={toggleAllVisible}
+              // Drawn while the list is read so the bar does not arrive under the
+              // reader's pointer, but there is nothing to select until it lands.
+              disabled={conversations.isLoading}
               data-testid="chat-select-all"
               css={checkboxStyles(theme)}
             >
@@ -1189,32 +1262,6 @@ export function AgentRail({
                 autoTitle={
                   candidate.id === ref.id ? autoTitle : derivedTitles[candidate.id]
                 }
-                // The surface's own live read wins for the conversation it is showing:
-                // the list is read once and then only on request, while the chat page
-                // re-reads the one conversation it renders.
-                /*
-                 * For the open conversation, the surface's own live read wins.
-                 *
-                 * These rows come from the *list*, which is read once and then only when
-                 * something asks it to be read again — while the chat page re-reads the
-                 * one conversation it is showing on a timer. So the row for the
-                 * conversation a reader is actually watching had the stalest copy of the
-                 * thing they were watching it for, and its indicator did not move until
-                 * a list read happened to come along.
-                 *
-                 * Ahead of both, whatever this page has just asked for, which is newer
-                 * than anything either read can know yet.
-                 */
-                shownState={
-                  candidate.id === ref.id
-                    ? pendingState ?? instance?.state ?? candidate.state
-                    : candidate.state
-                }
-                shownOperation={
-                  (candidate.id === ref.id
-                    ? pendingOperation ?? instance?.operation
-                    : undefined) ?? candidate.operation
-                }
                 href={href}
                 /*
                  * Lit only where the reader actually is, not wherever the id appears.
@@ -1262,7 +1309,7 @@ export function AgentRail({
       css={{
         flexShrink: 0,
         position: "sticky",
-        top: theme.layout.headerHeight + 24,
+        top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
         alignSelf: "start",
         marginInlineStart: -theme.space(2),
         display: "grid",
@@ -1310,118 +1357,6 @@ function conversationLabel(instance: AgentInstance, autoTitle?: string) {
   return `${conversationTitle(instance, autoTitle)}${age}`;
 }
 
-/**
- * What state a conversation is in, as one dot at the end of its row.
- *
- * A dot rather than a tag, because the row is a name in a 248px column and a word
- * beside every one of them would leave no room for the name — which is the thing the
- * reader is actually scanning for. The title carries the word for anyone who needs it,
- * and the colour is the same one the state tag uses elsewhere, so the two agree.
- *
- * Ready is drawn like the rest rather than left blank. A missing dot reads as "not
- * loaded yet", not as "nothing to report", and the difference matters most on the row
- * a reader is about to click.
- */
-/**
- * What state a conversation is in, as one dot at the end of its row.
- *
- * A dot rather than a tag, because the row is a name in a 248px column and a word
- * beside every one of them would leave no room for the name — which is the thing the
- * reader is actually scanning for. The tooltip carries the words.
- *
- * Three colours for three answers, and the middle one is the reason this reads the
- * operation as well as the state. Suspending is not a state — the record says `ready`
- * with a `suspend` operation claimed on it until the work finishes — so a dot drawn
- * from the state alone showed green right up to the moment it went grey, with nothing
- * in between to say the click had been heard.
- *
- * Ready is drawn like the rest rather than left blank. A missing dot reads as "not
- * loaded yet", not as "nothing to report", and the difference matters most on the row
- * a reader is about to click.
- */
-function ConversationStateDot({
-  state,
-  operation,
-}: {
-  state?: AgentInstanceState;
-  operation?: AgentInstanceOperation;
-}) {
-  const theme = useTheme();
-
-  const inFlight = operation && operation !== "unspecified" && operation !== "unknown";
-
-  /*
-   * Nothing to say about an ordinary conversation, so nothing is drawn.
-   *
-   * This used to mark every row, `ready` included, on the reasoning that a missing dot
-   * reads as "not loaded yet". That was right while `ready` meant something: a
-   * conversation held a worker until the page suspended it, so the dot separated the
-   * ones that were holding one from the ones that were not.
-   *
-   * The server quiesces a runtime after every turn now and deliberately leaves the
-   * record `ready`, and the manual suspend that was the only other way to change it is
-   * gone — so `state` is `ready` for every conversation, permanently. A dot on every
-   * row saying the same thing is not a status, it is decoration, and it would be
-   * decoration that implies a distinction the API cannot make: whether a runtime is
-   * live or quiesced is not on the AgentInstance record at all.
-   *
-   * What is left is genuinely exceptional and worth spotting in a list — a conversation
-   * still being created, one that failed, one being deleted — so the dot now means
-   * "look at this one" instead of appearing beside everything.
-   */
-  if (!inFlight && (state === "ready" || state === undefined)) return null;
-
-  const reading = inFlight
-    ? { colour: theme.color.warning, words: `${OPERATION_WORDS[operation]}…` }
-    : {
-        colour: STATE_COLOUR(theme)[state ?? ""] ?? theme.color.border,
-        words: state ? STATE_WORDS[state] ?? state : "in an unknown state",
-      };
-
-  return (
-    <Tooltip title={`This conversation is ${reading.words}`} placement="left">
-      <span
-        data-testid={`chat-session-state-${inFlight ? operation : (state ?? "unknown")}`}
-        role="status"
-        aria-label={`Status: ${reading.words}`}
-        css={{
-          flexShrink: 0,
-          width: 7,
-          height: 7,
-          borderRadius: "50%",
-          background: reading.colour,
-        }}
-      />
-    </Tooltip>
-  );
-}
-
-const STATE_COLOUR = (theme: Theme): Record<string, string> => ({
-  suspended: theme.color.textMuted,
-  creating: theme.color.warning,
-  failed: theme.color.danger,
-  deleting: theme.color.danger,
-  deleted: theme.color.danger,
-});
-
-/** Said the way a reader would say it, not the way the enum spells it. */
-const STATE_WORDS: Record<string, string> = {
-  suspended: "suspended",
-  creating: "still being created",
-  failed: "failed",
-  deleting: "being deleted",
-  deleted: "deleted",
-  unspecified: "in an unreported state",
-  unknown: "in an unknown state",
-};
-
-const OPERATION_WORDS: Record<string, string> = {
-  create: "being created",
-  suspend: "suspending",
-  resume: "resuming",
-  delete: "being deleted",
-};
-
 function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
   const theme = useTheme();
   const { icon: Icon, label, to, testId } = item;
@@ -1447,8 +1382,6 @@ function ChatEntry({
   isActive,
   onDelete,
   onDuplicate,
-  shownState,
-  shownOperation,
   isDeleting,
   isDuplicating,
   isSelected,
@@ -1462,22 +1395,6 @@ function ChatEntry({
   onDelete: (instance: AgentInstance) => void;
   /** Copies the conversation and opens the copy. */
   onDuplicate: (instance: AgentInstance) => void;
-  /**
-   * The state to draw, which is not always the state on the record.
-   *
-   * Suspending is asynchronous, so between the click and the controller agreeing the
-   * record still says `ready` — and a row that kept showing it looked like the click
-   * had done nothing.
-   */
-  shownState?: AgentInstanceState;
-  /**
-   * The lifecycle operation to draw, which may be one not yet on the record.
-   *
-   * A suspend is claimed and then worked, so the record reads `ready` with a `suspend`
-   * operation for a second or two — and until the first re-read it reads `ready` with
-   * nothing at all. Both are drawn as suspending.
-   */
-  shownOperation?: AgentInstanceOperation;
   isDeleting: boolean;
   isDuplicating: boolean;
   isSelected: boolean;
@@ -1594,10 +1511,6 @@ function ChatEntry({
         <Text ellipsis css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}>
           {conversationLabel(instance, autoTitle)}
         </Text>
-        <ConversationStateDot
-          state={shownState ?? instance.state}
-          operation={shownOperation ?? instance.operation}
-        />
       </Link>
       {/*
         A menu, revealed on hover, rather than a trash can on every row.

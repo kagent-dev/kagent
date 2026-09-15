@@ -161,6 +161,20 @@ test("extension points: configured components mount where the point promises", a
       "href",
       new RegExp(`agent=${instances.ready}$`),
     );
+
+    // "Agent Details" follows the declared link. It was computed and then ignored, so
+    // a distribution serving its own details surface still sent every reader here.
+    await expect(rail.getByTestId("agent-nav-agent-conversations")).toHaveAttribute(
+      "href",
+      new RegExp(`agent=${instances.ready}$`),
+    );
+
+    // "New chat" does not. It is the agent's own address with `/new` on the end, and
+    // under a redirected details link that is a route nothing serves.
+    await expect(rail.getByTestId("chat-new-session")).toHaveAttribute(
+      "href",
+      /\/new$/,
+    );
   });
 
   await test.step("8. a per-message point mounts once per message, with its own context", async () => {

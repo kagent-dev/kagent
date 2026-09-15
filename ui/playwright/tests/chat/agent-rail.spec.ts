@@ -254,9 +254,8 @@ test("chat agent rail: it can be got out of the way, and stays that way", async 
 });
 
 /**
- * A rail you can read: every row named, and every row's state visible.
+ * A rail you can read: every row named.
  *
- * Both of these were missing for the same reason and are fixed by the same change.
  * Deriving a conversation's title needs its first message, which needs its task list —
  * and the A2A gateway refused a task read for any conversation that was not ready. With
  * conversations giving their workers back at the end of every turn, that is most of
@@ -267,30 +266,13 @@ test("chat agent rail: it can be got out of the way, and stays that way", async 
  * because that is where the transcript lives. Resuming to read one would have claimed a
  * worker every time somebody glanced at a conversation.
  */
-test("chat agent rail: conversations are named and show their state", async ({ page }) => {
+test("chat agent rail: conversations are named", async ({ page }) => {
   await page.goto(AGENT_CHAT);
   const rail = page.getByTestId("chat-sessions");
   const rows = rail.locator('a[data-testid^="chat-session-"]');
   await expect(rows.first()).toBeVisible({ timeout: 30_000 });
 
-  await test.step("1. an ordinary conversation is not marked at all", async () => {
-    /*
-     * The dot marks the exceptions, not everything.
-     *
-     * It used to appear on every row, `ready` included, which was right while `ready`
-     * meant something: a conversation held a worker until the page suspended it. The
-     * server quiesces a runtime after every turn now and leaves the record `ready`, so
-     * `ready` is what every conversation says, permanently — and a dot on every row
-     * repeating it is decoration implying a distinction the API cannot make.
-     *
-     * So a fixture of ordinary conversations carries no dots, and one that is creating,
-     * failed or being deleted carries one worth looking at.
-     */
-    const dots = rail.locator('[data-testid^="chat-session-state-"]');
-    await expect(dots.locator('[data-testid="chat-session-state-ready"]')).toHaveCount(0);
-  });
-
-  await test.step("2. a row is named by what was said in it, not only by its id", async () => {
+  await test.step("a row is named by what was said in it, not only by its id", async () => {
     /*
      * Asserted on a row other than the open one, which is the whole point: the open
      * conversation always had a title, because the page rendering its transcript could
