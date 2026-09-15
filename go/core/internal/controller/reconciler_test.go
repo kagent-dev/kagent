@@ -217,8 +217,8 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			}
 			require.NoError(t, reconciler.reconcilePair(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
 			collector, registry := newTestRuntimeRevisionGC(t, gcStore, templates)
-			collector.metrics.setActive(true)
-			collector.observeBacklog(ctx)
+			_, err = collector.discover(ctx)
+			require.NoError(t, err)
 			before := gatherRuntimeRevisionGCMetrics(t, registry)
 			require.Equal(t, float64(1), before.gauges[gcPendingMetric])
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
@@ -233,11 +233,10 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			_, _, err = store.CreateAgentInstance(ctx, request, "replacement-instance")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			restarted, restartedRegistry := newTestRuntimeRevisionGC(t, database.NewClient(pool), templates)
-			restarted.metrics.setActive(true)
-			restarted.observeBacklog(ctx)
+			_, err = restarted.discover(ctx)
+			require.NoError(t, err)
 			afterRestart := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
 			require.Equal(t, float64(1), afterRestart.gauges[gcPendingMetric])
-			require.GreaterOrEqual(t, afterRestart.gauges[gcAgeMetric], before.gauges[gcAgeMetric])
 			for _, failures := range afterRestart.failures {
 				require.Zero(t, failures, "a new process counter is not durable backlog state")
 			}
@@ -245,7 +244,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			restarted.sweep(ctx)
 			collected := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
 			require.Zero(t, collected.gauges[gcPendingMetric])
-			require.Zero(t, collected.gauges[gcAgeMetric])
 			require.Nil(t, templates.template)
 			require.Empty(t, reconciler.collections.PairRuntimeObservations.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -41,9 +42,8 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		store.mu.Unlock()
 		snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
 		require.Equal(t, float64(1), snapshot.failures[string(gcStageDiscovery)])
-		require.Equal(t, float64(1), snapshot.failures[string(gcStageDeleteActorTemplate)])
+		require.Equal(t, float64(1), snapshot.failures[string(gcStageCollection)])
 		require.Equal(t, float64(1), snapshot.gauges[gcPendingMetric])
-		require.Positive(t, snapshot.gauges[gcAgeMetric])
 		templates.mu.Lock()
 		templates.deleteErr = nil
 		templates.mu.Unlock()
@@ -54,11 +54,11 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 		store.mu.Unlock()
 		snapshot = gatherRuntimeRevisionGCMetrics(t, registry)
 		require.Zero(t, snapshot.gauges[gcPendingMetric])
-		require.Zero(t, snapshot.gauges[gcAgeMetric])
-		require.Equal(t, float64(1), snapshot.failures[string(gcStageDeleteActorTemplate)])
+		require.Equal(t, float64(1), snapshot.failures[string(gcStageCollection)])
 		cancel()
 		require.NoError(t, <-done)
-		require.Empty(t, gatherRuntimeRevisionGCMetrics(t, registry).gauges, "stopped collectors must not advertise backlog")
+		require.True(t, math.IsNaN(gatherRuntimeRevisionGCMetrics(t, registry).gauges[gcPendingMetric]),
+			"stopped collectors must not advertise a known backlog")
 	})
 }
 
@@ -75,16 +75,18 @@ func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- collector.Start(ctx) }()
 		synctest.Wait()
+		require.Equal(t, float64(2), gatherRuntimeRevisionGCMetrics(t, registry).gauges[gcPendingMetric],
+			"publish discovery before waiting for a slow candidate")
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		store.mu.Lock()
 		require.Equal(t, []string{"healthy"}, store.deleted, "deadline must release the sweep to process healthy candidates")
 		store.mu.Unlock()
-		require.Equal(t, float64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageDeleteActorTemplate)])
+		require.Equal(t, float64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)])
 		cancel() // The next sweep is blocked in the backend again.
 		require.NoError(t, <-done, "shutdown must cancel in-flight cleanup")
 		require.Len(t, store.revisions, 1, "failed deletion must retain its durable revision")
-		require.Equal(t, float64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageDeleteActorTemplate)],
+		require.Equal(t, float64(1), gatherRuntimeRevisionGCMetrics(t, registry).failures[string(gcStageCollection)],
 			"parent cancellation must not count as another backend failure")
 	})
 }
@@ -95,8 +97,8 @@ type fakeGCStore struct {
 	listErr          error
 	lists            int
 	deleted          []string
-	pendingSince     map[string]time.Time
-	observationErr   error
+	listFunc         func(context.Context, int) ([]database.RuntimeRevision, error)
+	begun            []string
 	beginErr         error
 	finalizeErr      error
 	skipClaim        bool
@@ -111,39 +113,22 @@ func newTestRuntimeRevisionGC(t *testing.T, store runtimeRevisionGCStore, templa
 	return collector, registry
 }
 
-func (s *fakeGCStore) ObserveRuntimeRevisionCleanupBacklog(context.Context) (database.RuntimeRevisionCleanupBacklog, error) {
+func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]database.RuntimeRevision, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.observationErr != nil {
-		return database.RuntimeRevisionCleanupBacklog{}, s.observationErr
-	}
-	if s.pendingSince == nil {
-		s.pendingSince = make(map[string]time.Time)
-	}
-	backlog := database.RuntimeRevisionCleanupBacklog{Pending: int64(len(s.revisions))}
-	for _, revision := range s.revisions {
-		since, exists := s.pendingSince[revision.Revision]
-		if !exists {
-			since = time.Now()
-			s.pendingSince[revision.Revision] = since
-		}
-		if backlog.OldestPendingSince == nil || since.Before(*backlog.OldestPendingSince) {
-			backlog.OldestPendingSince = &since
-		}
-	}
-	return backlog, nil
-}
-
-func (s *fakeGCStore) ListUnreferencedRuntimeRevisions(context.Context) ([]database.RuntimeRevision, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.lists++
-	return slices.Clone(s.revisions), s.listErr
+	call, listFunc := s.lists, s.listFunc
+	revisions, err := slices.Clone(s.revisions), s.listErr
+	s.mu.Unlock()
+	if listFunc != nil {
+		return listFunc(ctx, call)
+	}
+	return revisions, err
 }
 
 func (s *fakeGCStore) BeginRuntimeRevisionDeletion(_ context.Context, id string) (*database.RuntimeRevision, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.begun = append(s.begun, id)
 	if s.beginErr != nil {
 		return nil, s.beginErr
 	}
@@ -171,7 +156,6 @@ func (s *fakeGCStore) DeleteRuntimeRevision(_ context.Context, id, _ string) err
 	for i, revision := range s.revisions {
 		if revision.Revision == id {
 			s.revisions = append(s.revisions[:i:i], s.revisions[i+1:]...)
-			delete(s.pendingSince, id)
 			break
 		}
 	}

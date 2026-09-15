@@ -74,13 +74,6 @@ type RuntimeRevision struct {
 	ActorTemplateUID      string
 }
 
-// RuntimeRevisionCleanupBacklog describes a durable observation of cleanup
-// eligibility. OldestPendingSince is nil only when Pending is zero.
-type RuntimeRevisionCleanupBacklog struct {
-	Pending            int64
-	OldestPendingSince *time.Time
-}
-
 // AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
 // filter on this", so an empty query lists the caller's own instances.
 type AgentInstanceQuery struct {
