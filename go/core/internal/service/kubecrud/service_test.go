@@ -2,7 +2,6 @@ package kubecrud_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
@@ -32,14 +31,10 @@ type recordingAuthorizer struct {
 	scopeVerb  auth.Verb
 	scopeType  string
 	checkCalls []authorizationCall
-	denyCheck  int
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
 	a.checkCalls = append(a.checkCalls, authorizationCall{verb: verb, resource: resource})
-	if len(a.checkCalls) == a.denyCheck {
-		return errors.New("denied")
-	}
 	return nil
 }
 
@@ -97,8 +92,8 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	wantVerbs := []auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbUpdate, auth.VerbUpdate, auth.VerbDelete}
-	wantNames := []string{"a", "created", "mutable", "mutable", "b"}
+	wantVerbs := []auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbUpdate, auth.VerbDelete}
+	wantNames := []string{"a", "created", "mutable", "b"}
 	if len(authorizer.checkCalls) != len(wantVerbs) {
 		t.Fatalf("Check() calls = %d, want %d", len(authorizer.checkCalls), len(wantVerbs))
 	}
@@ -112,38 +107,6 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		if got := call.resource.Attributes[apiauthorization.AttributeName]; got != wantNames[index] {
 			t.Errorf("Check() call %d name = %v, want %q", index, got, wantNames[index])
 		}
-	}
-}
-
-func TestServiceRejectsProposedUpdateWithoutWriting(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := v1alpha3.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "original"},
-		Spec:       v1alpha3.AgentTemplateSpec{Description: "original"},
-	}).Build()
-	authorizer := &recordingAuthorizer{denyCheck: 2}
-	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
-	ctx := auth.AuthSessionTo(t.Context(), testSession{})
-
-	_, err := service.Update(ctx, types.NamespacedName{Namespace: "team", Name: "original"}, func(proposed *v1alpha3.AgentTemplate) {
-		proposed.Name = "moved"
-		proposed.Spec.Description = "updated"
-	})
-	if err == nil || !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
-		t.Fatalf("Update() error = %v, want permission denied", err)
-	}
-	if len(authorizer.checkCalls) != 2 || authorizer.checkCalls[1].resource.Name != "team/moved" {
-		t.Fatalf("Check() calls = %+v, want stored then proposed resource", authorizer.checkCalls)
-	}
-	stored := &v1alpha3.AgentTemplate{}
-	if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "original"}, stored); err != nil {
-		t.Fatal(err)
-	}
-	if stored.Spec.Description != "original" {
-		t.Fatalf("stored description = %q, want original", stored.Spec.Description)
 	}
 }
 

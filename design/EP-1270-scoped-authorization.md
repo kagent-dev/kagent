@@ -52,7 +52,7 @@ Authorization uses identity derived from stored or validated resource data. A re
 
 - Reads and deletes are decided from the stored resource.
 - Creates are decided from the validated proposed resource.
-- Updates are decided from both the stored and proposed resource, preventing a caller from moving a resource into or out of an unauthorized scope.
+- Updates are decided from the stored resource and preserve its namespace and name.
 
 ## Collection behavior
 

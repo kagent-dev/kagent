@@ -7,7 +7,6 @@ import (
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // Resource builds authorization input from trusted Kubernetes metadata.
@@ -20,11 +19,7 @@ func Resource(resourceType string, object metav1.Object) auth.Resource {
 		attributes[apiauthorization.AttributeName] = object.GetName()
 	}
 	return auth.Resource{
-		Type: resourceType,
-		Name: types.NamespacedName{
-			Namespace: object.GetNamespace(),
-			Name:      object.GetName(),
-		}.String(),
+		Type:       resourceType,
 		Attributes: attributes,
 	}
 }

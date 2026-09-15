@@ -71,7 +71,7 @@ func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, 
 }
 
 func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfigList, error) {
-	items, err := s.modelConfigs.ListAll(ctx)
+	items, err := s.modelConfigs.List(ctx, "")
 	if err != nil {
 		return nil, err
 	}

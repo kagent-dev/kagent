@@ -44,18 +44,6 @@ func NewService[T Object, L client.ObjectList](
 }
 
 func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error) {
-	if namespace == "" {
-		return nil, serviceerrors.NewInvalidArgument("namespace is required", nil)
-	}
-	return s.listWithOptions(ctx, client.InNamespace(namespace))
-}
-
-// ListAll lists resources across namespaces.
-func (s *Service[T, L]) ListAll(ctx context.Context) ([]T, error) {
-	return s.listWithOptions(ctx)
-}
-
-func (s *Service[T, L]) listWithOptions(ctx context.Context, options ...client.ListOption) ([]T, error) {
 	scope, err := s.scope(ctx, auth.VerbList)
 	if err != nil {
 		return nil, err
@@ -65,7 +53,7 @@ func (s *Service[T, L]) listWithOptions(ctx context.Context, options ...client.L
 		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	list := s.list.DeepCopyObject().(L)
-	if err := s.client.List(ctx, list, options...); err != nil {
+	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
 		return nil, serviceerrors.NewInternal("Failed to list "+s.resource+"s", err)
 	}
 	items := make([]T, 0)
@@ -137,9 +125,6 @@ func (s *Service[T, L]) Update(ctx context.Context, ref types.NamespacedName, ap
 		return zero, err
 	}
 	apply(object)
-	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
-		return zero, err
-	}
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
 			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
