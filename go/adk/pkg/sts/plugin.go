@@ -246,6 +246,8 @@ func (p *TokenPropagationPlugin) AfterRunCallback(ctx agent.InvocationContext) {
 
 // HeaderProvider returns a map of headers to inject into MCP tool HTTP requests.
 // It is called by the dynamicHeaderRoundTripper on every MCP HTTP request.
+// Requests with no user in context, such as startup toolset discovery, get no
+// header rather than the pod's own identity.
 func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]string {
 	if ctx == nil {
 		return nil
@@ -254,6 +256,13 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
 		p.logger.DebugContext(ctx, "no session ID in context, MCP request will use existing headers")
+		return nil
+	}
+
+	// The cache outlives the run, so without this a turn carrying no caller
+	// token would go out as whoever sent an earlier turn.
+	if token, ok := ctx.Value(models.BearerTokenKey).(string); !ok || token == "" {
+		p.logger.DebugContext(ctx, "no caller token on this request, MCP request will use existing headers", "session_id", sessionID)
 		return nil
 	}
 
@@ -269,16 +278,28 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 	}
 }
 
-// Extract session ID from ADK tool / invocation context, which implements SessionID().
+// sessionIDFromContext recovers the ADK session ID: the value the executor
+// stamps on the context, else ADK's SessionID() method when ctx is the
+// ToolContext itself.
 func sessionIDFromContext(ctx context.Context) string {
+	if sessionID, ok := ctx.Value(models.SessionIDKey).(string); ok && sessionID != "" {
+		return sessionID
+	}
+
 	type sessionContext interface {
 		SessionID() string
 	}
-	sessionCtx, ok := ctx.(sessionContext)
-	if !ok {
-		return ""
+	if sessionCtx, ok := ctx.(sessionContext); ok {
+		return sessionCtx.SessionID()
 	}
-	return sessionCtx.SessionID()
+	return ""
+}
+
+var _ models.ExchangedTokenProvider = (*TokenPropagationPlugin)(nil)
+
+// ExchangesTokens reports whether the plugin performs an STS exchange.
+func (p *TokenPropagationPlugin) ExchangesTokens() bool {
+	return p.integration != nil
 }
 
 // GetTokenForSession retrieves the cached token for a specific session.
