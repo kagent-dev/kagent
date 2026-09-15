@@ -311,7 +311,11 @@ controller:
       port: 8443
     # -- Prometheus Operator `ServiceMonitor` for the metrics `Service`.
     # Requires `controller.metrics.enabled` and the
-    # `monitoring.coreos.com/v1` CRDs. The endpoint follows
+    # `monitoring.coreos.com/v1` CRDs; the chart only renders it when the
+    # target cluster serves that API, so enabling it on a cluster without
+    # the Prometheus Operator is a no-op rather than a failed install
+    # (`helm template` needs `--api-versions monitoring.coreos.com/v1`).
+    # The endpoint follows
     # `secureServing`: port name, scheme, bearer token and TLS settings are
     # all derived from it, so flipping `secureServing` alone keeps the
     # scrape working. With `secureServing` enabled the scrape is also

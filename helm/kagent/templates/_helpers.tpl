@@ -191,6 +191,16 @@ documented contract.
 {{- end -}}
 
 {{/*
+Whether the controller ServiceMonitor (and the RBAC that exists only to
+serve its scrape) should render. Requires the metrics endpoint, the
+serviceMonitor toggle, and the Prometheus Operator CRDs on the target
+cluster; without the CRD the manifest would fail to apply.
+*/}}
+{{- define "kagent.controller.serviceMonitorEnabled" -}}
+{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") -}}1{{- end -}}
+{{- end -}}
+
+{{/*
 Name of the controller metrics Service port, derived from the scheme the
 controller serves. Shared by the metrics Service and the ServiceMonitor
 endpoint so the two can never drift apart.

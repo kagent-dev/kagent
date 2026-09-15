@@ -1,4 +1,4 @@
-{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.serviceMonitor.enabled }}
+{{- if include "kagent.controller.serviceMonitorEnabled" . }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

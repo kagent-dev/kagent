@@ -3,11 +3,17 @@ templates:
   - controller-servicemonitor.yaml
 tests:
   - it: should not render by default
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     asserts:
       - hasDocuments:
           count: 0
 
   - it: should not render when only metrics are enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
     asserts:
@@ -15,6 +21,9 @@ tests:
           count: 0
 
   - it: should not render when only the service monitor is enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.serviceMonitor.enabled: true
     asserts:
@@ -22,6 +31,9 @@ tests:
           count: 0
 
   - it: should not render when bindAddress disables metrics
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -31,6 +43,9 @@ tests:
           count: 0
 
   - it: should render when metrics and the service monitor are enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -47,6 +62,9 @@ tests:
           count: 1
 
   - it: should select the controller metrics service
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -65,6 +83,9 @@ tests:
           value: NAMESPACE
 
   - it: should scrape the https port when secure serving is enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -86,6 +107,9 @@ tests:
           value: true
 
   - it: should scrape the plaintext port when secure serving is disabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -102,6 +126,9 @@ tests:
           path: spec.endpoints[0].tlsConfig
 
   - it: should omit the bearer token file when cleared
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -114,6 +141,9 @@ tests:
           value: https
 
   - it: should override the tls config
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -129,6 +159,9 @@ tests:
           value: kagent-controller-metrics.kagent.svc
 
   - it: should omit optional scrape settings by default
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -146,6 +179,9 @@ tests:
           value: false
 
   - it: should apply scrape settings from values
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -179,6 +215,9 @@ tests:
           value: go_.*
 
   - it: should merge extra labels and annotations
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -198,6 +237,9 @@ tests:
           value: platform
 
   - it: should render in the release namespace override
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -211,6 +253,9 @@ tests:
           value: custom-namespace
 
   - it: should render in a dedicated monitoring namespace
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -222,3 +267,11 @@ tests:
       - equal:
           path: spec.namespaceSelector.matchNames[0]
           value: NAMESPACE
+
+  - it: should not render when the monitoring api is absent
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

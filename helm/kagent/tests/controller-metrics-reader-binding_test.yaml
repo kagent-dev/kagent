@@ -3,11 +3,17 @@ templates:
   - rbac/metrics-reader-clusterrolebinding.yaml
 tests:
   - it: should not render by default
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     asserts:
       - hasDocuments:
           count: 0
 
   - it: should not render without a prometheus service account
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -16,6 +22,9 @@ tests:
           count: 0
 
   - it: should not render when the service monitor is disabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
@@ -24,6 +33,9 @@ tests:
           count: 0
 
   - it: should not render when secure serving is disabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.secureServing: false
@@ -34,6 +46,9 @@ tests:
           count: 0
 
   - it: should not render when bindAddress disables metrics
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.bindAddress: "0"
@@ -44,6 +59,9 @@ tests:
           count: 0
 
   - it: should bind metrics-reader to the prometheus service account
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -72,6 +90,9 @@ tests:
           value: monitoring
 
   - it: should default the subject namespace to the service monitor namespace
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -83,6 +104,9 @@ tests:
           value: monitoring
 
   - it: should default the subject namespace to the release namespace
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -91,3 +115,12 @@ tests:
       - equal:
           path: subjects[0].namespace
           value: NAMESPACE
+
+  - it: should not render when the monitoring api is absent
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - hasDocuments:
+          count: 0

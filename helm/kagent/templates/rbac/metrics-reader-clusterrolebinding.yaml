@@ -1,4 +1,4 @@
-{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.secureServing .Values.controller.metrics.serviceMonitor.enabled .Values.controller.metrics.serviceMonitor.prometheusServiceAccount.name }}
+{{- if and (include "kagent.controller.serviceMonitorEnabled" .) .Values.controller.metrics.secureServing .Values.controller.metrics.serviceMonitor.prometheusServiceAccount.name }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

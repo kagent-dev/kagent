@@ -6,6 +6,9 @@ templates:
   - rbac/metrics-reader-clusterrolebinding.yaml
 tests:
   - it: should pair the service and service monitor on the https port when secure serving is enabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
@@ -34,6 +37,9 @@ tests:
         template: rbac/metrics-reader-clusterrolebinding.yaml
 
   - it: should pair the service and service monitor on the plaintext port when secure serving is disabled
+    capabilities:
+      apiVersions:
+        - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
       controller.metrics.secureServing: false
@@ -60,6 +66,25 @@ tests:
       - hasDocuments:
           count: 0
         template: rbac/metrics-auth-clusterrolebinding.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-reader-clusterrolebinding.yaml
+
+  - it: should keep the service and the auth binding but skip the service monitor and reader binding when the monitoring api is absent
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.serviceMonitor.enabled: true
+      controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: controller-metrics-service.yaml
+      - hasDocuments:
+          count: 1
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+      - hasDocuments:
+          count: 0
+        template: controller-servicemonitor.yaml
       - hasDocuments:
           count: 0
         template: rbac/metrics-reader-clusterrolebinding.yaml
