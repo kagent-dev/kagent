@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import {
   Alert,
   Button,
+  Checkbox,
   Form,
   Input,
   Select,
@@ -345,7 +346,7 @@ export function AgentTemplateForm({
         {/* Tools — MCP servers */}
         <Form.Item
           label="Tools from MCP servers"
-          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server."
+          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server. Require approval pauses before each of those tools runs."
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             {readOnly && draft.mcpTools.length === 0
@@ -364,7 +365,11 @@ export function AgentTemplateForm({
                     const next = [...draft.mcpTools];
                     // The tools belong to the server, so changing it clears them
                     // rather than leaving names the new server does not have.
-                    next[index] = { serverRef: value, tools: [] };
+                    next[index] = {
+                      serverRef: value,
+                      tools: [],
+                      requireApproval: next[index].requireApproval,
+                    };
                     set("mcpTools", next);
                   }}
                   options={(servers.data ?? []).map((server) => ({
@@ -407,6 +412,24 @@ export function AgentTemplateForm({
                   }))}
                   {...readOnlySelect}
                 />
+                {readOnly ? (
+                  tool.requireApproval ? <Tag>Requires approval</Tag> : null
+                ) : (
+                  <Checkbox
+                    checked={Boolean(tool.requireApproval)}
+                    data-testid={`template-form-mcp-approval-${index}`}
+                    onChange={(event) => {
+                      const next = [...draft.mcpTools];
+                      next[index] = {
+                        ...next[index],
+                        requireApproval: event.target.checked,
+                      };
+                      set("mcpTools", next);
+                    }}
+                  >
+                    Require approval
+                  </Checkbox>
+                )}
                 {readOnly ? null : (
                   <Button
                     type="text"

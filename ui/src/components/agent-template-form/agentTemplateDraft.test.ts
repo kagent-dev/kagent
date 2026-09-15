@@ -44,6 +44,7 @@ function templateWithExtras(): AgentTemplate {
             mcp: {
               server: { kind: "RemoteMCPServer", name: "tools" },
               tools: ["k8s_get_pods"],
+              requireApproval: true,
             },
           },
         ],
@@ -160,6 +161,16 @@ describe("the agent template draft", () => {
     const spec = specFromDraft(draftFromTemplate(template), template.resource.spec);
 
     expect(spec.tools).toEqual(template.resource.spec.tools);
+  });
+
+  it("omits requireApproval when it is off, because the CRD's default is false", () => {
+    const draft = emptyDraft("kagent");
+    draft.modelConfig = "gpt";
+    draft.mcpTools = [{ serverRef: "kagent/tools", tools: [], requireApproval: false }];
+
+    expect(specFromDraft(draft).tools?.[0].mcp).toEqual({
+      server: { kind: "RemoteMCPServer", name: "tools" },
+    });
   });
 
   it("sends an MCP server by bare name, as the CRD's reference is same-namespace", () => {
