@@ -3,11 +3,13 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -30,6 +32,7 @@ type runtimeRevisionGCClient interface {
 type RuntimeRevisionGC struct {
 	store     runtimeRevisionGCStore
 	templates runtimeRevisionGCClient
+	metrics   *runtimeRevisionGCMetrics
 }
 
 var (
@@ -37,13 +40,18 @@ var (
 	_ manager.LeaderElectionRunnable = (*RuntimeRevisionGC)(nil)
 )
 
-func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient) *RuntimeRevisionGC {
-	return &RuntimeRevisionGC{store: store, templates: templates}
+func NewRuntimeRevisionGC(store runtimeRevisionGCStore, templates runtimeRevisionGCClient, registerer prometheus.Registerer) (*RuntimeRevisionGC, error) {
+	metrics, err := newRuntimeRevisionGCMetrics(registerer)
+	if err != nil {
+		return nil, err
+	}
+	return &RuntimeRevisionGC{store: store, templates: templates, metrics: metrics}, nil
 }
 
 func (r *RuntimeRevisionGC) NeedLeaderElection() bool { return true }
 
 func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
+	defer r.metrics.pending.Set(math.NaN())
 	ticker := time.NewTicker(runtimeRevisionGCInterval)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
@@ -58,11 +66,11 @@ func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
 }
 
 func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
-	listCtx, cancel := context.WithTimeout(ctx, time.Minute)
-	revisions, err := r.store.ListUnreferencedRuntimeRevisions(listCtx)
-	cancel()
+	if ctx.Err() != nil {
+		return
+	}
+	revisions, err := r.discover(ctx)
 	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
 		return
 	}
 	// ponytail: sweeps are serial; add bounded workers if slow deletions delay reclamation.
@@ -70,10 +78,34 @@ func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := r.collect(ctx, candidate.Revision); err != nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to collect runtime revision", "revision", candidate.Revision, "error", err)
+		if err := r.collect(ctx, candidate.Revision); err != nil && ctx.Err() == nil {
+			r.metrics.recordFailure(ctx, gcStageCollection)
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to collect runtime revision",
+				"revision", candidate.Revision, "actor_template_atespace", candidate.ActorTemplateAtespace,
+				"actor_template_name", candidate.ActorTemplateName, "error", err)
 		}
 	}
+	// Refresh persisted eligibility, not an optimistic decrement after deletion.
+	_, _ = r.discover(ctx)
+}
+
+func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeRevision, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	listCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	revisions, err := r.store.ListUnreferencedRuntimeRevisions(listCtx)
+	cancel()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		r.metrics.recordFailure(ctx, gcStageDiscovery)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
+		return nil, err
+	}
+	r.metrics.pending.Set(float64(len(revisions)))
+	return revisions, nil
 }
 
 // collect retains the database row until compute deletion succeeds. Each candidate

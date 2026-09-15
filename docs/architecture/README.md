@@ -70,6 +70,7 @@ quiescence. It reaches Actors through the private runtime network.
 
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
+- [Runtime revision cleanup and metrics](runtime-revision-cleanup.md)
 - [A2A gateway](a2a-gateway.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)
 - [MCP](mcp.md)

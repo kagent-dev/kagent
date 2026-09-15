@@ -26,6 +26,11 @@ import (
 // TestRuntimeRevisionLifecycle exercises actual Substrate runtimes through
 // invalid edits, template retirement, checkpoint retention, and later preparation.
 func TestRuntimeRevisionLifecycle(t *testing.T) {
+	testRuntimeRevisionLifecycle(t, nil)
+}
+
+func testRuntimeRevisionLifecycle(t *testing.T, afterCleanup func(context.Context)) {
+	t.Helper()
 	target := interactionTarget(t)
 	modelURL := startInteractionMock(t)
 	templateName := createInteractionTemplate(t, modelURL)
@@ -173,6 +178,9 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		}
 		return true, nil
 	}), "final checkpoint deletion must eventually collect its runtime without template changes")
+	if afterCleanup != nil {
+		afterCleanup(ctx)
+	}
 
 	// Recreating the name must prepare a new identity after collection.
 	replacement := template.DeepCopy()
