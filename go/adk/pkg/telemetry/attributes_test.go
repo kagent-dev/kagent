@@ -2,11 +2,13 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/adk/v2/model"
@@ -257,4 +259,96 @@ func spanAttributesByName(t *testing.T, spans tracetest.SpanStubs, name string) 
 
 	t.Fatalf("span %q not found", name)
 	return nil
+}
+
+func TestSetToolCallAttributes_OnActiveSpan(t *testing.T) {
+	t.Setenv(captureMessageContentEnvVar, "true")
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+	})
+
+	ctx, span := tp.Tracer("test").Start(context.Background(), "execute_tool get_pods")
+	SetToolCallAttributes(ctx,
+		map[string]any{"namespace": "default"},
+		map[string]any{"pods": []string{"a", "b"}},
+		nil,
+	)
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	attrs := make(map[string]attribute.Value, len(spans[0].Attributes))
+	for _, attr := range spans[0].Attributes {
+		attrs[string(attr.Key)] = attr.Value
+	}
+	if got, want := attrs["gen_ai.tool.call.arguments"].AsString(), `{"namespace":"default"}`; got != want {
+		t.Errorf("gen_ai.tool.call.arguments = %q, want %q", got, want)
+	}
+	if got, want := attrs["gen_ai.tool.call.result"].AsString(), `{"pods":["a","b"]}`; got != want {
+		t.Errorf("gen_ai.tool.call.result = %q, want %q", got, want)
+	}
+	if spans[0].Status.Code != codes.Unset {
+		t.Errorf("status = %v, want Unset for a successful call", spans[0].Status.Code)
+	}
+}
+
+func TestSetToolCallAttributes_ErrorSetsStatus(t *testing.T) {
+	t.Setenv(captureMessageContentEnvVar, "true")
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+	})
+
+	ctx, span := tp.Tracer("test").Start(context.Background(), "execute_tool run_shell")
+	SetToolCallAttributes(ctx, map[string]any{"command": "false"}, nil, errors.New("command FAILED"))
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	if spans[0].Status.Code != codes.Error || spans[0].Status.Description != "command FAILED" {
+		t.Errorf("status = %v %q, want Error with the tool error message", spans[0].Status.Code, spans[0].Status.Description)
+	}
+	attrs := make(map[string]attribute.Value, len(spans[0].Attributes))
+	for _, attr := range spans[0].Attributes {
+		attrs[string(attr.Key)] = attr.Value
+	}
+	if got := attrs["gen_ai.tool.call.result"].AsString(); got != "{}" {
+		t.Errorf("gen_ai.tool.call.result = %q, want {} for a nil result", got)
+	}
+}
+
+func TestSetToolCallAttributes_EmitsEmptyPayloadWhenContentCaptureDisabled(t *testing.T) {
+	t.Setenv(captureMessageContentEnvVar, "false")
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+	})
+
+	ctx, span := tp.Tracer("test").Start(context.Background(), "execute_tool get_pods")
+	SetToolCallAttributes(ctx, map[string]any{"namespace": "default"}, map[string]any{"pods": 2}, nil)
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	for _, attr := range spans[0].Attributes {
+		switch string(attr.Key) {
+		case "gen_ai.tool.call.arguments", "gen_ai.tool.call.result":
+			if got := attr.Value.AsString(); got != "{}" {
+				t.Errorf("%s = %q, want {} when content capture is disabled", attr.Key, got)
+			}
+		}
+	}
 }

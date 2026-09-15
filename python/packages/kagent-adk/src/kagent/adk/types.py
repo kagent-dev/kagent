@@ -17,6 +17,7 @@ from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
+from kagent.adk._tool_span import make_tool_span_attributes_callback
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
@@ -556,6 +557,8 @@ class AgentConfig(BaseModel):
             static_instruction=self.instruction,
             tools=tools,
             before_tool_callback=before_tool_callback,
+            # Records gen_ai.tool.call.arguments/.result on execute_tool spans.
+            after_tool_callback=make_tool_span_attributes_callback(),
             before_model_callback=before_model_callbacks,
         )
 
