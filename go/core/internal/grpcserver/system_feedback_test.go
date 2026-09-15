@@ -165,26 +165,19 @@ func TestSystemGeneratedClient(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name        string
-		limit       int32
-		filter      string
-		actorField  apiv1alpha1.SubstrateActorSortField
-		workerField apiv1alpha1.SubstrateWorkerSortField
-		order       apiv1alpha1.SubstrateSortOrder
+		name  string
+		limit int32
 	}{
 		{name: "negative limit", limit: -1},
 		{name: "oversized limit", limit: 101},
-		{name: "oversized filter", filter: strings.Repeat("a", 201)},
-		{name: "unknown field", actorField: 999, workerField: 999},
-		{name: "unknown order", order: 999},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
-				Page: &apiv1alpha1.PageRequest{Limit: tc.limit}, Filter: tc.filter, SortField: tc.actorField, SortOrder: tc.order,
+				Page: &apiv1alpha1.PageRequest{Limit: tc.limit},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "actors")
 			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
-				Page: &apiv1alpha1.PageRequest{Limit: tc.limit}, Filter: tc.filter, SortField: tc.workerField, SortOrder: tc.order,
+				Page: &apiv1alpha1.PageRequest{Limit: tc.limit},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "workers")
 		})

@@ -33,15 +33,7 @@ export interface SubstrateActorEntry {
   version?: number;
 }
 
-/**
- * A worker, from ate-api.
- *
- * Which actor is on it is not here, and is not on the wire either. ate-api's `Worker`
- * carries capacity and allocation but no actor reference: the binding lives on the
- * *actor*, so filling these rows in would mean reading every actor in the cluster to
- * join them — the whole-inventory read the paged calls exist to remove. The summary's
- * `busyWorkerCount` is what that join is worth doing once for.
- */
+/** A worker reports capacity and allocation, but no actor reference. */
 export interface SubstrateWorkerEntry {
   workerNamespace: string;
   workerPool: string;
@@ -71,12 +63,12 @@ export interface SubstrateSummary extends Timed {
   ateApiError?: string;
   workerPools: SubstrateWorkerPoolEntry[];
   actorTemplates: SubstrateActorTemplateEntry[];
-  /** Every actor in scope, before any filter. */
+  /** Every actor in the requested atespace scope. */
   actorCount: number;
   workerCount: number;
   /** The numerators the inventory is actually read by: how much of it is working. */
   runningActorCount: number;
-  /** A worker is busy when an actor is placed on it. */
+  /** Workers reporting a positive allocated actor count. */
   busyWorkerCount: number;
   /**
    * Every actor status present, with how many hold it, ordered by status.
@@ -105,60 +97,18 @@ export interface Timed {
   computedAt?: string;
 }
 
-import type {
-  SubstrateActorSortField,
-  SubstrateSortOrder,
-  SubstrateWorkerSortField,
-} from "../operations";
-
-/** What every paged substrate read has in common. */
+/** One upstream page; an empty page may still have a continuation token. */
 interface SubstratePage extends Timed {
-  /** True when the controller is configured with an ate-api endpoint. */
   enabled: boolean;
-  /**
-   * Set when the ate-api read failed on an otherwise successful call.
-   *
-   * There are no rows with it. Every read walks all of ate-api's pages so that the
-   * order and the filter mean the whole scope, and a walk that fails part-way has an
-   * inventory it can neither order nor count — so the page comes back empty, with
-   * `totalSize` zero and no `nextPageToken`.
-   *
-   * A warning to show beside the table rather than an error to throw: the call
-   * succeeded, and the other reads on the page may well have too.
-   */
+  /** Upstream read failure. No rows or continuation token accompany it. */
   ateApiError?: string;
-  /**
-   * A token for the next page, or `undefined` on the last one.
-   *
-   * Absent rather than empty, so "there is more" is a question about presence and
-   * a caller cannot accidentally send `""` and re-read page one.
-   */
   nextPageToken?: string;
-  /**
-   * How many rows match the filter across every page.
-   *
-   * What makes "20 of 4,312" sayable. Without it a page can only report its own
-   * length, which reads as the whole result.
-   */
-  totalSize: number;
 }
 
-/** One page of actors, ordered and narrowed across the whole inventory. */
 export interface SubstrateActorPage extends SubstratePage {
   actors: SubstrateActorEntry[];
-  /**
-   * The order the server actually applied.
-   *
-   * Reported rather than assumed, so the table can say how its rows are sorted instead
-   * of showing the control's own state — which would still read as "sorted by status"
-   * if the request had been ignored.
-   */
-  appliedSortField: SubstrateActorSortField;
-  appliedSortOrder: SubstrateSortOrder;
 }
 
 export interface SubstrateWorkerPage extends SubstratePage {
   workers: SubstrateWorkerEntry[];
-  appliedSortField: SubstrateWorkerSortField;
-  appliedSortOrder: SubstrateSortOrder;
 }

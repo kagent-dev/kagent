@@ -96,41 +96,7 @@ message GetSubstrateSummaryResponse {
   repeated ateapi.ActorTemplate actor_templates = 11;
 }
 
-// Which way a sorted substrate read runs.
-enum SubstrateSortOrder {
-  SUBSTRATE_SORT_ORDER_UNSPECIFIED = 0;
-  SUBSTRATE_SORT_ORDER_ASC = 1;
-  SUBSTRATE_SORT_ORDER_DESC = 2;
-}
-
-// The columns ListSubstrateActors can order by, each ending in the actor's atespace and name:
-// an order whose last key repeats gives a page boundary naming more than one row, and
-// paging across it drops or repeats them.
-enum SubstrateActorSortField {
-  // Status, then actor id. What a reader gets without asking.
-  SUBSTRATE_ACTOR_SORT_FIELD_UNSPECIFIED = 0;
-  SUBSTRATE_ACTOR_SORT_FIELD_STATUS = 1;
-  SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID = 2;
-  SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE = 3;
-  SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD = 4;
-}
-
-// The columns ListSubstrateWorkers can order by, each ending in the worker's
-// namespace and pod, which together are unique.
-enum SubstrateWorkerSortField {
-  // Pool, then pod.
-  SUBSTRATE_WORKER_SORT_FIELD_UNSPECIFIED = 0;
-  SUBSTRATE_WORKER_SORT_FIELD_POOL = 1;
-  SUBSTRATE_WORKER_SORT_FIELD_POD = 2;
-  SUBSTRATE_WORKER_SORT_FIELD_IP = 3;
-}
-
-// One page of actors, ordered and narrowed across the whole inventory.
-//
-// ate-api offers atespace filtering and paging, so the controller reads all of its pages and
-// applies the filter and the order before cutting this one. That is a walk of the
-// inventory per request — seconds on a large cluster — and it is what makes both mean
-// the cluster rather than the page.
+// One upstream page of actors, in Substrate order.
 message ListSubstrateActorsRequest {
   // ATE atespace of the actor itself. Empty lists all atespaces.
   string atespace = 6 [(buf.validate.field).string = {
@@ -140,39 +106,25 @@ message ListSubstrateActorsRequest {
   // `limit` is capped at 100 in common.proto and zero means the server's default;
   // above the cap is refused rather than clamped.
   PageRequest page = 2;
-  // Matched case-insensitively as a substring of the id, status, template and worker
-  // pod a row shows. Empty matches everything.
-  string filter = 3 [(buf.validate.field).string.max_len = 200];
-  SubstrateActorSortField sort_field = 4 [(buf.validate.field).enum.defined_only = true];
-  SubstrateSortOrder sort_order = 5 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ListSubstrateActorsResponse {
   bool enabled = 1;
   string ate_api_error = 2;
   repeated ateapi.Actor actors = 3;
-  // Empty next_page_token on the last page.
+  // Upstream continuation token. A page can be empty even when another page exists.
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
-  // How many actors match the filter in total. Without it a page can only report its
-  // own length, which reads as the whole result.
-  int64 total_size = 6;
-  // The order actually applied, so a client does not claim one the server ignored.
-  SubstrateActorSortField applied_sort_field = 7;
-  SubstrateSortOrder applied_sort_order = 8;
 }
 
-// One page of worker assignments. The mirror of ListSubstrateActors.
+// One upstream page of workers, in Substrate order.
+// Namespace filtering applies to this page only; it may be empty and still have a next token.
 message ListSubstrateWorkersRequest {
   string namespace = 1 [(buf.validate.field).string = {
     max_len: 63
     pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$"
   }];
   PageRequest page = 2;
-  // Matched against the namespace, pool, pod and IP a row shows.
-  string filter = 3 [(buf.validate.field).string.max_len = 200];
-  SubstrateWorkerSortField sort_field = 4 [(buf.validate.field).enum.defined_only = true];
-  SubstrateSortOrder sort_order = 5 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ListSubstrateWorkersResponse {
@@ -181,7 +133,4 @@ message ListSubstrateWorkersResponse {
   repeated ateapi.Worker workers = 3;
   PageResponse page = 4;
   google.protobuf.Timestamp computed_at = 5;
-  int64 total_size = 6;
-  SubstrateWorkerSortField applied_sort_field = 7;
-  SubstrateSortOrder applied_sort_order = 8;
 }

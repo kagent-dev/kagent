@@ -316,17 +316,10 @@ export const mockSubstrateInventory: {
       version: 4,
     },
     { actorId: "actor-9c03", atespace: "kagent", status: "Suspending", inProgressSnapshot: "snap-2026-07-30", version: 2 },
-    // Last in the fixture and first once sorted: ate-api returns actors in no
-    // particular order, so a fixture that is already in the right order cannot tell
-    // a page that sorts from one that does not.
-    //
     // The raw wire constant, because that is what a real controller sends for a state
     // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
     // reach the page unread and no test object.
     { actorId: "actor-0aa1", atespace: "kagent", status: "ACTOR_STATE_CRASHED", version: 1 },
-    // Shares "Running" with actor-7f21, which is what makes a two-key sort observable:
-    // with every status distinct, sorting by status then by id looks the same as
-    // sorting by status alone.
     { actorId: "actor-3b55", atespace: "kagent", status: "Running", version: 1 },
     // Parked rather than broken, and the only status here that reads as neither:
     // without it nothing on the page is drawn in the idle tone.

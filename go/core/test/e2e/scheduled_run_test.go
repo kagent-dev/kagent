@@ -274,7 +274,6 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.
 		for token := ""; ; {
 			page, err := f.system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
 				Atespace: atespace,
-				Filter:   actorName,
 				Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
 			})
 			if err != nil {

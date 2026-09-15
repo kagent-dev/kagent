@@ -244,15 +244,13 @@ describe("the fixture backend", () => {
     expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
   });
 
-  it("searches the qualified template and pod references displayed in the inventory", async () => {
-    for (const filter of ["kagent/coder-template", "kagent/ateom-default-pool-0"]) {
-      const page = await invoke("substrate.actors", { filter });
-      expect(page.totalSize).toBe(1);
-      expect(page.actors[0].actorId).toBe("actor-7f21");
-    }
-    const page = await invoke("substrate.workers", { filter: "kagent/ateom-default-pool-0" });
-    expect(page.totalSize).toBe(1);
-    expect(page.workers[0]).toMatchObject({ workerPod: "ateom-default-pool-0", version: 4 });
+  it("preserves continuation through a worker page with no namespace matches", async () => {
+    const first = await invoke("substrate.workers", { namespace: "platform", limit: 1 });
+    expect(first.workers).toEqual([]);
+    expect(first.nextPageToken).toBeDefined();
+    const last = await invoke("substrate.workers", { namespace: "platform", limit: 1, pageToken: first.nextPageToken });
+    expect(last.workers).toEqual([]);
+    expect(last.nextPageToken).toBeUndefined();
   });
 
   /*

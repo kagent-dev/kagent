@@ -2,11 +2,9 @@ package system
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,22 +32,15 @@ type SubstrateActorPage struct {
 	Actors        []*ateapipb.Actor
 	NextPageToken string
 	ComputedAt    time.Time
-	// How many actors match the filter across every page.
-	TotalSize        int64
-	AppliedSortField apiv1alpha1.SubstrateActorSortField
-	AppliedSortOrder apiv1alpha1.SubstrateSortOrder
 }
 
 // SubstrateWorkerPage is one page of workers. The mirror of SubstrateActorPage.
 type SubstrateWorkerPage struct {
-	Enabled          bool
-	ATEAPIError      string
-	Workers          []*ateapipb.Worker
-	NextPageToken    string
-	ComputedAt       time.Time
-	TotalSize        int64
-	AppliedSortField apiv1alpha1.SubstrateWorkerSortField
-	AppliedSortOrder apiv1alpha1.SubstrateSortOrder
+	Enabled       bool
+	ATEAPIError   string
+	Workers       []*ateapipb.Worker
+	NextPageToken string
+	ComputedAt    time.Time
 }
 
 // SubstrateSummary is the inventory as counts, plus the two lists whose length is set
@@ -157,94 +148,44 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	return result, nil
 }
 
-// ListSubstrateActors answers with one page of actors, ordered and narrowed across the
-// whole inventory.
+// ListSubstrateActors returns one upstream page without changing its order or token.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return SubstrateActorPage{}, err
 	}
-	pageSize := substratePageSize(input.GetPage().GetLimit())
-	offset, err := decodeSubstrateOffset(input.GetPage().GetPageToken())
+	result := SubstrateActorPage{Enabled: true, ComputedAt: time.Now().UTC()}
+	actors, next, err := s.ateClient.ListActorsPage(ctx, input.GetAtespace(), substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
 	if err != nil {
-		return SubstrateActorPage{}, err
-	}
-
-	sortField := input.GetSortField()
-	result := SubstrateActorPage{
-		Enabled:          true,
-		Actors:           []*ateapipb.Actor{},
-		ComputedAt:       time.Now().UTC(),
-		AppliedSortField: sortField,
-		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
-	}
-
-	matching := []*ateapipb.Actor{}
-	needle := strings.ToLower(strings.TrimSpace(input.GetFilter()))
-	if err := s.walkActors(ctx, input.GetAtespace(), func(actor *ateapipb.Actor) {
-		if actor == nil {
-			return
-		}
-		if !matchesFilter(needle, actorSearchText(actor)) {
-			return
-		}
-		matching = append(matching, actor)
-	}); err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
 		return result, nil
 	}
-
-	slices.SortStableFunc(matching, substrateOrder(actorSortKey(sortField), input.GetSortOrder()))
-	page, next := sliceSubstratePage(matching, offset, pageSize)
-	result.Actors = page
+	result.Actors = actors
 	result.NextPageToken = next
-	result.TotalSize = int64(len(matching))
 	return result, nil
 }
 
-// ListSubstrateWorkers answers with one page of workers. The mirror of ListSubstrateActors.
+// ListSubstrateWorkers filters one upstream page by namespace and preserves its token.
+// A page with no workers in scope may still have a next page.
 func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1alpha1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
 	namespaces, err := s.substrateScope(ctx, input.GetNamespace())
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
-	pageSize := substratePageSize(input.GetPage().GetLimit())
-	offset, err := decodeSubstrateOffset(input.GetPage().GetPageToken())
+	result := SubstrateWorkerPage{Enabled: true, ComputedAt: time.Now().UTC()}
+	workers, next, err := s.ateClient.ListWorkersPage(ctx, substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
 	if err != nil {
-		return SubstrateWorkerPage{}, err
-	}
-
-	sortField := input.GetSortField()
-	result := SubstrateWorkerPage{
-		Enabled:          true,
-		Workers:          []*ateapipb.Worker{},
-		ComputedAt:       time.Now().UTC(),
-		AppliedSortField: sortField,
-		AppliedSortOrder: substrateSortOrder(input.GetSortOrder()),
-	}
-
-	allowAll, allowed := substrateScopeFilter(namespaces)
-	matching := []*ateapipb.Worker{}
-	needle := strings.ToLower(strings.TrimSpace(input.GetFilter()))
-	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
-		if worker == nil || !allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
-			return
-		}
-		if !matchesFilter(needle, workerSearchText(worker)) {
-			return
-		}
-		matching = append(matching, worker)
-	}); err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
 		return result, nil
 	}
-
-	slices.SortStableFunc(matching, substrateOrder(workerSortKey(sortField), input.GetSortOrder()))
-	page, next := sliceSubstratePage(matching, offset, pageSize)
-	result.Workers = page
+	allowAll, allowed := substrateScopeFilter(namespaces)
+	for _, worker := range workers {
+		if worker != nil && allowedWorkerNamespace(worker.GetWorkerNamespace(), allowAll, allowed) {
+			result.Workers = append(result.Workers, worker)
+		}
+	}
 	result.NextPageToken = next
-	result.TotalSize = int64(len(matching))
 	return result, nil
 }
 
@@ -324,140 +265,4 @@ func substratePageSize(requested int32) int32 {
 		return defaultSubstratePageSize
 	}
 	return requested
-}
-
-// The order, the filter and the slice, which ate-api offers none of.
-
-// matchesFilter reports whether a row's own text contains the needle.
-func matchesFilter(needle, text string) bool {
-	return needle == "" || strings.Contains(strings.ToLower(text), needle)
-}
-
-// actorSearchText is everything an actor row shows, including what a column composes
-// out of several fields, so a search matches what the reader can see.
-func actorSearchText(actor *ateapipb.Actor) string {
-	return strings.Join([]string{
-		actor.GetMetadata().GetName(),
-		actor.GetMetadata().GetAtespace(),
-		actorIdentity(actor),
-		substrate.ActorStatusLabel(actor.GetStatus().GetState()),
-		actor.GetActorTemplate().GetAtespace(),
-		actor.GetActorTemplate().GetName(),
-		actor.GetActorTemplate().GetAtespace() + "/" + actor.GetActorTemplate().GetName(),
-		actor.GetStatus().GetWorkerAssignment().GetWorkerNamespace(),
-		actor.GetStatus().GetWorkerAssignment().GetWorkerPod(),
-		actor.GetStatus().GetWorkerAssignment().GetWorkerNamespace() + "/" + actor.GetStatus().GetWorkerAssignment().GetWorkerPod(),
-		actor.GetStatus().GetWorkerAssignment().GetWorkerPodIp(),
-	}, " ")
-}
-
-func workerSearchText(worker *ateapipb.Worker) string {
-	return strings.Join([]string{
-		worker.WorkerNamespace,
-		worker.WorkerPool,
-		worker.WorkerPod,
-		worker.WorkerNamespace + "/" + worker.WorkerPod,
-		worker.GetIp(),
-	}, " ")
-}
-
-func actorIdentity(actor *ateapipb.Actor) string {
-	return actor.GetMetadata().GetAtespace() + "/" + actor.GetMetadata().GetName()
-}
-
-// actorSortKey turns a column into the string a row is ordered by. Every key ends in
-// the actor's atespace and name: an order whose last key repeats gives a page boundary naming
-// more than one row, and paging across it drops or repeats them.
-func actorSortKey(field apiv1alpha1.SubstrateActorSortField) func(*ateapipb.Actor) string {
-	switch field {
-	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_ACTOR_ID:
-		return actorIdentity
-	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_TEMPLATE:
-		return func(a *ateapipb.Actor) string {
-			return a.GetActorTemplate().GetAtespace() + "/" + a.GetActorTemplate().GetName() + "\x00" + actorIdentity(a)
-		}
-	case apiv1alpha1.SubstrateActorSortField_SUBSTRATE_ACTOR_SORT_FIELD_WORKER_POD:
-		return func(a *ateapipb.Actor) string {
-			assignment := a.GetStatus().GetWorkerAssignment()
-			return assignment.GetWorkerNamespace() + "/" + assignment.GetWorkerPod() + "\x00" + actorIdentity(a)
-		}
-	default:
-		// Status and the default are one ordering, so the Status header changes nothing
-		// ascending and reverses descending. Correct, and not obvious.
-		return func(a *ateapipb.Actor) string {
-			return substrate.ActorStatusLabel(a.GetStatus().GetState()) + "\x00" + actorIdentity(a)
-		}
-	}
-}
-
-func workerSortKey(field apiv1alpha1.SubstrateWorkerSortField) func(*ateapipb.Worker) string {
-	pod := func(w *ateapipb.Worker) string { return w.WorkerNamespace + "/" + w.WorkerPod }
-	switch field {
-	case apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_POD:
-		return pod
-	case apiv1alpha1.SubstrateWorkerSortField_SUBSTRATE_WORKER_SORT_FIELD_IP:
-		return func(w *ateapipb.Worker) string { return w.GetIp() + "\x00" + pod(w) }
-	default:
-		// Pool and the default are one ordering, as status and the default are above.
-		return func(w *ateapipb.Worker) string { return w.WorkerPool + "\x00" + pod(w) }
-	}
-}
-
-// substrateOrder compares two rows by their sort key, reversed for a descending read.
-func substrateOrder[Row any](key func(Row) string, order apiv1alpha1.SubstrateSortOrder) func(Row, Row) int {
-	descending := substrateSortOrder(order) == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_DESC
-	return func(left, right Row) int {
-		compared := strings.Compare(key(left), key(right))
-		if descending {
-			return -compared
-		}
-		return compared
-	}
-}
-
-// substrateSortOrder defaults an unset order to ascending.
-func substrateSortOrder(order apiv1alpha1.SubstrateSortOrder) apiv1alpha1.SubstrateSortOrder {
-	if order == apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_UNSPECIFIED {
-		return apiv1alpha1.SubstrateSortOrder_SUBSTRATE_SORT_ORDER_ASC
-	}
-	return order
-}
-
-/*
-sliceSubstratePage cuts the requested page out of the ordered result.
-
-An offset rather than a key-based cursor: the order is the controller's and is rebuilt
-per request, so a key would name a position the next request may not produce. An offset
-past the end is an empty last page, not an error — the cluster may have shrunk.
-*/
-func sliceSubstratePage[Row any](rows []Row, offset int, pageSize int32) ([]Row, string) {
-	if offset >= len(rows) {
-		return []Row{}, ""
-	}
-	end := min(offset+int(pageSize), len(rows))
-	page := rows[offset:end]
-	if end >= len(rows) {
-		return page, ""
-	}
-	return page, encodeSubstrateOffset(end)
-}
-
-// Encoded so the token reads as opaque, the same shape the other paged reads use.
-func encodeSubstrateOffset(offset int) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
-}
-
-func decodeSubstrateOffset(token string) (int, error) {
-	if token == "" {
-		return 0, nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return 0, serviceerrors.NewInvalidArgument("invalid page token", err)
-	}
-	offset, err := strconv.Atoi(string(raw))
-	if err != nil || offset < 0 {
-		return 0, serviceerrors.NewInvalidArgument("invalid page token", err)
-	}
-	return offset, nil
 }

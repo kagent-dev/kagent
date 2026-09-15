@@ -21,66 +21,20 @@ export function useSubstrateSummary(scope: SubstrateScopeInput = {}): ApiResourc
   );
 }
 
-/**
- * One page of actors, ordered and narrowed server-side.
- *
- * The filter and the sort are part of the key, because both change which rows this read
- * answers with: typing in the search box or clicking a header re-reads rather than
- * re-rendering what was already fetched. That is the whole point of them being the
- * server's — filtering or ordering here would reach one page, and a match on page nine
- * would read on screen as "no matches".
- *
- * What it costs is worth naming. ate-api offers neither an order nor a filter, so the
- * controller walks every one of its pages to apply them: each keystroke past the
- * debounce, and each header click, is a walk of the inventory.
- */
-export function useSubstrateActors(
-  input: SubstrateActorPageInput,
-): ApiResource<SubstrateActorPage> {
-  const {
-    atespace = "",
-    filter = "",
-    limit = 0,
-    pageToken = "",
-    sortField = "default",
-    sortOrder = "asc",
-  } = input;
+/** One page in Substrate's native order. */
+export function useSubstrateActors(input: SubstrateActorPageInput): ApiResource<SubstrateActorPage> {
+  const { atespace = "", limit = 0, pageToken = "" } = input;
   return useApiResource(
-    ["substrate.actors", atespace, filter, limit, pageToken, sortField, sortOrder],
-    () =>
-      apiClient.substrate.actors({
-        atespace,
-        filter,
-        limit,
-        pageToken,
-        sortField,
-        sortOrder,
-      }),
+    ["substrate.actors", atespace, limit, pageToken],
+    () => apiClient.substrate.actors({ atespace, limit, pageToken }),
   );
 }
 
-/** One page of workers. The mirror of `useSubstrateActors`. */
-export function useSubstrateWorkers(
-  input: SubstrateWorkerPageInput,
-): ApiResource<SubstrateWorkerPage> {
-  const {
-    namespace = "",
-    filter = "",
-    limit = 0,
-    pageToken = "",
-    sortField = "default",
-    sortOrder = "asc",
-  } = input;
+/** Namespace filtering may leave an empty page with a next token. */
+export function useSubstrateWorkers(input: SubstrateWorkerPageInput): ApiResource<SubstrateWorkerPage> {
+  const { namespace = "", limit = 0, pageToken = "" } = input;
   return useApiResource(
-    ["substrate.workers", namespace, filter, limit, pageToken, sortField, sortOrder],
-    () =>
-      apiClient.substrate.workers({
-        namespace,
-        filter,
-        limit,
-        pageToken,
-        sortField,
-        sortOrder,
-      }),
+    ["substrate.workers", namespace, limit, pageToken],
+    () => apiClient.substrate.workers({ namespace, limit, pageToken }),
   );
 }

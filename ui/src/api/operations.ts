@@ -83,48 +83,12 @@ export interface AgentInstanceRef {
   id: string;
 }
 
-/** Which direction a paged substrate read is sorted in. */
-export type SubstrateSortOrder = "asc" | "desc";
-
-/** The columns `substrate.actors` can order by. */
-export type SubstrateActorSortField =
-  /** Groups by status and orders by id within each group. The default. */
-  | "default"
-  | "status"
-  | "actorId"
-  | "template"
-  | "workerPod";
-
-/** The columns `substrate.workers` can order by. */
-export type SubstrateWorkerSortField =
-  /** Groups by pool and orders by pod within each group. The default. */
-  | "default"
-  | "pool"
-  | "pod"
-  | "ip";
-
-/** What a paged, filtered substrate read takes. */
-export interface SubstratePageInput<Sort = string> {
-  /**
-   * Matched server-side against the fields the row displays. Empty matches everything.
-   *
-   * Sent rather than applied here: the rows are one page of an inventory that can run
-   * to hundreds of thousands, so filtering them locally would search that page and
-   * report a match nine pages away as "no matches".
-   */
-  filter?: string;
-  /** Rows per page. The controller refuses anything over 100 rather than clamping. */
+/** One page in Substrate's native order. */
+export interface SubstratePageInput {
+  /** Requested rows per upstream page; the returned page may be shorter. */
   limit?: number;
-  /** Empty for the first page; otherwise the previous response's `nextPageToken`. */
+  /** Opaque upstream token; omitted for the first page. */
   pageToken?: string;
-  /**
-   * Which column to order by, and in which direction.
-   *
-   * Sent for the same reason the filter is: ordering a page orders the page, and the
-   * first row of the sorted cluster is almost certainly not on it.
-   */
-  sortField?: Sort;
-  sortOrder?: SubstrateSortOrder;
 }
 
 export interface SubstrateScopeInput {
@@ -132,8 +96,8 @@ export interface SubstrateScopeInput {
   atespace?: string;
 }
 
-export type SubstrateActorPageInput = SubstratePageInput<SubstrateActorSortField> & { atespace?: string };
-export type SubstrateWorkerPageInput = SubstratePageInput<SubstrateWorkerSortField> & { namespace?: string };
+export type SubstrateActorPageInput = SubstratePageInput & { atespace?: string };
+export type SubstrateWorkerPageInput = SubstratePageInput & { namespace?: string };
 
 type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
   input: Parameters<Client<typeof ScheduledRunService>[K]>[0];

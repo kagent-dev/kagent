@@ -237,7 +237,7 @@ tool call that has an interactive rendering should still show its raw form at al
 
 ## Blocked on the API: server-side paging, searching and sorting — for every list
 
-**Every list in this app narrows its rows in the browser, and the RPCs are why.**
+**Several lists still narrow their rows in the browser because their RPCs return whole lists.**
 Recorded here rather than left implicit, because the shape of the request is the whole
 argument: a client-side filter is honest when the response holds every row and dishonest
 when it holds one page of them, and only the proto says which.
@@ -247,55 +247,25 @@ when it holds one page of them, and only the proto says which.
 | `ListModelConfigs` | `ListModelConfigsRequest {}` | nothing at all | `PageRequest page`, `string filter`, a sort field enum and `SortOrder` |
 | `ListToolServers` | `ListToolServersRequest {}` | nothing at all | the same four |
 | `ListPromptTemplates` | `ListPromptTemplatesRequest { string namespace = 1 }` | one namespace | `PageRequest page`, `string filter`, sort field and order — the namespace is already there |
-| `ListSubstrateActors` | `ListSubstrateActorsRequest { namespace, page_size, page_token }` | a page | `string filter` and a sort field enum — **and ate-api has to grow them first** |
-| `ListSubstrateWorkers` | `ListSubstrateWorkersRequest { namespace, page_size, page_token }` | a page | the same two, on the same condition |
+| `ListSubstrateActors` | `ListSubstrateActorsRequest { atespace, page }` | a page | `string filter` and a sort field enum — **and ate-api has to grow them first** |
+| `ListSubstrateWorkers` | `ListSubstrateWorkersRequest { namespace, page }` | a page | the same two, on the same condition |
 
-**The substrate page is the worked precedent again, and it is a partial one.** It reads
-three RPCs — `GetSubstrateSummary` for the counts, and a page each from
-`ListSubstrateActors` and `ListSubstrateWorkers`, both passing `page_token` straight
-through to ate-api's own pagination. Those three had existed before, were removed in
-`refactor: simplify UI backend support`, and were restored by the fix for
-[#2704](https://github.com/kagent-dev/kagent/issues/2704).
+**Substrate actor and worker lists use upstream pagination.** Each list request makes
+one ate-api call and preserves its order and continuation token. Actors use upstream
+atespace filtering. Worker namespace filtering applies only to the returned page, so an
+empty worker page may still have a next token. The UI labels counts as "on this page"
+and offers no actor/worker text search or column sorting.
 
-What came back is narrower than what was removed, deliberately. The earlier versions
-carried a `filter` and a sort-field enum; these carry neither, **because ate-api has
-neither to offer**. `ListActors` there takes an atespace, a page size and a token, and
-answers with a page and a token: no order, no filter, no total. A controller-side sort
-or filter would therefore have to read every actor to apply it, which is the read the
-paging exists to remove. So the actor and worker tables sort and search the page in the
-browser, and `SubstratePage` says so in three places — the note under each table, the
-heading that distinguishes "1 of 4 on this page" from "4 of 4,312", and the empty state
-that names what it searched.
+Two capabilities remain deferred until Substrate supports them:
 
-**Copy the request shape, not the whole answer.** For the other three reads in this
-table, whose backends can order and filter, the earlier substrate design solved the part
-that is easy to get wrong: a sort order whose last key is not unique gives a page token
-that names more than one row. That commentary is worth recovering from git history
-before designing another paged read.
-
-**Two things are still deferred here, and they are upstream.**
-
-- **Sort and filter across the whole inventory** need `ateapipb.ListActorsRequest` and
-  `ListWorkersRequest` to take them. Until then the page-scoped versions are the honest
-  ceiling, and the three sentences above are what must change alongside any push
-  upstream.
-- **A total from ate-api.** `ListActorsResponse` reports no count, so
-  `GetSubstrateSummary` walks every page to produce one — about 1.6s on a cluster of
-  410,110 actors. The answer is a handful of integers, so it has no message-size ceiling
-  the way the removed unpaginated endpoint did, but it is the read to poll least often and the page
-  shows its age for that reason.
-
-**A page carrying rows *and* an ate-api error has no fixture.** Filling one page can take
-several ate-api pages when a namespace narrows the result, so a failure part-way keeps
-what it had already collected: the response then has rows, `ate_api_error`, and the failed
-page's token. `SubstratePage` renders it — the warning says the read did not finish rather
-than that it failed — but the mock backend produces only the two clean states, so nothing
-exercises the middle one. It needs a scenario where a later ate-api page fails.
+- Global sorting and text search require upstream list-query support.
+- Exact totals require upstream aggregates. `GetSubstrateSummary` still walks every
+  page to compute the dashboard counts; actor and worker page responses have no totals.
 
 **Which actor is on a worker is not deferred; it is not available.** ate-api's `Worker`
 carries capacity and allocation and no actor reference — the binding lives on the actor —
-so the workers table has no Actor column. `busyWorkerCount` on the summary is that join,
-done once server-side during a walk that was happening anyway. A column would need the
+so the workers table has no Actor column. `busyWorkerCount` counts workers with a positive
+allocated actor count reported by Substrate. A column would need the
 walk per page.
 
 **A single-message read is defensible only while the message really holds everything.**

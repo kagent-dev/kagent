@@ -97,14 +97,11 @@ func (s *systemServer) ListSubstrateActors(ctx context.Context, request *apiv1al
 		return nil, err
 	}
 	response := &apiv1alpha1.ListSubstrateActorsResponse{
-		Enabled:          result.Enabled,
-		AteApiError:      result.ATEAPIError,
-		Actors:           result.Actors,
-		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
-		ComputedAt:       timestamppb.New(result.ComputedAt),
-		TotalSize:        result.TotalSize,
-		AppliedSortField: result.AppliedSortField,
-		AppliedSortOrder: result.AppliedSortOrder,
+		Enabled:     result.Enabled,
+		AteApiError: result.ATEAPIError,
+		Actors:      result.Actors,
+		Page:        &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		ComputedAt:  timestamppb.New(result.ComputedAt),
 	}
 	return response, nil
 }
@@ -115,14 +112,11 @@ func (s *systemServer) ListSubstrateWorkers(ctx context.Context, request *apiv1a
 		return nil, err
 	}
 	response := &apiv1alpha1.ListSubstrateWorkersResponse{
-		Enabled:          result.Enabled,
-		AteApiError:      result.ATEAPIError,
-		Workers:          result.Workers,
-		Page:             &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
-		ComputedAt:       timestamppb.New(result.ComputedAt),
-		TotalSize:        result.TotalSize,
-		AppliedSortField: result.AppliedSortField,
-		AppliedSortOrder: result.AppliedSortOrder,
+		Enabled:     result.Enabled,
+		AteApiError: result.ATEAPIError,
+		Workers:     result.Workers,
+		Page:        &apiv1alpha1.PageResponse{NextPageToken: result.NextPageToken},
+		ComputedAt:  timestamppb.New(result.ComputedAt),
 	}
 	return response, nil
 }

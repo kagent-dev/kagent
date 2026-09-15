@@ -41,9 +41,6 @@ import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
 import {
-  SubstrateActorSortField as PbActorSortField,
-  SubstrateSortOrder as PbSortOrder,
-  SubstrateWorkerSortField as PbWorkerSortField,
   SystemService,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
@@ -102,10 +99,7 @@ import type {
 import type {
   ApiOperations,
   OperationCallOptions,
-  SubstrateActorSortField,
   SubstratePageInput,
-  SubstrateSortOrder,
-  SubstrateWorkerSortField,
 } from "../operations";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { createContextValues } from "@connectrpc/connect";
@@ -1072,7 +1066,7 @@ function toActorTemplateEntry(
   };
 }
 
-// Match the server's ActorStatusLabel for sorting, searching, and summary counts.
+// Display names for upstream actor states.
 const ACTOR_STATUS_LABELS: Record<ActorState, string> = {
   [ActorState.UNSPECIFIED]: "Unknown",
   [ActorState.RESUMING]: "Resuming",
@@ -1115,44 +1109,8 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
   };
 }
 
-const ACTOR_SORT_FIELDS = {
-  default: PbActorSortField.UNSPECIFIED,
-  status: PbActorSortField.STATUS,
-  actorId: PbActorSortField.ACTOR_ID,
-  template: PbActorSortField.TEMPLATE,
-  workerPod: PbActorSortField.WORKER_POD,
-} as const satisfies Record<SubstrateActorSortField, PbActorSortField>;
-
-const WORKER_SORT_FIELDS = {
-  default: PbWorkerSortField.UNSPECIFIED,
-  pool: PbWorkerSortField.POOL,
-  pod: PbWorkerSortField.POD,
-  ip: PbWorkerSortField.IP,
-} as const satisfies Record<SubstrateWorkerSortField, PbWorkerSortField>;
-
-function wordFor<Word extends string, Value>(
-  table: Record<Word, Value>,
-  value: Value,
-  fallback: Word,
-): Word {
-  const found = (Object.keys(table) as Word[]).find((word) => table[word] === value);
-  return found ?? fallback;
-}
-
-function substratePageRequest<Sort extends string>(
-  input: SubstratePageInput<Sort>,
-  sortFields: Record<Sort, number>,
-) {
-  return {
-    // `PageRequest`, as every other paged read on this API sends it. Zero is "the
-    // controller's own default", which is a better answer than a number invented here
-    // — and the schema refuses anything over 100 outright.
-    page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" },
-    filter: input.filter ?? "",
-    sortField: sortFields[input.sortField ?? ("default" as Sort)],
-    sortOrder:
-      input.sortOrder === "desc" ? PbSortOrder.DESC : PbSortOrder.ASC,
-  };
+function substratePageRequest(input: SubstratePageInput) {
+  return { page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" } };
 }
 
 function substratePageResult(response: {
@@ -1160,8 +1118,6 @@ function substratePageResult(response: {
   ateApiError: string;
   page?: { nextPageToken: string };
   computedAt?: Timestamp;
-  totalSize: bigint;
-  appliedSortOrder: PbSortOrder;
 }) {
   return {
     enabled: response.enabled,
@@ -1170,10 +1126,6 @@ function substratePageResult(response: {
     // which would send it back to page one for ever.
     nextPageToken: orUndefined(response.page?.nextPageToken ?? ""),
     computedAt: orUndefined(isoFrom(response.computedAt)),
-    totalSize: toNumber(response.totalSize) ?? 0,
-    appliedSortOrder: (response.appliedSortOrder === PbSortOrder.DESC
-      ? "desc"
-      : "asc") as SubstrateSortOrder,
   };
 }
 
@@ -1221,14 +1173,13 @@ const cluster: Pick<
   "substrate.actors": async (input, options) => {
     const response = await rpc("SystemService/ListSubstrateActors", options.signal, () =>
       serviceClient(SystemService).listSubstrateActors(
-        { ...substratePageRequest(input, ACTOR_SORT_FIELDS), atespace: input.atespace },
+        { ...substratePageRequest(input), atespace: input.atespace },
         call("substrate.actors", options),
       ),
     );
     return {
       ...substratePageResult(response),
       actors: list(response.actors).map(toActorEntry),
-      appliedSortField: wordFor(ACTOR_SORT_FIELDS, response.appliedSortField, "default"),
     };
   },
 
@@ -1238,14 +1189,13 @@ const cluster: Pick<
       options.signal,
       () =>
         serviceClient(SystemService).listSubstrateWorkers(
-          { ...substratePageRequest(input, WORKER_SORT_FIELDS), namespace: input.namespace },
+          { ...substratePageRequest(input), namespace: input.namespace },
           call("substrate.workers", options),
         ),
     );
     return {
       ...substratePageResult(response),
       workers: list(response.workers).map(toWorkerEntry),
-      appliedSortField: wordFor(WORKER_SORT_FIELDS, response.appliedSortField, "default"),
     };
   },
 };

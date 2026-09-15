@@ -114,25 +114,3 @@ func (c *Client) ListActorTemplates(ctx context.Context, atespace string) ([]*at
 		return c.ListActorTemplatesPage(ctx, atespace, pageToken)
 	})
 }
-
-// ActorStatusLabel returns a stable human-readable actor status.
-func ActorStatusLabel(status ateapipb.ActorState) string {
-	switch status {
-	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
-		return "Resuming"
-	case ateapipb.ActorState_ACTOR_STATE_RUNNING:
-		return "Running"
-	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-		return "Suspending"
-	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
-		return "Suspended"
-	case ateapipb.ActorState_ACTOR_STATE_PAUSING:
-		return "Pausing"
-	case ateapipb.ActorState_ACTOR_STATE_PAUSED:
-		return "Paused"
-	case ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED:
-		return "Unknown"
-	default:
-		return status.String()
-	}
-}
