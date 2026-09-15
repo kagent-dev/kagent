@@ -1054,10 +1054,45 @@ func startForkMemoryMock(t *testing.T) string {
 		t.Fatal(err)
 	}
 	config.OpenAI = append(config.OpenAI, continuation)
-	upstream, err := url.Parse(startMockLLMConfig(t, config))
+	recorder := startModelRecorder(t, startMockLLMConfig(t, config), func(body []byte) error {
+		if !bytes.Contains(body, []byte("What was the answer before the checkpoint?")) {
+			return nil
+		}
+		if !bytes.Contains(body, []byte("The answer is 4.")) || bytes.Count(body, []byte("What is 2+2?")) != 1 {
+			return errors.New("fork did not restore the checkpoint conversation")
+		}
+		return nil
+	})
+	return reachableModelURL(t, recorder.URL)
+}
+
+// modelRecorder proxies model requests to a mock LLM and keeps a copy of each
+// one, so a test can assert on what the runtime sent rather than only on what
+// the mock answered.
+type modelRecorder struct {
+	// URL is the proxy's listener on the test host.
+	URL string
+
+	mu       sync.Mutex
+	requests []recordedModelRequest
+}
+
+type recordedModelRequest struct {
+	Header http.Header
+	Body   []byte
+}
+
+// startModelRecorder puts a recording proxy in front of the mock LLM at
+// upstreamURL. An inspect function may reject a request: its error is
+// answered with 400 instead of being forwarded, which fails the agent's turn
+// visibly rather than letting the mock answer a prompt it should not see.
+func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []byte) error) *modelRecorder {
+	t.Helper()
+	upstream, err := url.Parse(upstreamURL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	recorder := &modelRecorder{}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -1066,9 +1101,12 @@ func startForkMemoryMock(t *testing.T) string {
 			return
 		}
 		_ = r.Body.Close()
-		if bytes.Contains(body, []byte("What was the answer before the checkpoint?")) {
-			if !bytes.Contains(body, []byte("The answer is 4.")) || bytes.Count(body, []byte("What is 2+2?")) != 1 {
-				http.Error(w, "fork did not restore the checkpoint conversation", http.StatusBadRequest)
+		recorder.mu.Lock()
+		recorder.requests = append(recorder.requests, recordedModelRequest{Header: r.Header.Clone(), Body: body})
+		recorder.mu.Unlock()
+		if inspect != nil {
+			if err := inspect(body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -1082,5 +1120,20 @@ func startForkMemoryMock(t *testing.T) string {
 	}
 	server.Start()
 	t.Cleanup(server.Close)
-	return reachableModelURL(t, server.URL)
+	recorder.URL = server.URL
+	return recorder
+}
+
+// Requests returns the recorded requests carrying the header value, in
+// arrival order.
+func (r *modelRecorder) Requests(header, value string) []recordedModelRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var matched []recordedModelRequest
+	for _, request := range r.requests {
+		if request.Header.Get(header) == value {
+			matched = append(matched, request)
+		}
+	}
+	return matched
 }
