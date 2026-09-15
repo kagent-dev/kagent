@@ -236,7 +236,7 @@ export function McpServersPage() {
         },
       },
     ],
-    [theme, view, isFiltering, refresh],
+    [theme, view, isFiltering, invalidateServers],
   );
 
   const toolTotal = servers.reduce(

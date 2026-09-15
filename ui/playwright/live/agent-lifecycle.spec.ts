@@ -1,5 +1,4 @@
-import { test, expect } from "../fixtures/test";
-import { confirmation, optionNamed } from "../helpers/resource";
+import { test, expect } from "@playwright/test";
 import {
   dataRows,
   expectNoLoadFailure,
@@ -61,7 +60,7 @@ test("live: an agent can be created and deleted through the UI", async ({ page }
     // The options come from the cluster's own ModelConfigs, so an empty list here is
     // a real failure rather than a slow render: the install ships one.
     await page.getByTestId("agent-form-model").click();
-    const option = optionNamed(page).first();
+    const option = page.locator(".ant-select-item-option").first();
     await expect(option, "the cluster offered no model configurations").toBeVisible({
       timeout: 30_000,
     });
@@ -86,7 +85,7 @@ test("live: an agent can be created and deleted through the UI", async ({ page }
     const before = await dataRows(page).count();
 
     await page.getByTestId(`delete-${AGENT}`).click();
-    const confirm = confirmation(page).filter({ hasText: AGENT });
+    const confirm = page.locator(".ant-popconfirm").filter({ hasText: AGENT });
     await expect(confirm, "the confirmation did not name the agent").toBeVisible();
 
     await page.getByRole("button", { name: "Delete", exact: true }).last().click();
