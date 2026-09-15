@@ -1,5 +1,6 @@
 """Tests for ADK integration classes (STS + token propagation)."""
 
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -9,10 +10,34 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
-from agentsts.adk._base import HEADERS_KEY
+from agentsts.adk._base import HEADERS_KEY, MAX_CACHE_ENTRIES, MAX_CACHE_TTL_SECONDS
+from agentsts.adk._base import _cache_key as build_cache_key
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
 from agentsts.adk._base import _has_token_expired as has_token_expired
+from agentsts.adk._base import _subject_key as subject_key
+
+
+class _ScanCountingDict(dict):
+    """A dict that counts full traversals, however they are spelled."""
+
+    scans = 0
+
+    def items(self):
+        self.scans += 1
+        return super().items()
+
+    def keys(self):
+        self.scans += 1
+        return super().keys()
+
+    def values(self):
+        self.scans += 1
+        return super().values()
+
+    def __iter__(self):
+        self.scans += 1
+        return super().__iter__()
 
 
 class TestADKTokenPropagationPlugin:
@@ -50,7 +75,9 @@ class TestADKTokenPropagationPlugin:
         with patch("agentsts.adk._base.logger") as mock_logger:
             result = await plugin.before_run_callback(invocation_context=ic)
             assert result is None
-            mock_logger.debug.assert_called_once_with("subject token not found in session state for token propagation")
+            mock_logger.warning.assert_called_once_with(
+                "No subject token in session state, not propagating a token for this run"
+            )
         assert plugin.token_cache == {}
 
     @pytest.mark.asyncio
@@ -78,8 +105,8 @@ class TestADKTokenPropagationPlugin:
             resource=None,
             audience=None,
         )
-        assert "sess-key-1" in plugin.token_cache
-        assert plugin.token_cache["sess-key-1"].token == "exchanged-token"
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "exchanged-token"
 
     @pytest.mark.asyncio
     async def test_resource_and_audience_passed_to_exchange(self):
@@ -144,7 +171,9 @@ class TestADKTokenPropagationPlugin:
         with patch("agentsts.adk._base.logger") as mock_logger:
             result = await plugin.before_run_callback(invocation_context=ic)
             assert result is None
-            mock_logger.debug.assert_called_once_with("subject token not found in session state for token propagation")
+            mock_logger.warning.assert_called_once_with(
+                "No subject token in session state, not propagating a token for this run"
+            )
         assert plugin.token_cache == {}
 
     @pytest.mark.asyncio
@@ -181,7 +210,7 @@ class TestADKTokenPropagationPlugin:
             resource=None,
             audience=None,
         )
-        assert plugin.token_cache["sess-key-4"].token == "exchanged-via-headers"
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "exchanged-via-headers"
 
     @pytest.mark.asyncio
     async def test_downstream_token_propagation_without_sts(self):
@@ -190,8 +219,8 @@ class TestADKTokenPropagationPlugin:
         ic = self._make_invocation_context("sess-2", headers={"Authorization": "Bearer subj-token-123"})
         result = await plugin.before_run_callback(invocation_context=ic)
         assert result is None
-        assert "sess-2" in plugin.token_cache
-        assert plugin.token_cache["sess-2"].token == "subj-token-123"
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "subj-token-123"
 
         # propagate toolset
         mcp_toolset = Mock(spec=MCPToolset)
@@ -209,7 +238,7 @@ class TestADKTokenPropagationPlugin:
         # cleanup - token should still be cached if not expired
         await plugin.after_run_callback(invocation_context=ic)
         # Token has no expiry, so it's preserved
-        assert "sess-2" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_success(self):
@@ -234,8 +263,8 @@ class TestADKTokenPropagationPlugin:
             )
             # optional debug log length check
             mock_logger.debug.assert_called()  # at least one debug log
-        assert "sess-3" in plugin.token_cache
-        assert plugin.token_cache["sess-3"].token == "access-token-XYZ"
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "access-token-XYZ"
 
         ro_ctx = self._make_readonly_context(ic)
         headers = plugin.header_provider(ro_ctx)
@@ -244,7 +273,7 @@ class TestADKTokenPropagationPlugin:
         # cleanup - token should still be cached if not expired
         await plugin.after_run_callback(invocation_context=ic)
         # Token has no expiry, so it's preserved
-        assert "sess-3" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_failure(self):
@@ -260,7 +289,7 @@ class TestADKTokenPropagationPlugin:
             result = await plugin.before_run_callback(invocation_context=ic)
             assert result is None
             mock_logger.warning.assert_called_once()
-        assert "sess-4" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
         # header provider should yield empty dict
         ro_ctx = self._make_readonly_context(ic)
         assert plugin.header_provider(ro_ctx) == {}
@@ -286,11 +315,11 @@ class TestADKTokenPropagationPlugin:
         # Mock expiry to return expired timestamp
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
             await plugin.before_run_callback(invocation_context=ic)
-            assert "sess-6" in plugin.token_cache
+            assert plugin.cache_key(ic) in plugin.token_cache
 
         # Token is expired, should be removed
         await plugin.after_run_callback(invocation_context=ic)
-        assert "sess-6" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_fetch_success_sync(self):
@@ -327,8 +356,8 @@ class TestADKTokenPropagationPlugin:
             assert any("Fetched and cached new actor token" in call for call in debug_calls)
 
         # Verify token is cached
-        assert "sess-7" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-7"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.token == "access-token-dynamic"
 
     @pytest.mark.asyncio
@@ -366,8 +395,8 @@ class TestADKTokenPropagationPlugin:
             assert any("Fetched and cached new actor token" in call for call in debug_calls)
 
         # Verify token is cached
-        assert "sess-7a" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-7a"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.token == "access-token-dynamic-async"
 
     @pytest.mark.asyncio
@@ -395,7 +424,7 @@ class TestADKTokenPropagationPlugin:
             assert "Failed to fetch actor token dynamically" in warning_msg
 
         # No token should be cached
-        assert "sess-8" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_fetch_failure_async(self):
@@ -422,7 +451,7 @@ class TestADKTokenPropagationPlugin:
             assert "Failed to fetch actor token dynamically" in warning_msg
 
         # No token should be cached
-        assert "sess-8a" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_preserved_when_not_expired(self):
@@ -446,15 +475,15 @@ class TestADKTokenPropagationPlugin:
             await plugin.before_run_callback(invocation_context=ic)
 
         # Verify token is cached with expiry
-        assert "sess-9" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-9"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.expiry == future_expiry
 
         # Call after_run_callback - token should be preserved
         await plugin.after_run_callback(invocation_context=ic)
 
         # Verify token is still cached (not expired)
-        assert "sess-9" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_removed_when_expired(self):
@@ -478,13 +507,13 @@ class TestADKTokenPropagationPlugin:
             await plugin.before_run_callback(invocation_context=ic)
 
         # Verify token is cached
-        assert "sess-10" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
         # Call after_run_callback - token should be removed (expired)
         await plugin.after_run_callback(invocation_context=ic)
 
         # Verify token is removed
-        assert "sess-10" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_valid_token_preserved_in_cache(self):
@@ -501,15 +530,15 @@ class TestADKTokenPropagationPlugin:
         await plugin.before_run_callback(invocation_context=ic)
 
         # Verify token is cached with expected value
-        assert "sess-11" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-11"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.token == "access-token-static"
 
         # Call after_run_callback - token should still be in cache if not expired
         await plugin.after_run_callback(invocation_context=ic)
 
         # Verify the same cache entry is still present
-        assert plugin.token_cache.get("sess-11") is cache_entry
+        assert plugin.token_cache.get(plugin.cache_key(ic)) is cache_entry
 
     @pytest.mark.asyncio
     async def test_actor_token_cached_and_reused(self):
@@ -717,8 +746,8 @@ class TestADKTokenPropagationPlugin:
             assert sts.exchange_token.call_count == 1
 
             # Verify token is cached
-            assert "sess-18" in plugin.token_cache
-            assert plugin.token_cache["sess-18"].token == "exchanged-token"
+            assert plugin.cache_key(ic) in plugin.token_cache
+            assert plugin.token_cache[plugin.cache_key(ic)].token == "exchanged-token"
 
             # Second call with same session - should use cached token
             await plugin.before_run_callback(invocation_context=ic)
@@ -747,12 +776,12 @@ class TestADKTokenPropagationPlugin:
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
             await plugin.before_run_callback(invocation_context=ic)
             assert sts.exchange_token.call_count == 1
-            assert plugin.token_cache["sess-19"].token == "token-1"
-            assert plugin.token_cache["sess-19"].expiry == past_expiry
+            assert plugin.token_cache[plugin.cache_key(ic)].token == "token-1"
+            assert plugin.token_cache[plugin.cache_key(ic)].expiry == past_expiry
 
             # Cleanup expired token
             await plugin.after_run_callback(invocation_context=ic)
-            assert "sess-19" not in plugin.token_cache
+            assert plugin.cache_key(ic) not in plugin.token_cache
 
         # Second call - should detect missing cache and re-exchange
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=future_expiry):
@@ -760,12 +789,16 @@ class TestADKTokenPropagationPlugin:
 
             # Verify exchange was called again
             assert sts.exchange_token.call_count == 2
-            assert plugin.token_cache["sess-19"].token == "token-2"
-            assert plugin.token_cache["sess-19"].expiry == future_expiry
+            assert plugin.token_cache[plugin.cache_key(ic)].token == "token-2"
+            assert plugin.token_cache[plugin.cache_key(ic)].expiry == future_expiry
 
     @pytest.mark.asyncio
     async def test_subject_token_cache_no_expiry(self):
-        """Case: subject token without expiry is cached indefinitely and reused."""
+        """Case: subject token without expiry is given a bounded lifetime and reused.
+
+        The cache holds one entry per (session, subject), so an entry that never
+        expires would pin a slot per caller for the lifetime of the process.
+        """
         sts = Mock(spec=ADKSTSIntegration)
         sts.get_subject_token = None
         sts.fetch_actor_token = None
@@ -780,11 +813,16 @@ class TestADKTokenPropagationPlugin:
             # First call
             await plugin.before_run_callback(invocation_context=ic)
             assert sts.exchange_token.call_count == 1
-            assert plugin.token_cache["sess-20"].expiry is None
+            entry = plugin.token_cache[plugin.cache_key(ic)]
+            # Nothing states when this caller's authority ends, so the entry
+            # carries an eviction time without carrying a deadline.
+            assert entry.expiry is None
+            assert entry.evict_after is not None
+            assert entry.evict_after <= int(time.time()) + MAX_CACHE_TTL_SECONDS
 
-            # after_run_callback should preserve it (no expiry)
+            # after_run_callback preserves it until the bounded lifetime elapses
             await plugin.after_run_callback(invocation_context=ic)
-            assert "sess-20" in plugin.token_cache
+            assert plugin.cache_key(ic) in plugin.token_cache
 
             # Second call - should reuse cached token
             await plugin.before_run_callback(invocation_context=ic)
@@ -829,6 +867,69 @@ class TestADKTokenPropagationPlugin:
             # Fetch should not be called again
             assert fetch_count == 1
 
+    @pytest.mark.asyncio
+    async def test_subject_token_callback_failure_does_not_abort_run(self):
+        """Case: a raising get_subject_token fails closed instead of breaking the run."""
+
+        def raising_get_subject_token(state):
+            raise RuntimeError("callback exploded")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = raising_get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "static-actor"
+        sts.exchange_token = AsyncMock()
+
+        plugin = ADKTokenPropagationPlugin(sts)
+        ic = self._make_invocation_context("sess-raise", headers={"Authorization": "Bearer subject-token"})
+
+        assert await plugin.before_run_callback(invocation_context=ic) is None
+        assert plugin.token_cache == {}
+        sts.exchange_token.assert_not_awaited()
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_after_run_callback_sweeps_expired_tokens_of_other_sessions(self):
+        """Case: the sweep is not scoped to the running session, so entries of
+        sessions that never run again cannot pile up."""
+        past_expiry = int(time.time()) - 100
+        future_expiry = int(time.time()) + 3600
+
+        plugin = ADKTokenPropagationPlugin()
+        expired_ic = self._make_invocation_context("sess-expired", headers={"Authorization": "Bearer AAA"})
+        live_ic = self._make_invocation_context("sess-live", headers={"Authorization": "Bearer BBB"})
+        running_ic = self._make_invocation_context("sess-running", headers={"Authorization": "Bearer CCC"})
+
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
+            await plugin.before_run_callback(invocation_context=expired_ic)
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=future_expiry):
+            await plugin.before_run_callback(invocation_context=live_ic)
+            await plugin.before_run_callback(invocation_context=running_ic)
+
+        await plugin.after_run_callback(invocation_context=running_ic)
+
+        assert plugin.cache_key(expired_ic) not in plugin.token_cache
+        assert plugin.cache_key(live_ic) in plugin.token_cache
+        assert plugin.cache_key(running_ic) in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_after_run_callback_skips_scan_until_something_expires(self):
+        """Case: the cache is only walked once the earliest expiry is reached."""
+        plugin = ADKTokenPropagationPlugin()
+        ic = self._make_invocation_context("sess-gate", headers={"Authorization": "Bearer AAA"})
+
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=int(time.time()) + 3600):
+            await plugin.before_run_callback(invocation_context=ic)
+
+        # Counts every way the cache can be walked, so the assertion still holds
+        # if the sweep stops going through items().
+        counting_cache = _ScanCountingDict(plugin.token_cache)
+        plugin.token_cache = counting_cache
+        await plugin.after_run_callback(invocation_context=ic)
+
+        assert counting_cache.scans == 0
+        assert plugin.cache_key(ic) in plugin.token_cache
+
     def test_extract_jwt_from_headers_success(self):
         """Test successful JWT extraction from headers."""
         headers = {"Authorization": "Bearer jwt-token-123"}
@@ -845,7 +946,7 @@ class TestADKTokenPropagationPlugin:
             result = extract_jwt_from_headers({})
 
             assert result is None
-            mock_logger.warning.assert_called_once_with("No headers provided for JWT extraction")
+            mock_logger.debug.assert_called_once_with("No headers provided for JWT extraction")
 
     def test_extract_jwt_from_headers_no_auth_header(self):
         """Test JWT extraction with no Authorization header."""
@@ -855,7 +956,7 @@ class TestADKTokenPropagationPlugin:
             result = extract_jwt_from_headers(headers)
 
             assert result is None
-            mock_logger.warning.assert_called_once_with("No Authorization header found in request")
+            mock_logger.debug.assert_called_once_with("No Authorization header found in request")
 
     def test_extract_jwt_from_headers_invalid_bearer(self):
         """Test JWT extraction with invalid Bearer format."""
@@ -865,7 +966,7 @@ class TestADKTokenPropagationPlugin:
             result = extract_jwt_from_headers(headers)
 
             assert result is None
-            mock_logger.warning.assert_called_once_with("Authorization header must start with Bearer")
+            mock_logger.debug.assert_called_once_with("Authorization header must start with Bearer")
 
     def test_extract_jwt_from_headers_empty_token(self):
         """Test JWT extraction with empty token."""
@@ -875,7 +976,7 @@ class TestADKTokenPropagationPlugin:
             result = extract_jwt_from_headers(headers)
 
             assert result is None
-            mock_logger.warning.assert_called_once_with("Empty JWT token found in Authorization header")
+            mock_logger.debug.assert_called_once_with("Empty JWT token found in Authorization header")
 
     def test_extract_jwt_from_headers_whitespace_token(self):
         """Test JWT extraction with whitespace-only token."""
@@ -885,7 +986,7 @@ class TestADKTokenPropagationPlugin:
             result = extract_jwt_from_headers(headers)
 
             assert result is None
-            mock_logger.warning.assert_called_once_with("Empty JWT token found in Authorization header")
+            mock_logger.debug.assert_called_once_with("Empty JWT token found in Authorization header")
 
     def test_extract_jwt_from_headers_stripped_token(self):
         """Test JWT extraction with token that has whitespace."""
@@ -1039,6 +1140,687 @@ class TestADKTokenPropagationPlugin:
 
         assert extract_jwt_expiry(no_exp_token) is None
         assert has_token_expired(extract_jwt_expiry(no_exp_token)) is False
+
+    @staticmethod
+    def _jwt(
+        iss: str,
+        sub: str,
+        signing_key: str = "test-signing-key-of-at-least-32-bytes!",
+        expiry: int | None = None,
+    ) -> str:
+        import jwt as pyjwt
+
+        claims = {"iss": iss, "sub": sub}
+        if expiry is not None:
+            claims["exp"] = expiry
+        return pyjwt.encode(claims, signing_key, algorithm="HS256")
+
+    @pytest.mark.asyncio
+    async def test_two_subjects_in_one_session_keep_separate_tokens(self):
+        """Case: one session, two callers -> each keeps and reuses its own exchanged token."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=lambda subject_token, **_: f"exchanged-for-{subject_token[-5:]}")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {bob}"})
+
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        await plugin.before_run_callback(invocation_context=ic_bob)
+
+        # Both callers share a session id, so a session-only key would have
+        # collapsed them onto whichever exchanged first.
+        assert plugin.cache_key(ic_alice) != plugin.cache_key(ic_bob)
+        assert len(plugin.token_cache) == 2
+        assert sts.exchange_token.await_count == 2
+
+        # Each caller's tool invocation gets its own token back.
+        alice_headers = plugin.header_provider(self._make_readonly_context(ic_alice))
+        bob_headers = plugin.header_provider(self._make_readonly_context(ic_bob))
+        assert alice_headers["Authorization"] == f"Bearer {plugin.token_cache[plugin.cache_key(ic_alice)].token}"
+        assert alice_headers != bob_headers
+
+    @pytest.mark.asyncio
+    async def test_same_subject_reuses_cached_token(self):
+        """Case: same caller twice in one session -> exchanged once, second call is a cache hit."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-once")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert sts.exchange_token.await_count == 1
+        assert len(plugin.token_cache) == 1
+
+    def test_subject_key_ignores_unverified_claims(self):
+        """Case: a cache hit skips the exchange, so a token merely claiming the
+        victim's iss/sub must not select the victim's entry."""
+        genuine = self._jwt("https://dex.example", "alice", signing_key="genuine-signing-key-of-32-bytes-plus")
+        forged = self._jwt("https://dex.example", "alice", signing_key="attacker-signing-key-of-32-bytes-ok")
+
+        assert subject_key(genuine) != subject_key(forged)
+
+    def test_subject_key_partitions_opaque_tokens(self):
+        """Case: distinct credentials partition into distinct keys."""
+        assert subject_key("opaque-a") != subject_key("opaque-b")
+        assert subject_key("opaque-a") == subject_key("opaque-a")
+
+    @pytest.mark.asyncio
+    async def test_forged_subject_claims_do_not_reuse_cached_token(self):
+        """Case: the forged-token path end to end -> no cached entry is handed back."""
+        genuine = self._jwt("https://dex.example", "alice", signing_key="genuine-signing-key-of-32-bytes-plus")
+        forged = self._jwt("https://dex.example", "alice", signing_key="attacker-signing-key-of-32-bytes-ok")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_genuine = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {genuine}"})
+        await plugin.before_run_callback(invocation_context=ic_genuine)
+        assert len(plugin.token_cache) == 1
+
+        ic_forged = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {forged}"})
+        assert plugin.header_provider(self._make_readonly_context(ic_forged)) == {}
+
+    @pytest.mark.asyncio
+    async def test_token_without_expiry_stays_evictable(self):
+        """Case: a token carrying no exp is given a bounded lifetime, not an immortal entry."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-ttl", headers={"Authorization": "Bearer opaque-token"})
+
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=None):
+            await plugin.before_run_callback(invocation_context=ic)
+
+        entry = plugin.token_cache[plugin.cache_key(ic)]
+        assert entry.evict_after is not None
+        assert entry.evict_after <= int(time.time()) + MAX_CACHE_TTL_SECONDS
+        # The bounded eviction time also arms the sweep gate, which a None value
+        # leaves unset. It is not a deadline on the caller: expiry stays unset.
+        assert plugin._earliest_eviction == entry.evict_after
+        assert entry.expiry is None
+
+    @pytest.mark.asyncio
+    async def test_token_without_expiry_propagates_past_the_eviction_bound(self):
+        """Case: nothing states when this caller's authority ends, so a run that
+        outlives the eviction bound keeps injecting the token.
+
+        before_run_callback runs once per run, so a run longer than the bound has
+        nothing to re-mint the entry. Reading the bound as a deadline would drop
+        the credential part way through the run.
+        """
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="delegated-opaque")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-long-run", headers={"Authorization": "Bearer caller-opaque"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        ro_ctx = self._make_readonly_context(ic)
+        assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer delegated-opaque"}
+
+        later = int(time.time()) + MAX_CACHE_TTL_SECONDS + 1
+        with patch("time.time", return_value=later):
+            assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer delegated-opaque"}
+            await plugin.after_run_callback(invocation_context=ic)
+            assert plugin.cache_key(ic) in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_token_without_expiry_is_evicted_once_no_tool_call_uses_it(self):
+        """Case: the entry of a caller that states no expiry still ages out, so it
+        does not pin a slot for the lifetime of the process."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="delegated-opaque")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-idle", headers={"Authorization": "Bearer caller-opaque"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        later = int(time.time()) + MAX_CACHE_TTL_SECONDS + 1
+        with patch("time.time", return_value=later):
+            await plugin.after_run_callback(invocation_context=ic)
+        assert plugin.cache_key(ic) not in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_a_concurrent_run_does_not_sweep_an_in_flight_caller(self):
+        """Case: the sweep is not scoped to the running session, so it must not drop
+        the entry of a run that is still making tool calls.
+
+        before_run_callback runs once per run, so a swept entry has nothing to
+        re-mint it and the rest of that run would call the backend with no
+        credential at all.
+        """
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=lambda subject_token, **_: f"delegated-{subject_token}")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        # Both callers are opaque, so nothing states when their authority ends.
+        in_flight = self._make_invocation_context("sess-in-flight", headers={"Authorization": "Bearer opaque-alice"})
+        other = self._make_invocation_context("sess-other", headers={"Authorization": "Bearer opaque-bob"})
+
+        await plugin.before_run_callback(invocation_context=in_flight)
+        in_flight_ctx = self._make_readonly_context(in_flight)
+        assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer delegated-opaque-alice"}
+
+        later = int(time.time()) + MAX_CACHE_TTL_SECONDS + 10
+        with patch("time.time", return_value=later):
+            # The in-flight run keeps calling tools while the other run starts,
+            # finishes, and sweeps.
+            assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer delegated-opaque-alice"}
+            await plugin.before_run_callback(invocation_context=other)
+            await plugin.after_run_callback(invocation_context=other)
+            assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer delegated-opaque-alice"}
+
+    @pytest.mark.asyncio
+    async def test_capacity_eviction_keeps_the_entry_of_an_in_flight_caller(self):
+        """Case: a burst of distinct credentials must not evict the entry a run is
+        still making tool calls with."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        in_flight = self._make_invocation_context("sess-burst", headers={"Authorization": "Bearer opaque-alice"})
+        await plugin.before_run_callback(invocation_context=in_flight)
+        in_flight_ctx = self._make_readonly_context(in_flight)
+
+        for index in range(MAX_CACHE_ENTRIES + 25):
+            # Each new caller is more recent than the last tool call of the
+            # in-flight run, so only a renewed entry survives the burst.
+            assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer opaque-alice"}
+            ic = self._make_invocation_context("sess-burst", headers={"Authorization": f"Bearer token-{index}"})
+            await plugin.before_run_callback(invocation_context=ic)
+
+        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        assert plugin.header_provider(in_flight_ctx) == {"Authorization": "Bearer opaque-alice"}
+
+    @pytest.mark.asyncio
+    async def test_capacity_eviction_drops_a_caller_that_makes_no_tool_call(self):
+        """Case: use order is the only signal the capacity bound has, so a run
+        that pauses long enough loses its entry and injects no credential.
+
+        The bound has to drop something. This pins which run it drops, and that
+        the run it drops fails closed rather than serving another caller's token.
+        """
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        idle = self._make_invocation_context("sess-idle-burst", headers={"Authorization": "Bearer opaque-alice"})
+        await plugin.before_run_callback(invocation_context=idle)
+        idle_ctx = self._make_readonly_context(idle)
+        assert plugin.header_provider(idle_ctx) == {"Authorization": "Bearer opaque-alice"}
+
+        # The run waits on a model turn, so it renews nothing while the burst runs.
+        for index in range(MAX_CACHE_ENTRIES + 5):
+            ic = self._make_invocation_context("sess-idle-burst", headers={"Authorization": f"Bearer token-{index}"})
+            await plugin.before_run_callback(invocation_context=ic)
+
+        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        assert plugin.cache_key(idle) not in plugin.token_cache
+        assert plugin.header_provider(idle_ctx) == {}
+
+    @pytest.mark.asyncio
+    async def test_refused_run_drops_the_entry_when_nothing_names_the_caller(self):
+        """Case: with no inbound header the hook names the caller, so a run the
+        hook refuses must not leave an entry behind.
+
+        header_provider resolves the hook again on every tool call. A hook that
+        resolves nothing at the start of the run and a token a moment later would
+        otherwise rebuild the key of the entry the run was refused.
+        """
+        refuse = False
+
+        def flaky_hook(state):
+            nonlocal refuse
+            if refuse:
+                refuse = False
+                raise RuntimeError("subject lookup is down")
+            return state.get("subject-token")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = flaky_hook
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="delegated-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context(
+            "sess-hook-only",
+            headers=None,
+            extra_state={"subject-token": "custom-subject-token"},
+        )
+        await plugin.before_run_callback(invocation_context=ic)
+        assert len(plugin.token_cache) == 1
+
+        refuse = True
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_refused_run_without_a_caller_leaves_other_sessions_alone(self):
+        """Case: dropping a session whose caller cannot be named must not reach
+        the entries of the other sessions."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_alice = self._make_invocation_context("sess-other", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic_alice)
+
+        ic_anon = self._make_invocation_context("sess-anon", headers=None)
+        await plugin.before_run_callback(invocation_context=ic_anon)
+
+        assert plugin.cache_key(ic_alice) in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic_alice)) == {"Authorization": f"Bearer {alice}"}
+
+    @pytest.mark.asyncio
+    async def test_get_subject_token_identifies_a_caller_that_sends_no_header(self):
+        """Case: with no inbound Authorization header the hook is the only thing
+        that names the caller, so header_provider consults it on every tool call.
+
+        This is the documented contract for the hook: it must be cheap and free
+        of side effects.
+        """
+        calls = []
+
+        def counting_hook(state):
+            calls.append(state)
+            return state.get("subject-token")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = counting_hook
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context(
+            "sess-hook-only",
+            headers=None,
+            extra_state={"subject-token": "custom-subject-token"},
+        )
+        await plugin.before_run_callback(invocation_context=ic)
+        assert len(calls) == 1
+
+        ro_ctx = self._make_readonly_context(ic)
+        for _ in range(3):
+            assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer exchanged-alice"}
+        assert len(calls) == 4
+
+    @pytest.mark.asyncio
+    async def test_opaque_caller_credential_does_not_shorten_a_dated_token(self):
+        """Case: a caller credential stating no expiry must not cap the entry at
+        the eviction bound, which would force a re-exchange every few minutes."""
+        long_lived = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=long_lived)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-opaque", headers={"Authorization": "Bearer caller-opaque"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        entry = plugin.token_cache[plugin.cache_key(ic)]
+        assert entry.expiry == extract_jwt_expiry(long_lived)
+        assert entry.evict_after == entry.expiry
+
+    @pytest.mark.asyncio
+    async def test_caller_without_an_inbound_header_does_not_warn(self):
+        """Case: the documented custom get_subject_token mode carries no
+        Authorization header by design, which is not a fault worth a warning."""
+        token = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = lambda state: state.get("subject-token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=token)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook-quiet", headers=None, extra_state={"subject-token": token})
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            await plugin.before_run_callback(invocation_context=ic)
+            assert mock_logger.warning.call_args_list == []
+
+        # Nor on the tool-call path, which runs far more often than once a run.
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            plugin.header_provider(self._make_readonly_context(ic))
+            assert mock_logger.warning.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_missing_authorization_header_is_reported_once(self):
+        """Case: a caller that sends no usable Authorization header is still
+        reported, once, on the run that refuses to propagate for it."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-no-auth", headers={"X-User-Id": "alice"})
+
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            await plugin.before_run_callback(invocation_context=ic)
+            warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
+        assert warnings == ["No subject token in session state, not propagating a token for this run"]
+
+        # The tool-call path reads the same header and must stay quiet.
+        with patch("agentsts.adk._base.logger") as mock_logger:
+            assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+            assert mock_logger.warning.call_args_list == []
+
+    @pytest.mark.asyncio
+    async def test_cache_is_capped_by_entry_count(self):
+        """Case: one session seeing many distinct credentials is capped, since the
+        sweep never runs while a single run holds them."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        for index in range(MAX_CACHE_ENTRIES + 25):
+            ic = self._make_invocation_context("one-session", headers={"Authorization": f"Bearer token-{index}"})
+            await plugin.before_run_callback(invocation_context=ic)
+
+        assert len(plugin.token_cache) == MAX_CACHE_ENTRIES
+        # The run that just cached keeps its own entry.
+        assert plugin.cache_key(ic) in plugin.token_cache
+
+    def test_header_provider_without_context_fails_closed(self):
+        """Case: a tool call with no invocation context gets no header instead of raising."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        assert plugin.header_provider(None) == {}
+        assert plugin.header_provider(self._make_readonly_context(None)) == {}
+
+    @pytest.mark.asyncio
+    async def test_after_run_sweeps_other_subjects_expired_entries(self):
+        """Case: expired entry for a subject other than the acting one is still evicted."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {bob}"})
+
+        past_expiry = int(time.time()) - 100
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
+            await plugin.before_run_callback(invocation_context=ic_alice)
+        assert plugin.cache_key(ic_alice) in plugin.token_cache
+
+        # bob runs; alice's entry has expired and must not survive the sweep.
+        await plugin.after_run_callback(invocation_context=ic_bob)
+        assert plugin.cache_key(ic_alice) not in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_tokenless_caller_does_not_reuse_cached_session_token(self):
+        """Case: session holds a cached token, but a caller with no subject token gets nothing back."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        assert len(plugin.token_cache) == 1
+
+        ic_anon = self._make_invocation_context("shared-sess", headers=None)
+        await plugin.before_run_callback(invocation_context=ic_anon)
+        assert len(plugin.token_cache) == 1
+
+        assert plugin.header_provider(self._make_readonly_context(ic_anon)) == {}
+
+    @pytest.mark.asyncio
+    async def test_session_scoped_get_subject_token_does_not_collapse_the_key(self):
+        """Case: a get_subject_token reading session state (not the caller's header)
+        still keeps one entry per caller, since the key comes from the credential."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        # Reads a session-scoped field, so it returns the same token for every caller.
+        sts.get_subject_token = lambda state: state.get("session_token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=["exchanged-alice", "exchanged-bob"])
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {bob}"})
+        for ic in (ic_alice, ic_bob):
+            ic.session.state["session_token"] = "one-token-for-the-whole-session"
+
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        await plugin.before_run_callback(invocation_context=ic_bob)
+
+        assert len(plugin.token_cache) == 2
+        assert plugin.token_cache[plugin.cache_key(ic_alice)].token == "exchanged-alice"
+        assert plugin.token_cache[plugin.cache_key(ic_bob)].token == "exchanged-bob"
+
+    @pytest.mark.asyncio
+    async def test_get_subject_token_is_not_called_per_tool_call(self):
+        """Case: header_provider runs on every tool call, so it must reuse the key
+        resolved for the run rather than re-invoking the caller-supplied hook."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        calls = []
+
+        def counting_hook(state):
+            calls.append(state)
+            return state.get(HEADERS_KEY, {}).get("Authorization", "").removeprefix("Bearer ")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = counting_hook
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        after_run = len(calls)
+
+        ro_ctx = self._make_readonly_context(ic)
+        for _ in range(3):
+            assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer exchanged-alice"}
+
+        assert len(calls) == after_run
+
+    @pytest.mark.asyncio
+    async def test_cached_entry_does_not_outlive_the_caller_credential(self):
+        """Case: the entry is keyed by the caller's credential, so a caller replaying
+        an expired bearer must miss the cache and reach the STS."""
+        alice = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 30)
+        long_lived = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=long_lived)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-ttl", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        entry = plugin.token_cache[plugin.cache_key(ic)]
+        assert entry.expiry == extract_jwt_expiry(alice)
+
+    def test_empty_subject_is_not_cacheable(self):
+        """Case: a caller with no credential yields no cache key, so credential-less
+        callers cannot come to share one entry."""
+        assert build_cache_key("sess-x", None) is None
+        assert build_cache_key("sess-x", "") is None
+        # No credential but a subject token from the hook still keys per session.
+        assert build_cache_key("sess-x", "hook-token") is not None
+
+    def test_unidentified_session_is_not_cacheable(self):
+        """Case: without a session id, entries could only be shared between
+        unrelated conversations."""
+        assert build_cache_key("", "a-credential") is None
+
+    @pytest.mark.asyncio
+    async def test_header_provider_still_resolves_after_the_run_ends(self):
+        """Case: the key comes from the run's own state, not from state held between
+        callbacks, so a tool call outliving after_run_callback still authenticates."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-late", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        await plugin.after_run_callback(invocation_context=ic)
+        # The entry is unexpired, so the sweep kept it.
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": f"Bearer {alice}"}
+
+    @pytest.mark.asyncio
+    async def test_header_provider_rejects_an_entry_past_the_caller_expiry(self):
+        """Case: the caller's bearer outlives neither itself nor the entry keyed on it,
+        so a tool call after it expires must not receive the delegated token."""
+        now = int(time.time())
+        alice = self._jwt("https://dex.example", "alice", expiry=now + 30)
+        long_lived = self._jwt("https://dex.example", "alice", expiry=now + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=long_lived)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-exp", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        ro_ctx = self._make_readonly_context(ic)
+        assert plugin.header_provider(ro_ctx) == {"Authorization": f"Bearer {long_lived}"}
+
+        # The run is still going, so the sweep has not run: header_provider is the
+        # only thing standing between the expired caller and the delegated token.
+        plugin.token_cache[plugin.cache_key(ic)].expiry = now - 1
+        assert plugin.header_provider(ro_ctx) == {}
+
+    @pytest.mark.asyncio
+    async def test_failed_exchange_drops_the_previous_entry(self):
+        """Case: an exchange the STS rejects must not leave the earlier delegated
+        token injectable for the rest of its lifetime."""
+        now = int(time.time())
+        alice = self._jwt("https://dex.example", "alice", expiry=now + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-fail", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": "Bearer exchanged-alice"}
+
+        # Force the next run past the cache hit, then have the STS reject it.
+        plugin.token_cache[plugin.cache_key(ic)].expiry = now - 1
+        sts.exchange_token = AsyncMock(side_effect=RuntimeError("invalid_grant"))
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.cache_key(ic) not in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_raising_subject_hook_drops_the_previous_entry(self):
+        """Case: a hook that stops resolving a token for a caller must stop that
+        caller's tool calls too, not serve the entry the last run cached."""
+        alice = self._jwt("https://dex.example", "alice")
+        raise_now = False
+
+        def get_subject_token(state):
+            if raise_now:
+                raise RuntimeError("subject lookup is down")
+            return state[HEADERS_KEY]["Authorization"].removeprefix("Bearer ")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook-fail", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": "Bearer exchanged-alice"}
+
+        raise_now = True
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_subject_hook_returning_none_drops_the_previous_entry(self):
+        """Case: same as a raising hook, for one that simply stops returning a token."""
+        alice = self._jwt("https://dex.example", "alice")
+        resolve = True
+
+        def get_subject_token(state):
+            return state[HEADERS_KEY]["Authorization"].removeprefix("Bearer ") if resolve else None
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook-none", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": "Bearer exchanged-alice"}
+
+        resolve = False
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert plugin.token_cache == {}
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_a_refused_run_leaves_other_callers_alone(self):
+        """Case: dropping a refused caller's entry must not disturb the entry of
+        another caller sharing the session."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+        refuse_alice = False
+
+        def get_subject_token(state):
+            token = state[HEADERS_KEY]["Authorization"].removeprefix("Bearer ")
+            return None if refuse_alice and token == alice else token
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=lambda subject_token, **_: f"exchanged-for-{subject_token[-5:]}")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic_alice = self._make_invocation_context("shared-refuse", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-refuse", headers={"Authorization": f"Bearer {bob}"})
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        await plugin.before_run_callback(invocation_context=ic_bob)
+        assert len(plugin.token_cache) == 2
+
+        refuse_alice = True
+        await plugin.before_run_callback(invocation_context=ic_alice)
+
+        assert plugin.cache_key(ic_alice) not in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic_bob)) == {
+            "Authorization": f"Bearer exchanged-for-{bob[-5:]}"
+        }
 
 
 class TestADKSTSIntegration:

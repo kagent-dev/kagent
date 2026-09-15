@@ -1,5 +1,7 @@
 """Google ADK-specific STS integration."""
 
+import hashlib
+import heapq
 import inspect
 import logging
 import time
@@ -31,11 +33,59 @@ logger = logging.getLogger(__name__)
 
 HEADERS_KEY = "headers"
 
+# Eviction bound for an entry whose tokens state no expiry, so that such an
+# entry does not pin a slot for the lifetime of the process. It bounds memory
+# only, never the caller's authority, and a cache hit renews it.
+MAX_CACHE_TTL_SECONDS = 300
+
+# Upper bound on cache entries. The sweep runs between runs, so concurrent runs
+# holding many distinct credentials need a bound that does not wait for one.
+MAX_CACHE_ENTRIES = 1024
+
+# Separates the session part of a cache key from the subject part. It cannot
+# occur in either part, so the session part of a key is an unambiguous prefix.
+_KEY_SEPARATOR = "\0"
+
+
+def _acting_credential(state: dict) -> Optional[str]:
+    """Return the bearer token this caller presented.
+
+    Not ``get_subject_token``: that hook receives the whole session state, so an
+    implementation reading a session-scoped field returns the same value for
+    every caller. Only the inbound Authorization header is caller-scoped.
+    """
+    headers = state.get(HEADERS_KEY, None)
+    if not isinstance(headers, dict):
+        headers = {}
+    return _extract_jwt_from_headers(headers)
+
 
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
-    headers = state.get(HEADERS_KEY, None)
-    return _extract_jwt_from_headers(headers)
+    return _acting_credential(state)
+
+
+def _subject_key(token: str) -> str:
+    """Hash a bearer token into a per-principal cache discriminator.
+
+    A cache hit hands out a delegated token without an exchange, so the key
+    decides who receives whose authority. Nothing on this path verifies a
+    signature, so a key built from ``iss``/``sub`` would let a forged token
+    select a victim's entry. Hashing the raw token makes a forged token a cache
+    miss, which sends it to the STS that rejects it.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _cache_key(session_id: str, caller: Optional[str]) -> Optional[str]:
+    """Key one caller's entry in one session, or None when either is unknown.
+
+    A credential-less caller gets no key at all: an entry stored under the empty
+    subject would be shared by every credential-less caller in the session.
+    """
+    if not session_id or not caller:
+        return None
+    return f"{session_id}{_KEY_SEPARATOR}{_subject_key(caller)}"
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -75,7 +125,12 @@ class ADKSTSIntegration(STSIntegrationBase):
             use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
             get_subject_token: Optional callback that takes session.state (dict) and returns
                 the subject token string or None. If not set, defaults to extracting the
-                JWT from the Authorization header in session.state["headers"].
+                JWT from the Authorization header in session.state["headers"]. When
+                the caller sends no Authorization header, the callback also identifies
+                the caller, so it runs on every tool call and not once per run. In that
+                mode it must be cheap, free of side effects, and return the same value
+                for the whole run: a value that changes between tool calls keys a
+                different entry every time, so the calls go out with no credential.
         """
         super().__init__(
             well_known_uri=well_known_uri,
@@ -91,15 +146,28 @@ class ADKSTSIntegration(STSIntegrationBase):
 class _TokenCacheEntry:
     """Cache entry for access tokens with metadata."""
 
-    def __init__(self, token: str, expiry: Optional[int] = None):
+    def __init__(self, token: str, expiry: Optional[int] = None, keyed_by_hook: bool = False):
         """Initialize token cache entry.
 
         Args:
             token: The access token
-            expiry: Token expiry timestamp (Unix epoch), if available
+            expiry: Timestamp at which the authority behind the token ends (Unix
+                epoch), or None when nothing on this path states one. It decides
+                whether the token may still be injected.
+            keyed_by_hook: True when get_subject_token, not an inbound
+                Authorization header, supplied the caller part of the key. Such
+                an entry is reachable again only through the same hook, so a run
+                the hook refuses drops it even without a key of its own.
         """
         self.token = token
         self.expiry = expiry
+        self.keyed_by_hook = keyed_by_hook
+        # Timestamp at which the entry may be dropped. It bounds memory only,
+        # never the caller's authority, so it can be earlier than expiry. _touch
+        # sets it when nothing states an expiry.
+        self.evict_after = expiry
+        # Use sequence, set by _touch. Orders the capacity bound.
+        self.last_used = 0
 
 
 class ADKTokenPropagationPlugin(BasePlugin):
@@ -125,6 +193,10 @@ class ADKTokenPropagationPlugin(BasePlugin):
         self.audience = audience
         self.token_cache: Dict[str, _TokenCacheEntry] = {}
         self.actor_token_cache: Optional[_TokenCacheEntry] = None
+        # Earliest eviction time across token_cache; None when no entry expires.
+        self._earliest_eviction: Optional[int] = None
+        # Monotonic use counter, read by _touch.
+        self._uses = 0
 
     def add_to_agent(self, agent: BaseAgent):
         """
@@ -149,11 +221,32 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"add_to_agent: updated MCP tool's header provider for agent {agent_name}")
 
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
-        # access saved token
-        cache_entry = self.token_cache.get(self.cache_key(readonly_context._invocation_context))
-        if not cache_entry:
+        # Runs on every tool call, so it injects no credential rather than
+        # raising into the invocation. Injecting nothing is not a denial: the
+        # headers the toolset carries itself still reach the backend.
+        invocation_context = getattr(readonly_context, "_invocation_context", None)
+        if invocation_context is None:
+            logger.debug("No invocation context for tool call, injecting no credential")
             return {}
 
+        cache_key = self.cache_key(invocation_context)
+        if cache_key is None:
+            logger.debug("No caller credential for tool call, injecting no credential")
+            return {}
+
+        # Tested on expiry, never on evict_after: the entry is capped at the
+        # caller credential's own expiry, so an expired one means the caller's
+        # authority is gone. The sweep runs between runs, so the check belongs
+        # here too.
+        # Reported at debug level: this runs on every tool call, and a run that
+        # caches nothing makes every one of its tool calls reach here.
+        # before_run_callback warns once when it refuses to propagate.
+        cache_entry = self.token_cache.get(cache_key)
+        if cache_entry is None or _has_token_expired(cache_entry.expiry):
+            logger.debug("No valid cached token for this caller, injecting no credential")
+            return {}
+
+        self._touch(cache_entry)
         logger.debug("Using cached access token for tool invocation")
         return {
             "Authorization": f"Bearer {cache_entry.token}",
@@ -166,11 +259,31 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Propagate token to model before execution."""
-        cache_key = self.cache_key(invocation_context)
+        # The cache is keyed by caller, so resolve the caller before the lookup:
+        # a session carrying messages from several subjects would otherwise reuse
+        # whichever caller arrived first. get_subject_token supplies the exchange
+        # payload; on its own it is not caller-scoped.
+        state = invocation_context.session.state
+        credential = _acting_credential(state)
+        subject_token = self._read_subject_token(state)
+        cache_key = _cache_key(invocation_context.session.id, credential or subject_token)
+        if cache_key is None or not subject_token:
+            logger.warning("No subject token in session state, not propagating a token for this run")
+            if cache_key is None:
+                # Nothing identifies the caller, so no single entry can be named.
+                # get_subject_token identifies the caller in this mode, and
+                # header_provider resolves it again per tool call: a hook that
+                # resolves nothing now and a token a moment later would rebuild
+                # the key of the entry this run was refused.
+                self._invalidate_hook_keyed(invocation_context.session.id)
+            else:
+                self._invalidate(cache_key)
+            return None
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
         if cached_entry and not _has_token_expired(cached_entry.expiry):
+            self._touch(cached_entry)
             if cached_entry.expiry:
                 current_time = int(time.time())
                 logger.debug(f"Using cached subject token (expires in {cached_entry.expiry - current_time}s)")
@@ -178,22 +291,12 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug("Using cached subject token (no expiry)")
             return None
 
-        # No valid cached token, need to get/exchange subject token
-        get_subject_token = (
-            self.sts_integration.get_subject_token
-            if self.sts_integration and self.sts_integration.get_subject_token
-            else _default_get_subject_token
-        )
-        subject_token = get_subject_token(invocation_context.session.state)
-        if not subject_token:
-            logger.debug("subject token not found in session state for token propagation")
-            return None
-
         if self.sts_integration:
             # Get actor token (from cache or fetch dynamically)
             actor_token = await self._get_actor_token()
             if actor_token is None and self.sts_integration.fetch_actor_token:
                 # Dynamic fetch failed; already logged a warning in _get_actor_token
+                self._invalidate(cache_key)
                 return None
 
             try:
@@ -207,22 +310,115 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 )
             except Exception as e:
                 logger.warning(f"STS token exchange failed: {e}")
+                self._invalidate(cache_key)
                 return None
 
-        # Extract expiry from the token
-        expiry = _extract_jwt_expiry(subject_token)
-
-        # Cache the token with metadata
-        self.token_cache[cache_key] = _TokenCacheEntry(
-            token=subject_token,
-            expiry=expiry,
-        )
+        # The entry is keyed by the caller's credential, so it must not outlive
+        # it: replaying an expired bearer would otherwise keep hitting a cached
+        # delegated token instead of reaching the STS.
+        expiry = _earlier_expiry(_extract_jwt_expiry(subject_token), _extract_jwt_expiry(credential))
+        entry = _TokenCacheEntry(token=subject_token, expiry=expiry, keyed_by_hook=credential is None)
+        self.token_cache[cache_key] = entry
+        self._touch(entry)
+        self._earliest_eviction = _earlier_expiry(self._earliest_eviction, entry.evict_after)
+        self._evict_over_capacity()
         logger.debug("Cached new subject token")
         return None
 
-    def cache_key(self, invocation_context: InvocationContext) -> str:
-        """Generate a cache key based on the session ID."""
-        return invocation_context.session.id
+    def _read_subject_token(self, state: dict) -> Optional[str]:
+        """Resolve the acting caller's subject token from session state.
+
+        get_subject_token is caller-supplied, so a raising implementation fails
+        closed (no token propagated) instead of aborting the agent run.
+        """
+        get_subject_token = (
+            self.sts_integration.get_subject_token
+            if self.sts_integration and self.sts_integration.get_subject_token
+            else _default_get_subject_token
+        )
+        try:
+            return get_subject_token(state)
+        except Exception as e:
+            logger.warning(f"Failed to read subject token from session state: {e}")
+            return None
+
+    def _invalidate(self, cache_key: Optional[str]) -> None:
+        """Drop the entry of a caller this run refuses to propagate a token for.
+
+        header_provider serves the cache on its own, so an entry left behind by
+        a refused run would keep authenticating that caller's tool calls until
+        it expired. Dropping it is scoped to the one caller.
+        """
+        if cache_key and self.token_cache.pop(cache_key, None) is not None:
+            logger.debug("Dropped cached token for a caller this run refused to propagate for")
+
+    def _invalidate_hook_keyed(self, session_id: str) -> None:
+        """Drop the session's hook-keyed entries when nothing names the caller.
+
+        Reached when neither an inbound credential nor get_subject_token
+        identifies the caller, so there is no key to drop. Only the entries the
+        hook keyed are candidates: those are the ones a later resolution by the
+        same hook could reach again. The entries of callers that arrived with
+        their own Authorization header stay, since a caller sending no header
+        can never rebuild their key.
+        """
+        if not session_id:
+            return
+
+        prefix = f"{session_id}{_KEY_SEPARATOR}"
+        for key in [key for key, entry in self.token_cache.items() if entry.keyed_by_hook and key.startswith(prefix)]:
+            del self.token_cache[key]
+            logger.debug("Dropped cached token for a caller this run refused to propagate for")
+
+    def _touch(self, entry: _TokenCacheEntry) -> None:
+        """Record that a run is using this entry.
+
+        Both bounds on the cache drop the entries no run is using: the capacity
+        bound by use order, the sweep by eviction time. An entry whose tokens
+        state no expiry carries a synthetic eviction time, so a use renews it.
+        Without this, a concurrent run's sweep drops the credential of a run
+        that is still in flight, which before_run_callback cannot re-mint.
+        """
+        self._uses += 1
+        entry.last_used = self._uses
+        if entry.expiry is None:
+            entry.evict_after = int(time.time()) + MAX_CACHE_TTL_SECONDS
+
+    def _evict_over_capacity(self) -> None:
+        """Drop the least recently used entries once the cache is over capacity.
+
+        The sweep runs between runs only, so it cannot bound a run that sees
+        many distinct credentials while it holds them. The entry the current run
+        just cached is the most recently used, so it is never dropped here.
+
+        Use order is the only signal available here, so an entry a run still
+        holds is dropped once MAX_CACHE_ENTRIES more recent callers arrive
+        between two of its tool calls. That run then injects no credential for
+        the rest of its tool calls.
+        """
+        overflow = len(self.token_cache) - MAX_CACHE_ENTRIES
+        if overflow <= 0:
+            return
+
+        for key, _ in heapq.nsmallest(overflow, self.token_cache.items(), key=lambda item: item[1].last_used):
+            del self.token_cache[key]
+        logger.debug(f"Dropped {overflow} cached token(s) over the cache capacity")
+
+    def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
+        """Key the cache on the session and the acting subject, so a session
+        carrying messages from several subjects keeps one token per subject
+        instead of collapsing onto whichever arrived first.
+
+        The caller's credential is read straight from the run's own state, so
+        the key is derivable on every tool call. get_subject_token is consulted
+        only when no inbound credential identifies the caller, and it stands in
+        for the caller then: that mode has no per-caller identity to preserve.
+        """
+        session = getattr(invocation_context, "session", None)
+        if session is None:
+            return None
+        caller = _acting_credential(session.state) or self._read_subject_token(session.state)
+        return _cache_key(session.id, caller)
 
     async def _get_actor_token(self) -> Optional[str]:
         """Get actor token from cache or fetch dynamically.
@@ -276,13 +472,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
-        cache_key = self.cache_key(invocation_context)
-        cache_entry = self.token_cache.get(cache_key)
-
-        # Clean up subject token cache - only remove if expired
-        if cache_entry and _has_token_expired(cache_entry.expiry):
-            logger.debug("Removing expired subject token from cache")
-            self.token_cache.pop(cache_key, None)
+        self._sweep_expired_subject_tokens()
 
         # Clean up expired actor token cache
         if self.actor_token_cache and _has_token_expired(self.actor_token_cache.expiry):
@@ -290,6 +480,37 @@ class ADKTokenPropagationPlugin(BasePlugin):
             self.actor_token_cache = None
 
         return None
+
+    def _sweep_expired_subject_tokens(self) -> None:
+        """Drop every subject token whose eviction time has passed.
+
+        Entries of other subjects and other sessions are swept too: scoping the
+        sweep to the current session would keep the entries of sessions that
+        never run again forever. A use renews the eviction time, so this cannot
+        drop the credential of a run that is still in flight. The
+        earliest eviction time gates the scan, so a growing cache is walked only
+        when there is something to evict.
+        """
+        if self._earliest_eviction is None or not _has_token_expired(self._earliest_eviction):
+            return
+
+        earliest_eviction: Optional[int] = None
+        for key, entry in list(self.token_cache.items()):
+            if _has_token_expired(entry.evict_after):
+                logger.debug("Removing expired subject token from cache")
+                self.token_cache.pop(key, None)
+                continue
+            earliest_eviction = _earlier_expiry(earliest_eviction, entry.evict_after)
+        self._earliest_eviction = earliest_eviction
+
+
+def _earlier_expiry(current: Optional[int], candidate: Optional[int]) -> Optional[int]:
+    """Return the earlier of two expiries; None means "does not expire"."""
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    return min(current, candidate)
 
 
 def _has_token_expired(expiry: Optional[int], buffer_seconds: int = 5) -> bool:
@@ -314,6 +535,10 @@ def _has_token_expired(expiry: Optional[int], buffer_seconds: int = 5) -> bool:
 def _extract_jwt_from_headers(headers: dict[str, str]) -> Optional[str]:
     """Extract JWT from request headers for STS token exchange.
 
+    Reports a missing or malformed header at debug level: it runs on every tool
+    call, and a caller-supplied get_subject_token resolving its token elsewhere
+    is not a fault. before_run_callback warns when it refuses to propagate.
+
     Args:
         headers: Dictionary of request headers
 
@@ -321,28 +546,28 @@ def _extract_jwt_from_headers(headers: dict[str, str]) -> Optional[str]:
         JWT token string if found in Authorization header, None otherwise
     """
     if not headers:
-        logger.warning("No headers provided for JWT extraction")
+        logger.debug("No headers provided for JWT extraction")
         return None
 
     auth_header = headers.get("Authorization") or headers.get("authorization")
     if not auth_header:
-        logger.warning("No Authorization header found in request")
+        logger.debug("No Authorization header found in request")
         return None
 
     if not auth_header.startswith("Bearer "):
-        logger.warning("Authorization header must start with Bearer")
+        logger.debug("Authorization header must start with Bearer")
         return None
 
     jwt_token = auth_header.removeprefix("Bearer ").strip()
     if not jwt_token:
-        logger.warning("Empty JWT token found in Authorization header")
+        logger.debug("Empty JWT token found in Authorization header")
         return None
 
     logger.debug(f"Successfully extracted JWT token (length: {len(jwt_token)})")
     return jwt_token
 
 
-def _extract_jwt_expiry(token: str) -> Optional[int]:
+def _extract_jwt_expiry(token: Optional[str]) -> Optional[int]:
     """Extract expiry timestamp from JWT token.
 
     NOTE: This function does NOT validate the token signature.
@@ -350,11 +575,14 @@ def _extract_jwt_expiry(token: str) -> Optional[int]:
     Token validation happens in the STS server during exchange.
 
     Args:
-        token: JWT token string
+        token: JWT token string, or None when this path carries no token
 
     Returns:
         Expiry timestamp (Unix epoch) if found, None otherwise
     """
+    if not token:
+        return None
+
     try:
         # Decode without verification (we only need the expiry claim)
         decoded = jwt.decode(token, options={"verify_signature": False})
