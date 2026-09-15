@@ -72,6 +72,16 @@ test("agent templates: creating one, and being told when nothing will run it", a
     );
   });
 
+  await test.step("2b. an MCP binding can require approval before a tool runs", async () => {
+    await page.getByTestId("template-form-add-mcp").click();
+    const approval = page.getByRole("checkbox", { name: "Require approval" });
+    await expect(approval).toBeVisible();
+    await approval.check();
+    await expect(approval).toBeChecked();
+    // Drop the unfinished row so the rest of the create is unchanged.
+    await page.getByTestId("template-form-mcp-remove-0").click();
+  });
+
   await test.step("3. an unlabelled draft is warned about, loudly", async () => {
     const admission = page.getByTestId("template-form-admission");
     await expect(admission).toContainText("No harness will run this template");
