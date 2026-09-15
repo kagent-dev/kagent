@@ -1,12 +1,10 @@
-apiVersion: kagent.dev/v1alpha1
-kind: ToolServer
+apiVersion: kagent.dev/v1alpha3
+kind: RemoteMCPServer
 metadata:
-  name: context7-mcp-latest
+  name: context7-mcp
+  namespace: kagent
 spec:
-  config:
-    stdio:
-      args:
-        - '-y'
-        - '@upstash/context7-mcp@latest'
-      command: npx
-  description: 'context7 MCP with documentation'
+  url: "http://context7-mcp:8080/mcp"
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
+  description: "context7 MCP server with documentation"
