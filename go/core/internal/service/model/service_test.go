@@ -321,7 +321,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
 			Spec:       v1alpha3.ModelConfigSpec{Model: "original", Provider: v1alpha3.ModelProviderOpenAI},
 		}
-		authorizer := &recordingAuthorizer{denyCheck: 2}
+		authorizer := &recordingAuthorizer{denyCheck: 1}
 		service, kubeClient, ctx := newService(authorizer, config)
 
 		_, err := service.Update(ctx, model.UpdateRequest{
@@ -330,7 +330,7 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
-		require.Len(t, authorizer.checkCalls, 2)
+		require.Len(t, authorizer.checkCalls, 1)
 
 		stored := &v1alpha3.ModelConfig{}
 		require.NoError(t, kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, stored))
@@ -409,8 +409,8 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbUpdate, pkgauth.VerbDelete}
-	wantNames := []string{"existing", "created", "existing", "existing", "existing"}
+	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbDelete}
+	wantNames := []string{"existing", "created", "existing", "existing"}
 	require.Len(t, authorizer.checkCalls, len(wantVerbs))
 	for index, call := range authorizer.checkCalls {
 		assert.Equal(t, wantVerbs[index], call.verb)

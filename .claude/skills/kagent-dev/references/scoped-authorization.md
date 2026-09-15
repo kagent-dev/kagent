@@ -25,13 +25,13 @@ The shared scope types and attribute names live in [`go/api/authorization`](../.
 
 ## Trusted resource attributes
 
-Use [`kubeauth.Resource`](../../../../go/core/internal/service/kubeauth/scope.go) to construct authorization input from a Kubernetes object. It supplies `namespace` and `name` from object metadata and preserves the existing `namespace/name` value in `Resource.Name`.
+Use [`kubeauth.Resource`](../../../../go/core/internal/service/kubeauth/scope.go) to construct authorization input from a Kubernetes object. It supplies `namespace` and `name` from object metadata.
 
 For a single-resource operation:
 
 - Read and delete: load the stored object, then authorize it.
 - Create: validate and normalize the proposed object, then authorize it before checking or writing storage.
-- Update: authorize the stored object and the validated proposed object before any write.
+- Update: authorize the stored object before any write.
 
 Do not treat a request reference as stored resource data. Request references are suitable for loading an object, not for constructing its trusted attributes.
 
@@ -75,5 +75,5 @@ Each protected service then needs focused tests proving:
 - it requests `VerbList` for the correct resource type;
 - denied objects are absent before sorting or response construction;
 - single-resource checks receive trusted `namespace` and `name` attributes;
-- updates check both stored and proposed objects;
+- updates check the stored object;
 - malformed scopes fail closed.

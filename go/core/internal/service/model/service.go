@@ -170,11 +170,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 		spec.APIKeySecret = request.Ref.Name
 		spec.APIKeySecretKey = providerAPIKeySecretKey(spec.Provider)
 	}
-	proposed := modelConfig.DeepCopy()
-	proposed.Spec = spec
-	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(modelConfigResource, proposed)); err != nil {
-		return nil, err
-	}
 
 	if request.APIKey != nil && *request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
 		if err := secretmaterial.CreateOrUpdateOwnedOpaqueSecret(
