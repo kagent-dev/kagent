@@ -97,7 +97,7 @@ export function PageControls({
       >
         Previous
       </Button>
-      <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+      <Text data-testid={`${testId}-number`} css={{ color: theme.color.textMuted, fontSize: 12 }}>
         Page {page.pageNumber}
       </Text>
       <Button

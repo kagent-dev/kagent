@@ -203,9 +203,23 @@ because a convention nothing checks is a convention that regrows as an exception
   mock-backed page that needs longer is stuck rather than merely long.
 - **Prefer roles and test ids over prose.** Most of these pages are still going to
   be rebuilt; a spec anchored to copy will not survive that, and one anchored to
-  `nav-agents` or `getByRole("row")` will. `schedules` is the outlier and is the
-  proof: it is anchored to labels and button copy because it was ported that way,
-  and it is the one resource spec a rewording of the page would break.
+  `nav-agents` or `getByRole("row")` will. `schedules` used to be the counter-example
+  — ported with ninety label and button-copy selectors against seventeen ids — and is
+  now the illustration instead: the pages grew ids for their own controls, and the
+  five prose selectors left are data, a validation message, and two labelled
+  checkboxes.
+
+  **Drive by test id, assert on text.** A `data-testid` reached with `getByTestId` —
+  not the HTML `id`, which is a different attribute and is the page's rather than
+  ours. antd generates one per form control from `Form.Item`'s `name`, and that is
+  what `getByLabel` resolves through, so a spec leaning on it is coupled to both the
+  label's wording *and* a field name it never chose.
+
+  The test id says which control; the words are usually what the test is actually
+  about. `schedule-pause` is the clearest case — one button whose label flips between
+  Pause and Resume, so selecting it by name asks for two different controls that are
+  the same control, while `getByTestId("schedule-pause")` lets the label be the
+  assertion instead.
 - **Reach for antd's own class names only inside `helpers/`.** `.ant-popconfirm`,
   `.ant-select-item-option`, `.ant-modal` and friends are that library's internals,
   and an upgrade that renames one should be a change to a helper rather than to a

@@ -12,6 +12,14 @@ import { expect, type Locator } from "@playwright/test";
  * deferred commit passes, and a click that truly went nowhere still fails.
  */
 export async function tick(control: Locator): Promise<void> {
+  /*
+   * Waited for first, and that is not ceremony. `isChecked()` waits for the element
+   * with no budget of its own, so a control that never arrives hangs until the whole
+   * test times out and reports `locator.isChecked: Test timeout exceeded` — which
+   * names this helper and says nothing about the control or why it is missing. The
+   * assertion fails in seconds instead, and names what it was looking for.
+   */
+  await expect(control).toBeVisible();
   if (await control.isChecked()) return;
   await control.click();
   await expect(control).toBeChecked();

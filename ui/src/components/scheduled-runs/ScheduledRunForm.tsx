@@ -98,7 +98,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
         {templates.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
           title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
         <Form.Item name="agent" label="Agent" rules={[{ required: true, message: "Choose an agent." }]}>
-          <Select showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || templates.isLoading}
+          <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || templates.isLoading}
             placeholder="Choose an agent" options={agents.map((agent) => {
               const blocked = newConversationBlockedReason(agent);
               return { value: agent.id, disabled: !!blocked,
@@ -106,13 +106,15 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
             })} />
         </Form.Item>
       </>}
-      <Form.Item name="name" label="Schedule Name" rules={[{ max: 200 }]}><Input maxLength={200} /></Form.Item>
+      <Form.Item name="name" label="Schedule Name" rules={[{ max: 200 }]}>
+        <Input data-testid="schedule-name" maxLength={200} />
+      </Form.Item>
       <Form.Item name="timeZone" label="Time zone" extra="The schedule uses this time zone, including daylight-saving changes.">
-        <AutoComplete options={timeZones} placeholder="UTC" maxLength={253}
+        <AutoComplete data-testid="schedule-timezone" options={timeZones} placeholder="UTC" maxLength={253}
           filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
       </Form.Item>
       <Form.Item name="frequency" label="Repeat">
-        <Select options={[
+        <Select data-testid="schedule-frequency" options={[
           { value: "minutes", label: "Every few minutes" },
           { value: "hourly", label: "Hourly" },
           { value: "daily", label: "Daily" },
@@ -124,42 +126,50 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
         }} />
       </Form.Item>
       {timing.frequency === "minutes" && <Form.Item name="interval" label="Every" rules={[{ required: true }]}>
-        <Select options={minuteIntervals.map((value) => ({ value, label: `${value} minute${value === 1 ? "" : "s"}` }))} />
+        <Select data-testid="schedule-interval" options={minuteIntervals.map((value) => ({ value, label: `${value} minute${value === 1 ? "" : "s"}` }))} />
       </Form.Item>}
       {timing.frequency === "hourly" && <Form.Item name="minute" label="Minute past the hour"
         rules={[{ required: true }, { type: "integer", min: 0, max: 59 }]}>
-        <InputNumber min={0} max={59} precision={0} />
+        <InputNumber data-testid="schedule-minute" min={0} max={59} precision={0} />
       </Form.Item>}
       {timing.frequency === "weekly" && <Form.Item name="days" label="On days"
         rules={[{ type: "array", min: 1, required: true, message: "Choose at least one day." }]}>
-        <Checkbox.Group options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({ value, label: weekdays[value] }))} />
+        <Checkbox.Group data-testid="schedule-days" options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({ value, label: weekdays[value] }))} />
       </Form.Item>}
       {timing.frequency === "monthly" && <Form.Item name="monthDay" label="Day of the month"
         extra="Months without this day are skipped."
         rules={[{ required: true }, { type: "integer", min: 1, max: 31 }]}>
-        <InputNumber min={1} max={31} precision={0} />
+        <InputNumber data-testid="schedule-month-day" min={1} max={31} precision={0} />
       </Form.Item>}
       {["daily", "weekly", "monthly"].includes(timing.frequency) && <Form.Item name="time" label="At time"
         rules={[{ required: true, message: "Choose a time." }]}>
-        <Input type="time" step={60} />
+        <Input data-testid="schedule-time" type="time" step={60} />
       </Form.Item>}
       {timing.frequency === "custom" && <Form.Item name="cron" label="Cron expression"
         extra="Five fields: minute, hour, day of month, month, day of week."
-        rules={[{ required: true, whitespace: true }, { max: 256 }]}><Input /></Form.Item>}
-      {timing.frequency !== "custom" && timing.time && timing.days.length > 0 && timing.minute != null && timing.monthDay != null && <Typography.Paragraph type="secondary" role="status">
+        rules={[{ required: true, whitespace: true }, { max: 256 }]}>
+        <Input data-testid="schedule-cron" />
+      </Form.Item>}
+      {timing.frequency !== "custom" && timing.time && timing.days.length > 0 && timing.minute != null && timing.monthDay != null && <Typography.Paragraph type="secondary" role="status" data-testid="schedule-cadence">
         {scheduleDescription(scheduleCron(timing))} ({(watched?.timeZone ?? config?.timeZone)?.trim() || "UTC"})
       </Typography.Paragraph>}
       <Form.Item name="prompt" label="Prompt" rules={[{ required: true, whitespace: true }, {
         validator: (_, value: string | undefined) => new TextEncoder().encode(value ?? "").length <= 32768
           ? Promise.resolve() : Promise.reject(new Error("Prompt must be at most 32 KiB.")),
-      }]}><Input.TextArea rows={5} /></Form.Item>
+      }]}>
+        <Input.TextArea data-testid="schedule-prompt" rows={5} />
+      </Form.Item>
       <Form.Item name="timeoutSeconds" label="Execution timeout (seconds)" extra="Includes queueing and agent startup."
         rules={[{ required: true }, { type: "number", min: 0.000001, max: 9223372036 }]}>
-        <InputNumber min={0.000001} max={9223372036} />
+        <InputNumber data-testid="schedule-timeout" min={0.000001} max={9223372036} />
       </Form.Item>
       <Form.Item name="enabled" label="Enable Schedule" valuePropName="checked"
-        extra={`This schedule will ${(watched?.enabled ?? !(config?.paused ?? false)) ? "run" : "not run"} automatically after it is ${schedule ? "saved" : "created"}.`}>
-        <Switch />
+        /* The one thing on screen that says whether creating or saving starts it
+           running, so it carries an id of its own rather than being read as prose. */
+        extra={<span data-testid="schedule-enabled-note">
+          {`This schedule will ${(watched?.enabled ?? !(config?.paused ?? false)) ? "run" : "not run"} automatically after it is ${schedule ? "saved" : "created"}.`}
+        </span>}>
+        <Switch data-testid="schedule-enabled" />
       </Form.Item>
     </Form>
     {/* Beside the buttons rather than at the top of the form: a failed save is read

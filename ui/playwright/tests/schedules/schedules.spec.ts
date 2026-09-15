@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { tick } from "../../helpers/controls";
-import { LIFECYCLE_TIMEOUT, pressUntil } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, optionNamed, pressUntil } from "../../helpers/resource";
 
 /**
  * Schedules — the whole life of one, in a single journey.
@@ -25,6 +25,15 @@ import { LIFECYCLE_TIMEOUT, pressUntil } from "../../helpers/resource";
  * **Its history outlives it.** A deleted schedule still opens by address and says what it
  * is, because the executions are retained — so the address is not a 404 and must not be
  * rendered as a live schedule either.
+ *
+ * ## What is still read as prose, deliberately
+ *
+ * Five selectors, and each is the right tool rather than a leftover. Two are fixture
+ * *data* in a cell — an execution's failure reason, its task id — which is the thing
+ * under test and has no id to give it. One is a form rule's message. The last two are
+ * `getByLabel("Monday")` on the weekday checkboxes, which are genuinely labelled
+ * controls: a label is what a reader clicks and what a screen reader announces, so
+ * reaching for one is not the same as matching copy.
  *
  * ## Why it clicks through rather than navigating
  *
@@ -59,7 +68,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("1. the list carries the seeded schedule, and fits on one page", async () => {
     await page.goto("/schedules?mock=ok");
     await expect(
-      page.getByRole("link", { name: "Daily cluster report", exact: true }),
+      page.getByTestId("schedule-link-Daily cluster report"),
     ).toBeVisible();
     // No pagination over a list this size: a control that pages nothing is a control
     // that implies there is more to see.
@@ -85,7 +94,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(meta).toContainText("Every day at 09:00");
     await expect(meta).toContainText("UTC");
     // A filled Run: it is the action this page exists for.
-    await expect(page.getByRole("button", { name: "Run", exact: true })).toHaveClass(
+    await expect(page.getByTestId("schedule-run")).toHaveClass(
       /ant-btn-primary/,
     );
     await expect(
@@ -97,7 +106,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
     // The conversation an execution produced is reachable from its row, with one icon
     // rather than a second stacked on it.
-    const conversation = page.getByRole("link", { name: "Open conversation" }).first();
+    const conversation = page.getByTestId("execution-conversation").first();
     await expect(conversation).toHaveAttribute(
       "href",
       "/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat",
@@ -108,11 +117,11 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("4. the history pages, and page two is its own set of rows", async () => {
     // The history outgrows a page long before the schedule list does, so this is the
     // one table here that has to page at all.
-    await page.getByRole("button", { name: "Next", exact: true }).click();
-    await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open conversation" })).toHaveCount(1);
-    await page.getByRole("button", { name: "Previous", exact: true }).click();
-    await expect(page.getByText("Page 1", { exact: true })).toBeVisible();
+    await page.getByTestId("schedule-history-pages-next").click();
+    await expect(page.getByTestId("schedule-history-pages-number")).toContainText("Page 2");
+    await expect(page.getByTestId("execution-conversation")).toHaveCount(1);
+    await page.getByTestId("schedule-history-pages-prev").click();
+    await expect(page.getByTestId("schedule-history-pages-number")).toContainText("Page 1");
   });
 
   await test.step("5. an execution row expands on a click, but its conversation link navigates", async () => {
@@ -124,19 +133,19 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
      */
     const row = rowNamed("Execution deadline exceeded");
     await row.getByRole("cell").filter({ hasText: "Timed out" }).click();
-    await expect(page.getByText("Original task", { exact: true })).toBeVisible();
-    await expect(page.getByText("mock-scheduled-task-1", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("execution-detail")).toContainText("Original task");
+    await expect(page.getByTestId("execution-detail")).toContainText("mock-scheduled-task-1");
 
     // The expand icon still collapses it, so a keyboard reaches the panel.
     await row.locator(".ant-table-row-expand-icon").click();
-    await expect(page.getByText("Original task", { exact: true })).toBeHidden();
+    await expect(page.getByTestId("execution-detail")).toBeHidden();
 
     // And the link navigates rather than expanding. The guard silently ceasing to match
     // is what this pins: the click would then unfold the row on the way out, and only
     // this assertion would notice.
-    await row.getByRole("link", { name: "Open conversation" }).click();
+    await row.getByTestId("execution-conversation").click();
     await expect(page).toHaveURL("/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat");
-    await expect(page.getByText("Original task", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("execution-detail")).toHaveCount(0);
     await page.goBack();
     await expect(page).toHaveURL(`/schedules/${SEEDED}`);
   });
@@ -170,10 +179,10 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
     // A search matching nothing is not an empty history.
     await page.getByTestId("history-search").fill("nothing matches this");
-    await expect(
-      page.getByText("Nothing on this page of the history matches that search."),
-    ).toBeVisible();
-    await expect(page.getByText("No executions yet", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("schedule-history-no-match")).toBeVisible();
+    // The distinction the three ids exist for: a search that matched nothing is not an
+    // empty history, and neither is a failed read.
+    await expect(page.getByTestId("schedule-history-empty")).toHaveCount(0);
     await page.getByTestId("history-search").fill("");
   });
 
@@ -198,23 +207,23 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("8. an advanced expression survives an edit to another field", async () => {
     // The repeat picker cannot represent every cron expression, so an edit to the prompt
     // must not quietly rewrite the cadence into the nearest thing the picker can draw.
-    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByTestId("schedule-edit").click();
     await expect(page).toHaveURL(`/schedules/${SEEDED}/edit`);
-    await page.getByLabel("Repeat", { exact: true }).click();
-    await page.getByTitle("Custom (advanced)", { exact: true }).click();
-    await expect(page.getByLabel("Cron expression", { exact: true })).toHaveValue(
+    await page.getByTestId("schedule-frequency").click();
+    await optionNamed(page, "Custom (advanced)").click();
+    await expect(page.getByTestId("schedule-cron")).toHaveValue(
       "0 9 * * *",
     );
-    await page.getByLabel("Cron expression", { exact: true }).fill("0 9-17 * * 1-5");
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.getByTestId("schedule-cron").fill("0 9-17 * * 1-5");
+    await page.getByTestId("schedule-submit").click();
     await expect(page).toHaveURL(`/schedules/${SEEDED}`);
 
-    await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await expect(page.getByLabel("Cron expression", { exact: true })).toHaveValue(
+    await page.getByTestId("schedule-edit").click();
+    await expect(page.getByTestId("schedule-cron")).toHaveValue(
       "0 9-17 * * 1-5",
     );
-    await page.getByLabel("Prompt", { exact: true }).fill("Preserve business hours.");
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.getByTestId("schedule-prompt").fill("Preserve business hours.");
+    await page.getByTestId("schedule-submit").click();
     await expect(page).toHaveURL(`/schedules/${SEEDED}`);
     await expect(page.getByTestId("schedule-meta")).toContainText(
       "Custom: 0 9-17 * * 1-5",
@@ -222,17 +231,20 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   });
 
   await test.step("9. pausing suppresses the cron, and Run still invokes it by hand", async () => {
-    await page.getByRole("button", { name: "Pause", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeEnabled();
+    // One control whose label flips, so it is driven by id and the label is what gets
+    // asserted — by name it would be two different buttons that are the same button.
+    await page.getByTestId("schedule-pause").click();
+    await expect(page.getByTestId("schedule-pause")).toHaveText("Resume");
+    await expect(page.getByTestId("schedule-pause")).toBeEnabled();
     await expect(page.getByTestId("schedule-meta")).toContainText("Paused");
 
-    await page.getByRole("button", { name: "Run", exact: true }).click();
-    await expect(page.getByText("Page 1", { exact: true })).toBeVisible();
+    await page.getByTestId("schedule-run").click();
+    await expect(page.getByTestId("schedule-history-pages-number")).toContainText("Page 1");
     await expect(rows.filter({ hasText: "Manual" })).toContainText("Pending");
   });
 
   await test.step("10. the create form refuses a schedule with no agent to run", async () => {
-    await page.getByRole("link", { name: "Back", exact: true }).click();
+    await page.getByTestId("schedule-back").click();
     await page.getByTestId("schedules-new").click();
     await expect(page).toHaveURL("/schedules/new");
     // `/schedules/new` is the create page, not a schedule called "new" — the detail
@@ -240,43 +252,46 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(
       page.getByRole("heading", { name: "New schedule", exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Execution history", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("schedule-history")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Create schedule", exact: true }).click();
+    await page.getByTestId("schedule-submit").click();
     await expect(page.getByText("Choose an agent.", { exact: true })).toBeVisible();
   });
 
   await test.step("11. a filled-in schedule is created and lands on its own page", async () => {
-    await page.getByLabel("Agent", { exact: true }).click();
-    await page
-      .getByTitle("kagent/k8s-agent-7f3a91c on k8s-agent", { exact: true })
-      .click();
-    await page.getByLabel("Schedule Name", { exact: true }).fill(CREATED);
+    await page.getByTestId("schedule-agent").click();
+    await optionNamed(page, "kagent/k8s-agent-7f3a91c on k8s-agent").click();
+    await page.getByTestId("schedule-name").fill(CREATED);
 
     // The picker, not the raw expression: a weekly cadence is stated back in words, so a
     // reader can tell the schedule they described from the one they got.
-    await expect(page.getByLabel("Cron expression", { exact: true })).toHaveCount(0);
-    await page.getByLabel("Repeat", { exact: true }).click();
-    await page.getByTitle("Weekly", { exact: true }).click();
-    await page.getByLabel("At time", { exact: true }).fill("08:00");
+    await expect(page.getByTestId("schedule-cron")).toHaveCount(0);
+    await page.getByTestId("schedule-frequency").click();
+    // Pressed until the cadence actually changes: the weekday checkboxes only exist
+    // once the frequency is weekly, so a dropdown click swallowed by the animation
+    // leaves the next line waiting for a control that is never coming.
+    await pressUntil(optionNamed(page, "Weekly"), () =>
+      expect(page.getByTestId("schedule-days")).toBeVisible(),
+    );
+    await page.getByTestId("schedule-time").fill("08:00");
     await tick(page.getByLabel("Wednesday", { exact: true }));
-    await expect(page.getByRole("status")).toHaveText(
+    await expect(page.getByTestId("schedule-cadence")).toHaveText(
       "Weekly on Monday, Wednesday at 08:00 (UTC)",
     );
 
-    await page.getByLabel("Prompt", { exact: true }).fill("Check the probe.");
-    await page.getByLabel("Execution timeout (seconds)", { exact: true }).fill("120");
+    await page.getByTestId("schedule-prompt").fill("Check the probe.");
+    await page.getByTestId("schedule-timeout").fill("120");
 
     // Enabled by default, and the sentence underneath changes with it — which is the
     // only thing on screen that says whether creating this starts it running.
-    await expect(page.getByLabel("Enable Schedule", { exact: true })).toBeChecked();
-    await expect(
-      page.getByText("This schedule will run automatically after it is created."),
-    ).toBeVisible();
-    await page.getByLabel("Enable Schedule", { exact: true }).uncheck();
-    await expect(
-      page.getByText("This schedule will not run automatically after it is created."),
-    ).toBeVisible();
+    await expect(page.getByTestId("schedule-enabled")).toBeChecked();
+    await expect(page.getByTestId("schedule-enabled-note")).toContainText(
+      "will run automatically after it is created",
+    );
+    await page.getByTestId("schedule-enabled").uncheck();
+    await expect(page.getByTestId("schedule-enabled-note")).toContainText(
+      "will not run automatically after it is created",
+    );
 
     await page.getByTestId("schedule-submit").click();
     await expect(
@@ -285,12 +300,14 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(page.getByTestId("schedule-meta")).toContainText(
       "Weekly on Monday, Wednesday at 08:00",
     );
-    await expect(page.getByText("120 seconds", { exact: true })).toBeVisible();
+    // The record below the header, not the pills beside the name: `schedule-meta`
+    // carries the cadence and the clock, and the timeout is one of its fields.
+    await expect(page.getByTestId("schedule-detail")).toContainText("120 seconds");
   });
 
   await test.step("12. the list is the proof, with one more row", async () => {
     // A closed form and a redirect only prove the app believes it worked.
-    await page.getByRole("link", { name: "Back", exact: true }).click();
+    await page.getByTestId("schedule-back").click();
     await expect(rowNamed(CREATED)).toHaveCount(1);
     await expect(rowNamed(CREATED)).toContainText("Weekly on Monday, Wednesday");
   });
@@ -305,24 +322,26 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     // The draft opens on what was saved, including the switch that was turned off and
     // both chosen days — a picker that kept only the last one would look right here with
     // one assertion.
-    await expect(page.getByLabel("Enable Schedule", { exact: true })).not.toBeChecked();
-    await expect(page.getByLabel("At time", { exact: true })).toHaveValue("08:00");
+    await expect(page.getByTestId("schedule-enabled")).not.toBeChecked();
+    await expect(page.getByTestId("schedule-time")).toHaveValue("08:00");
     await expect(page.getByLabel("Monday", { exact: true })).toBeChecked();
     await expect(page.getByLabel("Wednesday", { exact: true })).toBeChecked();
 
     // And the sentence says "saved" here where the create form said "created". Same
     // switch, different consequence, and the wording is the only thing on screen that
     // distinguishes them.
-    await expect(
-      page.getByText("This schedule will not run automatically after it is saved."),
-    ).toBeVisible();
-    await tick(page.getByLabel("Enable Schedule", { exact: true }));
-    await expect(
-      page.getByText("This schedule will run automatically after it is saved."),
-    ).toBeVisible();
+    await expect(page.getByTestId("schedule-enabled-note")).toContainText(
+      "will not run automatically after it is saved",
+    );
+    await tick(page.getByTestId("schedule-enabled"));
+    await expect(page.getByTestId("schedule-enabled-note")).toContainText(
+      "will run automatically after it is saved",
+    );
 
-    await page.getByLabel("Schedule Name", { exact: true }).fill(RENAMED);
-    await page.getByLabel("Time zone", { exact: true }).fill("Europe/Berlin");
+    await page.getByTestId("schedule-name").fill(RENAMED);
+    // The time zone is an AutoComplete, so its id is on the wrapper and the caret goes
+    // in the input inside it. Every other field here carries its id on the control.
+    await page.getByTestId("schedule-timezone").locator("input").fill("Europe/Berlin");
     // The zone list is an autocomplete; dismiss it so it is not over the form.
     await page.keyboard.press("Escape");
     await page.getByTestId("schedule-submit").click();
@@ -330,7 +349,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       page.getByRole("heading", { name: RENAMED, exact: true }),
     ).toBeVisible();
 
-    await page.getByRole("link", { name: "Back", exact: true }).click();
+    await page.getByTestId("schedule-back").click();
     await expect(rowNamed(RENAMED)).toHaveCount(1);
     await expect(rowNamed(RENAMED)).toContainText("Europe/Berlin");
     // Renamed, not duplicated.
@@ -358,7 +377,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
      * separate call sites and it is the page-level one that carries the sentence saying
      * what deleting costs.
      */
-    await rowNamed(RENAMED).getByRole("link", { name: RENAMED, exact: true }).click();
+    await page.getByTestId(`schedule-link-${RENAMED}`).click();
     await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+$/);
 
     await page
@@ -376,7 +395,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       expect(confirmation).toBeHidden(),
     );
     // Still usable afterwards, so a dismissed confirmation leaves no disabled page.
-    await expect(page.getByRole("button", { name: "Run", exact: true })).toBeEnabled();
+    await expect(page.getByTestId("schedule-run")).toBeEnabled();
   });
 
   await test.step("16. confirming removes it, leaves for the list, and the rest stays", async () => {
@@ -403,7 +422,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     await expect(rowNamed(RENAMED)).toHaveCount(0);
     // One row went, not the table.
     await expect(
-      page.getByRole("link", { name: "Daily cluster report", exact: true }),
+      page.getByTestId("schedule-link-Daily cluster report"),
     ).toBeVisible();
   });
 });
@@ -421,17 +440,17 @@ test("schedules: the states a reader must not confuse with each other", async ({
 }) => {
   await test.step("1. a read failure is not an empty list", async () => {
     await page.goto("/schedules?mock=error");
-    await expect(
-      page.getByText("Could not load schedules", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByTestId("schedules-error")).toContainText(
+      "Could not load schedules",
+    );
     // "There are none" and "we could not find out" lead a reader to opposite
     // conclusions, and only one of them is true.
-    await expect(page.getByText("No schedules yet", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("schedules-empty")).toHaveCount(0);
   });
 
   await test.step("2. and an empty list says so plainly", async () => {
     await page.goto("/schedules?mock=empty");
-    await expect(page.getByText("No schedules yet", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("schedules-empty")).toBeVisible();
   });
 
   await test.step("3. a link held from before a delete still opens, and says what it is", async () => {
@@ -439,9 +458,9 @@ test("schedules: the states a reader must not confuse with each other", async ({
     // a live schedule either, or a reader will try to act on one that is gone.
     await page.goto(`/schedules/${RETIRED}?mock=ok`);
     await expect(page.getByRole("heading", { name: "Retired sweep" })).toBeVisible();
-    await expect(
-      page.getByText("This schedule was deleted. Its execution history is retained."),
-    ).toBeVisible();
+    await expect(page.getByTestId("schedule-deleted-note")).toContainText(
+      "Its execution history is retained",
+    );
     for (const name of ["Run", "Pause", "Edit"]) {
       await expect(page.getByRole("button", { name, exact: true })).toBeDisabled();
     }
@@ -451,7 +470,7 @@ test("schedules: the states a reader must not confuse with each other", async ({
   await test.step("4. and it is not offered in the list it was removed from", async () => {
     await page.goto("/schedules?mock=ok");
     await expect(
-      page.getByRole("link", { name: "Retired sweep", exact: true }),
+      page.getByTestId("schedule-link-Retired sweep"),
     ).toHaveCount(0);
   });
 });
