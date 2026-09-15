@@ -99,6 +99,48 @@ func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*R
 	return c.compileAgent(ctx, input)
 }
 
+// ApplyCompaction translates the Harness's kagent compaction policy into the
+// ADK context configuration of a compiled root agent. Compaction is a property
+// of the runner that drives the root agent, so it is runtime policy on the
+// Harness rather than portable behavior on the AgentTemplate.
+//
+// A summarizer ModelConfig other than the agent's own is resolved like the
+// agent model: its runtime configuration lands in config.json, its credentials
+// and egress join the revision, and it joins the provenance so a change to it
+// compiles a new revision. The agent's own model is left out because the
+// runtime already summarizes with it by default.
+func (c *Builder) ApplyCompaction(result *Result, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
+	spec := harness.Spec.Kagent.Compaction
+	if spec == nil {
+		return nil
+	}
+	compaction := &adk.AgentCompressionConfig{
+		CompactionInterval: spec.CompactionInterval,
+		OverlapSize:        spec.OverlapSize,
+		TokenThreshold:     spec.TokenThreshold,
+		EventRetentionSize: spec.EventRetentionSize,
+	}
+	if summarizer := spec.Summarizer; summarizer != nil {
+		compaction.PromptTemplate = summarizer.PromptTemplate
+		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
+			model, err := c.BuildModel(harness.Namespace, ref.Name)
+			if err != nil {
+				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
+			}
+			compaction.SummarizerModel = model.Model
+			result.Models = append(result.Models, model.Resolved)
+			result.Environment = append(result.Environment, model.Environment...)
+			result.Egress = append(result.Egress, model.Egress...)
+		}
+	}
+	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
+	return nil
+}
+
+func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
+	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
+}
+
 func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
 	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
 	var modelConfig *v1alpha3.ModelConfig
