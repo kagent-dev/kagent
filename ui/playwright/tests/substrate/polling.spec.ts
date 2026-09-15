@@ -49,7 +49,7 @@ const READS = [POLLED, NOT_POLLED] as const;
 const readCounts = (page: import("@playwright/test").Page) =>
   operationCallCounts(page, READS);
 
-test("substrate: polling is off until asked for, then re-reads the inventory", async ({
+test("substrate polling: it is off until asked for, and its rate is the reader's", async ({
   page,
 }) => {
   await test.step("1. the page reads once and then leaves it alone", async () => {
@@ -111,43 +111,42 @@ test("substrate: polling is off until asked for, then re-reads the inventory", a
     await page.waitForTimeout(1_800);
     expect(await readCounts(page), "turning it off must actually stop it").toEqual(settled);
   });
-});
 
-/**
- * The rate is the reader's, and so is stopping without losing it.
- *
- * A fixed rate was either too slow to watch a placement move or too fast to leave
- * running, so the interval is a field beside the toggle. Two of its values are not
- * rates at all: zero, and anything unparseable — antd hands back `null` for "." or an
- * empty box — and both stop the timer while leaving polling switched on, so pausing
- * does not cost the reader the number they had chosen.
- */
-test("substrate: the polling interval is the reader's, and zero stops it", async ({
-  page,
-}) => {
+  /*
+   * The rate is the reader's, and so is stopping without losing it.
+   *
+   * A fixed rate was either too slow to watch a placement move or too fast to leave
+   * running, so the interval is a field beside the toggle. Two of its values are not
+   * rates at all: zero, and anything unparseable — antd hands back `null` for "." or an
+   * empty box — and both stop the timer while leaving polling switched on, so pausing
+   * does not cost the reader the number they had chosen.
+   */
   const interval = page.getByTestId("substrate-poll-interval").locator("input");
 
-  await test.step("1. there is no interval to set until polling is on", async () => {
+  await test.step("5. there is no interval to set until polling is on", async () => {
+    // Reloaded rather than continued: the claim is about the state a reader *arrives*
+    // in, and the steps above have switched polling on and off again. This page holds
+    // no writes, so a fresh load costs nothing but the navigation.
     await page.goto(SUBSTRATE);
     await expect(page.getByTestId("substrate-actors-card")).toBeVisible();
     await expect(page.getByTestId("substrate-poll-interval")).toHaveCount(0);
   });
 
-  await test.step("2. switching polling on offers one, defaulting to the floor", async () => {
+  await test.step("6. switching polling on offers one, defaulting to the floor", async () => {
     await page.getByTestId("substrate-poll-toggle").click();
     // The fastest this page will ask: someone who turned polling on wants to see movement.
     await expect(interval).toHaveValue("0.5");
     await expect(page.getByTestId("substrate-poll-interval")).toContainText("seconds");
   });
 
-  await test.step("2b. one second reads as one, not as ones", async () => {
+  await test.step("7. one second reads as one, not as ones", async () => {
     // Singular for exactly one: "1 seconds" reads as a page not reading its own value.
     await interval.fill("1");
     await interval.blur();
     await expect(page.getByTestId("substrate-poll-interval")).toContainText("second");
   });
 
-  await test.step("3. the rate the reader set is the rate it re-reads at", async () => {
+  await test.step("8. the rate the reader set is the rate it re-reads at", async () => {
     await interval.fill("0.5");
     await interval.blur();
     const before = await readCounts(page);
@@ -174,14 +173,14 @@ test("substrate: the polling interval is the reader's, and zero stops it", async
       .toBeGreaterThanOrEqual(3);
   });
 
-  await test.step("4. below the floor is read as the floor, not refused", async () => {
+  await test.step("9. below the floor is read as the floor, not refused", async () => {
     await interval.fill("0.1");
     await interval.blur();
     // Corrected on the field, so the number on screen is the number being used.
     await expect(interval).toHaveValue("0.5");
   });
 
-  await test.step("5. zero stops the timer without switching polling off", async () => {
+  await test.step("10. zero stops the timer without switching polling off", async () => {
     await interval.fill("0");
     await interval.blur();
     // The toggle still reads enabled: this is a pause, and the reader keeps their place.
@@ -195,7 +194,7 @@ test("substrate: the polling interval is the reader's, and zero stops it", async
     ).toBe(before[POLLED]);
   });
 
-  await test.step("6. and so does something that is not a number", async () => {
+  await test.step("11. and so does something that is not a number", async () => {
     await interval.fill(".");
     await interval.blur();
     const before = await readCounts(page);
