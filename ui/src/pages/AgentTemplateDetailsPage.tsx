@@ -34,7 +34,7 @@ import {
   useAgentConversations,
   isNotFound,
   useAgentTemplate,
-  useAgentTemplates,
+  useInvalidateAgentTemplates,
   type AgentTemplateHarnessStatus,
 } from "@/api";
 
@@ -85,14 +85,7 @@ export function AgentTemplateDetailsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const template = useAgentTemplate(namespace, name);
-  /*
-   * The list this page returns to.
-   *
-   * Held so a delete can invalidate it before navigating: the list is cached, and
-   * landing on it without re-reading shows the template that was just removed — which
-   * reads as a delete that silently failed.
-   */
-  const templates = useAgentTemplates(namespace);
+  const invalidateTemplates = useInvalidateAgentTemplates();
 
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -224,9 +217,10 @@ export function AgentTemplateDetailsPage() {
       });
       // Re-read before leaving edit mode, so the read-only view below is the saved
       // copy. The other order shows the values that were just replaced, which reads
-      // as a save that did not take.
+      // as a save that did not take. The sweep reaches the list and the agents derived
+      // from it, which this page's own read does not.
       await template.refresh();
-      await templates.refresh();
+      await invalidateTemplates();
       toast.success(`Agent template ${updated.name} saved`);
       setEditingRef(undefined);
       setEdited(undefined);
@@ -247,7 +241,7 @@ export function AgentTemplateDetailsPage() {
 
   /** Back to the list, having re-read it — this page is about an object that is gone. */
   async function afterDelete(): Promise<void> {
-    await templates.refresh();
+    await invalidateTemplates();
     // See the note on the same navigation after a create: the list narrows on `ns`, and
     // the bare `/agent-templates` route is a redirect that carries no query string.
     navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(namespace ?? "")}`);

@@ -22,6 +22,7 @@ import {
   newConversationBlockedReason,
   useAgentConversations,
   useAgentTemplate,
+  useInvalidateAgentTemplates,
   type AgentInstance,
   type AgentPair,
 } from "@/api";
@@ -97,6 +98,7 @@ export function AgentPage() {
   const view = useListView(FILTER_IDS);
 
   const template = useAgentTemplate(namespace, agentTemplate);
+  const invalidateTemplates = useInvalidateAgentTemplates();
   const conversations = useAgentConversations(namespace, agentTemplate, harness);
 
   /*
@@ -718,7 +720,12 @@ export function AgentPage() {
               label="Delete agent"
               outlined
               onDelete={removeAgent}
-              onDeleted={() => navigate(paths.agents)}
+              /* The agents list is derived from the template read, so it is swept
+                 before leaving — without it the deleted agent is still listed. */
+              onDeleted={async () => {
+                await invalidateTemplates().catch(() => {});
+                navigate(paths.agents);
+              }}
               description={
                 <span css={{ display: "inline-block", maxWidth: 320 }} data-testid="agent-delete-consequence">
                   {(() => {

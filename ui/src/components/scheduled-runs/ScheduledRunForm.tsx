@@ -4,6 +4,7 @@ import { fromJson } from "@bufbuild/protobuf";
 import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { agentPairsFrom, newConversationBlockedReason, useAgentTemplatesAcrossNamespaces, useNamespaces } from "@/api";
 import { invoke } from "@/api/operations";
+import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import type { ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 import { minuteIntervals, parseSchedule, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
 
@@ -32,6 +33,7 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
   onSaved: (schedule: ScheduledRun) => void;
 }) {
   const [form] = Form.useForm<FormValues>();
+  const invalidateSchedules = useInvalidateScheduledRuns();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   // Retain the key after a failed response: retrying must not create another schedule.
@@ -79,6 +81,10 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
         })).scheduledRun;
       }
       if (!saved) throw new Error("The API returned no schedule.");
+      // Before the caller navigates, so the list and the agent page's section agree
+      // with what was written. Swallowed: the write has already succeeded, and each
+      // surface reports its own read failure when it arrives.
+      await invalidateSchedules().catch(() => {});
       onSaved(saved);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

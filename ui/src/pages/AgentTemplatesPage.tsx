@@ -15,6 +15,7 @@ import {
   apiClient,
   isUsable,
   useAgentTemplatesAcrossNamespaces,
+  useInvalidateAgentTemplates,
   useNamespaces,
   type AgentTemplate,
 } from "@/api";
@@ -88,6 +89,7 @@ export function AgentTemplatesTab() {
     () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
     [selectedNamespaces, namespaceNames],
   );
+  const invalidateTemplates = useInvalidateAgentTemplates();
   const templates = useAgentTemplatesAcrossNamespaces(readNamespaces);
 
   const rows = useMemo(() => templates.data?.templates ?? [], [templates.data]);
@@ -218,13 +220,15 @@ export function AgentTemplatesTab() {
                   row.name,
                 )
               }
-              onDeleted={templates.refresh}
+              /* The agents list reads templates under a key of its own, so refreshing
+                 this list alone leaves an agent there that nothing runs. */
+              onDeleted={invalidateTemplates}
             />
           </Space>
         ),
       },
     ],
-    [templates.refresh, theme.color.textMuted, theme.font.mono],
+    [invalidateTemplates, theme.color.textMuted, theme.font.mono],
   );
 
   const refreshThisTab = templates.refresh;

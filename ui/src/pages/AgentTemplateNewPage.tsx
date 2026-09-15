@@ -12,7 +12,7 @@ import {
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { agentTemplatesTab } from "@/router/routes";
-import { apiClient, useAgentTemplates, useNamespaces } from "@/api";
+import { apiClient, useInvalidateAgentTemplates, useNamespaces } from "@/api";
 
 const { Text } = Typography;
 
@@ -36,15 +36,7 @@ export function AgentTemplateNewPage() {
   }, [namespaces.data]);
 
   const namespace = searchParams.get("namespace") ?? fallbackNamespace;
-  /*
-   * The list this page is about to navigate to.
-   *
-   * Held only so it can be re-read after a create: the list is cached, so landing on
-   * it without invalidating shows a page that does not contain the thing just made —
-   * which reads as a create that silently failed. The same defect exists on three
-   * other create pages and is recorded in `playwright/DEFERRED.md`.
-   */
-  const templates = useAgentTemplates(namespace);
+  const invalidateTemplates = useInvalidateAgentTemplates();
   const [draft, setDraft] = useState(() => emptyDraft(namespace));
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -70,11 +62,15 @@ export function AgentTemplateNewPage() {
           spec: specFromDraft(draft),
         },
       });
-      // Swallowed: this is the list re-read, not the write. It has already succeeded by
-      // here, and `refresh` rethrows deliberately (see `useApiResource`) — so letting it
-      // through reports a created resource as "not created", beside a Try again that
-      // re-posts and comes back 409. The list shows its own read error on arrival.
-      await templates.refresh().catch(() => {});
+      /*
+       * Before navigating, so the list lands showing the template just made rather than
+       * the cached set without it, which reads as a create that silently failed.
+       *
+       * Swallowed: the create has already succeeded, and these re-reads reject
+       * deliberately (see `useApiResource`), so letting one through would report a
+       * template that exists as "not created". The list reports its own read failure.
+       */
+      await invalidateTemplates().catch(() => {});
       toast.success(`Agent template ${created.name} created`);
       // The address the reader ends up at, with the parameter the list reads. Through
       // `paths.agentTemplates` this was lost twice over: that route is a redirect and
