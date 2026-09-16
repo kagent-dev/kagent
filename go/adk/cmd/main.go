@@ -20,6 +20,7 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -190,12 +191,15 @@ func main() {
 	}
 
 	stream := agentConfig.GetStream()
+	modelName, providerName := resolveModelLabels(agentConfig)
 	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
 		RunnerConfig:   runnerConfig,
 		SessionService: sessionService,
 		Stream:         stream,
 		AppName:        appName,
 		Logger:         logger,
+		ModelName:      modelName,
+		ProviderName:   providerName,
 	})
 
 	// Build the agent card.
@@ -232,6 +236,17 @@ func main() {
 		logger.Error("server error", "error", err)
 		os.Exit(1)
 	}
+}
+
+// resolveModelLabels derives the gen_ai.request.model / gen_ai.provider.name
+// attributes for token-usage metrics from the agent config. The provider name
+// is mapped to its OpenTelemetry GenAI semconv value; both are empty strings
+// when no model is configured, so the metric simply omits those attributes.
+func resolveModelLabels(agentConfig *adk.AgentConfig) (model, provider string) {
+	if agentConfig == nil || agentConfig.Model == nil {
+		return "", ""
+	}
+	return config.ModelName(agentConfig.Model), telemetry.SemconvProviderName(agentConfig.Model.GetType())
 }
 
 func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentCard, logger *slog.Logger) string {
