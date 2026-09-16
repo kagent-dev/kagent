@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,113 @@ func TestCompileSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestCompileTracing(t *testing.T) {
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
+	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "collector"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "otlp",
+		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
+		"KAGENT_NAME":      "assistant-claude",
+		"KAGENT_NAMESPACE": "test", claudeconfig.PreResponseTraceFlushEnvName: "true",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment = map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"} {
+		if environment[name] != "1" {
+			t.Errorf("sensitive trace environment[%s] = %q, want 1", name, environment[name])
+		}
+	}
+}
+
+func TestCompileLogging(t *testing.T) {
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
+	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "false")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://logs:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "logs"}) {
+		t.Fatalf("egress = %v", revision.EgressDestinations)
+	}
+	environment := map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "none",
+		"OTEL_LOGS_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none",
+	} {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_TOOL_CONTENT", "OTEL_LOG_RAW_API_BODIES"} {
+		if _, exists := environment[name]; exists {
+			t.Fatalf("logging-only revision enables sensitive telemetry %s by default", name)
+		}
+	}
+
+	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
+	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "true")
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment = map[string]string{}
+	for _, variable := range revision.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES"} {
+		if environment[name] != "1" {
+			t.Errorf("sensitive log environment[%s] = %q, want 1", name, environment[name])
+		}
+	}
+	if _, exists := environment["OTEL_LOG_TOOL_CONTENT"]; exists {
+		t.Fatal("logging-only revision enables trace-based tool content")
+	}
+}
+
 func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -161,6 +269,40 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	var validation *v2translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
+	}
+}
+
+func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	value := "http://other-collector:4317"
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	var validation *v2translator.ValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
+	}
+}
+
+func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+	}
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+	value := "department=engineering"
+	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: &value}}
+
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(revision.Environment, corev1.EnvVar{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}) {
+		t.Fatalf("unmanaged OTEL environment missing from revision: %#v", revision.Environment)
 	}
 }
 

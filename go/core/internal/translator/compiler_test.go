@@ -294,6 +294,10 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 
 func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	t.Setenv("OTEL_TRACING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
+	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4318/v1/logs")
+	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
@@ -317,15 +321,24 @@ func TestCompileAgentTemplateForwardsOtelEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := map[string]string{}
 	for _, variable := range spec.Environment {
-		if variable.Name == "OTEL_TRACING_ENABLED" {
-			if variable.Value != "true" {
-				t.Fatalf("OTEL_TRACING_ENABLED = %q, want %q", variable.Value, "true")
-			}
-			return
+		found[variable.Name] = variable.Value
+	}
+	for name, value := range map[string]string{
+		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
+		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
+		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
+	} {
+		if found[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)
 		}
 	}
-	t.Fatalf("OTEL_TRACING_ENABLED missing from runtime revision environment: %+v", spec.Environment)
+	for _, hostname := range []string{"collector", "logs"} {
+		if !slices.Contains(spec.EgressDestinations, hostname) {
+			t.Errorf("%s missing from egress destinations: %v", hostname, spec.EgressDestinations)
+		}
+	}
 }
 
 func TestCompileAgentTemplateSharedAgent(t *testing.T) {

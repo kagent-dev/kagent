@@ -17,6 +17,7 @@ import (
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -56,6 +57,18 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	}
 	if strings.TrimSpace(card.Name) == "" {
 		return fmt.Errorf("agent card name is required")
+	}
+	shutdownTelemetry, telemetryEnabled, telemetryErr := tracing.Init(ctx, card.Name)
+	if telemetryErr != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", telemetryErr)
+	} else if telemetryEnabled {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := shutdownTelemetry(shutdownCtx); err != nil {
+				logging.FromContext(ctx).ErrorContext(ctx, "failed to shutdown harness telemetry", "error", err)
+			}
+		}()
 	}
 	runner, err := adapter.New(ctx, adapter.Input{
 		ConfigJSON: configJSON, Workspace: dataDir + "/workspace", DurableDir: dataDir, Environment: environment,

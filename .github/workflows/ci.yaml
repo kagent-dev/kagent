@@ -44,7 +44,7 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.0.30
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -122,6 +122,8 @@ jobs:
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
             --set-string substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
+            --set otel.tracing.enabled=true
+            --set-string otel.tracing.exporter.otlp.endpoint=http://172.17.0.1:14317
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           # Once, before the fan-out below. Every `build-*` target depends on
@@ -166,6 +168,13 @@ jobs:
           make core/bin/kagent-local
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on -parallel 4
+
+          # Run completed-chat trace flush e2e test
+          envsubst < core/test/e2e/manifests/tracing.yaml.tmpl | kubectl apply -f -
+          export KAGENT_E2E_API_URL="$KAGENT_API_URL"
+          export KAGENT_LOCAL_HOST=172.17.0.1
+          export KAGENT_E2E_OTLP_LISTEN_ADDRESS=:14317
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -run '^TestE2ECompletedChatFlushesTraces$' -count=1
 
       - name: fail print info
         if: failure()

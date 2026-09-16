@@ -9,18 +9,26 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type rpcMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
+	JSONRPC string           `json:"jsonrpc"`
+	ID      json.RawMessage  `json:"id,omitempty"`
+	Method  string           `json:"method,omitempty"`
+	Params  json.RawMessage  `json:"params,omitempty"`
+	Trace   *w3cTraceContext `json:"trace,omitempty"`
+	Result  json.RawMessage  `json:"result,omitempty"`
 	Error   *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type w3cTraceContext struct {
+	Traceparent string `json:"traceparent"`
+	Tracestate  string `json:"tracestate,omitempty"`
 }
 
 type rpcFrame struct {
@@ -80,7 +88,11 @@ func (c *rpcClient) read(reader io.Reader, max int) {
 }
 
 func (c *rpcClient) call(ctx context.Context, id int, method string, params any) (json.RawMessage, error) {
-	if err := c.write(rpcMessage{JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: method}, params); err != nil {
+	message := rpcMessage{
+		JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: method,
+		Trace: traceContextFromContext(ctx),
+	}
+	if err := c.write(message, params); err != nil {
 		return nil, err
 	}
 	for {
@@ -112,6 +124,18 @@ func (c *rpcClient) call(ctx context.Context, id int, method string, params any)
 			return message.Result, nil
 		}
 	}
+}
+
+// traceContextFromContext extracts the trace context from the context
+// and returns a w3cTraceContext, which is injected into each Codex JSON-RPC request.
+func traceContextFromContext(ctx context.Context) *w3cTraceContext {
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	traceparent := carrier.Get("traceparent")
+	if traceparent == "" {
+		return nil
+	}
+	return &w3cTraceContext{Traceparent: traceparent, Tracestate: carrier.Get("tracestate")}
 }
 
 func (c *rpcClient) notify(method string, params any) error {

@@ -40,29 +40,6 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 	checkpoints := apiv1alpha1.NewCheckpointServiceClient(conn)
 	system := apiv1alpha1.NewSystemServiceClient(conn)
-	getActor := func(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
-		for token := ""; ; {
-			page, err := system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
-				Atespace: atespace,
-				Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
-			})
-			if err != nil {
-				return nil, err
-			}
-			if page.GetAteApiError() != "" {
-				return nil, fmt.Errorf("Substrate actors: %s", page.GetAteApiError())
-			}
-			for _, actor := range page.GetActors() {
-				if actor.GetMetadata().GetName() == name {
-					return actor, nil
-				}
-			}
-			token = page.GetPage().GetNextPageToken()
-			if token == "" {
-				return nil, nil
-			}
-		}
-	}
 	request := func(name string) *apiv1alpha1.CreateAgentInstanceRequest {
 		return &apiv1alpha1.CreateAgentInstanceRequest{
 			AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
@@ -97,7 +74,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 
 	// Observe the actual runtime through the public inventory API before deleting
 	// references, so an empty response cannot falsely prove cleanup later.
-	actor, err := getActor(ctx, "", substrate.ActorName(source.GetId()))
+	actor, err := findSubstrateActor(ctx, system, "", substrate.ActorName(source.GetId()))
 	require.NoError(t, err)
 	require.NotNil(t, actor)
 	runtimeName := actor.GetActorTemplate().GetName()
@@ -191,7 +168,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 				return false, nil
 			}
 		}
-		actor, err := getActor(ctx, "ate-golden", goldenActorID)
+		actor, err := findSubstrateActor(ctx, system, "ate-golden", goldenActorID)
 		return actor == nil, err
 	}), "final checkpoint deletion must eventually collect its runtime without template changes")
 
@@ -206,4 +183,28 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { deleteInstance(nextInstance.GetAgentInstance().GetId()) })
 	send(nextInstance.GetAgentInstance().GetId())
+}
+
+func findSubstrateActor(ctx context.Context, system apiv1alpha1.SystemServiceClient, atespace, name string) (*ateapipb.Actor, error) {
+	for token := ""; ; {
+		page, err := system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
+			Atespace: atespace,
+			Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if page.GetAteApiError() != "" {
+			return nil, fmt.Errorf("Substrate actors: %s", page.GetAteApiError())
+		}
+		for _, actor := range page.GetActors() {
+			if actor.GetMetadata().GetName() == name {
+				return actor, nil
+			}
+		}
+		token = page.GetPage().GetNextPageToken()
+		if token == "" {
+			return nil, nil
+		}
+	}
 }

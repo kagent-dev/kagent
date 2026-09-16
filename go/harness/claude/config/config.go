@@ -49,7 +49,11 @@ func OwnsEnvironment(name string) bool {
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
-		SandboxEnvName, PreResponseTraceFlushEnvName:
+		SandboxEnvName, PreResponseTraceFlushEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER",
+		"OTEL_LOGS_EXPORTER", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT",
+		"OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES", "TRACEPARENT", "TRACESTATE",
+		"KAGENT_NAME", "KAGENT_NAMESPACE":
 		return true
 	default:
 		return false
