@@ -3,15 +3,11 @@ package substrate
 import (
 	"context"
 	"fmt"
-	"net/netip"
-	"slices"
-	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // EnsureActorEgressPolicy can be retried after a lost create response. A prepared
@@ -35,31 +31,4 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name str
 		return fmt.Errorf("existing Actor egress policy does not match the prepared revision")
 	}
 	return nil
-}
-
-// ActorEgressPolicy compiles destinations into an actor's default allowlist.
-func ActorEgressPolicy(atespace string, destinations []string) (*ateapipb.EgressPolicy, error) {
-	var hostnames, cidrs []string
-	for _, destination := range destinations {
-		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {
-			ip = ip.Unmap()
-			cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
-			continue
-		}
-		hostname := strings.TrimSuffix(strings.ToLower(destination), ".")
-		if len(validation.IsDNS1123Subdomain(hostname)) != 0 {
-			return nil, fmt.Errorf("invalid egress destination %q", destination)
-		}
-		hostnames = append(hostnames, hostname)
-	}
-	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
-	if len(hostnames) > 0 {
-		slices.Sort(hostnames)
-		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: &ateapipb.HostnameRule{Patterns: slices.Compact(hostnames)}})
-	}
-	if len(cidrs) > 0 {
-		slices.Sort(cidrs)
-		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Cidrs: &ateapipb.CIDRRule{Cidrs: slices.Compact(cidrs)}})
-	}
-	return policy, nil
 }

@@ -12,29 +12,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestActorEgressPolicy(t *testing.T) {
-	policy, err := ActorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"})
-	require.NoError(t, err)
-	require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, policy.Metadata)
-	require.Len(t, policy.Rules, 2)
-	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
-	require.Equal(t, []string{"192.0.2.1/32", "2001:db8::1/128"}, policy.Rules[1].GetCidrs().GetCidrs())
-	policy, err = ActorEgressPolicy("team-a", nil)
-	require.NoError(t, err)
-	require.Empty(t, policy.Rules, "no destinations must deny all egress")
-	for _, destination := range []string{"", "*", "https://api.example.com", "api.example.com:443", "192.0.2.0/24", "fe80::1%eth0"} {
-		t.Run(destination, func(t *testing.T) {
-			_, err := ActorEgressPolicy("team-a", []string{destination})
-			require.Error(t, err)
-		})
-	}
-}
-
 func TestEnsureActorEgressPolicyRetriesLostResponse(t *testing.T) {
 	fake := &egressPolicyFake{createErr: context.DeadlineExceeded}
 	client := &Client{ControlClient: fake}
-	policy, err := ActorEgressPolicy("team-a", []string{"api.example.com", "192.0.2.1"})
-	require.NoError(t, err)
+	policy := &ateapipb.EgressPolicy{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"},
+		Rules: []*ateapipb.EgressRule{
+			{Hostnames: &ateapipb.HostnameRule{Patterns: []string{"api.example.com"}}},
+			{Cidrs: &ateapipb.CIDRRule{Cidrs: []string{"192.0.2.1/32"}}},
+		},
+	}
 	require.ErrorIs(t, client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", policy), context.DeadlineExceeded)
 	require.NotNil(t, fake.policy, "the server committed before the response was lost")
 	fake.createErr = nil
