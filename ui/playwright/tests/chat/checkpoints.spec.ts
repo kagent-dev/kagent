@@ -252,3 +252,35 @@ test("chat: a conversation is duplicated from the rail menu, and the copy opens"
   await expect(rows).toHaveCount(before + 1);
   await expect(page.getByTestId("chat-sessions")).toContainText("(copy)");
 });
+
+/*
+ * Delete's red follows the theme, and comes back.
+ *
+ * Narrower than the bug that prompted it, deliberately. That bug was a *lag*: Delete
+ * took its red from antd's generated danger palette, which is rebuilt from the config
+ * on a theme change and landed a frame after the Emotion-styled buttons beside it, so
+ * mid-switch it still wore the theme just left. Catching that needs an assertion
+ * pinned to a particular frame, which is the flake this suite refuses to buy — polled,
+ * this passes against the old code too.
+ *
+ * What it does hold is the weaker claim underneath: that this button is themed at all,
+ * and in both directions. A Delete hard-coded to one red fails here.
+ */
+test("chat: the mark's controls follow a theme change", async ({ page }) => {
+  await page.goto(agentChat(instances.ready));
+  await expect(dividers(page)).toHaveCount(1, { timeout: 30_000 });
+
+  const del = dividers(page).first().locator('[data-testid^="chat-checkpoint-delete-"]');
+  const red = () => del.evaluate((node) => getComputedStyle(node).borderTopColor);
+
+  const before = await red();
+  await page.getByTestId("theme-toggle").click();
+  await expect
+    .poll(red, { message: "Delete should take the other theme's red" })
+    .not.toBe(before);
+
+  await page.getByTestId("theme-toggle").click();
+  await expect
+    .poll(red, { message: "and come back to the one it started on" })
+    .toBe(before);
+});
