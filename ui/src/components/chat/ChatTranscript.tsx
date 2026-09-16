@@ -55,15 +55,15 @@ export function ChatTranscript({
   chat,
   sessionId,
   onAnswered,
-  onFork,
-  onDeleteCheckpoint,
+  onOpenCheckpoint,
   checkpointByMessage,
 }: {
   chat: ChatController;
-  /** Forks a saved boundary. Absent when read-only. */
-  onFork?: (checkpointId: string) => void;
-  /** Removes a saved boundary. Absent when read-only. */
-  onDeleteCheckpoint?: (checkpointId: string) => void;
+  /**
+   * Opens a saved boundary's details, where fork, rename and delete live. Absent when
+   * read-only, which leaves the line on the transcript as a mark and nothing more.
+   */
+  onOpenCheckpoint?: (checkpointId: string) => void;
   /** Which boundary each message sits inside, for the messages that sit inside one. */
   checkpointByMessage?: ReadonlyMap<string, string>;
   /**
@@ -356,8 +356,7 @@ export function ChatTranscript({
               >
                 <CheckpointDivider
                   checkpointId={checkpointId}
-                  onFork={onFork && (() => onFork(checkpointId))}
-                  onDelete={onDeleteCheckpoint && (() => onDeleteCheckpoint(checkpointId))}
+                  onOpen={onOpenCheckpoint && (() => onOpenCheckpoint(checkpointId))}
                 />
               </div>,
             );

@@ -325,6 +325,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("snapshot lookup by another user = %v, want not found", err)
 	}
+	require.Equal(t, defaultCheckpointName(instanceID, "task-1"), checkpoint.GetName())
 	if checkpoint.HeadTaskId != "task-1" || snapshot == nil ||
 		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
@@ -351,6 +352,18 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, _, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("fork by another user = %v, want not found", err)
 	}
+	renamed, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", renamed.GetName())
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "mallory", "stolen"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename by another user = %v, want not found", err)
+	}
+	stored, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
+	require.NoError(t, err)
+	require.Equal(t, "Before the detour", stored.GetName())
+	restored, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "")
+	require.NoError(t, err)
+	require.Equal(t, defaultCheckpointName(instanceID, "task-1"), restored.GetName())
 	retained, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
 	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
@@ -464,6 +477,8 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 	_, err = client.UpdateAgentInstanceName(ctx, source.GetId(), "alice", "Renamed after checkpoint")
 	require.NoError(t, err)
+	_, err = client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "Before the detour")
+	require.NoError(t, err)
 
 	// Advancing the same task must not mutate the saved checkpoint projection.
 	first.Status.Message = a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("source advanced"))
@@ -485,7 +500,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	}
 
 	fork, created, err := client.ForkAgentInstance(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)
-	require.Equal(t, "Namespace explanation", fork.GetName())
+	require.Equal(t, "Before the detour", fork.GetName())
 	if err != nil || !created {
 		t.Fatalf("ForkAgentInstance() = %+v, created %v, error %v", fork, created, err)
 	}
@@ -549,7 +564,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
-	require.Equal(t, "Namespace explanation", fork2.GetName())
+	require.Equal(t, defaultCheckpointName(fork.GetId(), "task-1"), fork2.GetName())
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}

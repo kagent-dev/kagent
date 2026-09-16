@@ -246,6 +246,7 @@ point lives.
 | `app_agents_agentsList_pageHeader_actions` | none |
 | `app_agents_agentsList_agentListItem_badge` | `{ agentName: string; namespace: string }` |
 | `app_agents_agentChat_agentChatMessage_additionalActionsButton` | `{ messageId: string; role: "user" \| "agent"; text: string }` |
+| `app_agents_agentChat_snapshotDetails_footer` | `{ snapshotId: string; instanceId: string; label: string }` |
 | `app_dashboard_dashboardOverview_summaryGrid_leadingCard` | none |
 
 Mount a component by naming the point:

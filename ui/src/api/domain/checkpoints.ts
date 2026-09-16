@@ -30,6 +30,13 @@ export type CheckpointState =
 export interface Checkpoint {
   id: string;
   agentInstanceId: string;
+  /**
+   * What the reader calls it, and what a fork taken from it is named.
+   *
+   * Never empty: the controller generates one at creation and puts that default back
+   * when a name is cleared, so a fork always has something to be called.
+   */
+  name: string;
   /** The turn this boundary sits at. Matches `taskId` on that turn's messages. */
   headTaskId: string;
   state: CheckpointState;

@@ -140,7 +140,9 @@ import {
   saveToolServer,
   checkpointById,
   deleteCheckpoint,
+  generatedCheckpointName,
   readCheckpoints,
+  renameCheckpoint,
   saveCheckpoint,
 } from "./state";
 import type { MockCheckpoint } from "./state";
@@ -956,6 +958,7 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
 const checkpointMessage = (row: MockCheckpoint) => ({
   id: row.id,
   agentInstanceId: row.agentInstanceId,
+  name: row.name,
   headTaskId: row.headTaskId,
   state: PbCheckpointState.READY,
   createdAt: timestampFromDate(new Date(row.createdAt)),
@@ -963,13 +966,21 @@ const checkpointMessage = (row: MockCheckpoint) => ({
 
 on(CheckpointService.method.createCheckpoint, (input, call) => {
   const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const headTaskId = mockLatestTaskId(instance.id);
   const checkpoint = saveCheckpoint({
     id: crypto.randomUUID(),
     agentInstanceId: instance.id,
-    headTaskId: mockLatestTaskId(instance.id),
+    name: generatedCheckpointName({ agentInstanceId: instance.id, headTaskId }),
+    headTaskId,
     createdAt: new Date().toISOString(),
   });
   return { checkpoint: checkpointMessage(checkpoint) };
+});
+
+on(CheckpointService.method.updateCheckpointName, (input) => {
+  const renamed = renameCheckpoint(input.checkpointId, input.name);
+  if (!renamed) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return { checkpoint: checkpointMessage(renamed) };
 });
 
 on(CheckpointService.method.deleteCheckpoint, (input) => {
@@ -983,9 +994,10 @@ on(CheckpointService.method.listCheckpoints, (input, call) => {
 });
 
 /*
- * The fork copies the source's record under a new id, unnamed, exactly as the
- * controller's `InsertForkedAgentInstance` does — and copies the transcript up to the
- * checkpoint's turn, which is what makes forking an earlier boundary mean anything.
+ * The fork copies the source's record under a new id and takes the checkpoint's name,
+ * exactly as the controller's `InsertForkedAgentInstance` does — and copies the
+ * transcript up to the checkpoint's turn, which is what makes forking an earlier
+ * boundary mean anything.
  */
 on(CheckpointService.method.forkAgentInstance, (input, call) => {
   const checkpoint = checkpointById(input.checkpointId);
@@ -995,7 +1007,7 @@ on(CheckpointService.method.forkAgentInstance, (input, call) => {
   const forked = saveAgentInstance({
     ...source,
     id: crypto.randomUUID(),
-    name: "",
+    name: checkpoint.name,
     state: "ready",
     operation: "unspecified",
     createdAt: now,

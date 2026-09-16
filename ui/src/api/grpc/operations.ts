@@ -668,6 +668,7 @@ function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
   return {
     id: checkpoint.id,
     agentInstanceId: checkpoint.agentInstanceId,
+    name: checkpoint.name,
     headTaskId: checkpoint.headTaskId,
     state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
     createdAt: isoFrom(checkpoint.createdAt),
@@ -681,6 +682,7 @@ const agentInstances: Pick<
   | "agentInstances.checkpoints.list"
   | "agentInstances.checkpoints.fork"
   | "agentInstances.checkpoints.delete"
+  | "agentInstances.checkpoints.rename"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -798,7 +800,7 @@ const agentInstances: Pick<
     );
     const checkpoint = toCheckpoint(required(created.checkpoint, name, "checkpoint"));
     if (checkpoint.state !== "ready") {
-      throw new ApiError(checkpoint.failure || "The checkpoint did not become ready.", {
+      throw new ApiError(checkpoint.failure || "The snapshot did not become ready.", {
         kind: "http",
         url: name,
         status: 500,
@@ -843,6 +845,24 @@ const agentInstances: Pick<
     const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
     if (!input.name) return instance;
     return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
+  },
+
+  /*
+   * The name a reader gave a boundary, which the fork of it inherits.
+   *
+   * Empty is not a no-op: the controller restores its generated default, so the
+   * record that comes back is what the boundary is now called rather than what was
+   * sent — which is why this answers with the checkpoint instead of nothing.
+   */
+  "agentInstances.checkpoints.rename": async (input, options) => {
+    const name = "CheckpointService/UpdateCheckpointName";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).updateCheckpointName(
+        { checkpointId: input.checkpointId, name: input.name },
+        call("agentInstances.checkpoints.rename", options),
+      ),
+    );
+    return toCheckpoint(required(response.checkpoint, name, "renamed checkpoint"));
   },
 
   "agentInstances.checkpoints.delete": async (input, options) => {

@@ -16,6 +16,7 @@ export const EXTENSION_POINT_IDS = [
   "app_agents_agentsList_pageHeader_actions",
   "app_agents_agentsList_agentListItem_badge",
   "app_agents_agentChat_agentChatMessage_additionalActionsButton",
+  "app_agents_agentChat_snapshotDetails_footer",
   "app_agents_agentRail_chatRow_menuItems",
   "app_agents_agentRail_chatRow_marker",
   "app_agents_agentRail_gutter_actions",
@@ -60,6 +61,7 @@ type ExtensionPointPropsMap = PropsFor<{
     /** The conversation this message is part of. */
     sessionId?: string;
   };
+  app_agents_agentChat_snapshotDetails_footer: SnapshotDetailsContext;
   /*
    * The two rail-row points below take the same context — the conversation the row is
    * for — because they are one affordance in two places: an entry in the row's menu,
@@ -103,6 +105,27 @@ export type AgentRailChatRowContext = {
   label: string;
 };
 
+/**
+ * What a contribution at the foot of the snapshot details modal is told.
+ *
+ * Structural rather than an import of the API's `Checkpoint`, for the reason given
+ * above `AgentRailChatRowContext`: this module is the contract with code that does not
+ * live in the app, and a contract naming a generated type changes shape whenever that
+ * type is regenerated.
+ *
+ * Three fields, because a snapshot is only addressable as one of a conversation's:
+ * anything asking a backend about it needs both ids, and anything that names it on
+ * screen must say what the modal says rather than deriving a second answer.
+ */
+export type SnapshotDetailsContext = {
+  /** The snapshot's own id. */
+  snapshotId: string;
+  /** The conversation the snapshot was taken in. */
+  instanceId: string;
+  /** The snapshot's label, already resolved. */
+  label: string;
+};
+
 /** The empty context, for points that pass nothing to their component. */
 export type NoSlotContext = Record<never, never>;
 
@@ -137,6 +160,7 @@ export const EXTENSION_POINT_RENDER_MODE: Record<
   app_agents_agentsList_pageHeader_actions: "inline",
   app_agents_agentsList_agentListItem_badge: "inline",
   app_agents_agentChat_agentChatMessage_additionalActionsButton: "inline",
+  app_agents_agentChat_snapshotDetails_footer: "inline",
   app_agents_agentRail_chatRow_menuItems: "inline",
   app_agents_agentRail_chatRow_marker: "inline",
   app_agents_agentRail_gutter_actions: "inline",
