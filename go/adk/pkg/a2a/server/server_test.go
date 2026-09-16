@@ -467,3 +467,19 @@ func TestRequestSpanExportedBeforeQuiescentEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestPingReturnsJSONHealthy(t *testing.T) {
+	testServer, _ := startTestServer(t)
+	resp, err := testServer.Client().Get(testServer.URL + "/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != `{"status":"Healthy"}` {
+		t.Fatalf("GET /ping = %d %q", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+}

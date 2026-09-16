@@ -6,13 +6,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/adapter"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
@@ -23,8 +27,11 @@ import (
 const (
 	configEnv    = "KAGENT_CONFIG_JSON"
 	agentCardEnv = "KAGENT_AGENT_CARD_JSON"
-	dataDir      = "/data"
-	privatePort  = "80"
+	dataDirEnv   = "KAGENT_DURABLE_DIR"
+	portEnv      = "PORT"
+
+	defaultDataDir     = "/data"
+	defaultPrivatePort = "80"
 )
 
 func main() {
@@ -51,6 +58,20 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if err != nil {
 		return err
 	}
+	dataDir := getenv(dataDirEnv)
+	if dataDir == "" {
+		dataDir = defaultDataDir
+	}
+	if !filepath.IsAbs(dataDir) {
+		return fmt.Errorf("%s must be an absolute path, got %q", dataDirEnv, dataDir)
+	}
+	if _, err := config.Parse(configJSON); err != nil {
+		return fmt.Errorf("parse %s: %w", configEnv, err)
+	}
+	privatePort := getenv(portEnv)
+	if privatePort == "" {
+		privatePort = defaultPrivatePort
+	}
 	var card a2atype.AgentCard
 	if err := json.Unmarshal(agentCardJSON, &card); err != nil {
 		return fmt.Errorf("decode agent card: %w", err)
@@ -71,31 +92,48 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 		}()
 	}
 
-	runner, err := adapter.New(ctx, adapter.Input{
-		ConfigJSON: configJSON,
-		Workspace:  dataDir + "/workspace", DurableDir: dataDir,
-		EphemeralDir: "/tmp/kagent-claude",
-		Environment:  environment,
-	})
-	if err != nil {
-		return fmt.Errorf("configure Claude Harness: %w", err)
+	build := func(ctx context.Context) (a2asrv.AgentExecutor, io.Closer, error) {
+		runner, err := adapter.New(ctx, adapter.Input{
+			ConfigJSON: configJSON,
+			Workspace:  dataDir + "/workspace", DurableDir: dataDir,
+			EphemeralDir: "/tmp/kagent-claude",
+			Environment:  environment,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("configure Claude Harness: %w", err)
+		}
+		validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := runner.Validate(validateCtx); err != nil {
+			_ = runner.Close()
+			return nil, nil, err
+		}
+		store, err := continuation.New(dataDir+"/adapter", "claude", validateSessionID)
+		if err != nil {
+			_ = runner.Close()
+			return nil, nil, err
+		}
+		executor, err := runtimea2a.New(runner, store)
+		if err != nil {
+			_ = runner.Close()
+			return nil, nil, err
+		}
+		return executor, runner, nil
 	}
-	defer runner.Close()
-	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := runner.Validate(validateCtx); err != nil {
+	// The host may attach the durable directory only with the first request.
+	executor, err := runtimea2a.NewDeferred(ctx, dataDir, build)
+	if err != nil {
 		return err
+	}
+	defer executor.Close()
+	if !executor.Ready() {
+		if check {
+			return fmt.Errorf("%s %s is not available for --check", dataDirEnv, dataDir)
+		}
+		logging.FromContext(ctx).InfoContext(ctx, "durable directory is not present; building on first request", "dir", dataDir)
 	}
 	if check {
 		return nil
-	}
-	store, err := continuation.New(dataDir+"/adapter", "claude", validateSessionID)
-	if err != nil {
-		return err
-	}
-	executor, err := runtimea2a.New(runner, store)
-	if err != nil {
-		return err
 	}
 	application, err := app.New(app.AppConfig{AgentCard: card, Port: privatePort, AppName: card.Name, Logger: logging.FromContext(ctx)}, executor)
 	if err != nil {

@@ -13,4 +13,8 @@ func RegisterHealthEndpoints(mux *http.ServeMux) {
 	})
 	mux.Handle("/health", handler)
 	mux.Handle("/healthz", handler)
+	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"Healthy"}`))
+	})
 }

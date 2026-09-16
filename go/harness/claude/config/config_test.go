@@ -17,6 +17,8 @@ func TestOwnsEnvironment(t *testing.T) {
 		"OTEL_TRACES_EXPORTER",
 		"OTEL_LOG_RAW_API_BODIES",
 		"TRACEPARENT",
+		"PORT",
+		"KAGENT_DURABLE_DIR",
 		MCPCredentialEnvPrefix + "ABC123",
 	} {
 		if !OwnsEnvironment(name) {

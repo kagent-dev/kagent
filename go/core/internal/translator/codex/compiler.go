@@ -38,6 +38,7 @@ var ownedEnvironment = map[string]struct{}{
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
 	preResponseTraceFlushEnv: {},
 	"KAGENT_NAME":            {}, "KAGENT_NAMESPACE": {},
+	"PORT": {}, "KAGENT_DURABLE_DIR": {},
 }
 
 type Compiler struct {

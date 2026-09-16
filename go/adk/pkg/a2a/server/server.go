@@ -84,7 +84,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
 			return false
-		case r.URL.Path == "/health", r.URL.Path == "/healthz", r.URL.Path == a2asrv.WellKnownAgentCardPath:
+		case r.URL.Path == "/health", r.URL.Path == "/healthz", r.URL.Path == "/ping", r.URL.Path == a2asrv.WellKnownAgentCardPath:
 			return false
 		default:
 			return true
