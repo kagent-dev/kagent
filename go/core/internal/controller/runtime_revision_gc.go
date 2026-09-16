@@ -66,9 +66,6 @@ func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
 }
 
 func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
-	if ctx.Err() != nil {
-		return
-	}
 	revisions, err := r.discover(ctx)
 	if err != nil {
 		return
@@ -79,7 +76,7 @@ func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
 			return
 		}
 		if err := r.collect(ctx, candidate.Revision); err != nil && ctx.Err() == nil {
-			r.metrics.recordFailure(ctx, gcStageCollection)
+			r.metrics.recordFailure(gcStageCollection)
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to collect runtime revision",
 				"revision", candidate.Revision, "actor_template_atespace", candidate.ActorTemplateAtespace,
 				"actor_template_name", candidate.ActorTemplateName, "error", err)
@@ -96,11 +93,11 @@ func (r *RuntimeRevisionGC) discover(ctx context.Context) ([]database.RuntimeRev
 	listCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	revisions, err := r.store.ListUnreferencedRuntimeRevisions(listCtx)
 	cancel()
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if err != nil {
-		r.metrics.recordFailure(ctx, gcStageDiscovery)
+		r.metrics.recordFailure(gcStageDiscovery)
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
 		return nil, err
 	}

@@ -169,6 +169,35 @@ func TestRuntimeRevisionGCMetricsCanceledSweep(t *testing.T) {
 	require.True(t, math.IsNaN(gatherRuntimeRevisionGCMetrics(t, registry).gauges[gcPendingMetric]))
 }
 
+func TestRuntimeRevisionGCMetricsCancellationStopsDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "successful deletion"},
+		{name: "failed deletion", err: errors.New("deletion failed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			store := &fakeGCStore{revisions: []database.RuntimeRevision{
+				{Revision: "first"},
+				{Revision: "next"},
+			}}
+			templates := &cancelingGCDeletion{cancel: cancel, err: test.err}
+			collector, registry := newTestRuntimeRevisionGC(t, store, templates)
+			collector.sweep(ctx)
+			require.ErrorIs(t, ctx.Err(), context.Canceled)
+			require.Equal(t, []string{"first"}, store.begun, "cancellation must stop later candidate dispatch")
+			require.Equal(t, 1, store.lists, "cancellation must prevent the end-of-sweep query")
+			snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
+			require.Equal(t, float64(2), snapshot.gauges[gcPendingMetric], "retain the last successful discovery")
+			require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
+			require.Zero(t, snapshot.failures[string(gcStageCollection)])
+		})
+	}
+}
+
 func TestRuntimeRevisionGCMetricsRefreshDoesNotCollectNewCandidates(t *testing.T) {
 	store := &fakeGCStore{
 		revisions: []database.RuntimeRevision{{Revision: "old"}, {Revision: "new"}},
@@ -294,4 +323,17 @@ type failingGCRead struct {
 
 func (f *failingGCRead) GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error) {
 	return nil, f.err
+}
+
+type cancelingGCDeletion struct {
+	fakeActorTemplates
+	cancel context.CancelFunc
+	err    error
+}
+
+var _ runtimeRevisionGCClient = (*cancelingGCDeletion)(nil)
+
+func (c *cancelingGCDeletion) DeleteActorTemplate(context.Context, string, string, string) error {
+	c.cancel()
+	return c.err
 }

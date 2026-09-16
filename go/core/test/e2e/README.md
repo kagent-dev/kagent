@@ -43,35 +43,6 @@ input continuation, and cancellation.
 
 `mocks/` contains the deterministic LLM responses used by interaction tests.
 
-## Runtime cleanup metrics
-
-`TestRuntimeRevisionGCMetricsLifecycle` adds an actual authenticated metrics
-scrape to the existing public runtime-revision lifecycle scenario. It requires
-a dedicated installation with secure controller metrics enabled, an initially
-empty cleanup backlog, and a direct HTTPS URL for the active GC leader:
-
-```bash
-KAGENT_E2E_METRICS_URL=https://<active-controller>:8443/metrics
-KAGENT_E2E_METRICS_TOKEN_FILE=<path-to-scraper-bearer-token>
-KAGENT_E2E_METRICS_CA_FILE=<path-to-trusted-metrics-ca>
-```
-
-Export these settings in the approved test environment; the CA file can be
-omitted when the listener certificate is already trusted by the system.
-The scraper identity needs `get` on the `/metrics` non-resource URL.
-The test rejects anonymous access and requires the pending gauge and failure
-counter with exactly the `discovery` and `collection` stages. It waits for an
-initialized, empty backlog and exercises actual public lifecycle cleanup.
-Without a metrics URL it explicitly skips; a skipped test is not scrape evidence.
-Run it only against the intended disposable cluster and API target.
-
-This scenario does not prove a positive-to-zero count transition: a zero after
-cleanup can also be an earlier empty observation. It does not inject persistent
-Substrate deletion failures or restart a controller. Those metric transition and
-live recovery scenarios require a separately controlled fault/restart
-environment; unit and PostgreSQL/fake-Substrate coverage must not be reported as
-equivalent live evidence.
-
 For local interaction debugging, start any retained response fixture from the
 `go` directory:
 
