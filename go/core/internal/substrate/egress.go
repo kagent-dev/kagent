@@ -17,15 +17,11 @@ import (
 // EnsureActorEgressPolicy can be retried after a lost create response. A prepared
 // revision is immutable, so an existing policy must match; never accept or
 // overwrite a different allowlist. Substrate deletes the policy with its Actor.
-func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name string, destinations []string) error {
-	policy, err := actorEgressPolicy(atespace, destinations)
-	if err != nil {
-		return err
-	}
+func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	actor := actorRef(atespace, name)
-	_, err = c.CreateActorEgressPolicy(ctx, &ateapipb.CreateActorEgressPolicyRequest{
+	_, err := c.CreateActorEgressPolicy(ctx, &ateapipb.CreateActorEgressPolicyRequest{
 		Actor: actor, EgressPolicy: policy,
 	})
 	if status.Code(err) != codes.AlreadyExists {
@@ -41,7 +37,8 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name str
 	return nil
 }
 
-func actorEgressPolicy(atespace string, destinations []string) (*ateapipb.EgressPolicy, error) {
+// ActorEgressPolicy compiles destinations into an actor's default allowlist.
+func ActorEgressPolicy(atespace string, destinations []string) (*ateapipb.EgressPolicy, error) {
 	var hostnames, cidrs []string
 	for _, destination := range destinations {
 		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {

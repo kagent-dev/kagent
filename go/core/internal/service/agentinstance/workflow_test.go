@@ -2,7 +2,6 @@ package agentinstance
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -149,12 +148,22 @@ func TestActorCreationRetriesEgressPolicyBeforeReady(t *testing.T) {
 				}
 				return workflow.Create(t.Context(), instance)
 			}
+			destinations := store.revision.EgressDestinations
+			store.revision.EgressDestinations = []string{"*"}
 			_, err := create()
+			require.ErrorContains(t, err, "invalid egress destination")
+			require.Empty(t, actors.actors)
+			require.Nil(t, actors.policy)
+			store.revision.EgressDestinations = destinations
+			_, err = create()
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING, store.instance.State)
 			require.Empty(t, store.instance.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(instance.Id)), actors.policyActor)
-			require.Equal(t, store.revision.EgressDestinations, actors.policyDestinations)
+			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, actors.policy.Metadata)
+			require.Len(t, actors.policy.Rules, 2)
+			require.Equal(t, []string{"api.example.com"}, actors.policy.Rules[0].GetHostnames().GetPatterns())
+			require.Equal(t, []string{"192.0.2.1/32"}, actors.policy.Rules[1].GetCidrs().GetCidrs())
 
 			// The policy succeeds, but publishing READY fails. The next call must
 			// repeat policy convergence without creating another Actor.
@@ -202,15 +211,15 @@ func (s *lifecycleTestStore) DeleteAgentInstance(context.Context, string) error 
 type lifecycleTestActors struct {
 	actors              map[string]*ateapipb.Actor
 	policyErr           error
-	policyDestinations  []string
+	policy              *ateapipb.EgressPolicy
 	policyActor         string
 	creates             int
 	createAlreadyExists bool
 }
 
-func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, destinations []string) error {
+func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
 	a.policyActor = actorKey(atespace, name)
-	a.policyDestinations = slices.Clone(destinations)
+	a.policy = proto.CloneOf(policy)
 	return a.policyErr
 }
 
