@@ -19,7 +19,7 @@ lint:
 
 .PHONY: test
 test: update generate-test-certs
-	uv run pytest ./packages/**/tests/
+	uv run pytest ./packages/**/tests/ ./samples/crewai/research-crew/tests/ ./samples/crewai/poem_flow/tests/
 
 .PHONY: build
 build: update format
