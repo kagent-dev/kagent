@@ -1,0 +1,35 @@
+name: Publish Helm charts
+description: Package and publish the kagent and kagent-crds charts
+inputs:
+  version:
+    description: Version without a v prefix
+    required: true
+  token:
+    description: GitHub token with packages write permission
+    required: true
+  extra-version:
+    description: Optional additional chart version, with images pinned to the original version
+    default: ''
+runs:
+  using: composite
+  steps:
+  - uses: docker/login-action@v4
+    with:
+      registry: ghcr.io
+      username: ${{ github.actor }}
+      password: ${{ inputs.token }}
+  - name: Build and push charts
+    shell: bash
+    env:
+      VERSION: ${{ inputs.version }}
+    run: make helm-publish
+  - name: Publish chart alias
+    if: inputs.extra-version != ''
+    shell: bash
+    env:
+      VERSION: ${{ inputs.version }}
+      EXTRA_VERSION: ${{ inputs.extra-version }}
+    run: |
+      # Pin the floating chart to this build's immutable image tags.
+      sed -i "s/^tag: .*/tag: \"$VERSION\"/" helm/kagent/values.yaml
+      make helm-publish VERSION="$EXTRA_VERSION"

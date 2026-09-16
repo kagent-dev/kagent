@@ -8,6 +8,38 @@ When making changes to `kagent`, the most important thing is to figure out which
 - [go](go): Contains the code for the kubernetes controller, and the CLI.
 - [ui](ui): Contains the code for the web UI.
 
+## Nightly releases
+
+The [Nightly Release workflow](https://github.com/kagent-dev/kagent/actions/workflows/nightly.yaml)
+runs at 02:00 UTC on the default branch, skipping builds when its commit matches
+the previous successful nightly. Maintainers can also run it manually on the
+default branch to force a rebuild.
+
+Use **Run workflow** on that page, or run
+`gh workflow run nightly.yaml --ref main`. Both nightly and tagged releases use
+the shared `publish-image`, `publish-helm`, and `build-release-artifacts` composite
+actions in `.github/actions`.
+
+Each build publishes all six component images and the `kagent` and `kagent-crds`
+Helm charts as `0.0.0-alpha.g<12-character-commit>`. Images also get the floating
+`latest-dev` tag; charts get `0.0.0-latest-dev`. The floating chart pins its images
+to that build's commit-specific version. These are development builds; nightly
+runs do not publish Python packages to PyPI or create GitHub releases.
+
+To install the latest nightly, use `--version 0.0.0-latest-dev` for both charts
+with your usual installation values:
+
+```shell
+helm upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
+  --version 0.0.0-latest-dev --namespace kagent --create-namespace
+helm upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+  --version 0.0.0-latest-dev --namespace kagent -f your-values.yaml
+```
+
+Use the commit-specific version to pin an installation. Each workflow run includes
+a changelog in its summary and an artifact containing CLI binaries, checksums,
+and commit-specific chart archives.
+
 ## Dependencies
 
 Before you can run kagent in Kubernetes, you need to have the following tools installed:
