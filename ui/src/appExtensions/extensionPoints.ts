@@ -17,6 +17,7 @@ export const EXTENSION_POINT_IDS = [
   "app_agents_agentsList_agentListItem_badge",
   "app_agents_agentChat_agentChatMessage_additionalActionsButton",
   "app_agents_agentChat_snapshotDetails_footer",
+  "app_agents_agentChat_snapshotDivider_actions",
   "app_agents_agentRail_chatRow_menuItems",
   "app_agents_agentRail_chatRow_marker",
   "app_agents_agentRail_gutter_actions",
@@ -61,7 +62,14 @@ type ExtensionPointPropsMap = PropsFor<{
     /** The conversation this message is part of. */
     sessionId?: string;
   };
+  /*
+   * The two snapshot points take the same context — the boundary they are about —
+   * because they are one affordance in two places: beside the controls on the
+   * transcript, and at the foot of the record those controls open. Splitting the
+   * contract would let the two disagree about which snapshot they mean.
+   */
   app_agents_agentChat_snapshotDetails_footer: SnapshotDetailsContext;
+  app_agents_agentChat_snapshotDivider_actions: SnapshotDetailsContext;
   /*
    * The two rail-row points below take the same context — the conversation the row is
    * for — because they are one affordance in two places: an entry in the row's menu,
@@ -161,6 +169,7 @@ export const EXTENSION_POINT_RENDER_MODE: Record<
   app_agents_agentsList_agentListItem_badge: "inline",
   app_agents_agentChat_agentChatMessage_additionalActionsButton: "inline",
   app_agents_agentChat_snapshotDetails_footer: "inline",
+  app_agents_agentChat_snapshotDivider_actions: "inline",
   app_agents_agentRail_chatRow_menuItems: "inline",
   app_agents_agentRail_chatRow_marker: "inline",
   app_agents_agentRail_gutter_actions: "inline",

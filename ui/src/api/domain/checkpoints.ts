@@ -50,3 +50,18 @@ export interface Checkpoint {
 export function canForkFrom(checkpoint: Checkpoint): boolean {
   return checkpoint.state === "ready";
 }
+
+/**
+ * What the controller calls a boundary nobody has named: the conversation it was taken
+ * in, joined to the turn it sits at.
+ *
+ * Mirrors `defaultCheckpointName` in the controller, which is also what a cleared name
+ * is restored to — so this is the one string that means "still unnamed", and the rule
+ * is written once here rather than again wherever that has to be decided.
+ */
+export function generatedCheckpointName(
+  checkpoint: Pick<Checkpoint, "agentInstanceId" | "headTaskId">,
+): string {
+  return `${checkpoint.agentInstanceId}-${checkpoint.headTaskId}`;
+}
+

@@ -1,20 +1,13 @@
 import { useState } from "react";
-import { Button, Descriptions, Input, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Descriptions, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import toast from "react-hot-toast";
-import {
-  apiClient,
-  canForkFrom,
-  conversationNameProblem,
-  MAX_CONVERSATION_NAME_LENGTH,
-  type Checkpoint,
-  type CheckpointState,
-} from "@/api";
+import { canForkFrom, type Checkpoint, type CheckpointState } from "@/api";
 import { relativeAge } from "@/components/agent-instances/instanceLabels";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
+import { SnapshotRenameDialog } from "./SnapshotRenameDialog";
 
-const { Paragraph, Text } = Typography;
+const { Text } = Typography;
 
 /** What a snapshot is called on screen, for the one case the controller sends nothing. */
 function snapshotLabel(checkpoint: Checkpoint): string {
@@ -280,98 +273,11 @@ export function SnapshotDetailsModal({
       {/* Mounted only while open, which is what seeds the box with the stored name
           without an effect to put it there — see `RenameConversationDialog`. */}
       {isRenaming ? (
-        <RenameSnapshotDialog
+        <SnapshotRenameDialog
           checkpoint={checkpoint}
           onClose={() => setRenaming(false)}
           onRenamed={onRenamed}
         />
-      ) : null}
-    </Modal>
-  );
-}
-
-/**
- * Names a snapshot, or puts the generated name back.
- *
- * Validated with `conversationNameProblem` rather than a second copy of the same
- * rules: the controller enforces one limit on both fields, so two validators here
- * would be two chances to disagree with it. Surrounding whitespace is refused rather
- * than trimmed, and empty is valid — it is how a reader's own title is cleared.
- */
-function RenameSnapshotDialog({
-  checkpoint,
-  onClose,
-  onRenamed,
-}: {
-  checkpoint: Checkpoint;
-  onClose: () => void;
-  onRenamed: (renamed: Checkpoint) => void | Promise<void>;
-}) {
-  const theme = useTheme();
-  const [draft, setDraft] = useState(checkpoint.name);
-  const [isSaving, setSaving] = useState(false);
-  const problem = conversationNameProblem(draft);
-
-  async function save() {
-    if (problem) return;
-    setSaving(true);
-    try {
-      const renamed = await apiClient.agentInstances.checkpoints.rename(checkpoint.id, draft);
-      // Awaited before the toast, so the modal behind this already shows the new name
-      // by the time the reader is told it changed.
-      await onRenamed(renamed);
-      onClose();
-      toast.success(`Snapshot renamed to “${snapshotLabel(renamed)}”`);
-    } catch (cause: unknown) {
-      // Deliberately not transient: the old name is still on screen, and a reader who
-      // missed the message would believe it changed.
-      toast.error(
-        `Could not rename the snapshot: ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`,
-        { duration: Infinity },
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      open
-      title="Name this snapshot"
-      okText="Save"
-      okButtonProps={{ loading: isSaving, disabled: problem !== undefined }}
-      cancelText="Cancel"
-      onOk={() => void save()}
-      onCancel={onClose}
-      destroyOnHidden
-    >
-      <Paragraph css={{ color: theme.color.textMuted, fontSize: 13 }}>
-        A fork taken from this snapshot is given its name. Leave this empty to go back
-        to the generated one.
-      </Paragraph>
-      {/* The id is on a wrapper this app owns: antd spreads unknown props onto its
-          inner `<input>`, which is not somewhere a test can reason about. */}
-      <div data-testid="snapshot-rename-input">
-        <Input
-          value={draft}
-          autoFocus
-          maxLength={MAX_CONVERSATION_NAME_LENGTH}
-          showCount
-          status={problem ? "error" : undefined}
-          onChange={(event) => setDraft(event.target.value)}
-          onPressEnter={() => void save()}
-          aria-label="Snapshot name"
-        />
-      </div>
-      {problem ? (
-        <Text
-          data-testid="snapshot-rename-problem"
-          css={{ color: theme.color.dangerText, fontSize: 12 }}
-        >
-          {problem}
-        </Text>
       ) : null}
     </Modal>
   );

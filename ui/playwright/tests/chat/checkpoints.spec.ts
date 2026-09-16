@@ -8,12 +8,15 @@ const openMenu = (page: import("@playwright/test").Page) =>
 const dividers = (page: import("@playwright/test").Page) =>
   page.locator('[data-testid^="chat-checkpoint-mark-"]');
 
-/** Opens one boundary's details, which is the only thing its line on the transcript does. */
+/** The seeded boundary's generated name: its conversation, joined to its turn. */
+const SEEDED_NAME = `${instances.ready}-seed-task-1`;
+
+/** Opens one boundary's record, which is what pressing its line does. */
 async function openSnapshot(
   page: import("@playwright/test").Page,
   divider: import("@playwright/test").Locator,
 ) {
-  await divider.getByTestId("chat-checkpoint-label").click();
+  await divider.locator('[data-testid^="chat-checkpoint-open-"]').click();
   await expect(page.getByTestId("snapshot-details-body")).toBeVisible();
 }
 
@@ -57,33 +60,64 @@ test("chat: the snapshot is taken from the composer, and marks where a fork woul
 });
 
 /*
- * The line is a way in, and the modal behind it is where the actions live.
+ * What the mark carries, and that pressing it opens the record.
  *
- * Worth one spec of its own because the divider used to *be* the actions: a line that
- * silently stopped opening anything would leave fork, rename and delete unreachable
- * while every other assertion in this file still passed.
+ * Worth one spec of its own because these are two different affordances on one
+ * element: the row is a button, and the three controls under it are not part of it. A
+ * row that silently stopped opening anything would leave the record unreachable while
+ * every other assertion in this file still passed.
  */
-test("chat: the line opens the snapshot's record, and nothing else", async ({ page }) => {
+test("chat: the mark names itself, carries its controls, and opens its record", async ({
+  page,
+}) => {
   await page.goto(agentChat(instances.ready));
   await expect(dividers(page)).toHaveCount(1, { timeout: 30_000 });
 
-  // No fork or delete on the line itself any more.
-  await expect(page.locator('[data-testid^="chat-checkpoint-fork-"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid^="chat-checkpoint-delete-"]')).toHaveCount(0);
-
-  await openSnapshot(page, dividers(page).first());
-
-  const id = ((await dividers(page).first().getAttribute("data-testid")) ?? "").replace(
+  const line = dividers(page).first();
+  const id = ((await line.getAttribute("data-testid")) ?? "").replace(
     "chat-checkpoint-mark-",
     "",
   );
-  await expect(page.getByTestId("snapshot-details-fields")).toContainText(id);
-  await expect(page.getByTestId("snapshot-details-state")).toHaveAttribute(
-    "data-state",
-    "ready",
-  );
-  // Ready, so the fork is offered rather than explained away.
-  await expect(page.getByTestId("snapshot-details-fork")).toBeEnabled();
+
+  await test.step("the mark names itself, with the generated name nobody has changed", async () => {
+    await expect(line.getByTestId("chat-checkpoint-label")).toHaveText(
+      `Snapshot \u201C${SEEDED_NAME}\u201D`,
+    );
+    await expect(line.getByTestId(`chat-checkpoint-subtitle-${id}`)).toHaveText(
+      `\u201C${SEEDED_NAME}\u201D`,
+    );
+  });
+
+  await test.step("and carries the three things a reader does to it", async () => {
+    await expect(line.getByTestId(`chat-checkpoint-fork-${id}`)).toBeEnabled();
+    await expect(line.getByTestId(`chat-checkpoint-rename-${id}`)).toBeEnabled();
+    await expect(line.getByTestId(`chat-checkpoint-delete-${id}`)).toBeEnabled();
+  });
+
+  await test.step("pressing the row opens that boundary's own record", async () => {
+    await openSnapshot(page, line);
+    await expect(page.getByTestId("snapshot-details-fields")).toContainText(id);
+    await expect(page.getByTestId("snapshot-details-state")).toHaveAttribute(
+      "data-state",
+      "ready",
+    );
+    // Ready, so the fork is offered rather than explained away.
+    await expect(page.getByTestId("snapshot-details-fork")).toBeEnabled();
+  });
+
+  await test.step("and the mark's own delete asks first, then takes it", async () => {
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
+
+    await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
+    await expect(page.getByText("Delete this snapshot?")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(dividers(page)).toHaveCount(1);
+
+    await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
+    await page.getByTestId(`chat-checkpoint-delete-confirm-${id}`).click();
+    await expect(dividers(page)).toHaveCount(0);
+  });
 });
 
 /*
@@ -123,20 +157,19 @@ test("chat: a fork holds only what was above its line, takes the snapshot's name
   await page.getByTestId("chat-checkpoint").click();
   await expect(dividers(page)).toHaveCount(2);
 
-  await openSnapshot(page, dividers(page).first());
-
-  await test.step("naming it, which is what the fork will be called", async () => {
-    await page.getByTestId("snapshot-details-rename").click();
+  await test.step("naming it from the mark, which is what the fork will be called", async () => {
+    await dividers(page).first().locator('[data-testid^="chat-checkpoint-rename-"]').click();
     await page.getByTestId("snapshot-rename-input").locator("input").fill(SNAPSHOT_NAME);
     // Exact, because an accessible name matches on substring: "Save" alone would
     // also find any control whose label merely starts with it.
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    // The record behind the modal, re-read: the name is on the snapshot before
-    // anything forks it.
-    await expect(page.getByTestId("snapshot-details-name")).toHaveText(SNAPSHOT_NAME);
+    // The mark itself, re-read: the name is on the snapshot before anything forks it.
+    await expect(
+      dividers(page).first().locator('[data-testid^="chat-checkpoint-subtitle-"]'),
+    ).toHaveText(`\u201C${SNAPSHOT_NAME}\u201D`);
   });
 
-  await page.getByTestId("snapshot-details-fork").click();
+  await dividers(page).first().locator('[data-testid^="chat-checkpoint-fork-"]').click();
 
   await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/);
   await expect(page).not.toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`), {

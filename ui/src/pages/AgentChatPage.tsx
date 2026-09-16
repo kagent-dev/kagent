@@ -11,6 +11,7 @@ import { iconControlStyles } from "@/components/agent/controlStyles";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
 import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
+import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
@@ -196,10 +197,24 @@ export function AgentChatPage() {
       setOpenCheckpoint(checkpoints.data?.find((row) => row.id === checkpointId)),
     [checkpoints.data],
   );
+  /* The rename box, reachable from the line as well as from the record — held as its
+     own record for the reason `openCheckpoint` is. */
+  const [renamingCheckpoint, setRenamingCheckpoint] = useState<Checkpoint>();
+  const renameSnapshot = useCallback(
+    (checkpointId: string) =>
+      setRenamingCheckpoint(checkpoints.data?.find((row) => row.id === checkpointId)),
+    [checkpoints.data],
+  );
 
   const checkpointByMessage = useMemo(
     () => checkpointsByMessage(chat.messages, checkpoints.data, marksHere),
     [chat.messages, checkpoints.data, marksHere],
+  );
+  /* The same list keyed by id, so a line can name itself without the transcript
+     searching the list once per boundary it draws. */
+  const checkpointsById = useMemo(
+    () => new Map((checkpoints.data ?? []).map((saved) => [saved.id, saved])),
+    [checkpoints.data],
   );
   /*
    * Whether there is a boundary to save.
@@ -692,6 +707,10 @@ export function AgentChatPage() {
             chat={chat}
             sessionId={id}
             onOpenCheckpoint={openSnapshot}
+            onRenameCheckpoint={renameSnapshot}
+            onFork={forkCheckpoint}
+            onDeleteCheckpoint={deleteCheckpoint}
+            checkpointsById={checkpointsById}
             checkpointByMessage={checkpointByMessage}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
@@ -842,6 +861,20 @@ export function AgentChatPage() {
             setOpenCheckpoint(renamed);
             // The line on the transcript and anything else reading the list, which
             // this modal no longer waits on.
+            return checkpoints.refresh();
+          }}
+        />
+      ) : null}
+
+      {/* Mounted only while open, so the box seeds from the record it is for. */}
+      {renamingCheckpoint ? (
+        <SnapshotRenameDialog
+          checkpoint={renamingCheckpoint}
+          onClose={() => setRenamingCheckpoint(undefined)}
+          onRenamed={() => {
+            setRenamingCheckpoint(undefined);
+            // The line on the transcript reads the list, so it is the list that has to
+            // hear about the new name.
             return checkpoints.refresh();
           }}
         />
