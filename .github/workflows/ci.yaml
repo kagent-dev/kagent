@@ -130,7 +130,9 @@ jobs:
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
-          export BUILDX_BUILDER_NAME="$(docker buildx inspect --format '{{.Name}}')"
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
           make buildx-create
           printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a | xargs -P4 -n1 bash -c '
             image="$1"
@@ -455,7 +457,9 @@ jobs:
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx build"
         run: |
-          export BUILDX_BUILDER_NAME="$(docker buildx inspect --format '{{.Name}}')"
+          BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
+          test -n "$BUILDX_BUILDER_NAME"
+          export BUILDX_BUILDER_NAME
           make build-${{ matrix.image }}
         working-directory: ./
 
