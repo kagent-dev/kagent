@@ -10,9 +10,6 @@ inputs:
   token:
     description: GitHub token with packages write permission
     required: true
-  extra-tag:
-    description: Optional additional image tag
-    default: ''
 runs:
   using: composite
   steps:
@@ -33,12 +30,7 @@ runs:
     env:
       VERSION: ${{ inputs.version }}
       IMAGE: ${{ inputs.image }}
-      EXTRA_TAG: ${{ inputs.extra-tag }}
       DOCKER_BUILD_ARGS: '--push --platform linux/amd64,linux/arm64'
       DOCKER_BUILDER: docker buildx build
       DOCKER_REGISTRY: ghcr.io
-    run: |
-      if [ -n "$EXTRA_TAG" ]; then
-        export DOCKER_BUILD_ARGS="$DOCKER_BUILD_ARGS -t ghcr.io/kagent-dev/kagent/$IMAGE:$EXTRA_TAG"
-      fi
-      make "build-$IMAGE"
+    run: make "build-$IMAGE"

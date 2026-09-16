@@ -7,9 +7,6 @@ inputs:
   token:
     description: GitHub token with packages write permission
     required: true
-  extra-version:
-    description: Optional additional chart version, with images pinned to the original version
-    default: ''
 runs:
   using: composite
   steps:
@@ -23,13 +20,3 @@ runs:
     env:
       VERSION: ${{ inputs.version }}
     run: make helm-publish
-  - name: Publish chart alias
-    if: inputs.extra-version != ''
-    shell: bash
-    env:
-      VERSION: ${{ inputs.version }}
-      EXTRA_VERSION: ${{ inputs.extra-version }}
-    run: |
-      # Pin the floating chart to this build's immutable image tags.
-      sed -i "s/^tag: .*/tag: \"$VERSION\"/" helm/kagent/values.yaml
-      make helm-publish VERSION="$EXTRA_VERSION"

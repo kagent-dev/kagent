@@ -10,11 +10,6 @@ permissions:
   contents: read
   packages: write
 
-# Keep manual and scheduled runs from publishing aliases concurrently.
-concurrency:
-  group: nightly-release
-  cancel-in-progress: false
-
 jobs:
   prepare:
     if: github.repository == 'kagent-dev/kagent' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -61,8 +56,8 @@ jobs:
             git log -20 --format='- %h %s (%an)'
           fi
           echo
-          echo 'Images: ghcr.io/kagent-dev/kagent/<component>:latest-dev'
-          echo 'Helm charts: oci://ghcr.io/kagent-dev/kagent/helm/{kagent,kagent-crds} --version 0.0.0-latest-dev'
+          echo "Images: ghcr.io/kagent-dev/kagent/<component>:$VERSION"
+          echo "Helm charts: oci://ghcr.io/kagent-dev/kagent/helm/{kagent,kagent-crds} --version $VERSION"
           echo 'CLI binaries, checksums and versioned charts are uploaded as artifacts on this run.'
         } >> "$GITHUB_STEP_SUMMARY"
 
@@ -86,7 +81,6 @@ jobs:
         version: ${{ needs.prepare.outputs.version }}
         image: ${{ matrix.image }}
         token: ${{ secrets.GITHUB_TOKEN }}
-        extra-tag: latest-dev
 
   push-helm-chart:
     needs: [prepare, push-images]
@@ -97,7 +91,6 @@ jobs:
       with:
         version: ${{ needs.prepare.outputs.version }}
         token: ${{ secrets.GITHUB_TOKEN }}
-        extra-version: 0.0.0-latest-dev
 
   artifacts:
     needs: [prepare, push-helm-chart]
