@@ -24,6 +24,7 @@ type workflowStore interface {
 
 type actorClient interface {
 	EnsureAtespace(context.Context, string) error
+	EnsureActorEgressPolicy(context.Context, string, string, []string) error
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
@@ -123,12 +124,18 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActor(ctx, atespace, name, revision.ActorTemplateAtespace, revision.ActorTemplateName)
+		if status.Code(err) == codes.AlreadyExists {
+			actor, err = w.actors.GetActor(ctx, atespace, name)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure Actor %s/%s: %w", atespace, name, err)
 	}
 	if !usesActorTemplate(actor, revision) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
+	}
+	if err := w.actors.EnsureActorEgressPolicy(ctx, atespace, name, revision.EgressDestinations); err != nil {
+		return nil, fmt.Errorf("ensure Actor %s/%s egress policy: %w", atespace, name, err)
 	}
 	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
@@ -157,6 +164,9 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActorFromTag(ctx, atespace, name,
 			revision.ActorTemplateAtespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
+		if status.Code(err) == codes.AlreadyExists {
+			actor, err = w.actors.GetActor(ctx, atespace, name)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure fork Actor %s/%s: %w", atespace, name, err)
@@ -174,6 +184,9 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if snapshot.URI == "" || source.GetSnapshotUri() != snapshot.URI ||
 		strings.TrimPrefix(source.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != snapshot.ContentScope {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
+	}
+	if err := w.actors.EnsureActorEgressPolicy(ctx, atespace, name, revision.EgressDestinations); err != nil {
+		return nil, fmt.Errorf("ensure fork Actor %s/%s egress policy: %w", atespace, name, err)
 	}
 	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {

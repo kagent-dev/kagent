@@ -2,12 +2,14 @@ package agentinstance
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -121,9 +123,60 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	}
 }
 
+func TestActorCreationRetriesEgressPolicyBeforeReady(t *testing.T) {
+	for _, fork := range []bool{false, true} {
+		name := "create"
+		if fork {
+			name = "fork"
+		}
+		t.Run(name, func(t *testing.T) {
+			instance := &apiv1alpha1.AgentInstance{
+				Id: "instance", PreparedRevision: "revision",
+				State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+				Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
+			}
+			store := &lifecycleTestStore{instance: instance, revision: &database.RuntimeRevision{
+				ActorTemplateAtespace: "team-a", ActorTemplateName: "template",
+				EgressDestinations: []string{"api.example.com", "192.0.2.1"},
+			}}
+			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, policyErr: context.DeadlineExceeded, createAlreadyExists: true}
+			workflow := NewActorWorkflow(store, actors)
+			create := func() (*apiv1alpha1.AgentInstance, error) {
+				if fork {
+					return workflow.Fork(t.Context(), instance, &database.AgentInstanceTaskSnapshot{
+						Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA",
+					}, "checkpoint")
+				}
+				return workflow.Create(t.Context(), instance)
+			}
+			_, err := create()
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING, store.instance.State)
+			require.Empty(t, store.instance.A2AAuthority)
+			require.Equal(t, actorKey("team-a", substrate.ActorName(instance.Id)), actors.policyActor)
+			require.Equal(t, store.revision.EgressDestinations, actors.policyDestinations)
+
+			// The policy succeeds, but publishing READY fails. The next call must
+			// repeat policy convergence without creating another Actor.
+			actors.policyErr = nil
+			store.transitionErr = context.DeadlineExceeded
+			_, err = create()
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING, store.instance.State)
+			store.transitionErr = nil
+			ready, err := create()
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY, ready.State)
+			require.Equal(t, 1, actors.creates)
+			require.Len(t, actors.actors, 1)
+		})
+	}
+}
+
 type lifecycleTestStore struct {
-	instance *apiv1alpha1.AgentInstance
-	revision *database.RuntimeRevision
+	instance      *apiv1alpha1.AgentInstance
+	revision      *database.RuntimeRevision
+	transitionErr error
 }
 
 func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
@@ -131,6 +184,9 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*datab
 }
 
 func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, expectedState apiv1alpha1.AgentInstanceState, expectedOperation apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
+	if s.transitionErr != nil {
+		return nil, s.transitionErr
+	}
 	if s.instance.GetState() != expectedState || s.instance.GetOperation() != expectedOperation {
 		return s.instance, database.ErrConflict
 	}
@@ -144,7 +200,18 @@ func (s *lifecycleTestStore) DeleteAgentInstance(context.Context, string) error 
 }
 
 type lifecycleTestActors struct {
-	actors map[string]*ateapipb.Actor
+	actors              map[string]*ateapipb.Actor
+	policyErr           error
+	policyDestinations  []string
+	policyActor         string
+	creates             int
+	createAlreadyExists bool
+}
+
+func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, destinations []string) error {
+	a.policyActor = actorKey(atespace, name)
+	a.policyDestinations = slices.Clone(destinations)
+	return a.policyErr
 }
 
 func actorKey(atespace, name string) string { return atespace + "/" + name }
@@ -160,16 +227,21 @@ func (a *lifecycleTestActors) GetActor(_ context.Context, atespace, name string)
 }
 
 func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, templateNamespace, templateName string) (*ateapipb.Actor, error) {
+	a.creates++
 	actor := &ateapipb.Actor{
 		Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 	}
 	a.actors[actorKey(atespace, name)] = actor
+	if a.createAlreadyExists {
+		return nil, status.Error(codes.AlreadyExists, "concurrent create")
+	}
 	return actor, nil
 }
 
 func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, name, templateNamespace, templateName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
+	a.creates++
 	actor := &ateapipb.Actor{
 		Metadata:      &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
@@ -180,6 +252,9 @@ func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, na
 		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
+	if a.createAlreadyExists {
+		return nil, status.Error(codes.AlreadyExists, "concurrent create")
+	}
 	return actor, nil
 }
 
