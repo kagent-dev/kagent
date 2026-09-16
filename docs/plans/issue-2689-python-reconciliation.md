@@ -16,14 +16,14 @@ execution path, documentation, and API v2 behavior satisfy the gates below.
 | --- | --- | --- |
 | Package | `agentsts-adk` | Requires API v2 audit and documented support decision. |
 | Package | `agentsts-core` | Requires API v2 audit and documented support decision. |
-| Package | `kagent-adk` | Requires API v2 audit; the `adk/basic` image command must be exercised against its packaged filesystem layout. |
+| Package | `kagent-adk` | The `adk/basic` command now uses the sample root as its agent directory; requires API v2 audit and image-level execution validation. |
 | Package | `kagent-core` | Requires API v2 audit and documented support decision. |
-| Package | `kagent-crewai` | README contains unverified Kagent-backed memory and Flow-persistence claims that must be corrected or the backing behavior restored. |
+| Package | `kagent-crewai` | Unsupported Kagent-backed memory and Flow-persistence claims are corrected in this PR; requires API v2 audit and integrated residual-search classification. |
 | Package | `kagent-langgraph` | Documentation correction is owned by #2821; runtime support still requires audit evidence. |
 | Package | `kagent-openai` | Documentation correction is owned by #2821; runtime support still requires audit evidence. |
 | Package | `kagent-proto` | Requires API v2 audit and documented support decision. |
 | Package | `kagent-skills` | Requires API v2 audit and documented support decision. |
-| Sample | `adk/basic` | Startup slice is owned by #2832; validate the built image's agent-loader path before retaining it. |
+| Sample | `adk/basic` | #2832 corrects the container agent root; validate built-image startup and the supported execution path before retaining it. |
 | Sample | `crewai/poem_flow` | Startup slice is owned by #2834; requires supported-path and documentation audit. |
 | Sample | `crewai/research-crew` | Startup slice is owned by #2834; requires supported-path and documentation audit. |
 | Sample | `langgraph/currency` | Documentation and startup slices are owned by #2821 and #2829; requires end-to-end A2A, deployment, and checkpoint-restart validation. |
@@ -59,11 +59,8 @@ execution path, documentation, and API v2 behavior satisfy the gates below.
 
 - #2821's Currency README explicitly states that it has no documented
   end-to-end runtime command yet.
-- The #2832 image copies the `basic` agent directory to `/app/basic`, while
-  `kagent-adk run basic --working-dir /app/basic` resolves the agent beneath
-  `/app/basic/basic`.
-- `kagent-crewai` currently documents Kagent-backed session memory and Flow
-  state persistence without evidence of a current backing API.
+- The final classified repository search and CI guard have not yet been added
+   or run against the integrated post-merge state.
 
 ## Completion Record
 
