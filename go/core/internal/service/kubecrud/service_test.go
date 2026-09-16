@@ -83,10 +83,14 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 	if _, err := service.Create(ctx, &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "created"}}); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := service.Update(ctx, types.NamespacedName{Namespace: "team", Name: "mutable"}, func(mutable *v1alpha3.AgentTemplate) {
-		mutable.Spec.Description = "updated"
-	}); err != nil {
-		t.Fatalf("Update() error = %v", err)
+	mutableRef := types.NamespacedName{Namespace: "team", Name: "mutable"}
+	mutable, err := service.GetForUpdate(ctx, mutableRef)
+	if err != nil {
+		t.Fatalf("GetForUpdate() error = %v", err)
+	}
+	mutable.Spec.Description = "updated"
+	if _, err := service.SaveUpdate(ctx, mutable); err != nil {
+		t.Fatalf("SaveUpdate() error = %v", err)
 	}
 	if err := service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "b"}); err != nil {
 		t.Fatalf("Delete() error = %v", err)

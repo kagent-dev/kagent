@@ -82,10 +82,13 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	result, err := s.service.Update(ctx, ref, func(existing *v1alpha3.AgentTemplate) {
-		existing.Spec = *incoming.Spec.DeepCopy()
-		existing.Labels = maps.Clone(incoming.Labels)
-	})
+	existing, err := s.service.GetForUpdate(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	existing.Spec = *incoming.Spec.DeepCopy()
+	existing.Labels = maps.Clone(incoming.Labels)
+	result, err := s.service.SaveUpdate(ctx, existing)
 	if err != nil {
 		return nil, err
 	}

@@ -111,8 +111,8 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	return object, nil
 }
 
-// Update loads the stored object, applies the resource-specific change, and persists it.
-func (s *Service[T, L]) Update(ctx context.Context, ref types.NamespacedName, apply func(T)) (T, error) {
+// GetForUpdate authorizes the stored object and returns it for modification.
+func (s *Service[T, L]) GetForUpdate(ctx context.Context, ref types.NamespacedName) (T, error) {
 	var zero T
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
@@ -124,7 +124,12 @@ func (s *Service[T, L]) Update(ctx context.Context, ref types.NamespacedName, ap
 	if err := s.authorize(ctx, auth.VerbUpdate, object); err != nil {
 		return zero, err
 	}
-	apply(object)
+	return object, nil
+}
+
+// SaveUpdate persists an object returned by GetForUpdate after its spec is changed.
+func (s *Service[T, L]) SaveUpdate(ctx context.Context, object T) (T, error) {
+	var zero T
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
 			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
