@@ -62,6 +62,24 @@ func TestRuntimeRevisionGCStart(t *testing.T) {
 	})
 }
 
+func TestRuntimeRevisionGCStartCanceledContext(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		store := &fakeGCStore{}
+		collector, registry := newTestRuntimeRevisionGC(t, store, &fakeGCTemplates{})
+		started := time.Now()
+		require.NoError(t, collector.Start(ctx))
+		require.Equal(t, started, time.Now(), "canceled startup must not wait for the ticker")
+		require.Zero(t, store.lists)
+		require.Empty(t, store.begun)
+		snapshot := gatherRuntimeRevisionGCMetrics(t, registry)
+		require.True(t, math.IsNaN(snapshot.gauges[gcPendingMetric]))
+		require.Zero(t, snapshot.failures[string(gcStageDiscovery)])
+		require.Zero(t, snapshot.failures[string(gcStageCollection)])
+	})
+}
+
 func TestRuntimeRevisionGCDeadlineAndCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())

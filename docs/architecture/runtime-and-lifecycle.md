@@ -108,3 +108,47 @@ Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
+
+## Runtime revision cleanup metrics
+
+The controller leader collects unreferenced runtime revisions at startup and
+every minute. Each candidate has a one-minute deadline; failed deletions remain
+eligible for retry without preventing other candidates from being attempted.
+Pair, instance, checkpoint, and UID protections still apply.
+
+GC registers two Prometheus collectors in the controller manager's registry.
+This instrumentation does not enable a scrape endpoint: the controller retains
+its disabled metrics listener. Export configuration and authentication are
+separate work.
+
+| Metric | Meaning |
+| --- | --- |
+| `kagent_runtime_revision_gc_pending` | Gauge of eligible persisted revisions from the last successful discovery, including incomplete deletions. No application labels. |
+| `kagent_runtime_revision_gc_failures_total{stage}` | Counter of failed attempts, with only `discovery` and `collection` stages. No revision, template, UID, namespace, or error labels. |
+
+Pending count is sampled at the start and once at the end of each sweep,
+including an empty sweep. Scrapes perform no database or network I/O. Discovery
+errors retain the previous count and increment `discovery` failures; an initial
+error stops the sweep. Parent cancellation is not counted as failure, but an
+operation's own deadline while its parent remains active is.
+
+Pending is `NaN` before discovery, on standby replicas, and after GC stops.
+Successful empty discovery reports zero. Restart reconstructs count from
+PostgreSQL and resets process-local counters. Use reset-aware `rate` or
+`increase`, not raw counter differences. No age or freshness metric is exposed;
+counts can remain stale during slow cleanup or after discovery errors.
+
+When the registry is exported, scope queries to the active controller:
+
+- Growing pending count without collection failures suggests churn or slow
+  sweeps; rising discovery failures instead warrant database investigation.
+- Repeated collection failures with a positive backlog require correlating
+  logs by `revision`, `actor_template_atespace`, `actor_template_name`, and
+  `error`. Repeated same-object Substrate deletion errors distinguish persistent
+  failure from unrelated backlog turnover; claim or finalization errors can
+  instead indicate a database problem.
+
+Restore the failing dependency and let GC retry. Successful finalization is
+reflected in the next successful discovery; historical counters do not decrease.
+Do not bypass reference or UID protections or remove deletion markers to clear
+the gauge. Checkpoint recovery is outside this instrumentation's scope.
