@@ -161,6 +161,15 @@ export function optionNamed(page: Page, label?: string): Locator {
   );
 }
 
+/**
+ * The dropdown on screen, whichever select opened it. By Playwright's own visibility
+ * rather than antd's `ant-select-dropdown-hidden`, which a dismissed dropdown does not
+ * carry until its close animation ends — lagging at exactly the wrong moment.
+ */
+function openDropdown(page: Page): Locator {
+  return page.locator(".ant-select-dropdown").filter({ visible: true });
+}
+
 /** Opens a Select by its test id and picks one option by the label a reader sees. */
 export async function selectOption(
   page: Page,
@@ -172,12 +181,22 @@ export async function selectOption(
 }
 
 /**
- * The same, where any option will do — a field the form requires but the assertion
- * does not care about, like the namespace on a harness whose step is about the image.
+ * The same, where any option will do — a required field the assertion does not care
+ * about, or a model on a cluster whose models the spec did not install.
+ *
+ * It cannot name what it wants, so it has to be sure *which* dropdown it reads: it
+ * waits out any still animating away, then scopes to the one on screen. A live run
+ * spent its whole budget clicking an `ate-system` option from a dismissed select.
  */
 export async function selectFirstOption(page: Page, testId: string): Promise<void> {
+  await expect(openDropdown(page)).toHaveCount(0);
   await page.getByTestId(testId).click();
-  await optionNamed(page).first().click();
+
+  const option = openDropdown(page).locator(".ant-select-item-option").first();
+  await expect(option, `the select "${testId}" offered no options`).toBeVisible({
+    timeout: 30_000,
+  });
+  await option.click();
 }
 
 /**

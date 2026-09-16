@@ -9,14 +9,24 @@ import { expect, type Page } from "@playwright/test";
  * are the parts of that worth sharing.
  */
 
-/** Where each page lives, so a renamed route breaks in one place. */
+/**
+ * Where each page lives, so a renamed route breaks in one place. Mirrors
+ * `src/router/routes.ts` rather than importing it, like the mock suite's table: a spec
+ * that reads the app's own constant follows a rename silently. The copy can rot instead
+ * — this one carried `/agents/new` for a form that had been deleted, and `agentDetail`
+ * (`/agents/:id`) swallowed the address so it was not even a 404.
+ */
 export const liveRoutes = {
   dashboard: "/",
   agents: "/agents",
-  agentNew: "/agents/new",
+  /* A tab of the agents page. `/agent-templates` still redirects here, but a spec
+     should go where the reader goes. */
+  agentTemplates: "/agents?tab=templates",
+  agentTemplateNew: "/agent-templates/new",
   models: "/models",
   mcpServers: "/mcp",
   prompts: "/prompts",
+  schedules: "/schedules",
   substrate: "/substrate",
 } as const;
 

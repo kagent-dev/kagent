@@ -15,7 +15,31 @@ missing is the page.
 | Old spec | Blocked on | Already available |
 |---|---|---|
 | `onboarding/onboarding.spec.ts` | No onboarding wizard exists on this architecture | — nothing; drop it unless the flow is rebuilt |
-| `cleanup.spec.ts` | Not applicable while the suite runs on the mock backend: each test gets a fresh browser context, so there is nothing to sweep. Revisit if the suite gains a live-backend mode. | — |
+| `cleanup.spec.ts` | Still not a spec. The mock suite gives each test a fresh browser context, so there is nothing to sweep; the live suite creates real resources and each spec removes what it made in a `finally`. What neither covers is a run *killed* between the two — see below. | — |
+
+## Now running in CI: the live suite
+
+`playwright/live/` runs in the `test-e2e` job, against the image built from
+`ui/Dockerfile` on the same cluster as the Go end-to-end tests. `README.md` has the
+wiring. Two things follow for this file.
+
+**The cleanup entry above is now about litter, not contexts.** A live spec deletes what
+it created; a run killed between the two cannot. That is why `throwawayName` puts the
+process and a timestamp in every name — anything matching `e2e-live-*` in `kagent` is
+litter and safe to remove. A sweep spec stays the wrong shape for it, being one bad
+selector away from deleting somebody's work.
+
+**Every live spec was broken the first time one was run against a cluster**, each in a
+way the mock suite structurally could not show: `agent-lifecycle.spec.ts` drove
+`/agents/new`, a page long removed, for an agent nobody creates; `schedules.spec.ts`
+drove a dialog for an editor that is a page, and named CI's fixture rather than
+`setup-cluster.sh`'s; `substrate.spec.ts` read a tile once, catching the em-dash it
+draws before the data lands. Two harness faults came out of the same run and were fixed
+in `helpers/resource.ts`.
+
+The specs were written, they were correct, nothing ran them, and they decayed into files
+testing pages that had been removed. A stale entry costs more than no entry; a stale
+*spec* costs more again.
 
 ## Ported since: chat
 

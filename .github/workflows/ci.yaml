@@ -44,7 +44,9 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.0.29
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30
+    # 45, not 30: runs took 15-18 minutes, and the UI image and browser suite below add
+    # roughly ten more — close enough that a slow day would have read as a hang.
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -112,7 +114,6 @@ jobs:
           KMCP_ENABLED: "false"
           KAGENT_HELM_EXTRA_ARGS: >-
             --cleanup-on-fail=false
-            --set ui.replicas=0
             --set kagent-tools.enabled=false
             --set grafana-mcp.enabled=false
             --set controller.substrate.enabled=true
@@ -125,13 +126,20 @@ jobs:
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
           # Once, before the fan-out below. Every `build-*` target depends on
-          # `buildx-create`, so four of them starting at the same instant on a runner
+          # `buildx-create`, so several of them starting at the same instant on a runner
           # with no builder yet all try to create it and all but one fail.
           make buildx-create
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a | xargs -P4 -n1 bash -c '
+          # Likewise once, and for a sharper reason: `build-ui` and `build-golang-adk` both
+          # depend on it, and `buf generate` writes `ui/src/generated` as well as
+          # `go/api/gen` — so in parallel one make would write into the directory the
+          # other is tarring as a build context. `-o proto-generate` below says it is done.
+          make proto-generate
+          # `ui` is here so the browser suite below runs against the image an operator
+          # gets: nginx, the SPA fallback, and the env-config.js rendered at pod start.
+          printf '%s\n' controller ui golang-adk claude-harness codex-harness byo-a2a | xargs -P5 -n1 bash -c '
             image="$1"
             DOCKER_BUILD_ARGS="--cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-${image} --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e-${image} --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e-${image},mode=max --platform=linux/amd64 --push" \
-              make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
+              make -o proto-generate GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
           make helm-install-provider
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -167,6 +175,72 @@ jobs:
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -failfast -shuffle=on -parallel 4
 
+      # The UI, against this same cluster and the image built above. `ui-tests` runs on
+      # the in-browser mock, so a backend contract change cannot fail it — which is how
+      # #2638 emptied three Substrate fields with every check green.
+      #
+      # After the Go tests, not beside them: both create and delete resources in the same
+      # namespace, and these journeys read the lists back.
+      #
+      # `steps.install-kagent.outcome` rather than `success()`, so one failed Go test
+      # under `-failfast` does not also cost every UI signal. No cluster, no run.
+      - name: Setup Node.js
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ui/.nvmrc
+
+      # Before the cache step, as in `ui-tests`: package.json pins Yarn 4, and the
+      # runner's own shim cannot read this lock file.
+      - name: Enable Corepack
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        run: corepack enable
+
+      - name: Cache Yarn downloads
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        uses: actions/cache@v6
+        with:
+          path: ui/.yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Prepare the live browser suite
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        working-directory: ./ui
+        # Chromium only: the live suite declares one project. The mock suite's second
+        # engine is there to disagree about layout, which no backend contract rests on.
+        run: |
+          yarn install --immutable
+          yarn playwright install --with-deps chromium
+
+      - name: Run live browser tests
+        if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
+        working-directory: ./ui
+        run: |
+          kubectl -n kagent rollout status deploy/kagent-ui --timeout=5m
+          # Already a LoadBalancer on a MetalLB cluster, so this is the address the
+          # controller e2e step takes — not a port-forward to keep alive for the run.
+          UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+          test -n "$UI_IP"
+          export UI_LOOP_LIVE_URL="http://${UI_IP}:8080"
+          echo "UI_LOOP_LIVE_URL: $UI_LOOP_LIVE_URL"
+          # `globalSetup` refuses the run if that address answers with fixtures, or is a
+          # dev server rather than the built image.
+          yarn test:pw:live
+
+      - name: Upload live browser report
+        if: ${{ failure() && steps.install-kagent.outcome == 'success' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-live-playwright-report
+          # The trace is the only record of what the cluster answered — there is no fixed
+          # fixture to re-read afterwards, as there would be for the mock suite.
+          path: |
+            ui/playwright-report
+            ui/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: fail print info
         if: failure()
         run: |
@@ -179,6 +253,10 @@ jobs:
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
+          # nginx logs every proxied request, so a browser failure that was really a
+          # backend failure says so here, as does an init.sh that rejected a value.
+          echo "::error::Kubectl logs -n kagent deployment/kagent-ui"
+          kubectl logs -n kagent deployment/kagent-ui --tail=200 || true
           kubectl get pods,actortemplates,workerpools -A
           echo "::error::Substrate logs"
           kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true

@@ -27,15 +27,16 @@ test("live: the substrate page renders the cluster's own inventory", async ({ pa
 
   await test.step("2. the tiles report a real count, not zero", async () => {
     /*
-     * The assertion "no load failure" cannot make. A page that reached the controller
-     * and understood none of the answer draws the same tiles with nothing in them, and
-     * this cluster is running a worker pool — so a zero here is a decode problem, not
-     * an empty cluster.
+     * The assertion "no load failure" cannot make: a page that understood none of the
+     * answer draws the same tiles, with an em-dash where each number goes. Retrying,
+     * because that em-dash is also what shows while the read is in flight — read once,
+     * this failed reporting "Actors running—" against a cluster that said "0/4" a moment
+     * later. Against the mock that gap is a millisecond, so only a cluster showed it.
      */
-    const actors = page.getByTestId("substrate-stat-actors");
-    await expect(actors).toBeVisible();
-    const text = (await actors.textContent()) ?? "";
-    expect(text, "the actor tile should report a count").toMatch(/\d/);
+    await expect(
+      page.getByTestId("substrate-stat-actors-value"),
+      "the actor tile should report a count",
+    ).toHaveText(/\d/, { timeout: 60_000 });
   });
 
   await test.step("3. the worker table holds rows the cluster returned", async () => {

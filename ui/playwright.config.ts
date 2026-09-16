@@ -76,30 +76,60 @@ const LIVE = process.env.UI_LOOP_LIVE === "true";
  * server is about to want, or vice versa.
  */
 const LIVE_PORT = Number(process.env.UI_LOOP_LIVE_PORT ?? 8301);
-const LIVE_BASE_URL = `http://localhost:${LIVE_PORT}`;
+
+/**
+ * An app already running — in CI, the `kagent-ui` service — tested instead of one
+ * this config starts. That is the deployed image, so nginx, the SPA fallback and the
+ * `env-config.js` rendered at pod start are under test rather than approximated by
+ * Vite. A developer still gets the dev server by default; the alternative is building
+ * an image to run a test.
+ */
+const LIVE_EXTERNAL_URL = process.env.UI_LOOP_LIVE_URL;
+
+const LIVE_BASE_URL = LIVE_EXTERNAL_URL ?? `http://localhost:${LIVE_PORT}`;
 
 /** Read by `playwright/globalSetup.ts` to decide what to verify about a server. */
 export const LIVE_PROJECT = "chromium-live";
 
 /**
- * A live run reaches the backend through Vite's proxy, exactly as a deployed
- * build reaches it through nginx — so the app uses the same relative URLs either
- * way and this mode tests the addressing a real deployment uses.
- *
- * `VITE_API_MODE` is pinned as well as the runtime flag: the build-time pin is
- * the one thing an inherited `.env` cannot override, and a live suite that
- * silently answered from fixtures would be worse than a red one.
+ * Whether this live run is against a deployed app rather than a dev server, which
+ * `globalSetup` checks one more thing for — see `verifyLiveWiring`.
+ */
+export const LIVE_IS_DEPLOYED = LIVE_EXTERNAL_URL !== undefined;
+
+/**
+ * How the *dev server* is configured for a live run; a deployment is configured by its
+ * chart instead. It proxies `/api` the way nginx does in a cluster, so the app uses the
+ * same relative URLs either way — standing in for nginx rather than being it, which is
+ * the gap `UI_LOOP_LIVE_URL` closes. `VITE_API_MODE` is pinned at build time as well as
+ * at runtime, being the one thing an inherited `.env` cannot override.
  */
 const LIVE_APP = { VITE_API_MODE: "live", ENABLE_MOCK_UI: "false" };
 
-/**
- * How the live server is started.
- *
- * Named for the same reason the three env pins above are: a branch whose backend
- * needs more than a dev server — a credential minted per run, a port-forward
- * probed before Vite starts — replaces this line rather than the block below.
- */
+/** How the live server is started. Unused when `UI_LOOP_LIVE_URL` names one already. */
 const LIVE_COMMAND = `yarn dev --port ${LIVE_PORT}`;
+
+/**
+ * The servers a live run starts, which is none when it was handed one: there is no
+ * process to own — the app is a pod. `globalSetup` checks the address serves the app.
+ */
+const LIVE_WEB_SERVERS = LIVE_EXTERNAL_URL
+  ? []
+  : [
+      {
+        command: LIVE_COMMAND,
+        url: LIVE_BASE_URL,
+        reuseExistingServer: false,
+        timeout: 120_000,
+        // Whatever starts the live server is the most useful output a failed
+        // live run has — something that cannot reach the backend says so there,
+        // and Playwright discards a web server's stdout unless asked to pass it
+        // through.
+        stdout: "pipe" as const,
+        stderr: "pipe" as const,
+        env: LIVE_APP,
+      },
+    ];
 
 export default defineConfig({
   testDir: "./playwright/tests",
@@ -143,7 +173,19 @@ export default defineConfig({
    * and a mock-backed suite that needs more than thirty seconds for one test is saying
    * something is stuck, which is worth hearing rather than absorbing.
    */
-  ...(LIVE ? { timeout: 120_000, expect: { timeout: 30_000 } } : {}),
+  ...(LIVE
+    ? {
+        timeout: 120_000,
+        expect: { timeout: 30_000 },
+        /*
+         * One at a time. Every mock test owns a backend in its own page's memory; these
+         * share a cluster, so a spec creating a resource while another counts them is a
+         * failure with no defect behind it. Four files, seconds to run — it costs little.
+         */
+        workers: 1,
+        fullyParallel: false,
+      }
+    : {}),
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",
@@ -200,21 +242,7 @@ export default defineConfig({
   // loud startup error instead; set UI_LOOP_PORT / UI_LOOP_EXTENSION_PORT to run
   // alongside a dev server you want to keep.
   webServer: LIVE
-    ? [
-        {
-          command: LIVE_COMMAND,
-          url: LIVE_BASE_URL,
-          reuseExistingServer: false,
-          timeout: 120_000,
-          // Whatever starts the live server is the most useful output a failed
-          // live run has — something that cannot reach the backend says so there,
-          // and Playwright discards a web server's stdout unless asked to pass it
-          // through.
-          stdout: "pipe",
-          stderr: "pipe",
-          env: LIVE_APP,
-        },
-      ]
+    ? LIVE_WEB_SERVERS
     : [
         {
           command: `yarn dev --port ${PORT}`,

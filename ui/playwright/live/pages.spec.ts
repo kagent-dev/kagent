@@ -25,7 +25,7 @@ test("live: every page loads against the cluster and reports no failure", async 
   page,
 }) => {
   for (const [name, path] of Object.entries(liveRoutes)) {
-    if (name === "agentNew") continue; // A form, covered by the lifecycle spec.
+    if (name === "agentTemplateNew") continue; // A form, covered by the lifecycle spec.
 
     await test.step(`${name} (${path})`, async () => {
       await loadLive(page, path);
