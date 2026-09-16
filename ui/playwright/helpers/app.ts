@@ -6,7 +6,9 @@
  * the app already ships for the purpose.
  */
 
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+import { LIVE_PROJECT } from "../../playwright.config";
 
 /** Routes the suite drives. Mirrors `src/router/routes.ts`. */
 export const routes = {
@@ -159,6 +161,40 @@ export function dataRows(page: Page): Locator {
 const APP_BOOT_TIMEOUT = 15_000;
 
 /**
+ * Navigates, for a spec in `shared/` that runs against either backend.
+ *
+ * `loadPage` cannot: it appends a `?mock=` scenario, which is meaningless to a cluster
+ * and misleading in a live trace. So the scenario is added only where there is a mock
+ * backend to read it, and the wait is on the shell rather than on a heading, a live
+ * page taking longer to have one.
+ */
+export async function loadApp(page: Page, path: string): Promise<void> {
+  const live = test.info().project.name === LIVE_PROJECT;
+  await page.goto(live ? path : withScenario(path, "ok"), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.getByTestId("app-content")).toBeVisible({
+    timeout: live ? 60_000 : APP_BOOT_TIMEOUT,
+  });
+}
+
+/**
+ * Fails when the page is reporting that it could not reach the backend.
+ *
+ * Worth calling before asserting on content: the alternative is a failure reading "the
+ * table is empty" when the truth is "the backend did not answer" — the same distinction
+ * the app itself is careful about.
+ */
+export async function expectNoLoadFailure(page: Page): Promise<void> {
+  const alerts = page.locator('[data-testid$="-error"]');
+  const count = await alerts.count();
+  if (count === 0) return;
+
+  const texts = await alerts.allInnerTexts();
+  expect(count, `the page reported a failure to load: ${texts.join(" | ")}`).toBe(0);
+}
+
+/**
  * Resolves once the app is on screen and no loading indicator is left on it.
  *
  * Waiting for a spinner to be absent is also true of a page that has not started
@@ -169,3 +205,14 @@ export async function expectSettled(page: Page): Promise<void> {
   await expect(page.locator("#root")).not.toBeEmpty({ timeout: APP_BOOT_TIMEOUT });
   await expect(page.locator(".ant-spin-spinning")).toHaveCount(0);
 }
+
+/**
+ * A name no human would choose, carrying the run that made it.
+ *
+ * A spec that creates on a real cluster deletes what it made, but a run killed between
+ * the two cannot — so the name has to be enough for a person to identify the litter
+ * without the harness. Unique per run on the fixtures too, where it costs nothing and
+ * keeps a shared spec reading the same on both backends.
+ */
+export const throwawayName = (label: string): string =>
+  `e2e-live-${label}-${process.pid}-${Date.now().toString(36)}`;

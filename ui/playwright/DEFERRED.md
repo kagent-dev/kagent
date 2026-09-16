@@ -41,6 +41,41 @@ The specs were written, they were correct, nothing ran them, and they decayed in
 testing pages that had been removed. A stale entry costs more than no entry; a stale
 *spec* costs more again.
 
+## Deferred: MCP servers stay mock-only — the list cannot read its own writes
+
+Every other resource has its create/read/change/delete journey in `shared/`, running
+against both backends. MCP servers do not, and the reason is a defect rather than an
+awkward fixture: **#2849**.
+
+The page's two halves use different stores. `CreateToolServer` writes a Kubernetes
+`RemoteMCPServer`; `ListToolServers` reads the PostgreSQL `toolserver` table; the only
+writer of that table is the reconciler, after it has tried to connect to the server. So
+the list lags a create by however long discovery takes. Measured on a cluster:
+
+```
+CreateToolServer   OK
+ListToolServers    OK   <- 57ms later; the new server is not in it
+   (nothing further)
+ListToolServers    OK   <- a fresh page load a minute on; now present
+```
+
+Delete has the same shape in reverse, and `DeleteToolServer` resolves the server's kind
+from that same projection — so while a new server is invisible it is also undeletable.
+
+A shared spec was written and did pass, by pressing **Refresh** after the create and
+after the delete. It was withdrawn rather than landed: a spec that presses through a
+defect to stay green is how the defect stops being noticed, and the press would have
+needed removing anyway. The mock lifecycle in `tests/mcp-servers/mcp-servers.spec.ts`
+keeps its full coverage meanwhile.
+
+**Revisit when #2849 lands.** The spec is a short port of the mock one — create with a
+URL the cluster can resolve, read the row back, delete it — and the acceptance test is
+that it needs no Refresh.
+
+Worth recording for its own sake: the fixtures cannot show this class of bug at all. They
+answer from the page's own memory and are therefore always immediately consistent, so a
+mock backend has no write that is not yet a read. Only a cluster has one.
+
 ## Ported since: chat
 
 `chat/chat.spec.ts` and `chat/chat-errors.spec.ts` are live. The chat page was

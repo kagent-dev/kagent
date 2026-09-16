@@ -1,10 +1,6 @@
 import { test, expect } from "@playwright/test";
-import {
-  dataRows,
-  expectNoLoadFailure,
-  liveRoutes,
-  loadLive,
-} from "./helpers/live";
+import { dataRows, expectNoLoadFailure, loadApp } from "../helpers/app";
+import { liveRoutes } from "./helpers/live";
 
 /**
  * Every page, against a real controller.
@@ -28,7 +24,7 @@ test("live: every page loads against the cluster and reports no failure", async 
     if (name === "agentTemplateNew") continue; // A form, covered by the lifecycle spec.
 
     await test.step(`${name} (${path})`, async () => {
-      await loadLive(page, path);
+      await loadApp(page, path);
       // The distinction worth keeping: a page that could not reach the controller
       // must not be read as a page with nothing on it.
       await expectNoLoadFailure(page);
@@ -40,7 +36,7 @@ test("live: every page loads against the cluster and reports no failure", async 
 test("live: the agents the cluster installed are listed with their model", async ({
   page,
 }) => {
-  await loadLive(page, liveRoutes.agents);
+  await loadApp(page, liveRoutes.agents);
   await expectNoLoadFailure(page);
 
   await test.step("the install's own agents are present", async () => {
@@ -71,7 +67,7 @@ test("live: the agents the cluster installed are listed with their model", async
 test("live: the models the cluster installed are listed with their provider", async ({
   page,
 }) => {
-  await loadLive(page, liveRoutes.models);
+  await loadApp(page, liveRoutes.models);
   await expectNoLoadFailure(page);
 
   await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
@@ -80,7 +76,7 @@ test("live: the models the cluster installed are listed with their provider", as
 });
 
 test("live: tool servers report the tools they discovered", async ({ page }) => {
-  await loadLive(page, liveRoutes.mcpServers);
+  await loadApp(page, liveRoutes.mcpServers);
   await expectNoLoadFailure(page);
 
   await test.step("the summary counts servers and tools", async () => {

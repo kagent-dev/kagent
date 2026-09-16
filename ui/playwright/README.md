@@ -72,8 +72,36 @@ playwright/
                    chat, controls, style, mockCalls
   fixtures/test.ts import { test, expect } from here — never @playwright/test
   live/            the live suite: specs, plus helpers/ of its own
+  shared/          specs that run in both suites — laid out like tests/, one folder
+                   per resource and app-wide specs at the root — see below
   DEFERRED.md      the specs not yet portable, and what each one is waiting on
 ```
+
+**`shared/` runs in every project**, mock and live alike. What goes in it is narrow: no
+`?mock=` scenario, no fixture named, nothing assuming a populated backend.
+`conventions.test.ts` fails a spec here that reaches for one.
+
+It holds two kinds of spec. A property true whatever the backend holds — no conversation
+is listed by a bare id, a deep link renders on a cold load. And **the write path of each
+resource**: create, read back, change, delete. That second kind is where a fixture and a
+controller most easily disagree, and it is the reason `models`, `prompts` and
+`harnesses` have a spec here as well as in `tests/`. The names are `throwawayName`d and
+every one cleans up in a `finally`, because live they are real.
+
+It is laid out like `tests/`: one folder per resource holding one spec holding one test,
+titled for its folder, and app-wide specs (`dashboard`, `routing`) at the root.
+`conventions.test.ts` checks that too — all of it except the empty-and-error rule, which
+needs the `?mock=` a spec here may not touch.
+
+**MCP servers are deliberately not among them.** That page cannot read its own writes
+against a real backend — see `DEFERRED.md` and #2849 — so a shared spec would have had to
+press Refresh to get past a defect, which is the sort of workaround that keeps one alive.
+It stays mock-only until the fix lands.
+
+What stays in `tests/` for each of those is what needs the fixtures: the exact seeded
+rows, the required-field marks, the refresh counts, and the empty and failure states no
+cluster can be asked for. Navigate with `loadApp`, which adds the mock scenario only
+where there is a mock backend to read it.
 
 The resources with a lifecycle spec are **models**, **MCP servers**, **prompt
 libraries**, **agent templates**, **harnesses** and **schedules**. Two are narrower

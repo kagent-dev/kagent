@@ -2,7 +2,6 @@ import { test, expect } from "../../fixtures/test";
 import { loadPage, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
-  confirmDelete,
   expectRequired,
   selectFirstOption,
 } from "../../helpers/resource";
@@ -13,9 +12,13 @@ import {
  * One test, because a video and a trace are recorded per *test* — see
  * `playwright/README.md`.
  *
- * **There is no update half.** The tab offers create and delete and no edit, so the
- * journey is create, read back, remove. That is narrower than `HarnessService`, which
- * implements update too — this application has never called it.
+ * **There is no update half.** The tab offers create and delete and no edit.
+ *
+ * **Nor is the write journey here.** Creating a harness, reading back that it is "not
+ * ready yet" and removing it runs against both backends from
+ * `playwright/shared/harnesses/harnesses.spec.ts`. What stays is the reading — the seeded
+ * rows, the selector on the page, the narrowing — and the two refusals below, which are
+ * about the form enforcing the cluster's constraints rather than about creating anything.
  *
  * ## What the tab exists to say
  *
@@ -39,7 +42,7 @@ import {
  * for real, which is why the fixture refuses it too.
  */
 
-/** The one this journey makes, reads back and removes. */
+/** The name the validation steps type in. Nothing is created here — see the note above. */
 const CREATED = "made-here";
 
 /** Its rows, which is the surface that can say whether any of this happened. */
@@ -52,7 +55,9 @@ const table = "harnesses-table";
  */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("harnesses: a harness is created, read and deleted", async ({ page }) => {
+test("harnesses: the tab reads, and the form refuses what the CRD refuses", async ({
+  page,
+}) => {
   await test.step("1. the harnesses are listed, with what admits a template on the page", async () => {
     await loadPage(page, routes.harnesses, { title: "Agents" });
     await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
@@ -145,45 +150,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harness-create")).toBeDisabled();
   });
 
-  await test.step("7. pinned by digest and told where snapshots go, it is created", async () => {
-    await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent");
-    await page.getByTestId("harness-selector-key").fill("runtime");
-    await page.getByTestId("harness-selector-value").fill(CREATED);
-    await expect(page.getByTestId("harness-admits-nothing")).toHaveCount(0);
-
-    await expect(page.getByTestId("harness-create")).toBeEnabled();
-    await page.getByTestId("harness-create").click();
-
-    // Back to the tab it came from, with the new harness in the list. Read back off the
-    // table rather than from a toast or a closed form: "the create returned" and "the
-    // thing exists" are different claims, and only the list checks the second.
-    await page.waitForURL(/tab=harnesses/);
-    await expect(page.getByTestId(table)).toContainText(CREATED, { timeout: 30_000 });
-  });
-
-  await test.step("8. and it is not ready yet, which is what a cluster reports", async () => {
-    // The controller has not observed it. A fixture that answered "ready" would hide the
-    // one state a newly created harness is actually in.
-    const row = page.getByTestId(table).locator("tr", { hasText: CREATED });
-    await expect(row.getByTestId("harness-ready")).toContainText("Not ready yet");
-  });
-
-  await test.step("9. it is removed from the same tab, and the rest stays", async () => {
-    const rows = page.getByTestId(table).locator("tbody tr");
-    const before = await rows.count();
-
-    await confirmDelete(page, CREATED);
-
-    await expect(page.getByTestId(table)).not.toContainText(CREATED, {
-      timeout: 30_000,
-    });
-    // One row went, not the table: "gone" has to mean that harness rather than a read
-    // that failed and left an empty list behind it.
-    await expect.poll(() => rows.count()).toBe(before - 1);
-    await expect(page.getByTestId("harnesses-delete-error")).toHaveCount(0);
-  });
-
-  await test.step("10. an empty result leaves the tab standing, with no rows", async () => {
+  await test.step("7. an empty result leaves the tab standing, with no rows", async () => {
     // Last, after the delete: reaching these needs the backend answering differently and
     // `?mock=` is per-navigation, which discards what the journey made.
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
@@ -192,7 +159,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
   });
 
-  await test.step("11. a failed load is reported, not disguised as an empty tab", async () => {
+  await test.step("8. a failed load is reported, not disguised as an empty tab", async () => {
     await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("harnesses-error");

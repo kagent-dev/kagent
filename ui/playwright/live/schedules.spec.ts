@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures/test";
-import { liveRoutes, loadLive, throwawayName } from "./helpers/live";
+import { loadApp, throwawayName } from "../helpers/app";
+import { liveRoutes } from "./helpers/live";
 import { tick } from "../helpers/controls";
 import { optionNamed, pressUntil } from "../helpers/resource";
 
@@ -23,7 +24,7 @@ test("live: schedule configuration persists through the browser and controller",
 
   try {
     await test.step("1. the form offers the cluster's own agents", async () => {
-      await loadLive(page, liveRoutes.schedules);
+      await loadApp(page, liveRoutes.schedules);
       await page.getByTestId("schedules-new").click();
       await expect(page).toHaveURL(/\/schedules\/new$/);
 

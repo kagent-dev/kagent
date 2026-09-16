@@ -13,7 +13,6 @@ import {
   anyDialog,
   chooseFilter,
   clickRefresh,
-  confirmDelete,
   expectRequired,
   pressUntil,
 } from "../../helpers/resource";
@@ -63,7 +62,7 @@ const fragmentValue = (page: Page, index: number) =>
  */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("prompts: a library is created, read, changed and deleted", async ({
+test("prompts: libraries are read, edited, and their failures reported", async ({
   page,
 }) => {
   await test.step("1. a loading state precedes the data", async () => {
@@ -183,17 +182,20 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page).toHaveURL(/\/prompts\/new$/);
 
     await expect(page.getByTestId("prompt-name")).toHaveValue(CREATED);
-    await page.getByTestId("fragment-key").first().fill("changelog");
-    await page.getByTestId("fragment-value").first().fill("Group by user impact.");
-    await page.getByTestId("prompt-submit").click();
 
-    await expect(page).toHaveURL(/\/prompts$/, { timeout: 30_000 });
-    // Read back off the list rather than from a toast or a closed form: those two only
-    // prove the app believes it worked.
-    const row = rowNamed(page, CREATED);
-    await expect(row).toContainText("1 key", { timeout: 30_000 });
-    await expect(row).toContainText("changelog");
-    await expect(dataRows(page)).toHaveCount(SEEDED.length + 1);
+    /*
+     * And that is where this step stops. Creating the library, reading it back, adding a
+     * fragment and deleting it runs against both backends from
+     * `playwright/shared/prompts/prompts.spec.ts`. Left here it was the same journey
+     * driven twice, and the count it used to assert is stronger there, where it is
+     * relative to whatever the list already held.
+     *
+     * Navigated rather than submitted, so the steps below start on the list with a draft
+     * abandoned — which is also the state a reader leaves behind when they change their
+     * mind, and nothing else covers it.
+     */
+    await loadPage(page, routes.prompts, { title: "Prompts" });
+    await expect(dataRows(page)).toHaveCount(SEEDED.length);
   });
 
   await test.step("7. the list's edit action opens the form, not the reading page", async () => {
@@ -323,7 +325,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
     // The keys column too, which is what the search on this page also covers.
     await expect(row).toContainText("handoff");
 
-    await expect(dataRows(page)).toHaveCount(SEEDED.length + 1);
+    await expect(dataRows(page)).toHaveCount(SEEDED.length);
     await expect(rowNamed(page, "incident-playbooks")).toContainText("2 keys");
   });
 
@@ -348,20 +350,10 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page.getByTestId("prompt-discard-body")).toHaveCount(0);
 
     await page.getByRole("link", { name: "Back to libraries" }).click();
-    await expect(rowNamed(page, CREATED)).toHaveCount(1, { timeout: 30_000 });
+    await expect(rowNamed(page, "shared-fragments")).toHaveCount(1, { timeout: 30_000 });
   });
 
-  await test.step("13. confirming a delete removes that row and leaves the rest", async () => {
-    await confirmDelete(page, CREATED);
-
-    await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: 30_000 });
-    // "Gone" has to mean that one rather than the read: a list that failed to reload is
-    // also a list the row is missing from.
-    await expect(dataRows(page)).toHaveCount(SEEDED.length);
-    await expect(rowNamed(page, "shared-fragments")).toHaveCount(1);
-  });
-
-  await test.step("14. a library that has gone says so instead of offering a form", async () => {
+  await test.step("13. a library that has gone says so instead of offering a form", async () => {
     // Deep-linked, the way a stale tab or a shared address arrives. An edit form over a
     // library the cluster does not have would take input for a save that cannot land.
     await page.goto("/prompts/kagent/not-a-library/edit?mock=ok");
@@ -378,13 +370,13 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page.getByTestId("prompt-detail-error")).toHaveCount(0);
   });
 
-  await test.step("15. an empty result says so instead of showing a bare table", async () => {
+  await test.step("14. an empty result says so instead of showing a bare table", async () => {
     await loadPage(page, routes.prompts, { scenario: "empty", title: "Prompts" });
     await expect(page.getByText("No prompt libraries yet.")).toBeVisible();
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("16. a failed load is reported, not disguised as an empty list", async () => {
+  await test.step("15. a failed load is reported, not disguised as an empty list", async () => {
     await loadPage(page, routes.prompts, { scenario: "error", title: "Prompts" });
 
     const alert = page.getByTestId("prompts-error");
@@ -408,7 +400,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page.getByTestId("prompt-fragments")).toHaveCount(0);
   });
 
-  await test.step("17. retrying asks the backend again, and it recovers", async () => {
+  await test.step("16. retrying asks the backend again, and it recovers", async () => {
     await loadPage(page, routes.prompts, { scenario: "error", title: "Prompts" });
 
     /*

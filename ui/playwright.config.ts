@@ -28,6 +28,16 @@ const EXTENSION_BASE_URL = `http://localhost:${EXTENSION_PORT}`;
 const EXTENSION_SPECS = /\.withExtension\.spec\.ts$/;
 
 /**
+ * Specs that run in both suites, claimed by every project below.
+ *
+ * Only what holds on either backend — no `?mock=` scenario, no fixture by name. That
+ * narrowness is the point and the risk: assertions true of both are the weakest ones,
+ * so this folder stays a smoke sweep rather than growing lifecycles.
+ * `conventions.test.ts` fails a spec here that reaches for a scenario.
+ */
+const SHARED_SPECS = /shared\/.*\.spec\.ts$/;
+
+/**
  * The suite is the acceptance bar, so what it runs against cannot depend on the
  * shell it was started from: both servers are pinned to the in-browser mock
  * backend. An inherited VITE_API_MODE=live would otherwise point a whole run at
@@ -132,7 +142,7 @@ const LIVE_WEB_SERVERS = LIVE_EXTERNAL_URL
     ];
 
 export default defineConfig({
-  testDir: "./playwright/tests",
+  testDir: "./playwright",
   // Both servers have to be rendering, not merely listening, before any test
   // navigates — see the file for what goes wrong otherwise.
   globalSetup: "./playwright/globalSetup.ts",
@@ -195,7 +205,7 @@ export default defineConfig({
     ? [
         {
           name: LIVE_PROJECT,
-          testDir: "./playwright/live",
+          testMatch: [/live\/.*\.spec\.ts$/, SHARED_SPECS],
           use: {
             ...devices["Desktop Chrome"],
             baseURL: LIVE_BASE_URL,
@@ -209,6 +219,7 @@ export default defineConfig({
     : [
         {
           name: "chromium",
+          testMatch: [/tests\/.*\.spec\.ts$/, SHARED_SPECS],
           testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Chrome"], baseURL: BASE_URL },
         },
@@ -224,6 +235,7 @@ export default defineConfig({
           // The extension split below is a build-time difference, not a browser one,
           // so it stays on one engine rather than doubling for no new signal.
           name: "firefox",
+          testMatch: [/tests\/.*\.spec\.ts$/, SHARED_SPECS],
           testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Firefox"], baseURL: BASE_URL },
         },

@@ -8,11 +8,11 @@ import {
 import {
   dataRows,
   expectNoLoadFailure,
-  liveRoutes,
-  loadLive,
+  loadApp,
   rowNamed,
   throwawayName,
-} from "./helpers/live";
+} from "../helpers/app";
+import { liveRoutes } from "./helpers/live";
 
 /**
  * Creating and deleting an agent template, on a real cluster, through the UI.
@@ -38,7 +38,7 @@ test("live: an agent template is created, admitted and deleted through the UI", 
 
   try {
     await test.step("1. the form offers the cluster's own model configurations", async () => {
-      await loadLive(page, liveRoutes.agentTemplateNew);
+      await loadApp(page, liveRoutes.agentTemplateNew);
       await expectNoLoadFailure(page);
 
       await selectOption(page, "template-form-namespace", NAMESPACE);

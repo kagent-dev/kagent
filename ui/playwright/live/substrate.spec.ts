@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { expectNoLoadFailure, liveRoutes, loadLive } from "./helpers/live";
+import { expectNoLoadFailure, loadApp } from "../helpers/app";
+import { liveRoutes } from "./helpers/live";
 
 /**
  * The substrate page, against what the controller actually sends.
@@ -16,7 +17,7 @@ import { expectNoLoadFailure, liveRoutes, loadLive } from "./helpers/live";
  * thing that can come back empty from a cluster with the tiles still drawing zeros.
  */
 test("live: the substrate page renders the cluster's own inventory", async ({ page }) => {
-  await loadLive(page, liveRoutes.substrate);
+  await loadApp(page, liveRoutes.substrate);
   await expectNoLoadFailure(page);
 
   await test.step("1. the page is there rather than an error", async () => {
