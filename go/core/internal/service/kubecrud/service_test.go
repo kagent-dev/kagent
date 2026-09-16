@@ -101,10 +101,10 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		if call.verb != wantVerbs[index] {
 			t.Errorf("Check() call %d verb = %q, want %q", index, call.verb, wantVerbs[index])
 		}
-		if call.resource.Type != "AgentTemplate" || call.resource.Attributes[apiauthorization.AttributeNamespace] != "team" {
+		if call.resource.Type != "AgentTemplate" || call.resource.Namespace != "team" {
 			t.Errorf("Check() call %d resource = %+v", index, call.resource)
 		}
-		if got := call.resource.Attributes[apiauthorization.AttributeName]; got != wantNames[index] {
+		if got := call.resource.Name; got != wantNames[index] {
 			t.Errorf("Check() call %d name = %v, want %q", index, got, wantNames[index])
 		}
 	}

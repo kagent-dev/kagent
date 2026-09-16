@@ -114,17 +114,3 @@ func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 		})
 	}
 }
-
-func TestResourceUsesObjectMetadata(t *testing.T) {
-	object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent-a"}}
-	resource := kubeauth.Resource("Harness", object)
-	if resource.Type != "Harness" {
-		t.Fatalf("Resource() = %+v", resource)
-	}
-	if got := resource.Attributes[apiauthorization.AttributeNamespace]; got != "team-a" {
-		t.Fatalf("namespace attribute = %v", got)
-	}
-	if got := resource.Attributes[apiauthorization.AttributeName]; got != "agent-a" {
-		t.Fatalf("name attribute = %v", got)
-	}
-}

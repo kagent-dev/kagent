@@ -12,7 +12,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -160,7 +159,7 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 		}
 		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(modelConfigResource, modelConfig)); err != nil {
+	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: modelConfigResource, Namespace: modelConfig.Namespace, Name: modelConfig.Name}); err != nil {
 		return nil, err
 	}
 

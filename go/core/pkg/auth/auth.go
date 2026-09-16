@@ -19,9 +19,9 @@ const (
 )
 
 type Resource struct {
-	Type       string
-	Name       string
-	Attributes map[string]string
+	Type      string
+	Namespace string
+	Name      string
 }
 
 type User struct {

@@ -79,7 +79,7 @@ func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, e
 	if err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbGet, kubeauth.Resource(s.resource, object)); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, object); err != nil {
 		return zero, err
 	}
 	return object, nil
@@ -95,7 +95,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	if err := s.validateNewRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, kubeauth.Resource(s.resource, object)); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, object); err != nil {
 		return zero, err
 	}
 	if err := s.client.Create(ctx, object); err != nil {
@@ -121,7 +121,7 @@ func (s *Service[T, L]) Update(ctx context.Context, ref types.NamespacedName, ap
 	if err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, kubeauth.Resource(s.resource, object)); err != nil {
+	if err := s.authorize(ctx, auth.VerbUpdate, object); err != nil {
 		return zero, err
 	}
 	apply(object)
@@ -142,7 +142,7 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 	if err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, kubeauth.Resource(s.resource, object)); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, object); err != nil {
 		return err
 	}
 	if err := s.client.Delete(ctx, object); err != nil {
@@ -175,11 +175,13 @@ func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, e
 	return object, nil
 }
 
-func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
+// authorize decides a single operation from the object's own metadata, never from a request reference.
+func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, object T) error {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
 		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
+	resource := auth.Resource{Type: s.resource, Namespace: object.GetNamespace(), Name: object.GetName()}
 	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized", err)
 	}

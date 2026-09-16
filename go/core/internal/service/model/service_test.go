@@ -415,7 +415,7 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 	for index, call := range authorizer.checkCalls {
 		assert.Equal(t, wantVerbs[index], call.verb)
 		assert.Equal(t, "ModelConfig", call.resource.Type)
-		assert.Equal(t, "team", call.resource.Attributes[apiauthorization.AttributeNamespace])
-		assert.Equal(t, wantNames[index], call.resource.Attributes[apiauthorization.AttributeName])
+		assert.Equal(t, "team", call.resource.Namespace)
+		assert.Equal(t, wantNames[index], call.resource.Name)
 	}
 }

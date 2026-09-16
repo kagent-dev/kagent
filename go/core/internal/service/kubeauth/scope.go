@@ -5,24 +5,8 @@ import (
 	"slices"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-// Resource builds authorization input from trusted Kubernetes metadata.
-func Resource(resourceType string, object metav1.Object) auth.Resource {
-	attributes := make(map[string]string, 2)
-	if object.GetNamespace() != "" {
-		attributes[apiauthorization.AttributeNamespace] = object.GetNamespace()
-	}
-	if object.GetName() != "" {
-		attributes[apiauthorization.AttributeName] = object.GetName()
-	}
-	return auth.Resource{
-		Type:       resourceType,
-		Attributes: attributes,
-	}
-}
 
 // Matcher is a validated authorization scope that can be applied to Kubernetes objects.
 // Its zero value denies every object.
