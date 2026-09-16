@@ -6,13 +6,9 @@ import { canForkFrom, type Checkpoint, type CheckpointState } from "@/api";
 import { relativeAge } from "@/components/agent-instances/instanceLabels";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
 import { SnapshotRenameDialog } from "./SnapshotRenameDialog";
+import { snapshotLabel } from "./snapshotLabel";
 
 const { Text } = Typography;
-
-/** What a snapshot is called on screen, for the one case the controller sends nothing. */
-function snapshotLabel(checkpoint: Checkpoint): string {
-  return checkpoint.name || `Snapshot ${checkpoint.id.slice(0, 8)}`;
-}
 
 /**
  * How far the controller has got, as a pill.

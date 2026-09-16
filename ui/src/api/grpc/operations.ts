@@ -830,9 +830,10 @@ const agentInstances: Pick<
   /*
    * The fork of a boundary saved earlier, which is where the history it holds stops.
    *
-   * Renaming is a second call because `ForkAgentInstance` takes no name — the fork
-   * inherits the source's, and a reader looking at two rows with the same title
-   * cannot tell which one they just made.
+   * `ForkAgentInstance` names the fork after the snapshot, so the chat sends no name
+   * and takes that. `name` is for the caller that wants something else — duplicating a
+   * conversation from the rail, which titles the copy after the conversation — and it
+   * costs a second call because the fork RPC has nowhere to put it.
    */
   "agentInstances.checkpoints.fork": async (input, options) => {
     const name = "CheckpointService/ForkAgentInstance";

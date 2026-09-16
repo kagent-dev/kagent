@@ -5,6 +5,7 @@ import { useTheme } from "@emotion/react";
 import { useThemeMode } from "@/theme/themeMode";
 import type { Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
+import { snapshotLabel } from "./snapshotLabel";
 
 const { Text } = Typography;
 
@@ -53,6 +54,15 @@ export function CheckpointDivider({
   // generated. The id is in the record behind the line; the line says one thing.
   const name = checkpoint?.name;
   const heading = name ? `Snapshot “${name}”` : "Snapshot";
+  /*
+   * Opening needs the record, not just the id.
+   *
+   * The mark is drawn from two sources — the controller's list and what this page has
+   * saved since it loaded — so a boundary saved a moment ago is on screen before the
+   * list describing it arrives. Offering a button for it would be offering one that
+   * does nothing: the page looks the record up by id and finds nothing to open.
+   */
+  const open = checkpoint ? onOpen : undefined;
 
   // One shape for all three, so the row reads as a set of controls rather than as one
   // button with others bolted beside it.
@@ -99,9 +109,9 @@ export function CheckpointDivider({
   } as const;
 
   function openOnKey(event: KeyboardEvent<HTMLDivElement>) {
-    if (!onOpen || (event.key !== "Enter" && event.key !== " ")) return;
+    if (!open || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault();
-    onOpen();
+    open();
   }
 
   return (
@@ -140,7 +150,7 @@ export function CheckpointDivider({
           the press target is the thing the reader sees rather than the few characters
           in front of it. Hover and press are drawn on the row for the same reason, and
           the tooltip is what gives back the half of a long name the row clips. */}
-      <Tooltip title={onOpen ? "Open snapshot details." : undefined} placement="top">
+      <Tooltip title={open ? "Open snapshot details." : undefined} placement="top">
         <div
           {...(onOpen
             ? {
@@ -314,7 +324,7 @@ export function CheckpointDivider({
               context={{
                 snapshotId: checkpoint.id,
                 instanceId: checkpoint.agentInstanceId,
-                label: heading,
+                label: snapshotLabel(checkpoint),
               }}
             />
           ) : null}

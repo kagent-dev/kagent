@@ -25,7 +25,6 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import { admitsLabels } from "@/api/domain/harnesses";
-import { generatedCheckpointName } from "@/api/domain/checkpoints";
 import {
   mockAgentInstances,
   mockAgentTemplates,
@@ -455,12 +454,15 @@ export interface MockCheckpoint {
 /**
  * What the controller calls a boundary nobody has named.
  *
- * Re-exported from the domain rather than spelled again: its shape matters, not just
- * its uniqueness — it is what a fork of an unnamed boundary is titled, and it is how
- * the chat decides a boundary is still unnamed. A fixture with its own copy could
- * drift from the rule the app reads.
+ * Its shape matters, not just its uniqueness: it is what a fork of an unnamed boundary
+ * is titled, so a fixture inventing something friendlier would show a conversation list
+ * this backend never produces. Mirrors `defaultCheckpointName` in the controller.
  */
-export { generatedCheckpointName };
+export function generatedCheckpointName(
+  row: Pick<MockCheckpoint, "agentInstanceId" | "headTaskId">,
+): string {
+  return `${row.agentInstanceId}-${row.headTaskId}`;
+}
 
 /**
  * One boundary already saved against the seeded conversation.
