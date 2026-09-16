@@ -280,6 +280,12 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	// A live ingester owns persistence. Release the runtime-call lock before
 	// waiting, so it can drain ingress and quiesce the actor.
 	run, observing := g.taskRun(instance.GetId(), task.ID)
+	if observing {
+		// Closing a runtime connection can win the race with its canceled event.
+		// Give the ingester an equivalent terminal event before cancellation starts
+		// so public streams still end at the durable terminal boundary.
+		run.setTerminalFallback(a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, nil))
+	}
 	client, dialErr := g.dialer.Dial(ctx, instance)
 	var canceled *a2atype.Task
 	if dialErr == nil {

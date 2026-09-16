@@ -1075,6 +1075,47 @@ func (r *singleCloseGatewayRuntime) Destroy() error {
 	return nil
 }
 
+type closingStreamGatewayRuntime struct {
+	gatewayTestRuntime
+	started   chan struct{}
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (r *closingStreamGatewayRuntime) SendStreamingMessage(context.Context, a2aclient.ServiceParams, *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		close(r.started)
+		<-r.closed
+		yield(nil, errors.New("grpc: the client connection is closing"))
+	}
+}
+
+func (r *closingStreamGatewayRuntime) Destroy() error {
+	r.closeOnce.Do(func() { close(r.closed) })
+	return nil
+}
+
+type cancelOnlyGatewayRuntime struct {
+	gatewayTestRuntime
+}
+
+func (r *cancelOnlyGatewayRuntime) CancelTask(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+	return &a2atype.Task{ID: req.ID, ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled}}, nil
+}
+
+type sequenceGatewayDialer struct {
+	mu      sync.Mutex
+	clients []*a2aclient.Client
+}
+
+func (d *sequenceGatewayDialer) Dial(context.Context, *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	client := d.clients[0]
+	d.clients = d.clients[1:]
+	return client, nil
+}
+
 func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T) {
 	runtime := &singleCloseGatewayRuntime{}
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
@@ -1111,6 +1152,65 @@ func TestGatewayPersistsTerminalEventAfterCancellationClosesStream(t *testing.T)
 	}
 	if got := runtime.closes.Load(); got != 1 {
 		t.Fatalf("runtime closed %d times, want once", got)
+	}
+}
+
+func TestGatewayPublishesCancellationWhenRuntimeStreamClosesFirst(t *testing.T) {
+	streamRuntime := &closingStreamGatewayRuntime{started: make(chan struct{}), closed: make(chan struct{})}
+	cancelRuntime := &cancelOnlyGatewayRuntime{}
+	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	workflow := &gatewayTestWorkflow{}
+	dialer := &sequenceGatewayDialer{clients: []*a2aclient.Client{
+		gatewayTestClient(t, streamRuntime),
+		gatewayTestClient(t, cancelRuntime),
+	}}
+	gateway := newGateway(store, &gatewayTestAuthorizer{}, dialer, workflow, gatewayTestURL, &memoryRuntimeCoordinator{})
+
+	type streamResult struct {
+		terminal a2atype.TaskState
+		err      error
+	}
+	resultCh := make(chan streamResult, 1)
+	stream := gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
+	go func() {
+		result := streamResult{}
+		for event, err := range stream {
+			if err != nil {
+				result.err = err
+				break
+			}
+			switch event := event.(type) {
+			case *a2atype.Task:
+				if event.Status.State.Terminal() {
+					result.terminal = event.Status.State
+				}
+			case *a2atype.TaskStatusUpdateEvent:
+				if event.Status.State.Terminal() {
+					result.terminal = event.Status.State
+				}
+			}
+		}
+		resultCh <- result
+	}()
+	select {
+	case <-streamRuntime.started:
+	case <-time.After(time.Second):
+		t.Fatal("runtime stream did not start")
+	}
+
+	canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: store.task.ID})
+	if err != nil || canceled.Status.State != a2atype.TaskStateCanceled {
+		t.Fatalf("CancelTask() = %#v, %v", canceled, err)
+	}
+	result := <-resultCh
+	if result.err != nil || result.terminal != a2atype.TaskStateCanceled {
+		t.Fatalf("stream terminal=%s, error=%v; want CANCELED", result.terminal, result.err)
+	}
+	if store.task == nil || store.task.Status.State != a2atype.TaskStateCanceled {
+		t.Fatalf("stored task = %#v, want CANCELED", store.task)
+	}
+	if len(store.stored) != 2 || workflow.quiesceCalls != 1 {
+		t.Fatalf("writes=%d, quiescence=%d; want 2 and 1", len(store.stored), workflow.quiesceCalls)
 	}
 }
 

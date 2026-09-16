@@ -24,9 +24,10 @@ type taskRun struct {
 	queueID   a2atype.TaskID
 	done      chan struct{}
 
-	mu   sync.Mutex
-	err  error
-	last a2atype.Event
+	mu               sync.Mutex
+	err              error
+	last             a2atype.Event
+	terminalFallback a2atype.Event
 }
 
 func taskRunKey(instanceID string, taskID a2atype.TaskID) string {
@@ -81,11 +82,7 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 		r.gateway.runs.CompareAndDelete(r.key, r)
 	}()
 
-	for event, eventErr := range events {
-		if eventErr != nil {
-			r.setError(eventErr)
-			return
-		}
+	persist := func(event a2atype.Event) bool {
 		updated, err := taskForEvent(task, event)
 		if err == nil && isQuiescent(updated.Status.State) {
 			release := r.gateway.coordinator.Quiesce(instance.GetId())
@@ -105,18 +102,49 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 		}
 		if err != nil {
 			r.setError(r.gateway.storeError(ctx, err))
-			return
+			return false
 		}
 		if err := writer.Write(ctx, &eventqueue.Message{Event: event}); err != nil {
 			r.setError(r.gateway.storeError(ctx, fmt.Errorf("publish task event: %w", err)))
-			return
+			return false
 		}
 		r.setLast(event)
 		task = updated
-		if isQuiescent(task.Status.State) {
+		return !isQuiescent(task.Status.State)
+	}
+
+	for event, eventErr := range events {
+		if eventErr != nil {
+			// CancelTask registers this terminal event before it closes the runtime
+			// stream. Replace only that expected close error; without a pending
+			// cancellation, preserve the real stream failure for public observers.
+			event = r.takeTerminalFallback()
+			if event == nil {
+				r.setError(eventErr)
+				return
+			}
+		}
+		if !persist(event) {
 			return
 		}
 	}
+	if event := r.takeTerminalFallback(); event != nil {
+		persist(event)
+	}
+}
+
+func (r *taskRun) setTerminalFallback(event a2atype.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.terminalFallback = event
+}
+
+func (r *taskRun) takeTerminalFallback() a2atype.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	event := r.terminalFallback
+	r.terminalFallback = nil
+	return event
 }
 
 func (r *taskRun) observe(ctx context.Context, initial a2atype.Event) iter.Seq2[a2atype.Event, error] {
