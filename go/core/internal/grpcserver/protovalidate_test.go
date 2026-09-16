@@ -68,3 +68,39 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestInvalidInstanceAndCheckpointIDsNeverReachHandlers(t *testing.T) {
+	validator, err := protovalidate.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []proto.Message{
+		&apiv1alpha1.GetAgentInstanceRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.UpdateAgentInstanceNameRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.SuspendAgentInstanceRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.ResumeAgentInstanceRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.DeleteAgentInstanceRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.CreateAgentInstanceShareRequest{AgentInstanceId: "invalid", Permission: apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY},
+		&apiv1alpha1.ListAgentInstanceSharesRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.RevokeAgentInstanceShareRequest{ShareId: "invalid"},
+		&apiv1alpha1.CreateCheckpointRequest{AgentInstanceId: "invalid", RequestId: "request"},
+		&apiv1alpha1.GetCheckpointRequest{CheckpointId: "invalid"},
+		&apiv1alpha1.ListCheckpointsRequest{AgentInstanceId: "invalid"},
+		&apiv1alpha1.DeleteCheckpointRequest{CheckpointId: "invalid"},
+		&apiv1alpha1.ForkAgentInstanceRequest{CheckpointId: "invalid", RequestId: "request"},
+	}
+	for _, request := range requests {
+		t.Run(string(proto.MessageName(request)), func(t *testing.T) {
+			_, err := protovalidatemiddleware.UnaryServerInterceptor(validator)(
+				t.Context(), request, &grpc.UnaryServerInfo{},
+				func(context.Context, any) (any, error) {
+					t.Fatal("handler called with an invalid UUID")
+					return nil, nil
+				},
+			)
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("validation code = %v, want %v", status.Code(err), codes.InvalidArgument)
+			}
+		})
+	}
+}

@@ -104,10 +104,14 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	// a collector outage, response-tail latency.
 	//
 	// When enabled, flush after the otelhttp server span ends (when the inner
-	// handler returns) but before net/http closes the response body — a flush
-	// issued inside the executor can never include the still-open server span.
+	// handler returns) but before net/http closes the response body, which is the
+	// only point the server span itself can be exported from. The executor flushes
+	// the turn's own spans earlier, before yielding the event that ends the turn
+	// (see flushTurnSpans): for a streamed turn that event is on the wire before
+	// this handler returns, and the caller closes the stream on receipt, so a flush
+	// here comes too late for anything but the server span.
 	handler := http.Handler(instrumentedHandler)
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true") {
+	if telemetry.PreResponseFlushEnabled() {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			instrumentedHandler.ServeHTTP(w, r)
 			if isA2ARequest(r) {

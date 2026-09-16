@@ -87,6 +87,10 @@ import {
   SystemService,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
+  CheckpointService,
+  CheckpointState as PbCheckpointState,
+} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
   AgentInstanceSharePermission as PbSharePermission,
@@ -144,7 +148,13 @@ import {
   saveModel,
   savePrompt,
   saveToolServer,
+  checkpointById,
+  deleteCheckpoint,
+  readCheckpoints,
+  saveCheckpoint,
 } from "./state";
+import type { MockCheckpoint } from "./state";
+import { mockForkTranscript, mockLatestTaskId } from "@/api/chat/mockChatClient";
 
 /** What a fake is told about the call it is answering. */
 interface MockCall {
@@ -634,7 +644,6 @@ function agentInstanceMessage(
       : undefined,
     createdAt: stamp(row.createdAt),
     updatedAt: stamp(row.updatedAt),
-    labels: row.labels,
   };
 }
 
@@ -837,9 +846,7 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
       return false;
     }
     if (harnessFilter && row.harness !== harnessFilter) return false;
-    return Object.entries(input.matchLabels ?? {}).every(
-      ([key, value]) => row.labels[key] === value,
-    );
+    return true;
   });
 
   // The token is the id to resume after — opaque to the client, which only ever
@@ -926,7 +933,6 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     operation: "unspecified" as const,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    labels: {},
   };
   saveAgentInstance(created);
   return { agentInstance: agentInstanceMessage(created) };
@@ -948,6 +954,65 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
       }),
     ),
   };
+});
+
+/*
+ * Checkpoints, kept in `state.ts` the way the controller keeps them in a table.
+ *
+ * The boundary is read from the conversation itself rather than invented: the chat
+ * marks a message as checkpointed by matching its turn against `headTaskId`, so a
+ * fixture that made one up would leave the mark on nothing.
+ */
+const checkpointMessage = (row: MockCheckpoint) => ({
+  id: row.id,
+  agentInstanceId: row.agentInstanceId,
+  headTaskId: row.headTaskId,
+  state: PbCheckpointState.READY,
+  createdAt: timestampFromDate(new Date(row.createdAt)),
+});
+
+on(CheckpointService.method.createCheckpoint, (input, call) => {
+  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const checkpoint = saveCheckpoint({
+    id: crypto.randomUUID(),
+    agentInstanceId: instance.id,
+    headTaskId: mockLatestTaskId(instance.id),
+    createdAt: new Date().toISOString(),
+  });
+  return { checkpoint: checkpointMessage(checkpoint) };
+});
+
+on(CheckpointService.method.deleteCheckpoint, (input) => {
+  if (!deleteCheckpoint(input.checkpointId)) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return {};
+});
+
+on(CheckpointService.method.listCheckpoints, (input, call) => {
+  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
+});
+
+/*
+ * The fork copies the source's record under a new id, unnamed, exactly as the
+ * controller's `InsertForkedAgentInstance` does — and copies the transcript up to the
+ * checkpoint's turn, which is what makes forking an earlier boundary mean anything.
+ */
+on(CheckpointService.method.forkAgentInstance, (input, call) => {
+  const checkpoint = checkpointById(input.checkpointId);
+  if (!checkpoint) throw notFound(`Checkpoint ${input.checkpointId}`);
+  const source = instanceFor(checkpoint.agentInstanceId, call);
+  const now = new Date().toISOString();
+  const forked = saveAgentInstance({
+    ...source,
+    id: crypto.randomUUID(),
+    name: "",
+    state: "ready",
+    operation: "unspecified",
+    createdAt: now,
+    updatedAt: now,
+  });
+  mockForkTranscript(source.id, forked.id, checkpoint.headTaskId);
+  return { agentInstance: agentInstanceMessage(forked) };
 });
 
 on(AgentInstanceService.method.deleteAgentInstance, (input, call) => {

@@ -73,9 +73,11 @@ export function DeleteResourceButton({
     setDeleting(true);
     try {
       await onDelete();
-      // Refreshed before the toast, so the row is gone by the time the reader is
-      // told it is. The other order shows a success over a table still listing it.
-      await onDeleted();
+      // Refreshed before the toast, so the row is gone by the time the reader is told
+      // it is. Swallowed, because every caller passes an `ApiResource.refresh` and
+      // those rethrow: unguarded, a failed re-read after a successful delete reports
+      // the delete as failed, in a toast that never goes away.
+      await Promise.resolve(onDeleted()).catch(() => {});
       setOpen(false);
       toast.success(`Deleted ${kind} ${name}`);
     } catch (cause: unknown) {

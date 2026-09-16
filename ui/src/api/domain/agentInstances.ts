@@ -122,7 +122,6 @@ export interface AgentInstance {
   createdAt: string;
   /** RFC3339, or empty when the record carried no timestamp. */
   updatedAt: string;
-  labels: Record<string, string>;
 }
 
 /**

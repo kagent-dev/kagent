@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -42,6 +43,8 @@ type serviceTestStore struct {
 	renameUserID string
 	renameErr    error
 	getCreator   string
+	shareUserID  string
+	shareErr     error
 }
 
 func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -73,9 +76,9 @@ func (s *serviceTestStore) UpdateAgentInstanceName(_ context.Context, id, userID
 	return s.renamed, nil
 }
 
-func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte) (*apiv1alpha1.AgentInstanceShare, error) {
-	s.share, s.tokenHash = share, tokenHash
-	return s.share, nil
+func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share *apiv1alpha1.AgentInstanceShare, tokenHash []byte, userID string) (*apiv1alpha1.AgentInstanceShare, error) {
+	s.share, s.tokenHash, s.shareUserID = share, tokenHash, userID
+	return s.share, s.shareErr
 }
 
 func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, afterID string, limit int) ([]*apiv1alpha1.AgentInstanceShare, error) {
@@ -137,6 +140,7 @@ func TestServiceCreateMapsStoreErrors(t *testing.T) {
 	}{
 		{name: "idempotency conflict", err: database.ErrIdempotencyConflict, code: serviceerrors.CodeAlreadyExists},
 		{name: "missing revision", err: database.ErrNotFound, code: serviceerrors.CodeFailedPrecondition},
+		{name: "deleting revision", err: database.ErrObjectDeleting, code: serviceerrors.CodeFailedPrecondition},
 		{name: "database failure", err: errors.New("database unavailable"), code: serviceerrors.CodeInternal},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -172,7 +176,8 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 }
 
 func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
-	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: database.ErrAgentInstanceConflict})
+	conflict := fmt.Errorf("AgentInstance is already suspending: %w", database.ErrConflict)
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: conflict})
 	for _, test := range []struct {
 		name string
 		call func(*Service, context.Context, string) (*apiv1alpha1.AgentInstance, error)
@@ -185,6 +190,9 @@ func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
 			_, err := test.call(service, serviceTestContext("alice"), "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
 			if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
 				t.Fatalf("error = %v, want code %s", err, serviceerrors.CodeAborted)
+			}
+			if serviceerrors.MessageOf(err) != conflict.Error() || !errors.Is(err, database.ErrConflict) {
+				t.Fatalf("error = %v, want preserved conflict reason", err)
 			}
 		})
 	}
@@ -236,6 +244,9 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	digest := sha256.Sum256([]byte(token))
 	if !bytes.Equal(store.tokenHash, digest[:]) {
 		t.Fatal("stored token hash does not match returned token")
+	}
+	if store.shareUserID != "alice" || store.getCreator != "" {
+		t.Fatalf("share owner = %q, preparatory lookup owner = %q", store.shareUserID, store.getCreator)
 	}
 }
 
@@ -449,5 +460,18 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 				t.Fatalf("store query pair = %v, want %v", got, test.wantPair)
 			}
 		})
+	}
+}
+
+func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
+	store := &serviceTestStore{shareErr: database.ErrNotFound}
+	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+	share, token, err := service.CreateShare(serviceTestContext("alice"), uuid.NewString(),
+		apiv1alpha1.AgentInstanceSharePermission_AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY)
+	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+		t.Fatalf("CreateShare error = %v, want NotFound", err)
+	}
+	if share != nil || token != "" {
+		t.Fatal("failed share creation returned credentials")
 	}
 }

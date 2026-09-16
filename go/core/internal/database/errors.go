@@ -1,16 +1,23 @@
 package database
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
-// ErrNotFound reports that the requested record does not exist (or is not
-// visible to the given user). Match with errors.Is; implementations wrap it
-// with call-site context.
-var ErrNotFound = errors.New("record not found")
+// Store errors describe resource-independent categories. Wrap them with resource
+// and operation context using %w; callers match them with errors.Is.
+var (
+	// ErrNotFound also covers records that are not visible to the given user.
+	ErrNotFound = errors.New("record not found")
+	// ErrConflict reports an operation blocked by current state or a concurrent change.
+	ErrConflict = errors.New("resource conflict")
+	// ErrFailedPrecondition reports an unmet requirement for an operation.
+	ErrFailedPrecondition = errors.New("precondition failed")
+	// ErrIdempotencyConflict is distinct because clients must use a new request ID.
+	ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
+)
 
-var ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
-
-var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation conflicts with its current state")
-
-var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an active task")
-
-var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
+// ErrObjectDeleting reports that deletion has started. The object is unavailable
+// to new callers, so it also matches ErrNotFound.
+var ErrObjectDeleting = fmt.Errorf("object is being deleted: %w", ErrNotFound)

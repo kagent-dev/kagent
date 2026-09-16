@@ -26,6 +26,16 @@ The core PostgreSQL records are:
 Identity columns use PostgreSQL's native UUID type. Other framework-specific
 tables are runtime implementation details, not part of this ownership model.
 
+Instance, checkpoint, and share request IDs are validated as UUIDs by the gRPC
+Protovalidate interceptor before handlers run. Services also validate IDs from
+MCP and direct callers. The store passes SQL parameters safely and returns errors
+for malformed IDs rather than panicking.
+
+Parameterized SQL lives beside its owning store operation. When production code
+and tests need the same query, they share a private helper accepting the existing
+pool/transaction executor. Tests can inspect stored payloads through those helpers
+without duplicating SQL. Transaction boundaries remain with the owning operation.
+
 ```mermaid
 flowchart TD
     PAIR[Harness + AgentTemplate pair] --> REV[runtime revision]
@@ -43,8 +53,10 @@ flowchart TD
 
 ## Checkpoint creation
 
-A checkpoint names a quiescent boundary already recorded by the gateway. Creating
-one does not suspend the Actor again:
+A checkpoint names a durable terminal boundary already recorded by the gateway.
+Input-required and auth-required tasks are paused on their current node and are
+not checkpointable or forkable; callers must resolve the interaction first.
+Creating a checkpoint does not suspend the Actor again:
 
 1. Reserve the checkpoint in PostgreSQL.
 2. Verify that the suspended Actor still holds the external snapshot URI and scope recorded on the boundary.
@@ -59,7 +71,7 @@ The gateway records boundaries without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
 
 The checkpoint retains source-instance provenance, source history, prepared
-revision, labels, name, head task, and history sequence. Reservation saves an event
+revision, name, head task, and history sequence. Reservation saves an event
 cutoff in the same transaction as the runtime boundary reference. Later replies
 append events beyond that cutoff and cannot change the saved task state.
 The head identifies the task whose snapshot

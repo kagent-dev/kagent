@@ -42,24 +42,14 @@ type fakeDiscoverer struct {
 }
 
 type fakeCatalog struct {
-	server       *database.ToolServer
-	tools        []*v1alpha3.MCPTool
-	deletedTools string
-	deleted      string
+	server  *database.ToolServer
+	tools   []*v1alpha3.MCPTool
+	deleted string
 }
 
-func (f *fakeCatalog) StoreToolServer(_ context.Context, server *database.ToolServer) (*database.ToolServer, error) {
+func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
 	f.server = server
-	return server, nil
-}
-
-func (f *fakeCatalog) RefreshToolsForServer(_ context.Context, name, groupKind string, tools ...*v1alpha3.MCPTool) error {
 	f.tools = tools
-	return nil
-}
-
-func (f *fakeCatalog) DeleteToolsForServer(_ context.Context, name, groupKind string) error {
-	f.deletedTools = name + "|" + groupKind
 	return nil
 }
 
@@ -145,8 +135,8 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	want := "test/gone|" + remoteGroupKind
-	if catalog.deletedTools != want || catalog.deleted != want {
-		t.Fatalf("catalog deletes = tools %q, server %q, want %q", catalog.deletedTools, catalog.deleted, want)
+	if catalog.deleted != want {
+		t.Fatalf("catalog delete = %q, want %q", catalog.deleted, want)
 	}
 }
 

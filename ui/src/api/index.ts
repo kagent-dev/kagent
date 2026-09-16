@@ -72,6 +72,7 @@ export * from "./domain/prompts";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
 export * from "./domain/agentPairs";
+export * from "./domain/checkpoints";
 
 export { useMcpServers, useTools } from "./hooks/useMcpServers";
 export {
@@ -102,6 +103,10 @@ export {
 } from "./hooks/useAgentInstances";
 export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
 export { useInvalidatePrompts } from "./hooks/useInvalidatePrompts";
+export { useInvalidateHarnesses } from "./hooks/useInvalidateHarnesses";
+export { useInvalidateModels } from "./hooks/useInvalidateModels";
+export { useInvalidateMcpServers } from "./hooks/useInvalidateMcpServers";
+export { useInvalidateAgentTemplates } from "./hooks/useInvalidateAgentTemplates";
 export type {
   AgentConversations,
 } from "./hooks/useAgentInstances";
@@ -111,11 +116,19 @@ export type { ApiResource } from "./hooks/useApiResource";
 export { useChat } from "./hooks/useChat";
 export type { ChatController, ChatPhase } from "./hooks/useChat";
 export type { ChatTurnPhase } from "./chat/turnMachine";
-export type { HitlQuestion, HitlTool, PendingRequest } from "./chat/hitl";
+export type {
+  HitlQuestion,
+  HitlTool,
+  AskUserRecord,
+  PendingRequest,
+  ToolApprovalDecision,
+  ToolApprovalRecord,
+} from "./chat/hitl";
 export { HITL_EXTENSION_URI } from "./chat/hitl";
 
 export { getChatClient, resetChatClient, setChatClientFactory } from "./chat";
 export type {
+  ChatAskUserPart,
   ChatClient,
   ChatDataPart,
   ChatEvent,
@@ -123,5 +136,6 @@ export type {
   ChatPart,
   ChatRole,
   ChatTextPart,
+  ChatToolApprovalPart,
   ChatTurnState,
 } from "./chat";

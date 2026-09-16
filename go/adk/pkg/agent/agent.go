@@ -122,27 +122,11 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		subAgents = append(subAgents, child)
 	}
 
-	// Collect tool names that require approval from HttpTools and SseTools.
-	approvalSet := make(map[string]bool)
-	for _, ht := range agentConfig.HttpTools {
-		for _, name := range ht.RequireApproval {
-			approvalSet[name] = true
-		}
-	}
-	for _, st := range agentConfig.SseTools {
-		for _, name := range st.RequireApproval {
-			approvalSet[name] = true
-		}
-	}
-
-	// Build BeforeToolCallbacks. Approval gating runs first.
+	// Build callbacks. MCP approval is attached to each toolset by CreateToolsets,
+	// preserving the binding that selected the server without relying on tool names.
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 
-	if len(approvalSet) > 0 {
-		log.InfoContext(ctx, "wiring approval callback", "tool_count", len(approvalSet))
-		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
-	}
 	if len(mcpAppToolNames) > 0 {
 		// For MCP App-capable tools, keep rich tool payloads in chat history for UI rendering,
 		// but compact what is sent back to the model to avoid redundant polling/tool churn.

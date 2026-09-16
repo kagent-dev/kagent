@@ -19,8 +19,7 @@ const (
 )
 
 type Store interface {
-	StoreAgentMemory(context.Context, *database.Memory) error
-	StoreAgentMemories(context.Context, []*database.Memory) error
+	StoreAgentMemories(context.Context, ...*database.Memory) error
 	SearchAgentMemory(context.Context, string, string, pgvector.Vector, int) ([]database.AgentMemorySearchResult, error)
 	ListAgentMemories(context.Context, string, string) ([]database.Memory, error)
 	DeleteAgentMemory(context.Context, string, string) error
@@ -83,7 +82,7 @@ func (s *Service) Add(ctx context.Context, input Input) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := s.store.StoreAgentMemory(ctx, memory); err != nil {
+	if err := s.store.StoreAgentMemories(ctx, memory); err != nil {
 		return "", serviceerrors.NewInternal("failed to save memory", err)
 	}
 	return memory.ID, nil
@@ -114,7 +113,7 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 		}
 		memories = append(memories, memory)
 	}
-	if err := s.store.StoreAgentMemories(ctx, memories); err != nil {
+	if err := s.store.StoreAgentMemories(ctx, memories...); err != nil {
 		return 0, serviceerrors.NewInternal("failed to save memory batch", err)
 	}
 	return len(memories), nil

@@ -1,15 +1,9 @@
 package database
 
 import (
-	"errors"
-
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
-
-var ErrScheduledRunConflict = errors.New("ScheduledRun changed since it was read")
-var ErrScheduledRunDeleted = errors.New("ScheduledRun was deleted")
-var ErrScheduledRunTargetNotReady = errors.New("ScheduledRun target has no ready prepared revision")
 
 type ScheduledRunQuery struct {
 	Creator string

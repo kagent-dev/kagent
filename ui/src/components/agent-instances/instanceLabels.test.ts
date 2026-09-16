@@ -19,7 +19,6 @@ import {
   autoTitleFrom,
   conversationTitle,
   hasConversationName,
-  labelPairs,
   operationAppearance,
   orNotReported,
   relativeAge,
@@ -58,7 +57,6 @@ function instance(overrides: Partial<AgentInstance> = {}): AgentInstance {
     operation: "unspecified",
     createdAt: "2026-08-18T09:12:00Z",
     updatedAt: "2026-08-20T14:03:00Z",
-    labels: {},
     ...overrides,
   };
 }
@@ -141,20 +139,9 @@ describe("age", () => {
   });
 });
 
-describe("identity and labels", () => {
+describe("identity", () => {
   it("shortens a UUID to something a row can show", () => {
     expect(shortInstanceId("6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44")).toBe("6f1c9d20");
-  });
-
-  it("orders labels so the same set always reads the same way", () => {
-    const pairs = labelPairs(
-      instance({ labels: { tier: "interactive", team: "platform" } }),
-    );
-    expect(pairs).toEqual(["team=platform", "tier=interactive"]);
-  });
-
-  it("has nothing to say about an instance with no labels", () => {
-    expect(labelPairs(instance())).toEqual([]);
   });
 });
 

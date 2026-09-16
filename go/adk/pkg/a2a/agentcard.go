@@ -2,6 +2,7 @@ package a2a
 
 import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 )
@@ -24,10 +25,7 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 	// If the agent card does not have the HITL extension, add it.
 	// Kagent's harness always supports it.
 	if !hasHITLExtension(card.Capabilities.Extensions) {
-		card.Capabilities.Extensions = append(card.Capabilities.Extensions, a2atype.AgentExtension{
-			URI: HITLExtensionURI, Description: "Human in the loop for tool approval, ask user, and nested subagents",
-			Required: false,
-		})
+		card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.HITLExtension())
 	}
 
 	// Default to JSONRPC when no interface is explicitly configured.

@@ -596,6 +596,24 @@ describe("validateExtensionConfig", () => {
     );
   });
 
+  it("rejects duplicate agent rail keys", () => {
+    const config: AppExtensionConfig = {
+      ...base,
+      agentRailItems: [extensionItem("dup", 10), extensionItem("dup", 20)],
+    };
+    expect(() => validateExtensionConfig(config)).toThrow(/declared twice/);
+  });
+
+  it("rejects an agent rail key that is one of the application's own", () => {
+    // Contributing `newChat` would sit a second entry beside the one it was
+    // presumably meant to change, and `agentRailOverrides` is how that is done.
+    const config: AppExtensionConfig = {
+      ...base,
+      agentRailItems: [extensionItem("newChat", 10)],
+    };
+    expect(() => validateExtensionConfig(config)).toThrow(/agentRailOverrides/);
+  });
+
   it("reports every problem in one throw", () => {
     const config = {
       ...base,

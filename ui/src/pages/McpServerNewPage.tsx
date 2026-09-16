@@ -30,7 +30,7 @@ import {
   validateMcpServerForm,
 } from "@/components/mcp/mcpServerRequest";
 import { paths } from "@/router/routes";
-import { apiClient } from "@/api";
+import { apiClient, useInvalidateMcpServers } from "@/api";
 
 const { Text } = Typography;
 
@@ -54,6 +54,7 @@ export function McpServerNewPage() {
   const [caCertFileName, setCaCertFileName] = useState<string>();
   const [caCertError, setCaCertError] = useState<string>();
   const navigate = useNavigate();
+  const invalidateServers = useInvalidateMcpServers();
 
   const set = <K extends keyof McpServerFormValues>(
     key: K,
@@ -148,6 +149,9 @@ export function McpServerNewPage() {
     setSaving(true);
     try {
       await apiClient.mcpServers.create(toCreateRequest(values));
+      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
+      await invalidateServers().catch(() => {});
       // Straight to the list, which is where the new server can actually be
       // seen — a success message on a form the user is still looking at proves
       // less than the row itself.

@@ -1,4 +1,4 @@
-import { Button, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Space, Tooltip, Typography } from "antd";
 import type { DescriptionsProps } from "antd";
 import type { Theme } from "@emotion/react";
 import { Pencil } from "lucide-react";
@@ -6,7 +6,6 @@ import { Link } from "react-router-dom";
 import { ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import { bareName } from "@/api";
 import {
-  labelPairs,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
@@ -170,28 +169,6 @@ export function instanceFields(
     ) : (
       <NotReported />
     ),
-  },
-  {
-    key: "labels",
-    label: "Labels",
-    span: 2,
-    children:
-      labelPairs(data).length > 0 ? (
-        <Space size={4} wrap data-testid="instance-labels">
-          {labelPairs(data).map((pair) => (
-            <Tag key={pair} css={{ fontFamily: theme.font.mono }}>
-              {pair}
-            </Tag>
-          ))}
-        </Space>
-      ) : (
-        // Distinct from "not reported": an instance with no labels is
-        // ordinary, and saying the controller failed to mention them would
-        // be wrong.
-        <Text css={{ color: theme.color.textMuted }} data-testid="instance-no-labels">
-          None set
-        </Text>
-      ),
   },
 ];
 }

@@ -31,16 +31,26 @@ export function ScheduledRunsPage() {
   const runs = useApiResource(["scheduledRuns.list", page.current],
     () => invoke("scheduledRuns.list", { page: { limit: 25, pageToken: page.current } }), { refreshInterval: 10000 });
 
+  const scheduledRuns = runs.data?.scheduledRuns ?? [];
+
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
     actions={<Space size={8}><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
       <Link to={paths.scheduledRunNew}>
         <Button type="primary" icon={<Plus size={14} />} data-testid="schedules-new">New Schedule</Button>
       </Link></Space>}>
     <Space orientation="vertical" css={{ display: "flex", ...linkStyles(theme) }} size="middle">
-      {runs.error && <Alert type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
-      <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false} scroll={{ x: 800 }}
-        dataSource={runs.data?.scheduledRuns ?? []} locale={{ emptyText: runs.error ? "Schedules unavailable" : "No schedules yet" }} columns={[
-          { title: "Name", key: "name", render: (_, row) => <Link to={buildPath(paths.scheduledRun, { id: row.id })}>{row.config?.name || row.id}</Link> },
+      {runs.error && <Alert data-testid="schedules-error" type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
+      {/* The width floor is what the columns need, and an empty table has no columns to
+          fit — so reserving it left the empty state with a horizontal scrollbar under it
+          and nothing to scroll to. */}
+      <Table<ScheduledRun> rowKey="id" loading={runs.isLoading} pagination={false}
+        scroll={scheduledRuns.length > 0 ? { x: 800 } : undefined}
+        data-testid="schedules-table"
+        dataSource={scheduledRuns} locale={{ emptyText: runs.error
+          ? <span data-testid="schedules-unavailable">Schedules unavailable</span>
+          : <span data-testid="schedules-empty">No schedules were found.</span> }} columns={[
+          { title: "Name", key: "name", render: (_, row) => <Link data-testid={`schedule-link-${row.config?.name || row.id}`}
+            to={buildPath(paths.scheduledRun, { id: row.id })}>{row.config?.name || row.id}</Link> },
           { title: "Agent", key: "agent", render: (_, row) => `${row.agentTemplate?.name ?? "—"} on ${row.harness?.name ?? "—"}` },
           { title: "Schedule", key: "schedule", render: (_, row) => row.config ? scheduleDescription(row.config.schedule) : "—" },
           { title: "Time zone", key: "zone", render: (_, row) => row.config?.timeZone || "UTC" },
@@ -145,13 +155,15 @@ function ScheduledRunDetails({ id }: { id: string }) {
      schedule with a few firings. Ordered leaving-to-doing, so the filled Run — the
      action this page exists for — is rightmost and Delete is not beside it at all. */
   const controls = <div css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2), justifyContent: "flex-end" }}>
-    <Link to={paths.scheduledRuns}><Button icon={<ArrowLeft size={14} />}>Back</Button></Link>
+    <Link to={paths.scheduledRuns}><Button data-testid="schedule-back" icon={<ArrowLeft size={14} />}>Back</Button></Link>
     <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} />
-    <Button icon={<Pencil size={14} />} disabled={disabled}
+    <Button data-testid="schedule-edit" icon={<Pencil size={14} />} disabled={disabled}
       onClick={() => void navigate(buildPath(paths.scheduledRunEdit, { id }))}>Edit</Button>
-    <Button icon={config?.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled || !config} loading={busy === "pause"}
+    {/* One control, two labels: it is the same toggle whichever way it reads, so a
+        spec drives it by id and asserts the label rather than hunting for one. */}
+    <Button data-testid="schedule-pause" icon={config?.paused ? <Play size={14} /> : <Pause size={14} />} disabled={disabled || !config} loading={busy === "pause"}
       onClick={() => void act("pause")}>{config?.paused ? "Resume" : "Pause"}</Button>
-    <Button type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
+    <Button data-testid="schedule-run" type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
       onClick={() => void act("trigger")}>Run</Button>
   </div>;
 
@@ -176,8 +188,8 @@ function ScheduledRunDetails({ id }: { id: string }) {
       {run.error && <Alert type="error" showIcon title="Could not load schedule" description={run.error.message} />}
       {actionError && <Alert type="error" showIcon title="Schedule action failed" description={actionError} />}
       {notice && <Alert type="success" showIcon title={notice} />}
-      {schedule?.deletedAt && <Alert type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
-      {schedule && config && <Descriptions bordered column={{ xs: 1, sm: 2 }} items={[
+      {schedule?.deletedAt && <Alert data-testid="schedule-deleted-note" type="info" showIcon title="This schedule was deleted. Its execution history is retained." />}
+      {schedule && config && <Descriptions data-testid="schedule-detail" bordered column={{ xs: 1, sm: 2 }} items={[
         { key: "agent", label: "Agent", children: schedule.agentTemplate && schedule.harness
           ? <Link to={buildPath(paths.agent, { namespace: schedule.agentTemplate.namespace, agentTemplate: schedule.agentTemplate.name, harness: schedule.harness.name })}>
             {schedule.agentTemplate.namespace}/{schedule.agentTemplate.name} on {schedule.harness.name}</Link> : "—" },
@@ -197,22 +209,27 @@ function ScheduledRunDetails({ id }: { id: string }) {
           {expanded.allExpanded(visibleKeys) ? "Collapse all" : "Expand all"}
         </Button>
       </div>
-      {history.error && <Alert type="error" showIcon title="Could not load execution history" description={history.error.message} />}
+      {history.error && <Alert data-testid="schedule-history-error" type="error" showIcon title="Could not load execution history" description={history.error.message} />}
       <Table<ScheduledRunExecution> rowKey="id" loading={history.isLoading} pagination={false} scroll={{ x: 800 }}
-        dataSource={rows} locale={{ emptyText: history.error ? "History unavailable"
-          // Three different facts. A search that matched nothing is not an empty history,
-          // and neither is a failed read. Only this one names the page, because only here
-          // does the scope explain the answer.
-          : executions.length === 0 ? "No executions yet" : "Nothing on this page of the history matches that search." }} columns={[
+        data-testid="schedule-history"
+        // Three different facts, and an id each. A search that matched nothing is not an
+        // empty history, and neither is a failed read. Only the third names the page,
+        // because only there does the scope explain the answer.
+        dataSource={rows} locale={{ emptyText: history.error
+          ? <span data-testid="schedule-history-unavailable">History unavailable</span>
+          : executions.length === 0
+            ? <span data-testid="schedule-history-empty">No executions yet</span>
+            : <span data-testid="schedule-history-no-match">Nothing on this page of the history matches that search.</span> }} columns={[
           { title: "Created", key: "created", render: (_, row) => time(row.createdAt) },
           { title: "Trigger", key: "trigger", render: (_, row) => triggerLabel(row) },
           { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.agentInstanceId
-            ? <Link to={buildPath(paths.agentChat, { id: row.agentInstanceId })} css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.agentInstanceId })}
+              css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Open conversation<ExternalLink size={14} /></Link> : "Not started" },
-        ]} expandable={{ expandedRowRender: (row) => <Descriptions column={1} items={[
+        ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
           { key: "prompt", label: "Prompt", children: <span css={{ whiteSpace: "pre-wrap" }}>{row.prompt}</span> },
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
           { key: "task", label: "Original task", children: row.taskId || "Not assigned" },

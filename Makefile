@@ -218,6 +218,13 @@ else
 	$(CONTAINER_RUNTIME) buildx inspect $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null || \
 	$(CONTAINER_RUNTIME) buildx create --name $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --driver docker-container --use --driver-opt network=host || true
 	$(CONTAINER_RUNTIME) buildx use $(BUILDX_BUILDER_NAME) || true
+	# Wait for buildkit to actually be up. `create` returns before its container is
+	# serving, so a build starting immediately after can find no socket to talk to:
+	# `dial unix /run/buildkit/buildkitd.sock: no such file or directory`, then
+	# `failed to list workers`. Bootstrapping here also makes this target safe to run
+	# concurrently -- a loser of the create race waits for the winner's builder
+	# instead of building against a half-made one.
+	$(CONTAINER_RUNTIME) buildx inspect --bootstrap $(BUILDX_BUILDER_NAME) 2>&1 > /dev/null
 endif
 
 .PHONY: build-all

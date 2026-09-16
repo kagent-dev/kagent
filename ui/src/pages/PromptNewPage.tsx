@@ -17,9 +17,9 @@ export function PromptNewPage() {
 
   async function createLibrary(payload: CreatePromptTemplateRequest): Promise<void> {
     await apiClient.prompts.create(payload);
-    // Re-read before navigating, so the list lands showing the new library rather
-    // than the set that was cached without it.
-    await invalidatePrompts();
+    // Refreshes any list still on screen; SWR does not fetch a key with no mounted
+    // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
+    await invalidatePrompts().catch(() => {});
     // Straight to the list, where the new library can actually be seen — a success
     // message on a form the user is still looking at proves less than the row itself.
     await navigate(paths.prompts);

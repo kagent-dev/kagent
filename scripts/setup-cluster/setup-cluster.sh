@@ -9,7 +9,7 @@ set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SUBSTRATE_VERSION=0.0.26
+SUBSTRATE_VERSION=0.0.30
 cd "$REPO"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
@@ -21,7 +21,7 @@ step "2/10  kubectl-ate, the tool that mints the CA and JWT pools"
 # This one runs on *this* machine rather than in the cluster, so it follows the host OS.
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 HOSTARCH="$(uname -m)"; [ "$HOSTARCH" = "x86_64" ] && HOSTARCH=amd64; [ "$HOSTARCH" = "aarch64" ] && HOSTARCH=arm64
-ATE="/tmp/kubectl-ate-v${SUBSTRATE_VERSION}"
+ATE="${TMPDIR:-/var/tmp}/kubectl-ate-v${SUBSTRATE_VERSION}"
 if [ ! -x "$ATE" ]; then
   curl -fsSL -o "$ATE" \
     "https://github.com/kagent-dev/substrate/releases/download/v${SUBSTRATE_VERSION}/kubectl-ate-${OS}-${HOSTARCH}"
@@ -58,8 +58,19 @@ actor_id_ca_root="$(kubectl get secret actor-id-ca-pool -n ate-system -o jsonpat
   | openssl x509 -inform der -outform pem)"
 kubectl create secret generic actor-id-ca-certs -n ate-system \
   --from-literal=ca.crt="${actor_id_ca_root}" --dry-run=client -o yaml | kubectl apply -f -
+
+k8s_issuer="$(kubectl get --raw /.well-known/openid-configuration | jq -r '.issuer')"
 kubectl create configmap ate-api-authentication -n ate-system \
-  --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n' \
+  --from-literal=authentication.yaml="$(cat <<EOF
+actorIdentityJWTProvider: kubernetes
+jwtProviders:
+- name: kubernetes
+  issuer: ${k8s_issuer}
+  audiences: [api.ate-system.svc]
+  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+EOF
+)" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 helm upgrade substrate "oci://ghcr.io/kagent-dev/substrate/helm/substrate" \

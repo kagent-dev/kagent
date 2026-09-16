@@ -177,13 +177,12 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	t.Cleanup(db.Close)
 	store := database.NewClient(db)
 	pair := database.AgentTemplateHarnessPair{Namespace: "team", AgentTemplateName: "report", AgentTemplateUID: "template-uid", HarnessName: "runtime", HarnessUID: "harness-uid", DesiredRevision: "scheduled-revision"}
-	require.NoError(t, store.UpsertRuntimeRevision(t.Context(), database.RuntimeRevision{
+	require.NoError(t, store.UpsertAgentTemplateHarnessPair(t.Context(), pair))
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
 		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName, AgentTemplateUID: pair.AgentTemplateUID,
 		HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID, SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
-	}))
-	require.NoError(t, store.UpsertAgentTemplateHarnessPair(t.Context(), pair))
-	require.NoError(t, store.MarkRuntimeRevisionSuccessful(t.Context(), pair))
+	}, true))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	harness := testHarness("team", "runtime", "pool")

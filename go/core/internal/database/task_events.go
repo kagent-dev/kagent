@@ -8,13 +8,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/core/internal/database/internal/dbgen"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// taskTransition makes implicit message transitions explicit and retains opaque
-// fields in unchanged subtrees before validating with the same reducer as replay.
+// taskTransition computes a canonical task and replayable event without writing either. It
+// makes implicit message status changes explicit, retains unknown fields in unchanged
+// protobuf subtrees, and rejects inconsistent task identities or projections using the
+// same reducer as replay.
 func taskTransition(stored *a2apb.Task, task *a2a.Task, event a2a.Event) (*a2apb.Task, *a2apb.StreamResponse, error) {
 	projection := *task
 	projection.History = nil
@@ -96,8 +97,10 @@ func taskTransition(stored *a2apb.Task, task *a2a.Task, event a2a.Event) (*a2apb
 	return result, update, nil
 }
 
-// applyTaskEvent is shared by live persistence and historical reconstruction.
-// Messages contribute to history; only explicit task events change the view.
+// applyTaskEvent computes the next task state without mutating the stored task. Messages
+// contribute to history but do not change this projection; explicit task events do. It
+// rejects identity changes, missing prerequisites, and task snapshots containing
+// unarchived history.
 func applyTaskEvent(stored *a2apb.Task, event *a2apb.StreamResponse) (*a2apb.Task, error) {
 	decoded, err := pbconv.FromProtoStreamResponse(event)
 	if err != nil {
@@ -158,12 +161,14 @@ func applyTaskEvent(stored *a2apb.Task, event *a2apb.StreamResponse) (*a2apb.Tas
 	return next, nil
 }
 
-// replayTaskEvents rebuilds only from immutable events, including creation order
-// and idempotency metadata. It never reads the source's current task rows.
-func replayTaskEvents(events []dbgen.AgentInstanceTaskEvent, contextID string) ([]dbgen.InsertCopiedAgentInstanceTaskParams, error) {
+// replayTaskEvents rebuilds tasks solely from ordered immutable events through a
+// caller-selected boundary. It validates event identities and creation records and
+// restores creation order, retry metadata, and snapshot references. It does not read the
+// source's current task rows.
+func replayTaskEvents(events []agentInstanceTaskEventRow, contextID string) ([]agentInstanceTaskRow, error) {
 	tasks := make(map[string]*a2apb.Task)
 	indexes := make(map[string]int)
-	var rows []dbgen.InsertCopiedAgentInstanceTaskParams
+	var rows []agentInstanceTaskRow
 	var sequence int64
 	for _, source := range events {
 		if source.Sequence <= sequence || source.TaskID == nil {
@@ -195,7 +200,7 @@ func replayTaskEvents(events []dbgen.AgentInstanceTaskEvent, contextID string) (
 				return nil, fmt.Errorf("invalid creation event for task %s", id)
 			}
 			indexes[id] = len(rows)
-			rows = append(rows, dbgen.InsertCopiedAgentInstanceTaskParams{
+			rows = append(rows, agentInstanceTaskRow{
 				ID: id, Position: *source.TaskPosition, CreatedAt: source.CreatedAt,
 				InitialMessageID: source.InitialMessageID, RequestHash: source.RequestHash,
 			})
@@ -220,15 +225,15 @@ func replayTaskEvents(events []dbgen.AgentInstanceTaskEvent, contextID string) (
 		if err != nil {
 			return nil, err
 		}
-		if source.SnapshotUri != nil {
+		if source.SnapshotURI != nil {
 			if event.GetMessage() != nil {
 				return nil, fmt.Errorf("runtime boundary requires an explicit task transition")
 			}
-			row.SnapshotAtespace, row.SnapshotUri, row.SnapshotContentScope = source.SnapshotAtespace, source.SnapshotUri, source.SnapshotContentScope
+			row.SnapshotAtespace, row.SnapshotURI, row.SnapshotContentScope = source.SnapshotAtespace, source.SnapshotURI, source.SnapshotContentScope
 			row.HistorySequence = &source.Sequence
 		}
 	}
-	slices.SortFunc(rows, func(a, b dbgen.InsertCopiedAgentInstanceTaskParams) int {
+	slices.SortFunc(rows, func(a, b agentInstanceTaskRow) int {
 		return cmp.Compare(a.Position, b.Position)
 	})
 	return rows, nil

@@ -332,6 +332,27 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
+
+	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolStreamableHttp
+	server.Spec.TLS = nil
+	server.Spec.Timeout = nil
+	server.Spec.TerminateOnClose = nil
+	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
+	input.Root.MCPTools[0].Binding.RequireApproval = true
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("approval-required MCP binding Compile() error = %v", err)
+	}
+	var compiled claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &compiled); err != nil {
+		t.Fatal(err)
+	}
+	if !compiled.MCPServers["tools"].RequireApproval {
+		t.Fatalf("approval-required MCP server = %#v", compiled.MCPServers["tools"])
+	}
+	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "exposing the whole server") {
+		t.Fatalf("approval-required partial selection warnings = %v", revision.Warnings)
+	}
 }
 
 func TestCompileLocalSharedAgent(t *testing.T) {

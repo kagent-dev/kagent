@@ -28,10 +28,59 @@ harness.
 - [x] Shared local subagents
 - [x] Standalone skills and plugin-provided skills
 - [x] Direct HTTP and SSE MCP servers with whole-server tool access
+- [x] Human-in-the-loop MCP tool approval
+
+## Human-in-the-loop approval flow
+
+Claude runs in `--bare` print mode with `permissions.ask` rules for MCP servers
+that require approval. Its native `--permission-prompt-tool` calls a private,
+authenticated loopback MCP tool before executing a protected call.
+
+```mermaid
+sequenceDiagram
+    participant Client as A2A client
+    participant Driver as Claude driver
+    participant Claude as claude -p
+    participant Broker as Approval MCP broker
+    participant Tool as Protected MCP tool
+
+    Client->>Driver: Start task
+    Driver->>Claude: Start process
+    Claude->>Broker: approve(tool, input, tool_use_id)
+    Broker-->>Driver: PendingApprovalRequest via requests channel
+    Note over Broker: Handler waits on decision channel
+    Driver-->>Client: input-required
+    Note over Driver,Broker: Actor snapshot freezes the live process,<br/>broker handler, and in-memory channels
+    Client->>Driver: ApprovalDecision on the same task
+    Driver->>Broker: Send decision via decision channel
+    Broker-->>Claude: allow or deny
+    alt approved
+        Claude->>Tool: Execute original call
+        Tool-->>Claude: Result
+    else denied
+        Claude-->>Claude: Continue with denied tool call
+    end
+```
+
+The `requests` channel carries a new pending request from the MCP handler to the
+process driver. The per-request `decision chan runtime.ApprovalDecision` carries
+the response in the other direction. The channel is not durable storage: the
+full Actor memory snapshot preserves the live Claude process, blocked handler,
+and channel together until the same task resumes. If we want to switch to DATA 
+snapshot in the future, we will need to switch to using deferred tool call with 
+hooks instead.
+
+See [defer a tool call for later](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later).
+
+The `permission-prompt-tool` might not work if you modify the permission rules, 
+permission mode, hooks (like `PreToolUse / PermissionRequest`) since they resolve 
+the tool calls first before Claude's permission system invoke the `permission-prompt-tool`. 
+If this tool does not respond (e.g. error or timeout or failed connection), 
+the unresolved requests are denied, not approved.
 
 ## Planned / not yet supported
 
-- [ ] Human-in-the-loop tool approval with deferred tool calls and session resume
+- [ ] Ask User tool (removed upstream, see https://github.com/anthropics/claude-code/issues/77994, would require Agents SDK)
 - [ ] Checkpoint and fork continuity for Claude sessions
 - [ ] Enforced selection of individual tools from an MCP server
 - [ ] Dedicated subagents running in separate AgentInstances

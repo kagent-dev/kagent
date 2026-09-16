@@ -216,7 +216,7 @@ func Run(ctx context.Context, opts Options) error {
 		Cache:                   managerCacheOptions,
 		Client:                  managerClientOptions,
 		Metrics:                 metricsserver.Options{BindAddress: "0"},
-		LeaderElection:          envBool("LEADER_ELECT"),
+		LeaderElection:          kagentenv.LeaderElect.Get(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
 	})
@@ -243,6 +243,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
+	}
+	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors)); err != nil {
+		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {
 		if err := opts.SetupWithManager(manager); err != nil {

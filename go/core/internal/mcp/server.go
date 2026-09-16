@@ -41,9 +41,8 @@ type invocationStart struct {
 }
 
 type ListAgentInstancesInput struct {
-	MatchLabels map[string]string `json:"match_labels,omitempty" jsonschema:"Optional exact-match labels"`
-	PageSize    int               `json:"page_size,omitempty" jsonschema:"Maximum number of AgentInstances to return"`
-	PageToken   string            `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of AgentInstances to return"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
 }
 
 type AgentInstanceSummary struct {
@@ -106,8 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) listAgentInstances(ctx context.Context, _ *mcp.CallToolRequest, input ListAgentInstancesInput) (*mcp.CallToolResult, ListAgentInstancesOutput, error) {
 	result, err := h.instances.List(ctx, agentinstance.ListRequest{
-		MatchLabels: input.MatchLabels,
-		PageSize:    input.PageSize, PageToken: input.PageToken,
+		PageSize: input.PageSize, PageToken: input.PageToken,
 	})
 	if err != nil {
 		return toolError(err), ListAgentInstancesOutput{}, nil

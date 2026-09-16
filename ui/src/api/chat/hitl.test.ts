@@ -3,7 +3,11 @@ import {
   HITL_EXTENSION_URI,
   answerText,
   askUserAnswer,
+  readAskUserResponse,
   readHitlRequest,
+  readToolApprovalResponse,
+  toolApprovalAnswer,
+  toolApprovalText,
 } from "./hitl";
 
 /**
@@ -125,6 +129,28 @@ describe("readHitlRequest", () => {
     expect(request).toMatchObject({ askedBy: "billing-agent" });
   });
 
+  it("shows the child operations for a nested approval", () => {
+    const request = readHitlRequest(
+      "task-1",
+      {
+        [HITL_EXTENSION_URI]: {
+          type: "tool_approval_request",
+          tools: [{ id: "parent", name: "k8s_agent", args: {} }],
+          nested: {
+            subagent_name: "k8s_agent",
+            tools: [{ id: "child", name: "delete_pod", args: { name: "old" } }],
+          },
+        },
+      },
+      ACTIVE,
+    );
+    expect(request).toMatchObject({
+      kind: "tool_approval",
+      askedBy: "k8s_agent",
+      tools: [{ id: "child", name: "delete_pod", args: { name: "old" } }],
+    });
+  });
+
   it("reports nothing for a turn with no task to answer against", () => {
     expect(readHitlRequest("", ASK_METADATA, ACTIVE)).toBeUndefined();
   });
@@ -165,6 +191,49 @@ describe("askUserAnswer", () => {
   });
 });
 
+describe("readAskUserResponse", () => {
+  it("reads the correlated positional answers from declared extension metadata", () => {
+    expect(
+      readAskUserResponse(
+        {
+          [HITL_EXTENSION_URI]: {
+            type: "ask_user_response",
+            id: "ask-1",
+            answers: [{ answer: ["Large"] }, { answer: ["Mushroom", "Pineapple"] }],
+          },
+        },
+        [HITL_EXTENSION_URI],
+      ),
+    ).toEqual({
+      requestId: "ask-1",
+      answers: [["Large"], ["Mushroom", "Pineapple"]],
+    });
+  });
+
+  it("does not read undeclared or malformed response metadata", () => {
+    const metadata = {
+      [HITL_EXTENSION_URI]: {
+        type: "ask_user_response",
+        id: "ask-1",
+        answers: [{ answer: ["Large"] }],
+      },
+    };
+    expect(readAskUserResponse(metadata, [])).toBeUndefined();
+    expect(
+      readAskUserResponse(
+        {
+          [HITL_EXTENSION_URI]: {
+            type: "ask_user_response",
+            id: "ask-1",
+            answers: [{ answer: [7] }],
+          },
+        },
+        [HITL_EXTENSION_URI],
+      ),
+    ).toBeUndefined();
+  });
+});
+
 describe("answerText", () => {
   it("writes the prose from the same choices as the payload", () => {
     // `parts` is what the transcript shows and the metadata is what the agent acts
@@ -173,6 +242,56 @@ describe("answerText", () => {
     expect(answerText([["Large"], ["Pepperoni", "Mushroom"]])).toBe(
       "Large\nPepperoni, Mushroom",
     );
+  });
+});
+
+describe("toolApprovalAnswer", () => {
+  it("decides each requested invocation by its opaque id", () => {
+    expect(
+      toolApprovalAnswer([
+        { id: "call-1", approved: true },
+        { id: "call-2", approved: false, rejectionReason: "too broad" },
+      ]),
+    ).toEqual({
+      [HITL_EXTENSION_URI]: {
+        type: "tool_approval_response",
+        approvals: [
+          { id: "call-1", approved: true },
+          { id: "call-2", approved: false, rejection_reason: "too broad" },
+        ],
+      },
+    });
+  });
+
+  it("writes the same decisions as readable transcript text", () => {
+    expect(
+      toolApprovalText(
+        [
+          { id: "call-1", name: "read", args: {} },
+          { id: "call-2", name: "delete", args: {} },
+        ],
+        [
+          { id: "call-1", approved: true },
+          { id: "call-2", approved: false, rejectionReason: "still in use" },
+        ],
+      ),
+    ).toBe("Approved: read\nRejected: delete\nReason: still in use");
+  });
+});
+
+describe("readToolApprovalResponse", () => {
+  it("reads structured decisions without relying on the fallback text", () => {
+    expect(
+      readToolApprovalResponse(
+        {
+          [HITL_EXTENSION_URI]: {
+            type: "tool_approval_response",
+            approvals: [{ id: "call-1", approved: false, rejection_reason: "unsafe" }],
+          },
+        },
+        ACTIVE,
+      ),
+    ).toEqual([{ id: "call-1", approved: false, rejectionReason: "unsafe" }]);
   });
 });
 

@@ -665,6 +665,7 @@ tests:
           path: spec.template.spec.containers[0].ports
           content:
             name: metrics
+          any: true
 
   - it: should not set metrics env vars by default
     template: controller-deployment.yaml
@@ -784,6 +785,29 @@ tests:
           path: spec.template.spec.containers[0].ports
           content:
             name: metrics
+          any: true
+
+  - it: should not gain metrics wiring when bindAddress is empty
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ""
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+          any: true
 
   - it: should let controller.env override the chart-supplied metrics env
     template: controller-deployment.yaml

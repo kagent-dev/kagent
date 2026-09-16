@@ -58,6 +58,20 @@ service Control {
   // Delete the egress policy resource nested under an Actor.
   rpc DeleteActorEgressPolicy(DeleteActorEgressPolicyRequest) returns (EgressPolicy) {}
 
+  // Create a Substrate-issued JWT asserting the actor identity.
+  //
+  // * Called by the egress gateway when actor JWT injection is configured for outbound requests.
+  rpc MintActorJWT(MintActorJWTRequest) returns (MintActorJWTResponse) {}
+
+  // Create a Substrate-issued SPIFFE certificate asserting the actor identity.
+  //
+  // * Called by atelet to provision an atunnel with a certificate for
+  //   communication with the egress gateway.  TODO(identity): Migrate this use
+  //   case to a distinct certificate to prevent actor/atunnel confusion.
+  // * Called by the egress gateway when actor client certificate injection is
+  //   configured for outbound requests.
+  rpc MintActorCertificate(MintActorCertificateRequest) returns (MintActorCertificateResponse) {}
+
   // Tag the external snapshot a suspended Actor holds. The tag gets its own
   // copy of that snapshot, so suspending or deleting the Actor afterwards
   // cannot collect it.
@@ -207,6 +221,8 @@ message Selector {
 }
 
 // ResourceMetadata holds the common fields carried by every Substrate resource.
+//
+// +k8s:customValidation # timestamps must be valid, and update_time must not precede create_time
 message ResourceMetadata {
   // atespace is the namespace the resource belongs to. Empty for global-scoped
   // resources. Caller-specified at creation and immutable thereafter.
@@ -254,7 +270,6 @@ message ResourceMetadata {
   //
   // +k8s:optional
   // +k8s:immutable
-  // TODO: validate that this is a valid timestamp
   google.protobuf.Timestamp create_time = 5;
 
   // update_time is the time the resource was last updated.
@@ -263,8 +278,6 @@ message ResourceMetadata {
   //
   // +k8s:optional
   // +k8s:update=NoUnset
-  // TODO: validate that this is a valid timestamp
-  // TODO: validate that UpdateTime >= CreateTime
   google.protobuf.Timestamp update_time = 6;
 }
 
@@ -401,11 +414,11 @@ message EgressRule {
   // +k8s:unionMember
   HostnameRule hostnames = 1;
 
-  // Matches when the original destination IP belongs to any configured block.
+  // Matches when the original destination IP belongs to any configured prefix.
   //
   // +k8s:optional
   // +k8s:unionMember
-  IPBlockRule ip_blocks = 2;
+  CIDRRule cidrs = 2;
 
   // Matches every destination.
   //
@@ -446,8 +459,8 @@ message HostnameRule {
   EgressRuleEffects effects = 2;
 }
 
-// IPBlockRule matches requests by original destination IP address.
-message IPBlockRule {
+// CIDRRule matches requests by original destination IP address.
+message CIDRRule {
   // Canonical IPv4 or IPv6 CIDR prefixes. IPv4 uses dotted-decimal notation,
   // such as "192.0.2.0/24". IPv6 uses lowercase compressed notation, such as
   // "2001:db8::/32". Bits after the prefix length must be zero. The rule
@@ -551,8 +564,6 @@ message ActorStatus {
   // They are deleted when the actor is deleted. Each template volume
   // appears at most once.
   //
-  // TODO: consider a literal map keyed by volume_name instead of a list-map.
-  //
   // +k8s:optional
   // +k8s:maxItems=32 # matches the template's volumes bound
   // +k8s:listType=map
@@ -645,11 +656,11 @@ message TagStatus {
   // seeded from a tag under the same template.
   string actor_template_uid = 2;
 
-  // in_progress_snapshot_uri is where CreateTag is copying the tag's own
-  // snapshot to. It is minted before a single object is written and cleared
-  // once snapshot is set, so a tag left with it set names exactly the objects
-  // its unfinished create stranded, and deleting the tag collects them.
-  string in_progress_snapshot_uri = 3;
+  // storage_location is the base object-storage URI for this tag's snapshot.
+  // Set by the server from the source actor's template when the tag is created
+  // and immutable thereafter. The full snapshot URI is available in
+  // snapshot.snapshot_uri once tag creation completes.
+  string storage_location = 3;
 
   // source_actor_uid is the UID of the Actor this tag's snapshot was copied
   // from.
@@ -699,7 +710,7 @@ message Atespace {
   ResourceMetadata metadata = 1;
 }
 
-// ObjectRef references a Substrate resource by its (atespace, name) identity.
+// ObjectRef references a Substrate resource by its atespace and name.
 message ObjectRef {
   // The atespace of the referenced resource. This field should be empty if the
   // target resource is global-scoped, but references to objects in the same
@@ -860,8 +871,8 @@ message SnapshotsConfig {
   // this version are stored under. Required.
   //
   // +k8s:required
-  // +k8s:maxLength=1024 # bound only; object-storage URI formats vary
-  // TODO: validate that this is a well-formed object-storage URI
+  // +k8s:maxLength=1024
+  // +k8s:customValidation # Validate URI
   string storage_location = 4;
 }
 
@@ -898,9 +909,13 @@ message Container {
   // +k8s:format=k8s-short-name
   string name = 1;
 
+  // image is the OCI image reference the container runs:
+  // [registry/]repository[:tag]@digest. Must be pinned by digest
+  // (e.g. "name@sha256:...").
+  //
   // +k8s:required
   // +k8s:maxLength=512 # matches ImageVolumeSource.reference's bound
-  // TODO: validate that this is a well-formed image reference
+  // +k8s:customValidation # must be a well-formed image reference, pinned by digest
   string image = 2;
 
   // Entrypoint array; when set, the image's ENTRYPOINT and CMD are both
@@ -937,15 +952,14 @@ message Container {
   // +k8s:optional
   ContainerReadyz readyz = 6;
 
-  // TODO: Kubernetes permits mounting a single volume at multiple paths
-  // (which requires keying by mountPath). We restrict it to one mount per
-  // volume (keyed by name).
+  // Keyed by mount_path: each path hosts exactly one mount, while a volume
+  // may be mounted at multiple paths.
   //
   // +k8s:optional
   // +k8s:maxItems=32
   // +k8s:listType=map
-  // +k8s:listMapKey=name
-  // +k8s:customValidation # mount_path must be unique within the container
+  // +k8s:listMapKey=mount_path
+  // +k8s:customValidation # mounts must not nest
   repeated VolumeMount volume_mounts = 7;
 
   // security_context adjusts the container's security settings. Unset leaves
@@ -1073,14 +1087,15 @@ message Volume {
 }
 
 // ImageVolumeSource mounts the contents of an OCI image, read-only. The
-// reference must be pinned by digest: changing the image invalidates
+// reference must include a digest: changing the image invalidates
 // snapshots.
 message ImageVolumeSource {
-  // reference is the OCI image reference, pinned by digest.
+  // reference is the OCI image reference. Must include a digest
+  // (e.g. "name@sha256:...").
   //
   // +k8s:required
   // +k8s:maxLength=512
-  // +k8s:customValidation # must be pinned by digest; no contains tag exists
+  // +k8s:customValidation # must be a well-formed image reference, pinned by digest
   string reference = 1;
 }
 
@@ -1363,11 +1378,6 @@ message ResumeActorRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef actor = 1;
-
-  // If true, skip golden snapshot and boot the workload from scratch.
-  //
-  // +k8s:optional
-  bool boot = 2;
 }
 
 message ResumeActorResponse {
@@ -1445,6 +1455,120 @@ message GetTagRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef tag = 1;
+}
+
+// Request message for MintActorJWT.
+message MintActorJWTRequest {
+  // The actor for which the JWT should be issued.
+  //
+  // Must be a valid actor that currently exists according to the actor store.
+  //
+  // +k8s:required
+  ObjectRef actor = 5;
+
+  // The UID of the actor --- used to guard against deletion and recreation of
+  // an actor with the same name.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
+  string actor_uid = 7;
+
+  // The audiences the minted JWT is bound to. Tokens are only issued with
+  // audience bindings, so at least one is required.
+  //
+  // +k8s:required
+  // +k8s:maxItems=16 # guardrail; tokens realistically bind a handful of audiences
+  // +k8s:listType=set
+  // +k8s:eachVal=+k8s:maxLength=512 # audiences are caller-defined URIs; bound only
+  repeated string audience = 1;
+}
+
+// Response message for MintActorJWT
+//
+// TODO(identity): check why k8s do ":" and not "/" as a seprator for the Subject format
+//
+// TODO(identity): whats the right format for the subject? kubernetes follow "system:serviceaccount:<namespace>:<name>".
+message MintActorJWTResponse {
+  // Actor JWT.  An OIDC Discovery-compatible JWT
+  //
+  // Claims:
+  //
+  // * iss: Issuer - a valid URL where a relying party can fetch the OIDC
+  //   discovery documents.
+  // * sub: Subject - a string expressing the identity carried in the
+  // credential. Format
+  //   `atespaces:${atespace}:actors:${actorname}`.
+  // * aud: Audience - a string identifying the service this token will be used
+  //   to authenticate to.
+  // * nbf: Not Before - a numeric unix timestamp
+  // * exp: Expiration - a numeric unix timestamp
+  // * iat: Issued At - a numeric unix timestamp
+  // * `ate.dev`: Ate/Substrate Extension - JSON object
+  //   * atespace: (string) The atespace the actor belongs to
+  //   * actorName: (string) The actor's name, unique within its atespace
+  string actor_jwt = 1;
+}
+
+// Request message for MintActorCertificate.
+message MintActorCertificateRequest {
+  // The actor for which the certificate should be issued.
+  //
+  // Must be a valid actor that currently exists according to the actor store.
+  //
+  // +k8s:required
+  ObjectRef actor = 6;
+
+  // The UID of the actor --- used to guard against deletion and recreation of
+  // an actor with the same name.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
+  string actor_uid = 7;
+
+  // Request contains DER encoded bytes of a x509 certificate signing request.
+  // The signer will ignore the contents of the CSR except to extract the
+  // subject public key.
+  //
+  // +k8s:required
+  // +k8s:maxBytes=16384
+  bytes certificate_signing_request = 2;
+
+  // Purpose of the certificate.  Used to distinguish between system components
+  // acting on behalf of an actor, and the actor itself taking action.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  // +k8s:maximum=1 # keep this in sync with the ActorCertificatePurpose enum
+  ActorCertificatePurpose purpose = 4;
+}
+
+// Purpose of the certificate.  Used to distinguish between system components
+// acting on behalf of an actor, and the actor itself taking action.
+//
+// TODO(identity): This should be removed once ateom/atunnel certs are separated
+// from plain actor certs.
+enum ActorCertificatePurpose {
+  ACTOR_CERTIFICATE_PURPOSE_UNSPECIFIED = 0;
+  ACTOR_CERTIFICATE_PURPOSE_ATUNNEL = 1;
+  // Keep this in sync with MintCertRequest.purpose's maximum.
+}
+
+// Response message for MintActorCertificate.
+message MintActorCertificateResponse {
+  // Response contains a list of DER encoded certificates. The first entry is the
+  // leaf certificate, and any remaining entries are intermediates in
+  // leaf-to-root order.
+  repeated bytes actor_certificates = 1;
+}
+
+message GetActorSnapshotRequest {
+  // +k8s:opaqueType
+  ObjectRef actor_snapshot = 1;
+}
+
+message GetActorSnapshotTagRequest {
+  // +k8s:opaqueType
+  ObjectRef actor_snapshot_tag = 1;
 }
 
 message ListTagsRequest {
@@ -1599,10 +1723,6 @@ message ListWorkersResponse {
   string next_page_token = 2;
 }
 
-// TODO: Workers are still created, updated, and deleted by writing directly to
-// the store from the WorkerPoolSyncer and the actor workflows; migrating those
-// callers onto the RPCs below lands in a follow-up change.
-
 message GetWorkerRequest {
   // The Worker to fetch. atespace is always empty; Workers are global-scoped.
   //
@@ -1624,12 +1744,12 @@ message UpdateWorkerRequest {
   // always empty; Workers are global-scoped.
   // worker.metadata.version and worker.metadata.uid are required preconditions.
   //
-  // sandbox_class and labels are the only fields an update may change. Every
-  // other field is replaced with what the request carries, and a field left
-  // unset is cleared — so read the Worker, change what you mean to change, and
-  // send the whole thing back. A request that alters an immutable field, by
-  // changing it or by omitting it, returns INVALID_ARGUMENT naming the field.
-  // status is output-only and whatever it carries is ignored.
+  // labels is the only field an update may change. Every other field is
+  // replaced with what the request carries, and a field left unset is cleared —
+  // so read the Worker, change what you mean to change, and send the whole
+  // thing back. A request that alters an immutable field, by changing it or by
+  // omitting it, returns INVALID_ARGUMENT naming the field. status is
+  // output-only and whatever it carries is ignored.
   //
   // +k8s:required
   // +k8s:opaqueType # updates are handled in 2 steps, do not descend
@@ -1698,10 +1818,10 @@ message ListActorsResponse {
 // by the control plane and is opaque to clients — never parse it or derive it
 // from anything else; read pod identity from the named fields below.
 //
-// sandbox_class and labels are the only mutable fields; every other field is
-// either immutable after creation or output-only. UpdateWorker replaces the
-// whole resource, so an immutable field that a request changes — including by
-// omitting it, which would clear it — is rejected with INVALID_ARGUMENT.
+// labels is the only mutable field; every other field is either immutable
+// after creation or output-only. UpdateWorker replaces the whole resource, so
+// an immutable field that a request changes — including by omitting it, which
+// would clear it — is rejected with INVALID_ARGUMENT.
 message Worker {
   // Output-only: name, uid, version and timestamps are all server-assigned.
   // uid and version are echoed back on UpdateWorker as preconditions.
@@ -1738,10 +1858,11 @@ message Worker {
   string ip = 7;
 
   // sandbox_class mirrors the WorkerPool's sandboxClass; its values are the
-  // CRD's own vocabulary, so it is only bounded, not validated. Mutable.
+  // CRD's own vocabulary, so it is only bounded, not validated.
   //
   // +k8s:optional
   // +k8s:maxLength=63
+  // +k8s:immutable
   string sandbox_class = 8;
 
   // labels mirror the WorkerPool object's Kubernetes labels, which selectors
@@ -1852,33 +1973,6 @@ message ActorAssignment {
   Resources resources = 5;
 }
 
-// ActorIdentity allows substrate workloads to exchange their
-// infrastructure-level credentials (k8s service account token, etc.) for a
-// substrate actor-level credential. A given substrate actor might migrate
-// between many different physical workers over the course of its lifecycle,
-// whereas the actor credential's identity will be stable for the life of the
-// actor.
-service ActorIdentity {
-  // Request an Actor Identity JWT.
-  //
-  // To call this RPC, you must be authenticated as the Kubernetes Pod that is
-  // currently running the requested actor.
-  rpc MintJWT(MintJWTRequest) returns (MintJWTResponse);
-
-  // Request an Actor Identity Certificate for an actor.
-  //
-  // Actors do not call this RPC themselves. The atelet hosting the actor calls
-  // it on the actor's behalf, authenticating with its own client certificate
-  // rather than a bearer token.
-  //
-  // Authorization is decided on that client certificate and the worker
-  // identity attested by atelet. Ateapi verifies that the worker is assigned to
-  // the actor and that the actor points back to that exact worker before signing.
-  //
-  // The certificate in the response is the actor's identity, not the atelet's.
-  rpc MintCert(MintCertRequest) returns (MintCertResponse);
-}
-
 // WorkerService is how a Worker tells the control plane about itself. It is
 // separate from Control because the two have different callers and different
 // authorization: Control is the client-facing API, while these RPCs are served
@@ -1913,98 +2007,4 @@ message SetWorkerCapacityRequest {
 message SetWorkerCapacityResponse {
   // The Worker as recorded, so a caller sees what its report resolved to.
   Worker worker = 1;
-}
-
-message MintJWTRequest {
-  // The audiences the minted JWT is bound to. Tokens are only issued with
-  // audience bindings, so at least one is required.
-  //
-  // +k8s:required
-  // +k8s:maxItems=16 # guardrail; tokens realistically bind a handful of audiences
-  // +k8s:listType=set
-  // +k8s:eachVal=+k8s:maxLength=512 # audiences are caller-defined URIs; bound only
-  repeated string audience = 1;
-
-  // +k8s:required
-  // +k8s:format=k8s-short-name
-  string atespace = 2;
-
-  // +k8s:required
-  // +k8s:format=k8s-short-name
-  string actor_name = 3;
-
-  // +k8s:optional
-  // +k8s:format=k8s-uuid
-  string actor_uid = 4;
-}
-
-// TODO: check why k8s do ":" and not "/" as a seprator for the Subject format
-// TODO: whats the right format for the subject? kubernetes follow "system:serviceaccount:<namespace>:<name>".
-message MintJWTResponse {
-  // Actor JWT.  An OIDC Discovery-compatible JWT
-  //
-  // Claims:
-  //
-  // * iss: Issuer - a valid URL where a relying party can fetch the OIDC
-  //   discovery documents.
-  // * sub: Subject - a string expressing the identity carried in the
-  // credential. Format
-  //   `atespaces:${atespace}:actors:${actorname}`.
-  // * aud: Audience - a string identifying the service this token will be used
-  //   to authenticate to.
-  // * nbf: Not Before - a numeric unix timestamp
-  // * exp: Expiration - a numeric unix timestamp
-  // * iat: Issued At - a numeric unix timestamp
-  // * `ate.dev`: Ate/Substrate Extension - JSON object
-  //   * atespace: (string) The atespace the actor belongs to
-  //   * actorName: (string) The actor's name, unique within its atespace
-  string actor_jwt = 1;
-}
-
-message MintCertRequest {
-  // The Worker the certificate is minted for, as authenticated by the
-  // node-local atelet. Workers are global-scoped, so this carries no atespace.
-  // Ateapi resolves the worker's current actor assignment rather than trusting
-  // actor metadata from the caller.
-  //
-  // This is the one caller that recovers a Worker name from a pod certificate:
-  // the atelet has only the worker Pod's identity to go on. Everywhere else the
-  // name is opaque and must be carried, not reconstructed.
-  //
-  // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
-  // +k8s:required
-  ObjectRef worker = 1;
-
-  // Request contains DER encoded bytes of a x509 certificate signing request.
-  // The signer will ignore the contents of the CSR except to extract the
-  // subject public key.
-  //
-  // +k8s:required
-  // +k8s:maxBytes=16384
-  bytes certificate_signing_request = 2;
-
-  // Actor incarnation expected by the activation. This is only a stale-request
-  // guard: ateapi derives the actor and its identity from the worker assignment.
-  //
-  // +k8s:required
-  // +k8s:format=k8s-uuid
-  string expected_actor_uid = 3;
-
-  // +k8s:required
-  // +k8s:minimum=1
-  // +k8s:maximum=1 # keep this in sync with the ActorCertificatePurpose enum
-  ActorCertificatePurpose purpose = 4;
-}
-
-enum ActorCertificatePurpose {
-  ACTOR_CERTIFICATE_PURPOSE_UNSPECIFIED = 0;
-  ACTOR_CERTIFICATE_PURPOSE_ATUNNEL = 1;
-  // Keep this in sync with MintCertRequest.purpose's maximum.
-}
-
-message MintCertResponse {
-  // Response contains a list of DER encoded certificates. The first entry is the
-  // leaf certificate, and any remaining entries are intermediates in
-  // leaf-to-root order.
-  repeated bytes actor_certificates = 1;
 }

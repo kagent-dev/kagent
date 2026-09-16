@@ -66,7 +66,10 @@ func (c *Compiler) compileMCP(
 		if err != nil {
 			return mcpCompilation{}, fmt.Errorf("compile RemoteMCPServer %q headers: %w", server.Name, err)
 		}
-		result.servers[name] = claudeconfig.MCPServer{Type: transport, URL: server.Spec.URL, Headers: headers}
+		result.servers[name] = claudeconfig.MCPServer{
+			Type: transport, URL: server.Spec.URL, Headers: headers,
+			RequireApproval: tool.Binding.RequireApproval,
+		}
 		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)
 	}
