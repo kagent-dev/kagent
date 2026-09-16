@@ -286,41 +286,43 @@ export function CheckpointDivider({
               cancelText="Cancel"
               onConfirm={onDelete}
             >
-              <Tooltip
-                title="Delete this snapshot and the runtime stored with it."
-                placement="bottom"
-              >
-                <Button
-                  size="small"
-                  danger
-                  data-testid={`chat-checkpoint-delete-${checkpointId}`}
-                  aria-label="Delete this snapshot and the runtime stored with it."
-                  icon={<Eraser size={13} />}
-                  /*
-                   * Outlined in red against Fork's fill: two of these are things the
-                   * mark is for, and this is the one that takes something away.
-                   *
-                   * Its red is the theme token rather than antd's generated danger
-                   * palette. That palette is rebuilt from the config when the theme
-                   * changes and lands a frame after the two buttons beside it, so on a
-                   * switch this one was briefly still wearing the theme just left.
-                   */
-                  css={{
-                    ...control,
+              {/* No tooltip, unlike its neighbours. The pointer that opens the
+                  confirmation is still resting on this button, so the tooltip stays up
+                  and its container covers the confirmation's own buttons — which is a
+                  reader unable to press Cancel, not just a test that cannot. What it
+                  would have said, the confirmation says. */}
+              <Tooltip title="Delete this snapshot and the runtime stored with it." placement="bottom">
+              <Button
+                size="small"
+                danger
+                data-testid={`chat-checkpoint-delete-${checkpointId}`}
+                aria-label="Delete this snapshot and the runtime stored with it."
+                icon={<Eraser size={13} />}
+                /*
+                 * Outlined in red against Fork's fill: two of these are things the
+                 * mark is for, and this is the one that takes something away.
+                 *
+                 * Its red is the theme token rather than antd's generated danger
+                 * palette. That palette is rebuilt from the config when the theme
+                 * changes and lands a frame after the two buttons beside it, so on a
+                 * switch this one was briefly still wearing the theme just left.
+                 */
+                css={{
+                  ...control,
+                  color: theme.color.danger,
+                  borderColor: theme.color.danger,
+                  "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
                     color: theme.color.danger,
-                    borderColor: theme.color.danger,
-                    "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
-                      color: theme.color.danger,
-                      background: theme.color.dangerBg,
-                      borderColor: theme.color.dangerBorder,
-                    },
-                    "&:active:not(:disabled)": {
-                      background: theme.color.dangerBg,
-                      opacity: 0.85,
-                    },
-                  }}
+                    background: theme.color.dangerBg,
+                    borderColor: theme.color.dangerBorder,
+                  },
+                  "&:active:not(:disabled)": {
+                    background: theme.color.dangerBg,
+                    opacity: 0.85,
+                  },
+                }}
                 >
-                  Delete
+                Delete
                 </Button>
               </Tooltip>
             </Popconfirm>
