@@ -19,7 +19,9 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sync"
 
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
@@ -53,14 +55,58 @@ type mcpAppToolset struct {
 	// results render as interactive MCP App (UI) widgets (the tool declares a
 	// `_meta.ui.resourceUri`). Used as a set, so only key presence is meaningful.
 	appToolNames map[string]bool
+	// serverURL identifies the backend in degradation logs.
+	serverURL string
+
+	mu sync.Mutex
+	// lastTools is the tool list from the most recent successful ListTools.
+	// The MCP toolset lists tools lazily on every invocation, so a backend
+	// that goes away mid-conversation would otherwise fail every turn of
+	// every agent that references it. Serving the last known list instead
+	// makes a dead backend behave like a set of failing tools: the model
+	// still sees them and receives a tool error when it calls one.
+	lastTools []tool.Tool
+	// listed records whether lastTools holds a real result, so an empty
+	// list from the server is not confused with "never reached".
+	listed bool
 }
 
 func (m *mcpAppToolset) Name() string {
 	return m.inner.Name()
 }
 
+// Tools returns the server's model-visible tools. When the server cannot be
+// listed, the failure is logged at error level with the server URL and the
+// last successfully listed tools (or none, if the server was never reachable)
+// are returned so the agent keeps running. Only a cancelled or expired
+// invocation context is still surfaced as an error.
 func (m *mcpAppToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
-	return m.inner.Tools(ctx)
+	tools, err := m.inner.Tools(ctx)
+	if err == nil {
+		m.mu.Lock()
+		m.lastTools = append([]tool.Tool(nil), tools...)
+		m.listed = true
+		m.mu.Unlock()
+		return tools, nil
+	}
+	if ctx.Err() != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	cached := append([]tool.Tool(nil), m.lastTools...)
+	listed := m.listed
+	m.mu.Unlock()
+
+	log := logging.FromContext(ctx)
+	if listed {
+		log.ErrorContext(ctx, "MCP server unreachable; continuing with the last known tool list",
+			"url", m.serverURL, "toolset", m.inner.Name(), "tools", len(cached), "error", err)
+	} else {
+		log.ErrorContext(ctx, "MCP server unreachable and its tools were never listed; continuing without them",
+			"url", m.serverURL, "toolset", m.inner.Name(), "error", err)
+	}
+	return cached, nil
 }
 
 // MCPAppToolNamesFromToolsets returns the union of MCP App-capable tool names
