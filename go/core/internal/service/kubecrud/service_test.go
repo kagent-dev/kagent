@@ -165,8 +165,8 @@ func TestServiceRejectsInvalidScope(t *testing.T) {
 	ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
 	_, err := service.List(ctx, "team")
-	if err == nil || !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
-		t.Fatalf("List() error = %v, want permission denied", err)
+	if err == nil || !serviceerrors.IsCode(err, serviceerrors.CodeInternal) {
+		t.Fatalf("List() error = %v, want internal", err)
 	}
 }
 

@@ -50,7 +50,7 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	}
 	matcher, err := kubeauth.CompileScope(scope)
 	if err != nil {
-		return nil, serviceerrors.NewPermissionDenied("Not authorized", err)
+		return nil, serviceerrors.NewInternal("Failed to apply the "+s.resource+" authorization scope", err)
 	}
 	list := s.list.DeepCopyObject().(L)
 	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -155,7 +155,7 @@ func (s *Service[T, L]) scope(ctx context.Context, verb auth.Verb) (apiauthoriza
 	}
 	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, s.resource)
 	if err != nil {
-		return apiauthorization.AuthorizationScope{}, serviceerrors.NewPermissionDenied("Not authorized", err)
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnavailable("Failed to read the "+s.resource+" authorization scope", err)
 	}
 	return scope, nil
 }

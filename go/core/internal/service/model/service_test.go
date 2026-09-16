@@ -32,7 +32,14 @@ func (denyAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Ve
 }
 
 func (denyAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ string) (apiauthorization.AuthorizationScope, error) {
-	return apiauthorization.AuthorizationScope{}, errors.New("denied")
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, nil
+}
+
+// unavailableAuthorizer cannot reach whatever decides its scopes.
+type unavailableAuthorizer struct{ denyAuthorizer }
+
+func (unavailableAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ string) (apiauthorization.AuthorizationScope, error) {
+	return apiauthorization.AuthorizationScope{}, errors.New("policy backend unreachable")
 }
 
 type authorizationCall struct {
@@ -349,12 +356,27 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		assert.Equal(t, "original", stored.Spec.Model)
 	})
 
-	t.Run("permission denied", func(t *testing.T) {
-		service, _, ctx := newService(denyAuthorizer{})
+	t.Run("denied collection is empty and denied item is rejected", func(t *testing.T) {
+		service, _, ctx := newService(denyAuthorizer{}, &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
+			Spec:       v1alpha3.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha3.ModelProviderOpenAI},
+		})
+
+		list, err := service.List(ctx, model.ListRequest{})
+		require.NoError(t, err)
+		assert.Empty(t, list.Items)
+
+		_, err = service.Get(ctx, model.GetRequest{Ref: types.NamespacedName{Namespace: "default", Name: "cfg"}})
+		require.Error(t, err)
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	})
+
+	t.Run("unreachable authorizer is unavailable", func(t *testing.T) {
+		service, _, ctx := newService(unavailableAuthorizer{})
 
 		_, err := service.List(ctx, model.ListRequest{})
 		require.Error(t, err)
-		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "got %v", err)
 	})
 }
 
@@ -386,7 +408,7 @@ func TestListAppliesModelConfigScope(t *testing.T) {
 	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}
 	_, err = service.List(ctx, model.ListRequest{})
 	require.Error(t, err)
-	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal), "got %v", err)
 }
 
 func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
