@@ -7,39 +7,24 @@ import {
 } from "../../helpers/resource";
 
 /**
- * Harnesses — the whole life of one, in a single journey.
- *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md`.
- *
- * **There is no update half.** The tab offers create and delete and no edit.
- *
- * **Nor is the write journey here.** Creating a harness, reading back that it is "not
- * ready yet" and removing it runs against both backends from
- * `playwright/shared/harnesses/harnesses.spec.ts`. What stays is the reading — the seeded
- * rows, the selector on the page, the narrowing — and the two refusals below, which are
- * about the form enforcing the cluster's constraints rather than about creating anything.
- *
- * ## What the tab exists to say
+ * Harnesses, on the fixtures. The tab offers create and delete and no edit, and that
+ * journey runs against both backends from `shared/harnesses/`. What stays is the reading
+ * — the seeded rows, the selector on the page, the narrowing — and the two refusals
+ * below, which are the form enforcing the cluster's constraints rather than creating
+ * anything.
  *
  * **The admission selector has to be visible.** A harness admits templates through a
- * label selector, and that selector is what decides whether a template ever becomes an
- * agent at all. A template carrying no label it matches saves happily and then does
- * nothing, with nothing on screen explaining why — so the selector is on the page rather
- * than behind an expander.
+ * label selector, and that selector decides whether a template ever becomes an agent at
+ * all. One carrying no label it matches saves happily and then does nothing, with nothing
+ * on screen explaining why.
  *
  * **A harness must not be called broken.** `ready: false` also covers one the controller
- * has not observed yet, which is a different thing from one that failed — and the
- * `kagent` harness on the development cluster is exactly that: it runs agents and carries
- * `status: null`. Calling that "broken" sends somebody debugging a harness that works.
+ * has not observed yet, which is a different thing from one that failed — the `kagent`
+ * harness on a development cluster runs agents and carries `status: null`.
  *
- * ## Why the form is short
- *
- * The CRD is strict, and the constraints the form enforces are the cluster's rather than
- * this page's: exactly one runtime adapter, an image pinned by digest, and a worker pool
- * for the Substrate Actors to be scheduled onto. A form that accepted a tag would build a
- * resource the cluster rejects — the failure that is invisible until somebody tries it
- * for real, which is why the fixture refuses it too.
+ * **The form is short because the CRD is strict**: exactly one runtime adapter, an image
+ * pinned by digest, and a worker pool to schedule onto. A form that accepted a tag would
+ * build a resource the cluster rejects, which is why the fixture refuses it too.
  */
 
 /** The name the validation steps type in. Nothing is created here — see the note above. */

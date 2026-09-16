@@ -16,17 +16,13 @@ import {
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 
 /**
- * Model configurations — the whole life of one, in a single journey.
+ * Model configurations, on the fixtures.
  *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md` for the shape and the trade it makes.
- *
- * **The write journey is not here.** Creating a configuration, reading it back, changing
- * its credential and deleting it runs against both backends from
- * `playwright/shared/models/models.spec.ts`, which counts rows relative to what the list
- * already held. What is left here is what only fixed data can settle: the seeded rows and
- * their refs taken apart, the refresh confirmation, the filter in the address, the
- * required-field marks, and the empty and failure states.
+ * The write journey is not here: creating one, reading it back, changing its credential
+ * and deleting it runs against both backends from `shared/models/`. What is left is what
+ * only fixed data can settle — the seeded rows and their refs taken apart, the refresh
+ * confirmation, the filter in the address, the required-field marks, and the empty and
+ * failure states.
  */
 
 /** The four seeded configurations, which is what "nothing narrowed" has to mean. */

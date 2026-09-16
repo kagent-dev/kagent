@@ -19,25 +19,21 @@ import {
 import { operationCallCounts, operationCalls, rpc } from "../../helpers/mockCalls";
 
 /**
- * Prompt libraries — the whole life of one, in a single journey.
+ * Prompt libraries, on the fixtures. The write journey is in `shared/prompts/`; what is
+ * left is the seeded libraries, the namespace filter, the discard prompts, and the empty
+ * and failure states.
  *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md`.
- *
- * ## The two things a fragment list has that other resources do not
+ * Two things a fragment list has that other resources do not:
  *
  * **A save replaces the library.** `UpdatePromptTemplate` assigns the ConfigMap's whole
- * `data` map, so removing a row deletes a fragment and two rows sharing a key silently
- * merge into one. Nothing on screen would tell a reader that, so the form says it and
- * refuses both — asserted in step 8, before the save that would otherwise lose prose
- * somebody wrote.
+ * `data` map, so removing a row deletes a fragment and two rows sharing a key merge
+ * silently. The form says so and refuses both — step 8, before the save that would lose
+ * prose somebody wrote.
  *
- * **The reads are scoped per namespace.** `ListPromptTemplates` requires a namespace
- * and offers no wildcard, so `usePrompts` fans out one call per namespace rather than
- * narrowing something already fetched. That makes the filter in step 5 a claim about
- * what was *asked for*, and it is also why the timeouts here are longer than the
- * default: under the slow scenario the page waits on the namespace list and then on one
- * call per namespace.
+ * **The reads are scoped per namespace.** `ListPromptTemplates` requires one and offers
+ * no wildcard, so `usePrompts` fans out a call per namespace rather than narrowing
+ * something already fetched. That makes step 5 a claim about what was *asked for*, and is
+ * why the timeouts here are longer than the default.
  */
 
 /** The two seeded libraries. */

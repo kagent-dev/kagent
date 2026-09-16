@@ -3,13 +3,13 @@ import { agentChat, instances, loadPage, expectPageTitle, routes } from "../help
 import { expectNoShell, expectShell } from "../helpers/nav";
 
 /**
- * Routing, the two parts of it that need fixtures.
+ * Routing, the two parts of it kept off the shared suite.
  *
  * A deep link carrying an `AgentInstance` id has to name a conversation that exists,
- * and the login route has to have something to log in to — neither of which a clean
- * cluster supplies. The rest of the journey is backend-agnostic and runs against both
- * from `shared/routing.spec.ts`, including the deep link and 404 steps, which are the
- * ones a server can get wrong.
+ * which a clean cluster has not got. The login route is portable — it was tried against
+ * a deployment and passes — but `shared/routing.spec.ts` already proves the SPA fallback
+ * on `/substrate` and an unknown path, and `/login` is a third instance of that same
+ * claim, so it earns nothing by running twice.
  */
 
 test("routing: a deep link with params, and the standalone login route", async ({

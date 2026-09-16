@@ -4,43 +4,25 @@ import { LIFECYCLE_TIMEOUT, optionNamed } from "../../helpers/resource";
 /**
  * Schedules — reading one, running it, and the states around that.
  *
- * **The write journey is not here.** Creating a schedule, reading it back, changing it
- * and deleting it runs against both backends from `shared/schedules/schedules.spec.ts`;
- * the claim that it survives a reload — which the fixtures structurally cannot answer,
- * keeping writes in the page's own memory — is `live/schedules.spec.ts`.
+ * The write journey runs against both backends from `shared/schedules/`, and the claim
+ * that a schedule survives a reload — which the fixtures structurally cannot answer,
+ * keeping writes in the page's own memory — is `live/schedules.spec.ts`. That same
+ * memory is why the steps below click through rather than navigate wherever a write has
+ * to outlive the step that made it.
  *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md`.
+ * **A schedule is the only resource here that runs**, so pausing one, invoking it by hand
+ * while paused, and reading the execution it produced are covered here and nowhere else.
  *
- * ## What is distinctive about this resource, and therefore what is covered
- *
- * **A schedule is the only resource here that runs.** So the journey covers pausing one,
- * invoking it by hand while paused, and reading the execution it produced — none of which
- * any other resource has, and all of which is the reason a schedule exists.
- *
- * **Its cadence has two representations.** The form offers a repeat picker and an
- * advanced cron expression, and an expression the picker cannot represent has to survive
- * an edit to some other field. That is asserted because it is the one that silently
+ * **Its cadence has two representations.** An advanced cron expression the repeat picker
+ * cannot show has to survive an edit to some other field — the case that silently
  * destroys a reader's work.
  *
  * **Its history outlives it.** A deleted schedule still opens by address and says what it
- * is, because the executions are retained — so the address is not a 404 and must not be
- * rendered as a live schedule either.
+ * is, so that address is neither a 404 nor a live schedule.
  *
- * ## What is still read as prose, deliberately
- *
- * Five selectors, and each is the right tool rather than a leftover. Two are fixture
- * *data* in a cell — an execution's failure reason, its task id — which is the thing
- * under test and has no id to give it. One is a form rule's message. The last two are
- * `getByLabel("Monday")` on the weekday checkboxes, which are genuinely labelled
- * controls: a label is what a reader clicks and what a screen reader announces, so
- * reaching for one is not the same as matching copy.
- *
- * ## Why it clicks through rather than navigating
- *
- * The mock backend keeps writes in the page's own memory, so a `page.goto` starts a
- * backend that has never heard of a change just made. The steps below therefore click
- * through rather than navigate wherever a write has to outlive the step that made it.
+ * Five selectors read prose deliberately: two are fixture data in a cell with no id to
+ * give it, one is a form rule's message, and two are `getByLabel` on the weekday
+ * checkboxes, which are genuinely labelled controls.
  */
 
 /** `Daily cluster report`, the seeded schedule the read half is asserted against. */

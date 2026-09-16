@@ -8,49 +8,25 @@ import {
 } from "../../helpers/resource";
 
 /**
- * Agent templates — the whole life of one, in a single journey.
+ * Agent templates, on the fixtures. Creating, editing and removing one runs against both
+ * backends from `shared/agent-templates/`; what is left is the reading — the seeded rows,
+ * the narrowing, the sorting — the form's refusal of an unusable template, both branches
+ * of the delete warning, and the empty and failure states. The create below is setup
+ * rather than a claim; see the note on `CREATED`.
  *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md`.
+ * **The property this spec exists for: a template no harness admits cannot be used, and
+ * nothing about it looks wrong.** A harness admits through a label selector, so a template
+ * whose labels match nothing reaches no prepared revision and every `CreateAgentInstance`
+ * naming it is refused — while still having a model, a prompt, and a row in this list.
+ * Confirmed against a cluster before any of this was built: an unlabelled template sat at
+ * `status: {observedGeneration: 1}` with no harnesses at all, and adding the one label its
+ * harness selects on took it to a ready golden snapshot in about ten seconds. So the "Runs
+ * on" column, the warning in the form and the button that applies a harness's labels are
+ * the feature rather than decoration.
  *
- * **The write journey is not all here.** Creating a template and removing it is asserted
- * against both backends from `shared/agent-templates/agent-templates.spec.ts`, along with
- * the edit. What is left is the reading — the seeded rows, the narrowing, the sorting —
- * the form's refusal of an unusable template, the two branches of the delete warning, and
- * the empty and failure states.
- *
- * ## The property this spec exists for
- *
- * **A template no harness admits cannot be used, and nothing about it looks wrong.** A
- * `Harness` admits templates through a label selector, and the CRD is explicit that a
- * harness with no selector admits none — so a template whose labels match nothing
- * reaches no prepared revision and every `CreateAgentInstance` naming it is refused. It
- * still has a model, a prompt, a row in this list.
- *
- * That was confirmed against a cluster before any of this was built: an unlabelled
- * template sat at `status: {observedGeneration: 1}` with no harnesses at all, and adding
- * the one label its harness selects on took it to *"ActorTemplate golden snapshot is
- * ready"* in about ten seconds.
- *
- * So the "Runs on" column, the warning in the form and the button that applies a
- * harness's labels are the feature, not decoration — and they are what steps 1, 4 and 5
- * cover.
- *
- * ## The second property
- *
- * **Reading a template is not the same act as changing one.** A row opens a details
- * page with editing as a mode rather than a page of inputs with Save waiting, which is
- * why steps 6 and
- * 7 assert the *reading* state as well as the writing one — and why they assert both are
- * the same component, since a separate read-only view is what would drift.
- *
- * ## One thing the ordering buys, and one it costs
- *
- * The mock backend keeps writes in the page's own memory, so a `page.goto` starts a
- * backend that has never heard of the template just made. Everything from step 5 onwards
- * therefore clicks through rather than navigating, and the created template survives all
- * the way to the delete that removes it. The cost is that a failure stops the steps after
- * it; the recording shows where.
+ * **Reading a template is not the same act as changing one.** A row opens a details page
+ * with editing as a mode rather than a page of inputs with Save waiting, and both states
+ * are asserted on the same component, since a separate read-only view is what would drift.
  */
 
 /**
