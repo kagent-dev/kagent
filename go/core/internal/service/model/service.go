@@ -116,20 +116,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 		return nil, err
 	}
 
-	if request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
-		if err := secretmaterial.CreateOwnedOpaqueSecret(
-			ctx,
-			s.kubeClient,
-			modelConfig,
-			modelConfigGVK,
-			modelConfig.Name,
-			map[string]string{spec.APIKeySecretKey: request.APIKey},
-		); err != nil {
-			return nil, serviceerrors.NewInternal("Failed to create ModelConfig", err)
-		}
-	}
-
-	if err := secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, modelConfig, modelConfigGVK, request.Secrets); err != nil {
+	if err := s.createOwnedSecrets(ctx, modelConfig, request); err != nil {
 		if rollbackErr := secretmaterial.RollbackOwnerOnCreateFailure(ctx, s.kubeClient, modelConfig); rollbackErr != nil {
 			return nil, serviceerrors.NewInternal(
 				serviceerrors.MessageOf(err),
@@ -140,6 +127,24 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 	}
 
 	return modelConfig, nil
+}
+
+// createOwnedSecrets writes every Secret a new ModelConfig owns, so one failure rolls back the same way.
+func (s *Service) createOwnedSecrets(ctx context.Context, modelConfig *v1alpha3.ModelConfig, request CreateRequest) error {
+	spec := modelConfig.Spec
+	if request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
+		if err := secretmaterial.CreateOwnedOpaqueSecret(
+			ctx,
+			s.kubeClient,
+			modelConfig,
+			modelConfigGVK,
+			modelConfig.Name,
+			map[string]string{spec.APIKeySecretKey: request.APIKey},
+		); err != nil {
+			return serviceerrors.NewInternal("Failed to create API key secret", err)
+		}
+	}
+	return secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, modelConfig, modelConfigGVK, request.Secrets)
 }
 
 // Update stays in this workflow because its Secret writes must happen after

@@ -62,6 +62,18 @@ func (a *recordingAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, verb
 	return a.scope, nil
 }
 
+// secretCreateFailsClient rejects every Secret write.
+type secretCreateFailsClient struct {
+	ctrlclient.Client
+}
+
+func (c *secretCreateFailsClient) Create(ctx context.Context, object ctrlclient.Object, options ...ctrlclient.CreateOption) error {
+	if _, isSecret := object.(*corev1.Secret); isSecret {
+		return errors.New("secret write rejected")
+	}
+	return c.Client.Create(ctx, object, options...)
+}
+
 type modelUpdateConflictOnceClient struct {
 	ctrlclient.Client
 	conflicted bool
@@ -417,5 +429,39 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		assert.Equal(t, "ModelConfig", call.resource.Type)
 		assert.Equal(t, "team", call.resource.Namespace)
 		assert.Equal(t, wantNames[index], call.resource.Name)
+	}
+}
+
+// A create that cannot finish its Secrets must not leave the ModelConfig behind.
+func TestCreateRollsBackWhenSecretWriteFails(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	cases := map[string]model.CreateRequest{
+		"api key secret": {
+			Ref:    "default/cfg",
+			Spec:   v1alpha3.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha3.ModelProviderOpenAI},
+			APIKey: "secret-value",
+		},
+		"companion secret": {
+			Ref:     "default/cfg",
+			Spec:    v1alpha3.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha3.ModelProviderOpenAI},
+			Secrets: []secretmaterial.Material{{Name: "companion", Key: "ca.crt", Value: "PEM"}},
+		},
+	}
+	for name, request := range cases {
+		t.Run(name, func(t *testing.T) {
+			kubeClient := &secretCreateFailsClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+			service := model.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, "default")
+			ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+
+			_, err := service.Create(ctx, request)
+			require.Error(t, err)
+
+			stored := &v1alpha3.ModelConfig{}
+			err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, stored)
+			assert.True(t, apierrors.IsNotFound(err), "ModelConfig survived a failed create: %v", err)
+		})
 	}
 }
