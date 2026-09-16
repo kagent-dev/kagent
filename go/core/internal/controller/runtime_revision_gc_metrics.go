@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"fmt"
 	"math"
 
@@ -48,8 +47,6 @@ func newRuntimeRevisionGCMetrics(registerer prometheus.Registerer) (*runtimeRevi
 	return metrics, nil
 }
 
-func (m *runtimeRevisionGCMetrics) recordFailure(ctx context.Context, stage runtimeRevisionGCStage) {
-	if ctx.Err() == nil {
-		m.failures.WithLabelValues(string(stage)).Inc()
-	}
+func (m *runtimeRevisionGCMetrics) recordFailure(stage runtimeRevisionGCStage) {
+	m.failures.WithLabelValues(string(stage)).Inc()
 }

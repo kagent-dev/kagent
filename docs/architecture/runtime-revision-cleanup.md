@@ -13,37 +13,16 @@ and ActorTemplate identity until Substrate cleanup and database finalization
 succeed. Do not manually remove these references or deletion markers to silence
 an alert.
 
-## Enable authenticated metrics
+## Collection and export scope
 
-The controller metrics listener is disabled by default. The existing Helm
-settings enable the dedicated metrics Service:
+GC metrics are registered in the controller manager's Prometheus registry.
+This feature does not enable a scrape endpoint: the controller retains its
+existing disabled metrics listener. Listener configuration, authentication,
+and transport tests are separate work.
 
-```yaml
-controller:
-  metrics:
-    enabled: true
-    bindAddress: ":8443"
-    secureServing: true
-    service:
-      port: 8443
-```
-
-The chart sets `METRICS_BIND_ADDRESS` and `METRICS_SECURE`. Outside Helm, an
-unset/empty bind address or `"0"` disables the listener. Secure serving defaults
-to true; an invalid `METRICS_SECURE` value fails startup. An explicit false
-enables unauthenticated HTTP and should only be used on an appropriately
-restricted development listener.
-
-Secure scrapes use HTTPS and a Kubernetes bearer token. The controller's
-existing metrics-auth ClusterRole permits TokenReviews and SubjectAccessReviews.
-Bind `<fullname>-metrics-reader` to the scraper's ServiceAccount to allow
-`GET /metrics`, and configure the scraper to trust the listener certificate.
-Do not disable certificate verification or authentication as an operational
-workaround. No ServiceMonitor is created by this feature.
-
-GC metrics use the registry served by the controller manager, not the public
-gRPC/MCP application port. A successful HTTP response alone is not evidence
-that the GC metrics are present.
+The metric definitions and diagnostic queries below describe the collectors
+when their registry is exported. They are not instructions for enabling
+scraping in the current controller.
 
 ## Metrics
 
