@@ -1,35 +1,49 @@
-import { test, expect } from "../fixtures/test";
+import { test, expect } from "../../fixtures/test";
 import {
+  LIFECYCLE_TIMEOUT,
   confirmation,
   pressOnce,
   selectFirstOption,
   selectOption,
-} from "../helpers/resource";
+} from "../../helpers/resource";
 import {
   dataRows,
   expectNoLoadFailure,
   loadApp,
   rowNamed,
   throwawayName,
-} from "../helpers/app";
-import { liveRoutes } from "./helpers/live";
+} from "../../helpers/app";
 
 /**
- * Creating and deleting an agent template, on a real cluster, through the UI.
+ * Creating and deleting an agent template, through the UI, on either backend.
  *
  * The property it exists for: **admission is the controller's answer, not the form's.**
  * `admittingHarnesses` is read from the template's *status* and cannot be computed in
- * the browser, so a fixture can return any value it likes and the page will draw it.
+ * the browser, so a fixture can return any value it likes and the page will draw it —
+ * which is why the claim is worth making against a cluster as well as against fixtures.
  *
- * It replaces `agent-lifecycle.spec.ts`, which drove `/agents/new` — a page removed
+ * It replaces `live/agent-lifecycle.spec.ts`, which drove `/agents/new` — a page removed
  * long before, for an agent nobody creates. Nothing ran the suite, so nothing said so.
+ *
+ * What stays in `tests/agent-templates/` is the seeded rows, the filter, the sorting,
+ * editing a template in place, and the empty and failure states.
  */
 
 /** The one this journey makes and removes. Carries the run, for litter left by a kill. */
 const TEMPLATE = throwawayName("template");
 const NAMESPACE = "kagent";
+/** What the edit moves the description to, read back off the page afterwards. */
+const DESCRIPTION = "Edited by the shared suite.";
 
-test("live: an agent template is created, admitted and deleted through the UI", async ({
+/*
+ * A lifecycle is longer than a journey, so it gets its own budget — see
+ * `LIFECYCLE_TIMEOUT`. It came free while this spec lived in `live/`, where the whole
+ * run is given two minutes for the cluster's sake; in `shared/` the mock projects apply
+ * the tight default, and a journey of this length is long rather than stuck.
+ */
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
+
+test("agent templates: one is created, admitted, edited and deleted", async ({
   page,
 }) => {
   let created = false;
@@ -38,7 +52,7 @@ test("live: an agent template is created, admitted and deleted through the UI", 
 
   try {
     await test.step("1. the form offers the cluster's own model configurations", async () => {
-      await loadApp(page, liveRoutes.agentTemplateNew);
+      await loadApp(page, "/agent-templates/new");
       await expectNoLoadFailure(page);
 
       await selectOption(page, "template-form-namespace", NAMESPACE);
@@ -101,7 +115,17 @@ test("live: an agent template is created, admitted and deleted through the UI", 
       // written for produced for a template that had in fact been created.
       await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
       created = true;
+      /*
+       * And the list comes back narrowed to the namespace that was being worked in.
+       * Nothing asserted this once, which is how two faults sat on the one line that
+       * asks for it: `/agent-templates` is a redirect carrying no query string, and the
+       * list narrows on `ns` while the caller was sending `namespace`. Either alone
+       * loses the filter, and the page looks reasonable both ways.
+       */
       await expect(page).toHaveURL(new RegExp(`[?&]ns=${NAMESPACE}(&|$)`));
+      await expect(
+        page.getByTestId(`templates-filters-pill-ns-${NAMESPACE}`),
+      ).toBeVisible();
     });
 
     await test.step("4. the row is read back from the cluster", async () => {
@@ -133,7 +157,32 @@ test("live: an agent template is created, admitted and deleted through the UI", 
       );
     });
 
-    await test.step("6. deleting says what it costs, against the cluster's own count", async () => {
+    await test.step("6. an edit in place is saved and read back", async () => {
+      /*
+       * The write half the create cannot show. A template's name and namespace are its
+       * ref and cannot change, so the description is what an edit has to move — and
+       * reading it back off the page after the save is what separates "the backend
+       * stored it" from "the draft is still on screen".
+       *
+       * Editing is a mode of the reading page rather than a separate address, so the
+       * submit appearing is also the assertion that the same component serves both.
+       */
+      await expect(page.getByTestId("template-submit")).toHaveCount(0);
+      await page.getByTestId("template-edit").click();
+      await expect(page.getByTestId("template-submit")).toBeVisible({ timeout: 60_000 });
+
+      await page.getByTestId("template-form-description").fill(DESCRIPTION);
+      await page.getByTestId("template-submit").click();
+
+      // Back to reading, showing the saved value rather than the draft: a save that did
+      // not reach the backend would leave the old one here.
+      await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("template-form-description")).toHaveValue(
+        DESCRIPTION,
+      );
+    });
+
+    await test.step("7. deleting says what it costs, against the backend's own count", async () => {
       const remove = page.getByTestId(`delete-${TEMPLATE}`);
       await expect(remove).toContainText("Delete template");
       await remove.click();
@@ -150,7 +199,7 @@ test("live: an agent template is created, admitted and deleted through the UI", 
       );
     });
 
-    await test.step("7. confirming removes it, and the re-read list agrees", async () => {
+    await test.step("8. confirming removes it, and the re-read list agrees", async () => {
       // Scoped to the visible popconfirm, and pressed once it has stopped arriving —
       // see `helpers/resource` for what each of those is protecting against.
       await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));

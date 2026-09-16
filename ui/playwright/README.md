@@ -83,10 +83,19 @@ playwright/
 
 It holds two kinds of spec. A property true whatever the backend holds — no conversation
 is listed by a bare id, a deep link renders on a cold load. And **the write path of each
-resource**: create, read back, change, delete. That second kind is where a fixture and a
-controller most easily disagree, and it is the reason `models`, `prompts` and
-`harnesses` have a spec here as well as in `tests/`. The names are `throwawayName`d and
-every one cleans up in a `finally`, because live they are real.
+resource**: create, read back, change, delete.
+
+That second kind is where a fixture and a controller most easily disagree, and it is why
+every resource that can have its journey here does: `models`, `prompts`, `harnesses`,
+`agent-templates` and `schedules`. The names are `throwawayName`d and every one cleans up
+in a `finally`, because live they are real.
+
+**One move rules a spec out of here: a reload.** The fixture backend keeps writes in the
+page's own memory, so a reload starts a backend that has never heard of what was just
+created. Where a claim needs one, it splits: `shared/schedules/` clicks through the whole
+journey on either backend, and `live/schedules.spec.ts` keeps the one thing only a real
+backend can answer — that the values survive a re-read, since everything short of that
+could be the form showing itself its own draft.
 
 It is laid out like `tests/`: one folder per resource holding one spec holding one test,
 titled for its folder, and app-wide specs (`dashboard`, `routing`) at the root.
