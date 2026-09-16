@@ -235,10 +235,10 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         headerBg: color.bgElevated,
         /*
          * The page's own foreground at a fifth opacity, not `border`, which is tuned
-         * to be quiet: measured, a hovered row moved 1.35:1 on the dark theme and
-         * landed at the same luminance as the pressed state, so pointing at a row and
-         * pressing it looked alike. Derived, so it lightens on dark and darkens on
-         * light without a value per mode.
+         * to be quiet: measured, a hovered row moved 1.35:1 from rest on the dark theme
+         * and sat within 1.11:1 of the pressed state, which separated the two by hue
+         * alone. Derived, so it lightens on dark and darkens on light without a value
+         * per mode.
          */
         rowHoverBg: `${color.text}33`,
       },
