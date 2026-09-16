@@ -66,7 +66,13 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	}); err != nil {
 		return nil, serviceerrors.NewInternal("Failed to read "+s.resource+" list", err)
 	}
-	slices.SortFunc(items, func(left, right T) int { return cmp.Compare(left.GetName(), right.GetName()) })
+	// Namespace and name are a total order, so a cluster-wide list cannot return equal items in an arbitrary order.
+	slices.SortFunc(items, func(left, right T) int {
+		return cmp.Or(
+			cmp.Compare(left.GetNamespace(), right.GetNamespace()),
+			cmp.Compare(left.GetName(), right.GetName()),
+		)
+	})
 	return items, nil
 }
 

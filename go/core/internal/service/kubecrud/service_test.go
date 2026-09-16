@@ -3,6 +3,7 @@ package kubecrud_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
@@ -222,6 +223,37 @@ func TestDeniedSingleResourceOperationsDoNotRevealExistence(t *testing.T) {
 					t.Fatalf("%s() denied the caller but read Kubernetes %d times", operation, kubeClient.gets)
 				}
 			})
+		}
+	}
+}
+
+// A cluster-wide list must order same-named objects deterministically.
+func TestListOrdersAcrossNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-b", Name: "default"}},
+		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "zebra"}},
+		&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}},
+	).Build()
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}}
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+	want := []string{"team-a/default", "team-a/zebra", "team-b/default"}
+	for attempt := range 20 {
+		listed, err := service.List(ctx, "")
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		got := make([]string, 0, len(listed))
+		for _, item := range listed {
+			got = append(got, item.Namespace+"/"+item.Name)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("List() attempt %d = %v, want %v", attempt, got, want)
 		}
 	}
 }

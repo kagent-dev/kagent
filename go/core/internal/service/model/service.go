@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -27,7 +26,6 @@ const modelConfigResource = "ModelConfig"
 type Service struct {
 	kubeClient             client.Client
 	modelConfigs           *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
-	authorizer             auth.CollectionAuthorizer
 	defaultNamespace       string
 	providerModelRefresher ProviderModelRefresher
 }
@@ -60,7 +58,6 @@ func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, 
 	service := &Service{
 		kubeClient:       kubeClient,
 		modelConfigs:     kubecrud.NewService(kubeClient, authorizer, &v1alpha3.ModelConfig{}, &v1alpha3.ModelConfigList{}, modelConfigResource),
-		authorizer:       authorizer,
 		defaultNamespace: defaultNamespace,
 	}
 	for _, option := range options {
@@ -147,10 +144,11 @@ func (s *Service) createOwnedSecrets(ctx context.Context, modelConfig *v1alpha3.
 	return secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, modelConfig, modelConfigGVK, request.Secrets)
 }
 
-// Update stays in this workflow because its Secret writes must happen after
-// authorization but before the retrying ModelConfig write.
+// Update keeps its own write because the owned Secrets must land between the
+// authorized read and the retrying ModelConfig write.
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.ModelConfig, error) {
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: modelConfigResource, Namespace: request.Ref.Namespace, Name: request.Ref.Name}); err != nil {
+	modelConfig, err := s.modelConfigs.GetForUpdate(ctx, request.Ref)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
@@ -158,14 +156,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
 		return nil, err
-	}
-
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, request.Ref, modelConfig); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
-		}
-		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
 	}
 
 	oldRefs := referencedSecretNames(modelConfig.Spec)
@@ -229,17 +219,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 
 func (s *Service) Delete(ctx context.Context, request DeleteRequest) error {
 	return s.modelConfigs.Delete(ctx, request.Ref)
-}
-
-func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
-	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session == nil {
-		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
-	}
-	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized", err)
-	}
-	return nil
 }
 
 func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1alpha3.ModelProvider) error {
