@@ -284,7 +284,7 @@ function withApiInterceptors(inner: Transport): Transport {
         return inner.unary(
           request.method as DescMethodUnary<I, O>,
           request.signal,
-          timeoutMs,
+          timeoutMs ?? REQUEST_TIMEOUT_MS,
           request.header,
           // Already a whole message, which is a valid init shape for the same
           // descriptor — the generic is just erased by the time we get here.
@@ -385,10 +385,6 @@ function liveTransport(): Transport {
 
   const transport = createGrpcWebTransport({
     baseUrl,
-    // A per-call deadline, set on the transport rather than in an interceptor: a
-    // connect request carries no `init` to attach one to, so the transport's own
-    // option is the only place it can go.
-    defaultTimeoutMs: REQUEST_TIMEOUT_MS,
   });
   cached = { baseUrl, transport };
   return transport;

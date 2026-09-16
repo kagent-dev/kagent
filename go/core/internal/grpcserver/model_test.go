@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -52,7 +53,7 @@ func TestModelServiceCRUD(t *testing.T) {
 	refresher := &recordingModelRefresher{}
 	service := modelservice.NewService(
 		kubeClient,
-		&authimpl.NoopAuthorizer{},
+		&pkgauth.NoopAuthorizer{},
 		"default",
 		modelservice.WithProviderModelRefresher(refresher),
 	)
@@ -138,7 +139,6 @@ func TestModelServiceCRUD(t *testing.T) {
 	if len(listed.GetModelConfigs()) != 1 {
 		t.Fatalf("ListModelConfigs() count = %d, want 1", len(listed.GetModelConfigs()))
 	}
-
 	_, err = client.DeleteModelConfig(ctx, &apiv1alpha1.DeleteModelConfigRequest{
 		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
 	})

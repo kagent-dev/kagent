@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
-		SystemService: systemservice.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, emptySystemATEClient{}),
+		SystemService: systemservice.NewService(kubeClient, nil, &pkgauth.NoopAuthorizer{}, emptySystemATEClient{}),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

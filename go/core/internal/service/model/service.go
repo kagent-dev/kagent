@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -20,9 +20,12 @@ import (
 
 var modelConfigGVK = v1alpha3.GroupVersion.WithKind("ModelConfig")
 
+// modelConfigResource names ModelConfig in authorization decisions.
+const modelConfigResource = "ModelConfig"
+
 type Service struct {
 	kubeClient             client.Client
-	authorizer             auth.Authorizer
+	modelConfigs           *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
 	defaultNamespace       string
 	providerModelRefresher ProviderModelRefresher
 }
@@ -51,10 +54,10 @@ type DeleteRequest struct {
 	Ref types.NamespacedName
 }
 
-func NewService(kubeClient client.Client, authorizer auth.Authorizer, defaultNamespace string, options ...ServiceOption) *Service {
+func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, defaultNamespace string, options ...ServiceOption) *Service {
 	service := &Service{
 		kubeClient:       kubeClient,
-		authorizer:       authorizer,
+		modelConfigs:     kubecrud.NewService(kubeClient, authorizer, &v1alpha3.ModelConfig{}, &v1alpha3.ModelConfigList{}, modelConfigResource),
 		defaultNamespace: defaultNamespace,
 	}
 	for _, option := range options {
@@ -64,30 +67,19 @@ func NewService(kubeClient client.Client, authorizer auth.Authorizer, defaultNam
 }
 
 func (s *Service) List(ctx context.Context, _ ListRequest) (*v1alpha3.ModelConfigList, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "ModelConfig"}); err != nil {
+	items, err := s.modelConfigs.List(ctx, "")
+	if err != nil {
 		return nil, err
 	}
-
-	modelConfigs := &v1alpha3.ModelConfigList{}
-	if err := s.kubeClient.List(ctx, modelConfigs); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to list ModelConfigs from Kubernetes", err)
+	result := &v1alpha3.ModelConfigList{Items: make([]v1alpha3.ModelConfig, len(items))}
+	for index, item := range items {
+		result.Items[index] = *item
 	}
-	return modelConfigs, nil
+	return result, nil
 }
 
 func (s *Service) Get(ctx context.Context, request GetRequest) (*v1alpha3.ModelConfig, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "ModelConfig", Name: request.Ref.String()}); err != nil {
-		return nil, err
-	}
-
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, request.Ref, modelConfig); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
-		}
-		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
-	}
-	return modelConfig, nil
+	return s.modelConfigs.Get(ctx, request.Ref)
 }
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.ModelConfig, error) {
@@ -96,22 +88,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 		return nil, serviceerrors.NewInvalidArgument("Invalid Ref", err)
 	}
 
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "ModelConfig", Name: ref.String()}); err != nil {
-		return nil, err
-	}
-
 	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
 		return nil, err
 	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
 		return nil, err
-	}
-
-	existingConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, ref, existingConfig); err == nil {
-		return nil, serviceerrors.NewAlreadyExists("ModelConfig already exists", nil)
-	} else if !apierrors.IsNotFound(err) {
-		return nil, serviceerrors.NewInternal("Failed to check if ModelConfig exists", err)
 	}
 
 	spec := request.Spec
@@ -127,25 +108,12 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 		},
 		Spec: spec,
 	}
-
-	if err := s.kubeClient.Create(ctx, modelConfig); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to create ModelConfig", err)
+	modelConfig, err = s.modelConfigs.Create(ctx, modelConfig)
+	if err != nil {
+		return nil, err
 	}
 
-	if request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
-		if err := secretmaterial.CreateOwnedOpaqueSecret(
-			ctx,
-			s.kubeClient,
-			modelConfig,
-			modelConfigGVK,
-			modelConfig.Name,
-			map[string]string{spec.APIKeySecretKey: request.APIKey},
-		); err != nil {
-			return nil, serviceerrors.NewInternal("Failed to create ModelConfig", err)
-		}
-	}
-
-	if err := secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, modelConfig, modelConfigGVK, request.Secrets); err != nil {
+	if err := s.createOwnedSecrets(ctx, modelConfig, request); err != nil {
 		if rollbackErr := secretmaterial.RollbackOwnerOnCreateFailure(ctx, s.kubeClient, modelConfig); rollbackErr != nil {
 			return nil, serviceerrors.NewInternal(
 				serviceerrors.MessageOf(err),
@@ -158,24 +126,36 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 	return modelConfig, nil
 }
 
+// createOwnedSecrets writes every Secret a new ModelConfig owns, so one failure rolls back the same way.
+func (s *Service) createOwnedSecrets(ctx context.Context, modelConfig *v1alpha3.ModelConfig, request CreateRequest) error {
+	spec := modelConfig.Spec
+	if request.APIKey != "" && spec.Provider != v1alpha3.ModelProviderOllama {
+		if err := secretmaterial.CreateOwnedOpaqueSecret(
+			ctx,
+			s.kubeClient,
+			modelConfig,
+			modelConfigGVK,
+			modelConfig.Name,
+			map[string]string{spec.APIKeySecretKey: request.APIKey},
+		); err != nil {
+			return serviceerrors.NewInternal("Failed to create API key secret", err)
+		}
+	}
+	return secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, modelConfig, modelConfigGVK, request.Secrets)
+}
+
+// Update keeps its own write because the owned Secrets must land between the
+// authorized read and the retrying ModelConfig write.
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.ModelConfig, error) {
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: "ModelConfig", Name: request.Ref.String()}); err != nil {
+	modelConfig, err := s.modelConfigs.GetForUpdate(ctx, request.Ref)
+	if err != nil {
 		return nil, err
 	}
-
 	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
 		return nil, err
 	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
 		return nil, err
-	}
-
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, request.Ref, modelConfig); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
-		}
-		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
 	}
 
 	oldRefs := referencedSecretNames(modelConfig.Spec)
@@ -237,34 +217,8 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 	return modelConfig, nil
 }
 
-func (s *Service) Delete(ctx context.Context, request DeleteRequest) (*v1alpha3.ModelConfig, error) {
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "ModelConfig", Name: request.Ref.String()}); err != nil {
-		return nil, err
-	}
-
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := s.kubeClient.Get(ctx, request.Ref, modelConfig); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
-		}
-		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
-	}
-
-	if err := s.kubeClient.Delete(ctx, modelConfig); err != nil {
-		return nil, serviceerrors.NewInternal("Failed to delete ModelConfig", err)
-	}
-	return modelConfig, nil
-}
-
-func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
-	session, ok := auth.AuthSessionFrom(ctx)
-	if !ok || session == nil {
-		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
-	}
-	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized", err)
-	}
-	return nil
+func (s *Service) Delete(ctx context.Context, request DeleteRequest) error {
+	return s.modelConfigs.Delete(ctx, request.Ref)
 }
 
 func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1alpha3.ModelProvider) error {

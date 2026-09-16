@@ -170,7 +170,7 @@ func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServer
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Invalid ToolServer metadata", err)
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "ToolServer", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "ToolServer", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return nil, err
 	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
@@ -196,7 +196,7 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 	if ref.Namespace == "" || ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("ToolServer namespace and name are required", nil)
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "ToolServer", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "ToolServer", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return err
 	}
 
@@ -311,7 +311,7 @@ func (s *Service) authorizeMCP(ctx context.Context, verb auth.Verb, ref MCPServe
 	if ref.Ref.Namespace == "" || ref.Ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("ToolServer namespace and name are required", nil)
 	}
-	return s.authorize(ctx, verb, auth.Resource{Type: "ToolServer", Name: ref.Ref.String()})
+	return s.authorize(ctx, verb, auth.Resource{Type: "ToolServer", Namespace: ref.Ref.Namespace, Name: ref.Ref.Name})
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -29,6 +30,10 @@ func (stubAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Res
 	return nil
 }
 
+func (stubAuthorizer) Scope(context.Context, auth.Principal, auth.Verb, string) (apiauthorization.AuthorizationScope, error) {
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, nil
+}
+
 func TestOptionsResolve(t *testing.T) {
 	consumerAuthn := stubAuthenticator{}
 	consumerAuthz := stubAuthorizer{}
@@ -37,19 +42,19 @@ func TestOptionsResolve(t *testing.T) {
 		name      string
 		opts      Options
 		wantAuthn auth.AuthProvider
-		wantAuthz auth.Authorizer
+		wantAuthz auth.CollectionAuthorizer
 	}{
 		{
 			name:      "both nil selects core defaults",
 			opts:      Options{},
 			wantAuthn: &authimpl.UnsecureAuthenticator{},
-			wantAuthz: &authimpl.NoopAuthorizer{},
+			wantAuthz: &auth.NoopAuthorizer{},
 		},
 		{
 			name:      "authenticator only leaves the default authorizer",
 			opts:      Options{Authenticator: consumerAuthn},
 			wantAuthn: consumerAuthn,
-			wantAuthz: &authimpl.NoopAuthorizer{},
+			wantAuthz: &auth.NoopAuthorizer{},
 		},
 		{
 			name:      "authorizer only leaves the default authenticator",

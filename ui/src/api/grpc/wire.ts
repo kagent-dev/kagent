@@ -77,7 +77,11 @@ export function wrap(
 ): { apiVersion: string; kind: string; value: JsonObject } {
   // `kind` must match what the handler expects exactly — `structuredobject.ToGo`
   // rejects a mismatch with `ErrKindMismatch` rather than ignoring it.
-  return { apiVersion, kind, value: value as JsonObject };
+  //
+  // The JSON round-trip drops keys whose value is `undefined`. protobuf-es turns
+  // such a key into a Struct entry with no kind set, which Go cannot unmarshal —
+  // it rejects the whole write as an invalid resource rather than naming a field.
+  return { apiVersion, kind, value: JSON.parse(JSON.stringify(value)) as JsonObject };
 }
 
 /**
