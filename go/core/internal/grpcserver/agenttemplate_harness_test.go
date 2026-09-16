@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -40,8 +41,8 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
-		AgentTemplateService: kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
-		HarnessService:       kubecrud.NewService(kubeClient, &authimpl.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
+		AgentTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
+		HarnessService:       kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -198,8 +199,13 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	_, err = client.ListAgentTemplates(ctx, &apiv1alpha1.ListAgentTemplatesRequest{})
-	assertCode(t, err, codes.InvalidArgument)
+	listed, err = client.ListAgentTemplates(ctx, &apiv1alpha1.ListAgentTemplatesRequest{})
+	if err != nil {
+		t.Fatalf("ListAgentTemplates() without namespace error = %v", err)
+	}
+	if len(listed.GetAgentTemplates()) != 2 {
+		t.Fatalf("ListAgentTemplates() without namespace count = %d, want 2", len(listed.GetAgentTemplates()))
+	}
 	_, err = client.GetAgentTemplate(ctx, &apiv1alpha1.GetAgentTemplateRequest{})
 	assertCode(t, err, codes.InvalidArgument)
 	_, err = client.GetAgentTemplate(ctx, &apiv1alpha1.GetAgentTemplateRequest{
@@ -272,8 +278,13 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	_, err = client.ListHarnesses(ctx, &apiv1alpha1.ListHarnessesRequest{})
-	assertCode(t, err, codes.InvalidArgument)
+	listed, err = client.ListHarnesses(ctx, &apiv1alpha1.ListHarnessesRequest{})
+	if err != nil {
+		t.Fatalf("ListHarnesses() without namespace error = %v", err)
+	}
+	if len(listed.GetHarnesses()) != 2 {
+		t.Fatalf("ListHarnesses() without namespace count = %d, want 2", len(listed.GetHarnesses()))
+	}
 	if _, err := client.DeleteHarness(ctx, &apiv1alpha1.DeleteHarnessRequest{Ref: ref}); err != nil {
 		t.Fatalf("DeleteHarness() error = %v", err)
 	}

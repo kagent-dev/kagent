@@ -8,6 +8,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -33,7 +34,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
-		SystemService: systemservice.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, nil, nil),
+		SystemService: systemservice.NewService(kubeClient, nil, &pkgauth.NoopAuthorizer{}, nil, nil),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -123,7 +123,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
 	t.Run("disabled does not read Kubernetes", func(t *testing.T) {
-		service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil)
+		service := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, nil, nil)
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
 		assert.False(t, result.Enabled)
@@ -162,7 +162,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 		revisions := &fakeRuntimeRevisionStore{harnesses: []database.ActorTemplateHarness{{
 			Atespace: "team", Name: "template", UID: "template-uid", HarnessName: "kagent",
 		}}}
-		service := system.NewService(kubeClient, nil, &authimpl.NoopAuthorizer{}, ateClient, revisions)
+		service := system.NewService(kubeClient, nil, &pkgAuth.NoopAuthorizer{}, ateClient, revisions)
 
 		result, err := service.GetSubstrateStatus(ctx, "team")
 		require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestGetSubstrateStatus(t *testing.T) {
 	})
 
 	t.Run("validates and authorizes", func(t *testing.T) {
-		service := system.NewService(nil, nil, &authimpl.NoopAuthorizer{}, nil, nil)
+		service := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, nil, nil)
 		_, err := service.GetSubstrateStatus(ctx, "INVALID_NAMESPACE")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), err)
 

@@ -19,7 +19,6 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -492,7 +491,7 @@ func (*fakeInstanceWorkflow) Delete(_ context.Context, instance *apiv1alpha1.Age
 }
 
 func testAgentInstanceService() *agentinstance.Service {
-	return agentinstance.NewService(&fakeInstanceStore{}, &authimpl.NoopAuthorizer{}, &fakeInstanceWorkflow{})
+	return agentinstance.NewService(&fakeInstanceStore{}, &auth.NoopAuthorizer{}, &fakeInstanceWorkflow{})
 }
 
 func testCheckpointService() *checkpoint.Service {

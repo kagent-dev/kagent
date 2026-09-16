@@ -4,11 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+
+	"github.com/kagent-dev/kagent/go/api/authorization"
 )
 
 type Verb string
 
 const (
+	VerbList   Verb = "list"
 	VerbGet    Verb = "get"
 	VerbCreate Verb = "create"
 	VerbUpdate Verb = "update"
@@ -16,8 +19,9 @@ const (
 )
 
 type Resource struct {
-	Name string
-	Type string
+	Type      string
+	Namespace string
+	Name      string
 }
 
 type User struct {
@@ -80,6 +84,24 @@ const (
 // Authz
 type Authorizer interface {
 	Check(ctx context.Context, principal Principal, verb Verb, resource Resource) error
+}
+
+type CollectionAuthorizer interface {
+	Authorizer
+	Scope(ctx context.Context, principal Principal, verb Verb, resourceType string) (authorization.AuthorizationScope, error)
+}
+
+// NoopAuthorizer permits every action and collection entry.
+type NoopAuthorizer struct{}
+
+var _ CollectionAuthorizer = NoopAuthorizer{}
+
+func (NoopAuthorizer) Check(context.Context, Principal, Verb, Resource) error {
+	return nil
+}
+
+func (NoopAuthorizer) Scope(context.Context, Principal, Verb, string) (authorization.AuthorizationScope, error) {
+	return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
 }
 
 // context utils
