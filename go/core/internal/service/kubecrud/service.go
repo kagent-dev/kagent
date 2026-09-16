@@ -75,14 +75,10 @@ func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, e
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	object, err := s.get(ctx, ref)
-	if err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbGet, object); err != nil {
-		return zero, err
-	}
-	return object, nil
+	return s.get(ctx, ref)
 }
 
 // Create persists an object already prepared by the resource-specific service.
@@ -95,7 +91,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	if err := s.validateNewRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, object); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, ref); err != nil {
 		return zero, err
 	}
 	if err := s.client.Create(ctx, object); err != nil {
@@ -111,20 +107,16 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	return object, nil
 }
 
-// GetForUpdate authorizes the stored object and returns it for modification.
+// GetForUpdate authorizes an update and loads the live object that owns metadata and status.
 func (s *Service[T, L]) GetForUpdate(ctx context.Context, ref types.NamespacedName) (T, error) {
 	var zero T
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	object, err := s.get(ctx, ref)
-	if err != nil {
+	if err := s.authorize(ctx, auth.VerbUpdate, ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, object); err != nil {
-		return zero, err
-	}
-	return object, nil
+	return s.get(ctx, ref)
 }
 
 // SaveUpdate persists an object returned by GetForUpdate after its spec is changed.
@@ -143,11 +135,11 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 	if err := s.validateRef(ref); err != nil {
 		return err
 	}
-	object, err := s.get(ctx, ref)
-	if err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, ref); err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, object); err != nil {
+	object, err := s.get(ctx, ref)
+	if err != nil {
 		return err
 	}
 	if err := s.client.Delete(ctx, object); err != nil {
@@ -180,13 +172,13 @@ func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, e
 	return object, nil
 }
 
-// authorize decides a single operation from the object's own metadata, never from a request reference.
-func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, object T) error {
+// authorize decides a single operation before any read, so a denial never depends on the object existing.
+func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, ref types.NamespacedName) error {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
 		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
-	resource := auth.Resource{Type: s.resource, Namespace: object.GetNamespace(), Name: object.GetName()}
+	resource := auth.Resource{Type: s.resource, Namespace: ref.Namespace, Name: ref.Name}
 	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized", err)
 	}

@@ -145,6 +145,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*v1alpha3.
 // Update stays in this workflow because its Secret writes must happen after
 // authorization but before the retrying ModelConfig write.
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.ModelConfig, error) {
+	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: modelConfigResource, Namespace: request.Ref.Namespace, Name: request.Ref.Name}); err != nil {
+		return nil, err
+	}
 	if err := validateAPIKeySecretRef(request.Spec.APIKeySecret, request.Spec.APIKeySecretKey, request.Spec.Provider); err != nil {
 		return nil, err
 	}
@@ -158,9 +161,6 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 			return nil, serviceerrors.NewNotFound("ModelConfig not found", err)
 		}
 		return nil, serviceerrors.NewInternal("Failed to get ModelConfig", err)
-	}
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: modelConfigResource, Namespace: modelConfig.Namespace, Name: modelConfig.Name}); err != nil {
-		return nil, err
 	}
 
 	oldRefs := referencedSecretNames(modelConfig.Spec)

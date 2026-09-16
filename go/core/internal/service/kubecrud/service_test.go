@@ -2,6 +2,7 @@ package kubecrud_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
@@ -12,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -31,11 +33,12 @@ type recordingAuthorizer struct {
 	scopeVerb  auth.Verb
 	scopeType  string
 	checkCalls []authorizationCall
+	checkErr   error
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
 	a.checkCalls = append(a.checkCalls, authorizationCall{verb: verb, resource: resource})
-	return nil
+	return a.checkErr
 }
 
 func (a *recordingAuthorizer) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
@@ -164,5 +167,61 @@ func TestServiceRejectsInvalidScope(t *testing.T) {
 	_, err := service.List(ctx, "team")
 	if err == nil || !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 		t.Fatalf("List() error = %v, want permission denied", err)
+	}
+}
+
+// readRecordingClient counts the reads that reach Kubernetes.
+type readRecordingClient struct {
+	client.Client
+	gets int
+}
+
+func (c *readRecordingClient) Get(ctx context.Context, key client.ObjectKey, object client.Object, options ...client.GetOption) error {
+	c.gets++
+	return c.Client.Get(ctx, key, object, options...)
+}
+
+// A denied caller must not be able to tell an existing object from a missing one.
+func TestDeniedSingleResourceOperationsDoNotRevealExistence(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	refs := map[string]types.NamespacedName{
+		"existing": {Namespace: "team", Name: "existing"},
+		"missing":  {Namespace: "team", Name: "missing"},
+	}
+	operations := map[string]func(*kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], context.Context, types.NamespacedName) error{
+		"Get": func(s *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], ctx context.Context, ref types.NamespacedName) error {
+			_, err := s.Get(ctx, ref)
+			return err
+		},
+		"GetForUpdate": func(s *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], ctx context.Context, ref types.NamespacedName) error {
+			_, err := s.GetForUpdate(ctx, ref)
+			return err
+		},
+		"Delete": func(s *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], ctx context.Context, ref types.NamespacedName) error {
+			return s.Delete(ctx, ref)
+		},
+	}
+	for operation, call := range operations {
+		for existence, ref := range refs {
+			t.Run(operation+"/"+existence, func(t *testing.T) {
+				kubeClient := &readRecordingClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+					&v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "existing"}},
+				).Build()}
+				authorizer := &recordingAuthorizer{checkErr: errors.New("denied")}
+				service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+				ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+				err := call(service, ctx, ref)
+				if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+					t.Fatalf("%s() error = %v, want permission denied", operation, err)
+				}
+				if kubeClient.gets != 0 {
+					t.Fatalf("%s() denied the caller but read Kubernetes %d times", operation, kubeClient.gets)
+				}
+			})
+		}
 	}
 }
