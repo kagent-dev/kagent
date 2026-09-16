@@ -13,4 +13,4 @@ COPY  uv.lock uv.lock
 
 RUN uv sync --locked --refresh
 
-CMD ["basic"]
+CMD ["kagent-adk", "run", "basic", "--working-dir", "/app/basic", "--host", "0.0.0.0"]
