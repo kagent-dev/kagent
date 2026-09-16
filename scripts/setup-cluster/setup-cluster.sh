@@ -9,7 +9,7 @@ set -euo pipefail
 
 # The repo this script lives in, so it works from any checkout and any directory.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SUBSTRATE_VERSION=0.0.30
+SUBSTRATE_VERSION=0.2.0-beta2
 cd "$REPO"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
@@ -35,7 +35,8 @@ helm upgrade --install substrate-crds \
 helm upgrade --install substrate \
   "oci://ghcr.io/kagent-dev/substrate/helm/substrate" --version "$SUBSTRATE_VERSION" \
   --namespace ate-system \
-  --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000'
+  --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
+  --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms'
 
 step "4/10  CA and JWT pools"
 kubectl create namespace podcertificate-controller-system --dry-run=client -o yaml | kubectl apply -f -

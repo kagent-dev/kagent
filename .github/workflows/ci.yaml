@@ -42,7 +42,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.0.30
+      SUBSTRATE_VERSION: 0.2.0-beta2
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
@@ -94,7 +94,9 @@ jobs:
           curl -fsSL -o kubectl-ate "https://github.com/kagent-dev/substrate/releases/download/v${SUBSTRATE_VERSION}/kubectl-ate-linux-amd64"
           chmod +x kubectl-ate
           helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
-          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000'
+          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system \
+            --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000' \
+            --set-string 'ateApi.extraArgs[0]=--template-resync-interval=250ms'
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
           ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
           ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system

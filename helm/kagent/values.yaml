@@ -720,6 +720,10 @@ kmcp:
 
 substrate:
   enabled: false
+  ateApi:
+    extraArgs:
+      # Minimum supported interval for discovering and reconciling actor templates.
+      - --template-resync-interval=250ms
 
 # ==============================================================================
 # BUILT-IN TOOLS
