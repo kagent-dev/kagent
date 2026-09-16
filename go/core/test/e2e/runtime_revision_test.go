@@ -26,6 +26,7 @@ import (
 // TestRuntimeRevisionLifecycle exercises actual Substrate runtimes through
 // invalid edits, template retirement, checkpoint retention, and later preparation.
 func TestRuntimeRevisionLifecycle(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := startInteractionMock(t)
 	templateName := createInteractionTemplate(t, modelURL)

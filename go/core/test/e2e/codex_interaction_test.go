@@ -32,6 +32,7 @@ const codexE2EHarness = "codex-e2e"
 var codexInteractionMocks embed.FS
 
 func TestE2ECodexMockInteractionResumeAndPersistence(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -63,6 +64,7 @@ func TestE2ECodexMockInteractionResumeAndPersistence(t *testing.T) {
 }
 
 func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_agent.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -139,6 +141,7 @@ func TestE2ECodexMockCheckpointForkAndResume(t *testing.T) {
 }
 
 func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_builtin_tools.json"))
 	template := createCodexMockTemplate(t, modelURL)
@@ -153,6 +156,7 @@ func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {
 }
 
 func TestE2ECodexMockWholeServerMCP(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	mcpURL, mcpMock := startMCPMock(t)
 
@@ -184,6 +188,7 @@ func TestE2ECodexMockWholeServerMCP(t *testing.T) {
 }
 
 func TestE2ECodexMockMCPToolApproval(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	mcpURL, _ := startMCPMock(t)
 

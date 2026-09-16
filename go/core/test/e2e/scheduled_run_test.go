@@ -33,6 +33,7 @@ import (
 )
 
 func TestScheduledRunCronAndManualExecution(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	f := newScheduledFixture(t, target, startInteractionMock(t), false, 2*time.Minute)
 	var first *apiv1alpha1.ScheduledRunExecution
@@ -87,9 +88,12 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 }
 
 func TestScheduledRunTimeout(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL, started := startBlockingInteractionMock(t)
-	f := newScheduledFixture(t, target, modelURL, true, time.Minute)
+	// Template preparation finishes before triggering; leave time for the new
+	// instance to reach the blocking model while exercising a real deadline.
+	f := newScheduledFixture(t, target, modelURL, true, 20*time.Second)
 	execution := f.trigger(t)
 	select {
 	case <-started:

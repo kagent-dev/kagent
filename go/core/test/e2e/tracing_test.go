@@ -19,6 +19,9 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/resource"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -62,6 +65,9 @@ type otlpTraceReceiver struct {
 // startOTLPTraceReceiver binds inside the go test process.
 func startOTLPTraceReceiver(t *testing.T) *otlpTraceReceiver {
 	t.Helper()
+	if suiteTraceReceiver != nil {
+		return suiteTraceReceiver
+	}
 	address := os.Getenv("KAGENT_E2E_OTLP_LISTEN_ADDRESS")
 	if address == "" {
 		address = ":14317"
@@ -70,18 +76,54 @@ func startOTLPTraceReceiver(t *testing.T) *otlpTraceReceiver {
 	if err != nil {
 		t.Fatalf("listen for OTLP traces on %s: %v", address, err)
 	}
+	receiver, stop := serveOTLPTraceReceiver(listener)
+	t.Cleanup(func() {
+		if err := stop(); err != nil {
+			t.Errorf("serve OTLP traces: %v", err)
+		}
+	})
+	return receiver
+}
+
+func serveOTLPTraceReceiver(listener net.Listener) (*otlpTraceReceiver, func() error) {
 	receiver := &otlpTraceReceiver{}
 	server := grpc.NewServer()
 	collectortrace.RegisterTraceServiceServer(server, receiver)
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
-	t.Cleanup(func() {
+	return receiver, func() error {
 		server.Stop()
 		if err := <-serveErr; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
-			t.Errorf("serve OTLP traces: %v", err)
+			return err
 		}
+		return nil
+	}
+}
+
+func TestOTLPTraceReceiverFlush(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	receiver, stop := serveOTLPTraceReceiver(listener)
+	t.Cleanup(func() { require.NoError(t, stop()) })
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://"+listener.Addr().String())
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
+	// Only an explicit flush can deliver the span during this test.
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
+	provider, err := tracing.NewTracerProvider(t.Context(), resource.Empty())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		require.NoError(t, provider.Shutdown(ctx))
 	})
-	return receiver
+	_, span := provider.Tracer("receiver-test").Start(t.Context(), "response")
+	span.End()
+	// A missing receiver would consume the runtime's three-second flush timeout.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	require.NoError(t, provider.ForceFlush(ctx))
+	traceID := span.SpanContext().TraceID()
+	require.Len(t, receiver.selectSpans(traceID[:], "", "receiver-test", "response", nil), 1)
 }
 
 func (r *otlpTraceReceiver) Export(_ context.Context, request *collectortrace.ExportTraceServiceRequest) (*collectortrace.ExportTraceServiceResponse, error) {
