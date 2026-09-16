@@ -54,7 +54,7 @@ func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
 	defer r.metrics.pending.Set(math.NaN())
 	ticker := time.NewTicker(runtimeRevisionGCInterval)
 	defer ticker.Stop()
-	for ctx.Err() == nil {
+	for {
 		r.sweep(ctx)
 		select {
 		case <-ctx.Done():
@@ -62,7 +62,6 @@ func (r *RuntimeRevisionGC) Start(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
-	return nil
 }
 
 func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
