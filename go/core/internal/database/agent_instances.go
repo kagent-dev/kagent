@@ -65,7 +65,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 	existing, err := readAgentInstanceRequest(ctx, c.db, request.GetCreator(), requestID)
 	if err == nil {
 		instance, err := toAgentInstance(existing)
-		if err == nil && !sameAgentInstanceRequest(instance, request) {
+		if err == nil && (existing.SourceCheckpointID != nil || !sameAgentInstanceRequest(instance, request)) {
 			return nil, false, ErrIdempotencyConflict
 		}
 		return instance, false, err
@@ -85,7 +85,7 @@ func (c *Client) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.A
 			return nil, false, fmt.Errorf("get concurrent AgentInstance request: %w", err)
 		}
 		instance, err := toAgentInstance(existing)
-		if err == nil && !sameAgentInstanceRequest(instance, request) {
+		if err == nil && (existing.SourceCheckpointID != nil || !sameAgentInstanceRequest(instance, request)) {
 			return nil, false, ErrIdempotencyConflict
 		}
 		return instance, false, err
@@ -241,7 +241,8 @@ func (c *Client) UpdateAgentInstanceName(ctx context.Context, id, userID, name s
 
 // TransitionAgentInstance changes lifecycle fields only if the stored state and operation
 // match the expected values. A mismatch, or a creating checkpoint when starting a new
-// operation, returns ErrConflict. Starting explicit Suspend also requires no active task.
+// operation, returns ErrConflict. An admitted lifecycle operation must instead finish
+// through FinishAgentInstanceOperation. Starting explicit Suspend requires no active task.
 // It preserves other instance fields; callers choose a valid transition and authorize it.
 func (c *Client) TransitionAgentInstance(
 	ctx context.Context,
@@ -261,6 +262,13 @@ func (c *Client) TransitionAgentInstance(
 		}
 		if result.State != expectedState || result.Operation != expectedOperation {
 			return fmt.Errorf("AgentInstance lifecycle state or operation changed: %w", ErrConflict)
+		}
+		pending, err := hasPendingInstanceOperation(ctx, tx, row.ID)
+		if err != nil {
+			return err
+		}
+		if pending {
+			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)
 		}
 		// Only lifecycle fields belong to this operation. Keep concurrent renames,
 		// immutable indexed fields and unknown protobuf fields from the locked row.
@@ -319,14 +327,26 @@ func (c *Client) TransitionAgentInstance(
 
 // DeleteAgentInstance removes an instance and its shares while retaining conversation
 // history and checkpoints. A missing instance is a no-op. Callers authorize deletion and
-// perform runtime cleanup separately.
+// perform runtime cleanup separately. An admitted lifecycle operation returns
+// ErrConflict; its owner must finish through FinishAgentInstanceOperation.
 func (c *Client) DeleteAgentInstance(ctx context.Context, id string) error {
-	if err := execSQL(ctx, c.db, `
-		DELETE FROM agent_instance WHERE id = $1
-	`, id); err != nil {
-		return fmt.Errorf("delete AgentInstance %s: %w", id, err)
-	}
-	return nil
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockAgentInstance(ctx, tx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("lock AgentInstance for deletion: %w", err)
+		}
+		pending, err := hasPendingInstanceOperation(ctx, tx, row.ID)
+		if err != nil {
+			return err
+		}
+		if pending {
+			return fmt.Errorf("AgentInstance has an admitted lifecycle operation: %w", ErrConflict)
+		}
+		return execSQL(ctx, tx, `DELETE FROM agent_instance WHERE id = $1`, row.ID)
+	})
 }
 
 type agentInstanceRow struct {

@@ -37,7 +37,7 @@ type store interface {
 }
 
 type workflow interface {
-	Fork(context.Context, *apiv1alpha1.AgentInstance, *database.AgentInstanceTaskSnapshot, string) (*apiv1alpha1.AgentInstance, error)
+	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 }
 
 type tagClient interface {
@@ -326,7 +326,7 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
 	}
-	instance, err = s.workflow.Fork(ctx, instance, snapshot, tagName(checkpointID))
+	instance, err = s.workflow.Create(ctx, instance)
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to create fork AgentInstance", err)
 	}

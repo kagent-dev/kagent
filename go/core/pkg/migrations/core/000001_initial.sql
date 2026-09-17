@@ -122,6 +122,33 @@ CREATE TABLE agent_instance (
 CREATE INDEX agent_instance_user_id_id_idx
     ON agent_instance (user_id, id);
 
+-- Outcomes outlive instance deletion. A missing FK is intentional: pending work
+-- pins the instance; completed work retains only the caller-visible result.
+CREATE TABLE agent_instance_operation (
+    id UUID PRIMARY KEY,
+    instance_id UUID NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('AGENT_INSTANCE_OPERATION_CREATE',
+        'AGENT_INSTANCE_OPERATION_SUSPEND', 'AGENT_INSTANCE_OPERATION_RESUME',
+        'AGENT_INSTANCE_OPERATION_DELETE')),
+    input BYTEA NOT NULL,
+    source_checkpoint_id UUID, -- Retained intent, not a resource pin after deletion.
+    executor_id UUID,
+    result BYTEA,
+    failure TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    completed_at TIMESTAMPTZ,
+    CHECK (result IS NULL OR executor_id IS NOT NULL),
+    CHECK (failure = '' OR executor_id IS NULL),
+    CHECK ((completed_at IS NULL AND result IS NULL AND failure = '')
+        OR (completed_at IS NOT NULL AND ((result IS NOT NULL AND failure = '')
+            OR (result IS NULL AND failure <> ''))))
+);
+CREATE UNIQUE INDEX agent_instance_operation_pending_idx
+    ON agent_instance_operation (instance_id) WHERE completed_at IS NULL;
+CREATE INDEX agent_instance_operation_history_idx
+    ON agent_instance_operation (instance_id, kind, created_at DESC, id DESC);
+
+
 CREATE TABLE agent_instance_share (
     id          UUID        PRIMARY KEY,
     instance_id UUID        NOT NULL REFERENCES agent_instance(id) ON DELETE CASCADE,
@@ -267,6 +294,7 @@ DROP VIEW unreferenced_runtime_revision;
 DROP TABLE agent_instance_share;
 DROP TABLE agent_instance_task_event;
 DROP TABLE agent_instance_task;
+DROP TABLE agent_instance_operation;
 DROP TABLE agent_instance;
 DROP TABLE agent_instance_checkpoint;
 DROP TABLE a2a_context;
