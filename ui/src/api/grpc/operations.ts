@@ -1,3 +1,5 @@
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
+import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
  *
@@ -30,15 +32,18 @@
  * nothing in the app calls them yet. Adding one is a new id here, not a new path
  * anywhere else.
  *
- * `CheckpointService` is not exposed in the UI yet. Adding it requires product
- * behavior for naming, listing, and restoring checkpoints, not another transport
- * mapping hidden in this file.
+ * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
+ * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
+ * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
+ * the chat reads boundaries from the list and nothing removes one yet.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
@@ -51,12 +56,13 @@ import {
 } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstanceShare as PbAgentInstanceShare } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
 import type { AgentInstance as PbAgentInstance } from "@/generated/kagent/api/v1alpha1/agent_instances_pb";
+import {
+  CheckpointService,
+  CheckpointState as PbCheckpointState,
+} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import type {
-  GetSubstrateStatusResponse,
-  SubstrateActor as PbSubstrateActor,
-  SubstrateActorTemplate as PbSubstrateActorTemplate,
-  SubstrateWorker as PbSubstrateWorker,
   SubstrateWorkerPool as PbSubstrateWorkerPool,
 } from "@/generated/kagent/api/v1alpha1/system_pb";
 import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
@@ -81,7 +87,6 @@ import type { PromptTemplateDetail, PromptTemplateSummary } from "../domain/prom
 import type {
   SubstrateActorEntry,
   SubstrateActorTemplateEntry,
-  SubstrateStatusResponse,
   SubstrateWorkerEntry,
   SubstrateWorkerPoolEntry,
 } from "../domain/substrate";
@@ -97,11 +102,13 @@ import type {
   AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
+import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
 import type {
   ApiOperations,
   OperationCallOptions,
   SubstratePageInput,
 } from "../operations";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { createContextValues } from "@connectrpc/connect";
 
 /**
@@ -568,6 +575,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
 function toAgentInstance(instance: PbAgentInstance): AgentInstance {
   return {
     id: instance.id,
+    contextId: instance.contextId,
     // Carried through as it arrives, empty included: empty means unnamed, which is
     // a state the controller writes deliberately and every row predating the column
     // is in. Turning it into `undefined` here would make every caller handle two
@@ -591,9 +599,6 @@ function toAgentInstance(instance: PbAgentInstance): AgentInstance {
       : undefined,
     createdAt: isoFrom(instance.createdAt),
     updatedAt: isoFrom(instance.updatedAt),
-    // `map<string, string>` is never absent in the generated type, but a
-    // hand-written fake can still omit it.
-    labels: instance.labels ?? {},
   };
 }
 
@@ -643,8 +648,38 @@ function toAgentInstanceShare(share: PbAgentInstanceShare): AgentInstanceShare {
   };
 }
 
+const CHECKPOINT_STATE_FROM_PB: Partial<Record<PbCheckpointState, CheckpointState>> = {
+  [PbCheckpointState.UNSPECIFIED]: "unspecified",
+  [PbCheckpointState.CREATING]: "creating",
+  [PbCheckpointState.READY]: "ready",
+  [PbCheckpointState.FAILED]: "failed",
+  [PbCheckpointState.DELETING]: "deleting",
+};
+
+/**
+ * One saved turn boundary.
+ *
+ * A state this build has not heard of becomes `unknown` rather than `ready`: the
+ * chat offers a fork from anything ready, and a newer controller adding a state must
+ * not have that read as an invitation.
+ */
+function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
+  return {
+    id: checkpoint.id,
+    agentInstanceId: checkpoint.agentInstanceId,
+    headTaskId: checkpoint.headTaskId,
+    state: CHECKPOINT_STATE_FROM_PB[checkpoint.state] ?? "unknown",
+    createdAt: isoFrom(checkpoint.createdAt),
+    failure: checkpoint.failure?.message || undefined,
+  };
+}
+
 const agentInstances: Pick<
   ApiOperations,
+  | "agentInstances.checkpoints.create"
+  | "agentInstances.checkpoints.list"
+  | "agentInstances.checkpoints.fork"
+  | "agentInstances.checkpoints.delete"
   | "agentInstances.shares.list"
   | "agentInstances.shares.create"
   | "agentInstances.shares.revoke"
@@ -652,6 +687,7 @@ const agentInstances: Pick<
   | "agentInstances.get"
   | "agentInstances.create"
   | "agentInstances.rename"
+  | "agentInstances.fork"
   | "agentInstances.delete"
   | "agentInstances.suspend"
   | "agentInstances.resume"
@@ -666,7 +702,16 @@ const agentInstances: Pick<
         serviceClient(AgentInstanceService).listAgentInstances(
           {
             allCreators: input.allCreators ?? false,
-
+            /*
+             * One agent's conversations, narrowed by the server.
+             *
+             * Both fields are optional and either may be given alone. The controller
+             * resolves them through `prepared_revision` to the pair the instance was
+             * built from, so they also select instances stored before the fields
+             * existed — and, more importantly, so the narrowing happens before the
+             * page is cut. Filtering a page after fetching it searches only what
+             * was fetched: a match on page nine reads as "no conversations".
+             */
             agentTemplate: input.agentTemplate,
             harness: input.harness,
             // No `limit`: the controller's own default (50) is a better answer than
@@ -741,6 +786,95 @@ const agentInstances: Pick<
       ),
     );
     return toAgentInstance(required(response.agentInstance, name, "renamed agent instance"));
+  },
+
+  /*
+   * The boundary a fork can start from, saved where the conversation stands now.
+   *
+   * Synchronous: the controller copies the runtime snapshot before it answers, so the
+   * reply is `ready` or `failed` and never `creating`. A state that is neither is
+   * raised here rather than handed on, because everything downstream of a checkpoint
+   * assumes it can be forked.
+   */
+  "agentInstances.checkpoints.create": async (input, options) => {
+    const name = "CheckpointService/CreateCheckpoint";
+    const created = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).createCheckpoint(
+        { agentInstanceId: input.id, requestId: input.requestId },
+        call("agentInstances.checkpoints.create", options),
+      ),
+    );
+    const checkpoint = toCheckpoint(required(created.checkpoint, name, "checkpoint"));
+    if (checkpoint.state !== "ready") {
+      throw new ApiError(checkpoint.failure || "The checkpoint did not become ready.", {
+        kind: "http",
+        url: name,
+        status: 500,
+      });
+    }
+    return checkpoint;
+  },
+
+  /*
+   * Newest first, because that is the order the chat needs them in and the controller
+   * does not promise one. One page: a conversation's boundaries are counted in
+   * handfuls, and paging a list this short would be machinery with nothing to do.
+   */
+  "agentInstances.checkpoints.list": async (input, options) => {
+    const name = "CheckpointService/ListCheckpoints";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).listCheckpoints(
+        { agentInstanceId: input.id },
+        call("agentInstances.checkpoints.list", options),
+      ),
+    );
+    return list(response.checkpoints)
+      .map(toCheckpoint)
+      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+  },
+
+  /*
+   * The fork of a boundary saved earlier, which is where the history it holds stops.
+   *
+   * Renaming is a second call because `ForkAgentInstance` takes no name — the fork
+   * inherits the source's, and a reader looking at two rows with the same title
+   * cannot tell which one they just made.
+   */
+  "agentInstances.checkpoints.fork": async (input, options) => {
+    const name = "CheckpointService/ForkAgentInstance";
+    const forked = await rpc(name, options.signal, () =>
+      serviceClient(CheckpointService).forkAgentInstance(
+        { checkpointId: input.checkpointId, requestId: input.requestId },
+        call("agentInstances.checkpoints.fork", options),
+      ),
+    );
+    const instance = toAgentInstance(required(forked.agentInstance, name, "forked agent instance"));
+    if (!input.name) return instance;
+    return agentInstances["agentInstances.rename"]({ id: instance.id, name: input.name }, options);
+  },
+
+  "agentInstances.checkpoints.delete": async (input, options) => {
+    await rpc("CheckpointService/DeleteCheckpoint", options.signal, () =>
+      serviceClient(CheckpointService).deleteCheckpoint(
+        { checkpointId: input.checkpointId },
+        call("agentInstances.checkpoints.delete", options),
+      ),
+    );
+  },
+
+  /*
+   * A checkpoint, then a fork of it. The same request id serves both calls, so a
+   * retry cannot leave a second checkpoint or a second fork behind.
+   */
+  "agentInstances.fork": async (input, options) => {
+    const checkpoint = await agentInstances["agentInstances.checkpoints.create"](
+      { id: input.id, requestId: input.requestId },
+      options,
+    );
+    return agentInstances["agentInstances.checkpoints.fork"](
+      { checkpointId: checkpoint.id, requestId: input.requestId, name: input.name },
+      options,
+    );
   },
 
   /*
@@ -1011,122 +1145,115 @@ const agentBuildingBlocks: Pick<
 
 // region Cluster
 
-function toSubstrateStatus(
-  response: GetSubstrateStatusResponse,
-): SubstrateStatusResponse {
-  return {
-    enabled: response.enabled,
-    // Empty means nothing went wrong. Left as `undefined` so a page can test the
-    // field rather than testing it for emptiness.
-    ateApiError: orUndefined(response.ateApiError),
-    workerPools: list(response.workerPools).map(toWorkerPoolEntry),
-    actorTemplates: list(response.actorTemplates).map(toActorTemplateEntry),
-    actors: list(response.actors).map(toActorEntry),
-    workers: list(response.workers).map(toWorkerEntry),
-  };
-}
-
-/** The four substrate row conversions, shared by the unpaged read and the paged ones. */
+/** Convert upstream inventory rows for the UI. */
 function toWorkerPoolEntry(pool: PbSubstrateWorkerPool): SubstrateWorkerPoolEntry {
+  const ref = required(pool.ref, "Substrate", "worker pool reference");
+  const resource = unwrap<{ spec: { replicas: number; workerImage: string } }>(
+    pool.resource, "Substrate", "worker pool resource",
+  );
+  const spec = required(resource.spec, "Substrate", "worker pool spec");
   return {
-    namespace: pool.namespace,
-    name: pool.name,
-    replicas: pool.replicas,
-    ateomImage: pool.ateomImage,
+    namespace: ref.namespace,
+    name: ref.name,
+    replicas: spec.replicas,
+    ateomImage: spec.workerImage,
   };
 }
 
 function toActorTemplateEntry(
-  template: PbSubstrateActorTemplate,
+  actorTemplate: PbActorTemplate,
 ): SubstrateActorTemplateEntry {
+  const metadata = required(
+    actorTemplate.metadata,
+    "Substrate",
+    "actor template metadata",
+  );
+  const golden = actorTemplate.status?.goldenSnapshotStatus;
   return {
-    namespace: template.namespace,
-    name: template.name,
-    phase: orUndefined(template.phase),
-    goldenActorId: orUndefined(template.goldenActorId),
-    goldenSnapshot: orUndefined(template.goldenSnapshot),
-    sandboxClass: orUndefined(template.sandboxClass),
-    workerSelector: orUndefined(template.workerSelector),
-    harnessName: orUndefined(template.harnessName),
+    atespace: metadata.atespace,
+    name: metadata.name,
+    phase: golden?.errorMessage
+      ? "Failed"
+      : golden?.goldenSnapshot ? "Ready" : "Pending",
+    goldenActorId: orUndefined(metadata.uid),
+    goldenSnapshot: orUndefined(golden?.goldenSnapshot?.snapshotUri),
+    sandboxClass:
+      SandboxClass[
+        actorTemplate.sandboxConfig?.sandboxClass ?? SandboxClass.UNSPECIFIED
+      ]?.toLowerCase(),
+    workerSelector: orUndefined(
+      Object.entries(actorTemplate.workerSelector?.matchLabels ?? {})
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, value]) => `${key}=${value}`)
+        .join(","),
+    ),
   };
 }
 
-function toActorEntry(actor: PbSubstrateActor): SubstrateActorEntry {
+// Display names for upstream actor states.
+const ACTOR_STATUS_LABELS: Record<ActorState, string> = {
+  [ActorState.UNSPECIFIED]: "Unknown",
+  [ActorState.RESUMING]: "Resuming",
+  [ActorState.RUNNING]: "Running",
+  [ActorState.SUSPENDING]: "Suspending",
+  [ActorState.SUSPENDED]: "Suspended",
+  [ActorState.PAUSING]: "Pausing",
+  [ActorState.PAUSED]: "Paused",
+  [ActorState.CRASHED]: "ACTOR_STATE_CRASHED",
+  [ActorState.DELETING]: "ACTOR_STATE_DELETING",
+};
+
+function toActorEntry(actor: PbActor): SubstrateActorEntry {
+  const metadata = required(actor.metadata, "Substrate", "actor metadata");
+  const state = actor.status?.state ?? ActorState.UNSPECIFIED;
+  const assignment = actor.status?.workerAssignment;
   return {
-    actorId: actor.actorId,
-    atespace: orUndefined(actor.atespace),
-    status: actor.status,
-    actorTemplateNamespace: orUndefined(actor.actorTemplateNamespace),
-    actorTemplateName: orUndefined(actor.actorTemplateName),
-    ateomPodNamespace: orUndefined(actor.ateomPodNamespace),
-    ateomPodName: orUndefined(actor.ateomPodName),
-    ateomPodIp: orUndefined(actor.ateomPodIp),
-    latestSnapshot: orUndefined(actor.latestSnapshot),
-    workerPoolName: orUndefined(actor.workerPoolName),
-    inProgressSnapshot: orUndefined(actor.inProgressSnapshot),
-    version: toNumber(actor.version),
+    actorId: metadata.name,
+    atespace: metadata.atespace,
+    status: ACTOR_STATUS_LABELS[state] ?? String(state),
+    actorTemplateAtespace: orUndefined(actor.actorTemplate?.atespace),
+    actorTemplateName: orUndefined(actor.actorTemplate?.name),
+    ateomPodNamespace: orUndefined(assignment?.workerNamespace),
+    ateomPodName: orUndefined(assignment?.workerPod),
+    ateomPodIp: orUndefined(assignment?.workerPodIp),
+    latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
+    workerPoolName: orUndefined(assignment?.workerPool),
+    inProgressSnapshot: orUndefined(actor.status?.inProgressSnapshotName),
+    version: toNumber(metadata.version),
   };
 }
 
-function toWorkerEntry(worker: PbSubstrateWorker): SubstrateWorkerEntry {
+function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
   return {
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    actorNamespace: orUndefined(worker.actorNamespace),
-    actorTemplate: orUndefined(worker.actorTemplate),
-    actorId: orUndefined(worker.actorId),
     ip: orUndefined(worker.ip),
-    version: toNumber(worker.version),
+    version: toNumber(worker.metadata?.version),
   };
 }
 
-async function substrateStatus(
-  namespace: string | undefined,
-  operation:
-    | "substrate.status"
-    | "substrate.summary"
-    | "substrate.actors"
-    | "substrate.workers",
-  options: OperationCallOptions,
-): Promise<SubstrateStatusResponse> {
-  const response = await rpc("SystemService/GetSubstrateStatus", options.signal, () =>
-    serviceClient(SystemService).getSubstrateStatus(
-      { namespace: namespace ?? "" },
-      call(operation, options),
-    ),
-  );
-  return toSubstrateStatus(response);
+function substratePageRequest(input: SubstratePageInput) {
+  return { page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" } };
 }
 
-function localPage<T>(
-  rows: T[],
-  input: SubstratePageInput<string>,
-  key: (row: T) => string,
-  text: (row: T) => string,
-) {
-  const needle = input.filter?.trim().toLowerCase();
-  const matching = needle
-    ? rows.filter((row) => text(row).toLowerCase().includes(needle))
-    : rows;
-  matching.sort((left, right) => {
-    const compared = key(left).localeCompare(key(right));
-    return input.sortOrder === "desc" ? -compared : compared;
-  });
-  const start = Number.parseInt(input.pageToken ?? "0", 10) || 0;
-  const limit = input.limit || 50;
-  const end = Math.min(start + limit, matching.length);
+function substratePageResult(response: {
+  ateApiError: string;
+  page?: { nextPageToken: string };
+  computedAt?: Timestamp;
+}) {
   return {
-    rows: matching.slice(start, end),
-    nextPageToken: end < matching.length ? String(end) : undefined,
-    totalSize: matching.length,
+    ateApiError: orUndefined(response.ateApiError),
+    // Absent rather than empty: a caller testing presence must not be handed `""`,
+    // which would send it back to page one for ever.
+    nextPageToken: orUndefined(response.page?.nextPageToken ?? ""),
+    computedAt: orUndefined(isoFrom(response.computedAt)),
   };
 }
 
 const cluster: Pick<
   ApiOperations,
   | "namespaces.list"
-  | "substrate.status"
   | "substrate.summary"
   | "substrate.actors"
   | "substrate.workers"
@@ -1141,105 +1268,55 @@ const cluster: Pick<
     }));
   },
 
-  "substrate.status": async (input, options) => {
-    return substrateStatus(input.namespace, "substrate.status", options);
-  },
-
   "substrate.summary": async (input, options) => {
-    const response = await substrateStatus(input.namespace, "substrate.summary", options);
-    const actorStatusCounts = new Map<string, number>();
-    for (const actor of response.actors) {
-      actorStatusCounts.set(actor.status, (actorStatusCounts.get(actor.status) ?? 0) + 1);
-    }
+    const response = await rpc("SystemService/GetSubstrateSummary", options.signal, () =>
+      serviceClient(SystemService).getSubstrateSummary(
+        input,
+        call("substrate.summary", options),
+      ),
+    );
     return {
-      enabled: response.enabled,
-      ateApiError: response.ateApiError,
-      workerPools: response.workerPools,
-      actorTemplates: response.actorTemplates,
-      actorCount: response.actors.length,
-      workerCount: response.workers.length,
-      runningActorCount: response.actors.filter(
-        (actor) => actor.status.toLowerCase() === "running",
-      ).length,
-      busyWorkerCount: response.workers.filter((worker) => Boolean(worker.actorId)).length,
-      actorStatusCounts: [...actorStatusCounts].map(([status, count]) => ({ status, count })),
+      ateApiError: orUndefined(response.ateApiError),
+      workerPools: list(response.workerPools).map(toWorkerPoolEntry),
+      actorTemplates: list(response.actorTemplates).map(toActorTemplateEntry),
+      actorCount: toNumber(response.actorCount) ?? 0,
+      workerCount: toNumber(response.workerCount) ?? 0,
+      runningActorCount: toNumber(response.runningActorCount) ?? 0,
+      busyWorkerCount: toNumber(response.busyWorkerCount) ?? 0,
+      actorStatusCounts: list(response.actorStatusCounts).map((entry) => ({
+        status: ACTOR_STATUS_LABELS[entry.state] ?? String(entry.state),
+        count: toNumber(entry.count) ?? 0,
+      })),
+      computedAt: orUndefined(isoFrom(response.computedAt)),
     };
   },
 
   "substrate.actors": async (input, options) => {
-    const response = await substrateStatus(input.namespace, "substrate.actors", options);
-    const sortField = input.sortField ?? "default";
-    const page = localPage(
-      response.actors,
-      input,
-      (actor) => {
-        if (sortField === "actorId") return actor.actorId;
-        if (sortField === "template") {
-          return `${actor.actorTemplateNamespace ?? ""}/${actor.actorTemplateName ?? ""}\0${actor.actorId}`;
-        }
-        if (sortField === "workerPod") {
-          return `${actor.ateomPodNamespace ?? ""}/${actor.ateomPodName ?? ""}\0${actor.actorId}`;
-        }
-        /*
-         * `status` and `default` are one branch because they are one ordering: the
-         * default *is* status then id, as the field's own type says. So the Status
-         * header changes nothing ascending and reverses the grouping descending, which
-         * is correct and not obvious — named here so that a change to the default order
-         * has to decide what Status means rather than quietly turning it into a no-op.
-         */
-        return `${actor.status}\0${actor.actorId}`;
-      },
-      (actor) =>
-        [
-          actor.actorId,
-          actor.status,
-          actor.actorTemplateNamespace,
-          actor.actorTemplateName,
-          actor.ateomPodNamespace,
-          actor.ateomPodName,
-          actor.ateomPodIp,
-        ].join(" "),
+    const response = await rpc("SystemService/ListSubstrateActors", options.signal, () =>
+      serviceClient(SystemService).listSubstrateActors(
+        { ...substratePageRequest(input), atespace: input.atespace },
+        call("substrate.actors", options),
+      ),
     );
     return {
-      actors: page.rows,
-      nextPageToken: page.nextPageToken,
-      totalSize: page.totalSize,
-      appliedSortField: sortField,
-      appliedSortOrder: input.sortOrder ?? "asc",
+      ...substratePageResult(response),
+      actors: list(response.actors).map(toActorEntry),
     };
   },
 
   "substrate.workers": async (input, options) => {
-    const response = await substrateStatus(input.namespace, "substrate.workers", options);
-    const sortField = input.sortField ?? "default";
-    const page = localPage(
-      response.workers,
-      input,
-      (worker) => {
-        const pod = `${worker.workerNamespace}/${worker.workerPod}`;
-        if (sortField === "pod") return pod;
-        if (sortField === "actor") return `${worker.actorId || "\uffff"}\0${pod}`;
-        // `pool` and `default` are one ordering for the reason the actors' `status` is:
-        // the default is pool then pod.
-        return `${worker.workerPool}\0${pod}`;
-      },
-      (worker) =>
-        [
-          worker.workerNamespace,
-          worker.workerPool,
-          worker.workerPod,
-          worker.actorNamespace,
-          worker.actorTemplate,
-          worker.actorId,
-          worker.ip,
-        ].join(" "),
+    const response = await rpc(
+      "SystemService/ListSubstrateWorkers",
+      options.signal,
+      () =>
+        serviceClient(SystemService).listSubstrateWorkers(
+          { ...substratePageRequest(input), namespace: input.namespace },
+          call("substrate.workers", options),
+        ),
     );
     return {
-      workers: page.rows,
-      nextPageToken: page.nextPageToken,
-      totalSize: page.totalSize,
-      appliedSortField: sortField,
-      appliedSortOrder: input.sortOrder ?? "asc",
+      ...substratePageResult(response),
+      workers: list(response.workers).map(toWorkerEntry),
     };
   },
 };
@@ -1267,4 +1344,32 @@ export const defaultOperations: ApiOperations = {
   ...prompts,
   ...agentInstances,
   ...cluster,
+  "scheduledRuns.list": async (input, options) => rpc("ListScheduledRuns", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).listScheduledRuns(input, call("scheduledRuns.list", options));
+    return { ...response, scheduledRuns: list(response.scheduledRuns) };
+  }),
+  "scheduledRuns.get": async (input, options) => rpc("GetScheduledRun", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).getScheduledRun(input, call("scheduledRuns.get", options));
+    return { ...response, scheduledRun: required(response.scheduledRun, "GetScheduledRun", "scheduledRun") };
+  }),
+  "scheduledRuns.create": async (input, options) => rpc("CreateScheduledRun", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).createScheduledRun(input, call("scheduledRuns.create", options));
+    return { ...response, scheduledRun: required(response.scheduledRun, "CreateScheduledRun", "scheduledRun") };
+  }),
+  "scheduledRuns.update": async (input, options) => rpc("UpdateScheduledRun", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).updateScheduledRun(input, call("scheduledRuns.update", options));
+    return { ...response, scheduledRun: required(response.scheduledRun, "UpdateScheduledRun", "scheduledRun") };
+  }),
+  "scheduledRuns.delete": async (input, options) => rpc("DeleteScheduledRun", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).deleteScheduledRun(input, call("scheduledRuns.delete", options));
+    return { ...response, scheduledRun: required(response.scheduledRun, "DeleteScheduledRun", "scheduledRun") };
+  }),
+  "scheduledRuns.trigger": async (input, options) => rpc("TriggerScheduledRun", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).triggerScheduledRun(input, call("scheduledRuns.trigger", options));
+    return { ...response, execution: required(response.execution, "TriggerScheduledRun", "execution") };
+  }),
+  "scheduledRuns.executions": async (input, options) => rpc("ListScheduledRunExecutions", options.signal, async () => {
+    const response = await serviceClient(ScheduledRunService).listScheduledRunExecutions(input, call("scheduledRuns.executions", options));
+    return { ...response, executions: list(response.executions) };
+  }),
 };

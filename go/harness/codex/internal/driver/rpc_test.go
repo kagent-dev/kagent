@@ -3,8 +3,11 @@ package driver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestRPCClientRejectsOversizedAndUnexpectedRequests(t *testing.T) {
@@ -38,6 +41,40 @@ func TestRPCClientAcceptsOmittedJSONRPCVersion(t *testing.T) {
 	}
 	if !bytes.Contains(result, []byte(`"name":"codex-app-server"`)) {
 		t.Fatalf("initialize result = %s", result)
+	}
+}
+
+func TestRPCClientPropagatesTraceContext(t *testing.T) {
+	traceID, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spanID, err := trace.SpanIDFromHex("0102030405060708")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := trace.ParseTraceState("vendor=value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := trace.ContextWithSpanContext(t.Context(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID, SpanID: spanID, TraceFlags: trace.FlagsSampled, TraceState: state,
+	}))
+	written := &bytes.Buffer{}
+	client := newRPCClient(
+		nopWriteCloser{Buffer: written},
+		strings.NewReader(`{"id":1,"result":{}}`+"\n"),
+		1024,
+	)
+	if _, err := client.call(ctx, 1, "turn/start", map[string]string{"threadId": "thread"}); err != nil {
+		t.Fatal(err)
+	}
+	var message rpcMessage
+	if err := json.Unmarshal(bytes.TrimSpace(written.Bytes()), &message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Trace == nil || message.Trace.Traceparent != "00-0102030405060708090a0b0c0d0e0f10-0102030405060708-01" || message.Trace.Tracestate != "vendor=value" {
+		t.Fatalf("trace carrier = %#v", message.Trace)
 	}
 }
 

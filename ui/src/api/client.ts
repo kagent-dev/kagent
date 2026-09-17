@@ -34,7 +34,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -44,9 +43,9 @@ import type {
   AgentTemplateResource,
 } from "./domain/agentTemplates";
 import type {
-  SubstrateActorSortField,
-  SubstratePageInput,
-  SubstrateWorkerSortField,
+  SubstrateActorPageInput,
+  SubstrateWorkerPageInput,
+  SubstrateScopeInput,
 } from "./operations";
 import type {
   AgentInstance,
@@ -54,6 +53,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
+import type { Checkpoint } from "./domain/checkpoints";
 
 /** Options every read method accepts, so callers can cancel in-flight work. */
 export interface ReadOptions {
@@ -106,24 +106,16 @@ export interface NamespacesApi {
 }
 
 export interface SubstrateApi {
-  /**
-   * The whole inventory in one read, optionally narrowed to one namespace.
-   *
-   * Does not survive a large cluster and is used by nothing on screen — see the
-   * operation's own note. `summary`, `actors` and `workers` are what the substrate
-   * page reads.
-   */
-  status(namespace?: string, options?: ReadOptions): Promise<SubstrateStatusResponse>;
   /** Counts and the two small lists. The only honest source of a total. */
-  summary(namespace?: string, options?: ReadOptions): Promise<SubstrateSummary>;
-  /** One page of actors, narrowed and ordered server-side. */
+  summary(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateSummary>;
+  /** One page of actors, ordered and narrowed server-side across the whole inventory. */
   actors(
-    input: SubstratePageInput<SubstrateActorSortField>,
+    input: SubstrateActorPageInput,
     options?: ReadOptions,
   ): Promise<SubstrateActorPage>;
-  /** One page of worker assignments, narrowed and ordered server-side. */
+  /** One page of workers. The mirror of `actors`. */
   workers(
-    input: SubstratePageInput<SubstrateWorkerSortField>,
+    input: SubstrateWorkerPageInput,
     options?: ReadOptions,
   ): Promise<SubstrateWorkerPage>;
 }
@@ -232,6 +224,29 @@ export interface AgentInstancesApi {
   rename(id: string, name: string): Promise<AgentInstance>;
 
   /**
+   * Forks a conversation into a new one that starts from its current state.
+   *
+   * The source must be idle between turns. Pass `name` to title the fork; the
+   * controller otherwise leaves it unnamed.
+   */
+  fork(id: string, name?: string): Promise<AgentInstance>;
+
+  /**
+   * The turn boundaries a fork can start from.
+   *
+   * `create` saves the conversation where it stands — there is no cutoff to pass, so
+   * a boundary further back is one that was saved while it was the latest. `fork`
+   * then starts a conversation holding the history up to whichever one is named.
+   */
+  checkpoints: {
+    list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
+    create(id: string): Promise<Checkpoint>;
+    fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+    /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
+    remove(checkpointId: string): Promise<void>;
+  };
+
+  /**
    * Deletes an instance, and with it the conversation held against it.
    *
    * The instance *is* the conversation, so this is not a tidy-up — it removes what
@@ -300,13 +315,11 @@ export function createApiClient(): KagentApiClient {
     },
 
     substrate: {
-      status: (namespace, options) =>
-        invoke("substrate.status", { namespace }, options),
-      summary: (namespace, options) =>
-        invoke("substrate.summary", { namespace }, options),
-      // Not sorted here, unlike every other list: the server orders these pages,
-      // and re-sorting a page would order it within itself while leaving it in the
-      // wrong place in the whole — which reads as a list that shuffles as you page.
+      summary: (scope = {}, options) =>
+        invoke("substrate.summary", scope, options),
+      // Not sorted here, unlike every other list: the server orders these pages across
+      // the whole inventory, and re-sorting a page would order it within itself while
+      // leaving it in the wrong place in the whole.
       actors: (input, options) => invoke("substrate.actors", input, options),
       workers: (input, options) => invoke("substrate.workers", input, options),
     },
@@ -346,6 +359,25 @@ export function createApiClient(): KagentApiClient {
       resume: (id) => invoke("agentInstances.resume", { id }),
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
+      fork: (id, name) =>
+        invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
+      checkpoints: {
+        list: (id, options) =>
+          invoke("agentInstances.checkpoints.list", { id }, options),
+        create: (id) =>
+          invoke("agentInstances.checkpoints.create", {
+            id,
+            requestId: crypto.randomUUID(),
+          }),
+        fork: (checkpointId, name) =>
+          invoke("agentInstances.checkpoints.fork", {
+            checkpointId,
+            requestId: crypto.randomUUID(),
+            name,
+          }),
+        remove: (checkpointId) =>
+          invoke("agentInstances.checkpoints.delete", { checkpointId }),
+      },
       shares: {
         list: (id, options) =>
           invoke("agentInstances.shares.list", { id }, options),

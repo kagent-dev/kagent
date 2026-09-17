@@ -15,10 +15,10 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -146,12 +146,60 @@ func TestTaskUpdateContinuesA2ATask(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateRejectsMissingInputResponse(t *testing.T) {
+	ref, err := encodeTaskReference(taskReference{InstanceID: testInstanceID, TaskID: testTaskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, messageID := range []string{"request-id", ""} {
+		t.Run("messageID="+messageID, func(t *testing.T) {
+			key := messageID
+			if key == "" {
+				key = testTaskID
+			}
+			for _, tt := range []struct {
+				name      string
+				responses mcp.InputResponseMap
+			}{
+				{name: "nil map"},
+				{name: "empty map", responses: mcp.InputResponseMap{}},
+				{name: "unexpected key", responses: mcp.InputResponseMap{
+					"not-a-real-key": &mcp.ElicitResult{Action: "accept", Content: map[string]any{"response": "PostgreSQL"}},
+				}},
+				{name: "nil response", responses: mcp.InputResponseMap{key: nil}},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					gateway := &fakeGateway{task: &a2atype.Task{
+						ID: testTaskID, ContextID: testInstanceID,
+						Status: a2atype.TaskStatus{
+							State: a2atype.TaskStateInputRequired, Message: &a2atype.Message{ID: messageID},
+						},
+					}}
+					h := &Handler{gateway: gateway}
+					result, err := h.updateTask(authContext(), nil, &updateTaskParams{
+						ParamsBase: taskParamsBase(), TaskID: ref, InputResponses: tt.responses,
+					})
+					rpcErr, ok := err.(*jsonrpc.Error)
+					if result != nil || !ok || rpcErr.Code != jsonrpc.CodeInvalidParams || !strings.Contains(rpcErr.Message, key) {
+						t.Fatalf("tasks/update = %#v, %v; want invalidParams naming %q", result, err, key)
+					}
+					gateway.mu.Lock()
+					defer gateway.mu.Unlock()
+					if gateway.replies != 0 || gateway.task.Status.State != a2atype.TaskStateInputRequired {
+						t.Fatalf("invalid response changed task: replies=%d, status=%s", gateway.replies, gateway.task.Status.State)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	status := adka2a.AttachHitlExtension(
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),
-		&adka2a.AskUserRequest{
+		&apia2a.AskUserRequest{
 			Type: adka2a.HITLTypeAskUserRequest, ID: "question-1",
-			Questions: []map[string]any{{"question": "Which database?", "choices": []string{"PostgreSQL", "MySQL"}}},
+			Questions: []apia2a.HITLQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
 		},
 	)
 	gateway := &fakeGateway{task: &a2atype.Task{
@@ -441,14 +489,14 @@ func (*fakeGateway) GetExtendedAgentCard(context.Context, *a2atype.GetExtendedAg
 type fakeInstanceStore struct{}
 
 func (*fakeInstanceStore) CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error) {
-	return nil, false, dbpkg.ErrNotFound
+	return nil, false, database.ErrNotFound
 }
 
 func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return nil, dbpkg.ErrNotFound
+	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
+func (*fakeInstanceStore) ListAgentInstances(context.Context, database.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	return []*apiv1alpha1.AgentInstance{{
 		Id: testInstanceID, State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 		AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"},
@@ -457,14 +505,14 @@ func (*fakeInstanceStore) ListAgentInstances(context.Context, dbpkg.AgentInstanc
 }
 
 func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return nil, dbpkg.ErrNotFound
+	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
-	return nil, dbpkg.ErrNotFound
+func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, *apiv1alpha1.AgentInstanceShare, []byte, string) (*apiv1alpha1.AgentInstanceShare, error) {
+	return nil, database.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]dbpkg.AgentInstanceShare, error) {
+func (*fakeInstanceStore) ListAgentInstanceShares(context.Context, string, string, string, int) ([]*apiv1alpha1.AgentInstanceShare, error) {
 	return nil, nil
 }
 
@@ -491,7 +539,7 @@ func (*fakeInstanceWorkflow) Delete(_ context.Context, instance *apiv1alpha1.Age
 }
 
 func testAgentInstanceService() *agentinstance.Service {
-	return agentinstance.NewService(&fakeInstanceStore{}, &authimpl.NoopAuthorizer{}, &fakeInstanceWorkflow{})
+	return agentinstance.NewService(&fakeInstanceStore{}, &auth.NoopAuthorizer{}, &fakeInstanceWorkflow{})
 }
 
 func testCheckpointService() *checkpoint.Service {

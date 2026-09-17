@@ -12,9 +12,10 @@ import (
 	"slices"
 	"strings"
 
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,8 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, v2translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
 	}
+	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 
 	providerEnvironment, egress, err := c.provider(ctx, model)
 	if err != nil {
@@ -57,7 +60,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if claudeconfig.OwnsEnvironment(variable.Name) {
+		if claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		envVar := corev1.EnvVar{Name: variable.Name}
@@ -70,10 +73,47 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
+	template, harness := input.Root.Template, input.Harness
 	environment = append(environment,
 		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
 		corev1.EnvVar{Name: claudeconfig.PreResponseTraceFlushEnvName, Value: "true"},
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 	)
+	environment = append(environment, telemetryConfig.TraceEnvironment()...)
+	environment = append(environment, telemetryConfig.LogEnvironment()...)
+	if traceConfig.Enabled || logConfig.Enabled {
+		tracesExporter := "none"
+		if traceConfig.Enabled {
+			tracesExporter = "otlp"
+		}
+		logsExporter := "none"
+		if logConfig.Enabled {
+			logsExporter = "otlp"
+		}
+		environment = append(environment,
+			corev1.EnvVar{Name: "CLAUDE_CODE_ENABLE_TELEMETRY", Value: "1"},
+			corev1.EnvVar{Name: "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", Value: "1"},
+			corev1.EnvVar{Name: "OTEL_TRACES_EXPORTER", Value: tracesExporter},
+			corev1.EnvVar{Name: "OTEL_METRICS_EXPORTER", Value: "none"},
+			corev1.EnvVar{Name: "OTEL_LOGS_EXPORTER", Value: logsExporter},
+		)
+		if telemetryConfig.CaptureSensitiveContent {
+			environment = append(environment,
+				corev1.EnvVar{Name: "OTEL_LOG_USER_PROMPTS", Value: "1"},
+				corev1.EnvVar{Name: "OTEL_LOG_TOOL_DETAILS", Value: "1"},
+			)
+			if traceConfig.Enabled {
+				environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_TOOL_CONTENT", Value: "1"})
+			}
+			if logConfig.Enabled {
+				environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_ASSISTANT_RESPONSES", Value: "1"})
+			}
+		}
+		if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
+			environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
+		}
+	}
 
 	localAgents, err := c.compileLocalAgents(input.Root)
 	if err != nil {
@@ -92,9 +132,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("marshal Claude config: %w", err)
 	}
-	cardJSON, err := json.Marshal(agentTemplateCard(input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.Root.Template))
 	if err != nil {
-		return nil, fmt.Errorf("marshal Claude agent card: %w", err)
+		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}
 	provenance, err := c.buildProvenance(ctx, input, environment)
 	if err != nil {
@@ -107,14 +147,19 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
+	if traceConfig.Enabled {
+		egress = append(egress, traceConfig.Hostname)
+	}
+	if logConfig.Enabled {
+		egress = append(egress, logConfig.Hostname)
+	}
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
-	template, harness := input.Root.Template, input.Harness
 	return &v2translator.CompileResult{
 		Revision: v2translator.Revision{
 			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 			Image: harness.Spec.Workload.Image, Environment: environment,
-			ConfigJSON: configJSON, AgentCardJSON: cardJSON,
+			ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Provenance:       provenance, EgressDestinations: egress,
@@ -442,15 +487,6 @@ func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, env
 		resolved[i].Value, resolved[i].ValueFrom = string(value), nil
 	}
 	return resolved, nil
-}
-
-func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
-	return &a2atype.AgentCard{
-		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
-		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
-		Capabilities:        a2atype.AgentCapabilities{Streaming: true}, Skills: []a2atype.AgentSkill{},
-		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
-	}
 }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)

@@ -1,3 +1,5 @@
+import type { Client } from "@connectrpc/connect";
+import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * Every call the UI knows how to make, behind a stable id.
  *
@@ -52,7 +54,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -62,6 +63,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
+import type { Checkpoint } from "./domain/checkpoints";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
@@ -82,45 +84,26 @@ export interface AgentInstanceRef {
   id: string;
 }
 
-/** Which direction a paged substrate read is sorted in. */
-export type SubstrateSortOrder = "asc" | "desc";
-
-/** The columns `substrate.actors` can order by. */
-export type SubstrateActorSortField =
-  /** Groups by status and orders by id within each group. The default. */
-  | "default"
-  | "status"
-  | "actorId"
-  | "template"
-  | "workerPod";
-
-/** The columns `substrate.workers` can order by. */
-export type SubstrateWorkerSortField =
-  /** Groups by pool and orders by pod within each group. The default. */
-  | "default"
-  | "pool"
-  | "pod"
-  | "actor";
-
-/** What a paged, filtered substrate read takes. */
-export interface SubstratePageInput<Sort = string> {
-  namespace?: string;
-  /** Matched server-side against the fields the row displays. Empty matches everything. */
-  filter?: string;
-  /** Rows per page. The controller refuses anything over 100 rather than clamping. */
+/** One page in Substrate's native order. */
+export interface SubstratePageInput {
+  /** Requested rows per upstream page; the returned page may be shorter. */
   limit?: number;
-  /** Empty for the first page; otherwise the previous response's `nextPageToken`. */
+  /** Opaque upstream token; omitted for the first page. */
   pageToken?: string;
-  /**
-   * Which column to order by, and in which direction.
-   *
-   * Sent rather than applied here, for the same reason the filter is: the rows are
-   * one page of hundreds of thousands, so ordering them locally reorders the page
-   * rather than the result — which looks like sorting and is not.
-   */
-  sortField?: Sort;
-  sortOrder?: SubstrateSortOrder;
 }
+
+export interface SubstrateScopeInput {
+  namespace?: string;
+  atespace?: string;
+}
+
+export type SubstrateActorPageInput = SubstratePageInput & { atespace?: string };
+export type SubstrateWorkerPageInput = SubstratePageInput & { namespace?: string };
+
+type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
+  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
+  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
+};
 
 /**
  * The input and output of every operation, keyed by id.
@@ -130,6 +113,13 @@ export interface SubstratePageInput<Sort = string> {
  * positional signature cannot be inspected by any of them.
  */
 export interface OperationMap {
+  "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
+  "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
+  "scheduledRuns.create": ScheduledRunRpc<"createScheduledRun">;
+  "scheduledRuns.update": ScheduledRunRpc<"updateScheduledRun">;
+  "scheduledRuns.delete": ScheduledRunRpc<"deleteScheduledRun">;
+  "scheduledRuns.trigger": ScheduledRunRpc<"triggerScheduledRun">;
+  "scheduledRuns.executions": ScheduledRunRpc<"listScheduledRunExecutions">;
   "models.list": { input: NoInput; output: ModelConfig[] };
   "models.get": { input: ResourceRefInput; output: ModelConfig };
   "models.create": { input: { payload: CreateModelConfigRequest }; output: ModelConfig };
@@ -207,6 +197,61 @@ export interface OperationMap {
   };
 
   /**
+   * Forks a conversation: a new instance that starts from where this one is now.
+   *
+   * Two controller calls, not one: a checkpoint of the source at its current turn
+   * boundary, then a fork of that checkpoint. The source has to be quiescent, so a
+   * conversation mid-turn is refused with `FailedPrecondition`. The fork comes back
+   * unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.fork": {
+    input: AgentInstanceRef & { requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
+  /**
+   * Saves the conversation's current turn boundary, so a fork can start from it later.
+   *
+   * The controller has no cutoff to offer: what is saved is wherever the conversation
+   * stands now. A conversation mid-turn has no boundary to save and is refused with
+   * `FailedPrecondition`.
+   */
+  "agentInstances.checkpoints.create": {
+    input: AgentInstanceRef & { requestId: string };
+    output: Checkpoint;
+  };
+
+  /** Every boundary saved against this conversation, newest first. */
+  "agentInstances.checkpoints.list": {
+    input: AgentInstanceRef;
+    output: Checkpoint[];
+  };
+
+  /**
+   * Removes a saved boundary, and with it the snapshot it was holding.
+   *
+   * A checkpoint pins a copy of the conversation's runtime in the substrate — that is
+   * what makes forking one possible — so this is the only thing that gives that space
+   * back. Forks already made from it are unaffected: they own their own copy.
+   */
+  "agentInstances.checkpoints.delete": {
+    input: { checkpointId: string };
+    output: void;
+  };
+
+  /**
+   * Forks a saved boundary: a new conversation holding the transcript up to it.
+   *
+   * Unlike `agentInstances.fork` this starts from a boundary saved earlier, so the
+   * fork's history stops there rather than at the source's latest turn. The fork
+   * comes back unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.checkpoints.fork": {
+    input: { checkpointId: string; requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
+  /**
    * Deletes an instance.
    *
    * Irreversible, and it takes the conversation with it: the instance *is* the
@@ -275,19 +320,6 @@ export interface OperationMap {
 
   "namespaces.list": { input: NoInput; output: NamespaceResponse[] };
   /**
-   * The whole substrate inventory in one read.
-   *
-   * Kept for the small clusters where it still works, and used by nothing on
-   * screen: it does not survive a real one. A deployment reporting 103,134 actors
-   * answers with a message gRPC refuses to send — 43MB against a 16MB ceiling — so
-   * the page that depended on it could not load at all. The three operations below
-   * replaced it, and raising the ceiling would only move the number.
-   */
-  "substrate.status": {
-    input: { namespace?: string };
-    output: SubstrateStatusResponse;
-  };
-  /**
    * Counts, and the two lists small enough to travel whole.
    *
    * The only honest source of a total on the substrate page: every other read
@@ -295,23 +327,24 @@ export interface OperationMap {
    * "20 actors" for a cluster running a hundred thousand.
    */
   "substrate.summary": {
-    input: { namespace?: string };
+    input: SubstrateScopeInput;
     output: SubstrateSummary;
   };
   /**
-   * One page of actors, narrowed server-side.
+   * One page of actors, ordered and narrowed across the whole inventory.
    *
-   * The filter is sent rather than applied here, because filtering a page that has
-   * already been fetched searches only what was fetched — a match on page nine
-   * reads on screen as "no matches".
+   * ate-api offers paging and nothing else, so the controller reads every one of its
+   * pages to apply the order and the filter before cutting this one. That costs a walk
+   * of the inventory per request, and it is what makes the order and the filter mean
+   * the cluster rather than the hundred rows in front of the reader.
    */
   "substrate.actors": {
-    input: SubstratePageInput<SubstrateActorSortField>;
+    input: SubstrateActorPageInput;
     output: SubstrateActorPage;
   };
   /** One page of worker assignments. The mirror of `substrate.actors`. */
   "substrate.workers": {
-    input: SubstratePageInput<SubstrateWorkerSortField>;
+    input: SubstrateWorkerPageInput;
     output: SubstrateWorkerPage;
   };
 }

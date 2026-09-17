@@ -3,6 +3,11 @@ package translator
 import (
 	"strings"
 	"testing"
+
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRevisionDigestIncludesProvenance(t *testing.T) {
@@ -57,4 +62,29 @@ func TestRevisionDigestIncludesCommand(t *testing.T) {
 	if first == second {
 		t.Fatal("command change did not change runtime revision")
 	}
+}
+
+func TestRevisionDigestIncludesBinaryAgentCard(t *testing.T) {
+	card := &a2apb.AgentCard{Name: "assistant"}
+	revision := &Revision{AgentCard: card}
+	first, err := revision.Digest()
+	require.NoError(t, err)
+	card.Name = "changed"
+	second, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, first, second)
+	card.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
+	third, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, second, third)
+	data, err := proto.Marshal(card)
+	require.NoError(t, err)
+	revision.AgentCard = &a2apb.AgentCard{}
+	require.NoError(t, proto.Unmarshal(data, revision.AgentCard))
+	roundTrip, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, third, roundTrip)
+	revision.AgentCard.Name = string([]byte{0xff})
+	_, err = revision.Digest()
+	require.Error(t, err)
 }

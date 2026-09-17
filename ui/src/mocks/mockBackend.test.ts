@@ -21,6 +21,7 @@ import type { OperationId, OperationInput } from "@/api/operations";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
 import { MOCK_INSTANCE_CREATOR } from "./fixtures";
+import { DISPOSABLE_CHECKPOINT, SEEDED_CHECKPOINT } from "./state";
 
 beforeAll(() => setApiTransport(mockTransport));
 afterAll(() => setApiTransport(undefined));
@@ -42,6 +43,13 @@ afterEach(() => clearApiExtensions());
  * the whole surface.
  */
 const INPUTS = {
+  "scheduledRuns.list": {},
+  "scheduledRuns.get": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
+  "scheduledRuns.create": { requestId: "sweep-schedule", harness: { namespace: "kagent", name: "k8s-agent" }, agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.update": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000002", etag: "d686bd1d-9124-4e96-8df7-000000000002", config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.delete": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000003" },
+  "scheduledRuns.trigger": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001", requestId: "sweep-trigger" },
+  "scheduledRuns.executions": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
   "models.list": {},
   "models.get": { namespace: "kagent", name: "default-model-config" },
   "models.create": {
@@ -188,8 +196,32 @@ const INPUTS = {
     name: "Renamed by the fixture suite",
   },
 
+  // Forking reads the source and writes a new row, so it races nothing above.
+  "agentInstances.fork": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-fork",
+    name: "Forked by the fixture suite",
+  },
+
+  /*
+   * The seeded boundary, so forking one has something to fork without ordering this
+   * suite: every operation here runs concurrently and none may depend on another.
+   */
+  "agentInstances.checkpoints.create": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-checkpoint",
+  },
+  "agentInstances.checkpoints.list": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
+  "agentInstances.checkpoints.fork": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    requestId: "fixture-suite-checkpoint-fork",
+    name: "Forked from a checkpoint by the fixture suite",
+  },
+
+  // The disposable boundary: deleting the seeded one would race the fork case above.
+  "agentInstances.checkpoints.delete": { checkpointId: DISPOSABLE_CHECKPOINT.id },
+
   "namespaces.list": {},
-  "substrate.status": {},
   "substrate.summary": {},
   "substrate.actors": {},
   "substrate.workers": {},
@@ -218,6 +250,33 @@ describe("the fixture backend", () => {
     );
 
     expect(failures.filter(Boolean)).toEqual([]);
+  });
+
+  it("serves upstream substrate messages through the UI conversions", async () => {
+    const [summary, page] = await Promise.all([
+      invoke("substrate.summary", {}),
+      invoke("substrate.actors", {}),
+    ]);
+    expect(summary.actorTemplates[0]).toMatchObject({
+      name: "coder-template",
+      phase: "Ready",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=default-pool",
+    });
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
+      atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
+    });
+    expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
+  });
+
+  it("preserves continuation through a worker page with no namespace matches", async () => {
+    const first = await invoke("substrate.workers", { namespace: "platform", limit: 1 });
+    expect(first.workers).toEqual([]);
+    expect(first.nextPageToken).toBeDefined();
+    const last = await invoke("substrate.workers", { namespace: "platform", limit: 1, pageToken: first.nextPageToken });
+    expect(last.workers).toEqual([]);
+    expect(last.nextPageToken).toBeUndefined();
   });
 
   /*

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Plus } from "lucide-react";
@@ -11,12 +11,14 @@ import { paths } from "@/router/routes";
 import {
   apiClient,
   parseRef,
+  useInvalidateMcpServers,
   useMcpServers,
   useTools,
   type DiscoveredTool,
   type ToolServerResponse,
 } from "@/api";
 import { RefreshButton } from "@/components/table/RefreshButton";
+import { clickableRow, useExpandedRows } from "@/components/table/rowClick";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import {
@@ -94,24 +96,7 @@ function filterServers(
  */
 export function McpServersPage() {
   const theme = useTheme();
-  /**
-   * Which servers are unfolded.
-   *
-   * Held here because the table cannot be told "expand on a row click, except on the
-   * controls" — `expandRowByClick` has no notion of a click it should ignore. Driving it
-   * from this page is what lets the guard below decide.
-   *
-   * Deliberately *not* in the URL, unlike the filters: which rows are unfolded is a
-   * position in a reading session rather than a description of what is being looked
-   * at, and a link that reopened somebody else's expanded rows would be odd.
-   */
-  const [expandedRefs, setExpandedRefs] = useState<string[]>([]);
-
-  function toggleExpanded(ref: string, open: boolean) {
-    setExpandedRefs((current) =>
-      open ? [...current, ref] : current.filter((candidate) => candidate !== ref),
-    );
-  }
+  const expanded = useExpandedRows();
   const { data, isLoading, error, isEmpty, refresh } = useMcpServers();
   // `/tools` is the registry agents actually bind against; `discoveredTools` is
   // what each server reported at its last handshake. They normally agree, and
@@ -119,6 +104,9 @@ export function McpServersPage() {
   // shown only when the two disagree, which is the case worth noticing. A
   // failure here is deliberately not fatal: the list is still worth reading.
   const tools = useTools();
+  // Swept rather than `refresh()`: the registry count beside the rows is a second read,
+  // so refreshing the list alone leaves it counting a deregistered server's tools.
+  const invalidateServers = useInvalidateMcpServers();
   const view = useListView(FILTER_IDS);
 
   const servers = useMemo(() => data ?? [], [data]);
@@ -242,13 +230,13 @@ export function McpServersPage() {
               kind="tool server"
               name={name}
               onDelete={() => apiClient.mcpServers.remove(namespace, name)}
-              onDeleted={refresh}
+              onDeleted={invalidateServers}
             />
           );
         },
       },
     ],
-    [theme, view, isFiltering, refresh],
+    [theme, view, isFiltering, invalidateServers],
   );
 
   const toolTotal = servers.reduce(
@@ -273,7 +261,7 @@ export function McpServersPage() {
               icon={<Plus size={14} />}
               data-testid="mcp-servers-new"
             >
-              Add server
+              New Server
             </Button>
           </Link>
         </Space>
@@ -357,35 +345,12 @@ export function McpServersPage() {
                 highlight={view.query}
               />
             ),
-            /*
-             * Expansion is driven by this page rather than by the table, so a click on
-             * something that *is* separately clickable does not also expand the row.
-             *
-             * `expandRowByClick` treats every click anywhere on the row as an expand,
-             * including the delete button — so asking to delete a server also unfolded
-             * its tools behind the confirmation, and answering "Keep" left the reader
-             * looking at a row they never opened. The click guard below is the same one
-             * the agents table uses, and it is the reason this has to be controlled.
-             */
-            expandedRowKeys: expandedRefs,
-            onExpand: (open, row) => toggleExpanded(row.server.ref, open),
+            // Controlled rather than `expandRowByClick`, so `clickableRow` can keep a
+            // click on the delete button from also unfolding the row's tools.
+            expandedRowKeys: expanded.keys,
+            onExpand: (open, row) => expanded.set(row.server.ref, open),
           }}
-          onRow={(row) => ({
-            className: "clickable-table-row",
-            onClick: (event) => {
-              // Anything interactive handles its own click: the delete button, its
-              // confirmation, and whatever a contributed column adds later. One rule
-              // rather than a stopPropagation per control.
-              if (
-                (event.target as HTMLElement).closest(
-                  "a, button, input, [role='button'], .ant-popover, .ant-dropdown",
-                )
-              ) {
-                return;
-              }
-              toggleExpanded(row.server.ref, !expandedRefs.includes(row.server.ref));
-            },
-          })}
+          onRow={(row) => clickableRow(() => expanded.toggle(row.server.ref))}
           locale={{
             emptyText: isEmpty
               ? "No MCP servers yet."

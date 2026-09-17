@@ -165,7 +165,7 @@ spec:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
               protocol: TCP
-            {{- if .Values.controller.metrics.enabled }}
+            {{- if include "kagent.controller.metricsEnabled" . }}
             - name: metrics
               containerPort: {{ include "kagent.controller.metricsPort" . | int }}
               protocol: TCP

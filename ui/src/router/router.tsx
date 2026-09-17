@@ -1,3 +1,6 @@
+import { ScheduledRunsPage, ScheduledRunPage } from "@/pages/ScheduledRunsPage";
+import { ScheduledRunNewPage } from "@/pages/ScheduledRunNewPage";
+import { ScheduledRunEditPage } from "@/pages/ScheduledRunEditPage";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
@@ -82,6 +85,12 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "promptNew", path: paths.promptNew, element: <PromptNewPage /> },
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },
   { key: "promptEdit", path: paths.promptEdit, element: <PromptEditPage /> },
+  { key: "scheduledRuns", path: paths.scheduledRuns, element: <ScheduledRunsPage /> },
+  { key: "scheduledRunNew", path: paths.scheduledRunNew, element: <ScheduledRunNewPage /> },
+  /* `/schedules/new` outranks this pattern on specificity, not on position, so the
+     order here is only for reading. */
+  { key: "scheduledRun", path: paths.scheduledRun, element: <ScheduledRunPage /> },
+  { key: "scheduledRunEdit", path: paths.scheduledRunEdit, element: <ScheduledRunEditPage /> },
   { key: "substrate", path: paths.substrate, element: <SubstratePage /> },
   { key: "appDetail", path: paths.appDetail, element: <AppDetailPage /> },
   { key: "sharedAgent", path: paths.sharedAgent, element: <SharedAgentPage /> },

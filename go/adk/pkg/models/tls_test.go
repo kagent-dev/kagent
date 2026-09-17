@@ -145,13 +145,18 @@ func TestBuildHTTPClient_ConnectTimeout(t *testing.T) {
 	origDial := fmt.Sprintf("%p", def.DialContext)
 
 	seconds := 7
-	client, err := BuildHTTPClient(TransportConfig{ConnectTimeout: &seconds})
+	if _, err := BuildHTTPClient(TransportConfig{ConnectTimeout: &seconds}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// BuildHTTPClient wraps the transport in a trace-propagating layer, so the
+	// clone/dialer assertions are made against the connect-timeout step itself.
+	rt, err := withConnectTimeout(http.DefaultTransport, time.Duration(seconds)*time.Second)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	tr, ok := client.Transport.(*http.Transport)
+	tr, ok := rt.(*http.Transport)
 	if !ok {
-		t.Fatalf("expected *http.Transport, got %T", client.Transport)
+		t.Fatalf("expected *http.Transport, got %T", rt)
 	}
 	if tr == def {
 		t.Fatal("expected a cloned transport, got shared http.DefaultTransport")

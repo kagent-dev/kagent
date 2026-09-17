@@ -96,16 +96,14 @@ func main() {
 	appName := deriveAppName(kagentName, kagentNamespace, agentCard, logger)
 
 	// Fall back to appName / "default" so traces always have a non-empty service identity.
-	serviceNameSource := kagentName
-	if serviceNameSource == "" {
-		serviceNameSource = appName
+	serviceName := kagentName
+	if serviceName == "" {
+		serviceName = appName
 	}
-	serviceNamespaceSource := kagentNamespace
-	if serviceNamespaceSource == "" {
-		serviceNamespaceSource = "default"
+	serviceNamespace := kagentNamespace
+	if serviceNamespace == "" {
+		serviceNamespace = "default"
 	}
-	serviceName := strings.ReplaceAll(serviceNameSource, "-", "_")
-	serviceNamespace := strings.ReplaceAll(serviceNamespaceSource, "-", "_")
 	shutdownTelemetry, telemetryEnabled, telErr := telemetry.Init(context.Background(), serviceName, serviceNamespace)
 	if telErr != nil {
 		logger.Error("failed to initialize ADK telemetry providers; continuing without telemetry export", "error", telErr)

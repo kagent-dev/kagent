@@ -90,12 +90,15 @@ export function GlobalStyles() {
          * Tinted with the brand colour rather than made a lighter grey: the row is
          * already grey when hovered, and another grey a few percent lighter is a
          * difference nobody notices under a moving finger.
+         *
+         * At 40% rather than the 30% it carried: the stronger row hover it now has to
+         * beat left the two within 1.12:1 of each other on the light theme.
          */
         .ant-table-wrapper
           .ant-table-tbody
           .ant-table-row.clickable-table-row:active
           > .ant-table-cell {
-          background: ${theme.color.primary}4D;
+          background: ${theme.color.primary}66;
         }
 
         /*

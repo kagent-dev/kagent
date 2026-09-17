@@ -21,8 +21,11 @@ const (
 // OpenAIConfig holds OpenAI configuration
 type OpenAIConfig struct {
 	TransportConfig
-	Model               string
-	BaseUrl             string
+	Model   string
+	BaseUrl string
+	// APIKey overrides OPENAI_API_KEY unless APIKeyPassthrough is enabled.
+	// If both keys are empty, only a custom BaseUrl may be used without authentication.
+	APIKey              string
 	FrequencyPenalty    *float64
 	MaxTokens           *int
 	MaxCompletionTokens *int
@@ -60,39 +63,14 @@ type OpenAIModel struct {
 
 // NewOpenAIModel creates a new OpenAI model instance.
 func NewOpenAIModel(ctx context.Context, config *OpenAIConfig) (*OpenAIModel, error) {
-	apiKey := "passthrough" // placeholder; real auth set per-request by transport
-	if !config.APIKeyPassthrough {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
-		}
+	apiKey, err := resolveOpenAIAPIKey(ctx, config)
+	if err != nil {
+		return nil, err
 	}
-	return newOpenAIModelFromConfig(ctx, config, apiKey)
-}
-
-// NewOpenAICompatibleModel creates an OpenAI-compatible model (e.g. LiteLLM, Ollama).
-// baseURL is the API base (e.g. http://localhost:11434/v1 for Ollama). apiKey is optional; if empty,
-// OPENAI_API_KEY is used, then a placeholder for endpoints that do not require a key.
-func NewOpenAICompatibleModel(ctx context.Context, baseURL, modelName string, headers map[string]string, apiKey string) (*OpenAIModel, error) {
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-	if apiKey == "" {
-		apiKey = "ollama" // placeholder for Ollama and similar endpoints that ignore key
-	}
-	config := &OpenAIConfig{
-		TransportConfig: TransportConfig{Headers: headers},
-		Model:           modelName,
-		BaseUrl:         baseURL,
-	}
-	return newOpenAIModelFromConfig(ctx, config, apiKey)
-}
-
-// TODO: consider support for Azure OpenAI, when used from NewOpenAICompatibleModel,
-// Anthropic and Gemini might use Azure OpenAI, so we need to support it.
-func newOpenAIModelFromConfig(ctx context.Context, config *OpenAIConfig, apiKey string) (*OpenAIModel, error) {
 	logger := logging.FromContext(ctx)
 	opts := []option.RequestOption{
+		// An empty key overrides the SDK's own OPENAI_API_KEY default, so the
+		// client sends no Authorization header.
 		option.WithAPIKey(apiKey),
 	}
 	if config.BaseUrl != "" {
@@ -115,6 +93,30 @@ func newOpenAIModelFromConfig(ctx context.Context, config *OpenAIConfig, apiKey 
 		IsAzure: false,
 		Logger:  logger,
 	}, nil
+}
+
+// resolveOpenAIAPIKey resolves the data-plane API key for the OpenAI provider.
+// api.openai.com requires a key. A custom baseURL may point at an
+// OpenAI-compatible endpoint that takes no credentials, so there a missing key
+// yields an empty one and the client sends no Authorization header. With
+// passthrough the transport sets the key per request.
+func resolveOpenAIAPIKey(ctx context.Context, config *OpenAIConfig) (string, error) {
+	if config.APIKeyPassthrough {
+		return "passthrough", nil
+	}
+	if config.APIKey != "" {
+		return config.APIKey, nil
+	}
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		return apiKey, nil
+	}
+	if config.BaseUrl == "" {
+		return "", fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+	}
+	logging.FromContext(ctx).WarnContext(ctx,
+		"no OpenAI API key is set; calling the custom OpenAI base URL without an Authorization header",
+		"base_url", config.BaseUrl)
+	return "", nil
 }
 
 // NewAzureOpenAIModel creates a new Azure OpenAI model instance with a logger.

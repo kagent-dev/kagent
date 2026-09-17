@@ -24,9 +24,9 @@ import (
 	"fmt"
 	"time"
 
-	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -55,9 +55,7 @@ type ToolDiscoverer interface {
 
 // CatalogStore persists the ToolService projection of an MCPServer.
 type CatalogStore interface {
-	StoreToolServer(context.Context, *dbmodel.ToolServer) (*dbmodel.ToolServer, error)
-	RefreshToolsForServer(context.Context, string, string, ...*v1alpha3.MCPTool) error
-	DeleteToolsForServer(context.Context, string, string) error
+	RefreshToolServer(context.Context, *database.ToolServer, ...*v1alpha3.MCPTool) error
 	DeleteToolServer(context.Context, string, string) error
 }
 
@@ -107,7 +105,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, fmt.Errorf("get MCPServer %s: %w", request.String(), err)
 		}
-		return reconcile.Result{}, r.deleteCatalog(ctx, request.String())
+		return reconcile.Result{}, r.catalog.DeleteToolServer(ctx, request.String(), mcpServerGroupKind)
 	}
 
 	if !isReady(server) {
@@ -154,22 +152,9 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *kmcp.MCPServer, 
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	if _, err := r.catalog.StoreToolServer(ctx, &dbmodel.ToolServer{
+	return r.catalog.RefreshToolServer(ctx, &database.ToolServer{
 		Name: name, GroupKind: mcpServerGroupKind, Description: "N/A", LastConnected: lastConnected,
-	}); err != nil {
-		return fmt.Errorf("store server: %w", err)
-	}
-	if err := r.catalog.RefreshToolsForServer(ctx, name, mcpServerGroupKind, tools...); err != nil {
-		return fmt.Errorf("refresh tools: %w", err)
-	}
-	return nil
-}
-
-func (r *Reconciler) deleteCatalog(ctx context.Context, name string) error {
-	return errors.Join(
-		wrapError("delete tools", r.catalog.DeleteToolsForServer(ctx, name, mcpServerGroupKind)),
-		wrapError("delete server", r.catalog.DeleteToolServer(ctx, name, mcpServerGroupKind)),
-	)
+	}, tools...)
 }
 
 func wrapError(action string, err error) error {

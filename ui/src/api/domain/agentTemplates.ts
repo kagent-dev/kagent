@@ -47,6 +47,7 @@ export interface ConfigMapKeyRef {
 export interface McpToolBinding {
   server: { kind: "RemoteMCPServer"; name: string };
   tools?: string[];
+  requireApproval?: boolean;
 }
 
 /** Another AgentTemplate exposed to this one as a tool it can route work to. */

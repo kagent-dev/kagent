@@ -1,3 +1,6 @@
+import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
+import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
+import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
  *
@@ -80,7 +83,13 @@ import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_temp
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  CheckpointService,
+  CheckpointState as PbCheckpointState,
+} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -97,6 +106,12 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import type { AgentInstanceShare } from "@/api/domain/agentInstances";
+import type {
+  SubstrateActorEntry,
+  SubstrateActorTemplateEntry,
+  SubstrateWorkerEntry,
+  SubstrateWorkerPoolEntry,
+} from "@/api/domain/substrate";
 import type { ModelConfig, ModelConfigSpec } from "@/api/domain/models";
 import type { PromptTemplateDetail } from "@/api/domain/prompts";
 import {
@@ -110,7 +125,7 @@ import {
   mockNamespaces,
   mockProviderModels,
   mockProviders,
-  mockSubstrateStatus,
+  mockSubstrateInventory,
   mockTools,
 } from "./fixtures";
 import {
@@ -133,7 +148,13 @@ import {
   saveModel,
   savePrompt,
   saveToolServer,
+  checkpointById,
+  deleteCheckpoint,
+  readCheckpoints,
+  saveCheckpoint,
 } from "./state";
+import type { MockCheckpoint } from "./state";
+import { mockForkTranscript, mockLatestTaskId } from "@/api/chat/mockChatClient";
 
 /** What a fake is told about the call it is answering. */
 interface MockCall {
@@ -623,7 +644,6 @@ function agentInstanceMessage(
       : undefined,
     createdAt: stamp(row.createdAt),
     updatedAt: stamp(row.updatedAt),
-    labels: row.labels,
   };
 }
 
@@ -826,9 +846,7 @@ on(AgentInstanceService.method.listAgentInstances, (input, call) => {
       return false;
     }
     if (harnessFilter && row.harness !== harnessFilter) return false;
-    return Object.entries(input.matchLabels ?? {}).every(
-      ([key, value]) => row.labels[key] === value,
-    );
+    return true;
   });
 
   // The token is the id to resume after — opaque to the client, which only ever
@@ -915,7 +933,6 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     operation: "unspecified" as const,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    labels: {},
   };
   saveAgentInstance(created);
   return { agentInstance: agentInstanceMessage(created) };
@@ -937,6 +954,65 @@ on(AgentInstanceService.method.updateAgentInstanceName, (input, call) => {
       }),
     ),
   };
+});
+
+/*
+ * Checkpoints, kept in `state.ts` the way the controller keeps them in a table.
+ *
+ * The boundary is read from the conversation itself rather than invented: the chat
+ * marks a message as checkpointed by matching its turn against `headTaskId`, so a
+ * fixture that made one up would leave the mark on nothing.
+ */
+const checkpointMessage = (row: MockCheckpoint) => ({
+  id: row.id,
+  agentInstanceId: row.agentInstanceId,
+  headTaskId: row.headTaskId,
+  state: PbCheckpointState.READY,
+  createdAt: timestampFromDate(new Date(row.createdAt)),
+});
+
+on(CheckpointService.method.createCheckpoint, (input, call) => {
+  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  const checkpoint = saveCheckpoint({
+    id: crypto.randomUUID(),
+    agentInstanceId: instance.id,
+    headTaskId: mockLatestTaskId(instance.id),
+    createdAt: new Date().toISOString(),
+  });
+  return { checkpoint: checkpointMessage(checkpoint) };
+});
+
+on(CheckpointService.method.deleteCheckpoint, (input) => {
+  if (!deleteCheckpoint(input.checkpointId)) throw notFound(`Checkpoint ${input.checkpointId}`);
+  return {};
+});
+
+on(CheckpointService.method.listCheckpoints, (input, call) => {
+  const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
+  return { checkpoints: readCheckpoints(instance.id).map(checkpointMessage), page: {} };
+});
+
+/*
+ * The fork copies the source's record under a new id, unnamed, exactly as the
+ * controller's `InsertForkedAgentInstance` does — and copies the transcript up to the
+ * checkpoint's turn, which is what makes forking an earlier boundary mean anything.
+ */
+on(CheckpointService.method.forkAgentInstance, (input, call) => {
+  const checkpoint = checkpointById(input.checkpointId);
+  if (!checkpoint) throw notFound(`Checkpoint ${input.checkpointId}`);
+  const source = instanceFor(checkpoint.agentInstanceId, call);
+  const now = new Date().toISOString();
+  const forked = saveAgentInstance({
+    ...source,
+    id: crypto.randomUUID(),
+    name: "",
+    state: "ready",
+    operation: "unspecified",
+    createdAt: now,
+    updatedAt: now,
+  });
+  mockForkTranscript(source.id, forked.id, checkpoint.headTaskId);
+  return { agentInstance: agentInstanceMessage(forked) };
 });
 
 on(AgentInstanceService.method.deleteAgentInstance, (input, call) => {
@@ -1242,80 +1318,185 @@ on(SystemService.method.listNamespaces, (_input, call) => ({
   namespaces: call.scenario === "empty" ? [] : mockNamespaces,
 }));
 
-on(SystemService.method.getSubstrateStatus, (input, call) => {
-  // `empty` is a cluster with the substrate switched off rather than a truncated
-  // inventory: every list absent and `enabled` false is a state the page renders,
-  // where half an inventory is not.
-  if (call.scenario === "empty") return { enabled: false };
+/** Kubernetes namespace scope for workers and pools. */
+function substrateScope(namespace: string) {
+  const scope = namespace.trim();
+  return (rowNamespace: string | undefined) =>
+    scope === "" || !rowNamespace || rowNamespace === scope;
+}
 
-  const status = mockSubstrateStatus;
+function substrateWorkerPoolMessage(pool: SubstrateWorkerPoolEntry) {
+  return {
+    ref: { namespace: pool.namespace, name: pool.name },
+    resource: structured("WorkerPool", {
+      apiVersion: "ate.dev/v1alpha1",
+      kind: "WorkerPool",
+      metadata: { namespace: pool.namespace, name: pool.name },
+      spec: { replicas: pool.replicas ?? 0, workerImage: pool.ateomImage ?? "" },
+    }, "ate.dev/v1alpha1"),
+  };
+}
 
-  /*
-   * The requested scope, narrowed the way the controller narrows it.
-   *
-   * `system.Service.GetSubstrateStatus` lists the Kubernetes halves per namespace and
-   * filters the ate-api halves by the actor's template namespace and the worker's pod
-   * namespace — keeping a row whose namespace is blank, because ate-api is not obliged
-   * to say. An empty request is every watched namespace, which for a fixture backend is
-   * everything it has. Filtering here rather than answering the whole inventory whatever
-   * was asked for is the difference between a scope control that is observably a filter
-   * and one that is decoration.
-   */
-  const scope = input.namespace.trim();
-  const inScope = (namespace: string | undefined) =>
-    scope === "" || !namespace || namespace === scope;
+function substrateActorTemplateMessage(
+  template: SubstrateActorTemplateEntry,
+): MessageInitShape<typeof ActorTemplateSchema> {
+  return {
+    metadata: {
+      atespace: template.atespace,
+      name: template.name,
+      uid: template.goldenActorId ?? "",
+    },
+    status: {
+      goldenSnapshotStatus: {
+        goldenSnapshot: template.goldenSnapshot
+          ? { snapshotUri: template.goldenSnapshot }
+          : undefined,
+        errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
+      },
+    },
+    sandboxConfig: {
+      sandboxClass:
+        SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
+        ?? SandboxClass.UNSPECIFIED,
+    },
+    workerSelector: {
+      matchLabels: template.workerSelector
+        ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))
+        : {},
+    },
+  };
+}
 
-  const workerPools = status.workerPools.filter((pool) => inScope(pool.namespace));
-  const actorTemplates = status.actorTemplates.filter((template) =>
-    inScope(template.namespace),
-  );
-  const actors = status.actors.filter((actor) => inScope(actor.actorTemplateNamespace));
+function substrateActorMessage(
+  actor: SubstrateActorEntry,
+): MessageInitShape<typeof ActorSchema> {
+  return {
+    metadata: {
+      name: actor.actorId,
+      atespace: actor.atespace ?? "",
+      version: BigInt(actor.version ?? 0),
+    },
+    actorTemplate: {
+      atespace: actor.actorTemplateAtespace ?? "",
+      name: actor.actorTemplateName ?? "",
+    },
+    status: {
+      state: ActorState[
+        actor.status.replace(/^ACTOR_STATE_/, "").toUpperCase() as keyof typeof ActorState
+      ] ?? ActorState.UNSPECIFIED,
+      workerAssignment: actor.ateomPodName ? {
+        workerNamespace: actor.ateomPodNamespace ?? "",
+        workerPod: actor.ateomPodName,
+        workerPodIp: actor.ateomPodIp ?? "",
+        workerPool: actor.workerPoolName ?? "",
+      } : undefined,
+      externalSnapshot: actor.latestSnapshot
+        ? { snapshotUri: actor.latestSnapshot }
+        : undefined,
+      inProgressSnapshotName: actor.inProgressSnapshot ?? "",
+    },
+  };
+}
+
+function substrateWorkerMessage(worker: SubstrateWorkerEntry): MessageInitShape<typeof WorkerSchema> {
+  return {
+    workerNamespace: worker.workerNamespace,
+    workerPool: worker.workerPool,
+    workerPod: worker.workerPod,
+    ip: worker.ip ?? "",
+    metadata: { version: BigInt(worker.version ?? 0) },
+    status: {
+      allocated: {
+        // Worker allocation includes actors from every atespace.
+        actors: mockSubstrateInventory.actors.filter((actor) =>
+          actor.ateomPodNamespace === worker.workerNamespace && actor.ateomPodName === worker.workerPod
+        ).length,
+      },
+    },
+  };
+}
+
+/** Simulate upstream pagination; clients treat the fixture token as opaque. */
+function substratePage<T>(rows: T[], pageSize: number, pageToken: string) {
+  const start = Number.parseInt(pageToken, 10) || 0;
+  const limit = pageSize > 0 ? pageSize : 50;
+  const end = Math.min(start + limit, rows.length);
+  return {
+    rows: rows.slice(start, end),
+    nextPageToken: end < rows.length ? String(end) : "",
+  };
+}
+
+on(SystemService.method.getSubstrateSummary, (input, call) => {
+  if (call.scenario === "empty") return {};
+
+  const status = mockSubstrateInventory;
+  const inScope = substrateScope(input.namespace);
+  const actors = status.actors.filter((actor) => (!input.atespace || actor.atespace === input.atespace));
   const workers = status.workers.filter((worker) => inScope(worker.workerNamespace));
 
+  const statusCounts = new Map<ActorState, number>();
+  for (const actor of actors) {
+    const state = substrateActorMessage(actor).status?.state ?? ActorState.UNSPECIFIED;
+    statusCounts.set(state, (statusCounts.get(state) ?? 0) + 1);
+  }
+  const busyWorkerCount = workers.filter((worker) =>
+    (substrateWorkerMessage(worker).status?.allocated?.actors ?? 0) > 0
+  ).length;
+
+  /*
+   * The error and the complete counts together, which is a state the controller really
+   * does produce — worth spelling out, because a fixture that models an impossible one
+   * makes every assertion resting on it worthless.
+   *
+   * `GetSubstrateSummary` makes three independent ate-api reads and none of them gates
+   * the others, so a walk that fails keeps whatever it had already tallied and the
+   * reads beside it still answer in full. This is that: the actor walk failed fetching
+   * a token after counting everything it could reach, and the template listing and the
+   * worker walk succeeded. Before those reads were made independent, one failure zeroed
+   * every count, and this shape could not have occurred.
+   */
   return {
-    enabled: status.enabled,
     ateApiError: status.ateApiError ?? "",
-    workerPools: workerPools.map((pool) => ({
-      namespace: pool.namespace,
-      name: pool.name,
-      replicas: pool.replicas ?? 0,
-      ateomImage: pool.ateomImage ?? "",
-    })),
-    actorTemplates: actorTemplates.map((template) => ({
-      namespace: template.namespace,
-      name: template.name,
-      phase: template.phase ?? "",
-      goldenActorId: template.goldenActorId ?? "",
-      goldenSnapshot: template.goldenSnapshot ?? "",
-      sandboxClass: template.sandboxClass ?? "",
-      workerSelector: template.workerSelector ?? "",
-      harnessName: template.harnessName ?? "",
-    })),
-    actors: actors.map((actor) => ({
-      actorId: actor.actorId,
-      atespace: actor.atespace ?? "",
-      status: actor.status ?? "",
-      actorTemplateNamespace: actor.actorTemplateNamespace ?? "",
-      actorTemplateName: actor.actorTemplateName ?? "",
-      ateomPodNamespace: actor.ateomPodNamespace ?? "",
-      ateomPodName: actor.ateomPodName ?? "",
-      ateomPodIp: actor.ateomPodIp ?? "",
-      latestSnapshot: actor.latestSnapshot ?? "",
-      workerPoolName: actor.workerPoolName ?? "",
-      inProgressSnapshot: actor.inProgressSnapshot ?? "",
-      // `int64` on the wire.
-      version: BigInt(actor.version ?? 0),
-    })),
-    workers: workers.map((worker) => ({
-      workerNamespace: worker.workerNamespace,
-      workerPool: worker.workerPool,
-      workerPod: worker.workerPod,
-      actorNamespace: worker.actorNamespace ?? "",
-      actorTemplate: worker.actorTemplate ?? "",
-      actorId: worker.actorId ?? "",
-      ip: worker.ip ?? "",
-      version: BigInt(worker.version ?? 0),
-    })),
+    workerPools: status.workerPools
+      .filter((pool) => inScope(pool.namespace))
+      .map(substrateWorkerPoolMessage),
+    actorTemplates: status.actorTemplates
+      .filter((template) => (!input.atespace || template.atespace === input.atespace))
+      .map(substrateActorTemplateMessage),
+    actorCount: BigInt(actors.length),
+    workerCount: BigInt(workers.length),
+    runningActorCount: BigInt(
+      actors.filter((actor) => actor.status.toLowerCase() === "running").length,
+    ),
+    busyWorkerCount: BigInt(busyWorkerCount),
+    actorStatusCounts: [...statusCounts]
+      .sort(([left], [right]) => left - right)
+      .map(([state, count]) => ({ state, count: BigInt(count) })),
+    computedAt: timestampFromDate(new Date()),
+  };
+});
+
+on(SystemService.method.listSubstrateActors, (input, call) => {
+  if (call.scenario === "empty") return {};
+  const actors = mockSubstrateInventory.actors.filter((actor) => !input.atespace || actor.atespace === input.atespace);
+  const page = substratePage(actors, input.page?.limit ?? 0, input.page?.pageToken ?? "");
+  return {
+    actors: page.rows.map(substrateActorMessage),
+    page: { nextPageToken: page.nextPageToken },
+    computedAt: timestampFromDate(new Date()),
+  };
+});
+
+on(SystemService.method.listSubstrateWorkers, (input, call) => {
+  if (call.scenario === "empty") return {};
+  const inScope = substrateScope(input.namespace);
+  // Substrate pages before kagent applies the namespace filter.
+  const page = substratePage(mockSubstrateInventory.workers, input.page?.limit ?? 0, input.page?.pageToken ?? "");
+  return {
+    workers: page.rows.filter((worker) => inScope(worker.workerNamespace)).map(substrateWorkerMessage),
+    page: { nextPageToken: page.nextPageToken },
+    computedAt: timestampFromDate(new Date()),
   };
 });
 
@@ -1396,3 +1577,103 @@ function publishCallCounts(): void {
 // Runs once, after every fake above has been registered — which is why it is the
 // last thing in the file.
 publishCallCounts();
+
+// Scheduling fixtures do not run agents. Manual triggers remain pending.
+const scheduledRuns = [1, 2, 3].map((n) => create(ScheduledRunSchema, {
+  id: `c686bd1d-9124-4e96-8df7-00000000000${n}`,
+  etag: `d686bd1d-9124-4e96-8df7-00000000000${n}`,
+  creator: MOCK_INSTANCE_CREATOR,
+  harness: { namespace: "kagent", name: "k8s-agent" },
+  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  config: { name: n === 1 ? "Daily cluster report" : `Schedule ${n}`, schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
+  createdAt: stamp("2026-09-01T09:00:00Z"),
+}));
+/*
+ * One already deleted, because a delete now leaves the detail page and a reload resets
+ * these fixtures — so the state a held link lands on had no way to be read otherwise.
+ * Absent from the list, since `listScheduledRuns` drops what is deleted.
+ */
+scheduledRuns.push(create(ScheduledRunSchema, {
+  id: "c686bd1d-9124-4e96-8df7-000000000004",
+  etag: "d686bd1d-9124-4e96-8df7-000000000004",
+  creator: MOCK_INSTANCE_CREATOR,
+  harness: { namespace: "kagent", name: "k8s-agent" },
+  agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  config: { name: "Retired sweep", schedule: "0 9 * * *", timeZone: "UTC", prompt: "Summarize cluster health.", executionTimeout: { seconds: 900n } },
+  createdAt: stamp("2026-09-01T09:00:00Z"),
+  deletedAt: stamp("2026-09-02T09:00:00Z"),
+}));
+const scheduleExecutions = Array.from({ length: 26 }, (_, i) => create(ScheduledRunExecutionSchema, {
+  id: `a686bd1d-9124-4e96-8df7-${String(i).padStart(12, "0")}`,
+  scheduledRunId: scheduledRuns[0].id,
+  creator: MOCK_INSTANCE_CREATOR,
+  trigger: { case: "scheduledTime", value: stamp("2026-09-01T09:00:00Z")! },
+  prompt: "Summarize cluster health.", createdAt: stamp("2026-09-01T09:00:00Z"),
+  deadline: stamp("2026-09-01T09:15:00Z"), completedAt: stamp(i === 1 ? "2026-09-01T09:15:00Z" : "2026-09-01T09:01:00Z"),
+  state: i === 1 ? ScheduledRunExecutionState.TIMED_OUT : ScheduledRunExecutionState.SUCCEEDED,
+  failureReason: i === 1 ? "Execution deadline exceeded" : "",
+  agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44", taskId: `mock-scheduled-task-${i}`,
+}));
+const scheduleRequests = new Map<string, ScheduledRun>();
+function scheduledRunFor(id: string, call: MockCall) {
+  const schedule = call.scenario !== "empty" && scheduledRuns.find((row) => row.id === id);
+  if (!schedule) throw notFound("schedule");
+  return schedule;
+}
+function schedulePage<T extends { id: string }>(rows: T[], page: { limit: number; pageToken: string } | undefined) {
+  const start = page?.pageToken ? rows.findIndex((row) => row.id === page.pageToken) + 1 : 0;
+  const size = page?.limit || 25;
+  const result = rows.slice(start, start + size);
+  return { rows: result, page: { nextPageToken: start + size < rows.length ? result[result.length - 1].id : "" } };
+}
+on(ScheduledRunService.method.listScheduledRuns, (input, call) => {
+  const page = schedulePage(call.scenario === "empty" ? [] : scheduledRuns.filter((row) => !row.deletedAt), input.page);
+  return { scheduledRuns: page.rows, page: page.page };
+});
+on(ScheduledRunService.method.getScheduledRun, (input, call) => ({ scheduledRun: scheduledRunFor(input.scheduledRunId, call) }));
+on(ScheduledRunService.method.createScheduledRun, (input) => {
+  const prior = scheduleRequests.get(input.requestId);
+  if (prior) return { scheduledRun: prior };
+  if (!input.requestId || !input.config?.prompt.trim() || !input.harness?.name || !input.agentTemplate?.name || input.harness.namespace !== input.agentTemplate.namespace) {
+    throw new ConnectError("A prompt, request ID and an agent in one namespace are required", Code.InvalidArgument);
+  }
+  const schedule = create(ScheduledRunSchema, {
+    id: crypto.randomUUID(), etag: crypto.randomUUID(), creator: MOCK_INSTANCE_CREATOR,
+    harness: input.harness, agentTemplate: input.agentTemplate, config: input.config,
+    createdAt: timestampFromDate(new Date()),
+  });
+  scheduledRuns.unshift(schedule);
+  scheduleRequests.set(input.requestId, schedule);
+  return { scheduledRun: schedule };
+});
+on(ScheduledRunService.method.updateScheduledRun, (input, call) => {
+  const schedule = scheduledRunFor(input.scheduledRunId, call);
+  if (schedule.deletedAt) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
+  if (schedule.etag !== input.etag) throw new ConnectError("Schedule changed. Reopen the editor and retry.", Code.Aborted);
+  schedule.config = input.config;
+  schedule.etag = crypto.randomUUID();
+  return { scheduledRun: schedule };
+});
+on(ScheduledRunService.method.deleteScheduledRun, (input, call) => {
+  const schedule = scheduledRunFor(input.scheduledRunId, call);
+  schedule.deletedAt ??= timestampFromDate(new Date());
+  schedule.nextExecutionTime = undefined;
+  return { scheduledRun: schedule };
+});
+on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
+  const schedule = scheduledRunFor(input.scheduledRunId, call);
+  if (schedule.deletedAt) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
+  const prior = scheduleExecutions.find((row) => row.scheduledRunId === schedule.id && row.trigger.case === "manualRequestId" && row.trigger.value === input.requestId);
+  if (prior) return { execution: prior };
+  const execution = create(ScheduledRunExecutionSchema, {
+    id: crypto.randomUUID(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
+    trigger: { case: "manualRequestId", value: input.requestId }, prompt: schedule.config?.prompt,
+    state: ScheduledRunExecutionState.PENDING, createdAt: timestampFromDate(new Date()),
+  });
+  scheduleExecutions.unshift(execution);
+  return { execution };
+});
+on(ScheduledRunService.method.listScheduledRunExecutions, (input, call) => {
+  const page = schedulePage(call.scenario === "empty" ? [] : scheduleExecutions.filter((row) => row.scheduledRunId === input.scheduledRunId), input.page);
+  return { executions: page.rows, page: page.page };
+});

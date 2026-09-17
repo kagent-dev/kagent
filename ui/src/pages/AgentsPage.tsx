@@ -18,6 +18,7 @@ import {
 import { agentNewChatUrl } from "@/components/agent/agentUrl";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
+import { clickableRow } from "@/components/table/rowClick";
 import {
   byNumber,
   byText,
@@ -497,25 +498,14 @@ export function AgentsTab() {
                     : "No agents yet."
                   : " ",
           }}
-          onRow={(row) => ({
-            className: "clickable-table-row",
-            onClick: (event) => {
-              // Anything itself interactive handles its own click. One rule rather
-              // than a `stopPropagation` per control, so a control added later
-              // cannot silently inherit the row's navigation.
-              if (
-                (event.target as HTMLElement).closest(
-                  "a, button, input, [role='button'], .ant-popover, .ant-dropdown",
-                )
-              ) {
-                return;
-              }
+          onRow={(row) =>
+            clickableRow(() => {
               const destination = row.isUnmapped
                 ? paths.agentsUnmapped
                 : agentNewChatUrl(row);
               if (destination) void navigate(destination);
-            },
-          })}
+            })
+          }
         />
 
     </Space>
