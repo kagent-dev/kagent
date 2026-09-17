@@ -18,10 +18,12 @@ function StatusConsumer({ label }: { label: string }) {
   return <span>{`${label}:${status?.state ?? "loading"}`}</span>;
 }
 
+const ACTOR = { namespace: "ns", name: "agent", sessionId: "session-1" };
+
 describe("HarnessActorStatusProvider", () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    mockGetStatus.mockResolvedValue({ data: { state: "running" } });
+    mockGetStatus.mockResolvedValue({ message: "", data: { ...ACTOR, state: "running" } });
   });
 
   afterEach(() => {
@@ -94,13 +96,13 @@ describe("HarnessActorStatusProvider", () => {
     act(() => jest.advanceTimersByTime(0));
 
     await act(async () => {
-      resolveSecond({ data: { state: "running" } });
+      resolveSecond({ message: "", data: { ...ACTOR, state: "running" } });
       await Promise.resolve();
     });
     expect(screen.getByText("status:running")).toBeInTheDocument();
 
     await act(async () => {
-      resolveFirst({ data: { state: "suspended" } });
+      resolveFirst({ message: "", data: { ...ACTOR, state: "suspended" } });
       await Promise.resolve();
     });
     expect(screen.getByText("status:running")).toBeInTheDocument();
