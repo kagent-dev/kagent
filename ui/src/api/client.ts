@@ -13,6 +13,7 @@
  */
 
 import { type ResourceRefInput, invoke } from "./operations";
+import { randomId } from "./randomId";
 import { sortedByFields, sortedByRef } from "./order";
 import type {
   CreateModelConfigRequest,
@@ -360,19 +361,19 @@ export function createApiClient(): KagentApiClient {
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>
-        invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
+        invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {
         list: (id, options) =>
           invoke("agentInstances.checkpoints.list", { id }, options),
         create: (id) =>
           invoke("agentInstances.checkpoints.create", {
             id,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
           }),
         fork: (checkpointId, name) =>
           invoke("agentInstances.checkpoints.fork", {
             checkpointId,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
             name,
           }),
         remove: (checkpointId) =>

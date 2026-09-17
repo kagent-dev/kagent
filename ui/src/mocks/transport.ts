@@ -1,3 +1,4 @@
+import { randomId } from "@/api/randomId";
 import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
@@ -922,7 +923,7 @@ on(AgentInstanceService.method.createAgentInstance, (input, call) => {
     // A UUID, because the controller parses one: `validateIdentity` rejects
     // anything else, so a fixture id shaped differently would pass here and fail
     // against a cluster — which is this codebase's most expensive recurring bug.
-    id: crypto.randomUUID(),
+    id: randomId(),
     name,
     creator: MOCK_INSTANCE_CREATOR,
     harness: `${namespace}/${input.harness?.name}`,
@@ -974,7 +975,7 @@ const checkpointMessage = (row: MockCheckpoint) => ({
 on(CheckpointService.method.createCheckpoint, (input, call) => {
   const instance = instanceFor(requireInstanceId(input.agentInstanceId), call);
   const checkpoint = saveCheckpoint({
-    id: crypto.randomUUID(),
+    id: randomId(),
     agentInstanceId: instance.id,
     headTaskId: mockLatestTaskId(instance.id),
     createdAt: new Date().toISOString(),
@@ -1004,7 +1005,7 @@ on(CheckpointService.method.forkAgentInstance, (input, call) => {
   const now = new Date().toISOString();
   const forked = saveAgentInstance({
     ...source,
-    id: crypto.randomUUID(),
+    id: randomId(),
     name: "",
     state: "ready",
     operation: "unspecified",
@@ -1638,7 +1639,7 @@ on(ScheduledRunService.method.createScheduledRun, (input) => {
     throw new ConnectError("A prompt, request ID and an agent in one namespace are required", Code.InvalidArgument);
   }
   const schedule = create(ScheduledRunSchema, {
-    id: crypto.randomUUID(), etag: crypto.randomUUID(), creator: MOCK_INSTANCE_CREATOR,
+    id: randomId(), etag: randomId(), creator: MOCK_INSTANCE_CREATOR,
     harness: input.harness, agentTemplate: input.agentTemplate, config: input.config,
     createdAt: timestampFromDate(new Date()),
   });
@@ -1651,7 +1652,7 @@ on(ScheduledRunService.method.updateScheduledRun, (input, call) => {
   if (schedule.deletedAt) throw new ConnectError("Schedule was deleted", Code.FailedPrecondition);
   if (schedule.etag !== input.etag) throw new ConnectError("Schedule changed. Reopen the editor and retry.", Code.Aborted);
   schedule.config = input.config;
-  schedule.etag = crypto.randomUUID();
+  schedule.etag = randomId();
   return { scheduledRun: schedule };
 });
 on(ScheduledRunService.method.deleteScheduledRun, (input, call) => {
@@ -1666,7 +1667,7 @@ on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
   const prior = scheduleExecutions.find((row) => row.scheduledRunId === schedule.id && row.trigger.case === "manualRequestId" && row.trigger.value === input.requestId);
   if (prior) return { execution: prior };
   const execution = create(ScheduledRunExecutionSchema, {
-    id: crypto.randomUUID(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
+    id: randomId(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
     trigger: { case: "manualRequestId", value: input.requestId }, prompt: schedule.config?.prompt,
     state: ScheduledRunExecutionState.PENDING, createdAt: timestampFromDate(new Date()),
   });
