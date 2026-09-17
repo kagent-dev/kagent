@@ -1,6 +1,12 @@
 import { type Locator, type Page } from "@playwright/test";
 import { test, expect } from "../fixtures/test";
-import { dataRows, expectListLoaded, expectNoLoadFailure, loadApp } from "../helpers/app";
+import {
+  READ_TIMEOUT,
+  dataRows,
+  expectListLoaded,
+  expectNoLoadFailure,
+  loadApp,
+} from "../helpers/app";
 import { liveRoutes } from "./helpers/live";
 
 /**
@@ -183,7 +189,9 @@ test("live: the models the cluster installed are listed with their provider", as
   await expect(provider, "the first model row named no provider").toHaveText(/\S/);
 });
 
-test("live: tool servers report the tools they discovered", async ({ page }) => {
+test("live: the tool server list counts what the controller gave it", async ({
+  page,
+}) => {
   await loadApp(page, liveRoutes.mcpServers);
   await expectListLoaded(page, "mcp-servers");
   await expectNoLoadFailure(page);
@@ -193,13 +201,28 @@ test("live: tool servers report the tools they discovered", async ({ page }) => 
      * The numbers, because the words are static: "N of M servers · K tools" says
      * "server" on a page that counted nothing, which is what this asserted before.
      *
-     * Both are derived — the servers from the rows, the tools by summing what each
-     * discovered — and only the server count is required to be non-zero. Discovery is
-     * asynchronous (#2849), so a freshly installed cluster reporting zero tools for a
-     * while is telling the truth.
+     * Neither count may be required to be non-zero, and that is a fact about the
+     * clusters rather than a weakening. CI installs with `kagent-tools.enabled=false`
+     * and `grafana-mcp.enabled=false`, and the chart's only RemoteMCPServer is gated on
+     * the first — so that cluster has none, where `setup-cluster.sh` leaves the default
+     * and has two. Asking for one passed on a laptop and would have failed every CI run.
+     * Tool discovery is asynchronous besides (#2849), so a server that has just been
+     * registered honestly reports none for a while.
      */
     const summary = page.getByTestId("mcp-servers-summary");
-    await expect(summary).toContainText(/\bof [1-9]\d* servers?\b/, { timeout: 60_000 });
+    await expect(summary).toContainText(/\b\d+ of \d+ servers?\b/, {
+      timeout: READ_TIMEOUT,
+    });
     await expect(summary).toContainText(/·\s*\d+ tools?\b/);
+  });
+
+  await test.step("and each server it does have reports a tool count", async () => {
+    // Where the cluster has none this asserts nothing, which is why the summary above
+    // is the claim. `tools` arrives as JSON null for a server that discovered nothing,
+    // Go marshalling a nil slice that way, and reading `.length` off it took this page
+    // down against a real cluster once.
+    const rows = dataRows(page);
+    if ((await rows.count()) === 0) return;
+    await expect(rows.first()).toContainText(/\d/);
   });
 });

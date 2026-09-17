@@ -13,7 +13,7 @@
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
-import { withScenario } from "./app";
+import { READ_TIMEOUT, withScenario } from "./app";
 
 /**
  * How long one resource's whole lifecycle is allowed to take.
@@ -55,18 +55,6 @@ export const LIFECYCLE_TIMEOUT =
  * navigated" and the resource stayed on the cluster.
  */
 const PRESS_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 90_000 : 15_000;
-
-/**
- * How long one read inside a journey may take, which is not how long the journey may.
- *
- * These specs asked for sixty seconds an assertion while the mock lane's whole
- * `LIFECYCLE_TIMEOUT` is sixty — so an assertion could never exhaust its own budget, and
- * a broken one was reported as "Test timeout of 60000ms exceeded" rather than by name.
- * The numbers were sized for the live budget and inherited unchanged by the mock run.
- * Same argument as `PRESS_TIMEOUT`: when this is what failed, this should be what says
- * so.
- */
-export const READ_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 60_000 : 20_000;
 
 /**
  * Presses a dialog's button, once the dialog has stopped arriving.
@@ -152,7 +140,7 @@ export async function pressUntil(
  * It resolves `false` rather than throwing, because this is called from a `finally`:
  * an assertion failing there would replace the failure the test was actually reporting.
  */
-export async function appeared(locator: Locator, timeout = 60_000): Promise<boolean> {
+export async function appeared(locator: Locator, timeout = READ_TIMEOUT): Promise<boolean> {
   try {
     await locator.waitFor({ state: "visible", timeout });
     return true;

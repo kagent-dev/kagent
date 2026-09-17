@@ -157,6 +157,19 @@ export function dataRows(page: Page): Locator {
   return page.locator("tbody tr.ant-table-row");
 }
 
+/**
+ * How long one read inside a journey may take, which is not how long the journey may.
+ *
+ * These specs asked for sixty seconds an assertion while the mock lane's whole
+ * `LIFECYCLE_TIMEOUT` is sixty — so an assertion could never exhaust its own budget, and
+ * a broken one was reported as "Test timeout of 60000ms exceeded" rather than by name.
+ * The numbers were sized for the live budget and inherited unchanged by the mock run.
+ * Same argument as `PRESS_TIMEOUT`: when this is what failed, this should be what says
+ * so.
+ */
+export const READ_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 60_000 : 20_000;
+
+
 /** A navigation-sized budget, for the app booting rather than for what it rendered. */
 const APP_BOOT_TIMEOUT = 15_000;
 
@@ -277,12 +290,45 @@ export async function expectListTotal(
   page: Page,
   list: string,
   total: number,
-  timeout = 60_000,
+  timeout = READ_TIMEOUT,
 ): Promise<void> {
   await expect(page.getByTestId(`${list}-summary`)).toContainText(
     new RegExp(`\\bof ${total}\\b`),
     { timeout },
   );
+}
+
+/**
+ * The list's total, once the summary has stopped moving.
+ *
+ * Read once, the summary is not the signal it looks like. Every list draws it on
+ * `!error && !isLoading`, and SWR reports `isLoading` false on the first paint — the
+ * fetcher runs in an effect, after it — so a page that has not asked anything yet draws
+ * "0 of 0" for a frame. Measured on the harnesses tab: a total of 0 read off a tab
+ * holding four, and the journey then asserted "one more than nothing".
+ *
+ * So it is read twice and has to agree with itself. A list still arriving disagrees, and
+ * one that is genuinely empty says 0 twice — which is the distinction "a list still
+ * fetching has no rows either" was always about.
+ */
+async function settledTotal(page: Page, list: string): Promise<number> {
+  const summary = page.getByTestId(`${list}-summary`);
+  await expect(summary).toContainText(/\bof \d+\b/, { timeout: READ_TIMEOUT });
+
+  let previous: number | undefined;
+  let total = 0;
+  await expect(async () => {
+    const text = (await summary.textContent()) ?? "";
+    const read = /\bof (\d+)\b/.exec(text)?.[1];
+    expect(read, `no total could be read from "${text}"`).toBeDefined();
+    const value = Number(read);
+    const agreed = previous === value;
+    previous = value;
+    total = value;
+    expect(agreed, `still moving, at ${value}`).toBe(true);
+  }).toPass({ timeout: READ_TIMEOUT, intervals: [250] });
+
+  return total;
 }
 
 /**
@@ -293,16 +339,10 @@ export async function expectListTotal(
  * asking whether there is anything left to delete.
  */
 export async function expectListLoaded(page: Page, list: string): Promise<void> {
-  await expect(page.getByTestId(`${list}-summary`)).toContainText(/\bof \d+\b/, {
-    timeout: 60_000,
-  });
+  await settledTotal(page, list);
 }
 
 /** What `expectListTotal` would be reading now, for a count taken before a change. */
 export async function readListTotal(page: Page, list: string): Promise<number> {
-  await expectListLoaded(page, list);
-  const text = (await page.getByTestId(`${list}-summary`).textContent()) ?? "";
-  const total = /\bof (\d+)\b/.exec(text)?.[1];
-  expect(total, `no total could be read from "${text}"`).toBeDefined();
-  return Number(total);
+  return settledTotal(page, list);
 }
