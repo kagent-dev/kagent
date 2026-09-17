@@ -9,11 +9,13 @@ import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, paths } from "@/router/routes";
 import {
   apiClient,
   isUsable,
   useAgentTemplatesAcrossNamespaces,
+  useInvalidateAgentTemplates,
   useNamespaces,
   type AgentTemplate,
 } from "@/api";
@@ -87,6 +89,7 @@ export function AgentTemplatesTab() {
     () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
     [selectedNamespaces, namespaceNames],
   );
+  const invalidateTemplates = useInvalidateAgentTemplates();
   const templates = useAgentTemplatesAcrossNamespaces(readNamespaces);
 
   const rows = useMemo(() => templates.data?.templates ?? [], [templates.data]);
@@ -217,13 +220,15 @@ export function AgentTemplatesTab() {
                   row.name,
                 )
               }
-              onDeleted={templates.refresh}
+              /* The agents list reads templates under a key of its own, so refreshing
+                 this list alone leaves an agent there that nothing runs. */
+              onDeleted={invalidateTemplates}
             />
           </Space>
         ),
       },
     ],
-    [templates.refresh, theme.color.textMuted, theme.font.mono],
+    [invalidateTemplates, theme.color.textMuted, theme.font.mono],
   );
 
   const refreshThisTab = templates.refresh;
@@ -323,24 +328,16 @@ export function AgentTemplatesTab() {
                   ? "No agent templates match those filters."
                   : " ",
           }}
-          onRow={(row) => ({
-            className: "clickable-table-row",
-            onClick: (event) => {
-              if (
-                (event.target as HTMLElement).closest(
-                  "a, button, input, [role='button'], .ant-popover, .ant-dropdown",
-                )
-              ) {
-                return;
-              }
+          onRow={(row) =>
+            clickableRow(() =>
               void navigate(
                 buildPath(paths.agentTemplateDetail, {
                   namespace: row.namespace,
                   name: row.name,
                 }),
-              );
-            },
-          })}
+              ),
+            )
+          }
         />
     </Space>
   );

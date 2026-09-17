@@ -59,8 +59,8 @@ If you wish to use the memory persistence integration with KAgent, edit `crew.py
 2. **Set environment variables**:
 
    ```bash
-   export KAGENT_URL=http://localhost:8083
-   export KAGENT_GRPC_URL=localhost:8084
+   export KAGENT_API_URL=http://localhost:8083
+   export KAGENT_GATEWAY_URL=http://localhost:8083
    export OPENAI_API_KEY="sk-..."
    export SERPER_API_KEY="..."
    ```
@@ -86,7 +86,7 @@ The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for LLM access
 - `SERPER_API_KEY`: Required for web search functionality
-- `KAGENT_URL`: Required KAgent server URL (typically `http://localhost:8083` for a local controller)
-- `KAGENT_GRPC_URL`: Required KAgent controller gRPC target (typically `localhost:8084`)
+- `KAGENT_API_URL`: Required KAgent control-plane API URL (typically `http://localhost:8083`)
+- `KAGENT_GATEWAY_URL`: Required KAgent A2A and MCP gateway URL (typically `http://localhost:8083`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)

@@ -48,14 +48,14 @@ func runGet(
 		return err
 	}
 
-	session, err := connection.Open(ctx, options)
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		err = errors.Join(err, session.Close())
 	}()
-	return get(ctx, session.Client.AgentInstance, session.Namespace, cfg, format, out)
+	return get(ctx, session.API.AgentInstance, cfg, format, out)
 }
 
 func validateGetCfg(cfg *GetCfg) error {
@@ -79,14 +79,13 @@ func validateGetCfg(cfg *GetCfg) error {
 func get(
 	ctx context.Context,
 	client getClient,
-	namespace string,
 	cfg *GetCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	if cfg.InstanceID != "" {
 		response, err := client.GetAgentInstance(ctx, &apiv1alpha1.GetAgentInstanceRequest{
-			Namespace: namespace, AgentInstanceId: cfg.InstanceID,
+			AgentInstanceId: cfg.InstanceID,
 		})
 		if err != nil {
 			return fmt.Errorf("get AgentInstance: %w", err)
@@ -101,8 +100,8 @@ func get(
 	}
 
 	response, err := client.ListAgentInstances(ctx, &apiv1alpha1.ListAgentInstancesRequest{
-		Namespace: namespace,
-		Page:      &apiv1alpha1.PageRequest{Limit: cfg.PageSize, PageToken: cfg.PageToken},
+
+		Page: &apiv1alpha1.PageRequest{Limit: cfg.PageSize, PageToken: cfg.PageToken},
 	})
 	if err != nil {
 		return fmt.Errorf("list AgentInstances: %w", err)

@@ -5,6 +5,9 @@ import { extensionFieldsForForm } from "./formFields";
 import type { ExtensionFormFieldContribution, ExtensionFormId } from "./formFields";
 import { mergeExtensionNavOverrides } from "./navOverrides";
 import type { ExtensionNavOverrides } from "./navOverrides";
+import type { ExtensionAgentRailItemContribution } from "./types";
+import { mergeExtensionAgentRailOverrides } from "./railOverrides";
+import type { ExtensionAgentRailOverrides } from "./railOverrides";
 import type { ExtensionBranding } from "./branding";
 import type { ExtensionShell } from "./shell";
 import type { ExtensionTheme } from "./theme";
@@ -55,6 +58,24 @@ export function extensionNavItems(
   return extensions
     .flatMap((extension) => extension.navItems ?? [])
     .sort((a, b) => a.order - b.order);
+}
+
+/** Rail entries from every extension, in the order they will be drawn. */
+export function extensionAgentRailItems(
+  extensions: readonly AppExtensionConfig[],
+): ExtensionAgentRailItemContribution[] {
+  return extensions
+    .flatMap((extension) => extension.agentRailItems ?? [])
+    .sort((a, b) => a.order - b.order);
+}
+
+/** Every extension's rail overrides, flattened into one table. */
+export function extensionAgentRailOverrides(
+  extensions: readonly AppExtensionConfig[],
+): ExtensionAgentRailOverrides {
+  return mergeExtensionAgentRailOverrides(
+    extensions.map((extension) => extension.agentRailOverrides),
+  );
 }
 
 /** Contributed pages from every extension, in install order. */

@@ -79,7 +79,8 @@ The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but use
 For local development, configure the HTTP endpoint used by protocol traffic:
 
 ```bash
-export KAGENT_URL=http://localhost:8083
+export KAGENT_API_URL=http://localhost:8083
+export KAGENT_GATEWAY_URL=http://localhost:8083
 export KAGENT_NAME=my-agent
 export KAGENT_NAMESPACE=default
 ```

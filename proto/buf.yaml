@@ -9,6 +9,7 @@ lint:
     - STANDARD
   ignore:
     - a2a.proto
+    - ateapi.proto
 breaking:
   use:
     - FILE

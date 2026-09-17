@@ -8,6 +8,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -35,7 +36,7 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		Data:       map[string]string{"z": "last", "a": "first"},
 		BinaryData: map[string][]byte{"asset": []byte("binary")},
 	}).Build()
-	service := prompttemplateservice.NewService(kubeClient, &authimpl.NoopAuthorizer{})
+	service := prompttemplateservice.NewService(kubeClient, &pkgauth.NoopAuthorizer{})
 
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{

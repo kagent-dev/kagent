@@ -1,0 +1,14 @@
+suite: test substrate actor template reconciliation
+templates:
+  - charts/substrate/templates/ate-api-server.yaml
+tests:
+  - it: should use the minimum supported actor template resync interval
+    set:
+      substrate.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --template-resync-interval=250ms

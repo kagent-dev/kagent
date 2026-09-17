@@ -10,7 +10,7 @@ import {
   unmappedAgent,
   UNMAPPED_AGENT_NAME,
   pairIdOfInstance,
-  useAgentInstancesAcrossNamespaces,
+  useAgentInstances,
   useAgentTemplatesAcrossNamespaces,
   useNamespaces,
   type AgentPair,
@@ -18,6 +18,7 @@ import {
 import { agentNewChatUrl } from "@/components/agent/agentUrl";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
+import { clickableRow } from "@/components/table/rowClick";
 import {
   byNumber,
   byText,
@@ -68,9 +69,8 @@ const PAGE_SIZE = 25;
  *
  * ## Why the conversation counts can be partial, and say so
  *
- * They come from `ListAgentInstances`, which has no cross-namespace read — so a wide
- * count is a request per namespace, and each namespace is authorised on its own. A
- * refused one is named rather than quietly making a column read lower than the truth.
+ * They come from `ListAgentInstances` with `all_creators`, which is authorised
+ * separately. A refused read is reported rather than shown as a zero count.
  */
 export function AgentsTab() {
   const theme = useTheme();
@@ -123,7 +123,6 @@ export function AgentsTab() {
    */
   const loadFailure = namespaces.error ?? templates.error;
 
-
   /*
    * Every conversation, so each agent can carry a count of its own.
    *
@@ -132,11 +131,11 @@ export function AgentsTab() {
    * could interpret, and the switch that used to ask about it is gone — the list
    * should show everyone's work, which was the decision.
    */
-  const conversations = useAgentInstancesAcrossNamespaces(namespaceNames, true);
+  const conversations = useAgentInstances(true);
 
   const conversationCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const instance of conversations.data?.instances ?? []) {
+    for (const instance of conversations.data ?? []) {
       const pairId = pairIdOfInstance(instance);
       if (!pairId) continue;
       counts.set(pairId, (counts.get(pairId) ?? 0) + 1);
@@ -171,7 +170,7 @@ export function AgentsTab() {
      * A namespace whose templates could not be read tells us nothing about its
      * conversations.
      *
-     * Templates and conversations are read one namespace at a time, and either can be
+     * Templates are read one namespace at a time, and each read can be
      * refused on its own. When the template read for a namespace fails, none of its
      * pairs are in `known` — so every conversation in it looks stranded, and the page
      * says so beside a separate notice explaining that the namespace could not be read
@@ -184,8 +183,8 @@ export function AgentsTab() {
     const unreadable = new Set(
       (templates.data.refused ?? []).map((entry) => entry.namespace),
     );
-    return (conversations.data.instances ?? []).filter((instance) => {
-      if (unreadable.has(instance.namespace)) return false;
+    return (conversations.data ?? []).filter((instance) => {
+      if (unreadable.has(instance.agentTemplate?.split("/")[0] ?? "")) return false;
       const pairId = pairIdOfInstance(instance);
       return pairId === undefined || !known.has(pairId);
     }).length;
@@ -211,7 +210,6 @@ export function AgentsTab() {
     () => (namespaces.data ?? []).map((entry) => ({ value: entry.name })),
     [namespaces.data],
   );
-
 
   const matching = useMemo(
     () =>
@@ -268,8 +266,6 @@ export function AgentsTab() {
     }
     return [...real, ...stranded];
   }, [matching, view]);
-
-  const refused = conversations.data?.refused ?? [];
 
   const columns = useMemo<ColumnsType<AgentPair>>(
     () => [
@@ -436,26 +432,6 @@ export function AgentsTab() {
           />
         ) : null}
 
-        {/* Partial by design: conversations are read one namespace at a time and each
-            is authorised on its own, so a reader can be allowed six and refused the
-            seventh. Naming them is the difference between a lower count and a lower
-            count you know about. */}
-        {refused.length > 0 ? (
-          <Alert
-            type="warning"
-            showIcon
-            data-testid="agents-counts-refused"
-            title={
-              refused.length === 1
-                ? `Conversations in one namespace could not be counted: ${refused[0].namespace}`
-                : `Conversations in ${refused.length} namespaces could not be counted`
-            }
-            description={refused
-              .map((entry) => `${entry.namespace}: ${entry.reason}`)
-              .join(" · ")}
-          />
-        ) : null}
-
         {orphanedConversations > 0 ? (
           <Alert
             type="info"
@@ -522,27 +498,15 @@ export function AgentsTab() {
                     : "No agents yet."
                   : " ",
           }}
-          onRow={(row) => ({
-            className: "clickable-table-row",
-            onClick: (event) => {
-              // Anything itself interactive handles its own click. One rule rather
-              // than a `stopPropagation` per control, so a control added later
-              // cannot silently inherit the row's navigation.
-              if (
-                (event.target as HTMLElement).closest(
-                  "a, button, input, [role='button'], .ant-popover, .ant-dropdown",
-                )
-              ) {
-                return;
-              }
+          onRow={(row) =>
+            clickableRow(() => {
               const destination = row.isUnmapped
                 ? paths.agentsUnmapped
                 : agentNewChatUrl(row);
               if (destination) void navigate(destination);
-            },
-          })}
+            })
+          }
         />
-
 
     </Space>
   );

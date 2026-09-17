@@ -4,6 +4,7 @@ import type { ExtensionFormFieldContribution } from "./formFields";
 import type { AgentInstance, ApiCallId } from "@/api";
 import type { ExtensionApi } from "./api/extensionApi";
 import type { ExtensionTheme } from "./theme";
+import type { ExtensionAgentRailOverrides } from "./railOverrides";
 import type { ExtensionShell } from "./shell";
 import type { ExtensionBranding } from "./branding";
 import type { ExtensionNavOverrides } from "./navOverrides";
@@ -104,16 +105,74 @@ export interface ExtensionRouteContribution {
   handle?: ExtensionRouteHandle;
 }
 
-/**
- * How an agent is addressed: a namespace and an `AgentInstance` id.
- *
- * An agent *is* an instance, and an instance has no name — its id is a UUID, which
- * is what every one of its RPCs takes. So this carries an id where it used to carry
- * a name.
- */
+/** A conversation identified by UUID. */
 export interface ExtensionAgentRef {
-  namespace: string;
   id: string;
+}
+
+/**
+ * An agent named by its template and harness rather than by a conversation.
+ *
+ * The rail's own pages address an agent both ways, and only this one is available on a
+ * page with no conversation open.
+ */
+export interface ExtensionAgentPair {
+  namespace: string;
+  agentTemplate?: string;
+  harness?: string;
+}
+
+/** What the agent rail tells a contributed entry about where it is being drawn. */
+export interface ExtensionAgentRailItemProps {
+  /** True when the current location matches the item's `path`. */
+  isActive: boolean;
+  /**
+   * The conversation whose rail this is, when there is one.
+   *
+   * Absent on the agent's own page and on a new conversation, where no instance is
+   * open yet. A contribution that needs an address should derive it from this and
+   * render nothing when it is missing, exactly as the application's own entries are
+   * left out when their destination cannot be derived.
+   */
+  agent?: ExtensionAgentRef;
+  /**
+   * The agent this rail is scoped to, wherever it can be named.
+   *
+   * Present on every surface the rail is mounted on, including the ones with no
+   * conversation open — so an entry that would otherwise render nothing there has an
+   * agent to address. `agent` stays the narrower fact: which conversation, when there
+   * is one.
+   */
+  pair?: ExtensionAgentPair;
+}
+
+/**
+ * An entry a product adds to the agent rail's navigation.
+ *
+ * The mirror of `ExtensionNavItemContribution` for the rail rather than the
+ * application sidebar. The component draws its own entry, so a product is not held
+ * to the application's row: `order` decides only where it sits, and core entries
+ * carry orders in multiples of 100 to leave room between them.
+ */
+export interface ExtensionAgentRailItemContribution {
+  /** Unique across core and extension rail items. */
+  key: string;
+  order: number;
+  /**
+   * Where this entry leads, as a route pattern, for active-state matching only.
+   * Resolved with `matchPath`, so `/agents/:id/analytics` is active on whichever
+   * agent is open. A pattern with no parameters matches the one path, as before.
+   */
+  path?: string;
+  /**
+   * Active state this pattern cannot express — several routes, or a search
+   * parameter. Applied in addition to `path`: either matching makes the entry
+   * active, so an entry can declare where it leads and still widen it.
+   */
+  isActive?: (location: { pathname: string; search: string }) => boolean;
+  /** What this entry is called, for anything that has to name it rather than draw it. */
+  label?: string;
+  Component: ComponentType<ExtensionAgentRailItemProps>;
 }
 
 /**
@@ -241,4 +300,16 @@ export interface AppExtensionConfig {
    * Agent destinations the application resolves from this configuration.
    */
   agentLinks?: ExtensionAgentLinks;
+
+  /**
+   * **Additive.** Entries added to the agent rail's navigation, interleaved with the
+   * application's own by `order`.
+   */
+  agentRailItems?: readonly ExtensionAgentRailItemContribution[];
+
+  /**
+   * **Singular, merged two levels deep.** Changes to the rail entries the
+   * application ships: hide, rename, retarget, re-icon, reorder.
+   */
+  agentRailOverrides?: ExtensionAgentRailOverrides;
 }

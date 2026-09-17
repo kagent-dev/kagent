@@ -26,7 +26,7 @@ const (
 	controllerContainer = "controller"
 
 	controllerServiceName = "kagent-controller"
-	controllerGRPCPort    = 8084
+	controllerAPIPort     = 8083
 )
 
 type upgradeEnv struct {

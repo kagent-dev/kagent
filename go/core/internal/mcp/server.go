@@ -41,14 +41,11 @@ type invocationStart struct {
 }
 
 type ListAgentInstancesInput struct {
-	Namespace   string            `json:"namespace" jsonschema:"Kubernetes namespace containing the AgentInstances"`
-	MatchLabels map[string]string `json:"match_labels,omitempty" jsonschema:"Optional exact-match labels"`
-	PageSize    int               `json:"page_size,omitempty" jsonschema:"Maximum number of AgentInstances to return"`
-	PageToken   string            `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
+	PageSize  int    `json:"page_size,omitempty" jsonschema:"Maximum number of AgentInstances to return"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"Token returned by a previous call"`
 }
 
 type AgentInstanceSummary struct {
-	Namespace     string `json:"namespace"`
 	ID            string `json:"id"`
 	AgentTemplate string `json:"agent_template"`
 	Harness       string `json:"harness"`
@@ -61,14 +58,12 @@ type ListAgentInstancesOutput struct {
 }
 
 type InvokeAgentInstanceInput struct {
-	Namespace       string `json:"namespace" jsonschema:"Kubernetes namespace containing the AgentInstance"`
 	AgentInstanceID string `json:"agent_instance_id" jsonschema:"AgentInstance UUID"`
 	Message         string `json:"message" jsonschema:"Message to send to the agent"`
 	MessageID       string `json:"message_id,omitempty" jsonschema:"Optional stable A2A message ID for idempotency"`
 }
 
 type InvokeAgentInstanceOutput struct {
-	Namespace       string `json:"namespace"`
 	AgentInstanceID string `json:"agent_instance_id"`
 	TaskID          string `json:"task_id"`
 	ContextID       string `json:"context_id"`
@@ -110,7 +105,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) listAgentInstances(ctx context.Context, _ *mcp.CallToolRequest, input ListAgentInstancesInput) (*mcp.CallToolResult, ListAgentInstancesOutput, error) {
 	result, err := h.instances.List(ctx, agentinstance.ListRequest{
-		Namespace: input.Namespace, MatchLabels: input.MatchLabels,
 		PageSize: input.PageSize, PageToken: input.PageToken,
 	})
 	if err != nil {
@@ -128,7 +122,7 @@ func (h *Handler) listAgentInstances(ctx context.Context, _ *mcp.CallToolRequest
 		if i > 0 {
 			text.WriteByte('\n')
 		}
-		fmt.Fprintf(&text, "%s/%s (%s via %s)", instance.Namespace, instance.ID, instance.AgentTemplate, instance.Harness)
+		fmt.Fprintf(&text, "%s (%s via %s)", instance.ID, instance.AgentTemplate, instance.Harness)
 	}
 	if text.Len() == 0 {
 		text.WriteString("No ready AgentInstances found.")
@@ -146,14 +140,14 @@ func (h *Handler) invokeAgentInstance(ctx context.Context, _ *mcp.CallToolReques
 }
 
 func (h *Handler) invoke(ctx context.Context, input InvokeAgentInstanceInput, async bool) (*a2atype.Task, error) {
-	if input.Namespace == "" || input.AgentInstanceID == "" || strings.TrimSpace(input.Message) == "" {
-		return nil, fmt.Errorf("namespace, agent_instance_id, and message are required")
+	if input.AgentInstanceID == "" || strings.TrimSpace(input.Message) == "" {
+		return nil, fmt.Errorf("agent_instance_id and message are required")
 	}
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.Message))
 	if input.MessageID != "" {
 		message.ID = input.MessageID
 	}
-	routed := routeContext(ctx, input.Namespace, input.AgentInstanceID)
+	routed := routeContext(ctx, input.AgentInstanceID)
 	if async {
 		routed = context.WithoutCancel(routed)
 	}
@@ -193,12 +187,11 @@ func (h *Handler) invoke(ctx context.Context, input InvokeAgentInstanceInput, as
 	if message.TaskID == "" {
 		return nil, fmt.Errorf("A2A gateway did not create a task")
 	}
-	return h.gateway.GetTask(routeContext(ctx, input.Namespace, input.AgentInstanceID), &a2atype.GetTaskRequest{ID: message.TaskID})
+	return h.gateway.GetTask(routeContext(ctx, input.AgentInstanceID), &a2atype.GetTaskRequest{ID: message.TaskID})
 }
 
-func routeContext(ctx context.Context, namespace, instanceID string) context.Context {
+func routeContext(ctx context.Context, instanceID string) context.Context {
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		kagenta2a.AgentInstanceNamespaceHeader, namespace,
 		kagenta2a.AgentInstanceIDHeader, instanceID,
 	))
 	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string{
@@ -220,8 +213,8 @@ func invocationResult(input InvokeAgentInstanceInput, task *a2atype.Task) (*mcp.
 			task.Status.State == a2atype.TaskStateRejected ||
 			task.Status.State == a2atype.TaskStateAuthRequired,
 	}, InvokeAgentInstanceOutput{
-		Namespace: input.Namespace, AgentInstanceID: input.AgentInstanceID,
-		TaskID: string(task.ID), ContextID: task.ContextID,
+		AgentInstanceID: input.AgentInstanceID,
+		TaskID:          string(task.ID), ContextID: task.ContextID,
 		State: task.Status.State.String(), Text: text,
 	}
 }

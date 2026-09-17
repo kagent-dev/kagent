@@ -9,20 +9,21 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
 const (
 	// HITLExtensionURI is the versioned A2A Message extension used at the HITL edge.
-	HITLExtensionURI             = "https://kagent.dev/extensions/hitl/v1"
-	HITLTypeToolApprovalRequest  = "tool_approval_request"
-	HITLTypeAskUserRequest       = "ask_user_request"
-	HITLTypeToolApprovalResponse = "tool_approval_response"
-	HITLTypeAskUserResponse      = "ask_user_response"
+	HITLExtensionURI             = apia2a.HITLExtensionURI
+	HITLTypeToolApprovalRequest  = apia2a.HITLTypeToolApprovalRequest
+	HITLTypeAskUserRequest       = apia2a.HITLTypeAskUserRequest
+	HITLTypeToolApprovalResponse = apia2a.HITLTypeToolApprovalResponse
+	HITLTypeAskUserResponse      = apia2a.HITLTypeAskUserResponse
 	KAgentMetadataKeyPrefix      = "kagent_"
 )
 
-var hitlAgentExtension = a2atype.AgentExtension{URI: HITLExtensionURI, Required: false}
+var hitlAgentExtension = apia2a.HITLExtension()
 
 // HITLActivationInterceptor activates HITL when the client requested the exact
 // versioned extension URI. The A2A transports then echo activated URIs.
@@ -45,57 +46,6 @@ func (*hitlActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Ca
 func HitlActivated(ctx context.Context) bool {
 	extensions, ok := a2asrv.ExtensionsFrom(ctx)
 	return ok && extensions.Active(&hitlAgentExtension)
-}
-
-// Public extension schema (same shapes as kagent.core.a2a._hitl).
-
-type HitlTool struct {
-	ID     string         `json:"id"`
-	CallID string         `json:"call_id"`
-	Name   string         `json:"name"`
-	Args   map[string]any `json:"args"`
-}
-
-type NestedHitlRequest struct {
-	SubagentName string     `json:"subagent_name,omitempty"`
-	TaskID       string     `json:"task_id,omitempty"`
-	ContextID    string     `json:"context_id,omitempty"`
-	Tools        []HitlTool `json:"tools"`
-}
-
-type ToolApprovalRequest struct {
-	Type   string             `json:"type"`
-	Hint   string             `json:"hint,omitempty"`
-	Tools  []HitlTool         `json:"tools"`
-	Nested *NestedHitlRequest `json:"nested,omitempty"`
-}
-
-type AskUserRequest struct {
-	Type      string             `json:"type"`
-	ID        string             `json:"id"`
-	Questions []map[string]any   `json:"questions"`
-	Nested    *NestedHitlRequest `json:"nested,omitempty"`
-}
-
-type ToolApproval struct {
-	ID              string `json:"id"`
-	Approved        bool   `json:"approved"`
-	RejectionReason string `json:"rejection_reason,omitempty"`
-}
-
-type ToolApprovalResponse struct {
-	Type      string         `json:"type"`
-	Approvals []ToolApproval `json:"approvals"`
-}
-
-type AskUserAnswer struct {
-	Answer []string `json:"answer"`
-}
-
-type AskUserResponse struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Answers []AskUserAnswer `json:"answers,omitempty"`
 }
 
 // rawHitlMap reads the HITL extension metadata as a map[string]any.
@@ -123,8 +73,8 @@ func decodeJSON[T any](raw map[string]any, wantType string) *T {
 	return &v
 }
 
-func GetToolApprovalRequest(message *a2atype.Message) *ToolApprovalRequest {
-	v := decodeJSON[ToolApprovalRequest](rawHitlMap(message), HITLTypeToolApprovalRequest)
+func GetToolApprovalRequest(message *a2atype.Message) *apia2a.ToolApprovalRequest {
+	v := decodeJSON[apia2a.ToolApprovalRequest](rawHitlMap(message), HITLTypeToolApprovalRequest)
 	if v == nil || len(v.Tools) == 0 {
 		return nil
 	}
@@ -132,27 +82,21 @@ func GetToolApprovalRequest(message *a2atype.Message) *ToolApprovalRequest {
 	return v
 }
 
-func GetAskUserRequest(message *a2atype.Message) *AskUserRequest {
-	v := decodeJSON[AskUserRequest](rawHitlMap(message), HITLTypeAskUserRequest)
-	if v == nil || v.ID == "" {
-		return nil
-	}
+func GetAskUserRequest(message *a2atype.Message) *apia2a.AskUserRequest {
+	v, _ := apia2a.ParseAskUserRequest(message)
 	return v
 }
 
-func GetToolApprovalResponse(message *a2atype.Message) *ToolApprovalResponse {
-	v := decodeJSON[ToolApprovalResponse](rawHitlMap(message), HITLTypeToolApprovalResponse)
+func GetToolApprovalResponse(message *a2atype.Message) *apia2a.ToolApprovalResponse {
+	v := decodeJSON[apia2a.ToolApprovalResponse](rawHitlMap(message), HITLTypeToolApprovalResponse)
 	if v == nil || len(v.Approvals) == 0 {
 		return nil
 	}
 	return v
 }
 
-func GetAskUserResponse(message *a2atype.Message) *AskUserResponse {
-	v := decodeJSON[AskUserResponse](rawHitlMap(message), HITLTypeAskUserResponse)
-	if v == nil || v.ID == "" {
-		return nil
-	}
+func GetAskUserResponse(message *a2atype.Message) *apia2a.AskUserResponse {
+	v, _ := apia2a.ParseAskUserResponse(message)
 	return v
 }
 
@@ -202,7 +146,7 @@ func GetKAgentMetadataKey(key string) string {
 }
 
 // normalizeTools ensures that tools have non-nil Args.
-func normalizeTools(tools []HitlTool) {
+func normalizeTools(tools []apia2a.HITLTool) {
 	for i := range tools {
 		if tools[i].Args == nil {
 			tools[i].Args = map[string]any{}
@@ -217,10 +161,10 @@ type RemoteHitlState struct {
 	ContextID    string `json:"context_id,omitempty"`
 	SubagentName string `json:"subagent_name"`
 	// Exactly one request / at most one response is set.
-	ToolApprovalRequest  *ToolApprovalRequest  `json:"tool_approval_request,omitempty"`
-	AskUserRequest       *AskUserRequest       `json:"ask_user_request,omitempty"`
-	ToolApprovalResponse *ToolApprovalResponse `json:"tool_approval_response,omitempty"`
-	AskUserResponse      *AskUserResponse      `json:"ask_user_response,omitempty"`
+	ToolApprovalRequest  *apia2a.ToolApprovalRequest  `json:"tool_approval_request,omitempty"`
+	AskUserRequest       *apia2a.AskUserRequest       `json:"ask_user_request,omitempty"`
+	ToolApprovalResponse *apia2a.ToolApprovalResponse `json:"tool_approval_response,omitempty"`
+	AskUserResponse      *apia2a.AskUserResponse      `json:"ask_user_response,omitempty"`
 }
 
 // ToMap serializes for ToolConfirmation.Payload. Also emits hitl_request/hitl_response
@@ -282,19 +226,19 @@ func ParseRemoteHitlState(raw map[string]any) *RemoteHitlState {
 		ContextID:    stringValue(raw["context_id"]),
 		SubagentName: stringValue(raw["subagent_name"]),
 	}
-	state.ToolApprovalRequest = decodeJSON[ToolApprovalRequest](req, HITLTypeToolApprovalRequest)
+	state.ToolApprovalRequest = decodeJSON[apia2a.ToolApprovalRequest](req, HITLTypeToolApprovalRequest)
 	if state.ToolApprovalRequest != nil {
 		normalizeTools(state.ToolApprovalRequest.Tools)
 	} else {
-		state.AskUserRequest = decodeJSON[AskUserRequest](req, HITLTypeAskUserRequest)
+		state.AskUserRequest = decodeJSON[apia2a.AskUserRequest](req, HITLTypeAskUserRequest)
 	}
 	if state.ToolApprovalRequest == nil && state.AskUserRequest == nil {
 		return nil
 	}
 	if resp, ok := raw["hitl_response"].(map[string]any); ok {
-		state.ToolApprovalResponse = decodeJSON[ToolApprovalResponse](resp, HITLTypeToolApprovalResponse)
+		state.ToolApprovalResponse = decodeJSON[apia2a.ToolApprovalResponse](resp, HITLTypeToolApprovalResponse)
 		if state.ToolApprovalResponse == nil {
-			state.AskUserResponse = decodeJSON[AskUserResponse](resp, HITLTypeAskUserResponse)
+			state.AskUserResponse = decodeJSON[apia2a.AskUserResponse](resp, HITLTypeAskUserResponse)
 		}
 	}
 	return state
@@ -342,7 +286,7 @@ func (s *RemoteHitlState) ResponseType() string {
 }
 
 // VisibleTools returns the tools the human should decide on.
-func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool {
+func VisibleTools(approval *apia2a.ToolApprovalRequest, ask *apia2a.AskUserRequest) []apia2a.HITLTool {
 	if approval != nil {
 		if approval.Nested != nil {
 			return approval.Nested.Tools
@@ -353,7 +297,7 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 		if ask.Nested != nil {
 			return ask.Nested.Tools
 		}
-		return []HitlTool{{
+		return []apia2a.HITLTool{{
 			ID: ask.ID, CallID: ask.ID, Name: "ask_user",
 			Args: map[string]any{"questions": ask.Questions},
 		}}
@@ -361,9 +305,27 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 	return nil
 }
 
+// askUserQuestionText joins the question text from a typed Questions field, or "" if none carry text.
+func askUserQuestionText(questions []apia2a.HITLQuestion) string {
+	texts := make([]string, 0, len(questions))
+	for _, q := range questions {
+		if q.Question != "" {
+			texts = append(texts, q.Question)
+		}
+	}
+	return strings.Join(texts, " ")
+}
+
 func RemoteHitlHint(state *RemoteHitlState) string {
 	if state == nil {
 		return "Remote agent requires human input before continuing."
+	}
+	// Read Questions directly: VisibleTools()'s nested Args round-trip through
+	// JSON to []any, silently losing the question text in the nested case.
+	if state.AskUserRequest != nil {
+		if q := askUserQuestionText(state.AskUserRequest.Questions); q != "" {
+			return fmt.Sprintf("Remote agent '%s' asks: %s", state.SubagentName, q)
+		}
 	}
 	tools := VisibleTools(state.ToolApprovalRequest, state.AskUserRequest)
 	names := make([]string, 0, len(tools))
@@ -425,8 +387,8 @@ func parseConfirmationTool(data map[string]any) confirmationTool {
 	return tool
 }
 
-func (tool confirmationTool) asHitlTool() HitlTool {
-	return HitlTool{ID: tool.approvalID, CallID: tool.callID, Name: tool.name, Args: tool.args}
+func (tool confirmationTool) asHitlTool() apia2a.HITLTool {
+	return apia2a.HITLTool{ID: tool.approvalID, CallID: tool.callID, Name: tool.name, Args: tool.args}
 }
 
 // BuildHITLStatusMessage: ADK confirmation DataParts → public HITL Message extension.
@@ -434,7 +396,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	if message == nil {
 		return nil
 	}
-	var tools []HitlTool
+	var tools []apia2a.HITLTool
 	var remote *RemoteHitlState
 	hint := "Human input is required before the agent can continue."
 	for _, part := range message.Parts {
@@ -466,9 +428,9 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		return public
 	}
 
-	var nested *NestedHitlRequest
+	var nested *apia2a.NestedHITLRequest
 	if remote != nil {
-		nested = &NestedHitlRequest{
+		nested = &apia2a.NestedHITLRequest{
 			SubagentName: remote.SubagentName,
 			TaskID:       remote.TaskID,
 			ContextID:    remote.ContextID,
@@ -477,29 +439,59 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	}
 
 	if remote != nil && remote.AskUserRequest != nil {
-		return AttachHitlExtension(public, &AskUserRequest{
+		return AttachHitlExtension(public, &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
 			Questions: remote.AskUserRequest.Questions, Nested: nested,
 		})
 	}
 	if len(tools) == 1 && tools[0].Name == "ask_user" {
-		var questions []map[string]any
-		if raw, ok := tools[0].Args["questions"].([]any); ok {
-			for _, item := range raw {
-				if m, ok := item.(map[string]any); ok {
-					questions = append(questions, m)
-				}
-			}
-		} else if typed, ok := tools[0].Args["questions"].([]map[string]any); ok {
-			questions = typed
-		}
-		return AttachHitlExtension(public, &AskUserRequest{
-			Type: HITLTypeAskUserRequest, ID: tools[0].ID, Questions: questions,
+		return AttachHitlExtension(public, &apia2a.AskUserRequest{
+			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
+			Questions: publicAskUserQuestions(tools[0].Args["questions"]),
 		})
 	}
-	return AttachHitlExtension(public, &ToolApprovalRequest{
+	return AttachHitlExtension(public, &apia2a.ToolApprovalRequest{
 		Type: HITLTypeToolApprovalRequest, Hint: hint, Tools: tools, Nested: nested,
 	})
+}
+
+func publicAskUserQuestions(value any) []apia2a.HITLQuestion {
+	items, ok := value.([]any)
+	if !ok {
+		if maps, typed := value.([]map[string]any); typed {
+			items = make([]any, len(maps))
+			for index := range maps {
+				items[index] = maps[index]
+			}
+		}
+	}
+	questions := make([]apia2a.HITLQuestion, 0, len(items))
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		question, _ := raw["question"].(string)
+		multiple, _ := raw["multiple"].(bool)
+		questions = append(questions, apia2a.HITLQuestion{
+			Question: question, Choices: stringSlice(raw["choices"]), Multiple: multiple,
+		})
+	}
+	return questions
+}
+
+func stringSlice(value any) []string {
+	if values, ok := value.([]string); ok {
+		return append([]string(nil), values...)
+	}
+	values, _ := value.([]any)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 // BuildResumeHITLMessage: client HITL response + stored request → ADK FunctionResponse parts.
@@ -537,7 +529,7 @@ func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message)
 	return a2atype.NewMessage(a2atype.MessageRoleUser, parts...), nil
 }
 
-func processDirectAskUser(req *AskUserRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
+func processDirectAskUser(req *apia2a.AskUserRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
 	resp := GetAskUserResponse(message)
 	if resp == nil || resp.ID != req.ID || len(resp.Answers) == 0 {
 		return nil, fmt.Errorf("ask_user decision is missing approval correlation or answers")
@@ -547,12 +539,12 @@ func processDirectAskUser(req *AskUserRequest, message *a2atype.Message) ([]*a2a
 	})}, nil
 }
 
-func processDirectApproval(req *ToolApprovalRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
+func processDirectApproval(req *apia2a.ToolApprovalRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
 	resp := GetToolApprovalResponse(message)
 	if resp == nil {
 		return nil, fmt.Errorf("tool approval request requires a tool approval response")
 	}
-	approvals := map[string]ToolApproval{}
+	approvals := map[string]apia2a.ToolApproval{}
 	for _, a := range resp.Approvals {
 		if _, dup := approvals[a.ID]; dup {
 			return nil, fmt.Errorf("tool approval response contains duplicate id %s", a.ID)
@@ -579,7 +571,7 @@ func processDirectApproval(req *ToolApprovalRequest, message *a2atype.Message) (
 }
 
 // processNestedAskUser: client returns nested.tools[0].id; parent FunctionResponse uses request.id.
-func processNestedAskUser(req *AskUserRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
+func processNestedAskUser(req *apia2a.AskUserRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
 	nested := req.Nested
 	if nested.TaskID == "" || nested.SubagentName == "" {
 		return nil, fmt.Errorf("nested HITL request is missing subagent task correlation")
@@ -597,14 +589,14 @@ func processNestedAskUser(req *AskUserRequest, message *a2atype.Message) ([]*a2a
 	}
 	state := RemoteHitlState{
 		TaskID: nested.TaskID, ContextID: nested.ContextID, SubagentName: nested.SubagentName,
-		AskUserRequest:  &AskUserRequest{Type: HITLTypeAskUserRequest, ID: childID, Questions: req.Questions},
-		AskUserResponse: &AskUserResponse{Type: HITLTypeAskUserResponse, ID: childID, Answers: resp.Answers},
+		AskUserRequest:  &apia2a.AskUserRequest{Type: HITLTypeAskUserRequest, ID: childID, Questions: req.Questions},
+		AskUserResponse: &apia2a.AskUserResponse{Type: HITLTypeAskUserResponse, ID: childID, Answers: resp.Answers},
 	}
 	return []*a2atype.Part{buildConfirmationResponsePart(req.ID, true, state.ToMap())}, nil
 }
 
 // processNestedApproval: client returns nested.tools IDs; parent FunctionResponse uses tools[0].id.
-func processNestedApproval(req *ToolApprovalRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
+func processNestedApproval(req *apia2a.ToolApprovalRequest, message *a2atype.Message) ([]*a2atype.Part, error) {
 	nested := req.Nested
 	if nested.TaskID == "" || nested.SubagentName == "" {
 		return nil, fmt.Errorf("nested HITL request is missing subagent task correlation")
@@ -616,7 +608,7 @@ func processNestedApproval(req *ToolApprovalRequest, message *a2atype.Message) (
 	if resp == nil {
 		return nil, fmt.Errorf("nested tool approval request requires a tool approval response")
 	}
-	approvals := map[string]ToolApproval{}
+	approvals := map[string]apia2a.ToolApproval{}
 	for _, a := range resp.Approvals {
 		if _, dup := approvals[a.ID]; dup {
 			return nil, fmt.Errorf("tool approval response contains duplicate id %s", a.ID)
@@ -624,7 +616,7 @@ func processNestedApproval(req *ToolApprovalRequest, message *a2atype.Message) (
 		approvals[a.ID] = a
 	}
 	confirmed := true
-	nestedApprovals := make([]ToolApproval, 0, len(nested.Tools))
+	nestedApprovals := make([]apia2a.ToolApproval, 0, len(nested.Tools))
 	for _, tool := range nested.Tools {
 		approval, ok := approvals[tool.ID]
 		if !ok {
@@ -641,8 +633,8 @@ func processNestedApproval(req *ToolApprovalRequest, message *a2atype.Message) (
 	}
 	state := RemoteHitlState{
 		TaskID: nested.TaskID, ContextID: nested.ContextID, SubagentName: nested.SubagentName,
-		ToolApprovalRequest:  &ToolApprovalRequest{Type: HITLTypeToolApprovalRequest, Hint: req.Hint, Tools: nested.Tools},
-		ToolApprovalResponse: &ToolApprovalResponse{Type: HITLTypeToolApprovalResponse, Approvals: nestedApprovals},
+		ToolApprovalRequest:  &apia2a.ToolApprovalRequest{Type: HITLTypeToolApprovalRequest, Hint: req.Hint, Tools: nested.Tools},
+		ToolApprovalResponse: &apia2a.ToolApprovalResponse{Type: HITLTypeToolApprovalResponse, Approvals: nestedApprovals},
 	}
 	return []*a2atype.Part{buildConfirmationResponsePart(req.Tools[0].ID, confirmed, state.ToMap())}, nil
 }

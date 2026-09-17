@@ -2,6 +2,13 @@ package env
 
 // Core kagent environment variables used by the controller and agent runtime.
 var (
+	LeaderElect = RegisterBoolVar(
+		"LEADER_ELECT",
+		true,
+		"Enable controller leader election, including during single-replica rolling updates. Set false for local testing.",
+		ComponentController,
+	)
+
 	KagentNamespace = RegisterStringVar(
 		"KAGENT_NAMESPACE",
 		"kagent",
@@ -42,17 +49,17 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentURL = RegisterStringVar(
-		"KAGENT_URL",
+	KagentAPIURL = RegisterStringVar(
+		"KAGENT_API_URL",
 		"",
-		"Base URL for A2A communication with the kagent controller.",
+		"Base URL for kagent control-plane API calls.",
 		ComponentAgentRuntime,
 	)
 
-	KagentGRPCURL = RegisterStringVar(
-		"KAGENT_GRPC_URL",
+	KagentGatewayURL = RegisterStringVar(
+		"KAGENT_GATEWAY_URL",
 		"",
-		"Native gRPC target for kagent controller API calls.",
+		"Base URL for A2A and MCP traffic.",
 		ComponentAgentRuntime,
 	)
 

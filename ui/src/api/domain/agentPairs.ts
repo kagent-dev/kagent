@@ -3,11 +3,8 @@
  *
  * ## Why this is the agent, and an `AgentInstance` is not
  *
- * An instance is a *conversation*. Upstream's own end-to-end test asserts that a
- * task's `ContextID` **is** the instance id (`go/core/test/e2e/interaction_test.go`),
- * `agent_instance_task` holds the turns within one instance, and there is no way to
- * open a second context under one instance. So an instance is one thread of talk,
- * created and thrown away as freely as a chat window.
+ * An instance owns one conversation context and its isolated history. Forks
+ * preserve the A2A context ID under separate instance authorities.
  *
  * What persists is the pair. `agent_template_harness_pair` is a real table keyed by
  * `(namespace, agent_template_uid, harness_uid)` carrying `desired_revision`,
@@ -182,12 +179,11 @@ export function agentPairsFrom(templates: readonly AgentTemplate[]): AgentPair[]
  * controller's own `LEFT JOIN` says about it.
  */
 export function pairIdOfInstance(instance: {
-  namespace: string;
   harness?: string;
   agentTemplate?: string;
 }): string | undefined {
   if (!instance.harness || !instance.agentTemplate) return undefined;
-  return `${instance.namespace}/${bareName(instance.agentTemplate)}/${bareName(instance.harness)}`;
+  return `${instance.agentTemplate}/${bareName(instance.harness)}`;
 }
 
 /**

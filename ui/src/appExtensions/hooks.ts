@@ -12,16 +12,20 @@ import {
   extensionShell,
   extensionSlotComponents,
   extensionTableColumns,
+  extensionAgentRailItems,
+  extensionAgentRailOverrides,
 } from "./selectors";
 import type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
 import type { ExtensionFormFieldContribution, ExtensionFormId } from "./formFields";
 import type { ExtensionNavOverrides } from "./navOverrides";
+import type { ExtensionAgentRailOverrides } from "./railOverrides";
 import type { ExtensionBranding } from "./branding";
 import type { ExtensionShell } from "./shell";
 import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import type {
   AppExtensionConfig,
   ExtensionAgentLinks,
+  ExtensionAgentRailItemContribution,
   ExtensionNavItemContribution,
   ExtensionRouteContribution,
 } from "./types";
@@ -58,6 +62,18 @@ export function useExtensionSlotComponents<Id extends ExtensionPointId>(
 export function useExtensionNavItems(): readonly ExtensionNavItemContribution[] {
   const extensions = useAppExtensions();
   return useMemo(() => extensionNavItems(extensions), [extensions]);
+}
+
+/** Rail entries from every extension, in the order they will be drawn. */
+export function useExtensionAgentRailItems(): readonly ExtensionAgentRailItemContribution[] {
+  const extensions = useAppExtensions();
+  return useMemo(() => extensionAgentRailItems(extensions), [extensions]);
+}
+
+/** Every extension's changes to the rail entries the application ships. */
+export function useExtensionAgentRailOverrides(): ExtensionAgentRailOverrides {
+  const extensions = useAppExtensions();
+  return useMemo(() => extensionAgentRailOverrides(extensions), [extensions]);
 }
 
 /** Contributed pages from every extension, in install order. */

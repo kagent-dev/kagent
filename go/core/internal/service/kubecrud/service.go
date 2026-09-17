@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,13 +27,13 @@ type Service[T Object, L client.ObjectList] struct {
 	client     client.Client
 	object     T
 	list       L
-	authorizer auth.Authorizer
+	authorizer auth.CollectionAuthorizer
 	resource   string
 }
 
 func NewService[T Object, L client.ObjectList](
 	client client.Client,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	object T,
 	list L,
 	resource string,
@@ -42,11 +44,13 @@ func NewService[T Object, L client.ObjectList](
 }
 
 func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: s.resource}); err != nil {
+	scope, err := s.scope(ctx, auth.VerbList)
+	if err != nil {
 		return nil, err
 	}
-	if namespace == "" {
-		return nil, serviceerrors.NewInvalidArgument("namespace is required", nil)
+	matcher, err := kubeauth.CompileScope(scope)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to apply the "+s.resource+" authorization scope", err)
 	}
 	list := s.list.DeepCopyObject().(L)
 	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
@@ -54,12 +58,21 @@ func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error)
 	}
 	items := make([]T, 0)
 	if err := meta.EachListItem(list, func(item runtime.Object) error {
-		items = append(items, item.(T))
+		object := item.(T)
+		if matcher.Matches(object) {
+			items = append(items, object)
+		}
 		return nil
 	}); err != nil {
 		return nil, serviceerrors.NewInternal("Failed to read "+s.resource+" list", err)
 	}
-	slices.SortFunc(items, func(left, right T) int { return cmp.Compare(left.GetName(), right.GetName()) })
+	// Namespace and name are a total order, so a cluster-wide list cannot return equal items in an arbitrary order.
+	slices.SortFunc(items, func(left, right T) int {
+		return cmp.Or(
+			cmp.Compare(left.GetNamespace(), right.GetNamespace()),
+			cmp.Compare(left.GetName(), right.GetName()),
+		)
+	})
 	return items, nil
 }
 
@@ -68,7 +81,7 @@ func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, e
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, ref); err != nil {
 		return zero, err
 	}
 	return s.get(ctx, ref)
@@ -84,7 +97,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 	if err := s.validateNewRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, ref); err != nil {
 		return zero, err
 	}
 	if err := s.client.Create(ctx, object); err != nil {
@@ -106,7 +119,7 @@ func (s *Service[T, L]) GetForUpdate(ctx context.Context, ref types.NamespacedNa
 	if err := s.validateRef(ref); err != nil {
 		return zero, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbUpdate, ref); err != nil {
 		return zero, err
 	}
 	return s.get(ctx, ref)
@@ -128,7 +141,7 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 	if err := s.validateRef(ref); err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: s.resource, Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, ref); err != nil {
 		return err
 	}
 	object, err := s.get(ctx, ref)
@@ -139,6 +152,18 @@ func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) er
 		return serviceerrors.NewInternal("Failed to delete "+s.resource, err)
 	}
 	return nil
+}
+
+func (s *Service[T, L]) scope(ctx context.Context, verb auth.Verb) (apiauthorization.AuthorizationScope, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok || session == nil {
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+	}
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, s.resource)
+	if err != nil {
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnavailable("Failed to read the "+s.resource+" authorization scope", err)
+	}
+	return scope, nil
 }
 
 func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, error) {
@@ -153,11 +178,13 @@ func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, e
 	return object, nil
 }
 
-func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
+// authorize decides a single operation before any read, so a denial never depends on the object existing.
+func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, ref types.NamespacedName) error {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
 		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
+	resource := auth.Resource{Type: s.resource, Namespace: ref.Namespace, Name: ref.Name}
 	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
 		return serviceerrors.NewPermissionDenied("Not authorized", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
 )
 
@@ -27,7 +28,7 @@ type TransportConfig struct {
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
-// TLS → custom headers → timeout.
+// TLS → custom headers → trace propagation → timeout.
 func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	transport, err := BuildTLSTransport(
 		http.DefaultTransport,
@@ -52,6 +53,11 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	if len(tc.Headers) > 0 {
 		transport = &headerTransport{base: transport, headers: tc.Headers}
 	}
+
+	// Outermost layer: inject W3C traceparent/tracestate from the active span so
+	// LLM calls stay attached to the invocation trace instead of starting fresh
+	// root traces at tracing-aware proxies (kagent-dev/kagent#2550).
+	transport = otelhttp.NewTransport(transport)
 
 	timeout := defaultTimeout
 	if tc.Timeout != nil {

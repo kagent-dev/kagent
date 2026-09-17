@@ -52,6 +52,7 @@ export { MockChatClient } from "./mockChatClient";
 export { conversationKey } from "./types";
 export type {
   ChatClient,
+  ChatAskUserPart,
   ChatConversationRef,
   ChatDataPart,
   ChatEvent,
@@ -59,6 +60,7 @@ export type {
   ChatPart,
   ChatRole,
   ChatTextPart,
+  ChatToolApprovalPart,
   ChatTurnState,
   SendMessageInput,
 } from "./types";

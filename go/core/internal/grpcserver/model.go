@@ -113,7 +113,7 @@ func (s *modelServer) DeleteModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.service.Delete(ctx, modelservice.DeleteRequest{Ref: ref}); err != nil {
+	if err := s.service.Delete(ctx, modelservice.DeleteRequest{Ref: ref}); err != nil {
 		return nil, err
 	}
 	return &apiv1alpha1.DeleteModelConfigResponse{}, nil

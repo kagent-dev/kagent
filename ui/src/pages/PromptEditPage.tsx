@@ -56,17 +56,9 @@ export function PromptEditPage() {
     }
 
     await apiClient.prompts.update(namespace, name, { data: payload.data });
-    /*
-     * Re-read before navigating, so the page that opens shows the saved fragments
-     * rather than the ones just replaced — which would read as a save that did not
-     * take.
-     *
-     * A key sweep rather than this library's own read: the list's key count and
-     * fragment tags change with an edit too, and its key carries the namespace
-     * filter, so refreshing one read would leave whichever list is behind this
-     * stale.
-     */
-    await invalidatePrompts();
+    // Swept rather than re-reading this library alone: an edit changes the list's key
+    // count and tags too, on whichever surfaces are still mounted.
+    await invalidatePrompts().catch(() => {});
     toast.success(`Prompt library ${name} saved`);
     await navigate(detail);
   }

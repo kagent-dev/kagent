@@ -61,6 +61,8 @@ So list the extension whose opinion should prevail **last**.
 | `theme.globalStyles` | All emitted, in order, after the application's own — later wins a tie. |
 | `theme.stylesheets` | All loaded; an href already present is not fetched twice. |
 | `theme.supportedModes` | **Intersected**, not last-wins. It is a statement that an extension's own components cannot be read in the other palette, and a second install does not make the first one's components legible. A mode is offered only while every extension that has an opinion can honour it. |
+| `agentRailItems` | Concatenated, then re-sorted by `order`, exactly like `navItems` but for the agent rail. |
+| `agentRailOverrides` | Merged **two** levels, exactly like `navOverrides` but for the agent rail's own entries. |
 | `navOverrides` | Merged **two** levels — per entry, then per field. One extension hiding an entry and another renaming it gives a hidden, renamed entry rather than whichever spoke last. |
 | `api.transforms` / `api.request` | **Compose.** They are a list applied in registration order, so both extensions' transforms run and the later one sees the earlier one's work. |
 | `api.operations` / `endpoints` / `baseUrl` | Single-valued, so the later extension wins. |
@@ -152,6 +154,64 @@ the icon column and the collapsed layout, and drift from all four the next time
 the library changes any of them. `useThemeMode()` is re-exported from the barrel
 for the light/dark choice the `Menu` takes, since no design token stands in for
 it.
+
+## The agent rail
+
+The rail beside a conversation has the same pair of points the sidebar has, for the
+same reasons. Its own entries are `agentDetails` at order 100 and `newChat` at 200.
+
+```tsx
+agentRailItems: [
+  {
+    key: "runs",               // unique across core and contributed entries
+    order: 150,                // between Agent Details (100) and New chat (200)
+    path: "/runs",             // active-state matching only
+    Component: RunsRailItem,   // receives { isActive, agent }
+  },
+],
+
+agentRailOverrides: {
+  newChat: { label: "Start a run" },
+  agentDetails: { path: "/my/agent", icon: Sliders },
+}
+```
+
+`agent` is the conversation the rail is drawn beside, when there is one. It is absent
+on the agent's own page and on a new conversation, so an entry that needs an address
+should derive it and render nothing when it cannot — which is what the application's
+own entries do when their destination cannot be derived.
+
+An override's `path` lands on the entry's `to`; the rail renders its links itself, so
+that is the same idea under the name the rail uses for it. `hidden` also suppresses
+the button "New chat" falls back to where an agent has no address, so hiding it is
+not half done.
+
+To make a contributed entry indistinguishable from the application's, style it with
+`agentRailEntryStyles(theme, isActive)`, which is what the rail uses for its own. An
+entry that wants to look nothing like them is free to; it should not have to.
+
+### Serving your own agent page, with the rail beside it
+
+A contributed route renders in the application layout, not inside the agent page, so a
+page reached from a rail entry does not get the rail for free. Mount it:
+
+```tsx
+import { AgentRail, useAgentConversations, useAgentInstance } from "@/appExtensions";
+
+const instance = useAgentInstance(id);
+const conversations = useAgentConversations(namespace, agentTemplate, harness);
+
+<AgentRail
+  agentRef={{ id }}
+  instance={instance.data}
+  instances={{ ...conversations, data: conversations.data?.all ?? [] }}
+/>
+```
+
+The rail takes the open conversation and its siblings rather than reading them, because
+every surface mounting it already lists them. Pass `agentTitle` and `agentPair` too when
+no conversation is open, or the identity card has nothing to name. The contributed entry
+stays lit while its own page is showing, as any core entry would.
 
 ## Pages
 
@@ -257,12 +317,12 @@ This is how a product whose domain is wider than this application's shows that
 extra dimension on a page the application still owns. Nothing replaces the page.
 
 ```ts
-export const clusterColumn = defineExtensionTableColumn<AgentInstance>({
-  id: "cluster",
+export const creatorColumn = defineExtensionTableColumn<AgentInstance>({
+  id: "creator",
   tableId: "app_agents_agentsList_table",
-  title: "Cluster",
+  title: "Creator",
   after: "namespace",          // positioned after that core column's key
-  render: (row) => row.labels?.["cluster"] ?? "—",
+  render: (row) => row.creator ?? "—",
 });
 ```
 
@@ -452,8 +512,9 @@ happy with this application's chrome may still want its own mark on it.
 
 ```tsx
 branding: {
-  AppIcon: MyMark,        // receives { collapsed }; supplied whole, like everything else
-  appName: "My Product",  // used for the document title
+  AppIcon: MyMark,             // receives { collapsed }; supplied whole, like everything else
+  appName: "My Product",       // used for the document title
+  faviconUrl: "/my-mark.svg",  // the tab icon; a URL, since the browser loads it itself
 }
 ```
 
@@ -585,6 +646,7 @@ quietly. `AppExtensionConfigError` is raised for, within one extension:
 - a slot naming an unknown extension point
 - a form field targeting an unknown form ID
 - a nav item key declared twice
+- an agent rail item key declared twice, or one that is the application's own (`agentDetails`, `newChat`) rather than an `agentRailOverrides` entry
 - a contributed route colliding with a core route, or declared twice
 
 and for the collisions only the install as a whole can see:
@@ -592,6 +654,7 @@ and for the collisions only the install as a whole can see:
 - the same extension installed twice
 - two extensions contributing the same route path
 - two extensions contributing the same nav item key
+- two extensions contributing the same agent rail item key
 
 Two configs can each be perfectly valid and still be impossible to install
 together, and every one of those resolves silently and arbitrarily at runtime —

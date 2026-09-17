@@ -30,8 +30,11 @@ runs:
     - name: Resolve upgrade-from version
       id: resolve
       shell: bash
+      env:
+        # A merge group has no base_ref; its ref name is gh-readonly-queue/<base>/pr-N-<sha>.
+        BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
       run: |
-        base_ref="${GITHUB_BASE_REF:-${GITHUB_REF_NAME:-}}"
+        base_ref="${BASE_REF#refs/heads/}"
         is_release_line=false
         if [[ "$base_ref" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
           is_release_line=true
@@ -41,7 +44,7 @@ runs:
           # prev-stable = the previous minor line's latest published version.
           # Before that line has a final release, use its latest prerelease so
           # main keeps upgrade coverage after the release branch is cut.
-          V="$(./scripts/prev-stable-version.sh)"
+          V="$(CURRENT_REF="$base_ref" ./scripts/prev-stable-version.sh)"
           if [ -z "$V" ]; then
             echo "no published version on the previous release line; skipping prev-stable leg."
             echo "skip=true" >> "$GITHUB_OUTPUT"

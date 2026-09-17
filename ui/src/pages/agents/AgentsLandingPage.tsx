@@ -66,12 +66,12 @@ export function AgentsLandingPage() {
           <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
           <Link to={paths.agentTemplateNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
-              New template
+              New Template
             </Button>
           </Link>
           <Link to={paths.harnessNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-harness">
-              New harness
+              New Harness
             </Button>
           </Link>
         </Space>

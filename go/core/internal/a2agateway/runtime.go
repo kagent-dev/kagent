@@ -12,7 +12,9 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -30,7 +32,7 @@ type RuntimeDialer struct {
 }
 
 // NewRuntimeDialer configures private A2A gRPC calls through Substrate's
-// shared Atenet router; the selected Actor is carried only in :authority.
+// shared Atenet router; ate-target-actor selects the Actor.
 func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
 	router, err := url.Parse(routerURL)
 	if err != nil {
@@ -55,8 +57,9 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 }
 
 func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
-	if instance.GetA2AAuthority() == "" {
-		return nil, fmt.Errorf("runtime authority is empty")
+	targetActor, err := substrate.ActorTargetFromHost(instance.GetA2AAuthority())
+	if err != nil {
+		return nil, err
 	}
 	// ponytail: scope one connection to one public RPC until gateway traffic
 	// justifies a lifecycle-aware per-instance connection pool.
@@ -67,11 +70,11 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 	}},
 		a2agrpc.WithGRPCTransport(
 			grpc.WithTransportCredentials(d.transport),
-			grpc.WithAuthority(instance.GetA2AAuthority()),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),
-			&upstreamAuthInterceptor{authenticator: d.authenticator, instance: instance},
+			&upstreamAuthInterceptor{authenticator: d.authenticator, instance: instance, targetActor: targetActor},
 		),
 	)
 }
@@ -83,6 +86,7 @@ type upstreamAuthInterceptor struct {
 	a2aclient.PassthroughInterceptor
 	authenticator auth.AuthProvider
 	instance      *apiv1alpha1.AgentInstance
+	targetActor   string
 }
 
 func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
@@ -91,7 +95,7 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		return ctx, nil, err
 	}
 	if session, ok := auth.AuthSessionFrom(ctx); ok {
-		principal := auth.Principal{Agent: auth.Agent{ID: u.instance.GetNamespace() + "/" + u.instance.GetId()}}
+		principal := auth.Principal{Agent: auth.Agent{ID: u.instance.GetId()}}
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, principal); err != nil {
 			return ctx, nil, err
 		}
@@ -102,5 +106,6 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 			req.ServiceParams.Append(key, value)
 		}
 	}
+	req.ServiceParams["ate-target-actor"] = []string{u.targetActor}
 	return ctx, nil, nil
 }

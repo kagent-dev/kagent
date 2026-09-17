@@ -1,14 +1,18 @@
 package controller
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -74,14 +78,14 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	})
 
 	collections := Collections{
-		AgentTemplates:   krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
-		Harnesses:        krttest.GetMockCollection[*kagentv1alpha3.Harness](mock),
-		ModelConfigs:     modelConfigs,
-		RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
-		ConfigMaps:       krttest.GetMockCollection[*corev1.ConfigMap](mock),
-		Secrets:          krttest.GetMockCollection[*corev1.Secret](mock),
-		WorkerPools:      krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		ActorTemplates:   krt.NewStaticCollection[ObservedActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+		AgentTemplates:          krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
+		Harnesses:               krttest.GetMockCollection[*kagentv1alpha3.Harness](mock),
+		ModelConfigs:            modelConfigs,
+		RemoteMCPServers:        krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
+		ConfigMaps:              krttest.GetMockCollection[*corev1.ConfigMap](mock),
+		Secrets:                 krttest.GetMockCollection[*corev1.Secret](mock),
+		WorkerPools:             krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
+		PairRuntimeObservations: krt.NewStaticCollection[PairRuntimeObservation](nil, nil, opts.WithName("PairRuntimeObservations")...),
 	}
 	collections.ModelConfigStatuses, collections.ResolvedModelConfigs = newModelConfigReconciliations(collections.ModelConfigs, collections.ConfigMaps, collections.Secrets, opts)
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
@@ -90,7 +94,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 			AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 			RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 			Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-		}, collections.ActorTemplates, opts,
+		}, collections.PairRuntimeObservations, opts,
 	)
 	collections.AgentTemplateStatuses = newAgentTemplateStatuses(collections.AgentTemplates, collections.Reconciliations, opts)
 
@@ -113,8 +117,12 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 
 	observed := proto.CloneOf(state.DesiredActorTemplate)
 	observed.Metadata.Uid = "actor-template-uid"
-	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
-	collections.ActorTemplates.UpdateObject(ObservedActorTemplate{Template: observed})
+	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/golden"}}}
+	store := &fakeRuntimeRevisionStore{}
+	reconciler := &Reconciler{
+		collections: collections, templates: &fakeActorTemplates{template: observed}, store: store,
+	}
+	require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
 		updates := collections.AgentTemplateStatuses.List()
@@ -123,6 +131,52 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		}
 		ready := apimeta.FindStatusCondition(updates[0].Status.Harnesses[0].Conditions, kagentv1alpha3.AgentTemplateConditionReady)
 		return ready != nil && ready.Status == metav1.ConditionTrue && updates[0].Status.Harnesses[0].LatestSuccessfulRevision == state.RevisionID.String()
+	})
+
+	t.Run("deleting revision becomes pending and retries", func(t *testing.T) {
+		store.pairErr = database.ErrObjectDeleting
+		require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
+		waitFor(t, func() bool {
+			pending := collections.Reconciliations.GetKey(state.ResourceName())
+			updates := collections.AgentTemplateStatuses.List()
+			if pending == nil || pending.ObservedActorTemplate != nil || pending.Failure != nil || len(updates) != 1 || len(updates[0].Status.Harnesses) != 1 {
+				return false
+			}
+			return apimeta.IsStatusConditionFalse(updates[0].Status.Harnesses[0].Conditions, kagentv1alpha3.AgentTemplateConditionReady)
+		})
+
+		pollCtx, cancelPoll := context.WithCancel(t.Context())
+		queued := make(chan string, 1)
+		reconciler.pairs = controllers.NewQueue("test-deleting-revision", controllers.WithGenericReconciler(func(item any) error {
+			select {
+			case queued <- item.(string):
+			case <-pollCtx.Done():
+			}
+			return nil
+		}))
+		go reconciler.pairs.Run(pollCtx.Done())
+		go reconciler.pollPendingTemplates(pollCtx.Done())
+		t.Cleanup(func() {
+			cancelPoll()
+			require.NoError(t, reconciler.pairs.WaitForClose(time.Second))
+		})
+		// Retry more than once: the poll must keep working after the KRT event.
+		for range 2 {
+			select {
+			case key := <-queued:
+				require.Equal(t, state.ResourceName(), key)
+				require.NoError(t, reconciler.reconcilePair(t.Context(), key))
+			case <-time.After(5 * time.Second):
+				t.Fatal("pending pair was not requeued while awaiting deletion")
+			}
+		}
+		store.pairErr = nil
+		require.NoError(t, reconciler.reconcilePair(t.Context(), state.ResourceName()))
+		waitFor(t, func() bool {
+			updates := collections.AgentTemplateStatuses.List()
+			return len(updates) == 1 && len(updates[0].Status.Harnesses) == 1 &&
+				apimeta.IsStatusConditionTrue(updates[0].Status.Harnesses[0].Conditions, kagentv1alpha3.AgentTemplateConditionReady)
+		})
 	})
 
 	modelConfigs.UpdateObject(&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.1"}})
@@ -172,7 +226,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[ObservedActorTemplate](mock), opts,
+		}, krttest.GetMockCollection[PairRuntimeObservation](mock), opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -228,7 +282,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[ObservedActorTemplate](mock), opts,
+		}, krttest.GetMockCollection[PairRuntimeObservation](mock), opts,
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -281,7 +335,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[ObservedActorTemplate](mock), opts,
+		}, krttest.GetMockCollection[PairRuntimeObservation](mock), opts,
 	)
 	var initial string
 	waitFor(t, func() bool {

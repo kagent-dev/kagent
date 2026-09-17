@@ -15,7 +15,12 @@ import type {
 } from "@/api/domain/models";
 import type { PromptTemplateDetail, PromptTemplateSummary } from "@/api/domain/prompts";
 import type { NamespaceResponse } from "@/api/domain/namespaces";
-import type { SubstrateStatusResponse } from "@/api/domain/substrate";
+import type {
+  SubstrateActorEntry,
+  SubstrateActorTemplateEntry,
+  SubstrateWorkerEntry,
+  SubstrateWorkerPoolEntry,
+} from "@/api/domain/substrate";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 
@@ -266,8 +271,13 @@ export const mockNamespaces: NamespaceResponse[] = [
  * are partial is the state most likely to be rendered as though everything were
  * fine, so the fixture makes it the default rather than a special case.
  */
-export const mockSubstrateStatus: SubstrateStatusResponse = {
-  enabled: true,
+export const mockSubstrateInventory: {
+  ateApiError?: string;
+  workerPools: SubstrateWorkerPoolEntry[];
+  actorTemplates: SubstrateActorTemplateEntry[];
+  actors: SubstrateActorEntry[];
+  workers: SubstrateWorkerEntry[];
+} = {
   ateApiError: "ate-api list actors timed out after 5s; actors may be incomplete",
   workerPools: [
     { namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" },
@@ -275,17 +285,16 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
   ],
   actorTemplates: [
     {
-      namespace: "kagent",
+      atespace: "kagent",
       name: "coder-template",
       phase: "Ready",
       goldenActorId: "actor-golden-001",
       goldenSnapshot: "snap-2026-07-28",
-      sandboxClass: "standard",
+      sandboxClass: "gvisor",
       workerSelector: "pool=default-pool",
-      harnessName: "openclaw",
     },
     {
-      namespace: "platform",
+      atespace: "platform",
       name: "external-template",
       phase: "Pending",
     },
@@ -293,9 +302,9 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
   actors: [
     {
       actorId: "actor-7f21",
-      atespace: "kagent",
+      atespace: "team-a",
       status: "Running",
-      actorTemplateNamespace: "kagent",
+      actorTemplateAtespace: "kagent",
       actorTemplateName: "coder-template",
       ateomPodNamespace: "kagent",
       ateomPodName: "ateom-default-pool-0",
@@ -304,24 +313,35 @@ export const mockSubstrateStatus: SubstrateStatusResponse = {
       workerPoolName: "default-pool",
       version: 4,
     },
-    { actorId: "actor-9c03", status: "Snapshotting", inProgressSnapshot: "snap-2026-07-30", version: 2 },
-    // Last in the fixture and first once sorted: ate-api returns actors in no
-    // particular order, so a fixture that is already in the right order cannot tell
-    // a page that sorts from one that does not.
-    { actorId: "actor-0aa1", status: "Failed", version: 1 },
-    // Shares "Running" with actor-7f21, which is what makes a two-key sort observable:
-    // with every status distinct, sorting by status then by id looks the same as
-    // sorting by status alone.
-    { actorId: "actor-3b55", status: "Running", version: 1 },
+    { actorId: "actor-9c03", atespace: "kagent", status: "Suspending", inProgressSnapshot: "snap-2026-07-30", version: 2 },
+    // The raw wire constant, because that is what a real controller sends for a state
+    // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
+    // reach the page unread and no test object.
+    { actorId: "actor-0aa1", atespace: "kagent", status: "ACTOR_STATE_CRASHED", version: 1 },
+    { actorId: "actor-3b55", atespace: "kagent", status: "Running", version: 1 },
+    // Parked rather than broken, and the only status here that reads as neither:
+    // without it nothing on the page is drawn in the idle tone.
+    { actorId: "actor-5d17", atespace: "kagent", status: "Paused", version: 1 },
+    // The controller's other unnamed state. `ACTOR_STATE_CRASHED` alone would pass a
+    // humaniser that special-cased that one word; two of them do not.
+    { actorId: "actor-2e40", atespace: "kagent", status: "ACTOR_STATE_DELETING", version: 1 },
+    // A transition, and a word the page recognises by its shape rather than from a
+    // list — the same rule that has to carry `Suspending` and `Pausing`.
+    { actorId: "actor-8b91", atespace: "kagent", status: "Resuming", version: 1 },
+    { actorId: "actor-c3f5", atespace: "kagent", status: "Suspended", version: 3 },
   ],
+  /*
+   * No actor on any worker, because the controller cannot put one there: ate-api's
+   * `Worker` carries capacity and allocation and no actor reference. This fixture used
+   * to name an actor and a template on the first worker, which made the columns look
+   * populated in mock mode and blank against every real cluster — a fixture agreeing
+   * with a type and a test while all three disagreed with the controller.
+   */
   workers: [
     {
       workerNamespace: "kagent",
       workerPool: "default-pool",
       workerPod: "ateom-default-pool-0",
-      actorNamespace: "kagent",
-      actorTemplate: "coder-template",
-      actorId: "actor-7f21",
       ip: "10.42.1.19",
       version: 4,
     },
@@ -370,7 +390,7 @@ export const MOCK_INSTANCE_CREATOR = "alice@example.com";
 export const mockAgentInstances: AgentInstance[] = [
   {
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-    namespace: "kagent",
+
     // Named by the reader, which is the point of the column: this is the row that
     // proves a list of conversations can read as a list of things somebody chose.
     name: "Tuesday cluster review",
@@ -383,11 +403,10 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-18T09:12:00Z",
     updatedAt: "2026-08-20T14:03:00Z",
-    labels: { team: "platform", tier: "interactive" },
   },
   {
     id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
-    namespace: "kagent",
+
     // Unnamed, and the same agent as the row above — so the two sit side by side
     // and a page that rendered a bare UUID as a name would be obvious.
     name: "",
@@ -408,11 +427,10 @@ export const mockAgentInstances: AgentInstance[] = [
      */
     createdAt: "2026-08-11T16:40:00Z",
     updatedAt: "2026-08-19T08:22:00Z",
-    labels: { team: "platform" },
   },
   {
     id: "0a7d6c58-9e21-4b3c-a05d-4e8f1b6d2277",
-    namespace: "kagent",
+
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/support-triage",
@@ -426,11 +444,10 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "create",
     createdAt: "2026-08-21T07:55:00Z",
     updatedAt: "2026-08-21T07:55:00Z",
-    labels: {},
   },
   {
     id: "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332",
-    namespace: "kagent",
+
     name: "Escalation from the weekend",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/support-triage",
@@ -446,11 +463,10 @@ export const mockAgentInstances: AgentInstance[] = [
     },
     createdAt: "2026-08-15T11:30:00Z",
     updatedAt: "2026-08-20T22:41:00Z",
-    labels: { team: "support" },
   },
   {
     id: "3c9a1e64-8d47-4f22-b71a-05e2d8c96b18",
-    namespace: "kagent",
+
     name: "",
     creator: "bob@example.com",
     harness: "kagent/k8s-agent",
@@ -461,11 +477,10 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "delete",
     createdAt: "2026-08-09T13:05:00Z",
     updatedAt: "2026-08-21T06:10:00Z",
-    labels: {},
   },
   {
     id: "8e5f2b09-6c14-4a7d-83b0-9d1c7e40f5a6",
-    namespace: "kagent",
+
     // Somebody else's, and named — so a row that cannot be opened still reads as a
     // conversation rather than as a blank.
     name: "Search relevance spike",
@@ -478,7 +493,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-20T10:00:00Z",
     updatedAt: "2026-08-20T10:00:00Z",
-    labels: { team: "search" },
   },
   {
     /*
@@ -490,7 +504,7 @@ export const mockAgentInstances: AgentInstance[] = [
      * a test rather than being prose nobody ever sees.
      */
     id: "f07b3d41-2e58-4c96-a8d3-6b9042e17c5f",
-    namespace: "kagent",
+
     name: "",
     creator: "",
     harness: undefined,
@@ -501,11 +515,10 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "",
     updatedAt: "",
-    labels: {},
   },
   {
     id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
-    namespace: "analytics",
+
     name: "Weekly numbers",
     creator: MOCK_INSTANCE_CREATOR,
     // The harness in `analytics`, not the one in `kagent`: admission never crosses a
@@ -519,7 +532,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-17T18:20:00Z",
     updatedAt: "2026-08-21T05:15:00Z",
-    labels: { team: "analytics" },
   },
   /*
    * One conversation with each of the two agents `shared-brain` is.
@@ -532,7 +544,7 @@ export const mockAgentInstances: AgentInstance[] = [
    */
   {
     id: "1d4f7a92-0c38-4e61-b25a-7f930e6c8b14",
-    namespace: "kagent",
+
     name: "Drafting the runbook",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/k8s-agent",
@@ -543,7 +555,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-19T09:00:00Z",
     updatedAt: "2026-08-21T11:12:00Z",
-    labels: {},
   },
   {
     /*
@@ -557,7 +568,7 @@ export const mockAgentInstances: AgentInstance[] = [
      * agent" note, which is a quieter thing to disturb.
      */
     id: "9c3b7e18-40d6-4a52-8b71-e2f05c96a3d7",
-    namespace: "kagent",
+
     name: "Scratch conversation",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/support-triage",
@@ -568,11 +579,10 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-16T12:00:00Z",
     updatedAt: "2026-08-16T12:00:00Z",
-    labels: {},
   },
   {
     id: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
-    namespace: "kagent",
+
     name: "",
     creator: MOCK_INSTANCE_CREATOR,
     harness: "kagent/fast-lane",
@@ -583,7 +593,6 @@ export const mockAgentInstances: AgentInstance[] = [
     operation: "unspecified",
     createdAt: "2026-08-20T15:30:00Z",
     updatedAt: "2026-08-20T15:44:00Z",
-    labels: {},
   },
 ];
 
