@@ -1,9 +1,13 @@
 import { test, expect } from "../../fixtures/test";
 import {
   dataRows,
+  expectListLoaded,
+  expectListTotal,
   expectNoLoadFailure,
   loadApp,
+  readListTotal,
   rowNamed,
+  searchList,
   throwawayName,
 } from "../../helpers/app";
 import {
@@ -46,10 +50,13 @@ test("models: a configuration is created, read, changed and deleted", async ({
        * seeds whatever it was installed with, so an absolute count is the one thing this
        * spec cannot assert — but "one more than before" is exactly as strong, and it is
        * what catches a create that wrote two rows or a delete that took a neighbour.
+       *
+       * Off the summary rather than by counting rows: the table pages at 25, and a
+       * cluster is free to hold more than that — see `readListTotal`.
        */
       await loadApp(page, "/models");
       await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
-      before = await dataRows(page).count();
+      before = await readListTotal(page, "models");
 
       await page.getByTestId("models-new").click();
       await page.waitForURL(/\/models\/new(\?|$)/, { timeout: 60_000 });
@@ -78,11 +85,14 @@ test("models: a configuration is created, read, changed and deleted", async ({
       // Read back off the list rather than from a toast or a closed form: those two
       // only prove the app believes it worked.
       await expectNoLoadFailure(page);
+      // Narrowed to the one name this run invented, so the assertions below are about
+      // that row wherever the cluster's own configurations put it.
+      await searchList(page, "models", CREATED);
       const row = rowNamed(page, CREATED);
       await expect(row).toHaveCount(1, { timeout: 60_000 });
       await expect(row).toContainText("Anthropic");
       await expect(row).toContainText("claude-sonnet-4");
-      await expect(dataRows(page)).toHaveCount(before + 1);
+      await expectListTotal(page, "models", before + 1);
     });
 
     await test.step("2. the edit form opens on what was saved, not a blank draft", async () => {
@@ -117,11 +127,13 @@ test("models: a configuration is created, read, changed and deleted", async ({
       await page.getByTestId("model-submit").click();
       await page.waitForURL(/\/models(\?|$)/, { timeout: 60_000 });
 
+      // The search went with the form; the list is whole again on the way back.
+      await searchList(page, "models", CREATED);
       const row = rowNamed(page, CREATED);
       await expect(row).toContainText(SECRET, { timeout: 60_000 });
       // Changed, not duplicated — which a create dressed as an update would be.
       await expect(row).toHaveCount(1);
-      await expect(dataRows(page)).toHaveCount(before + 1);
+      await expectListTotal(page, "models", before + 1);
     });
 
     await test.step("4. deleting asks first, and Keep leaves it alone", async () => {
@@ -143,15 +155,20 @@ test("models: a configuration is created, read, changed and deleted", async ({
       created = false;
 
       // One row went, not several, and not the read: a list that failed to reload is
-      // also a list the row is missing from.
+      // also a list the row is missing from, and the summary the total is read off
+      // renders only for a load that succeeded.
       await expectNoLoadFailure(page);
-      await expect(dataRows(page)).toHaveCount(before, { timeout: 60_000 });
+      await expectListTotal(page, "models", before);
     });
   } finally {
     // A real resource on a real cluster when this runs live, so a run that dies midway
     // takes it with it.
     if (created) {
       await loadApp(page, "/models");
+      await searchList(page, "models", CREATED);
+      // Counted only once the list has answered: a read still in flight has no rows
+      // either, and taking that for "already gone" would leave it on the cluster.
+      await expectListLoaded(page, "models");
       if ((await rowNamed(page, CREATED).count()) > 0) {
         await confirmDelete(page, CREATED);
         await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: 60_000 });

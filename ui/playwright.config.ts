@@ -93,8 +93,16 @@ const LIVE_PORT = Number(process.env.UI_LOOP_LIVE_PORT ?? 8301);
  * `env-config.js` rendered at pod start are under test rather than approximated by
  * Vite. A developer still gets the dev server by default; the alternative is building
  * an image to run a test.
+ *
+ * Empty counts as absent, and the `||` is what makes that one question rather than
+ * three. Three things below ask it — what `baseURL` is, whether `globalSetup` checks
+ * for a deployed image, whether a dev server is started — and they had asked it three
+ * ways: a `??`, a `!== undefined` and a truthiness test. An exported-but-empty
+ * variable, which is what a `kubectl get svc` that found nothing leaves behind, then
+ * pointed the run at `""`, checked that for nginx, *and* started a dev server nothing
+ * would ever visit.
  */
-const LIVE_EXTERNAL_URL = process.env.UI_LOOP_LIVE_URL;
+const LIVE_EXTERNAL_URL = process.env.UI_LOOP_LIVE_URL || undefined;
 
 const LIVE_BASE_URL = LIVE_EXTERNAL_URL ?? `http://localhost:${LIVE_PORT}`;
 
@@ -170,7 +178,15 @@ export default defineConfig({
    * of the machine than the local runs that provoked it.
    */
   workers: process.env.CI ? "50%" : undefined,
-  reporter: process.env.CI ? "github" : "list",
+  /*
+   * Both in CI: `github` writes the annotations that put a failure on the diff, and it
+   * writes no files at all — so the report CI uploads as an artifact has to come from
+   * somewhere, and for a live failure the trace is the only account of what the cluster
+   * answered.
+   */
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never" }]]
+    : [["list"]],
   /*
    * A real backend behind a port-forward answers in tens of seconds where the
    * in-browser mock answers in milliseconds, so the defaults that suit the mock
@@ -190,7 +206,8 @@ export default defineConfig({
         /*
          * One at a time. Every mock test owns a backend in its own page's memory; these
          * share a cluster, so a spec creating a resource while another counts them is a
-         * failure with no defect behind it. Four files, seconds to run — it costs little.
+         * failure with no defect behind it. A dozen tests, and one cluster to run them
+         * against — it costs little.
          */
         workers: 1,
         fullyParallel: false,

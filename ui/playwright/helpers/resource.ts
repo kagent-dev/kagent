@@ -33,8 +33,16 @@ import { withScenario } from "./app";
  * contended run, tight enough that a journey which doubles in cost is still a
  * failure. The slowest is prompts at about forty seconds under full parallel load,
  * its list fanning out one call per namespace.
+ *
+ * **Live is a different budget, not a slower version of the same one.** Against a
+ * cluster every step is a round trip to an API server and some of them wait on a
+ * controller to reconcile, which is work no mock does at all — the config already
+ * doubles the per-test default for that reason, and a `describe.configure` overrides
+ * it, so a lifecycle asking for sixty here would have been the tightest budget in the
+ * live run rather than the loosest.
  */
-export const LIFECYCLE_TIMEOUT = 60_000;
+export const LIFECYCLE_TIMEOUT =
+  process.env.UI_LOOP_LIVE === "true" ? 180_000 : 60_000;
 
 /**
  * Presses a dialog's button, once the dialog has stopped arriving.
@@ -108,6 +116,36 @@ export async function pressUntil(
     if (await button.isVisible()) await button.click({ timeout: 5_000 });
     await settled();
   }).toPass({ timeout });
+}
+
+/**
+ * Whether something turned up, for a cleanup that has to tell "gone" from "not yet".
+ *
+ * A `count()` taken straight after a navigation asks the wrong question: `goto` and
+ * `loadApp` both return before the page's own read has landed, so nothing is on screen
+ * yet and every "is it still there?" is answered no — which is how a cleanup came to
+ * skip its delete and leave a real resource on the cluster. Waiting first is what makes
+ * an absence mean something.
+ *
+ * It resolves `false` rather than throwing, because this is called from a `finally`:
+ * an assertion failing there would replace the failure the test was actually reporting.
+ */
+export async function appeared(locator: Locator, timeout = 60_000): Promise<boolean> {
+  try {
+    await locator.waitFor({ state: "visible", timeout });
+    return true;
+  } catch (error) {
+    /*
+     * A timeout means it is not there. Anything else — a locator matching several, say —
+     * is a broken check reaching the caller as the same `false`, which a cleanup reads as
+     * "nothing to remove" while the resource stays on the cluster. Still `false`, since
+     * throwing from a `finally` would replace the test's own failure, but not silently.
+     */
+    if ((error as Error | undefined)?.name !== "TimeoutError") {
+      console.warn(`appeared() could not check this locator: ${String(error)}`);
+    }
+    return false;
+  }
 }
 
 /**

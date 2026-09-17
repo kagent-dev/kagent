@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import {
   LIFECYCLE_TIMEOUT,
+  appeared,
   confirmation,
   pressOnce,
   selectFirstOption,
@@ -9,6 +10,8 @@ import {
 import {
   dataRows,
   expectNoLoadFailure,
+  expectSettled,
+  isLiveRun,
   loadApp,
   rowNamed,
   throwawayName,
@@ -81,6 +84,18 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
         .map((name) => name.trim())
         .filter(Boolean);
 
+      /*
+       * The one-harness case applies those labels in an effect, which lands *after* the
+       * buttons first render — so the single read below is a race against it, and losing
+       * it sends this step down the "nothing admits it" branch of a cluster where
+       * something does. The button is the signal to wait on: the form disables a harness
+       * that already admits the draft, and disables one whose selector is empty from the
+       * first render, so disabled is the settled state either way. With several
+       * harnesses nothing is applied unasked and a fresh template carries no labels, so
+       * the warning below is the only state there is.
+       */
+      if (offered.length === 1) await expect(buttons.first()).toBeDisabled();
+
       const admissionText = (await admission.textContent()) ?? "";
       harness =
         offered.find((name) => admissionText.includes(`admitted by ${name}`)) ?? "";
@@ -145,16 +160,52 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
         new RegExp(`/agent-templates/${NAMESPACE}/${TEMPLATE}`),
         { timeout: 60_000 },
       );
-      // The claim this journey exists for, on an element that holds "Runs on" and the
-      // admitting harnesses and nothing else. `admittingHarnesses` comes from the
-      // template's *status*, so the harness appearing here means the controller observed
-      // the labels the form applied and agreed — not that the form echoed itself back.
-      await expect(page.getByTestId("template-admission-status")).toContainText(harness, {
-        timeout: 60_000,
-      });
-      await expect(page.getByTestId("template-admission-status")).not.toContainText(
-        "No harness",
-      );
+      /*
+       * The claim this journey exists for, on an element that holds "Runs on" and the
+       * admitting harnesses and nothing else. `admittingHarnesses` comes from the
+       * template's *status*, so the harness appearing here means the controller observed
+       * the labels the form applied and agreed — not that the form echoed itself back.
+       */
+      const status = page.getByTestId("template-admission-status");
+
+      if (isLiveRun()) {
+        /*
+         * Live, the page cannot find this out by waiting. A controller fills that status
+         * some time after the create returns, and this page reads it through SWR with no
+         * refresh interval and no revalidation on focus — one fetch, on mount. A longer
+         * assertion timeout would re-read a DOM that was never going to change, leaving
+         * the claim resting on whether the cluster reconciled in the seconds before the
+         * navigation. So the reload is the refetch, and the poll is how many times.
+         *
+         * Only live: the fixture backend keeps its writes in the page's own memory, so a
+         * reload there starts a backend that has never heard of this template — see
+         * `shared/schedules/schedules.spec.ts`, which avoids reloading for that reason.
+         */
+        await expect
+          .poll(
+            async () => {
+              const text = (await status.textContent({ timeout: 30_000 })) ?? "";
+              if (text.includes(harness)) return text;
+
+              // Re-read after the reload rather than returning what was on screen
+              // before it: the round that finally succeeds should be the one that says
+              // so, not the one after it.
+              await page.reload();
+              await expectSettled(page);
+              return (await status.textContent({ timeout: 30_000 })) ?? "";
+            },
+            {
+              timeout: 90_000,
+              message: `${TEMPLATE} was never admitted: the controller did not name ${harness} in its status, over repeated re-reads`,
+            },
+          )
+          .toContain(harness);
+      } else {
+        // The fixtures answer from the create itself, so one read settles it.
+        await expect(status).toContainText(harness, { timeout: 30_000 });
+      }
+
+      await expect(status).not.toContainText("No harness");
     });
 
     await test.step("6. an edit in place is saved and read back", async () => {
@@ -221,10 +272,26 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
      * call, though the previous version of this file believed there was.
      */
     if (created) {
-      await page.goto(`/agent-templates/${NAMESPACE}/${TEMPLATE}`);
-      await page.getByTestId(`delete-${TEMPLATE}`).click();
-      await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
-      await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
+      await loadApp(page, `/agent-templates/${NAMESPACE}/${TEMPLATE}`);
+      /*
+       * Guarded, like every other shared spec's cleanup. `created` says a create
+       * succeeded, not that the template is still there — and on the mock projects the
+       * navigation above restarts the in-browser backend, so after a failure midway it
+       * is reliably *not* there. An unguarded click then waits out the whole test
+       * budget on a button that will never appear, and the run reports a timeout in
+       * the cleanup instead of the assertion that actually failed.
+       */
+      /*
+       * Waited for, not counted once. `expectSettled` vouches for the shell and for
+       * antd spinners, and this page loads behind a `Skeleton` instead — so the count
+       * lands before the read does, reads zero, and leaves the template on the cluster.
+       */
+      const remove = page.getByTestId(`delete-${TEMPLATE}`);
+      if (await appeared(remove)) {
+        await remove.click();
+        await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
+        await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
+      }
     }
   }
 });

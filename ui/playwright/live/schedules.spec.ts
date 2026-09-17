@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures/test";
 import { loadApp, throwawayName } from "../helpers/app";
 import { tick } from "../helpers/controls";
-import { optionNamed, pressUntil } from "../helpers/resource";
+import { appeared, optionNamed, pressUntil } from "../helpers/resource";
 import { liveRoutes } from "./helpers/live";
 
 /**
@@ -97,19 +97,22 @@ test("live: a schedule's configuration survives a reload", async ({ page }) => {
       await expect(detail).toContainText("90.001 seconds");
     });
   } finally {
-    // A real schedule on a real cluster, so a run that dies midway takes it with it.
+    // A real schedule on a real cluster, and this spec never deletes one in the body —
+    // so every run, passing or not, leaves through here.
     if (detailURL) {
       await page.goto(detailURL);
       const remove = page
         .getByTestId("schedule-danger")
         .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true });
-      if ((await remove.count()) > 0) {
+      // Waited for, not counted once: `goto` resolves on load and the detail read has
+      // not landed, so the danger zone is not drawn yet. See `appeared`.
+      if (await appeared(remove)) {
         await remove.click();
         await pressUntil(
           page
             .getByRole("dialog", { name: `Delete schedule ${CREATED}?`, exact: true })
             .getByRole("button", { name: "Delete", exact: true }),
-          () => expect(page).toHaveURL(/\/schedules$/),
+          () => expect(page).toHaveURL(/\/schedules(\?|$)/),
         );
       }
     }

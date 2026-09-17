@@ -339,9 +339,10 @@ test("agent templates: the list reads, and a template is read and edited", async
   });
 
   await test.step("13. an empty result says so instead of showing a bare table", async () => {
-    // Last, after the delete, because reaching these needs the backend answering
-    // differently and `?mock=` is per-navigation — which discards what the journey made.
-    // By here there is nothing left to discard.
+    // Last, and it has to be: reaching these needs the backend answering differently,
+    // and `?mock=` is per-navigation — so arriving here discards everything the steps
+    // above made. Nothing below wants it. (Step 11 opens the delete warning to read it
+    // and then keeps the template; the delete itself lives in `shared/agent-templates/`.)
     await loadPage(page, routes.agentTemplates, { scenario: "empty", title: "Agents" });
     await expect(page.getByText("No agent templates yet.")).toBeVisible();
     await expect(dataRows(page)).toHaveCount(0);

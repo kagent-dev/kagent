@@ -3,6 +3,7 @@ import { loadApp, throwawayName } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
 import {
   LIFECYCLE_TIMEOUT,
+  appeared,
   optionNamed,
   pressUntil,
 } from "../../helpers/resource";
@@ -149,7 +150,9 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
       const remove = page
         .getByTestId("schedule-danger")
         .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true });
-      if ((await remove.count()) > 0) {
+      // Waited for, not counted once: `goto` resolves on load and the detail read has
+      // not landed, so the danger zone is not drawn yet. See `appeared`.
+      if (await appeared(remove)) {
         await remove.click();
         await pressUntil(
           page

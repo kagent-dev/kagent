@@ -136,8 +136,9 @@ test("harnesses: the tab reads, and the form refuses what the CRD refuses", asyn
   });
 
   await test.step("7. an empty result leaves the tab standing, with no rows", async () => {
-    // Last, after the delete: reaching these needs the backend answering differently and
-    // `?mock=` is per-navigation, which discards what the journey made.
+    // Last, and it has to be: reaching these needs the backend answering differently,
+    // and `?mock=` is per-navigation — so arriving here discards everything the steps
+    // above made. (The delete this used to follow now lives in `shared/harnesses/`.)
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
     await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId(table).locator("tbody tr.ant-table-row")).toHaveCount(0);

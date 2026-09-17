@@ -2,9 +2,13 @@ import { type Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import {
   dataRows,
+  expectListLoaded,
+  expectListTotal,
   expectNoLoadFailure,
   loadApp,
+  readListTotal,
   rowNamed,
+  searchList,
   throwawayName,
 } from "../../helpers/app";
 import { LIFECYCLE_TIMEOUT, confirmDelete } from "../../helpers/resource";
@@ -37,10 +41,11 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
     await test.step("1. a library with one fragment is created and listed", async () => {
       // Counted first, and relative from here on: the fixtures seed two and a cluster
       // seeds whatever it was installed with, but "one more than before" is exactly as
-      // strong and catches a create that wrote twice.
+      // strong and catches a create that wrote twice. Off the summary rather than by
+      // counting rows, the table paging at 25 — see `readListTotal`.
       await loadApp(page, "/prompts");
       await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
-      before = await dataRows(page).count();
+      before = await readListTotal(page, "prompts");
 
       await page.getByTestId("prompts-new").click();
       await expect(page.getByTestId("prompt-submit")).toBeVisible({ timeout: 60_000 });
@@ -57,10 +62,13 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       // Read back off the list rather than from a toast or a closed form: those two
       // only prove the app believes it worked.
       await expectNoLoadFailure(page);
+      // Narrowed to the one name this run invented, so the assertions below are about
+      // that row wherever the cluster's own libraries put it.
+      await searchList(page, "prompts", CREATED);
       const row = rowNamed(page, CREATED);
       await expect(row).toContainText("1 key", { timeout: 60_000 });
       await expect(row).toContainText("changelog");
-      await expect(dataRows(page)).toHaveCount(before + 1);
+      await expectListTotal(page, "prompts", before + 1);
     });
 
     await test.step("2. opening it shows the fragment and how to include it", async () => {
@@ -107,6 +115,8 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
 
     await test.step("4. the list behind it shows the change too", async () => {
       await page.getByRole("link", { name: "Back to libraries" }).click();
+      // The search went with the detail page; the list is whole again on the way back.
+      await searchList(page, "prompts", CREATED);
       await expect(rowNamed(page, CREATED)).toContainText("2 keys", { timeout: 60_000 });
       await expect(rowNamed(page, CREATED)).toContainText("handoff");
     });
@@ -117,13 +127,18 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       created = false;
 
       // One row went, not several, and not the read: a list that failed to reload is
-      // also a list the row is missing from.
+      // also a list the row is missing from, and the summary the total is read off
+      // renders only for a load that succeeded.
       await expectNoLoadFailure(page);
-      await expect(dataRows(page)).toHaveCount(before, { timeout: 60_000 });
+      await expectListTotal(page, "prompts", before);
     });
   } finally {
     if (created) {
       await loadApp(page, "/prompts");
+      await searchList(page, "prompts", CREATED);
+      // Counted only once the list has answered: a read still in flight has no rows
+      // either, and taking that for "already gone" would leave it on the cluster.
+      await expectListLoaded(page, "prompts");
       if ((await rowNamed(page, CREATED).count()) > 0) await confirmDelete(page, CREATED);
     }
   }

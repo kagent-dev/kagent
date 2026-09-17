@@ -1,7 +1,12 @@
 import { type Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import { loadApp, throwawayName } from "../../helpers/app";
-import { LIFECYCLE_TIMEOUT, confirmDelete, selectOption } from "../../helpers/resource";
+import {
+  LIFECYCLE_TIMEOUT,
+  appeared,
+  confirmDelete,
+  selectOption,
+} from "../../helpers/resource";
 
 /**
  * A harness created, read back and deleted — on either backend.
@@ -103,7 +108,10 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
   } finally {
     if (created) {
       await loadApp(page, "/agents?tab=harnesses");
-      if ((await page.getByTestId(table).getByText(CREATED).count()) > 0) {
+      // Waited for, not counted once: `loadApp` returns as soon as the shell is up, and
+      // a tab still fetching has no rows — which reads as "already gone" and leaves a
+      // real Harness on the cluster. See `appeared`.
+      if (await appeared(page.getByTestId(table).getByText(CREATED).first())) {
         await confirmDelete(page, CREATED);
       }
     }

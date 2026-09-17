@@ -161,6 +161,18 @@ export function dataRows(page: Page): Locator {
 const APP_BOOT_TIMEOUT = 15_000;
 
 /**
+ * Whether this run is against a cluster rather than the fixtures.
+ *
+ * For the few places where the two backends differ in kind and not merely in speed —
+ * a reload restarts the in-browser fixture backend, and a controller fills a status
+ * only on a real one. A spec branching on this is saying so out loud, which is better
+ * than a claim that quietly means something different on each.
+ */
+export function isLiveRun(): boolean {
+  return test.info().project.name === LIVE_PROJECT;
+}
+
+/**
  * Navigates, for a spec in `shared/` that runs against either backend.
  *
  * `loadPage` cannot: it appends a `?mock=` scenario, which is meaningless to a cluster
@@ -169,7 +181,7 @@ const APP_BOOT_TIMEOUT = 15_000;
  * page taking longer to have one.
  */
 export async function loadApp(page: Page, path: string): Promise<void> {
-  const live = test.info().project.name === LIVE_PROJECT;
+  const live = isLiveRun();
   await page.goto(live ? path : withScenario(path, "ok"), {
     waitUntil: "domcontentloaded",
   });
@@ -216,3 +228,66 @@ export async function expectSettled(page: Page): Promise<void> {
  */
 export const throwawayName = (label: string): string =>
   `e2e-live-${label}-${process.pid}-${Date.now().toString(36)}`;
+
+/**
+ * Narrows a list page to one name, using the search box the page already offers.
+ *
+ * Needed by any spec that creates a row and then reads it back on a list it did not
+ * seed. These tables page at 25, so on a cluster whose list already fills a page the
+ * new row is on page two — present, correct, and invisible to a locator. Searching for
+ * a name only this run could have made puts it on screen wherever it landed, and is
+ * what a reader looking for their own resource would do.
+ *
+ * Client-side, over every row fetched, so it is not a second read that could disagree
+ * with the first.
+ *
+ * @param list the page's test-id prefix — `models` for `models-filters-search`.
+ */
+export async function searchList(page: Page, list: string, term: string): Promise<void> {
+  await page.getByTestId(`${list}-filters-search`).fill(term);
+}
+
+/**
+ * Asserts how many rows the whole list holds — which is not how many are on screen.
+ *
+ * Read off the `<list>-summary` line ("3 of 27 configurations"), whose second number is
+ * computed from every row fetched rather than from the page being shown. Counting
+ * `dataRows` instead answers a different question on any list longer than 25, and
+ * answers it wrongly while `searchList` is narrowing the table to one row.
+ *
+ * The summary renders only after a successful load, so waiting for it to say a number
+ * also distinguishes "the list holds that many" from "the read failed".
+ */
+export async function expectListTotal(
+  page: Page,
+  list: string,
+  total: number,
+  timeout = 60_000,
+): Promise<void> {
+  await expect(page.getByTestId(`${list}-summary`)).toContainText(
+    new RegExp(`\\bof ${total}\\b`),
+    { timeout },
+  );
+}
+
+/**
+ * Resolves once the list has answered, which is what makes a row count mean anything.
+ *
+ * A list still fetching has no rows either, so a `count()` taken too early reads zero
+ * and every question asked of it gets the answer "not there" — including a cleanup
+ * asking whether there is anything left to delete.
+ */
+export async function expectListLoaded(page: Page, list: string): Promise<void> {
+  await expect(page.getByTestId(`${list}-summary`)).toContainText(/\bof \d+\b/, {
+    timeout: 60_000,
+  });
+}
+
+/** What `expectListTotal` would be reading now, for a count taken before a change. */
+export async function readListTotal(page: Page, list: string): Promise<number> {
+  await expectListLoaded(page, list);
+  const text = (await page.getByTestId(`${list}-summary`).textContent()) ?? "";
+  const total = /\bof (\d+)\b/.exec(text)?.[1];
+  expect(total, `no total could be read from "${text}"`).toBeDefined();
+  return Number(total);
+}
