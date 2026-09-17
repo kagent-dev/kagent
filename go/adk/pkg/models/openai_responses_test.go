@@ -59,6 +59,19 @@ func TestGenaiContentsToResponsesInput(t *testing.T) {
 			t.Fatalf("output = %q, want 3", got)
 		}
 	})
+
+	t.Run("nil args (replay regression) encode as empty object", func(t *testing.T) {
+		contents := []*genai.Content{
+			{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "ping", Args: nil}}}},
+		}
+		input, _ := genaiContentsToResponsesInput(contents, nil)
+		if len(input) == 0 || input[0].OfFunctionCall == nil {
+			t.Fatalf("input = %#v, want function_call item", input)
+		}
+		if got := input[0].OfFunctionCall.Arguments; got != `{}` {
+			t.Errorf("arguments = %q, want {}", got)
+		}
+	})
 }
 
 func TestGenaiToolsToResponsesTools(t *testing.T) {
