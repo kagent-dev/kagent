@@ -38,6 +38,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
+	if err := c.config.ApplyCompaction(ctx, compiled, harness, template); err != nil {
+		return nil, err
+	}
 	if memory := harness.Spec.Kagent.Memory; memory != nil {
 		name := memory.ModelConfigRef.Name
 		model, err := c.config.BuildModel(ctx, harness.Namespace, name)

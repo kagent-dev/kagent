@@ -172,6 +172,48 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			}}),
 			wantReject: "kind must be RemoteMCPServer",
 		},
+		{
+			name: "Harness compaction requires a strategy",
+			object: compactionHarness(namespace, "compaction-no-strategy", KagentHarnessCompaction{
+				Summarizer: &KagentHarnessSummarizer{PromptTemplate: "Summarize.\n\n{conversation_history}"},
+			}),
+			wantReject: "compactionInterval or tokenThreshold must be specified",
+		},
+		{
+			name:       "Harness compaction pairs tokenThreshold with eventRetentionSize",
+			object:     compactionHarness(namespace, "compaction-threshold-alone", KagentHarnessCompaction{TokenThreshold: new(50000)}),
+			wantReject: "tokenThreshold and eventRetentionSize must be specified together",
+		},
+		{
+			name: "Harness compaction overlap requires an interval",
+			object: compactionHarness(namespace, "compaction-overlap-alone", KagentHarnessCompaction{
+				TokenThreshold: new(50000), EventRetentionSize: new(10), OverlapSize: new(2),
+			}),
+			wantReject: "overlapSize requires compactionInterval",
+		},
+		{
+			name: "Harness summarizer prompt needs the history placeholder",
+			object: compactionHarness(namespace, "compaction-prompt-without-history", KagentHarnessCompaction{
+				CompactionInterval: new(5), Summarizer: &KagentHarnessSummarizer{PromptTemplate: "Summarize."},
+			}),
+			wantReject: "promptTemplate must contain {conversation_history}",
+		},
+		{
+			name: "Harness rejects empty summarizer ModelConfig reference",
+			object: compactionHarness(namespace, "compaction-empty-summarizer-model", KagentHarnessCompaction{
+				CompactionInterval: new(5), Summarizer: &KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{}},
+			}),
+			wantReject: "name must not be empty",
+		},
+		{
+			name: "valid Harness compaction",
+			object: compactionHarness(namespace, "compaction-valid", KagentHarnessCompaction{
+				CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
+				Summarizer: &KagentHarnessSummarizer{
+					ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
+				},
+			}),
+		},
 	}
 
 	for _, tc := range cases {
@@ -207,4 +249,8 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 			Tools:       tools,
 		},
 	}
+}
+
+func compactionHarness(namespace, name string, compaction KagentHarnessCompaction) *Harness {
+	return validHarness(namespace, name, HarnessSpec{Kagent: &KagentHarness{Compaction: &compaction}})
 }
