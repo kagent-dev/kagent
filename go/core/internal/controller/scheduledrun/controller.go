@@ -186,26 +186,23 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 
 // executionTask only reads persisted history; the live subscription ingests
 // running work. Once linked, the stored task ID is the sole execution identity.
-// TODO: use GetTask once the execution has a task ID; retain the history scan
-// only for recovering an execution whose task has not yet been linked.
+// Unlinked executions are recovered by finding their original message in history.
 func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
-	request := &a2atype.ListTasksRequest{PageSize: 100}
-	if execution.GetTaskId() != "" {
+	if taskID := execution.GetTaskId(); taskID != "" {
 		zero := 0
-		request.HistoryLength = &zero
+		task, err := c.gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: a2atype.TaskID(taskID), HistoryLength: &zero})
+		if errors.Is(err, a2atype.ErrTaskNotFound) {
+			return nil, nil
+		}
+		return task, err
 	}
+	request := &a2atype.ListTasksRequest{PageSize: 100}
 	for {
 		page, err := c.gateway.ListTasks(ctx, request)
 		if err != nil {
 			return nil, err
 		}
 		for _, task := range page.Tasks {
-			if string(task.ID) == execution.GetTaskId() {
-				return task, nil
-			}
-			if execution.GetTaskId() != "" {
-				continue
-			}
 			for _, message := range task.History {
 				if message.ID == "scheduled-run/"+execution.GetId() {
 					return task, nil

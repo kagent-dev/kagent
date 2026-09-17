@@ -51,11 +51,11 @@ func (c *controllerTestCleanup) CancelTask(_ context.Context, request *a2atype.C
 	return &a2atype.Task{ID: request.ID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled, Timestamp: &now}}, nil
 }
 
-func (c *controllerTestCleanup) ListTasks(context.Context, *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+func (c *controllerTestCleanup) GetTask(context.Context, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
 	if c.task != nil {
-		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{c.task}}, nil
+		return c.task, nil
 	}
-	return &a2atype.ListTasksResponse{}, nil
+	return nil, a2atype.ErrTaskNotFound
 }
 
 func (c *controllerTestCleanup) Suspend(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
@@ -101,4 +101,96 @@ func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
 	require.NoError(t, NewController(store, nil, gateway).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
+}
+
+type taskLookupGateway struct {
+	a2asrv.RequestHandler
+	getTask   func(*a2atype.GetTaskRequest) (*a2atype.Task, error)
+	listTasks func(*a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error)
+}
+
+func (g taskLookupGateway) GetTask(_ context.Context, request *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	return g.getTask(request)
+}
+
+func (g taskLookupGateway) ListTasks(_ context.Context, request *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+	return g.listTasks(request)
+}
+
+func TestExecutionTaskUsesLinkedIdentity(t *testing.T) {
+	task := &a2atype.Task{ID: "original-task"}
+	lookupErr := errors.New("task lookup unavailable")
+	for _, tc := range []struct {
+		name    string
+		task    *a2atype.Task
+		err     error
+		wantErr error
+	}{
+		{name: "found", task: task},
+		{name: "missing", err: a2atype.ErrTaskNotFound},
+		{name: "lookup failure", err: lookupErr, wantErr: lookupErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			gateway := taskLookupGateway{getTask: func(request *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+				calls++
+				require.Equal(t, task.ID, request.ID)
+				require.NotNil(t, request.HistoryLength)
+				require.Zero(t, *request.HistoryLength)
+				return tc.task, tc.err
+			}}
+			// ListTasks is deliberately absent: linked tasks, including missing
+			// ones, must never fall back to scanning for a different identity.
+			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", TaskId: string(task.ID)}
+			got, err := NewController(nil, nil, gateway).executionTask(t.Context(), execution)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.task, got)
+			require.Equal(t, 1, calls)
+			require.Equal(t, string(task.ID), execution.GetTaskId())
+		})
+	}
+}
+
+func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
+	task := &a2atype.Task{ID: "recovered-task", History: []*a2atype.Message{{ID: "scheduled-run/execution"}}}
+	lookupErr := errors.New("history lookup unavailable")
+	for _, tc := range []struct {
+		name string
+		task *a2atype.Task
+		err  error
+	}{
+		{name: "found on later page", task: task},
+		{name: "missing"},
+		{name: "lookup failure", err: lookupErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			gateway := taskLookupGateway{listTasks: func(request *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+				calls++
+				require.Equal(t, 100, request.PageSize)
+				require.Nil(t, request.HistoryLength)
+				if calls == 1 {
+					require.Empty(t, request.PageToken)
+					return &a2atype.ListTasksResponse{
+						Tasks:         []*a2atype.Task{{ID: "other-task", History: []*a2atype.Message{{ID: "scheduled-run/other-execution"}}}},
+						NextPageToken: "next-page",
+					}, nil
+				}
+				require.Equal(t, "next-page", request.PageToken)
+				if tc.err != nil {
+					return nil, tc.err
+				}
+				page := &a2atype.ListTasksResponse{}
+				if tc.task != nil {
+					page.Tasks = []*a2atype.Task{tc.task}
+				}
+				return page, nil
+			}}
+			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution"}
+			got, err := NewController(nil, nil, gateway).executionTask(t.Context(), execution)
+			require.ErrorIs(t, err, tc.err)
+			require.Equal(t, tc.task, got)
+			require.Equal(t, 2, calls)
+		})
+	}
 }
