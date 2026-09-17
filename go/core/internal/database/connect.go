@@ -3,8 +3,6 @@ package database
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,9 +12,6 @@ import (
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.
-// URL must be a resolved connection string — use ResolveURL to resolve from
-// a file path before constructing this config.
-//
 // Pool fields are optional: nil leaves the corresponding pgxpool.Config value
 // from ParseConfig unchanged (pgx library defaults).
 type PostgresConfig struct {
@@ -109,28 +104,4 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 			delay = defaultMaxDelay
 		}
 	}
-}
-
-// ResolveURL returns url unless urlFile is set, in which case it returns the file's
-// trimmed contents. An unreadable or empty file returns an error without falling
-// back to url.
-func ResolveURL(url, urlFile string) (string, error) {
-	if urlFile != "" {
-		return resolveURLFile(urlFile)
-	}
-	return url, nil
-}
-
-// resolveURLFile reads a database connection URL from a file and returns the
-// trimmed contents. Returns an error if the file cannot be read or is empty.
-func resolveURLFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("reading URL file: %w", err)
-	}
-	url := strings.TrimSpace(string(content))
-	if url == "" {
-		return "", fmt.Errorf("URL file %s is empty or contains only whitespace", path)
-	}
-	return url, nil
 }

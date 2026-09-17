@@ -21,6 +21,70 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=an
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
 ```
 
+### Substrate PostgreSQL
+
+Enabling Substrate uses Kagent's bundled PostgreSQL by default. Kagent and
+Substrate share the database connection but use separate schemas.
+
+```yaml
+substrate:
+  enabled: true
+```
+
+To share an external PostgreSQL connection, configure it once for Kagent:
+
+```yaml
+database:
+  postgres:
+    url: postgresql://user:password@database:5432/kagent
+    bundled:
+      enabled: false
+substrate:
+  enabled: true
+```
+
+To share an existing Secret, configure both charts to reference the same
+name and key:
+
+```yaml
+database:
+  postgres:
+    secretRef:
+      name: shared-postgres
+      key: connectionString
+    bundled:
+      enabled: false
+substrate:
+  enabled: true
+  postgres:
+    connectionStringSecretRef:
+      name: shared-postgres
+      key: connectionString
+```
+
+To give Substrate a separate PostgreSQL connection, disable sharing and set
+the Substrate connection directly:
+
+```yaml
+substrate:
+  enabled: true
+  postgres:
+    connectionString: postgresql://user:password@substrate-db:5432/substrate
+    connectionStringSecretRef:
+      enabled: false
+```
+
+For a separate Secret-backed connection, leave `enabled: false` and set
+`connectionStringSecretRef.name` and `key`.
+
+The separate Substrate connection can point to the same PostgreSQL server and
+database as Kagent while using a different database role. This keeps
+Substrate's required DDL privileges off Kagent's runtime role.
+
+Substrate currently uses one role for migrations, runtime access, and runtime
+outbox-partition DDL. It does not support separate DDL/migration and
+DML/runtime identities.
+
 ### Using Make
 
 ```bash
