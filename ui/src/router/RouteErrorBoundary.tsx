@@ -13,9 +13,9 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * A page crashed. `navigate(0)` re-runs the current route the same way React
- * Router's own docs do, which also clears this error state; going back is the
- * other way out when reloading the same page will not help.
+ * A page crashed. Retry reloads the document, which is what clears the error
+ * state the router is holding; going back is the other way out when loading the
+ * same page again will not help.
  */
 export function RouteErrorBoundary() {
   const theme = useTheme();

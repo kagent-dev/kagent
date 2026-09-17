@@ -235,9 +235,9 @@ export function ShareDialog({
                   icon={<Copy size={13} />}
                   data-testid="share-copy-fresh-link"
                   onClick={() => {
-                    void copyText(freshLink).then((ok) =>
-                      setCopied({ link: freshLink, ok }),
-                    );
+                    void copyText(freshLink)
+                      .catch(() => false)
+                      .then((ok) => setCopied({ link: freshLink, ok }));
                   }}
                 >
                   {copied?.link === freshLink && copied.ok ? "Copied" : "Copy link"}

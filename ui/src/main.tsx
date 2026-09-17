@@ -47,5 +47,8 @@ async function bootstrap() {
 // stylesheet, branding or mock-backend step throws.
 void bootstrap().catch((error: unknown) => {
   console.error("App failed to start", error);
-  ReactDOM.createRoot(document.getElementById("root")!).render(<RootErrorFallback error={error} />);
+  const root = document.getElementById("root");
+  if (root) {
+    ReactDOM.createRoot(root).render(<RootErrorFallback error={error} />);
+  }
 });

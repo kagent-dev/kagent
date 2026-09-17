@@ -5,34 +5,37 @@
  * that is not localhost — so the optional call it replaces was a silent no-op
  * there. The caller has to be able to tell, because the one thing worth copying
  * is a token shown once.
+ *
+ * The fallback is the technique antd copies with: answer the document's own
+ * `copy` event rather than select a borrowed textarea. Nothing needs focus, so
+ * it works inside a modal's focus trap, and success is the event having fired
+ * rather than what `execCommand` claims — it returns true for copying nothing.
+ * antd's own `copyable` is not used here: it ignores that result and reports a
+ * copy either way.
  */
 export async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // A denied permission looks the same to the caller as no API at all.
-    }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // No API outside a secure context, or the permission was denied. Same thing
+    // to the caller.
   }
 
-  // The pre-clipboard-API way, which needs no secure context. Deprecated, and
-  // still the only thing that works when the page is not served over https.
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.style.position = "fixed";
-  area.style.left = "-9999px";
-  // Inside the open dialog, not on the body: a modal traps focus, so a textarea
-  // outside it cannot take the selection — and `execCommand` then reports true
-  // for copying nothing.
-  const host = document.activeElement?.closest("[role=dialog]") ?? document.body;
-  host.append(area);
-  area.select();
+  let copied = false;
+  const onCopy = (event: ClipboardEvent) => {
+    event.preventDefault();
+    event.clipboardData?.setData("text/plain", text);
+    copied = true;
+  };
+
   try {
-    return document.execCommand("copy");
+    document.addEventListener("copy", onCopy, { capture: true });
+    document.execCommand("copy");
+    return copied;
   } catch {
     return false;
   } finally {
-    area.remove();
+    document.removeEventListener("copy", onCopy, { capture: true });
   }
 }
