@@ -248,7 +248,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		value.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
 		value.CreatedAt = timestamppb.Now()
 		value.Failure = nil
-		value.Name = defaultCheckpointName(sourceID.String(), boundary.ID)
+		value.Name = defaultCheckpointName(sourceID, boundary.ID)
 		data, err := proto.Marshal(value)
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
@@ -475,10 +475,8 @@ func (c *Client) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID s
 }
 
 // defaultCheckpointName names a boundary by the conversation it was taken from and the
-// turn it sits at, the two things that tell two boundaries apart. Callers pass the
-// parsed id rather than what arrived on the wire, so that clearing a name restores the
-// same string a boundary was created with whatever case the client sent.
-func defaultCheckpointName(agentInstanceID, headTaskID string) string {
+// turn it sits at, the two things that tell two boundaries apart.
+func defaultCheckpointName(agentInstanceID uuid.UUID, headTaskID string) string {
 	return fmt.Sprintf("%s-%s", agentInstanceID, headTaskID)
 }
 
@@ -500,7 +498,7 @@ func (c *Client) UpdateCheckpointName(ctx context.Context, id, userID, name stri
 			return err
 		}
 		if name == "" {
-			name = defaultCheckpointName(row.SourceInstanceID.String(), row.HeadTaskID)
+			name = defaultCheckpointName(row.SourceInstanceID, row.HeadTaskID)
 		}
 		checkpoint.Name = name
 		data, err := proto.Marshal(checkpoint)
