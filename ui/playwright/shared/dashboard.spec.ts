@@ -50,10 +50,22 @@ test("dashboard: the recent list names conversations rather than showing ids", a
     )
     .toMatch(/^(listed|empty)$/);
 
+  /*
+   * Read once, which the poll above has earned, and tied to which state it settled on.
+   * The loop below asserts nothing at all on an empty card — and a clean cluster, which
+   * is what CI runs this against, has no conversations — so without this the claim in
+   * the title goes unexercised in the one place the live lane runs.
+   */
+  const listed = (await page.getByTestId("recent-agents").count()) > 0;
   const labels = await page
     .getByTestId("recent-agent")
     .locator("a")
     .evaluateAll((links) => links.map((link) => link.textContent?.trim() ?? ""));
+  if (listed) {
+    expect(labels.length, "the card drew a list and named nothing in it").toBeGreaterThan(
+      0,
+    );
+  }
 
   for (const label of labels) {
     expect(label, "a conversation should be listed by name, not by its id").not.toMatch(

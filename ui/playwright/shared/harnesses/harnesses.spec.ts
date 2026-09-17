@@ -21,6 +21,10 @@ import {
 
 const CREATED = throwawayName("harness");
 
+/** A draft the cluster would accept, so that each refusal below is about one field. */
+const PINNED = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
+const SNAPSHOT = "s3://ate-snapshots/kagent";
+
 /** Its rows, which is the surface that can say whether any of this happened. */
 const table = "harnesses-table";
 
@@ -40,7 +44,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
   let before = 0;
 
   try {
-    await test.step("1. the form refuses an image that is not pinned", async () => {
+    await test.step("1. each field the cluster would refuse, refused on its own", async () => {
       // Counted first: an absolute count is the fixtures' to make, but "one more, then
       // one fewer" holds on any cluster.
       await loadApp(page, "/agents?tab=harnesses");
@@ -48,30 +52,45 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
       before = await harnessRows(page).count();
 
       await loadApp(page, "/harnesses/new");
+      const create = page.getByTestId("harness-create");
 
       await selectOption(page, "harness-namespace", "kagent");
       await page.getByTestId("harness-name").fill(CREATED);
       await page.getByTestId("harness-worker-pool").fill("kagent-default");
+      await page.getByTestId("harness-image").fill(PINNED);
+      await page.getByTestId("harness-snapshot").fill(SNAPSHOT);
 
-      // The constraints here are the cluster's rather than this page's: a tag can move
-      // under a running agent, and the CRD refuses one. A form that accepted it would
-      // build a resource the cluster rejects.
-      await page.getByTestId("harness-image").fill("ghcr.io/example/runtime:latest");
-      await expect(page.getByTestId("harness-create")).toBeDisabled();
-
-      // The CRD requires a snapshot location too, so it is still refused without one.
-      await page
-        .getByTestId("harness-image")
-        .fill(`ghcr.io/example/runtime@sha256:${"a".repeat(64)}`);
-      await expect(page.getByTestId("harness-create")).toBeDisabled();
-    });
-
-    await test.step("2. pinned by digest and told where snapshots go, it is created", async () => {
-      await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent");
+      // A harness with no selector admits nothing, and the form says so before it is
+      // asked to create one — the one state that is a warning rather than a refusal.
+      await expect(page.getByTestId("harness-admits-nothing")).toBeVisible();
       await page.getByTestId("harness-selector-key").fill("runtime");
       await page.getByTestId("harness-selector-value").fill(CREATED);
       await expect(page.getByTestId("harness-admits-nothing")).toHaveCount(0);
 
+      /*
+       * Enabled with a complete draft, and each field below then broken on its own.
+       * Asserted the other way round — a bad image on a half-filled form — both of
+       * these passed on a form that had never looked at the field in question: the
+       * empty snapshot location was disabling the button by itself.
+       */
+      await expect(create).toBeEnabled();
+
+      // The image, which the cluster refuses as a tag because a tag can move under a
+      // running agent. The form says which of the two it is unhappy about.
+      await page.getByTestId("harness-image").fill("ghcr.io/example/runtime:latest");
+      await expect(create).toBeDisabled();
+      await expect(page.getByText(/Pin the image by digest/)).toBeVisible();
+      await page.getByTestId("harness-image").fill(PINNED);
+      await expect(create).toBeEnabled();
+
+      // And the snapshot location, which the CRD requires and which the controller
+      // would otherwise reject as "Invalid Harness", naming no field.
+      await page.getByTestId("harness-snapshot").fill("");
+      await expect(create).toBeDisabled();
+      await page.getByTestId("harness-snapshot").fill(SNAPSHOT);
+    });
+
+    await test.step("2. a complete draft is created", async () => {
       await expect(page.getByTestId("harness-create")).toBeEnabled();
       await page.getByTestId("harness-create").click();
 

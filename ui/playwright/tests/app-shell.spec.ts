@@ -57,8 +57,19 @@ test("app shell: chrome, navigation entries, and where creation lives", async ({
     await expect(page.locator('[data-testid="app-header"][data-shell-probe="1"]')).toHaveCount(1);
   });
 
-  await test.step("4. the chrome offers no create menu of its own", async () => {
-    await expect(page.getByTestId("create-menu-trigger")).toHaveCount(0);
+  await test.step("4. the chrome offers no create control of its own", async () => {
+    // Read off the chrome rather than aimed at one name: asserting that a
+    // `create-menu-trigger` is absent passes just as well on a header that grew a
+    // `header-new` instead, which is how this claim would actually be broken. Creating
+    // belongs to the list you are looking at — step 5.
+    const ids = await page
+      .locator('[data-testid="app-header"], [data-testid="app-sidebar"]')
+      .locator("[data-testid]")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("data-testid") ?? ""),
+      );
+    expect(ids.length, "no controls were read off the chrome").toBeGreaterThan(0);
+    expect(ids.filter((id) => /(^|-)(new|create)(-|$)/.test(id))).toEqual([]);
   });
 
   await test.step("5. every list that can create one says so, and reaches its form", async () => {
