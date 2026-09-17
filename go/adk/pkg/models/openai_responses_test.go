@@ -305,3 +305,25 @@ func TestResponsesUsageToGenai(t *testing.T) {
 		}
 	})
 }
+
+func TestGenaiContentsToResponsesInput_NilFunctionCallArgs(t *testing.T) {
+	// A zero-argument tool call persisted and reloaded arrives with a nil Args
+	// map (FunctionCall.Args is `json:"args,omitempty"`). The Responses API
+	// requires arguments to be a JSON object; marshaling a nil map yields "null"
+	// (#2851).
+	input, _ := genaiContentsToResponsesInput([]*genai.Content{
+		{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "list_skills", ID: "call_1"}}}},
+	}, &genai.GenerateContentConfig{})
+	for _, item := range input {
+		if item.OfFunctionCall == nil {
+			continue
+		}
+		if item.OfFunctionCall.Arguments == "null" {
+			t.Fatalf("arguments = %q, want \"{}\" (nil Args map must not serialize to JSON null)", item.OfFunctionCall.Arguments)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(item.OfFunctionCall.Arguments), &decoded); err != nil {
+			t.Fatalf("arguments %q is not a JSON object: %v", item.OfFunctionCall.Arguments, err)
+		}
+	}
+}

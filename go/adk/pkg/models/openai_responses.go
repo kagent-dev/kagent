@@ -124,7 +124,11 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				))
 			}
 			for _, fc := range functionCalls {
-				argsJSON, _ := json.Marshal(fc.Args)
+				args := fc.Args
+				if args == nil {
+					args = map[string]any{}
+				}
+				argsJSON, _ := json.Marshal(args)
 				input = append(input, responses.ResponseInputItemParamOfFunctionCall(
 					string(argsJSON),
 					fc.ID,

@@ -442,3 +442,29 @@ func TestExtractThoughtSignatureFromStreamingToolCallChunk(t *testing.T) {
 		t.Fatalf("thoughtSignature = %q, want %q", string(thoughtSignature), "abc")
 	}
 }
+
+func TestGenaiContentsToOpenAIMessages_NilFunctionCallArgs(t *testing.T) {
+	// A zero-argument tool call persisted and reloaded arrives with a nil Args
+	// map (FunctionCall.Args is `json:"args,omitempty"`). The OpenAI chat
+	// completions API requires arguments to be a JSON object; marshaling a nil
+	// map yields "null", which object-validating backends reject with 422 (#2851).
+	msgs, _ := genaiContentsToOpenAIMessages([]*genai.Content{
+		{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "list_skills"}}}},
+		{Role: "user", Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{ID: "call_1", Name: "list_skills", Response: map[string]any{"ok": true}}}}},
+	}, &genai.GenerateContentConfig{})
+	if len(msgs) == 0 || msgs[0].OfAssistant == nil {
+		t.Fatalf("messages = %#v, want assistant message with tool call", msgs)
+	}
+	toolCalls := msgs[0].OfAssistant.ToolCalls
+	if len(toolCalls) != 1 || toolCalls[0].OfFunction == nil {
+		t.Fatalf("toolCalls = %#v, want 1 function tool call", toolCalls)
+	}
+	args := toolCalls[0].OfFunction.Function.Arguments
+	if args == "null" {
+		t.Fatalf("arguments = %q, want \"{}\" (nil Args map must not serialize to JSON null)", args)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(args), &decoded); err != nil {
+		t.Fatalf("arguments %q is not a JSON object: %v", args, err)
+	}
+}
