@@ -8,6 +8,7 @@ import {
   selectOption,
 } from "../../helpers/resource";
 import {
+  READ_TIMEOUT,
   expectListLoaded,
   expectNoLoadFailure,
   expectSettled,
@@ -16,7 +17,6 @@ import {
   rowNamed,
   searchList,
   throwawayName,
-  READ_TIMEOUT,
 } from "../../helpers/app";
 import { sweepQuietly } from "../../helpers/cleanup";
 

@@ -1,5 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import {
+  READ_TIMEOUT,
   expectListLoaded,
   expectListTotal,
   expectNoLoadFailure,
@@ -8,7 +9,6 @@ import {
   rowNamed,
   searchList,
   throwawayName,
-  READ_TIMEOUT,
 } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,

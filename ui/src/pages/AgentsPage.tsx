@@ -459,10 +459,10 @@ export function AgentsTab() {
           ]}
           trailing={
             <Space size={8}>
-              /* `data !== undefined` as well as `!isLoading`: SWR runs its fetcher in an effect, so
+              {/* `data !== undefined` as well as `!isLoading`: SWR runs its fetcher in an effect, so
               the first paint reports "not loading" on a page that has not asked yet, and this
               counted "0 of 0" for the 600ms before the answer arrived. A count of nothing is a
-              claim, and until the read lands this page has not earned it. */
+              claim, and until the read lands this page has not earned it. */}
               {!loadFailure && !templates.isLoading && templates.data !== undefined ? (
                 <Text data-testid="agents-summary" css={{ color: theme.color.textMuted }}>
                   {filtered.length} of {agents.length}{" "}

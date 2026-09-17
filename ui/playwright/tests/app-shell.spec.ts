@@ -110,6 +110,40 @@ test("app shell: chrome, navigation entries, and where creation lives", async ({
       await expectShell(page);
     }
   });
+
+  await test.step("6. no page is printing its own source at the reader", async () => {
+    /*
+     * A `/* … *\/` written among a JSX element's children rather than inside `{…}` is a
+     * text node, not a comment, and it renders. Three of these pages shipped a paragraph
+     * about SWR into their filter bars that way, and nothing caught it: `tsc` and eslint
+     * both accept it, and no assertion in this suite read that region. So the pages are
+     * asked directly, tabs included — two of the three were tabs.
+     */
+    const surfaces = [
+      [routes.agents, "agents-table"],
+      [`${routes.agents}?tab=templates`, "templates-table"],
+      [`${routes.agents}?tab=harnesses`, "harnesses-table"],
+      [routes.models, "models-table"],
+      [routes.prompts, "prompts-table"],
+      [routes.mcpServers, "mcp-servers-table"],
+    ] as const;
+
+    for (const [route, table] of surfaces) {
+      await loadPage(page, route);
+      /*
+       * The table first, and that is the whole assertion working. "There is no source on
+       * this page" is true of a page that has not drawn yet, so asked on arrival it
+       * passed over a genuinely broken harnesses tab — checked by breaking one on
+       * purpose. The absence only means something once there is something to be absent
+       * from.
+       */
+      await expect(page.getByTestId(table)).toBeVisible();
+      await expect(
+        page.locator("body"),
+        `${route} is printing source commentary at the reader`,
+      ).not.toContainText("*/");
+    }
+  });
 });
 
 /**
