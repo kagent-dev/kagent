@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -20,6 +22,7 @@ const (
 	otelExporterOTLPLogsProtocol   = "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"
 	otelCaptureSensitiveContent    = "KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT"
 	otelCaptureRawAPIBodies        = "KAGENT_OTEL_CAPTURE_RAW_API_BODIES"
+	otelMaxCaptureBytes            = "KAGENT_OTEL_MAX_CAPTURE_BYTES"
 	defaultOTLPProtocol            = "grpc"
 )
 
@@ -30,6 +33,9 @@ type TelemetryConfig struct {
 	Logs                    SignalConfig
 	CaptureSensitiveContent bool
 	CaptureRawAPIBodies     bool
+	// MaxCaptureBytes bounds each captured prompt and response on a Harness
+	// invocation span. Zero selects the shared default.
+	MaxCaptureBytes int
 }
 
 // SignalConfig is the resolved export configuration for one telemetry signal.
@@ -50,19 +56,48 @@ func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
 	logs, logWarning := signalConfigFromProcess(
 		"logs", otelLoggingEnabled, otelExporterOTLPLogsEndpoint, otelExporterOTLPLogsProtocol,
 	)
-	warnings := make([]error, 0, 2)
+	warnings := make([]error, 0, 3)
 	if traceWarning != nil {
 		warnings = append(warnings, traceWarning)
 	}
 	if logWarning != nil {
 		warnings = append(warnings, logWarning)
 	}
+	maxCaptureBytes, captureWarning := maxCaptureBytesFromProcess()
+	if captureWarning != nil {
+		warnings = append(warnings, captureWarning)
+	}
 	return TelemetryConfig{
 		Traces:                  traces,
 		Logs:                    logs,
 		CaptureSensitiveContent: environmentEnabled(otelCaptureSensitiveContent),
 		CaptureRawAPIBodies:     environmentEnabled(otelCaptureRawAPIBodies),
+		MaxCaptureBytes:         maxCaptureBytes,
 	}, warnings
+}
+
+// maxCaptureBytesFromProcess resolves the user's capture budget. An unusable
+// value is reported and replaced by the default so an observability setting
+// cannot invalidate AgentTemplates.
+func maxCaptureBytesFromProcess() (int, error) {
+	raw := strings.TrimSpace(os.Getenv(otelMaxCaptureBytes))
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 || value > tracing.MaxCaptureBytes {
+		return 0, fmt.Errorf("%s must be a positive integer of at most %d bytes", otelMaxCaptureBytes, tracing.MaxCaptureBytes)
+	}
+	return value, nil
+}
+
+// HarnessTelemetry is the compiler-owned runtime telemetry contract for one
+// compiled agent. Identity is what the runtime reports on every span it starts.
+func (c TelemetryConfig) HarnessTelemetry(kind tracing.HarnessKind, agentName, namespace string) tracing.RuntimeTelemetry {
+	return tracing.RuntimeTelemetry{
+		HarnessKind: kind, AgentName: agentName, AgentNamespace: namespace,
+		CaptureContent: c.CaptureSensitiveContent, MaxCaptureBytes: c.MaxCaptureBytes,
+	}
 }
 
 func signalConfigFromProcess(signal, enabledVariable, endpointVariable, protocolVariable string) (SignalConfig, error) {

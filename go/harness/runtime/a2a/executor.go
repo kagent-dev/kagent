@@ -15,6 +15,9 @@ import (
 	a2alog "github.com/a2aproject/a2a-go/v2/log"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Runner is the execution capability consumed by the A2A supervisor.
@@ -35,6 +38,7 @@ type ContinuationStore interface {
 type Executor struct {
 	runner       Runner
 	continuation ContinuationStore
+	telemetry    tracing.RuntimeTelemetry
 
 	mu sync.Mutex
 	// state serializes access to the Actor's one native conversation. It also
@@ -60,9 +64,18 @@ type activeTask struct {
 }
 
 // parkedTask owns the PendingTurn while its A2A task is waiting for input.
+// origin is the invocation that parked it, so a later segment can record where
+// the work it continues began.
 type parkedTask struct {
 	taskRef
 	pending runtime.PendingTurn
+	origin  trace.SpanContext
+}
+
+// continuedTurn is the parked turn handed to the request that continues it.
+type continuedTurn struct {
+	pending runtime.PendingTurn
+	origin  trace.SpanContext
 }
 
 // cancelingTask keeps the Actor occupied while PendingTurn.Cancel performs
@@ -81,6 +94,7 @@ type executionSink struct {
 	reqCtx         *a2asrv.ExecutorContext
 	yield          func(a2atype.Event, error) bool
 	continuation   ContinuationStore
+	capture        *tracing.TextCapture
 	textArtifactID a2atype.ArtifactID
 	lastPosition   time.Time
 }
@@ -91,23 +105,74 @@ var (
 )
 
 // New constructs the shared executor used by native Harness implementations.
-func New(runner Runner, continuation ContinuationStore) (*Executor, error) {
+// The telemetry contract supplies the content-capture policy this executor
+// enforces; its zero value leaves capture disabled.
+func New(runner Runner, continuation ContinuationStore, telemetry tracing.RuntimeTelemetry) (*Executor, error) {
 	if runner == nil || continuation == nil {
 		return nil, fmt.Errorf("runner and continuation store are required")
 	}
-	return &Executor{runner: runner, continuation: continuation}, nil
+	if err := telemetry.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid runtime telemetry: %w", err)
+	}
+	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry}, nil
 }
 
 // Execute validates and serializes one A2A request onto the native Runner.
 func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
+		// Execution owns invocation completion from here: a2a-go runs this
+		// detached from the caller, so a unary response can be delivered while
+		// the turn is still working.
+		invocation := tracing.InvocationFromContext(ctx)
+		if !invocation.Adopt() {
+			// Nothing to record against: either tracing is not installed or the
+			// caller disconnected before this execution started and the transport
+			// already completed the invocation.
+			invocation = nil
+		}
+		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
+		result := tracing.Result{}
+		endInvocation := func() {
+			invocation.SetAttributes(sink.captureAttributes()...)
+			if _, err := invocation.End(ctx, result); err != nil {
+				a2alog.Error(ctx, "failed to export A2A invocation traces", err)
+			}
+		}
+		// Quiescent paths complete the invocation before yielding their event, so
+		// the export happens while the Actor still runs. This covers the paths
+		// that yield no quiescent event at all, such as cancellation and an
+		// abandoned stream.
+		defer endInvocation()
+		if reqCtx != nil {
+			invocation.SetAttributes(requestIdentity(reqCtx)...)
+		}
+
 		turn, err := validateRequest(reqCtx)
 		if err != nil {
+			result.Error = "invalid_request"
 			yield(nil, err)
 			return
 		}
+		resuming := reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
+		segment := tracing.SegmentInitial
+		if resuming {
+			segment = tracing.SegmentResumed
+		}
+		invocation.SetAttributes(attribute.String(tracing.AttributeSegment, segment))
+		// Capture the current turn's prompt only. A segment that answers an
+		// approval or question carries a structured decision, not prompt text.
+		if limit := e.captureLimit(invocation); limit > 0 {
+			sink.capture = tracing.NewTextCapture(limit)
+			text, truncated := tracing.BoundedText(turn.Prompt, limit)
+			invocation.SetAttributes(
+				attribute.String(tracing.AttributeInput, text),
+				attribute.Bool(tracing.AttributeInputTruncated, truncated),
+			)
+		}
+
 		continuationID, _, err := e.continuation.Load()
 		if err != nil {
+			result.Error = "continuation_unavailable"
 			yield(nil, err)
 			return
 		}
@@ -117,21 +182,42 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			cancel:  cancel,
 			done:    make(chan struct{}),
 		}
-		resuming := reqCtx.StoredTask != nil && requiresInput(reqCtx.StoredTask.Status.State)
-		pending, err := e.activate(active, resuming)
+		continued, err := e.activate(active, resuming)
 		if err != nil {
 			cancel()
+			result.Error = "actor_unavailable"
 			yield(nil, err)
 			return
 		}
+		if continued != nil {
+			// A link states that this segment continues work another invocation
+			// started. It does not reparent spans or transfer ownership of the
+			// token usage recorded under the originating segment.
+			invocation.AddLink(trace.Link{
+				SpanContext: continued.origin,
+				Attributes:  []attribute.KeyValue{attribute.String(tracing.AttributeLinkRelationship, tracing.RelationshipResumeOrigin)},
+			})
+		}
 		var finishOnce sync.Once
 		finishedCanceled := false
+		// Cancel publishes the canceled event as soon as done closes, so a
+		// segment that cancellation claimed records its outcome and exports
+		// before that wait is released.
+		releaseCanceled := func() {
+			result = tracing.Result{
+				TaskState: string(a2atype.TaskStateCanceled), Disposition: tracing.DispositionCanceled,
+			}
+			endInvocation()
+		}
 		// Exactly one exit path either releases the Actor or parks the native
 		// handle. The deferred finish covers every early return.
 		finish := func() bool {
 			finishOnce.Do(func() {
 				cancel()
 				finishedCanceled = e.deactivate(active)
+				if finishedCanceled {
+					releaseCanceled()
+				}
 				close(active.done)
 			})
 			return finishedCanceled
@@ -140,10 +226,12 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			parked := false
 			finishOnce.Do(func() {
 				cancel()
-				parked = e.park(active, pending)
+				parked = e.park(active, pending, invocation.SpanContext())
 				if !parked {
 					_ = pending.Cancel(context.Background())
-					e.deactivate(active)
+					if e.deactivate(active) {
+						releaseCanceled()
+					}
 				}
 				close(active.done)
 			})
@@ -152,23 +240,34 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		defer finish()
 
 		if !yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil), nil) {
+			result.Disposition = tracing.DispositionAbandoned
 			return
 		}
-		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
 		turn.ContinuationID = continuationID
 		var outcome runtime.Outcome
 		var runErr error
 		// activate returns a handle only when this request continues the task
 		// currently waiting for input. New turns enter through Runner.Run.
-		if pending == nil {
+		if continued == nil {
 			outcome, runErr = e.runner.Run(runCtx, turn, sink)
 		} else {
-			outcome, runErr = pending.Resume(runCtx, turn.InputResponse, sink)
+			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
 		}
 		if errors.Is(runErr, errYieldStopped) {
+			// The A2A event consumer stopped accepting events before execution
+			// finished. That is not a cancellation the client requested, so it is
+			// not reported as one.
+			result.Disposition = tracing.DispositionAbandoned
 			return
 		}
 		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			// Cancel yields the canceled event from its own request, so complete
+			// the invocation here rather than waiting for an event that this
+			// execution never produces.
+			if !finish() {
+				result.Disposition = tracing.DispositionInterrupted
+			}
+			endInvocation()
 			return
 		}
 		if runErr != nil {
@@ -176,6 +275,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			if finish() {
 				return
 			}
+			result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_error"}
+			endInvocation()
 			message := taskMessage(reqCtx, "Harness runtime execution failed")
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
@@ -186,6 +287,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			if finish() {
 				return
 			}
+			result.Error = "invalid_runtime_outcome"
 			yield(nil, fmt.Errorf("runtime returned both a failure and a pending turn"))
 			return
 		}
@@ -194,6 +296,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			message, err := inputRequiredMessage(reqCtx, outcome.Pending.Request())
 			if err != nil {
 				_ = outcome.Pending.Cancel(context.Background())
+				result.Error = "invalid_input_request"
 				yield(nil, err)
 				return
 			}
@@ -202,6 +305,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			if !park(outcome.Pending) {
 				return
 			}
+			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
+			endInvocation()
 			message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
 			return
@@ -213,12 +318,52 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		// publishing a terminal state. A client may submit its next turn as soon
 		// as it observes this event.
 		if outcome.Failure == nil {
+			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
+			endInvocation()
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
 			return
 		}
+		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
+		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
 		message.SetMeta(apia2a.TimelinePositionMetadataKey, sink.nextTimelinePosition())
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+	}
+}
+
+// requestIdentity is the resolved identity of one A2A request. It belongs on
+// the invocation span, never on the process-wide resource, because one runtime
+// process serves many conversations, tasks, and users.
+func requestIdentity(reqCtx *a2asrv.ExecutorContext) []attribute.KeyValue {
+	attributes := make([]attribute.KeyValue, 0, 2)
+	if reqCtx.ContextID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeConversationID, reqCtx.ContextID))
+	}
+	if reqCtx.TaskID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeTaskID, string(reqCtx.TaskID)))
+	}
+	return attributes
+}
+
+// captureLimit is the byte budget for this segment's content. It is zero unless
+// the compiler enabled capture and the invocation retains what it is given, so
+// a disabled or unsampled request allocates no collector at all.
+func (e *Executor) captureLimit(invocation *tracing.Invocation) int {
+	if !invocation.IsRecording() {
+		return 0
+	}
+	return e.telemetry.CaptureLimit()
+}
+
+// captureAttributes reports the text this segment produced. Absent attributes
+// mean capture is disabled; an empty value means the segment produced no text.
+func (s *executionSink) captureAttributes() []attribute.KeyValue {
+	if s.capture == nil {
+		return nil
+	}
+	return []attribute.KeyValue{
+		attribute.String(tracing.AttributeOutput, s.capture.Text()),
+		attribute.Bool(tracing.AttributeOutputTruncated, s.capture.Truncated()),
 	}
 }
 
@@ -236,6 +381,9 @@ func (s *executionSink) TextDelta(event runtime.TextDelta) error {
 	if event.Text == "" {
 		return nil
 	}
+	// Capture keeps only the first bounded slice of this segment's text. Every
+	// delta still reaches the caller in full.
+	s.capture.Append(event.Text)
 	var update *a2atype.TaskArtifactUpdateEvent
 	if s.textArtifactID == "" {
 		update = a2atype.NewArtifactEvent(s.reqCtx, a2atype.NewTextPart(event.Text))
@@ -452,7 +600,9 @@ func (r taskRef) matches(other taskRef) bool {
 	return r.taskID == other.taskID && r.contextID == other.contextID
 }
 
-func (e *Executor) activate(task *activeTask, resuming bool) (runtime.PendingTurn, error) {
+// activate claims the Actor for task. It returns a continued turn only when
+// this request continues the task currently waiting for input.
+func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	switch state := e.state.(type) {
@@ -470,13 +620,13 @@ func (e *Executor) activate(task *activeTask, resuming bool) (runtime.PendingTur
 			return nil, fmt.Errorf("continuation does not match the parked task")
 		}
 		e.state = task
-		return state.pending, nil
+		return &continuedTurn{pending: state.pending, origin: state.origin}, nil
 	default:
 		return nil, errBusy
 	}
 }
 
-func (e *Executor) park(task *activeTask, pending runtime.PendingTurn) bool {
+func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin trace.SpanContext) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.state != task {
@@ -487,7 +637,7 @@ func (e *Executor) park(task *activeTask, pending runtime.PendingTurn) bool {
 		// Keep the task active until the caller cancels the newly returned handle.
 		return false
 	}
-	e.state = &parkedTask{taskRef: task.taskRef, pending: pending}
+	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin}
 	return true
 }
 
