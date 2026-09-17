@@ -16,6 +16,7 @@ import {
   confirmation,
   selectOption,
 } from "../../helpers/resource";
+import { sweepUp } from "../../helpers/cleanup";
 
 /**
  * A model configuration created, read back, changed and deleted — on either backend.
@@ -83,11 +84,14 @@ test("models: a configuration is created, read, changed and deleted", async ({
       created = true;
 
       // Read back off the list rather than from a toast or a closed form: those two
-      // only prove the app believes it worked.
-      await expectNoLoadFailure(page);
-      // Narrowed to the one name this run invented, so the assertions below are about
-      // that row wherever the cluster's own configurations put it.
+      // only prove the app believes it worked. Narrowed to the one name this run
+      // invented, so the assertions below are about that row wherever the cluster's own
+      // configurations put it.
       await searchList(page, "models", CREATED);
+      // The list has answered before its alerts are counted: `waitForURL` lands on a
+      // page that has not read anything yet, where there is nothing to count.
+      await expectListLoaded(page, "models");
+      await expectNoLoadFailure(page);
       const row = rowNamed(page, CREATED);
       await expect(row).toHaveCount(1, { timeout: 60_000 });
       await expect(row).toContainText("Anthropic");
@@ -156,23 +160,14 @@ test("models: a configuration is created, read, changed and deleted", async ({
 
       // One row went, not several, and not the read: a list that failed to reload is
       // also a list the row is missing from, and the summary the total is read off
-      // renders only for a load that succeeded.
-      await expectNoLoadFailure(page);
+      // renders only for a load that succeeded — so it is what is waited for, and the
+      // alert count after it is what names a failure.
       await expectListTotal(page, "models", before);
+      await expectNoLoadFailure(page);
     });
   } finally {
     // A real resource on a real cluster when this runs live, so a run that dies midway
     // takes it with it.
-    if (created) {
-      await loadApp(page, "/models");
-      await searchList(page, "models", CREATED);
-      // Counted only once the list has answered: a read still in flight has no rows
-      // either, and taking that for "already gone" would leave it on the cluster.
-      await expectListLoaded(page, "models");
-      if ((await rowNamed(page, CREATED).count()) > 0) {
-        await confirmDelete(page, CREATED);
-        await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: 60_000 });
-      }
-    }
+    if (created) await sweepUp(page, "models", CREATED);
   }
 });

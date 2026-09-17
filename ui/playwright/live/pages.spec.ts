@@ -18,6 +18,14 @@ import { liveRoutes } from "./helpers/live";
  * sent where a bare name belonged. None of them were visible to a green mock suite.
  */
 
+/** Any of these ids being on screen, whichever page they belong to. */
+const anyOf = (page: Page, ...testIds: string[]) =>
+  page.locator(testIds.map((id) => `[data-testid="${id}"]`).join(", "));
+
+/** A list's summary, which only a successful read draws, or the alert a failure does. */
+const listAnswered = (page: Page, list: string) =>
+  anyOf(page, `${list}-summary`, `${list}-error`);
+
 /**
  * What each page draws once it has an answer — success *or* failure, which `loadApp`
  * does not wait for, it waiting for the shell.
@@ -35,14 +43,6 @@ import { liveRoutes } from "./helpers/live";
  * for a read that succeeded — zero rows included — and nothing at all while one is in
  * flight.
  */
-/** Any of these ids being on screen, whichever page they belong to. */
-const anyOf = (page: Page, ...testIds: string[]) =>
-  page.locator(testIds.map((id) => `[data-testid="${id}"]`).join(", "));
-
-/** A list's summary, which only a successful read draws, or the alert a failure does. */
-const listAnswered = (page: Page, list: string) =>
-  anyOf(page, `${list}-summary`, `${list}-error`);
-
 const answered: Record<
   Exclude<keyof typeof liveRoutes, "agentTemplateNew">,
   (page: Page) => Locator
@@ -96,8 +96,22 @@ test("live: every page loads against the cluster and reports no failure", async 
   const refused: string[] = [];
   let current = "";
   page.on("response", (response) => {
-    if (response.ok() || !response.url().includes("/api/")) return;
-    refused.push(`${current}: ${response.status()} ${new URL(response.url()).pathname}`);
+    if (!response.url().includes("/api/")) return;
+    // HTTP tells only half of it. The app speaks gRPC-Web, so a controller that refuses
+    // a read still answers 200 and puts the reason in a `grpc-status` trailer — measured
+    // against this cluster, a missing library came back `200 ok=true grpc-status=5`.
+    // Reading the status alone would have watched for a failure mode the controller does
+    // not have, leaving only nginx's own 502s. A refusal raised mid-response carries its
+    // status in the body instead, which this does not read.
+    //
+    // Every status counts, `NOT_FOUND` included: these are list pages, and none of them
+    // asks the controller for something it is allowed not to have. A page that did —
+    // a detail page reads one and renders a "no such library" state rather than an
+    // error — would need this to say which statuses it means.
+    const status = response.headers()["grpc-status"];
+    if (response.ok() && (status === undefined || status === "0")) return;
+    const how = response.ok() ? `grpc-status ${status}` : `HTTP ${response.status()}`;
+    refused.push(`${current}: ${how} ${new URL(response.url()).pathname}`);
   });
 
   for (const [name, path] of Object.entries(liveRoutes)) {

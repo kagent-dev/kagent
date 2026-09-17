@@ -16,7 +16,6 @@ test("dashboard: the recent list names conversations rather than showing ids", a
   page,
 }) => {
   await loadApp(page, "/");
-  await expectNoLoadFailure(page);
 
   const card = page.getByTestId("dashboard-recent-card");
   await expect(card).toBeVisible({ timeout: 30_000 });
@@ -49,6 +48,10 @@ test("dashboard: the recent list names conversations rather than showing ids", a
       },
     )
     .toMatch(/^(listed|empty)$/);
+
+  // Asked now rather than after `loadApp`, which returns on the shell: the poll above is
+  // what makes an absence of alerts mean anything.
+  await expectNoLoadFailure(page);
 
   /*
    * Read once, which the poll above has earned, and tied to which state it settled on.

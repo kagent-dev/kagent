@@ -196,6 +196,12 @@ export async function loadApp(page: Page, path: string): Promise<void> {
  * Worth calling before asserting on content: the alternative is a failure reading "the
  * table is empty" when the truth is "the backend did not answer" — the same distinction
  * the app itself is careful about.
+ *
+ * **Call it after something that proves the read landed**, never straight after a
+ * navigation. It is a count taken once, and `loadApp` returns on the shell: asked in
+ * that gap it passes on every page, including one whose read fails a moment later. A
+ * list's `expectListLoaded` or its own summary is the signal to put in front of it —
+ * `live/pages.spec.ts` keeps the table of what each page draws.
  */
 export async function expectNoLoadFailure(page: Page): Promise<void> {
   const alerts = page.locator('[data-testid$="-error"]');

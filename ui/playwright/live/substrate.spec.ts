@@ -18,12 +18,14 @@ import { liveRoutes } from "./helpers/live";
  */
 test("live: the substrate page renders the cluster's own inventory", async ({ page }) => {
   await loadApp(page, liveRoutes.substrate);
-  await expectNoLoadFailure(page);
 
   await test.step("1. the page is there rather than an error", async () => {
     await expect(page.getByTestId("substrate-actors-card")).toBeVisible({
       timeout: 60_000,
     });
+    // After the card, not after `loadApp`: the alerts are counted once, and a page that
+    // has not read anything yet has none — see `expectNoLoadFailure`.
+    await expectNoLoadFailure(page);
   });
 
   await test.step("2. the tiles report a real count, not zero", async () => {

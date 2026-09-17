@@ -1,7 +1,13 @@
 import { test, expect } from "../fixtures/test";
 import { loadApp, throwawayName } from "../helpers/app";
 import { tick } from "../helpers/controls";
-import { appeared, optionNamed, pressUntil } from "../helpers/resource";
+import { sweepQuietly } from "../helpers/cleanup";
+import {
+  LIFECYCLE_TIMEOUT,
+  appeared,
+  optionNamed,
+  pressUntil,
+} from "../helpers/resource";
 import { liveRoutes } from "./helpers/live";
 
 /**
@@ -21,6 +27,14 @@ import { liveRoutes } from "./helpers/live";
  */
 
 const CREATED = throwawayName("schedule");
+
+/*
+ * A journey's budget, not a page's. This creates on a cluster, reloads twice and deletes
+ * in a `finally` — the same shape as every `shared/` journey, which all take
+ * `LIFECYCLE_TIMEOUT`. Left on the global live budget it is the tightest one in the run,
+ * and a kill mid-cleanup leaves a real Schedule behind.
+ */
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("live: a schedule's configuration survives a reload", async ({ page }) => {
   let detailURL: string | undefined;
@@ -100,21 +114,25 @@ test("live: a schedule's configuration survives a reload", async ({ page }) => {
     // A real schedule on a real cluster, and this spec never deletes one in the body —
     // so every run, passing or not, leaves through here.
     if (detailURL) {
-      await page.goto(detailURL);
-      const remove = page
-        .getByTestId("schedule-danger")
-        .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true });
-      // Waited for, not counted once: `goto` resolves on load and the detail read has
-      // not landed, so the danger zone is not drawn yet. See `appeared`.
-      if (await appeared(remove)) {
-        await remove.click();
-        await pressUntil(
-          page
-            .getByRole("dialog", { name: `Delete schedule ${CREATED}?`, exact: true })
-            .getByRole("button", { name: "Delete", exact: true }),
-          () => expect(page).toHaveURL(/\/schedules(\?|$)/),
-        );
-      }
+      // Captured, because the closure below outlives the narrowing of a `let`.
+      const detail = detailURL;
+      await sweepQuietly(CREATED, async () => {
+        await page.goto(detail);
+        const remove = page
+          .getByTestId("schedule-danger")
+          .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true });
+        // Waited for, not counted once: `goto` resolves on load and the detail read has
+        // not landed, so the danger zone is not drawn yet. See `appeared`.
+        if (await appeared(remove)) {
+          await remove.click();
+          await pressUntil(
+            page
+              .getByRole("dialog", { name: `Delete schedule ${CREATED}?`, exact: true })
+              .getByRole("button", { name: "Delete", exact: true }),
+            () => expect(page).toHaveURL(/\/schedules(\?|$)/),
+          );
+        }
+      });
     }
   }
 });

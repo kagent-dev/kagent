@@ -9,13 +9,16 @@ import {
 } from "../../helpers/resource";
 import {
   dataRows,
+  expectListLoaded,
   expectNoLoadFailure,
   expectSettled,
   isLiveRun,
   loadApp,
   rowNamed,
+  searchList,
   throwawayName,
 } from "../../helpers/app";
+import { sweepQuietly } from "../../helpers/cleanup";
 
 /**
  * Creating and deleting an agent template, through the UI, on either backend.
@@ -56,7 +59,6 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
   try {
     await test.step("1. the form offers the cluster's own model configurations", async () => {
       await loadApp(page, "/agent-templates/new");
-      await expectNoLoadFailure(page);
 
       await selectOption(page, "template-form-namespace", NAMESPACE);
       await page.getByTestId("template-form-name").fill(TEMPLATE);
@@ -66,6 +68,10 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       // name — the assertion is that the cluster answered, not which model it named,
       // and `selectFirstOption` fails with that message if the list is empty.
       await selectFirstOption(page, "template-form-model");
+
+      // Asked here rather than after `loadApp`: the form's own reads had not gone out
+      // then, so there was nothing for it to find — see `expectNoLoadFailure`.
+      await expectNoLoadFailure(page);
     });
 
     await test.step("2. and the cluster's own harnesses, one of which makes it usable", async () => {
@@ -144,6 +150,12 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
     });
 
     await test.step("4. the row is read back from the cluster", async () => {
+      // Narrowed first. This table pages at 25 like the others, so on a namespace that
+      // already fills a page the new row is on page two — present, correct, and
+      // invisible to the locator below. `models` and `prompts` search for that reason
+      // and this journey was the one that did not.
+      await searchList(page, "templates", TEMPLATE);
+      await expectListLoaded(page, "templates");
       await expectNoLoadFailure(page);
       await expect(rowNamed(page, TEMPLATE)).toHaveCount(1, { timeout: 60_000 });
       /*
@@ -257,12 +269,13 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
       created = false;
 
-      await expectNoLoadFailure(page);
       // The rest of the list is still there — the cluster installs templates of its own
       // — so "gone" names that one template rather than a read that returned nothing.
       // That distinction is the whole reason `expectNoLoadFailure` exists, and an empty
-      // table is exactly how a failed list would look.
+      // table is exactly how a failed list would look. Waited for before it is asked,
+      // the count being taken once.
       await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
+      await expectNoLoadFailure(page);
       await expect(rowNamed(page, TEMPLATE)).toHaveCount(0, { timeout: 60_000 });
     });
   } finally {
@@ -272,7 +285,8 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
      * call, though the previous version of this file believed there was.
      */
     if (created) {
-      await loadApp(page, `/agent-templates/${NAMESPACE}/${TEMPLATE}`);
+      await sweepQuietly(TEMPLATE, async () => {
+        await loadApp(page, `/agent-templates/${NAMESPACE}/${TEMPLATE}`);
       /*
        * Guarded, like every other shared spec's cleanup. `created` says a create
        * succeeded, not that the template is still there — and on the mock projects the
@@ -286,12 +300,13 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
        * antd spinners, and this page loads behind a `Skeleton` instead — so the count
        * lands before the read does, reads zero, and leaves the template on the cluster.
        */
-      const remove = page.getByTestId(`delete-${TEMPLATE}`);
-      if (await appeared(remove)) {
-        await remove.click();
-        await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
-        await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
-      }
+        const remove = page.getByTestId(`delete-${TEMPLATE}`);
+        if (await appeared(remove)) {
+          await remove.click();
+          await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
+          await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
+        }
+      });
     }
   }
 });

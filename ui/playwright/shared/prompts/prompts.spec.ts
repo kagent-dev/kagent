@@ -12,6 +12,7 @@ import {
   throwawayName,
 } from "../../helpers/app";
 import { LIFECYCLE_TIMEOUT, confirmDelete } from "../../helpers/resource";
+import { sweepUp } from "../../helpers/cleanup";
 
 /**
  * A prompt library created, read, changed and deleted — on either backend.
@@ -60,11 +61,13 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       created = true;
 
       // Read back off the list rather than from a toast or a closed form: those two
-      // only prove the app believes it worked.
-      await expectNoLoadFailure(page);
-      // Narrowed to the one name this run invented, so the assertions below are about
-      // that row wherever the cluster's own libraries put it.
+      // only prove the app believes it worked. Narrowed to the one name this run
+      // invented, so the assertions below are about that row wherever the cluster's own
+      // libraries put it.
       await searchList(page, "prompts", CREATED);
+      // The list has answered before its alerts are counted — see `expectNoLoadFailure`.
+      await expectListLoaded(page, "prompts");
+      await expectNoLoadFailure(page);
       const row = rowNamed(page, CREATED);
       await expect(row).toContainText("1 key", { timeout: 60_000 });
       await expect(row).toContainText("changelog");
@@ -128,18 +131,12 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
 
       // One row went, not several, and not the read: a list that failed to reload is
       // also a list the row is missing from, and the summary the total is read off
-      // renders only for a load that succeeded.
-      await expectNoLoadFailure(page);
+      // renders only for a load that succeeded — so it is what is waited for, and the
+      // alert count after it is what names a failure.
       await expectListTotal(page, "prompts", before);
+      await expectNoLoadFailure(page);
     });
   } finally {
-    if (created) {
-      await loadApp(page, "/prompts");
-      await searchList(page, "prompts", CREATED);
-      // Counted only once the list has answered: a read still in flight has no rows
-      // either, and taking that for "already gone" would leave it on the cluster.
-      await expectListLoaded(page, "prompts");
-      if ((await rowNamed(page, CREATED).count()) > 0) await confirmDelete(page, CREATED);
-    }
+    if (created) await sweepUp(page, "prompts", CREATED);
   }
 });

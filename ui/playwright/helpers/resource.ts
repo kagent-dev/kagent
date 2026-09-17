@@ -45,6 +45,18 @@ export const LIFECYCLE_TIMEOUT =
   process.env.UI_LOOP_LIVE === "true" ? 180_000 : 60_000;
 
 /**
+ * How long `pressUntil` has to land a press, which has to outlast one attempt at it.
+ *
+ * `toPass` checks its deadline *between* attempts, so a budget shorter than one attempt
+ * buys exactly one press — the retry this helper exists for never happens. An attempt is
+ * a click plus the caller's `settled`, and `settled` is an assertion on the live
+ * project's own thirty-second `expect` timeout: mock, fifteen leaves room for two;
+ * live, fifteen was less than one, so a swallowed Delete was reported as "the page never
+ * navigated" and the resource stayed on the cluster.
+ */
+const PRESS_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 90_000 : 15_000;
+
+/**
  * Presses a dialog's button, once the dialog has stopped arriving.
  *
  * antd animates a modal and a popconfirm in, and Playwright can compute a click's
@@ -105,9 +117,7 @@ export async function pressOnce(button: Locator): Promise<void> {
 export async function pressUntil(
   button: Locator,
   settled: () => Promise<unknown>,
-  // Half the thirty-second test budget, so that when this is what failed, this is
-  // what says so: at thirty the test expired first and reported its own timeout.
-  timeout = 15_000,
+  timeout = PRESS_TIMEOUT,
 ): Promise<void> {
   await expect(async () => {
     // Bounded, because `toPass` checks its deadline between attempts and no

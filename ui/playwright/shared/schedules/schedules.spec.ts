@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import { loadApp, throwawayName } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
+import { sweepQuietly } from "../../helpers/cleanup";
 import {
   LIFECYCLE_TIMEOUT,
   appeared,
@@ -146,21 +147,25 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
   } finally {
     // Live these are real resources, so a run that dies midway takes its own with it.
     if (detailURL) {
-      await page.goto(detailURL);
-      const remove = page
-        .getByTestId("schedule-danger")
-        .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true });
-      // Waited for, not counted once: `goto` resolves on load and the detail read has
-      // not landed, so the danger zone is not drawn yet. See `appeared`.
-      if (await appeared(remove)) {
-        await remove.click();
-        await pressUntil(
-          page
-            .getByRole("dialog", { name: `Delete schedule ${CREATED}?`, exact: true })
-            .getByRole("button", { name: "Delete", exact: true }),
-          () => expect(page).toHaveURL(/\/schedules(\?|$)/),
-        );
-      }
+      // Captured, because the closure below outlives the narrowing of a `let`.
+      const detail = detailURL;
+      await sweepQuietly(CREATED, async () => {
+        await page.goto(detail);
+        const remove = page
+          .getByTestId("schedule-danger")
+          .getByRole("button", { name: `Delete schedule ${CREATED}`, exact: true });
+        // Waited for, not counted once: `goto` resolves on load and the detail read has
+        // not landed, so the danger zone is not drawn yet. See `appeared`.
+        if (await appeared(remove)) {
+          await remove.click();
+          await pressUntil(
+            page
+              .getByRole("dialog", { name: `Delete schedule ${CREATED}?`, exact: true })
+              .getByRole("button", { name: "Delete", exact: true }),
+            () => expect(page).toHaveURL(/\/schedules(\?|$)/),
+          );
+        }
+      });
     }
   }
 });
