@@ -23,12 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
-	"strings"
 	"time"
 
-	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -58,9 +57,7 @@ type ToolDiscoverer interface {
 // RemoteMCPServer status remains the source used by harness compilers, while the
 // database projection serves list RPCs without making those RPCs perform discovery.
 type CatalogStore interface {
-	StoreToolServer(context.Context, *dbmodel.ToolServer) (*dbmodel.ToolServer, error)
-	RefreshToolsForServer(context.Context, string, string, ...*v1alpha3.MCPTool) error
-	DeleteToolsForServer(context.Context, string, string) error
+	RefreshToolServer(context.Context, *database.ToolServer, ...*v1alpha3.MCPTool) error
 	DeleteToolServer(context.Context, string, string) error
 }
 
@@ -89,7 +86,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
-		return reconcile.Result{}, r.deleteCatalog(ctx, request.String())
+		return reconcile.Result{}, r.catalog.DeleteToolServer(ctx, request.String(), remoteGroupKind)
 	}
 
 	tools, err := r.discoverer.ListTools(ctx, toolservice.MCPServerRef{
@@ -105,7 +102,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		)
 	}
 
-	discovered, err := normalizeTools(tools)
+	discovered, err := toolcatalog.NormalizeTools(tools)
 	if err != nil {
 		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, "InvalidDiscovery", err.Error())
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
@@ -132,22 +129,9 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *v1alpha3.RemoteM
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	if _, err := r.catalog.StoreToolServer(ctx, &dbmodel.ToolServer{
+	return r.catalog.RefreshToolServer(ctx, &database.ToolServer{
 		Name: name, GroupKind: remoteGroupKind, Description: server.Spec.Description, LastConnected: lastConnected,
-	}); err != nil {
-		return fmt.Errorf("store server: %w", err)
-	}
-	if err := r.catalog.RefreshToolsForServer(ctx, name, remoteGroupKind, tools...); err != nil {
-		return fmt.Errorf("refresh tools: %w", err)
-	}
-	return nil
-}
-
-func (r *Reconciler) deleteCatalog(ctx context.Context, name string) error {
-	return errors.Join(
-		wrapError("delete tools", r.catalog.DeleteToolsForServer(ctx, name, remoteGroupKind)),
-		wrapError("delete server", r.catalog.DeleteToolServer(ctx, name, remoteGroupKind)),
-	)
+	}, tools...)
 }
 
 func wrapError(action string, err error) error {
@@ -155,25 +139,6 @@ func wrapError(action string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", action, err)
-}
-
-func normalizeTools(tools []toolservice.MCPAppTool) ([]*v1alpha3.MCPTool, error) {
-	discovered := make([]*v1alpha3.MCPTool, 0, len(tools))
-	seen := make(map[string]struct{}, len(tools))
-	for _, tool := range tools {
-		if strings.TrimSpace(tool.Name) == "" {
-			return nil, fmt.Errorf("MCP discovery returned a tool with an empty name")
-		}
-		if _, exists := seen[tool.Name]; exists {
-			return nil, fmt.Errorf("MCP discovery returned duplicate tool %q", tool.Name)
-		}
-		seen[tool.Name] = struct{}{}
-		discovered = append(discovered, &v1alpha3.MCPTool{Name: tool.Name, Description: tool.Description})
-	}
-	slices.SortFunc(discovered, func(a, b *v1alpha3.MCPTool) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	return discovered, nil
 }
 
 func (r *Reconciler) updateStatus(

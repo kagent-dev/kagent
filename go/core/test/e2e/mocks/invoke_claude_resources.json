@@ -1,0 +1,68 @@
+{
+  "anthropic": [
+    {
+      "name": "claude_resource_start",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": "Add 3 and 5 using the configured MCP server."}]
+        },
+        "system_contains": ["Use the configured MCP tool."],
+        "tool_names": ["MCP_TOOL_NAME"]
+      },
+      "response": {
+        "id": "msg_claude_resource_add",
+        "type": "message",
+        "role": "assistant",
+        "content": [{
+          "type": "tool_use",
+          "id": "toolu_claude_resource_add",
+          "name": "MCP_TOOL_NAME",
+          "input": {"a": 3, "b": 5}
+        }],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 12, "output_tokens": 5}
+      }
+    },
+    {
+      "name": "claude_resource_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "tool_result", "tool_use_id": "toolu_claude_resource_add"}]
+        }
+      },
+      "response": {
+        "id": "msg_claude_resource_done",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "CLAUDE_MCP_DONE result is 8"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 16, "output_tokens": 6}
+      }
+    },
+    {
+      "name": "claude_resource_auxiliary",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": ""}]
+        }
+      },
+      "response": {
+        "id": "msg_claude_resource_auxiliary",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "OK"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 2, "output_tokens": 1}
+      }
+    }
+  ]
+}

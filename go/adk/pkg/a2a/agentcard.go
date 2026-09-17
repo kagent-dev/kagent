@@ -2,6 +2,7 @@ package a2a
 
 import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 )
@@ -39,10 +40,7 @@ func EnsureHITLExtension(card *a2atype.AgentCard) {
 	if card == nil || hasHITLExtension(card.Capabilities.Extensions) {
 		return
 	}
-	card.Capabilities.Extensions = append(card.Capabilities.Extensions, a2atype.AgentExtension{
-		URI: HITLExtensionURI, Description: "Human in the loop for tool approval, ask user, and nested subagents",
-		Required: false,
-	})
+	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.HITLExtension())
 }
 
 func hasHITLExtension(extensions []a2atype.AgentExtension) bool {

@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/golang-jwt/jwt/v5"
 	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
@@ -64,7 +65,7 @@ func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
-	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	plugin := NewTokenPropagationPlugin(nil, slog.New(slog.DiscardHandler), nil, nil)
 	plugin.setCachedToken("sess-123", "token-abc", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
@@ -125,7 +126,7 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}
 
-	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
+	plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), nil, nil)
 	for _, sessionID := range []string{"sess-one", "sess-two"} {
 		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
 		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
@@ -214,7 +215,7 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 				t.Fatalf("NewSTSIntegration() error = %v", err)
 			}
 
-			plugin := NewTokenPropagationPlugin(integration, logr.Discard(), tt.resource, tt.audience)
+			plugin := NewTokenPropagationPlugin(integration, slog.New(slog.DiscardHandler), tt.resource, tt.audience)
 			ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
 			if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
 				Context:   ctx,

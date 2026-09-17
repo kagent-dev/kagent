@@ -9,9 +9,8 @@
  * strict CEL pattern — that authoring them is its own piece of work.
  *
  * Building an update out of the fields a form displays silently drops the rest. That
- * has already happened in this repository once, on the agent form, and the fix there
- * (`agentUpdatePayload`) is the same one taken here: `specFromDraft` merges into the
- * spec it was given rather than constructing a fresh one, so a template carrying
+ * has already happened in this repository once. `specFromDraft` therefore merges
+ * into the spec it was given rather than constructing a fresh one, so a template carrying
  * skills survives an edit that never mentioned them.
  *
  * `agentTemplateDraft.test.ts` pins that, because it is invisible on screen — the
@@ -30,6 +29,8 @@ export interface McpToolDraft {
   serverRef: string;
   /** The tool names selected. Empty means every tool the server exposes. */
   tools: string[];
+  /** Pause before each invocation of a tool this binding exposes. */
+  requireApproval?: boolean;
 }
 
 /** One sub-agent binding, flattened for a form to hold. */
@@ -107,6 +108,7 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
       .map((binding) => ({
         serverRef: binding.mcp?.server.name ?? "",
         tools: [...(binding.mcp?.tools ?? [])],
+        requireApproval: binding.mcp?.requireApproval,
       })),
     agentTools: tools
       .filter((binding) => binding.agent)
@@ -143,6 +145,8 @@ export function specFromDraft(
           // The only kind the CRD's enum allows.
           server: { kind: "RemoteMCPServer" as const, name: bareName(tool.serverRef) },
           ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
+          // omitempty on the CRD: false is the default, so only true is sent.
+          ...(tool.requireApproval ? { requireApproval: true } : {}),
         },
       })),
     ...draft.agentTools

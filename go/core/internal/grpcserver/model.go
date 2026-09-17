@@ -113,7 +113,7 @@ func (s *modelServer) DeleteModelConfig(ctx context.Context, request *apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.service.Delete(ctx, modelservice.DeleteRequest{Ref: ref}); err != nil {
+	if err := s.service.Delete(ctx, modelservice.DeleteRequest{Ref: ref}); err != nil {
 		return nil, err
 	}
 	return &apiv1alpha1.DeleteModelConfigResponse{}, nil
@@ -122,12 +122,6 @@ func (s *modelServer) DeleteModelConfig(ctx context.Context, request *apiv1alpha
 func (s *modelServer) ListSupportedModelProviders(ctx context.Context, _ *apiv1alpha1.ListSupportedModelProvidersRequest) (*apiv1alpha1.ListSupportedModelProvidersResponse, error) {
 	return &apiv1alpha1.ListSupportedModelProvidersResponse{
 		Providers: providerDefinitions(s.service.ListSupportedModelProviders(ctx)),
-	}, nil
-}
-
-func (s *modelServer) ListSupportedMemoryProviders(ctx context.Context, _ *apiv1alpha1.ListSupportedMemoryProvidersRequest) (*apiv1alpha1.ListSupportedMemoryProvidersResponse, error) {
-	return &apiv1alpha1.ListSupportedMemoryProvidersResponse{
-		Providers: providerDefinitions(s.service.ListSupportedMemoryProviders(ctx)),
 	}, nil
 }
 

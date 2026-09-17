@@ -24,7 +24,8 @@ import (
 )
 
 const (
-	ModelConfigConditionTypeAccepted = "Accepted"
+	ModelConfigConditionTypeAccepted     = "Accepted"
+	ModelConfigConditionTypeResolvedRefs = "ResolvedRefs"
 )
 
 // ModelProvider represents the model provider type
@@ -215,7 +216,7 @@ type OpenAIConfig struct {
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
 
-// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the Go ADK runtime.
+// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the ADK runtime.
 // +kubebuilder:validation:Enum=chatCompletions;responses
 type OpenAIAPIFormat string
 
@@ -396,6 +397,14 @@ type SAPAICoreConfig struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
+// FoundryAPIFormat selects the Foundry API format for a Foundry ModelConfig.
+type FoundryAPIFormat string
+
+const (
+	FoundryAPIFormatOpenAI    FoundryAPIFormat = "OpenAI"
+	FoundryAPIFormatAnthropic FoundryAPIFormat = "Anthropic"
+)
+
 // FoundryConfig contains Azure AI Foundry-specific configuration options.
 //
 // Authentication is implicit and mirrors the other cloud providers: if
@@ -427,9 +436,19 @@ type FoundryConfig struct {
 	Deployment string `json:"deployment"`
 
 	// APIVersion is the Foundry OpenAI-compatible data-plane API version.
+	// Ignored when APIFormat is Anthropic (the Messages surface is versioned via
+	// the anthropic-version header instead).
 	// +kubebuilder:default="2024-10-21"
 	// +optional
 	APIVersion string `json:"apiVersion,omitempty"`
+
+	// APIFormat selects the Foundry API format: "OpenAI" (default, chat
+	// completions) or "Anthropic" (Claude models served over the Anthropic
+	// Messages API).
+	// +kubebuilder:validation:Enum=OpenAI;Anthropic
+	// +kubebuilder:default=OpenAI
+	// +optional
+	APIFormat FoundryAPIFormat `json:"apiFormat,omitempty"`
 }
 
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
@@ -597,6 +616,7 @@ type ModelConfigStatus struct {
 
 // +genclient
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:resource:categories=kagent,shortName=mc
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provider",type="string",JSONPath=".spec.provider"

@@ -8,13 +8,10 @@ import type { AgentInstance } from "@/api";
  * per-row value and a position in the ordering, and a table cannot lay out
  * without all three declared together.
  */
-export const exampleAgentRegionColumn = defineExtensionTableColumn<AgentInstance>({
-  id: "exampleRegion",
+export const exampleAgentCreatorColumn = defineExtensionTableColumn<AgentInstance>({
+  id: "exampleCreator",
   tableId: "app_agents_agentsList_table",
-  title: "Example region",
+  title: "Example creator",
   after: "namespace",
-  // An instance's labels, not a resource's annotations: an AgentInstance is a row in
-  // the controller's database rather than a custom resource, so `labels` is the only
-  // place a deployment can hang its own facts.
-  render: (row) => row.labels["example.com/region"] ?? "unassigned",
+  render: (row) => row.creator || "Unknown",
 });

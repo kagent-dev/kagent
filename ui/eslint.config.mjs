@@ -38,4 +38,66 @@ export default tseslint.config(
       "@typescript-eslint/no-namespace": "off",
     },
   },
+
+  /*
+   * The browser suite's conventions, enforced rather than only written down.
+   *
+   * `playwright/README.md` states these; a convention nothing checks is one that
+   * regrows as an exception.
+   */
+  {
+    files: ["playwright/tests/**/*.spec.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@playwright/test",
+              importNames: ["test", "expect"],
+              message:
+                "Import { test, expect } from the shared fixture instead — it fails any test where the app logged an error or threw, which is how a spec can trust its own green. Types may still be imported from here.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          /*
+           * The antd internals a helper already covers.
+           *
+           * Deliberately not every `.ant-` class. A spec sometimes has to reach for a
+           * table or a tag that nothing wraps yet, and banning those outright would
+           * only teach people to write the disable comment. These have a real
+           * alternative — a helper that already holds the knowledge: the option
+           * picker in five specs, the popconfirm in three, the spinner in three.
+           *
+           * `popover` is in the list because a popconfirm *is* one — antd renders it
+           * as `<div class="ant-popover ant-popconfirm">`, and a guard naming one of a
+           * component's two class names catches half of it.
+           */
+          selector:
+            "Literal[value=/\\.ant-(popconfirm|popover|modal|select-item-option|spin-spinning)/]",
+          message:
+            "Use the helper rather than antd's own class: chooseFilter for a select option, confirmDelete for a row's delete, pressUntil for any button inside a modal or popconfirm. See playwright/helpers/resource.ts.",
+        },
+        {
+          /*
+           * The same, written with backticks.
+           *
+           * `Literal` does not match a `TemplateLiteral`, so every rule above was one
+           * character from being evaded — not maliciously, but because a spec reaching
+           * for an interpolated selector nearby would naturally use the same quoting
+           * throughout. Probed rather than assumed: the string form errored and the
+           * backtick form did not.
+           */
+          selector:
+            "TemplateElement[value.cooked=/\\.ant-(popconfirm|popover|modal|select-item-option|spin-spinning)/]",
+          message:
+            "Use the helper rather than antd's own class: chooseFilter for a select option, confirmDelete for a row's delete, pressUntil for any button inside a modal or popconfirm. See playwright/helpers/resource.ts.",
+        },
+      ],
+    },
+  },
 );

@@ -7,10 +7,11 @@ grafana:
   # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
 
 image:
-  registry: mcp
-  repository: grafana
+  registry: grafana
+  repository: mcp-grafana
   pullPolicy: Always
-  tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
+  tag: "1.4.1" # docker.io/mcp/grafana (Docker's MCP Catalog mirror) only ever ships "latest";
+               # pin to the upstream grafana/mcp-grafana image instead, which tags releases.
 
 nameOverride: ""
 fullnameOverride: ""

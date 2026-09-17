@@ -1,3 +1,5 @@
+import type { Client } from "@connectrpc/connect";
+import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * Every call the UI knows how to make, behind a stable id.
  *
@@ -5,7 +7,7 @@
  * longer serves the application API over REST — it is gRPC, wrapped as gRPC-Web
  * (`grpcserver.WebHandler`, routed in `go/core/internal/httpserver/server.go`) —
  * so there is no longer a path to name. What is left to name is the *operation*:
- * "list the agents", "create a model config". An id per operation is what the
+ * "list model configs", "create a model config". An id per operation is what the
  * rest of the app depends on, and it is what survived.
  *
  * Nothing above this file addresses a service or a method. Going through ids
@@ -18,8 +20,8 @@
  *
  * Kept from the path table, and for the same reason: the id — not the RPC — is
  * what an override is keyed by, so sharing one between a list read and a create
- * would mean an extension re-pointing its agent list silently re-pointed agent
- * creation with it, with no way to override one alone. Two ids resolving to the
+ * would mean an extension re-pointing a list silently re-pointed creation with it,
+ * with no way to override one alone. Two ids resolving to the
  * same RPC is the cost of keeping those two things separately addressable.
  *
  * ## Where the RPCs are
@@ -32,7 +34,6 @@
 
 import { getOperationOverride } from "./extensionPoints";
 import { defaultOperations } from "./grpc/operations";
-import type { Agent, AgentCreateRequest, AgentResponse } from "./domain/agents";
 import type {
   CreateModelConfigRequest,
   ModelConfig,
@@ -53,7 +54,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -63,6 +63,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
+import type { Checkpoint } from "./domain/checkpoints";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
@@ -72,81 +73,37 @@ import type {
 /** An operation that takes nothing. Written `{}` at the call site. */
 export type NoInput = Record<string, never>;
 
-/**
- * Which agent, and — where it matters — which kind of agent.
- *
- * The kind is part of the identity now, not a detail of it: `SandboxAgent` and
- * `AgentHarness` are two different resources served by two different RPCs, and
- * `AgentService` has no operation that reads "an agent" without knowing which.
- * A caller that genuinely does not know (a detail page holding only a URL) omits
- * it, and `agents.get` tries both — see its implementation.
- */
-export interface AgentRef {
-  namespace: string;
-  name: string;
-  kind?: AgentKindName;
-}
-
-/** The two agent kinds, spelled as the controller's own `Kind` strings. */
-export type AgentKindName = "SandboxAgent" | "AgentHarness";
-
+/** A namespaced Kubernetes resource. */
 export interface ResourceRefInput {
   namespace: string;
   name: string;
 }
 
-/**
- * Which agent instance, and where.
- *
- * The namespace is not optional and not a filter: `AgentInstanceService` addresses
- * every instance as `(namespace, id)`, and `validateIdentity` on the controller
- * rejects a request whose namespace is not a DNS-1123 label — so an empty one is an
- * `InvalidArgument`, never "any namespace".
- */
+/** A database-backed conversation, identified by UUID. */
 export interface AgentInstanceRef {
-  namespace: string;
   id: string;
 }
 
-/** Which direction a paged substrate read is sorted in. */
-export type SubstrateSortOrder = "asc" | "desc";
-
-/** The columns `substrate.actors` can order by. */
-export type SubstrateActorSortField =
-  /** Groups by status and orders by id within each group. The default. */
-  | "default"
-  | "status"
-  | "actorId"
-  | "template"
-  | "workerPod";
-
-/** The columns `substrate.workers` can order by. */
-export type SubstrateWorkerSortField =
-  /** Groups by pool and orders by pod within each group. The default. */
-  | "default"
-  | "pool"
-  | "pod"
-  | "actor";
-
-/** What a paged, filtered substrate read takes. */
-export interface SubstratePageInput<Sort = string> {
-  namespace?: string;
-  /** Matched server-side against the fields the row displays. Empty matches everything. */
-  filter?: string;
-  /** Rows per page. The controller refuses anything over 100 rather than clamping. */
+/** One page in Substrate's native order. */
+export interface SubstratePageInput {
+  /** Requested rows per upstream page; the returned page may be shorter. */
   limit?: number;
-  /** Empty for the first page; otherwise the previous response's `nextPageToken`. */
+  /** Opaque upstream token; omitted for the first page. */
   pageToken?: string;
-  /**
-   * Which column to order by, and in which direction.
-   *
-   * Sent rather than applied here, for the same reason the filter is: the rows are
-   * one page of hundreds of thousands, so ordering them locally reorders the page
-   * rather than the result — which looks like sorting and is not.
-   */
-  sortField?: Sort;
-  sortOrder?: SubstrateSortOrder;
 }
+
+export interface SubstrateScopeInput {
+  namespace?: string;
+  atespace?: string;
+}
+
+export type SubstrateActorPageInput = SubstratePageInput & { atespace?: string };
+export type SubstrateWorkerPageInput = SubstratePageInput & { namespace?: string };
+
+type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
+  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
+  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
+};
 
 /**
  * The input and output of every operation, keyed by id.
@@ -156,12 +113,13 @@ export interface SubstratePageInput<Sort = string> {
  * positional signature cannot be inspected by any of them.
  */
 export interface OperationMap {
-  "agents.list": { input: { namespace?: string }; output: AgentResponse[] };
-  "agents.get": { input: AgentRef; output: AgentResponse };
-  "agents.create": { input: { resource: AgentCreateRequest }; output: Agent };
-  "agents.update": { input: { resource: AgentCreateRequest }; output: Agent };
-  "agents.delete": { input: AgentRef; output: void };
-
+  "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
+  "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
+  "scheduledRuns.create": ScheduledRunRpc<"createScheduledRun">;
+  "scheduledRuns.update": ScheduledRunRpc<"updateScheduledRun">;
+  "scheduledRuns.delete": ScheduledRunRpc<"deleteScheduledRun">;
+  "scheduledRuns.trigger": ScheduledRunRpc<"triggerScheduledRun">;
+  "scheduledRuns.executions": ScheduledRunRpc<"listScheduledRunExecutions">;
   "models.list": { input: NoInput; output: ModelConfig[] };
   "models.get": { input: ResourceRefInput; output: ModelConfig };
   "models.create": { input: { payload: CreateModelConfigRequest }; output: ModelConfig };
@@ -193,59 +151,24 @@ export interface OperationMap {
   };
   "prompts.delete": { input: ResourceRefInput; output: void };
 
-  /**
-   * Every agent instance in one namespace.
-   *
-   * `namespace` is required for the reason `AgentInstanceRef` gives: there is no
-   * "all namespaces" read on this service. `allCreators` asks for other people's
-   * instances as well as the caller's, which the controller authorises separately —
-   * so it can fail with `PermissionDenied` where the same call without it succeeds.
-   */
+  /** All instances visible to the caller, optionally filtered by Kubernetes targets. */
   "agentInstances.list": {
     input: {
-      namespace: string;
       allCreators?: boolean;
-      /**
-       * One agent's conversations, narrowed by the server.
-       *
-       * Both are bare names within `namespace`, both optional, and either may be
-       * given alone. The controller matches them against the `(AgentTemplate,
-       * Harness)` pair the instance's prepared revision was built from, so they
-       * select instances stored before these fields existed.
-       *
-       * Narrowing here rather than in the browser is the point: this list is paged,
-       * and filtering a page after fetching it reports "no conversations" about a
-       * row on page nine.
-       */
-      agentTemplate?: string;
-      harness?: string;
+
+      agentTemplate?: ResourceRefInput;
+      harness?: ResourceRefInput;
     };
     output: AgentInstance[];
   };
   "agentInstances.get": { input: AgentInstanceRef; output: AgentInstance };
-  /**
-   * Creates an instance from a harness and a template.
-   *
-   * The whole request is those two names and a namespace — there is no spec here.
-   * That is the model rather than a simplification: what an agent *is* belongs to
-   * the `AgentTemplate` and how it *runs* belongs to the `Harness`, so creating one
-   * is choosing a pair.
-   *
-   * The pair has to be one the controller admits, and it must have reached a ready
-   * prepared revision; anything else is `FailedPrecondition`. `admitsHarness` in
-   * `domain/agentTemplates` is the first of those checks, so a picker can refuse
-   * before asking.
-   *
-   * `requestId` is the controller's idempotency key and is **required** — an absent
-   * or blank one is `InvalidArgument`, not a default. A caller retrying a create that
-   * failed should send the same id, so the retry cannot produce a second instance.
-   */
+
   "agentInstances.create": {
     input: {
-      namespace: string;
-      harness: string;
-      agentTemplate: string;
+      harness: ResourceRefInput;
+      agentTemplate: ResourceRefInput;
       requestId: string;
+
       /**
        * The reader's title for the conversation. Optional; empty means unnamed.
        *
@@ -257,6 +180,7 @@ export interface OperationMap {
     };
     output: AgentInstance;
   };
+
   /**
    * Retitles a conversation, answering with the record as it now stands.
    *
@@ -271,6 +195,62 @@ export interface OperationMap {
     input: AgentInstanceRef & { name: string };
     output: AgentInstance;
   };
+
+  /**
+   * Forks a conversation: a new instance that starts from where this one is now.
+   *
+   * Two controller calls, not one: a checkpoint of the source at its current turn
+   * boundary, then a fork of that checkpoint. The source has to be quiescent, so a
+   * conversation mid-turn is refused with `FailedPrecondition`. The fork comes back
+   * unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.fork": {
+    input: AgentInstanceRef & { requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
+  /**
+   * Saves the conversation's current turn boundary, so a fork can start from it later.
+   *
+   * The controller has no cutoff to offer: what is saved is wherever the conversation
+   * stands now. A conversation mid-turn has no boundary to save and is refused with
+   * `FailedPrecondition`.
+   */
+  "agentInstances.checkpoints.create": {
+    input: AgentInstanceRef & { requestId: string };
+    output: Checkpoint;
+  };
+
+  /** Every boundary saved against this conversation, newest first. */
+  "agentInstances.checkpoints.list": {
+    input: AgentInstanceRef;
+    output: Checkpoint[];
+  };
+
+  /**
+   * Removes a saved boundary, and with it the snapshot it was holding.
+   *
+   * A checkpoint pins a copy of the conversation's runtime in the substrate — that is
+   * what makes forking one possible — so this is the only thing that gives that space
+   * back. Forks already made from it are unaffected: they own their own copy.
+   */
+  "agentInstances.checkpoints.delete": {
+    input: { checkpointId: string };
+    output: void;
+  };
+
+  /**
+   * Forks a saved boundary: a new conversation holding the transcript up to it.
+   *
+   * Unlike `agentInstances.fork` this starts from a boundary saved earlier, so the
+   * fork's history stops there rather than at the source's latest turn. The fork
+   * comes back unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.checkpoints.fork": {
+    input: { checkpointId: string; requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
   /**
    * Deletes an instance.
    *
@@ -278,20 +258,7 @@ export interface OperationMap {
    * conversation, so its tasks go too. Every caller confirms first.
    */
   "agentInstances.delete": { input: AgentInstanceRef; output: void };
-  /**
-   * Suspends and resumes, each answering with the instance as it now stands.
-   *
-   * Two ids rather than one taking a direction, because they are two RPCs and
-   * because an override should be able to re-point one without the other — the
-   * same reason a list and a create are never one id here.
-   */
-  /**
-   * Share links over one instance.
-   *
-   * The instance *is* the conversation, so sharing one shares what was said. The
-   * token is returned only by `create` — the controller stores its digest — so a
-   * caller that discards it cannot show it again.
-   */
+
   "agentInstances.shares.list": {
     input: AgentInstanceRef;
     output: AgentInstanceShare[];
@@ -300,21 +267,16 @@ export interface OperationMap {
     input: AgentInstanceRef & { permission: AgentInstanceSharePermission };
     output: CreatedAgentInstanceShare;
   };
+
   /** Revoked by share id, not by token: the token is not stored to match on. */
   "agentInstances.shares.revoke": {
-    input: { namespace: string; shareId: string };
+    input: { shareId: string };
     output: void;
   };
 
   "agentInstances.suspend": { input: AgentInstanceRef; output: AgentInstance };
   "agentInstances.resume": { input: AgentInstanceRef; output: AgentInstance };
 
-  /**
-   * The harnesses in one namespace, or in every observed namespace when omitted.
-   *
-   * `HarnessService`, not `AgentService` — `Harness` and `AgentHarness` are
-   * different CRDs and only the names collide. See `domain/harnesses`.
-   */
   "harnesses.list": { input: { namespace?: string }; output: Harness[] };
   /**
    * Creates a harness from a whole custom resource.
@@ -358,19 +320,6 @@ export interface OperationMap {
 
   "namespaces.list": { input: NoInput; output: NamespaceResponse[] };
   /**
-   * The whole substrate inventory in one read.
-   *
-   * Kept for the small clusters where it still works, and used by nothing on
-   * screen: it does not survive a real one. A deployment reporting 103,134 actors
-   * answers with a message gRPC refuses to send — 43MB against a 16MB ceiling — so
-   * the page that depended on it could not load at all. The three operations below
-   * replaced it, and raising the ceiling would only move the number.
-   */
-  "substrate.status": {
-    input: { namespace?: string };
-    output: SubstrateStatusResponse;
-  };
-  /**
    * Counts, and the two lists small enough to travel whole.
    *
    * The only honest source of a total on the substrate page: every other read
@@ -378,23 +327,24 @@ export interface OperationMap {
    * "20 actors" for a cluster running a hundred thousand.
    */
   "substrate.summary": {
-    input: { namespace?: string };
+    input: SubstrateScopeInput;
     output: SubstrateSummary;
   };
   /**
-   * One page of actors, narrowed server-side.
+   * One page of actors, ordered and narrowed across the whole inventory.
    *
-   * The filter is sent rather than applied here, because filtering a page that has
-   * already been fetched searches only what was fetched — a match on page nine
-   * reads on screen as "no matches".
+   * ate-api offers paging and nothing else, so the controller reads every one of its
+   * pages to apply the order and the filter before cutting this one. That costs a walk
+   * of the inventory per request, and it is what makes the order and the filter mean
+   * the cluster rather than the hundred rows in front of the reader.
    */
   "substrate.actors": {
-    input: SubstratePageInput<SubstrateActorSortField>;
+    input: SubstrateActorPageInput;
     output: SubstrateActorPage;
   };
   /** One page of worker assignments. The mirror of `substrate.actors`. */
   "substrate.workers": {
-    input: SubstratePageInput<SubstrateWorkerSortField>;
+    input: SubstrateWorkerPageInput;
     output: SubstrateWorkerPage;
   };
 }

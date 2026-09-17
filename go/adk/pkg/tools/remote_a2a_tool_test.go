@@ -8,6 +8,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	adkagent "google.golang.org/adk/v2/agent"
 )
 
 // newReq returns an empty outbound client Request with initialized service params.
@@ -216,9 +218,9 @@ func TestHandleInputRequiredStoresPublicRemoteHitlState(t *testing.T) {
 			State: a2atype.TaskStateInputRequired,
 			Message: a2a.AttachHitlExtension(
 				a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")),
-				&a2a.ToolApprovalRequest{
+				&apia2a.ToolApprovalRequest{
 					Type: a2a.HITLTypeToolApprovalRequest,
-					Tools: []a2a.HitlTool{{
+					Tools: []apia2a.HITLTool{{
 						ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
 					}},
 				},
@@ -246,7 +248,8 @@ func TestHandleInputRequiredWithoutHITLExtensionFails(t *testing.T) {
 		},
 	}
 
-	response := s.handleInputRequired(nil, task, "child-context")
+	ctx := adkagent.NewStrictContextMock(t.Context())
+	response := s.handleInputRequired(&ctx, task, "child-context")
 	if response.Status != "failed" || response.Error != "Remote agent 'worker' requested input without a valid HITL extension." {
 		t.Fatalf("response = %#v", response)
 	}

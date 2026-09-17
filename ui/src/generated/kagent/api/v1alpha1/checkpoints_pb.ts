@@ -17,7 +17,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1alpha1/checkpoints.proto.
  */
 export const file_kagent_api_v1alpha1_checkpoints: GenFile = /*@__PURE__*/
-  fileDesc("CiVrYWdlbnQvYXBpL3YxYWxwaGExL2NoZWNrcG9pbnRzLnByb3RvEhNrYWdlbnQuYXBpLnYxYWxwaGExIooCCgpDaGVja3BvaW50EgoKAmlkGAEgASgJEhEKCW5hbWVzcGFjZRgCIAEoCRIZChFhZ2VudF9pbnN0YW5jZV9pZBgDIAEoCRIUCgxoZWFkX3Rhc2tfaWQYBCABKAkSGAoQaGlzdG9yeV9zZXF1ZW5jZRgFIAEoBBIzCgVzdGF0ZRgGIAEoDjIkLmthZ2VudC5hcGkudjFhbHBoYTEuQ2hlY2twb2ludFN0YXRlEi4KCmNyZWF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi0KB2ZhaWx1cmUYCCABKAsyHC5rYWdlbnQuYXBpLnYxYWxwaGExLkZhaWx1cmUieQoXQ3JlYXRlQ2hlY2twb2ludFJlcXVlc3QSGgoJbmFtZXNwYWNlGAEgASgJQge6SARyAhABEiIKEWFnZW50X2luc3RhbmNlX2lkGAIgASgJQge6SARyAhABEh4KCnJlcXVlc3RfaWQYAyABKAlCCrpIB3IFEAEYgAEiTwoYQ3JlYXRlQ2hlY2twb2ludFJlc3BvbnNlEjMKCmNoZWNrcG9pbnQYASABKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLkNoZWNrcG9pbnQiUgoUR2V0Q2hlY2twb2ludFJlcXVlc3QSGgoJbmFtZXNwYWNlGAEgASgJQge6SARyAhABEh4KDWNoZWNrcG9pbnRfaWQYAiABKAlCB7pIBHICEAEiTAoVR2V0Q2hlY2twb2ludFJlc3BvbnNlEjMKCmNoZWNrcG9pbnQYASABKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLkNoZWNrcG9pbnQiiAEKFkxpc3RDaGVja3BvaW50c1JlcXVlc3QSGgoJbmFtZXNwYWNlGAEgASgJQge6SARyAhABEiIKEWFnZW50X2luc3RhbmNlX2lkGAIgASgJQge6SARyAhABEi4KBHBhZ2UYAyABKAsyIC5rYWdlbnQuYXBpLnYxYWxwaGExLlBhZ2VSZXF1ZXN0IoABChdMaXN0Q2hlY2twb2ludHNSZXNwb25zZRI0CgtjaGVja3BvaW50cxgBIAMoCzIfLmthZ2VudC5hcGkudjFhbHBoYTEuQ2hlY2twb2ludBIvCgRwYWdlGAIgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVzcG9uc2UiVQoXRGVsZXRlQ2hlY2twb2ludFJlcXVlc3QSGgoJbmFtZXNwYWNlGAEgASgJQge6SARyAhABEh4KDWNoZWNrcG9pbnRfaWQYAiABKAlCB7pIBHICEAEiGgoYRGVsZXRlQ2hlY2twb2ludFJlc3BvbnNlInYKGEZvcmtBZ2VudEluc3RhbmNlUmVxdWVzdBIaCgluYW1lc3BhY2UYASABKAlCB7pIBHICEAESHgoNY2hlY2twb2ludF9pZBgCIAEoCUIHukgEcgIQARIeCgpyZXF1ZXN0X2lkGAMgASgJQgq6SAdyBRABGIABIlcKGUZvcmtBZ2VudEluc3RhbmNlUmVzcG9uc2USOgoOYWdlbnRfaW5zdGFuY2UYASABKAsyIi5rYWdlbnQuYXBpLnYxYWxwaGExLkFnZW50SW5zdGFuY2UqqgEKD0NoZWNrcG9pbnRTdGF0ZRIgChxDSEVDS1BPSU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASHQoZQ0hFQ0tQT0lOVF9TVEFURV9DUkVBVElORxABEhoKFkNIRUNLUE9JTlRfU1RBVEVfUkVBRFkQAhIbChdDSEVDS1BPSU5UX1NUQVRFX0ZBSUxFRBADEh0KGUNIRUNLUE9JTlRfU1RBVEVfREVMRVRJTkcQBDK/BAoRQ2hlY2twb2ludFNlcnZpY2USbwoQQ3JlYXRlQ2hlY2twb2ludBIsLmthZ2VudC5hcGkudjFhbHBoYTEuQ3JlYXRlQ2hlY2twb2ludFJlcXVlc3QaLS5rYWdlbnQuYXBpLnYxYWxwaGExLkNyZWF0ZUNoZWNrcG9pbnRSZXNwb25zZRJmCg1HZXRDaGVja3BvaW50Eikua2FnZW50LmFwaS52MWFscGhhMS5HZXRDaGVja3BvaW50UmVxdWVzdBoqLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0Q2hlY2twb2ludFJlc3BvbnNlEmwKD0xpc3RDaGVja3BvaW50cxIrLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdENoZWNrcG9pbnRzUmVxdWVzdBosLmthZ2VudC5hcGkudjFhbHBoYTEuTGlzdENoZWNrcG9pbnRzUmVzcG9uc2USbwoQRGVsZXRlQ2hlY2twb2ludBIsLmthZ2VudC5hcGkudjFhbHBoYTEuRGVsZXRlQ2hlY2twb2ludFJlcXVlc3QaLS5rYWdlbnQuYXBpLnYxYWxwaGExLkRlbGV0ZUNoZWNrcG9pbnRSZXNwb25zZRJyChFGb3JrQWdlbnRJbnN0YW5jZRItLmthZ2VudC5hcGkudjFhbHBoYTEuRm9ya0FnZW50SW5zdGFuY2VSZXF1ZXN0Gi4ua2FnZW50LmFwaS52MWFscGhhMS5Gb3JrQWdlbnRJbnN0YW5jZVJlc3BvbnNlQklaR2dpdGh1Yi5jb20va2FnZW50LWRldi9rYWdlbnQvZ28vYXBpL2dlbi9rYWdlbnQvYXBpL3YxYWxwaGExO2FwaXYxYWxwaGExYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_agent_instances, file_kagent_api_v1alpha1_common]);
+  fileDesc("CiVrYWdlbnQvYXBpL3YxYWxwaGExL2NoZWNrcG9pbnRzLnByb3RvEhNrYWdlbnQuYXBpLnYxYWxwaGExIvcBCgpDaGVja3BvaW50EgoKAmlkGAEgASgJEhkKEWFnZW50X2luc3RhbmNlX2lkGAIgASgJEhQKDGhlYWRfdGFza19pZBgDIAEoCRIYChBoaXN0b3J5X3NlcXVlbmNlGAQgASgEEjMKBXN0YXRlGAUgASgOMiQua2FnZW50LmFwaS52MWFscGhhMS5DaGVja3BvaW50U3RhdGUSLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLQoHZmFpbHVyZRgHIAEoCzIcLmthZ2VudC5hcGkudjFhbHBoYTEuRmFpbHVyZSJeChdDcmVhdGVDaGVja3BvaW50UmVxdWVzdBIjChFhZ2VudF9pbnN0YW5jZV9pZBgBIAEoCUIIukgFcgOwAQESHgoKcmVxdWVzdF9pZBgCIAEoCUIKukgHcgUQARiAASJPChhDcmVhdGVDaGVja3BvaW50UmVzcG9uc2USMwoKY2hlY2twb2ludBgBIAEoCzIfLmthZ2VudC5hcGkudjFhbHBoYTEuQ2hlY2twb2ludCI3ChRHZXRDaGVja3BvaW50UmVxdWVzdBIfCg1jaGVja3BvaW50X2lkGAEgASgJQgi6SAVyA7ABASJMChVHZXRDaGVja3BvaW50UmVzcG9uc2USMwoKY2hlY2twb2ludBgBIAEoCzIfLmthZ2VudC5hcGkudjFhbHBoYTEuQ2hlY2twb2ludCJtChZMaXN0Q2hlY2twb2ludHNSZXF1ZXN0EiMKEWFnZW50X2luc3RhbmNlX2lkGAEgASgJQgi6SAVyA7ABARIuCgRwYWdlGAIgASgLMiAua2FnZW50LmFwaS52MWFscGhhMS5QYWdlUmVxdWVzdCKAAQoXTGlzdENoZWNrcG9pbnRzUmVzcG9uc2USNAoLY2hlY2twb2ludHMYASADKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLkNoZWNrcG9pbnQSLwoEcGFnZRgCIAEoCzIhLmthZ2VudC5hcGkudjFhbHBoYTEuUGFnZVJlc3BvbnNlIjoKF0RlbGV0ZUNoZWNrcG9pbnRSZXF1ZXN0Eh8KDWNoZWNrcG9pbnRfaWQYASABKAlCCLpIBXIDsAEBIhoKGERlbGV0ZUNoZWNrcG9pbnRSZXNwb25zZSJbChhGb3JrQWdlbnRJbnN0YW5jZVJlcXVlc3QSHwoNY2hlY2twb2ludF9pZBgBIAEoCUIIukgFcgOwAQESHgoKcmVxdWVzdF9pZBgCIAEoCUIKukgHcgUQARiAASJXChlGb3JrQWdlbnRJbnN0YW5jZVJlc3BvbnNlEjoKDmFnZW50X2luc3RhbmNlGAEgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5BZ2VudEluc3RhbmNlKqoBCg9DaGVja3BvaW50U3RhdGUSIAocQ0hFQ0tQT0lOVF9TVEFURV9VTlNQRUNJRklFRBAAEh0KGUNIRUNLUE9JTlRfU1RBVEVfQ1JFQVRJTkcQARIaChZDSEVDS1BPSU5UX1NUQVRFX1JFQURZEAISGwoXQ0hFQ0tQT0lOVF9TVEFURV9GQUlMRUQQAxIdChlDSEVDS1BPSU5UX1NUQVRFX0RFTEVUSU5HEAQyvwQKEUNoZWNrcG9pbnRTZXJ2aWNlEm8KEENyZWF0ZUNoZWNrcG9pbnQSLC5rYWdlbnQuYXBpLnYxYWxwaGExLkNyZWF0ZUNoZWNrcG9pbnRSZXF1ZXN0Gi0ua2FnZW50LmFwaS52MWFscGhhMS5DcmVhdGVDaGVja3BvaW50UmVzcG9uc2USZgoNR2V0Q2hlY2twb2ludBIpLmthZ2VudC5hcGkudjFhbHBoYTEuR2V0Q2hlY2twb2ludFJlcXVlc3QaKi5rYWdlbnQuYXBpLnYxYWxwaGExLkdldENoZWNrcG9pbnRSZXNwb25zZRJsCg9MaXN0Q2hlY2twb2ludHMSKy5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RDaGVja3BvaW50c1JlcXVlc3QaLC5rYWdlbnQuYXBpLnYxYWxwaGExLkxpc3RDaGVja3BvaW50c1Jlc3BvbnNlEm8KEERlbGV0ZUNoZWNrcG9pbnQSLC5rYWdlbnQuYXBpLnYxYWxwaGExLkRlbGV0ZUNoZWNrcG9pbnRSZXF1ZXN0Gi0ua2FnZW50LmFwaS52MWFscGhhMS5EZWxldGVDaGVja3BvaW50UmVzcG9uc2UScgoRRm9ya0FnZW50SW5zdGFuY2USLS5rYWdlbnQuYXBpLnYxYWxwaGExLkZvcmtBZ2VudEluc3RhbmNlUmVxdWVzdBouLmthZ2VudC5hcGkudjFhbHBoYTEuRm9ya0FnZW50SW5zdGFuY2VSZXNwb25zZUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z", [file_buf_validate_validate, file_google_protobuf_timestamp, file_kagent_api_v1alpha1_agent_instances, file_kagent_api_v1alpha1_common]);
 
 /**
  * @generated from message kagent.api.v1alpha1.Checkpoint
@@ -29,37 +29,32 @@ export type Checkpoint = Message<"kagent.api.v1alpha1.Checkpoint"> & {
   id: string;
 
   /**
-   * @generated from field: string namespace = 2;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string agent_instance_id = 3;
+   * @generated from field: string agent_instance_id = 2;
    */
   agentInstanceId: string;
 
   /**
-   * @generated from field: string head_task_id = 4;
+   * @generated from field: string head_task_id = 3;
    */
   headTaskId: string;
 
   /**
-   * @generated from field: uint64 history_sequence = 5;
+   * @generated from field: uint64 history_sequence = 4;
    */
   historySequence: bigint;
 
   /**
-   * @generated from field: kagent.api.v1alpha1.CheckpointState state = 6;
+   * @generated from field: kagent.api.v1alpha1.CheckpointState state = 5;
    */
   state: CheckpointState;
 
   /**
-   * @generated from field: google.protobuf.Timestamp created_at = 7;
+   * @generated from field: google.protobuf.Timestamp created_at = 6;
    */
   createdAt?: Timestamp | undefined;
 
   /**
-   * @generated from field: kagent.api.v1alpha1.Failure failure = 8;
+   * @generated from field: kagent.api.v1alpha1.Failure failure = 7;
    */
   failure?: Failure | undefined;
 };
@@ -76,17 +71,12 @@ export const CheckpointSchema: GenMessage<Checkpoint> = /*@__PURE__*/
  */
 export type CreateCheckpointRequest = Message<"kagent.api.v1alpha1.CreateCheckpointRequest"> & {
   /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string agent_instance_id = 2;
+   * @generated from field: string agent_instance_id = 1;
    */
   agentInstanceId: string;
 
   /**
-   * @generated from field: string request_id = 3;
+   * @generated from field: string request_id = 2;
    */
   requestId: string;
 };
@@ -120,12 +110,7 @@ export const CreateCheckpointResponseSchema: GenMessage<CreateCheckpointResponse
  */
 export type GetCheckpointRequest = Message<"kagent.api.v1alpha1.GetCheckpointRequest"> & {
   /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string checkpoint_id = 2;
+   * @generated from field: string checkpoint_id = 1;
    */
   checkpointId: string;
 };
@@ -159,17 +144,12 @@ export const GetCheckpointResponseSchema: GenMessage<GetCheckpointResponse> = /*
  */
 export type ListCheckpointsRequest = Message<"kagent.api.v1alpha1.ListCheckpointsRequest"> & {
   /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string agent_instance_id = 2;
+   * @generated from field: string agent_instance_id = 1;
    */
   agentInstanceId: string;
 
   /**
-   * @generated from field: kagent.api.v1alpha1.PageRequest page = 3;
+   * @generated from field: kagent.api.v1alpha1.PageRequest page = 2;
    */
   page?: PageRequest | undefined;
 };
@@ -208,12 +188,7 @@ export const ListCheckpointsResponseSchema: GenMessage<ListCheckpointsResponse> 
  */
 export type DeleteCheckpointRequest = Message<"kagent.api.v1alpha1.DeleteCheckpointRequest"> & {
   /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string checkpoint_id = 2;
+   * @generated from field: string checkpoint_id = 1;
    */
   checkpointId: string;
 };
@@ -243,17 +218,12 @@ export const DeleteCheckpointResponseSchema: GenMessage<DeleteCheckpointResponse
  */
 export type ForkAgentInstanceRequest = Message<"kagent.api.v1alpha1.ForkAgentInstanceRequest"> & {
   /**
-   * @generated from field: string namespace = 1;
-   */
-  namespace: string;
-
-  /**
-   * @generated from field: string checkpoint_id = 2;
+   * @generated from field: string checkpoint_id = 1;
    */
   checkpointId: string;
 
   /**
-   * @generated from field: string request_id = 3;
+   * @generated from field: string request_id = 2;
    */
   requestId: string;
 };

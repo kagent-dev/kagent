@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"22222222-2222-4222-8222-222222222222"}
+{"type":"result","subtype":"error_max_budget_usd","is_error":true,"result":"budget limit reached","session_id":"22222222-2222-4222-8222-222222222222"}

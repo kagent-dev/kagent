@@ -55,6 +55,36 @@ export interface HitlTool {
   args: Record<string, unknown>;
 }
 
+/** One human decision for a requested tool invocation. */
+export interface ToolApprovalDecision {
+  id: string;
+  approved: boolean;
+  rejectionReason?: string;
+}
+
+/** A completed approval exchange, kept as one visual transcript event. */
+export interface ToolApprovalRecord {
+  tools: HitlTool[];
+  decisions: ToolApprovalDecision[];
+  /** The subagent that asked, when one did. */
+  askedBy?: string;
+}
+
+/** A completed question exchange, kept as one visual transcript event. */
+export interface AskUserRecord {
+  questions: HitlQuestion[];
+  /** One answer array per question, in the same positional order as the request. */
+  answers: string[][];
+  /** The subagent that asked, when one did. */
+  askedBy?: string;
+}
+
+/** The structured answer carried by a reader's A2A Message. */
+export interface AskUserResponse {
+  requestId: string;
+  answers: string[][];
+}
+
 /**
  * What the agent is waiting for.
  *
@@ -127,7 +157,11 @@ export function readHitlRequest(
   }
 
   if (payload.type === "tool_approval_request") {
-    const tools = readTools(payload.tools);
+    // A nested request displays and decides the child's tools. The top-level list
+    // is the parent's remote-agent continuation and is not what the human is
+    // authorizing (see the extension's identifier model).
+    const nested = isObject(payload.nested) ? payload.nested : undefined;
+    const tools = readTools(nested?.tools ?? payload.tools);
     if (tools.length === 0) return { kind: "unknown", taskId };
     return {
       kind: "tool_approval",
@@ -160,6 +194,95 @@ export function askUserAnswer(
       answers: answers.map((answer) => ({ answer: [...answer] })),
     },
   };
+}
+
+/** The metadata that resumes a turn waiting for tool approval. */
+export function toolApprovalAnswer(
+  decisions: readonly ToolApprovalDecision[],
+): Record<string, unknown> {
+  return {
+    [HITL_EXTENSION_URI]: {
+      type: "tool_approval_response",
+      approvals: decisions.map((decision) => ({
+        id: decision.id,
+        approved: decision.approved,
+        ...(decision.rejectionReason
+          ? { rejection_reason: decision.rejectionReason }
+          : {}),
+      })),
+    },
+  };
+}
+
+/** Reads a tool decision from a user Message that declares the HITL extension. */
+export function readToolApprovalResponse(
+  metadata: Metadata,
+  extensions: readonly string[] | undefined,
+): ToolApprovalDecision[] | undefined {
+  if (!extensions?.includes(HITL_EXTENSION_URI)) return undefined;
+
+  const payload = metadata?.[HITL_EXTENSION_URI];
+  if (!isObject(payload) || payload.type !== "tool_approval_response") return undefined;
+  if (!Array.isArray(payload.approvals) || payload.approvals.length === 0) {
+    return undefined;
+  }
+
+  const decisions: ToolApprovalDecision[] = [];
+  for (const entry of payload.approvals) {
+    if (!isObject(entry) || typeof entry.id !== "string" || entry.id === "") {
+      return undefined;
+    }
+    if (typeof entry.approved !== "boolean") return undefined;
+    decisions.push({
+      id: entry.id,
+      approved: entry.approved,
+      rejectionReason:
+        typeof entry.rejection_reason === "string" && entry.rejection_reason !== ""
+          ? entry.rejection_reason
+          : undefined,
+    });
+  }
+  return decisions;
+}
+
+/** Reads an ask-user answer from a user Message that declares the HITL extension. */
+export function readAskUserResponse(
+  metadata: Metadata,
+  extensions: readonly string[] | undefined,
+): AskUserResponse | undefined {
+  if (!extensions?.includes(HITL_EXTENSION_URI)) return undefined;
+
+  const payload = metadata?.[HITL_EXTENSION_URI];
+  if (!isObject(payload) || payload.type !== "ask_user_response") return undefined;
+  if (typeof payload.id !== "string" || payload.id === "") return undefined;
+  if (!Array.isArray(payload.answers) || payload.answers.length === 0) return undefined;
+
+  const answers: string[][] = [];
+  for (const entry of payload.answers) {
+    if (!isObject(entry) || !Array.isArray(entry.answer)) return undefined;
+    const answer = entry.answer.filter((value): value is string => typeof value === "string");
+    if (answer.length !== entry.answer.length) return undefined;
+    answers.push(answer);
+  }
+  return { requestId: payload.id, answers };
+}
+
+/** Human-readable fallback text carried beside a structured approval response. */
+export function toolApprovalText(
+  tools: readonly HitlTool[],
+  decisions: readonly ToolApprovalDecision[],
+): string {
+  const names = new Map(tools.map((tool) => [tool.id, tool.name]));
+  return decisions
+    .map(
+      (decision) => {
+        const status = `${decision.approved ? "Approved" : "Rejected"}: ${names.get(decision.id) ?? "tool"}`;
+        return !decision.approved && decision.rejectionReason
+          ? `${status}\nReason: ${decision.rejectionReason}`
+          : status;
+      },
+    )
+    .join("\n");
 }
 
 /**

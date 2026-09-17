@@ -1,6 +1,6 @@
 # Kagent Go
 
-This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing three top-level package trees that make up the Go components of Kagent.
+This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing four top-level package trees that make up the Go components of Kagent.
 
 ## Packages
 
@@ -9,6 +9,7 @@ This directory is a single Go module (`github.com/kagent-dev/kagent/go`) contain
 | **api** | `go/api/` | Shared types: CRD definitions, ADK model types, database models, HTTP client SDK |
 | **core** | `go/core/` | Infrastructure: Kubernetes controllers, HTTP server, CLI, database implementation |
 | **adk** | `go/adk/` | Go Agent Development Kit for building and running agents |
+| **harness** | `go/harness/` | Native Claude and Codex Actor runtimes plus their shared A2A execution support |
 
 ### Dependency graph
 
@@ -28,8 +29,6 @@ go/
 ├── Dockerfile            # Shared multi-stage Docker build
 │
 ├── api/                  # Shared types module
-│   ├── v1alpha1/         # Legacy CRD types
-│   ├── v1alpha2/         # Compatibility CRD types
 │   ├── v1alpha3/         # Current CRD types
 │   ├── adk/              # ADK config & model types
 │   ├── database/         # database model structs & Client interface
@@ -46,10 +45,16 @@ go/
 │   ├── hack/             # Development utilities (mock LLM, config gen)
 │   └── test/e2e/         # End-to-end tests
 │
-└── adk/                  # Go Agent Development Kit module
-    ├── cmd/              # ADK server entry point
-    ├── pkg/              # Agent runtime, models, MCP, sessions, skills
-    └── examples/         # Example tools (oneshot runner, BYO agent)
+├── adk/                  # Go Agent Development Kit
+│   ├── cmd/              # ADK server entry point
+│   ├── pkg/              # Agent runtime, models, MCP, sessions, skills
+│   └── examples/         # Example tools (oneshot runner, BYO agent)
+│
+└── harness/              # Native Harness Actor runtimes
+    ├── claude/           # Claude Code adapter and image
+    ├── codex/            # Codex App Server adapter and image
+    ├── runtime/          # Public event, A2A executor, and continuation APIs
+    └── internal/utils/  # Private OS utilities
 ```
 
 ## Building
@@ -103,7 +108,7 @@ The workspace uses a single `Dockerfile` parameterized with `BUILD_PACKAGE`:
 
 ```bash
 # Build controller image (default)
-docker build --build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go -t controller .
+docker build --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t controller .
 
 # Build Go ADK image
 docker build --build-arg BUILD_PACKAGE=adk/cmd/main.go -t golang-adk .
@@ -119,8 +124,12 @@ The controller embeds OCI manifest digests for agent workload images at **link t
 |---|---|---|
 | `golang-adk` | `build-golang-adk` | `AgentImageDigest` |
 
-
 `kagent-adk` remains available as a base for Python BYO images, but is not a declarative runtime.
+
+The native images use the root `build-claude-harness` and
+`build-codex-harness` targets. Their digest-pinned references are supplied
+explicitly through `Harness.spec.workload.image`; they are not controller
+linker values.
 
 ## Quick Testing with Oneshot
 

@@ -139,6 +139,7 @@ export const PROVIDER_ICONS: Record<string, ComponentType> = {
   Ollama: OllamaIcon,
   Bedrock: BedrockIcon,
   SAPAICore: SAPIcon,
+  Foundry: AzureOpenAIIcon,
 };
 
 /**

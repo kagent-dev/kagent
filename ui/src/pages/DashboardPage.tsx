@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Alert, Button, Card, Empty, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { formatDistanceToNow } from "date-fns";
@@ -10,10 +9,9 @@ import { ToolsPerServerChart } from "@/components/dashboard/ToolsPerServerChart"
 import { ExtensionSlot } from "@/appExtensions";
 import { buildPath, paths } from "@/router/routes";
 import {
-  useAgentInstancesAcrossNamespaces,
+  useAgentInstances,
   useMcpServers,
   useModels,
-  useNamespaces,
   useTools,
   type AgentInstance,
 } from "@/api";
@@ -44,20 +42,7 @@ function byNewest(a: AgentInstance, b: AgentInstance): number {
 export function DashboardPage() {
   const theme = useTheme();
 
-  /*
-   * The agents, which are `AgentInstance`s, across every namespace the controller
-   * watches.
-   *
-   * `AgentInstanceService` has no cross-namespace read, so this is a request per
-   * namespace merged together — which is why the namespace list is read first and
-   * this is held back until it arrives.
-   */
-  const namespaces = useNamespaces();
-  const namespaceNames = useMemo(
-    () => (namespaces.data ?? []).map((entry) => entry.name),
-    [namespaces.data],
-  );
-  const agents = useAgentInstancesAcrossNamespaces(namespaceNames);
+  const agents = useAgentInstances();
   const models = useModels();
   const servers = useMcpServers();
   const tools = useTools();
@@ -77,7 +62,7 @@ export function DashboardPage() {
 
   // Rows are dropped on failure for the same reason the lists drop them: a
   // failed read must not be rendered as "there is nothing here".
-  const agentRows = agents.error ? [] : (agents.data?.instances ?? []);
+  const agentRows = agents.error ? [] : (agents.data ?? []);
   const readyCount = agentRows.filter((row) => row.state === "ready").length;
   const recent = [...agentRows].sort(byNewest).slice(0, 5);
   /*
@@ -132,11 +117,11 @@ export function DashboardPage() {
           <StatTile
             label="Agents"
             testId="stat-agents"
-            value={agents.error ? undefined : agents.data?.instances.length}
+            value={agents.error ? undefined : agents.data?.length}
             isLoading={agents.isLoading}
             hint={agentsHint(
               agents.error !== undefined,
-              agents.data?.instances,
+              agents.data,
               readyCount,
             )}
           />
@@ -208,7 +193,7 @@ export function DashboardPage() {
                   >
                     {recent.map((row) => (
                       <RecentAgent
-                        key={`${row.namespace}/${row.id}`}
+                        key={row.id}
                         row={row}
                         autoTitle={derivedTitles[row.id]}
                       />
@@ -256,7 +241,7 @@ function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: strin
     >
       <div css={{ minWidth: 0 }}>
         <Link
-          to={buildPath(paths.agentChat, { namespace: row.namespace, id: row.id })}
+          to={buildPath(paths.agentChat, { id: row.id })}
           css={{ fontWeight: 500 }}
         >
           {/* The name the reader gave it, the title derived from its first message, or
@@ -266,7 +251,7 @@ function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: strin
           {conversationTitle(row, autoTitle)}
         </Link>
         <Text css={{ display: "block", color: theme.color.textMuted, fontSize: 12 }}>
-          {row.namespace} · {row.agentTemplate ?? "template not reported"}
+          {row.agentTemplate ?? "template not reported"}
         </Text>
       </div>
       <div css={{ flexShrink: 0, textAlign: "right" }}>
