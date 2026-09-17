@@ -1,197 +1,320 @@
-# EP-2860: Access review for catalog actions
+# EP-2860: Batched access review for catalog actions
 
-* Issue: [#2860](https://github.com/kagent-dev/kagent/issues/2860)
+> **Discussion draft:** keep this document in the draft PR while the API is being
+> reviewed, then remove it before merge.
+
+* OSS issue: [kagent-dev/kagent#2860](https://github.com/kagent-dev/kagent/issues/2860)
+* Enterprise context: [solo-io/enterprise-kagent#95](https://github.com/solo-io/enterprise-kagent/issues/95)
 
 ## Summary
 
-Add an authenticated, read-only `AuthorizationService.CheckAccess` RPC that lets a client ask whether the current caller may perform a catalog action. The answer is advisory: the corresponding catalog RPC remains the authoritative enforcement point and must authorize again when it runs.
+Add an authenticated `AuthorizationService.CheckAccess` RPC that returns an
+advisory permission matrix for catalog actions. One request reviews several
+namespaced targets of one resource type against several verbs.
 
-This extends [EP-1270](EP-1270-scoped-authorization.md) without putting capability fields back into `AgentTemplate`, `Harness`, or `ModelConfig` responses.
+This replaces the UX purpose of the earlier `canCreate`, `canUpdate`, and
+`canDelete` response fields without embedding authorization state in catalog
+resources. The enterprise UI can decide whether to hide or disable an action,
+while every catalog operation continues to authorize the real request.
 
-## Motivation
+## Goals
 
-EP-1270 deliberately removed `can_create`, `can_update`, and `can_delete` fields from catalog responses. Embedded hints duplicate policy decisions, become stale with the resource that carried them, and couple resource schemas to presentation behavior.
+- Let a UI decide whether to present create, get, update, and delete actions.
+- Preserve the earlier `canCreate` behavior before the user starts filling in a
+  form.
+- Review a whole page of resource actions in one browser request.
+- Reuse the authenticated principal, resource names, verbs, and authorization
+  scopes already used by catalog services.
+- Keep the default OSS authorizer behavior unchanged.
+- Keep access-review results advisory and independent from mutation enforcement.
 
-The UI still needs a way to explain unavailable actions before a caller submits a write. A dedicated review request keeps that concern separate from catalog data and makes its advisory lifetime explicit.
+## Non-goals
 
-### Goals
+- Add capability fields to catalog list or item responses.
+- Return roles, policies, claims, denial reasons, catalog keys, or raw scopes.
+- Review `LIST`; partial collection visibility is not representable by one
+  Boolean.
+- Read Kubernetes resources as part of a review.
+- Cache decisions on the server or turn a successful review into a grant.
+- Add access-aware behavior to the OSS UI. The consumer is the enterprise UI.
 
-- Review `GET`, `CREATE`, `UPDATE`, and `DELETE` for the protected catalog resources in EP-1270.
-- Use the authenticated request principal and the same canonical resource types, verbs, and attributes as the corresponding operation.
-- Support a namespace-level create review before a proposed name is known.
-- Keep every real catalog operation authoritative and unchanged.
-- Make the review available to browser clients through the generated TypeScript API.
-- Fail closed without revealing whether a named resource exists.
-
-### Non-goals
-
-- Return policy rules, roles, claims, scopes, or denial explanations.
-- Review `LIST`; partial collection access is not representable by one Boolean.
-- Add capability fields to catalog resources or list responses.
-- Cache an authorization result on the server or turn it into a grant.
-- Expand authorization to resources outside `AgentTemplate`, `Harness`, and `ModelConfig`.
-- Batch reviews in the first version. Add batching only if measured UI request volume requires it.
-
-## API
-
-Add `proto/kagent/api/v1alpha1/authorization.proto`:
+## Proposed API
 
 ```proto
 service AuthorizationService {
   rpc CheckAccess(CheckAccessRequest) returns (CheckAccessResponse);
 }
 
-enum AccessReviewResourceType {
-  ACCESS_REVIEW_RESOURCE_TYPE_UNSPECIFIED = 0;
-  ACCESS_REVIEW_RESOURCE_TYPE_AGENT_TEMPLATE = 1;
-  ACCESS_REVIEW_RESOURCE_TYPE_HARNESS = 2;
-  ACCESS_REVIEW_RESOURCE_TYPE_MODEL_CONFIG = 3;
+enum AuthorizationResourceType {
+  AUTHORIZATION_RESOURCE_TYPE_UNSPECIFIED = 0;
+  AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE = 1;
+  AUTHORIZATION_RESOURCE_TYPE_HARNESS = 2;
+  AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG = 3;
 }
 
-enum AccessReviewVerb {
-  ACCESS_REVIEW_VERB_UNSPECIFIED = 0;
-  ACCESS_REVIEW_VERB_GET = 1;
-  ACCESS_REVIEW_VERB_CREATE = 2;
-  ACCESS_REVIEW_VERB_UPDATE = 3;
-  ACCESS_REVIEW_VERB_DELETE = 4;
+enum AuthorizationVerb {
+  AUTHORIZATION_VERB_UNSPECIFIED = 0;
+  AUTHORIZATION_VERB_GET = 1;
+  AUTHORIZATION_VERB_CREATE = 2;
+  AUTHORIZATION_VERB_UPDATE = 3;
+  AUTHORIZATION_VERB_DELETE = 4;
+}
+
+message AccessTarget {
+  string namespace = 1;
+  optional string name = 2;
 }
 
 message CheckAccessRequest {
-  AccessReviewResourceType resource_type = 1;
-  AccessReviewVerb verb = 2;
-  string namespace = 3;
-  optional string name = 4;
+  AuthorizationResourceType resource_type = 1;
+  repeated AuthorizationVerb verbs = 2;
+  repeated AccessTarget targets = 3;
 }
 
 message CheckAccessResponse {
-  bool allowed = 1;
+  repeated ResourceAccess results = 1;
+}
+
+message ResourceAccess {
+  AccessTarget target = 1;
+  repeated AuthorizationVerb allowed_verbs = 2;
 }
 ```
 
-The source proto owns request validation:
+One request is homogeneous by resource type. That matches the common UI surfaces
+(a template list, a model list, or a harness list) and lets the server obtain one
+authorization scope per requested verb. A screen containing multiple catalog
+resource types can issue at most three requests in parallel.
 
-- `resource_type` and `verb` must be defined, non-zero enum values.
-- `namespace` is a required DNS-1123 subdomain.
-- A present `name` is a non-empty DNS-1123 subdomain. Absence is distinct from an empty string.
-- `name` may be absent only for `CREATE`. Reads, updates, and deletes address a concrete resource.
-- The supported operation matrix is:
+`results` has the same order and cardinality as `targets`. Echoing the target also
+makes the response self-describing and avoids string-encoding a namespaced name as
+a protobuf map key.
 
-  | Resource | Verbs |
+### Validation
+
+Declare request-intrinsic validation in the source proto with `buf.validate`:
+
+- `resource_type` must be a defined, non-zero enum value.
+- `verbs` must contain between one and four unique, defined, non-zero values.
+- `targets` must contain between one and 100 entries.
+- Every namespace is a required Kubernetes DNS label.
+- A present name is a non-empty Kubernetes DNS subdomain.
+- Unsupported resource/verb combinations are rejected. The initial matrix is:
+
+  | Resource type | Verbs |
   | --- | --- |
   | `AgentTemplate` | `GET`, `CREATE`, `UPDATE`, `DELETE` |
   | `Harness` | `CREATE`, `DELETE` |
   | `ModelConfig` | `GET`, `CREATE`, `UPDATE`, `DELETE` |
 
-Use standard `buf.validate` rules first and message CEL only for the name/verb and resource/verb combinations.
+The limit bounds one request to at most 400 Boolean decisions. It is large enough
+for the current 25-row UI pages and prevents an access-review call from becoming
+an unbounded policy-evaluation endpoint.
 
-`optional string name` is intentional. Treating an empty string as “any name” would make a malformed named request silently broader.
+## Semantics
 
-## Review semantics
+### Named targets
 
-### Named review
+For a target with `name`, a verb is returned in `allowed_verbs` when the caller's
+action scope matches the exact `(resource type, namespace, name)` identity.
 
-For a present `name`, construct the same `auth.Resource` identity the catalog operation uses and evaluate the operation's authorization checks without reading Kubernetes.
+The review does not load the named resource. This avoids an existence side channel
+and keeps the result advisory: the subsequent get, update, or delete loads or
+validates its real input and authorizes it again.
 
-- `GET`, `CREATE`, and `DELETE` evaluate their matching `auth.Verb`.
-- `UPDATE` evaluates every authorization prerequisite of the real update flow. After #2859, `AgentTemplate` and `ModelConfig` updates require both the read and update checks, so the review is allowed only when both checks allow the same named resource.
-- An authorizer rejection returns `allowed: false`; it is not a failed RPC. The existing `Authorizer.Check` contract represents every denial as an error and has no separate backend-failure category, so the review treats any `Check` error the same way the catalog services do: denied.
+### Namespace targets and `canCreate`
 
-This is an advisory check against the proposed reference, not trusted evidence for a mutation. The later catalog RPC still validates or loads the real resource and authorizes it independently.
-
-### Namespace-level create review
-
-When `name` is absent, request the `CREATE` scope for the resource type and ask whether at least one valid name in the requested namespace can satisfy it:
+For a target without `name`, a verb is allowed when at least one valid resource
+name in that namespace can satisfy its action scope:
 
 - `ALL` allows.
 - `NONE` denies.
-- `ANY_OF` allows when at least one clause accepts the namespace and has at least one satisfiable name after all `name IN (...)` predicates in that clause are intersected.
+- `ANY_OF` allows when at least one clause accepts the namespace and contains a
+  satisfiable name after all name predicates in that clause are applied.
 
-Add this as a semantic operation on the existing compiled `kubeauth.Matcher`; do not duplicate scope parsing in the access-review service. Invalid scope output remains an internal failure, and an authorizer backend failure remains unavailable.
+This is the direct replacement for the earlier collection-level `canCreate`:
+"some proposed resource in this namespace could be allowed." It does not
+authorize the object eventually submitted.
 
-### Error behavior
+The same existential meaning can apply consistently to every verb, although the
+first concrete caller for a nameless target is `CREATE`. Restricting nameless
+targets to `CREATE` is an API-review option if broader queries are considered
+unnecessary policy disclosure.
 
-- Missing authenticated session: `Unauthenticated`.
-- Invalid request or unsupported resource/verb combination: `InvalidArgument` through Protovalidate.
-- Policy rejection: successful response with `allowed: false`.
-- Failure to obtain a scope: `Unavailable`.
-- Malformed scope returned by an authorizer: `Internal`.
+Namespace remains required. A global create button can batch the namespaces the
+UI already lists and show when any result allows `CREATE`. This also lets the form
+disable unauthorized namespace choices. An implicit "any namespace" query is not
+needed for the current UI.
 
-The API intentionally returns no denial reason. Exposing backend-specific policy explanations would couple the public contract to an authorizer and can leak policy details.
+### Denials and failures
 
-## Backend implementation
+- A policy denial is a successful response in which the verb is absent from
+  `allowed_verbs`.
+- Missing authentication returns `Unauthenticated`.
+- Invalid input returns `InvalidArgument` through Protovalidate.
+- Failure to obtain an authorization scope returns `Unavailable`.
+- A malformed scope returned by an authorizer returns `Internal`.
 
-1. Define canonical catalog resource-type constants beside `auth.Resource` and replace the current repeated string literals in model and kubecrud wiring.
-2. Add a transport-independent `go/core/internal/service/accessreview` service over `auth.CollectionAuthorizer`.
-3. Add the thin gRPC adapter that maps protobuf enums to the existing auth verbs and canonical resource types.
-4. Register the service in `grpcserver.Config` and `app.Run`.
-5. Add `AuthorizationService.CheckAccess` to `DefaultMethodPolicies` as `AccessRead`, so authentication runs before the handler while the requested catalog verb remains data evaluated by the service.
-6. Regenerate Go and TypeScript protobuf outputs from the source proto.
-7. Update EP-1270 and the scoped-authorization development guide to distinguish rejected embedded hints from the explicit advisory review API.
+The first version fails the whole RPC if any requested action scope cannot be
+evaluated. Per-cell errors add a second error model for little UX value: the UI
+must already treat the entire review as advisory and keep handling
+`PermissionDenied` from the real operation.
 
-No Kubernetes client, database, new dependency, or server-side cache is needed.
+## Evaluation and performance
 
-## UI integration
+For each requested verb, the server asks `CollectionAuthorizer.Scope` once for
+the authenticated principal and resource type, compiles the result with the
+existing Kubernetes authorization matcher, and applies it to every target:
 
-Add the first bundled UI caller in the same PR as the RPC. Keep the API/core and UI work in separate commits so the generated contract and policy semantics can still be reviewed before the presentation changes.
-
-1. Add one stable `authorization.checkAccess` operation and an SWR-backed hook keyed by resource type, verb, namespace, and optional name.
-2. Use exact-name reviews for edit, save, and delete controls. Use the namespace-level create review only where the namespace is known before the name.
-3. Disable rather than hide unavailable actions and provide an accessible explanation. Direct navigation to a form must also review the submit action.
-4. Do not treat a review error as a denial. Leave the action available and let the authoritative operation report its result; optionally show the review failure as advisory UI state.
-5. Continue handling `PermissionDenied` from every mutation because a prior allowed result can become stale immediately.
-6. Avoid eager checks for every off-screen table row. Review the actions rendered on the current page or when an action surface opens; add a batch RPC only if this is still measurably expensive.
-
-The mock transport must model allowed, denied, and failed reviews rather than defaulting every check to allowed.
-
-## Delivery plan
-
-Ship one end-to-end PR so the new RPC has a real caller in the same change:
-
-1. Proto contract, validation, generated Go/TypeScript artifacts, canonical resource mapping, access-review service, namespace-level create-scope matching, gRPC/app wiring, and backend tests.
-2. Stable UI operation, hook, mock implementation, access-aware controls, and UI tests.
-3. Documentation updates and full focused validation.
-
-Before implementation, rebase this branch onto `upstream/main` after #2859 merges so `UPDATE` reviews mirror the final read/write authorization sequence without stacking #2860 on the active PR.
-
-## Test plan
-
-### Semantic unit tests
-
-- Named reviews pass the authenticated principal, canonical type, namespace, name, and expected verb sequence.
-- `UPDATE` requires every check used by the corresponding update operation.
-- Namespace-level create handles `ALL`, `NONE`, namespace-only clauses, name-only clauses, namespace/name conjunctions, OR clauses, and intersecting repeated name predicates.
-- Unsatisfiable or malformed scopes fail closed.
-- A missing session is unauthenticated and a policy rejection is `allowed: false`.
-
-### gRPC and generation checks
-
-- Protovalidate rejects unspecified enums, bad DNS names, a missing name for non-create verbs, and unsupported resource/verb pairs before the handler runs.
-- The method policy requires authentication.
-- An in-process gRPC server with a scoped test authorizer proves named denial, namespace-level allow/deny, and that a successful review does not bypass a later denied mutation.
-- `buf lint`, `buf generate`, and the repository generated-output check pass.
-
-### End-to-end
-
-- The default OSS authorizer returns `allowed: true` for every supported review.
-- UI tests cover the non-authoritative behavior described above.
-
-Run at minimum:
-
-```bash
-make proto-lint
-make proto-check
-make -C go test
-make -C go lint
-(cd ui && yarn typecheck && yarn test && yarn lint)
+```text
+for verb in request.verbs:
+    matcher = CompileScope(authorizer.Scope(principal, verb, resourceType))
+    for target in request.targets:
+        allowed = target.name is present
+            ? matcher.Matches(namespace, name)
+            : matcher.MatchesAnyName(namespace)
 ```
 
-Run the focused Go and UI tests first, then the relevant Playwright and Kind E2E cases before the PR is ready to merge.
+The authorizer must derive `Check` and `Scope` from the same policy evaluation so
+an exact target produces the same answer through either form. This is also the
+invariant required by the earlier capability-field design in enterprise issue
+#95, which calculated item and collection capabilities from the corresponding
+action scope.
+
+For a page of 100 resources showing update and delete actions:
+
+| Shape | Browser requests | Authorizer scope evaluations | Local matches |
+| --- | ---: | ---: | ---: |
+| One RPC per resource and verb | 200 | up to 200 | 0 |
+| Batched matrix | 1 | 2 | 200 |
+
+There is no server cache. A review may become stale immediately, so caching it as
+a grant would be incorrect. A browser data cache may deduplicate identical
+in-flight reviews, but catalog operations remain authoritative.
+
+## UI flows
+
+### Collection-level create action
+
+Once the UI knows the candidate namespaces, it sends one nameless target per
+namespace with `CREATE`:
+
+```json
+{
+  "resourceType": "AGENT_TEMPLATE",
+  "verbs": ["CREATE"],
+  "targets": [
+    {"namespace": "kagent"},
+    {"namespace": "team-a"}
+  ]
+}
+```
+
+The enterprise UI can show the global create button if any target allows
+`CREATE`, then allow only those namespaces in the form. The review can run in
+parallel with the catalog and namespace reads; capability fields also were not
+available until their containing collection response arrived.
+
+### Per-item actions
+
+After a list loads, the UI sends its visible rows as named targets and requests
+the verbs rendered on that page. A 25-row template page therefore makes one
+review request rather than 50 update/delete requests.
+
+### Detail actions
+
+A detail page sends one named target with `UPDATE` and `DELETE`. The matrix API
+handles the single-target case, so a second singular RPC is unnecessary.
+
+### Loading, errors, and staleness
+
+The enterprise UI owns whether a denied action is hidden or disabled. While the
+review is loading it can hold the action area or render a stable placeholder to
+avoid flashing unauthorized controls.
+
+A review transport failure is not a policy denial. The UI should preserve its
+existing fallback behavior and let the authoritative operation return
+`PermissionDenied`; otherwise a transient advisory failure becomes an accidental
+availability failure.
+
+## Backend boundaries
+
+- The protobuf adapter maps the closed enums to the canonical `auth.Verb` and
+  catalog resource-type values.
+- A transport-independent access-review service derives the principal from the
+  authenticated context and evaluates action scopes.
+- `kubeauth.Matcher` owns exact and existential target matching.
+- `AuthorizationService.CheckAccess` has `AccessRead` method policy so the caller
+  is authenticated before the requested catalog verbs are evaluated.
+- The service does not use a Kubernetes client or database.
+- Generated Go and TypeScript clients are committed from the source proto.
+
+The OSS UI does not call the RPC. The generated TypeScript contract is consumed
+by a follow-up enterprise UI change.
+
+## Security properties
+
+- Results apply only to the authenticated caller.
+- Named checks do not reveal whether a resource exists.
+- No policy representation or denial explanation crosses the API boundary.
+- Request limits bound policy work.
+- A successful review never bypasses authorization on a later operation.
+- The default `NoopAuthorizer` returns `ALL`, preserving the OSS experience.
+
+## Testing
+
+- Protovalidate rejects invalid enums, duplicates, empty lists, oversized target
+  sets, invalid namespaces and names, and unsupported resource/verb pairs.
+- Scope matching covers `ALL`, `NONE`, namespace/name conjunctions, OR clauses,
+  repeated name predicates, invalid candidate names, and nameless targets.
+- Service tests prove one scope lookup per verb rather than per target.
+- Service tests prove results preserve target order and contain only allowed
+  requested verbs.
+- gRPC tests prove authentication, enum mapping, registration, and default OSS
+  allow behavior.
+- Mutation tests continue to prove that a prior allowed review does not bypass a
+  later denial.
+- Enterprise UI tests cover the global create action, namespace choices,
+  per-item actions, loading, review failure fallback, and mutation-time denial.
 
 ## Alternatives
 
-- **Capability fields on catalog responses:** rejected by EP-1270 because they duplicate policy decisions and age with unrelated resource data.
-- **Calling the mutation and handling `PermissionDenied`:** remains mandatory as enforcement, but is a worse first interaction when the UI can cheaply ask in advance.
-- **Returning the full authorization scope:** rejected because it exposes policy representation and makes every client implement the matcher.
-- **String resource types and verbs:** rejected because the supported set is closed and protobuf enums let Protovalidate reject unknown values before service code.
-- **Omitted name for every verb:** deferred. Current UI reads, updates, and deletes concrete resources; only creation has a real action before a name exists. Broader existential semantics can be added with a demonstrated caller.
-- **Batch review in v1:** deferred until request volume is measured.
+### Capability fields on catalog responses
+
+They avoid the extra review request, but couple catalog schemas and every catalog
+handler to UI actions, become stale with unrelated resource data, and cannot be
+refreshed independently. This was rejected by OSS issue #2710 and is the reason
+for the dedicated review API.
+
+### A repeated list of fully independent checks
+
+This removes browser round trips but repeats resource type and verb data for each
+cell and encourages one authorizer evaluation per cell. Grouping one resource
+type, several verbs, and several targets expresses the matrix directly and makes
+scope reuse natural.
+
+### Return authorization scopes to the browser
+
+This would minimize server work but expose policy representation and require the
+UI to duplicate the scope matcher. It also makes policy-format compatibility a
+public API concern.
+
+### Separate singular and batch RPCs
+
+The matrix handles one target and one verb without special cases. A second RPC
+would duplicate validation, mapping, tests, and client code.
+
+## Questions for review
+
+1. Should a nameless target retain uniform existential semantics for every verb,
+   or be valid only for `CREATE`?
+2. Is 100 the right initial target limit for the enterprise UI's largest rendered
+   page?
+3. Should `ResourceAccess` echo each target, or rely only on request/response
+   ordering for a smaller response?
+4. When an update operation requires more than `UPDATE` authorization (for
+   example, a separate `GET` prerequisite), should the `UPDATE` matrix cell be the
+   conjunction of all operation prerequisites?
+5. Does the enterprise authorizer guarantee that action scopes and exact checks
+   are equivalent for namespace/name attributes? If not, the wire API can remain
+   batched while the initial server implementation loops over exact `Check` calls.
