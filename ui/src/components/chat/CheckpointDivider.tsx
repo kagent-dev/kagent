@@ -148,8 +148,7 @@ export function CheckpointDivider({
     >
       {/* The whole row is the way into the record — the rule as much as the words — so
           the press target is the thing the reader sees rather than the few characters
-          in front of it. Hover and press are drawn on the row for the same reason, and
-          the tooltip is what gives back the half of a long name the row clips. */}
+          in front of it. Hover and press are drawn on the row for the same reason. */}
       <Tooltip title={open ? "Open snapshot details." : undefined} placement="top">
         <div
           {...(onOpen
@@ -192,8 +191,8 @@ export function CheckpointDivider({
           }}
         >
           <Save size={12} aria-hidden />
-          {/* Clipped rather than wrapped so the rule stays a rule; the tooltip on the row
-              is what gives a generated name's second half back. */}
+          {/* Clipped rather than wrapped so the rule stays a rule. A long name is read
+              in full on the record, and through the row's aria-label. */}
           <Text
             data-checkpoint-heading
             data-testid="chat-checkpoint-label"
