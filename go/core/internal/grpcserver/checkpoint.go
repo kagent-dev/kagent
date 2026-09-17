@@ -39,6 +39,11 @@ func (s *checkpointServer) DeleteCheckpoint(ctx context.Context, request *apiv1a
 	return &apiv1alpha1.DeleteCheckpointResponse{}, err
 }
 
+func (s *checkpointServer) UpdateCheckpointName(ctx context.Context, request *apiv1alpha1.UpdateCheckpointNameRequest) (*apiv1alpha1.UpdateCheckpointNameResponse, error) {
+	checkpoint, err := s.service.Rename(ctx, request.GetCheckpointId(), request.GetName())
+	return &apiv1alpha1.UpdateCheckpointNameResponse{Checkpoint: checkpoint}, err
+}
+
 func (s *checkpointServer) ForkAgentInstance(ctx context.Context, request *apiv1alpha1.ForkAgentInstanceRequest) (*apiv1alpha1.ForkAgentInstanceResponse, error) {
 	instance, err := s.service.Fork(ctx, request.GetCheckpointId(), request.GetRequestId())
 	return &apiv1alpha1.ForkAgentInstanceResponse{AgentInstance: instance}, err

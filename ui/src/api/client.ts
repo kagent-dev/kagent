@@ -243,6 +243,13 @@ export interface AgentInstancesApi {
     list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
     create(id: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+    /**
+     * Names a boundary, which is what a fork of it is called too.
+     *
+     * An empty name clears the reader's title and restores the generated one, so the
+     * record that comes back is what it is now called rather than what was sent.
+     */
+    rename(checkpointId: string, name: string): Promise<Checkpoint>;
     /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
     remove(checkpointId: string): Promise<void>;
   };
@@ -376,6 +383,8 @@ export function createApiClient(): KagentApiClient {
             requestId: randomId(),
             name,
           }),
+        rename: (checkpointId, name) =>
+          invoke("agentInstances.checkpoints.rename", { checkpointId, name }),
         remove: (checkpointId) =>
           invoke("agentInstances.checkpoints.delete", { checkpointId }),
       },
