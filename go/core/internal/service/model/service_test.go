@@ -335,27 +335,6 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("update permission denied before write", func(t *testing.T) {
-		config := &v1alpha3.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
-			Spec:       v1alpha3.ModelConfigSpec{Model: "original", Provider: v1alpha3.ModelProviderOpenAI},
-		}
-		authorizer := &recordingAuthorizer{denyCheck: 1}
-		service, kubeClient, ctx := newService(authorizer, config)
-
-		_, err := service.Update(ctx, model.UpdateRequest{
-			Ref:  types.NamespacedName{Namespace: "default", Name: "cfg"},
-			Spec: v1alpha3.ModelConfigSpec{Model: "updated", Provider: v1alpha3.ModelProviderOpenAI},
-		})
-		require.Error(t, err)
-		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
-		require.Len(t, authorizer.checkCalls, 1)
-
-		stored := &v1alpha3.ModelConfig{}
-		require.NoError(t, kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, stored))
-		assert.Equal(t, "original", stored.Spec.Model)
-	})
-
 	t.Run("denied collection is empty and denied item is rejected", func(t *testing.T) {
 		service, _, ctx := newService(denyAuthorizer{}, &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default"},
@@ -443,8 +422,8 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbDelete}
-	wantNames := []string{"existing", "created", "existing", "existing"}
+	wantVerbs := []pkgauth.Verb{pkgauth.VerbGet, pkgauth.VerbCreate, pkgauth.VerbUpdate, pkgauth.VerbGet, pkgauth.VerbDelete}
+	wantNames := []string{"existing", "created", "existing", "existing", "existing"}
 	require.Len(t, authorizer.checkCalls, len(wantVerbs))
 	for index, call := range authorizer.checkCalls {
 		assert.Equal(t, wantVerbs[index], call.verb)
@@ -452,6 +431,41 @@ func TestModelConfigCRUDUsesTrustedAttributes(t *testing.T) {
 		assert.Equal(t, "team", call.resource.Namespace)
 		assert.Equal(t, wantNames[index], call.resource.Name)
 	}
+}
+
+// A caller who may read but not update must not have its API key written on the way to the denial.
+func TestDeniedUpdateWritesNothing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	ref := types.NamespacedName{Namespace: "team", Name: "existing"}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name},
+		Spec:       v1alpha3.ModelConfigSpec{Model: "old", Provider: v1alpha3.ModelProviderOpenAI},
+	}).Build()
+	authorizer := &recordingAuthorizer{scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, denyCheck: 1}
+	service := model.NewService(kubeClient, authorizer, "default")
+	ctx := pkgauth.AuthSessionTo(context.Background(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}})
+
+	apiKey := "api-key-value"
+	_, err := service.Update(ctx, model.UpdateRequest{
+		Ref:    ref,
+		APIKey: &apiKey,
+		Spec:   v1alpha3.ModelConfigSpec{Model: "updated", Provider: v1alpha3.ModelProviderOpenAI},
+	})
+	require.Error(t, err)
+	assert.Truef(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "got %v", err)
+
+	// The update decision is the only one reached: a read before it would record a get first.
+	assert.Equal(t, []authorizationCall{
+		{verb: pkgauth.VerbUpdate, resource: pkgauth.Resource{Type: "ModelConfig", Namespace: ref.Namespace, Name: ref.Name}},
+	}, authorizer.checkCalls)
+
+	err = kubeClient.Get(ctx, ref, &corev1.Secret{})
+	assert.True(t, apierrors.IsNotFound(err), "denied update wrote its API key secret: %v", err)
+	stored := &v1alpha3.ModelConfig{}
+	require.NoError(t, kubeClient.Get(ctx, ref, stored))
+	assert.Equal(t, "old", stored.Spec.Model)
 }
 
 // A create that cannot finish its Secrets must not leave the ModelConfig behind.

@@ -88,20 +88,20 @@ func TestServiceFiltersBeforeSortingAndUsesTrustedAttributes(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 	mutableRef := types.NamespacedName{Namespace: "team", Name: "mutable"}
-	mutable, err := service.GetForUpdate(ctx, mutableRef)
+	mutable, err := service.Get(ctx, mutableRef)
 	if err != nil {
-		t.Fatalf("GetForUpdate() error = %v", err)
+		t.Fatalf("Get() error = %v", err)
 	}
 	mutable.Spec.Description = "updated"
-	if _, err := service.SaveUpdate(ctx, mutable); err != nil {
-		t.Fatalf("SaveUpdate() error = %v", err)
+	if _, err := service.Update(ctx, mutable); err != nil {
+		t.Fatalf("Update() error = %v", err)
 	}
 	if err := service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "b"}); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	wantVerbs := []auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbUpdate, auth.VerbDelete}
-	wantNames := []string{"a", "created", "mutable", "b"}
+	wantVerbs := []auth.Verb{auth.VerbGet, auth.VerbCreate, auth.VerbGet, auth.VerbUpdate, auth.VerbDelete}
+	wantNames := []string{"a", "created", "mutable", "mutable", "b"}
 	if len(authorizer.checkCalls) != len(wantVerbs) {
 		t.Fatalf("Check() calls = %d, want %d", len(authorizer.checkCalls), len(wantVerbs))
 	}
@@ -171,15 +171,21 @@ func TestServiceRejectsInvalidScope(t *testing.T) {
 	}
 }
 
-// readRecordingClient counts the reads that reach Kubernetes.
+// readRecordingClient counts the reads and updates that reach Kubernetes.
 type readRecordingClient struct {
 	client.Client
-	gets int
+	gets    int
+	updates int
 }
 
 func (c *readRecordingClient) Get(ctx context.Context, key client.ObjectKey, object client.Object, options ...client.GetOption) error {
 	c.gets++
 	return c.Client.Get(ctx, key, object, options...)
+}
+
+func (c *readRecordingClient) Update(ctx context.Context, object client.Object, options ...client.UpdateOption) error {
+	c.updates++
+	return c.Client.Update(ctx, object, options...)
 }
 
 // A denied caller must not be able to tell an existing object from a missing one.
@@ -195,10 +201,6 @@ func TestDeniedSingleResourceOperationsDoNotRevealExistence(t *testing.T) {
 	operations := map[string]func(*kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], context.Context, types.NamespacedName) error{
 		"Get": func(s *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], ctx context.Context, ref types.NamespacedName) error {
 			_, err := s.Get(ctx, ref)
-			return err
-		},
-		"GetForUpdate": func(s *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], ctx context.Context, ref types.NamespacedName) error {
-			_, err := s.GetForUpdate(ctx, ref)
 			return err
 		},
 		"Delete": func(s *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList], ctx context.Context, ref types.NamespacedName) error {
@@ -224,6 +226,25 @@ func TestDeniedSingleResourceOperationsDoNotRevealExistence(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestDeniedUpdateDoesNotWrite(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	kubeClient := &readRecordingClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	authorizer := &recordingAuthorizer{checkErr: errors.New("denied")}
+	service := kubecrud.NewService(kubeClient, authorizer, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate")
+	ctx := auth.AuthSessionTo(t.Context(), testSession{})
+
+	_, err := service.Update(ctx, &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "existing"}})
+	if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		t.Fatalf("Update() error = %v, want permission denied", err)
+	}
+	if kubeClient.updates != 0 {
+		t.Fatalf("Update() denied the caller but wrote Kubernetes %d times", kubeClient.updates)
 	}
 }
 
