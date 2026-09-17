@@ -7,7 +7,7 @@ import { loadExtensionStylesheets } from "./appExtensions/theme";
 import { applyExtensionBranding } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
 import { App } from "./App";
-import { RootErrorBoundary } from "./RootErrorBoundary";
+import { RootErrorBoundary, RootErrorFallback } from "./RootErrorBoundary";
 
 async function bootstrap() {
   // Deployment configuration needs no step here: it arrives on `window` from a
@@ -43,4 +43,9 @@ async function bootstrap() {
   );
 }
 
-void bootstrap();
+// The boundary above cannot see this: nothing has rendered yet when the
+// stylesheet, branding or mock-backend step throws.
+void bootstrap().catch((error: unknown) => {
+  console.error("App failed to start", error);
+  ReactDOM.createRoot(document.getElementById("root")!).render(<RootErrorFallback />);
+});

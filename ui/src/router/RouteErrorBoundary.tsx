@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Button, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { TriangleAlert } from "lucide-react";
@@ -21,7 +22,9 @@ export function RouteErrorBoundary() {
   const error = useRouteError();
   const navigate = useNavigate();
 
-  console.error("Route crashed", error);
+  useEffect(() => {
+    console.error("Route crashed", error);
+  }, [error]);
 
   return (
     <div

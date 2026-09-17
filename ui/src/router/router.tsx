@@ -1,7 +1,7 @@
 import { ScheduledRunsPage, ScheduledRunPage } from "@/pages/ScheduledRunsPage";
 import { ScheduledRunNewPage } from "@/pages/ScheduledRunNewPage";
 import { ScheduledRunEditPage } from "@/pages/ScheduledRunEditPage";
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
 import { AppLayout } from "@/components/Structure/AppLayout";
 import { coreNavItems } from "@/components/Structure/navItems";
@@ -171,8 +171,7 @@ export function createAppRouter(extensions: readonly AppExtensionConfig[]) {
       children: [
         {
           // Its own errorElement, nested inside the shell route rather than on it:
-          // a page crash then replaces only this Outlet, so the nav/sidebar stay up.
-          element: <Outlet />,
+          // a page crash then replaces only this outlet, so the nav/sidebar stay up.
           errorElement: <RouteErrorBoundary />,
           children: [
             ...remainingCoreRoutes,

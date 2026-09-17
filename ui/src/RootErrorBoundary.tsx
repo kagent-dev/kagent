@@ -10,8 +10,7 @@ interface State {
 
 /**
  * Catches a crash above the theme/auth/provider tree, where no antd or Emotion
- * context exists yet — so this renders with plain inline styles only, matched to
- * `prefers-color-scheme` since there is no theme to read.
+ * context exists yet — so the fallback is plain inline styles only.
  */
 export class RootErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false };
@@ -25,11 +24,14 @@ export class RootErrorBoundary extends Component<Props, State> {
   }
 
   render() {
-    if (!this.state.hasError) return this.props.children;
+    return this.state.hasError ? <RootErrorFallback /> : this.props.children;
+  }
+}
 
-    // Pinned to the colours index.html paints before the bundle loads: when this
-    // renders, no theme has mounted, so that is what the page behind it is.
-    return (
+// Pinned to the colours index.html paints before the bundle loads: when this
+// renders, no theme has mounted, so that is what the page behind it is.
+export function RootErrorFallback() {
+  return (
       <div
         style={{
           display: "grid",
@@ -70,5 +72,4 @@ export class RootErrorBoundary extends Component<Props, State> {
         </div>
       </div>
     );
-  }
 }
