@@ -204,6 +204,12 @@ conventions below: the shared fixture import, and antd's class names.
   The trade is deliberate: a failed step stops the ones after it, so a broken create
   hides whether delete works. That is the right way round — a resource whose create is
   broken is broken, and the recording shows where it stopped.
+- **Never assert an absence before the thing could appear.** "No error", "no rows",
+  "no source text on the page" are all true of a page that has not drawn yet, so each
+  one needs a positive signal in front of it — a summary, a table, a settled state.
+  Four defects on this suite were that shape, every one of them green.
+- **Clean up in a hook, never in a `finally`.** A timed-out test has a closed page, so
+  everything in its `finally` throws and the resource stays on the cluster.
 - **Keep the writes in one browsing context.** The fixture backend keeps writes in the
   page's own memory, so a `page.goto` starts a backend that has never heard of the
   thing just created, and the failure reads as "the create did not stick" when nothing

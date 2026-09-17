@@ -229,41 +229,26 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
        * reload there starts a backend that has never heard of this template — see
        * `shared/schedules/schedules.spec.ts`, which avoids reloading for that reason.
        */
-      await expect
-        .poll(
-          async () => {
-            /*
-             * Nothing in here may throw. `expect.poll` calls its callback outside its
-             * own try/catch, so a throw ends the poll rather than failing one round of
-             * it — measured, a callback that throws twice and then succeeds gives up
-             * after 4ms, where one that returns is retried. Two here can: `textContent`
-             * on a detail page still drawing its `Skeleton`, and `expectSettled`'s own
-             * assertions after the reload. Either turned the ninety seconds below into
-             * a single attempt and reported a raw locator timeout instead of the
-             * message this poll was given.
-             */
-            try {
-              const text = (await status.textContent({ timeout: 30_000 })) ?? "";
-              if (text.includes(harness)) return text;
-
-              // Re-read after the reload rather than returning what was on screen
-              // before it: the round that finally succeeds should be the one that says
-              // so, not the one after it.
-              await page.reload();
-              await expectSettled(page);
-              return (await status.textContent({ timeout: 30_000 })) ?? "";
-            } catch (error) {
-              // The reason this round could not answer, which is what the failure
-              // message should end on if none of them ever does.
-              return `could not be read: ${String(error).split("\n")[0]}`;
-            }
-          },
-          {
-            timeout: 90_000,
-            message: `${TEMPLATE} was never admitted: the controller did not name ${harness} in its status, over repeated re-reads`,
-          },
-        )
-        .toContain(harness);
+      await expect(async () => {
+        /*
+         * `toPass`, not `expect.poll`. The poll calls its callback outside its own
+         * try/catch, so a throw ends it rather than failing one round — which two things
+         * in here do: `textContent` on a page still drawing its `Skeleton`, and
+         * `expectSettled` after the reload. This is the primitive for retrying a callback
+         * that throws, so the failure is the assertion's own rather than a string
+         * composed to keep the poll alive.
+         */
+        if (!((await status.textContent()) ?? "").includes(harness)) {
+          // Re-read after the reload, not before it: the round that finally succeeds
+          // should be the one that says so.
+          await page.reload();
+          await expectSettled(page);
+        }
+        await expect(
+          status,
+          `${TEMPLATE} was never admitted: the controller did not name ${harness} in its status`,
+        ).toContainText(harness);
+      }).toPass({ timeout: 90_000 });
     } else {
       // The fixtures answer from the create itself, so one read settles it.
       await expect(status).toContainText(harness, { timeout: 30_000 });

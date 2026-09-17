@@ -299,36 +299,21 @@ export async function expectListTotal(
 }
 
 /**
- * The list's total, once the summary has stopped moving.
+ * The list's total, off the summary that only a landed read draws.
  *
- * Read once, the summary is not the signal it looks like. Every list draws it on
- * `!error && !isLoading`, and SWR reports `isLoading` false on the first paint — the
- * fetcher runs in an effect, after it — so a page that has not asked anything yet draws
- * "0 of 0" for a frame. Measured on the harnesses tab: a total of 0 read off a tab
- * holding four, and the journey then asserted "one more than nothing".
- *
- * So it is read twice and has to agree with itself. A list still arriving disagrees, and
- * one that is genuinely empty says 0 twice — which is the distinction "a list still
- * fetching has no rows either" was always about.
+ * It read the summary twice and required the two to agree, because every list drew
+ * "0 of 0" for the 600ms before its read arrived. That is fixed where it belongs now —
+ * the summary waits for `data` — so this is one read again, and a return of the flash
+ * fails the journeys that count before and after a create.
  */
 async function settledTotal(page: Page, list: string): Promise<number> {
   const summary = page.getByTestId(`${list}-summary`);
   await expect(summary).toContainText(/\bof \d+\b/, { timeout: READ_TIMEOUT });
 
-  let previous: number | undefined;
-  let total = 0;
-  await expect(async () => {
-    const text = (await summary.textContent()) ?? "";
-    const read = /\bof (\d+)\b/.exec(text)?.[1];
-    expect(read, `no total could be read from "${text}"`).toBeDefined();
-    const value = Number(read);
-    const agreed = previous === value;
-    previous = value;
-    total = value;
-    expect(agreed, `still moving, at ${value}`).toBe(true);
-  }).toPass({ timeout: READ_TIMEOUT, intervals: [250] });
-
-  return total;
+  const text = (await summary.textContent()) ?? "";
+  const read = /\bof (\d+)\b/.exec(text)?.[1];
+  expect(read, `no total could be read from "${text}"`).toBeDefined();
+  return Number(read);
 }
 
 /**
