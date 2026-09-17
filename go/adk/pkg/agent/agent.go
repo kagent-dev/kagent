@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -445,9 +446,11 @@ func makeBeforeToolCallback(logger *slog.Logger) llmagent.BeforeToolCallback {
 	}
 }
 
-// makeAfterToolCallback returns an AfterToolCallback that logs tool completion.
+// makeAfterToolCallback returns an AfterToolCallback that logs tool completion
+// and records the tool exchange on the execute_tool span.
 func makeAfterToolCallback(logger *slog.Logger) llmagent.AfterToolCallback {
 	return func(ctx agent.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
+		telemetry.SetToolCallAttributes(ctx, args, result, err)
 		if err != nil {
 			logger.ErrorContext(ctx, "tool execution completed with error", "error", err,
 				"tool", t.Name(),
