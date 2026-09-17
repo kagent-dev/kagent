@@ -3,13 +3,13 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
@@ -34,8 +34,9 @@ const (
 	defaultMaxDelay     = 5 * time.Second
 )
 
-// Connect opens a Postgres connection pool using cfg and retries Ping with
-// exponential backoff until the connection succeeds or defaultMaxTimeout elapses.
+// Connect returns a PostgreSQL pool after a successful ping, retrying until the
+// context is canceled or two minutes elapse. Invalid configuration fails immediately.
+// VectorEnabled registers pgvector types on each connection. The caller closes the pool.
 func Connect(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
 	return retryDBConnection(ctx, cfg)
 }
@@ -64,9 +65,9 @@ func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) error {
 	return nil
 }
 
-// retryDBConnection opens a pgxpool connection, registering pgvector types when
-// vectorEnabled is true, and retries Ping with exponential backoff until the
-// connection succeeds or defaultMaxTimeout elapses.
+// retryDBConnection opens and verifies a pool, registering vector types when enabled.
+// Failed pings retry with exponential backoff until cancellation or the two-minute
+// timeout; an unsuccessful pool is closed before returning the error.
 func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
 	defer cancel()
@@ -95,7 +96,7 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 		if err := pool.Ping(ctx); err == nil {
 			return pool, nil
 		} else {
-			log.Printf("database not ready (attempt %d, elapsed %s): %v", attempt, time.Since(start).Round(time.Second), err)
+			logging.FromContext(ctx).WarnContext(ctx, "database not ready", "error", err, "attempt", attempt, "elapsed_ms", time.Since(start).Milliseconds())
 		}
 		select {
 		case <-ctx.Done():
@@ -110,9 +111,9 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 	}
 }
 
-// ResolveURL returns url, unless urlFile is non-empty in which case the URL is
-// read from that file. Used by callers (e.g. the migration runner) that need
-// the resolved connection string before a pool is created.
+// ResolveURL returns url unless urlFile is set, in which case it returns the file's
+// trimmed contents. An unreadable or empty file returns an error without falling
+// back to url.
 func ResolveURL(url, urlFile string) (string, error) {
 	if urlFile != "" {
 		return resolveURLFile(urlFile)

@@ -57,7 +57,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "Harness requires one runtime",
 			object:     validHarness(namespace, "harness-no-runtime", HarnessSpec{}),
-			wantReject: "exactly one of kagent, codex, or claude must be specified",
+			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
 		},
 		{
 			name: "Harness rejects multiple runtimes",
@@ -65,7 +65,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Kagent: &KagentHarness{},
 				Codex:  &CodexHarness{},
 			}),
-			wantReject: "exactly one of kagent, codex, or claude must be specified",
+			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
 		},
 		{
 			name: "Harness rejects tag-only image",
@@ -96,11 +96,40 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "exactly one of value or credentialRef must be specified",
 		},
 		{
+			name: "Harness memory requires a model reference",
+			object: validHarness(namespace, "harness-empty-memory-model", HarnessSpec{
+				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{}},
+			}),
+			wantReject: "modelConfigRef name must not be empty",
+		},
+		{
+			name: "valid kagent memory Harness",
+			object: validHarness(namespace, "valid-memory-harness", HarnessSpec{
+				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{
+					ModelConfigRef: corev1.LocalObjectReference{Name: "embedding-model"}, TTLDays: 7,
+				}},
+			}),
+		},
+		{
 			name: "valid Harness",
 			object: validHarness(namespace, "valid-harness", HarnessSpec{
 				Claude: &ClaudeHarness{},
 				Env:    []HarnessEnvVar{{Name: "EMPTY", Value: &empty}},
 			}),
+		},
+		{
+			name: "valid BYO Harness",
+			object: validHarness(namespace, "valid-byo-harness", HarnessSpec{
+				BYO:      &BYOHarness{},
+				Workload: HarnessWorkload{Command: []string{"/agent"}},
+			}),
+		},
+		{
+			name: "BYO Harness requires workload command",
+			object: validHarness(namespace, "byo-missing-command", HarnessSpec{
+				BYO: &BYOHarness{},
+			}),
+			wantReject: "BYO harnesses must specify workload.command",
 		},
 		{
 			name:       "AgentTemplate tool requires one source",
@@ -111,11 +140,11 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			name: "AgentTemplate tool rejects two sources",
 			object: validAgentTemplate(namespace, "template-two-tools", []ToolBinding{{
 				MCP: &MCPToolBinding{
-					Server: AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: "tools"},
+					Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "tools"},
 					Tools:  []string{"search"},
 				},
 				Agent: &AgentToolBinding{
-					Name: "helper", Description: "delegate work", TemplateRef: AgentTemplateLocalReference{Name: "helper"},
+					Name: "helper", Description: "delegate work", TemplateRef: corev1.LocalObjectReference{Name: "helper"},
 				},
 			}}),
 			wantReject: "exactly one of mcp or agent must be specified",
@@ -123,6 +152,25 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:   "valid AgentTemplate",
 			object: validAgentTemplate(namespace, "valid-template", nil),
+		},
+		{
+			name:   "AgentTemplate permits omitted ModelConfig",
+			object: &AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "model-free-template", Namespace: namespace}},
+		},
+		{
+			name: "AgentTemplate rejects empty ModelConfig reference",
+			object: &AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "empty-model-reference", Namespace: namespace},
+				Spec:       AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{}},
+			},
+			wantReject: "name must not be empty",
+		},
+		{
+			name: "AgentTemplate rejects unsupported MCP server kind",
+			object: validAgentTemplate(namespace, "unsupported-mcp-kind", []ToolBinding{{
+				MCP: &MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "Service", Name: "tools"}},
+			}}),
+			wantReject: "kind must be RemoteMCPServer",
 		},
 	}
 
@@ -155,7 +203,7 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 	return &AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: AgentTemplateSpec{
-			ModelConfig: AgentTemplateLocalReference{Name: "default"},
+			ModelConfig: &corev1.LocalObjectReference{Name: "default"},
 			Tools:       tools,
 		},
 	}

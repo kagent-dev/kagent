@@ -48,8 +48,10 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "kagent.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: database
+        {{- /* extra pod labels: component merged over global, selector labels
+             applied last so they can never be overridden */}}
+        {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) ($pg.podLabels | default dict) (include "kagent.selectorLabels" . | fromYaml) (dict "app.kubernetes.io/component" "database") }}
+        {{- toYaml $podLabels | nindent 8 }}
     spec:
       {{- include "kagent.imagePullSecrets" $ | nindent 6 }}
       serviceAccountName: {{ $fullname }}

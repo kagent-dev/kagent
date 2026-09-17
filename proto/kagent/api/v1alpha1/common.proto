@@ -14,8 +14,16 @@ message StructuredObject {
 }
 
 message ResourceReference {
-  string namespace = 1;
-  string name = 2;
+  string namespace = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+  }];
+  string name = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 253
+    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+  }];
 }
 
 message PageRequest {

@@ -2,9 +2,10 @@ import { css } from "@emotion/react";
 import type { AppExtensionConfig } from "@/appExtensions";
 import { ExamplePage } from "./ExamplePage";
 import { ExampleNavItem } from "./ExampleNavItem";
+import { ExampleRailItem } from "./ExampleRailItem";
 import { ExampleTenantProvider } from "./ExampleTenantProvider";
 import { exampleTeamField } from "./exampleFormFields";
-import { exampleAgentRegionColumn } from "./exampleTableColumns";
+import { exampleAgentCreatorColumn } from "./exampleTableColumns";
 import { EXAMPLE_PATH } from "./paths";
 import {
   ExampleAgentBadge,
@@ -35,6 +36,19 @@ export const exampleAppExtension: AppExtensionConfig = {
     { key: "example", order: 250, path: EXAMPLE_PATH, Component: ExampleNavItem },
   ],
 
+  // The agent rail: an entry between Agent Details (100) and New chat (200), which
+  // is what `order` is for. `agentRailOverrides` would change those two.
+  agentRailItems: [
+    { key: "exampleRail", order: 150, path: EXAMPLE_PATH, Component: ExampleRailItem },
+  ],
+
+  // Retargets the rail's "Agent Details" for a distribution serving that surface
+  // itself. Only reachable with a conversation open, which is where the instance id
+  // the link takes comes from.
+  agentLinks: {
+    details: (ref) => `${EXAMPLE_PATH}?agent=${ref.id}`,
+  },
+
   // Site-wide: a whole page merged into the router.
   routes: [{ path: EXAMPLE_PATH, element: <ExamplePage /> }],
 
@@ -55,7 +69,7 @@ export const exampleAppExtension: AppExtensionConfig = {
 
   // A column on a core table. The application has no concept of the dimension
   // this adds, which is the case a column contribution exists for.
-  tableColumns: [exampleAgentRegionColumn],
+  tableColumns: [exampleAgentCreatorColumn],
 
   // Restyling the host, not just the contributions. The application's own pages
   // pick these up because every one of its components reads its colours and
@@ -75,18 +89,17 @@ export const exampleAppExtension: AppExtensionConfig = {
     `,
   },
 
-  // Endpoint overrides and payload reshaping, folded into the data layer's
+  // Operation overrides and payload reshaping, folded into the data layer's
   // registry by `installExtensionApi`.
   //
-  // Only a transform here, deliberately. `baseUrl` and `endpoints` are part of
-  // the contract — an extension pointing `agents.list` at `/managed-agents` on
-  // their own host is exactly the case it exists for — but setting either here
+  // Only a transform here, deliberately. `baseUrl` is part of the contract, but
+  // setting it here
   // would send every call somewhere the mock backend does not answer, so the
   // example would break the app whenever it is switched on. A header is real,
   // observable in the network panel, and harmless.
   api: {
     transforms: {
-      "agents.list": {
+      "models.list": {
         request: (context) => ({
           ...context,
           headers: { ...context.headers, "x-example-tenant": "example-eu-1" },

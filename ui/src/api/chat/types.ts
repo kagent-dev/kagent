@@ -8,7 +8,7 @@
  * one implementation of `ChatClient` and touches nothing that renders.
  */
 
-import type { PendingRequest } from "./hitl";
+import type { AskUserRecord, PendingRequest, ToolApprovalRecord } from "./hitl";
 
 export type ChatRole = "user" | "agent";
 
@@ -21,11 +21,23 @@ export interface ChatTextPart {
 export interface ChatDataPart {
   kind: "data";
   /** What the payload represents, so a renderer can pick a component. */
-  dataKind: "tool_call" | "tool_result" | "unknown";
+  dataKind: "tool_call" | "tool_result" | "tool_not_run" | "unknown";
   data: Record<string, unknown>;
 }
 
-export type ChatPart = ChatTextPart | ChatDataPart;
+/** A structured human decision, rendered as an audit-friendly status card. */
+export interface ChatToolApprovalPart {
+  kind: "tool_approval";
+  approval: ToolApprovalRecord;
+}
+
+/** A completed ask-user exchange, rendered without its protocol artifacts. */
+export interface ChatAskUserPart {
+  kind: "ask_user";
+  interaction: AskUserRecord;
+}
+
+export type ChatPart = ChatTextPart | ChatDataPart | ChatToolApprovalPart | ChatAskUserPart;
 
 export interface ChatMessage {
   id: string;
@@ -64,24 +76,17 @@ export type ChatEvent =
   /** The turn failed. The stream ends after this. */
   | { type: "error"; error: Error };
 
-/**
- * Which conversation, which is to say which agent.
- *
- * An `AgentInstance` *is* the conversation. There is no separate session id: the
- * A2A gateway files every task under the instance as its `contextId`, and
- * `ListTasks` for the instance is the transcript. So a conversation is addressed
- * the way an instance is — `(namespace, id)` — and both halves are needed on every
- * call, because the gateway routes on two headers rather than on a path.
- */
+/** A conversation identified by UUID. */
 export interface ChatConversationRef {
-  namespace: string;
   /** The AgentInstance id. A UUID; the gateway rejects anything else. */
   id: string;
+  /** Omitted until loaded; the routed gateway resolves an empty context. */
+  contextId?: string;
 }
 
 /** How a conversation is keyed in a map or a React dependency list. */
 export function conversationKey(conversation: ChatConversationRef): string {
-  return `${conversation.namespace}/${conversation.id}`;
+  return conversation.id;
 }
 
 export interface SendMessageInput {

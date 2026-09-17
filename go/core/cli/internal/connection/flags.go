@@ -8,25 +8,23 @@ import (
 // Flag names are unexported so RegisterFlags and OptionsFromCommand are the
 // only things that can disagree about them, and they cannot.
 const (
-	flagKAgentURL            = "kagent-url"
-	flagKAgentGRPCURL        = "grpc-url"
-	flagKAgentGRPCTLS        = "grpc-tls"
-	flagKAgentGRPCCAFile     = "grpc-ca-file"
-	flagKAgentGRPCServerName = "grpc-server-name"
-	flagNamespace            = "namespace"
-	flagVerbose              = "verbose"
-	flagTimeout              = "timeout"
-	flagUserID               = "user-id"
+	flagAPIURL     = "api-url"
+	flagGatewayURL = "gateway-url"
+	flagCAFile     = "ca-file"
+	flagServerName = "server-name"
+	flagNamespace  = "namespace"
+	flagVerbose    = "verbose"
+	flagTimeout    = "timeout"
+	flagUserID     = "user-id"
 )
 
 // RegisterFlags declares the CLI-wide connection flags, defaulted from DefaultOptions.
 func RegisterFlags(flags *pflag.FlagSet) {
 	defaults := DefaultOptions()
-	flags.String(flagKAgentURL, defaults.KAgentURL, "KAgent REST URL")
-	flags.String(flagKAgentGRPCURL, defaults.KAgentGRPCURL, "KAgent gRPC target")
-	flags.Bool(flagKAgentGRPCTLS, defaults.KAgentGRPCTLS, "Use TLS for KAgent gRPC")
-	flags.String(flagKAgentGRPCCAFile, defaults.KAgentGRPCCAFile, "CA certificate file for KAgent gRPC")
-	flags.String(flagKAgentGRPCServerName, defaults.KAgentGRPCServerName, "TLS server name for KAgent gRPC")
+	flags.String(flagAPIURL, defaults.APIURL, "KAgent control-plane API URL")
+	flags.String(flagGatewayURL, defaults.GatewayURL, "KAgent A2A and MCP gateway URL")
+	flags.String(flagCAFile, defaults.CAFile, "CA certificate file for KAgent endpoints")
+	flags.String(flagServerName, defaults.ServerName, "TLS server name for KAgent endpoints")
 	flags.StringP(flagNamespace, "n", defaults.Namespace, "Namespace")
 	flags.BoolP(flagVerbose, "v", defaults.Verbose, "Verbose output")
 	flags.Duration(flagTimeout, defaults.Timeout, "Timeout")
@@ -39,19 +37,16 @@ func OptionsFromCommand(cmd *cobra.Command) (Options, error) {
 	flags := cmd.Flags()
 	var options Options
 	var err error
-	if options.KAgentURL, err = flags.GetString(flagKAgentURL); err != nil {
+	if options.APIURL, err = flags.GetString(flagAPIURL); err != nil {
 		return Options{}, err
 	}
-	if options.KAgentGRPCURL, err = flags.GetString(flagKAgentGRPCURL); err != nil {
+	if options.GatewayURL, err = flags.GetString(flagGatewayURL); err != nil {
 		return Options{}, err
 	}
-	if options.KAgentGRPCTLS, err = flags.GetBool(flagKAgentGRPCTLS); err != nil {
+	if options.CAFile, err = flags.GetString(flagCAFile); err != nil {
 		return Options{}, err
 	}
-	if options.KAgentGRPCCAFile, err = flags.GetString(flagKAgentGRPCCAFile); err != nil {
-		return Options{}, err
-	}
-	if options.KAgentGRPCServerName, err = flags.GetString(flagKAgentGRPCServerName); err != nil {
+	if options.ServerName, err = flags.GetString(flagServerName); err != nil {
 		return Options{}, err
 	}
 	if options.Namespace, err = flags.GetString(flagNamespace); err != nil {

@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -173,7 +174,7 @@ func TestOpenAIModel_GenerateContent_Responses(t *testing.T) {
 	m := &OpenAIModel{
 		Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
 		Client: client,
-		Logger: logr.Discard(),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 
 	var got *model.LLMResponse
@@ -221,7 +222,7 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 	m := &OpenAIModel{
 		Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
 		Client: client,
-		Logger: logr.Discard(),
+		Logger: slog.New(slog.DiscardHandler),
 	}
 
 	var partials []string
@@ -265,4 +266,42 @@ func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
 	if !strings.Contains(string(b), "input_image") || !strings.Contains(string(b), "data:image/png;base64,") {
 		t.Fatalf("marshaled message missing image: %s", b)
 	}
+}
+
+func TestResponsesUsageToGenai(t *testing.T) {
+	t.Run("nil when no tokens", func(t *testing.T) {
+		if got := responsesUsageToGenai(responses.ResponseUsage{}); got != nil {
+			t.Fatalf("expected nil for empty usage, got %+v", got)
+		}
+	})
+
+	t.Run("maps input, output, cached and reasoning tokens", func(t *testing.T) {
+		usage := responses.ResponseUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+				CachedTokens: 80,
+			},
+			OutputTokensDetails: responses.ResponseUsageOutputTokensDetails{
+				ReasoningTokens: 30,
+			},
+		}
+
+		got := responsesUsageToGenai(usage)
+		if got == nil {
+			t.Fatal("expected non-nil usage metadata")
+		}
+		if got.PromptTokenCount != 100 {
+			t.Errorf("PromptTokenCount = %d, want 100", got.PromptTokenCount)
+		}
+		if got.CandidatesTokenCount != 50 {
+			t.Errorf("CandidatesTokenCount = %d, want 50", got.CandidatesTokenCount)
+		}
+		if got.CachedContentTokenCount != 80 {
+			t.Errorf("CachedContentTokenCount = %d, want 80", got.CachedContentTokenCount)
+		}
+		if got.ThoughtsTokenCount != 30 {
+			t.Errorf("ThoughtsTokenCount = %d, want 30", got.ThoughtsTokenCount)
+		}
+	})
 }

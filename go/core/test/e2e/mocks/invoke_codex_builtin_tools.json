@@ -1,0 +1,55 @@
+{
+  "openai_response": [
+    {
+      "name": "codex_builtin_start",
+      "match": {
+        "match_type": "contains",
+        "input": "Run the requested shell command."
+      },
+      "response": {
+        "id": "resp_codex_builtin_start",
+        "object": "response",
+        "created_at": 1677652290,
+        "model": "gpt-5.2-codex",
+        "output": [{
+          "id": "fc_codex_shell",
+          "type": "function_call",
+          "status": "completed",
+          "call_id": "call_codex_shell",
+          "name": "shell_command",
+          "arguments": "{\"command\":\"printf CODEX_TOOL_FILE\",\"workdir\":\"/data/workspace\"}"
+        }],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {"input_tokens": 10, "output_tokens": 8, "total_tokens": 18}
+      }
+    },
+    {
+      "name": "codex_builtin_result",
+      "match": {
+        "match_type": "contains",
+        "input": "call_codex_shell"
+      },
+      "response": {
+        "id": "resp_codex_builtin_done",
+        "object": "response",
+        "created_at": 1677652291,
+        "model": "gpt-5.2-codex",
+        "output": [{
+          "id": "msg_codex_builtin_done",
+          "type": "message",
+          "status": "completed",
+          "role": "assistant",
+          "content": [{
+            "type": "output_text",
+            "text": "CODEX_BUILTIN_TOOL_DONE",
+            "annotations": []
+          }]
+        }],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {"input_tokens": 14, "output_tokens": 5, "total_tokens": 19}
+      }
+    }
+  ]
+}

@@ -923,6 +923,11 @@ class TestADKTokenPropagationPlugin:
                 debug_calls = [call.args[0] for call in mock_logger.debug.call_args_list]
                 assert any("No 'exp' claim found" in call for call in debug_calls)
 
+    def test_extract_jwt_expiry_zero_exp_claim(self):
+        """Test that an epoch-zero expiry is retained for cache expiry checks."""
+        with patch("jwt.decode", return_value={"exp": 0}):
+            assert extract_jwt_expiry("mock.jwt.token") == 0
+
     def test_extract_jwt_expiry_invalid_token(self):
         """Test JWT expiry extraction with invalid token."""
         with patch("jwt.decode", side_effect=Exception("Invalid token")):

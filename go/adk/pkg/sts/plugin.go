@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
+	"log/slog"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
@@ -36,7 +37,7 @@ type TokenPropagationPlugin struct {
 	tokenCache      map[string]*TokenCacheEntry // keyed by session ID
 	actorTokenCache *TokenCacheEntry            // used only for dynamic fetchActorToken providers
 	mu              sync.RWMutex
-	logger          logr.Logger
+	logger          *slog.Logger
 	bufferSeconds   int64
 	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
 	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
@@ -46,11 +47,11 @@ type TokenPropagationPlugin struct {
 // If integration is nil, the plugin will pass through tokens without exchange.
 // resource and audience scope the exchanged token to a backend; empty values
 // are omitted from the request, leaving the exchange unscoped.
-func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, resource, audience []string) *TokenPropagationPlugin {
+func NewTokenPropagationPlugin(integration *STSIntegration, logger *slog.Logger, resource, audience []string) *TokenPropagationPlugin {
 	return &TokenPropagationPlugin{
 		integration:   integration,
 		tokenCache:    make(map[string]*TokenCacheEntry),
-		logger:        logger.WithName("sts-plugin"),
+		logger:        logger.With("component", "sts-plugin"),
 		bufferSeconds: 5,
 		resource:      resource,
 		audience:      audience,
@@ -135,16 +136,16 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 		sessionID = session.ID()
 	}
 	if sessionID == "" {
-		p.logger.V(1).Info("No session ID available, skipping token propagation")
+		p.logger.Debug("no session ID available, skipping token propagation")
 		return nil, nil
 	}
 
 	// Check if we already have a valid cached token for this session.
 	if entry, ok := p.getCachedToken(sessionID); ok {
-		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID)
+		p.logger.Debug("using cached STS token", "session_id", sessionID)
 		if entry.Expiry > 0 {
-			p.logger.V(1).Info("Token expiry remaining",
-				"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
+			p.logger.Debug("token expiry remaining",
+				"expires_in", time.Until(time.Unix(entry.Expiry, 0)).String())
 		}
 		return nil, nil
 	}
@@ -158,7 +159,7 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 	}
 
 	if bearerToken == "" {
-		p.logger.V(1).Info("No bearer token in context, skipping token propagation", "sessionID", sessionID)
+		p.logger.Debug("no bearer token in context, skipping token propagation", "session_id", sessionID)
 		return nil, nil
 	}
 
@@ -169,14 +170,14 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 	}
 
 	if subjectToken == "" {
-		p.logger.V(1).Info("Empty subject token extracted, skipping", "sessionID", sessionID)
+		p.logger.Debug("empty subject token extracted, skipping", "session_id", sessionID)
 		return nil, nil
 	}
 
 	if p.integration != nil {
 		actorToken, err := p.actorTokenForExchange(ctx)
 		if err != nil {
-			p.logger.Error(err, "Failed to fetch actor token dynamically, skipping STS token exchange", "sessionID", sessionID)
+			p.logger.Error("failed to fetch actor token dynamically, skipping STS token exchange", "error", err, "session_id", sessionID)
 			return nil, nil
 		}
 
@@ -191,7 +192,7 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			"", // requestedTokenType
 		)
 		if err != nil {
-			p.logger.Error(err, "STS token exchange failed, tools may not authenticate", "sessionID", sessionID)
+			p.logger.Error("token exchange with STS failed; tools may not authenticate", "error", err, "session_id", sessionID)
 			return nil, nil
 		}
 
@@ -205,12 +206,12 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			expiry = extractJWTExpiry(exchangedToken)
 		}
 		p.setCachedToken(sessionID, exchangedToken, expiry)
-		p.logger.Info("Successfully exchanged and cached STS token", "sessionID", sessionID)
+		p.logger.Info("successfully exchanged and cached STS token", "session_id", sessionID)
 	} else {
 		// No STS integration — cache the raw subject token for header injection.
 		expiry := extractJWTExpiry(subjectToken)
 		p.setCachedToken(sessionID, subjectToken, expiry)
-		p.logger.V(1).Info("Cached subject token (no STS exchange)", "sessionID", sessionID)
+		p.logger.Debug("cached subject token (no STS exchange)", "session_id", sessionID)
 	}
 
 	return nil, nil
@@ -233,12 +234,12 @@ func (p *TokenPropagationPlugin) AfterRunCallback(ctx agent.InvocationContext) {
 	// Remove expired subject token.
 	if entry, ok := p.tokenCache[sessionID]; ok {
 		if entry.HasExpired(p.bufferSeconds) {
-			p.logger.V(1).Info("Removing expired subject token from cache", "sessionID", sessionID)
+			p.logger.Debug("removing expired subject token from cache", "session_id", sessionID)
 			delete(p.tokenCache, sessionID)
 		}
 	}
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
-		p.logger.V(1).Info("Removing expired actor token from cache")
+		p.logger.Debug("removing expired actor token from cache")
 		p.actorTokenCache = nil
 	}
 }
@@ -252,17 +253,17 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" {
-		p.logger.V(1).Info("No session ID in context, MCP request will use existing headers")
+		p.logger.DebugContext(ctx, "no session ID in context, MCP request will use existing headers")
 		return nil
 	}
 
 	entry, ok := p.getCachedToken(sessionID)
 	if !ok {
-		p.logger.V(1).Info("No cached STS token for session, MCP request will use existing headers", "sessionID", sessionID)
+		p.logger.DebugContext(ctx, "no cached STS token for session, MCP request will use existing headers", "session_id", sessionID)
 		return nil
 	}
 
-	p.logger.V(1).Info("Injecting STS token into MCP request headers", "sessionID", sessionID)
+	p.logger.DebugContext(ctx, "injecting STS token into MCP request headers", "session_id", sessionID)
 	return map[string]string{
 		"Authorization": fmt.Sprintf("Bearer %s", entry.Token),
 	}
@@ -297,7 +298,7 @@ func (p *TokenPropagationPlugin) ClearCache() {
 
 	p.tokenCache = make(map[string]*TokenCacheEntry)
 	p.actorTokenCache = nil
-	p.logger.Info("Cleared STS token cache")
+	p.logger.Info("cleared STS token cache")
 }
 
 // ADKPlugin returns the Go ADK plugin registered with runner.PluginConfig.

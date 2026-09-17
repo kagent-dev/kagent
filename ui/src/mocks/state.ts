@@ -11,12 +11,6 @@
  * spec's creates cannot leak into the next one's list.
  */
 
-import type {
-  Agent,
-  AgentCreateRequest,
-  AgentKindName,
-  AgentResponse,
-} from "@/api/domain/agents";
 import type { ModelConfig, ModelConfigSpec } from "@/api/domain/models";
 import type { ToolServerResponse } from "@/api/domain/mcpServers";
 import type {
@@ -35,7 +29,6 @@ import {
   mockAgentInstances,
   mockAgentTemplates,
   mockHarnesses,
-  mockAgents,
   mockMcpServers,
   mockModels,
   mockPromptDetails,
@@ -44,7 +37,6 @@ import {
 
 /** What has been written during this browsing session. */
 const created = {
-  agents: [] as AgentResponse[],
   models: [] as ModelConfig[],
   mcpServers: [] as ToolServerResponse[],
   prompts: [] as PromptTemplateDetail[],
@@ -68,116 +60,6 @@ function dedupeByRef<T>(rows: readonly T[], refOf: (row: T) => string): T[] {
   const byRef = new Map<string, T>();
   for (const row of rows) byRef.set(refOf(row), row);
   return [...byRef.values()];
-}
-
-// ---------------------------------------------------------------------------
-// Agents
-// ---------------------------------------------------------------------------
-
-export const agentRef = (row: AgentResponse) =>
-  `${row.agent.metadata.namespace ?? ""}/${row.agent.metadata.name}`;
-
-/**
- * Every agent, deduped, so an edit to a *fixture* agent shadows it rather than
- * sitting beside it.
- *
- * Without the dedupe the list showed the same agent twice after a save and a read
- * answered with the original, because `find` returns the first match and the
- * fixtures come first — so the edit form reopened showing the values the user had
- * just replaced, and the feature looked broken when only the fixture was.
- */
-export function allAgents(): AgentResponse[] {
-  return dedupeByRef([...mockAgents, ...created.agents], agentRef).filter((row) =>
-    isLive(agentRef(row)),
-  );
-}
-
-/**
- * Records a create or an edit and answers with the row a list would now show.
- *
- * An edit to a seeded agent is recorded as an addition rather than by mutating the
- * fixture, which is what lets the list show the new values while the fixtures stay
- * constants.
- */
-export function saveAgent(row: AgentResponse): AgentResponse {
-  const ref = agentRef(row);
-  const at = created.agents.findIndex((existing) => agentRef(existing) === ref);
-  if (at === -1) created.agents.push(row);
-  else created.agents[at] = row;
-  // A resource written again after being deleted exists again, which is what the
-  // cluster would say too.
-  deleted.delete(ref);
-  return row;
-}
-
-/**
- * The row the controller would have reported for a freshly written agent.
- *
- * `model` and `modelProvider` are resolved from the referenced ModelConfig here
- * for the same reason the controller resolves them: they are not in the resource,
- * and a new row that left them blank would read differently from every other row
- * in the same list.
- */
-export function buildAgentResponse(
-  draft: AgentCreateRequest,
-  kind: AgentKindName,
-): AgentResponse {
-  const now = new Date().toISOString();
-
-  const agent: Agent = {
-    apiVersion: draft.apiVersion ?? "kagent.dev/v1alpha3",
-    kind: draft.kind ?? kind,
-    metadata: {
-      ...draft.metadata,
-      creationTimestamp: now,
-      resourceVersion: `${30_000 + created.agents.length}`,
-    },
-    spec: draft.spec,
-    status: {
-      observedGeneration: 1,
-      conditions: [
-        {
-          type: "Ready",
-          status: "True",
-          reason: "DeploymentReady",
-          lastTransitionTime: now,
-        },
-      ],
-    },
-  };
-
-  return {
-    id: `created-${created.agents.length + 1}`,
-    agent,
-    ...resolveModel(draft.spec.declarative?.modelConfig, draft.metadata.namespace),
-    modelConfigRef: draft.spec.declarative?.modelConfig ?? "",
-    tools: draft.spec.declarative?.tools ?? [],
-    memoryRefs: [],
-    deploymentReady: true,
-    accepted: true,
-    agentKind: kind,
-  };
-}
-
-/**
- * The model behind a `modelConfig` reference.
- *
- * The CRD stores it bare — "must be in the same namespace as the Agent" — while
- * the fixtures' own refs are namespaced, so the agent's namespace is what joins
- * the two. A ref that is already namespaced is taken as it stands.
- */
-function resolveModel(
-  ref: string | undefined,
-  namespace: string | undefined,
-): { model: string; modelProvider: string } {
-  if (!ref) return { model: "", modelProvider: "" };
-
-  const qualified = ref.includes("/") ? ref : `${namespace ?? ""}/${ref}`;
-  const config = allModels().find((candidate) => candidate.ref === qualified);
-  return {
-    model: config?.spec.model ?? "",
-    modelProvider: config?.spec.provider ?? "",
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +147,11 @@ const promptSummary = (detail: PromptTemplateDetail): PromptTemplateSummary => (
   namespace: detail.namespace,
   name: detail.name,
   keyCount: Object.keys(detail.data).length,
-  keys: Object.keys(detail.data),
+  // Sorted, because `summarize` in the prompt template service sorts before
+  // answering. Left in insertion order, a library edited through the app came back
+  // with its new key last while the same library re-read from a cluster came back
+  // with it in place — a difference in the fixture, not in the app.
+  keys: Object.keys(detail.data).sort((left, right) => left.localeCompare(right)),
 });
 
 export function savePrompt(detail: PromptTemplateDetail): PromptTemplateDetail {
@@ -424,7 +310,7 @@ const INSTANCE_SHARES_KEY = "kagent.mock.instanceShares";
  */
 export const SEEDED_INSTANCE_SHARE: AgentInstanceShare = {
   id: "mock-instance-share-seed",
-  namespace: "kagent",
+
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
   permission: "readOnly",
   createdAt: "2026-08-01T09:00:00Z",
@@ -473,14 +359,12 @@ function readTokens(): Record<string, string> {
 }
 
 export function createInstanceShare(
-  namespace: string,
   agentInstanceId: string,
   permission: AgentInstanceSharePermission,
 ): { share: AgentInstanceShare; token: string } {
   const existing = readInstanceShares();
   const share: AgentInstanceShare = {
     id: `mock-share-${existing.length + 1}`,
-    namespace,
     agentInstanceId,
     permission,
     createdAt: new Date().toISOString(),
@@ -517,13 +401,8 @@ export function revokeInstanceShare(shareId: string): boolean {
 // Agent instances
 // ---------------------------------------------------------------------------
 
-/**
- * How an instance is addressed, and it is not a resource ref.
- *
- * `namespace/id` because that is the pair `AgentInstanceService` takes on every
- * call — an instance has no name, and the id is a UUID scoped to its namespace.
- */
-export const agentInstanceRef = (row: AgentInstance) => `${row.namespace}/${row.id}`;
+/** The UUID used to address a conversation. */
+export const agentInstanceRef = (row: AgentInstance) => row.id;
 
 /**
  * Every instance, with anything suspend or resume has done to it folded in.
@@ -550,4 +429,99 @@ export function saveAgentInstance(row: AgentInstance): AgentInstance {
   if (at === -1) created.agentInstances.push(row);
   else created.agentInstances[at] = row;
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * A saved turn boundary, kept the way the controller keeps one.
+ *
+ * `headTaskId` is the whole point of storing these rather than inventing a
+ * checkpoint per fork: it is what ties a boundary back to a message in the
+ * transcript, so a page that reloads still marks the messages that were saved.
+ */
+export interface MockCheckpoint {
+  id: string;
+  agentInstanceId: string;
+  headTaskId: string;
+  createdAt: string;
+}
+
+/**
+ * One boundary already saved against the seeded conversation.
+ *
+ * So the chat has a checkpointed message to render, and a fork to start from, before
+ * anybody presses anything — the same reason `SEEDED_INSTANCE_SHARE` exists.
+ */
+export const SEEDED_CHECKPOINT: MockCheckpoint = {
+  id: "3f5b1c88-91d2-4a0e-b7c6-5d1f0a2e9b34",
+  agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  headTaskId: "seed-task-1",
+  createdAt: "2025-01-04T10:15:00Z",
+};
+
+/**
+ * A second seeded boundary, there to be deleted.
+ *
+ * On another conversation, so deleting it races nothing that forks the seeded one —
+ * the fixture suite runs every operation at once.
+ */
+export const DISPOSABLE_CHECKPOINT: MockCheckpoint = {
+  id: "8c2d9f14-6b03-4e77-90a5-1c7e3b8d2f60",
+  agentInstanceId: "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0",
+  headTaskId: "seed-task-2",
+  createdAt: "2025-01-04T10:20:00Z",
+};
+
+/**
+ * Kept in `sessionStorage`, beside the transcripts.
+ *
+ * A module array would have brought a deleted boundary back on reload while the
+ * controller keeps it gone — the fixture contradicting what it stands in for. `null`
+ * means "never written", so a tab that has deleted the seeded rows keeps them deleted.
+ */
+const CHECKPOINTS_KEY = "kagent.mock.checkpoints";
+
+function readAll(): MockCheckpoint[] {
+  try {
+    const stored = window.sessionStorage.getItem(CHECKPOINTS_KEY);
+    if (stored === null) return [SEEDED_CHECKPOINT, DISPOSABLE_CHECKPOINT];
+    return JSON.parse(stored) as MockCheckpoint[];
+  } catch {
+    return [];
+  }
+}
+
+function writeAll(rows: MockCheckpoint[]): void {
+  try {
+    window.sessionStorage.setItem(CHECKPOINTS_KEY, JSON.stringify(rows));
+  } catch {
+    // Storage can be refused; the list is then whatever this load seeded, which is
+    // the same answer as a tab that has saved nothing.
+  }
+}
+
+/** Every boundary saved against one conversation. */
+export function readCheckpoints(agentInstanceId: string): MockCheckpoint[] {
+  return readAll().filter((row) => row.agentInstanceId === agentInstanceId);
+}
+
+export function checkpointById(id: string): MockCheckpoint | undefined {
+  return readAll().find((row) => row.id === id);
+}
+
+export function saveCheckpoint(row: MockCheckpoint): MockCheckpoint {
+  writeAll([...readAll(), row]);
+  return row;
+}
+
+/** Removes one, the way `DeleteCheckpoint` releases the snapshot it was holding. */
+export function deleteCheckpoint(id: string): boolean {
+  const rows = readAll();
+  const kept = rows.filter((row) => row.id !== id);
+  if (kept.length === rows.length) return false;
+  writeAll(kept);
+  return true;
 }

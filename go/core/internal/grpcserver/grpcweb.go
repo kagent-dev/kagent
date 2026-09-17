@@ -20,7 +20,7 @@ import (
 // and the interceptor chain — authentication included — runs identically for a
 // call arriving either way. Nothing here decides who may call what.
 //
-// Most callers want WebHandlerOr, which also says what to do with everything
+// Most callers want HandlerOr, which also says what to do with everything
 // that is not a gRPC-Web request.
 func (s *Server) WebHandler() *grpcweb.WrappedGrpcServer {
 	return grpcweb.WrapServer(s.server,
@@ -34,7 +34,7 @@ func (s *Server) WebHandler() *grpcweb.WrappedGrpcServer {
 	)
 }
 
-// WebHandlerOr routes gRPC-Web requests to the services and everything else to next.
+// HandlerOr routes native gRPC and gRPC-Web requests to the services and everything else to next.
 //
 // This is the one statement of the rule, because there is more than one binary
 // serving HTTP beside this gRPC server and a second copy would drift. Both the
@@ -49,9 +49,16 @@ func (s *Server) WebHandler() *grpcweb.WrappedGrpcServer {
 // `/<package>.<Service>/<Method>` — while the chart's nginx serves the whole API
 // under /api on the UI's own origin. That prefix is where a same-origin browser
 // has to address it from and nowhere the wrapper can be told about.
-func (s *Server) WebHandlerOr(next http.Handler) http.Handler {
+func (s *Server) HandlerOr(next http.Handler) http.Handler {
+	if next == nil {
+		next = http.NotFoundHandler()
+	}
 	web := s.WebHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			s.server.ServeHTTP(w, r)
+			return
+		}
 		if !web.IsGrpcWebRequest(r) && !web.IsAcceptableGrpcCorsRequest(r) {
 			next.ServeHTTP(w, r)
 			return

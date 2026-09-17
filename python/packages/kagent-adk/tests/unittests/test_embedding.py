@@ -115,6 +115,30 @@ class TestEmbeddingDispatch:
         assert mock_cls.called
 
     @pytest.mark.asyncio
+    async def test_openai_uses_tls_config(self):
+        config = EmbeddingConfig(
+            provider="openai",
+            model="text-embedding-3-small",
+            tls_insecure_skip_verify=True,
+        )
+        client = KAgentEmbedding(config=config)
+        response = make_openai_embedding_response([[0.1] * 768])
+        http_client = mock.AsyncMock()
+        with (
+            mock.patch("kagent.adk.models._embedding.create_ssl_context", return_value=False) as create_ssl,
+            mock.patch("kagent.adk.models._embedding.httpx.AsyncClient", return_value=http_client) as httpx_client,
+            mock.patch("openai.AsyncOpenAI") as openai,
+        ):
+            openai.return_value.embeddings.create = mock.AsyncMock(return_value=response)
+            openai.return_value.close = mock.AsyncMock()
+            await client.generate("hello")
+
+        create_ssl.assert_called_once_with(disable_verify=True, ca_cert_path=None, disable_system_cas=False)
+        httpx_client.assert_called_once_with(verify=False)
+        assert openai.call_args.kwargs["http_client"] is http_client
+        openai.return_value.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_ollama_embed(self):
         client = make_client(provider="ollama", model="nomic-embed-text")
         vecs = [[0.1] * 768]

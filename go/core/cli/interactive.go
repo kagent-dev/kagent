@@ -30,7 +30,7 @@ func runInteractive(cmd *cobra.Command, _ []string) (err error) {
 	}()
 
 	workspace := tui.Options{Namespace: session.Namespace}
-	if runErr := tui.RunWorkspace(cmd.Context(), workspace, session.Client, options.Verbose); runErr != nil {
+	if runErr := tui.RunWorkspace(cmd.Context(), workspace, session.API, session.Gateway, options.Verbose); runErr != nil {
 		return fmt.Errorf("run kagent workspace: %w", runErr)
 	}
 	return nil

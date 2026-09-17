@@ -21,9 +21,9 @@ import (
 var errServerConnection = errors.New("error connecting to server")
 
 const (
-	defaultKAgentURL     = "http://localhost:8083"
-	defaultKAgentGRPCURL = client.DefaultGRPCTarget
-	defaultUserID        = "admin@kagent.dev"
+	defaultAPIURL     = client.DefaultAPIURL
+	defaultGatewayURL = client.DefaultGatewayURL
+	defaultUserID     = "admin@kagent.dev"
 
 	portForwardReadyTimeout = 15 * time.Second
 	portForwardRetryDelay   = 100 * time.Millisecond
@@ -33,42 +33,46 @@ const (
 // Options is how the CLI reaches kagent: where to dial, who to dial as, the
 // namespace to port-forward into, and whether to narrate the attempt.
 type Options struct {
-	KAgentURL            string
-	KAgentGRPCURL        string
-	KAgentGRPCTLS        bool
-	KAgentGRPCCAFile     string
-	KAgentGRPCServerName string
-	Namespace            string
-	Verbose              bool
-	Timeout              time.Duration
-	UserID               string
+	APIURL     string
+	GatewayURL string
+	CAFile     string
+	ServerName string
+	Namespace  string
+	Verbose    bool
+	Timeout    time.Duration
+	UserID     string
 }
 
 func DefaultOptions() Options {
 	return Options{
-		KAgentURL:     defaultKAgentURL,
-		KAgentGRPCURL: defaultKAgentGRPCURL,
-		Namespace:     "kagent",
-		Timeout:       300 * time.Second,
-		UserID:        defaultUserID,
+		APIURL:     defaultAPIURL,
+		GatewayURL: defaultGatewayURL,
+		Namespace:  "kagent",
+		Timeout:    300 * time.Second,
+		UserID:     defaultUserID,
 	}
 }
 
-func (o *Options) Client() *client.ClientSet {
+func (o *Options) clientOptions() []client.ClientOption {
 	clientOptions := []client.ClientOption{client.WithUserID(o.UserID)}
-	if o.KAgentGRPCURL != "" {
-		clientOptions = append(clientOptions, client.WithGRPCTarget(o.KAgentGRPCURL))
-	}
 	if o.Timeout > 0 {
 		clientOptions = append(clientOptions, client.WithGRPCTimeout(o.Timeout))
 	}
-	if o.KAgentGRPCTLS {
+	if o.CAFile != "" || o.ServerName != "" {
 		clientOptions = append(clientOptions, client.WithGRPCTLS(client.GRPCTLSConfig{
-			CAFile:     o.KAgentGRPCCAFile,
-			ServerName: o.KAgentGRPCServerName,
+			CAFile:     o.CAFile,
+			ServerName: o.ServerName,
 		}))
 	}
-	return client.New(o.KAgentURL, clientOptions...)
+	return clientOptions
+}
+
+func (o *Options) APIClient() (*client.APIClientSet, error) {
+	return client.NewAPI(o.APIURL, o.clientOptions()...)
+}
+
+func (o *Options) GatewayClient() (*client.GatewayClientSet, error) {
+	return client.NewGateway(o.GatewayURL, o.clientOptions()...)
 }
 
 func (o *Options) validate() error {
@@ -81,22 +85,9 @@ func (o *Options) validate() error {
 	return nil
 }
 
-func checkServer(ctx context.Context, clientSet *client.ClientSet) error {
-	if clientSet == nil {
-		return errServerConnection
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if _, err := clientSet.Version.GetVersion(ctx); err != nil {
-		return fmt.Errorf("%w: %w", errServerConnection, err)
-	}
-	return nil
-}
-
 // Connect checks the configured server and starts a port-forward only for an
 // unreachable default local endpoint.
-func Connect(ctx context.Context, cfg *Options) (*PortForward, error) {
+func Connect(ctx context.Context, cfg *Options, endpoint string) (*PortForward, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -104,34 +95,31 @@ func Connect(ctx context.Context, cfg *Options) (*PortForward, error) {
 		fmt.Fprintf(os.Stderr, "Using caller identity %q\n", cfg.UserID)
 	}
 
-	err := checkConfiguredServer(ctx, cfg)
+	err := checkConfiguredServer(ctx, cfg, endpoint)
 	if err == nil {
 		return nil, nil
 	}
-	if !shouldPortForward(cfg, err) {
+	if !shouldPortForward(cfg, endpoint, err) {
 		return nil, err
 	}
-	return NewPortForward(ctx, cfg)
+	return NewPortForward(ctx, cfg, endpoint)
 }
 
-func shouldPortForward(cfg *Options, err error) bool {
-	grpcURL := cfg.KAgentGRPCURL
-	if grpcURL == "" {
-		grpcURL = defaultKAgentGRPCURL
-	}
-	if cfg.KAgentGRPCTLS || grpcURL != defaultKAgentGRPCURL || strings.TrimRight(cfg.KAgentURL, "/") != defaultKAgentURL {
+func shouldPortForward(cfg *Options, endpoint string, err error) bool {
+	if cfg.CAFile != "" || cfg.ServerName != "" || strings.TrimRight(endpoint, "/") != defaultAPIURL {
 		return false
 	}
 	code := status.Code(err)
 	return code == codes.Unavailable || code == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)
 }
 
-func checkConfiguredServer(ctx context.Context, cfg *Options) (err error) {
-	clientSet := cfg.Client()
-	defer func() {
-		err = errors.Join(err, clientSet.Close())
-	}()
-	return checkServer(ctx, clientSet)
+func checkConfiguredServer(ctx context.Context, cfg *Options, endpoint string) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := client.CheckHealth(ctx, endpoint, cfg.clientOptions()...); err != nil {
+		return fmt.Errorf("%w: %w", errServerConnection, err)
+	}
+	return nil
 }
 
 // PortForward is a running kubectl port-forward process.
@@ -143,9 +131,9 @@ type PortForward struct {
 }
 
 // NewPortForward starts a port-forward and waits for the server to become reachable.
-func NewPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
+func NewPortForward(ctx context.Context, cfg *Options, endpoint string) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
 	stderr := newBoundedBuffer(kubectlErrorLimit)
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
@@ -167,7 +155,7 @@ func NewPortForward(ctx context.Context, cfg *Options) (*PortForward, error) {
 
 	var lastErr error
 	for {
-		lastErr = checkConfiguredServer(readyCtx, cfg)
+		lastErr = checkConfiguredServer(readyCtx, cfg, endpoint)
 		if lastErr == nil {
 			return portForward, nil
 		}

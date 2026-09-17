@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -52,7 +53,7 @@ func TestModelServiceCRUD(t *testing.T) {
 	refresher := &recordingModelRefresher{}
 	service := modelservice.NewService(
 		kubeClient,
-		&authimpl.NoopAuthorizer{},
+		&pkgauth.NoopAuthorizer{},
 		"default",
 		modelservice.WithProviderModelRefresher(refresher),
 	)
@@ -62,6 +63,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		Listener:      listener,
 		Registerer:    prometheus.NewRegistry(),
 		Authenticator: &authimpl.UnsecureAuthenticator{},
+		SystemService: testSystemService(),
 		ModelService:  service,
 	})
 	if err != nil {
@@ -137,7 +139,6 @@ func TestModelServiceCRUD(t *testing.T) {
 	if len(listed.GetModelConfigs()) != 1 {
 		t.Fatalf("ListModelConfigs() count = %d, want 1", len(listed.GetModelConfigs()))
 	}
-
 	_, err = client.DeleteModelConfig(ctx, &apiv1alpha1.DeleteModelConfigRequest{
 		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
 	})
@@ -170,14 +171,6 @@ func TestModelServiceCRUD(t *testing.T) {
 		modelProviders.GetProviders()[3].GetName() != "Foundry" ||
 		modelProviders.GetProviders()[10].GetName() != "Mistral" {
 		t.Fatalf("ListSupportedModelProviders() = %+v", modelProviders.GetProviders())
-	}
-
-	memoryProviders, err := client.ListSupportedMemoryProviders(ctx, &apiv1alpha1.ListSupportedMemoryProvidersRequest{})
-	if err != nil {
-		t.Fatalf("ListSupportedMemoryProviders() error = %v", err)
-	}
-	if len(memoryProviders.GetProviders()) != 1 || memoryProviders.GetProviders()[0].GetName() != "Pinecone" {
-		t.Fatalf("ListSupportedMemoryProviders() = %+v", memoryProviders.GetProviders())
 	}
 
 	configuredProviders, err := client.ListConfiguredProviders(ctx, &apiv1alpha1.ListConfiguredProvidersRequest{})

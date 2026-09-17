@@ -16,3 +16,12 @@ func TestRequiredEnvironment(t *testing.T) {
 		t.Fatalf("requiredEnvironment() error = %v", err)
 	}
 }
+
+func TestValidateSessionID(t *testing.T) {
+	if err := validateSessionID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"); err != nil {
+		t.Fatalf("validateSessionID() error = %v", err)
+	}
+	if err := validateSessionID("not-a-session"); err == nil {
+		t.Fatal("validateSessionID() accepted an invalid UUID")
+	}
+}

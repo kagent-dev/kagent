@@ -1,10 +1,12 @@
 # Deferred specs
 
-The old suite had 13 specs. Seven are ported (`app-shell`, `agents`,
-`agents-errors`, `models`, `models-errors`, `chat`, `chat-errors`) plus three new
-ones (`routing`, and the two extension-point specs). The rest are listed here
-rather than committed as skipped tests, because a skipped or vacuous spec reads
-as coverage and this list does not.
+The old suite had 13 specs. Everything it covered that still has a page is ported,
+plus a good deal it did not have: a lifecycle spec per resource, routing, auth, the
+two extension-point specs. The rest is listed here rather than committed as skipped
+tests, because a skipped or vacuous spec reads as coverage and this list does not.
+
+Where an entry below names a spec that no longer exists under that filename, the
+coverage moved rather than went; `README.md` has the current layout.
 
 Each entry names the surface that has to exist before the spec can assert
 anything real. In every case the data layer is already in place — what is
@@ -28,45 +30,19 @@ and four *distinguishable* contributions, so per-message context is proven rathe
 than assumed. Every extension point the app declares now has a runtime
 assertion.
 
-## Also deferred: client-side form validation
+## Covered: form validation, and every resource's lifecycle
 
-**This coverage existed in the old suite and has not been replaced.** The old
-`agents-errors.spec.ts` and `models-errors.spec.ts` asserted that create forms
-block submission and show field errors. Those spec *filenames* are now in use for
-a different journey — a failed list load — so it would be easy to look at the
-suite and conclude validation is covered. It is not.
+Each resource's lifecycle spec asserts its own form's gate in the create step — the
+submit refused while a required field is empty, the refusal naming the field, the
+address staying on the form — and checks the required *marks* against that gate with
+`expectRequired`. antd draws the mark from `required` on a `Form.Item` while these
+forms gate their submit in code, so the two are separate statements about the same
+field and only a test keeps them agreeing.
 
-What the old specs asserted, and what each needs before it can come back:
-
-| Assertion | Needs |
-|---|---|
-| Declarative agent create blocks submit; "Description is required" and "Please select a model" appear; URL stays on the form | `/agents/new` with a real form |
-| Agent harness create blocks submit when required fields are empty | an agent-harness create route, which this architecture does not have yet |
-| Model create blocks submit with no model selected; "Provider and Model selection is required" appears | `/models/new` with provider and model pickers |
-
-When those forms land, the validation journeys should come back as their own
-specs — `agents-validation.spec.ts` and `models-validation.spec.ts` — rather than
-displacing the load-failure journeys, which are worth keeping.
-
-## Also deferred: the lifecycle half of the ported specs
-
-The old `agents.spec.ts` and `models.spec.ts` were create → read → update →
-delete journeys. Only the read half is ported here. The forms and the per-row
-controls do now exist — what is missing is not the product but the point of
-testing them against fixtures: a create that posts to a mock proves the mock.
-The write half runs against a real cluster instead, in
-`live/write/agents-create.spec.ts` and `live/write/models-create.spec.ts`.
-
-Restoring them needs:
-
-- **agents** — the create form (name, description, namespace, model picker),
-  per-row Edit and Delete actions, and the delete confirmation.
-- **models** — the create form (provider and model comboboxes, API key field,
-  name override), per-row Edit and Delete actions.
-
-Both mutation paths already exist on the API client (`apiClient.models.create`,
-`.remove`, and so on) and the mock backend answers them, so the specs should be
-able to assert against a real round trip once the forms land.
+**What is still missing is the agent form, because there is no agent form.** An agent
+is an `AgentTemplate` paired with a `Harness` and is not created, so the old
+"declarative agent create blocks submit" assertion has no page to run against. If a
+create-an-agent surface lands, its validation belongs in that change.
 
 ## Not started by request
 
@@ -75,9 +51,8 @@ contract is not frozen; the team lead will ask for these once it lands.
 
 ## Ported since: MCP servers and prompt libraries
 
-`mcp-servers/mcp-servers.spec.ts`, `mcp-servers/mcp-servers-errors.spec.ts`,
-`prompts/prompt-libraries.spec.ts` and `prompts/prompt-libraries-errors.spec.ts` are
-live.
+`mcp-servers/mcp-servers.spec.ts` and `prompts/prompts.spec.ts` are live: one lifecycle
+spec apiece, with the failure states among the steps.
 
 **These were listed above as blocked on pages that did not exist. The pages did
 exist** — `McpServersPage`, `PromptsPage` and `PromptDetailPage` are all real, and were
@@ -111,7 +86,7 @@ response converts to.
 write tests read each create *back through its list* — "the create returned 200" and "the
 thing exists" are different claims, and only a stateful backend can check the second. The
 in-process router is stateless per test, so `operations.test.ts` cannot. That property is now
-`playwright/tests/agents/harnesses.spec.ts`: create a harness, land back on the tab it was
+`playwright/tests/harnesses/harnesses.spec.ts`: create a harness, land back on the tab it was
 created from, and find it in the list — and find it reported "not ready yet", which is the
 state a cluster reports for one the controller has not observed. Nothing about it is
 deferred any more.
@@ -133,15 +108,9 @@ Two things worth keeping from writing it, because both cost time and neither is 
   it is what distinguishes "the list re-fetched" from "the thing exists". The weaker
   version of this spec passes and proves less than it looks like it does.
 
-**Why agents and not the other three.** A created prompt library, model configuration or
-MCP server does *not* appear on its list until the reader presses Refresh: `AgentNewPage`
-refreshes its list after a create and `PromptNewPage`, `ModelNewPage` and
-`McpServerNewPage` do not. The first draft of this journey was written against prompt
-libraries, and failing there is how that was found. The same asymmetry exists on the branch
-this one was ported from, so it is a shipping defect rather than a regression, and it is
-deliberately not fixed here — that would widen a large port. **The journey for those three
-belongs in the change that fixes them**, where it is what proves the fix, rather than
-sitting red in the suite describing a known bug.
+**Every resource reads its create back through its list now**, not only harnesses — see
+*Covered: form validation, and every resource's lifecycle* above, which also records the create-cache defect
+that used to make that impossible for three of them and how the fix was proved.
 
 ---
 
@@ -237,7 +206,7 @@ tool call that has an interactive rendering should still show its raw form at al
 
 ## Blocked on the API: server-side paging, searching and sorting — for every list
 
-**Every list in this app narrows its rows in the browser, and the RPCs are why.**
+**Several lists still narrow their rows in the browser because their RPCs return whole lists.**
 Recorded here rather than left implicit, because the shape of the request is the whole
 argument: a client-side filter is honest when the response holds every row and dishonest
 when it holds one page of them, and only the proto says which.
@@ -247,55 +216,50 @@ when it holds one page of them, and only the proto says which.
 | `ListModelConfigs` | `ListModelConfigsRequest {}` | nothing at all | `PageRequest page`, `string filter`, a sort field enum and `SortOrder` |
 | `ListToolServers` | `ListToolServersRequest {}` | nothing at all | the same four |
 | `ListPromptTemplates` | `ListPromptTemplatesRequest { string namespace = 1 }` | one namespace | `PageRequest page`, `string filter`, sort field and order — the namespace is already there |
-| `GetSubstrateStatus` | `GetSubstrateStatusRequest { namespace }` | one namespace | the same four, twice: actors and workers are separate lists in one message |
+| `ListSubstrateActors` | `ListSubstrateActorsRequest { atespace, page }` | a page | `string filter` and a sort field enum — **and ate-api has to grow them first** |
+| `ListSubstrateWorkers` | `ListSubstrateWorkersRequest { namespace, page }` | a page | the same two, on the same condition |
 
-**The substrate page used to be the exception, and is not any more.** It read three
-RPCs — `GetSubstrateSummary` for the counts and a page each from `ListSubstrateActors`
-and `ListSubstrateWorkers` — which between them carried `PageRequest{limit, page_token}`,
-a case-insensitive substring `filter`, and a sort-field enum whose every order ended in a
-unique column so a page token named exactly one row. Those three were removed in
-`refactor: simplify UI backend support`, and `GetSubstrateStatus` returns the whole
-inventory in one message again. `api/grpc/operations.ts` keeps the four operation names
-and answers all of them from that one read, filtering and sorting in memory.
+**Substrate actor and worker lists use upstream pagination.** Each list request makes
+one ate-api call and preserves its order and continuation token. Actors use upstream
+atespace filtering. Worker namespace filtering applies only to the returned page, so an
+empty worker page may still have a next token. The UI labels counts as "on this page"
+and offers no actor/worker text search or column sorting.
 
-So there is **no worked precedent left in this repository to copy**. Whoever pages one
-of these lists is designing the request, not following one — and the deleted commentary
-in `system.proto` is worth recovering from git history first, because it had already
-solved the part that is easy to get wrong: a sort order whose last key is not unique
-gives a page token that names more than one row.
+Two capabilities remain deferred until Substrate supports them:
 
-That removal also took the counts argument with it. `GetSubstrateSummary` existed so the
-tiles could report a true total while the tables showed one page; with the whole
-inventory in the browser the totals are simply true, and nothing has to be prevented.
+- Global sorting and text search require upstream list-query support.
+- Exact totals require upstream aggregates. `GetSubstrateSummary` still walks every
+  page to compute the dashboard counts; actor and worker page responses have no totals.
+
+**Which actor is on a worker is not deferred; it is not available.** ate-api's `Worker`
+carries capacity and allocation and no actor reference — the binding lives on the actor —
+so the workers table has no Actor column. `busyWorkerCount` counts workers with a positive
+allocated actor count reported by Substrate. A column would need the
+walk per page.
 
 **A single-message read is defensible only while the message really holds everything.**
-`GetSubstrateStatus` is the read that already failed this way once: a cluster of 410,110
-actors produced a response gRPC refused to send, which is why it was split in the first
-place. It is back, so that ceiling is back with it. **The moment any of these reads
-starts paging — or starts truncating to survive — its page must lose its client-side
-search and sort in the same change**, because a filter over a page reports "no matches"
-about a row on page nine.
+`GetSubstrateStatus` is the read that failed this way once: a cluster of 410,110 actors
+produces a response gRPC refused to send, which is why the substrate page was split into
+three reads in the first place. That endpoint has been removed from `SystemService`. For the three reads at the top of this table that do still answer with
+everything, **the moment one starts paging — or starts truncating to survive — its
+client-side search and sort must be labelled or removed in the same change**, because an
+unlabelled filter over a page reports "no matches" about a row on page nine.
 
 The prompts page is a partial exception worth not losing: `ListPromptTemplates` takes a
 namespace, so `usePrompts` fans out one call per namespace and its **namespace filter is
 genuinely server-side already**. Only its search and sort are not.
 
-Two assertions in `substrate.spec.ts` were written against the paged shape and now
-describe something that no longer exists: "the searches are the server's, and a match is
-found wherever it is" is passing over an in-memory filter, and "the paged tables do not
-pretend to sort, and the inline ones do" withholds a sort from tables that could now
-honestly offer one. They pass, which is the problem — the behaviour they check still
-holds when every row is in the browser, so nothing objected when the reason for it went
-away.
-
 ### Not deferred, but named here so it is not looked for: paging is client-side too
 
-Every one of these tables shows a page control. It pages rows that are already in the
-browser, which is a real convenience on a long list and is not a claim about the server.
-The totals beside the controls and in the pager are therefore true totals — which is
-only true because the reads return everything. Under a paged read, counting what arrived
-and calling it a total is a lie, and a separate summary read is what fixes it; that is
-what `GetSubstrateSummary` was for before it was removed.
+Every one of these tables shows a page control, and for the model, tool and prompt lists
+it pages rows that are already in the browser — a real convenience on a long list, and
+not a claim about the server. The totals beside those controls are therefore true
+totals, which is only true because those reads return everything.
+
+The substrate tables are the exception and now the model: their page control turns real
+pages, and none of their totals is `rows.length`. Counting what arrived and calling it a
+total is the lie a separate summary read exists to prevent, which is what
+`GetSubstrateSummary` is for.
 
 ---
 
@@ -326,7 +290,7 @@ Two ways it could stop being a trade-off, both server-side and neither invented 
   callers that do not are unaffected.
 
 Either would let a list show what the chat page already shows. Until then, what a list
-renders for an unnamed conversation is pinned by `agents/agent-conversations.spec.ts` —
+renders for an unnamed conversation is pinned by `agents/agent-page.spec.ts` —
 both that it is never a bare UUID, and that the derived title appears where the
 transcript is in hand.
 
@@ -384,3 +348,22 @@ will run it").
 **What would close it:** a fixture scenario with a single harness. Worth doing when
 something else needs one; a scenario knob added for one assertion is a second fixture
 backend to keep honest.
+
+## A broken create takes that resource's failure states with it
+
+Each resource spec runs its empty, failure and retry states after the lifecycle, and a
+journey is ordered — so a create that breaks aborts the three steps least likely to be
+broken by the same change. `agent-templates` did exactly that during this port: step 10
+failed and steps 11 to 14 never ran.
+
+The README justifies the position by the fixture reset — reaching those states needs
+`?mock=`, which is per-navigation and discards what the lifecycle created. That is a
+reason they cannot sit in the *middle*; it does not choose an end, because the reload
+starts a fresh backend whichever end they are at.
+
+Moving them first is not the fix either: they would then run against a pristine backend,
+which is not the state they are about, and the lifecycle would start from one a
+navigation had just reset. What actually removes the coupling is a second `test` in the
+same file — one recording for the lifecycle, one for the states, neither able to abort
+the other. That costs `conventions.test.ts` its "one spec, one test" rule, so it is an
+amendment to the convention rather than a reshuffle, and belongs in its own change.

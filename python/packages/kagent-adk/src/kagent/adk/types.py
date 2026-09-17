@@ -24,6 +24,7 @@ from kagent.adk.models._mistral import KAgentMistralLlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
+from kagent.adk.models._openai import OpenAIAPIFormat
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
@@ -225,13 +226,13 @@ class _McpTlsMixin(BaseModel):
 class HttpMcpServerConfig(_McpTlsMixin):
     params: StreamableHTTPConnectionParams
     allowed_headers: list[str] | None = None
-    require_approval: list[str] | None = None
+    require_approval: bool = False
 
 
 class SseMcpServerConfig(_McpTlsMixin):
     params: SseConnectionParams
     allowed_headers: list[str] | None = None
-    require_approval: list[str] | None = None
+    require_approval: bool = False
 
 
 class RemoteAgentConfig(BaseModel):
@@ -271,6 +272,7 @@ class TokenExchangeConfig(BaseModel):
 
 class OpenAI(BaseLLM):
     base_url: str | None = None
+    api_format: OpenAIAPIFormat | None = None
     frequency_penalty: float | None = None
     max_tokens: int | None = None
     max_completion_tokens: int | None = Field(default=None, ge=1)
@@ -383,6 +385,12 @@ class EmbeddingConfig(BaseModel):
     provider: str
     base_url: str | None = None
     api_key_passthrough: bool = False
+    tls_disable_verify: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
+    )
+    tls_ca_cert_path: str | None = None
+    tls_disable_system_cas: bool | None = None
 
 
 class MemoryConfig(BaseModel):
@@ -418,7 +426,7 @@ class AgentConfig(BaseModel):
         if name is None or not str(name).strip():
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
-        tools_requiring_approval: set[str] = set()
+        has_tools_requiring_approval = False
         # Names of MCP App (UI-rendering) tools, filled in lazily as MCP tools
         # are resolved; used to compact their results for the model.
         mcp_app_tool_names = MCPAppToolNames()
@@ -442,10 +450,11 @@ class AgentConfig(BaseModel):
                         tool_filter=http_tool.tools,
                         header_provider=tool_header_provider,
                         app_tool_names=mcp_app_tool_names,
+                        require_approval=http_tool.require_approval,
                     )
                 )
                 if http_tool.require_approval:
-                    tools_requiring_approval.update(http_tool.require_approval)
+                    has_tools_requiring_approval = True
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
                 sse_tool._apply_tls_to_params(sse_tool.params)
@@ -460,10 +469,11 @@ class AgentConfig(BaseModel):
                         tool_filter=sse_tool.tools,
                         header_provider=tool_header_provider,
                         app_tool_names=mcp_app_tool_names,
+                        require_approval=sse_tool.require_approval,
                     )
                 )
                 if sse_tool.require_approval:
-                    tools_requiring_approval.update(sse_tool.require_approval)
+                    has_tools_requiring_approval = True
         if self.remote_agents:
             for remote_agent in self.remote_agents:  # Add remote agents as tools
                 # Prepare httpx client parameters
@@ -546,7 +556,7 @@ class AgentConfig(BaseModel):
         tools.append(AskUserTool())
 
         # Build before_tool_callback if any tools require approval
-        before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
+        before_tool_callback = make_approval_callback() if has_tools_requiring_approval else None
         # ADK 2.x filters its synthetic confirmation events before model calls.
         before_model_callbacks = [make_mcp_app_model_result_callback(mcp_app_tool_names)]
 
@@ -684,6 +694,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             temperature=model_config.temperature,
             timeout=model_config.timeout,
             top_p=model_config.top_p,
+            api_format=model_config.api_format,
             token_exchange=token_exchange,
             **_transport_kwargs(model_config),
         )

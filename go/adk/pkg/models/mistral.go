@@ -1,10 +1,12 @@
 package models
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
-	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -33,13 +35,14 @@ type MistralConfig struct {
 type MistralModel struct {
 	Config *MistralConfig
 	inner  *OpenAIModel
-	Logger logr.Logger
+	Logger *slog.Logger
 }
 
-// NewMistralModelWithLogger creates a new Mistral model instance with a logger.
+// NewMistralModel creates a new Mistral model instance.
 // It reads MISTRAL_API_KEY unless APIKeyPassthrough is enabled; base URL falls
 // back to MISTRAL_API_BASE then DefaultMistralBaseURL.
-func NewMistralModelWithLogger(config *MistralConfig, logger logr.Logger) (*MistralModel, error) {
+func NewMistralModel(ctx context.Context, config *MistralConfig) (*MistralModel, error) {
+	logger := logging.FromContext(ctx)
 	apiKey := "passthrough" // placeholder; real auth set per-request by transport
 	if !config.APIKeyPassthrough {
 		apiKey = os.Getenv("MISTRAL_API_KEY")
@@ -64,15 +67,13 @@ func NewMistralModelWithLogger(config *MistralConfig, logger logr.Logger) (*Mist
 	if err != nil {
 		return nil, err
 	}
-	if logger.GetSink() != nil && len(config.Headers) > 0 {
-		logger.Info("Setting default headers for Mistral client", "headersCount", len(config.Headers))
+	if len(config.Headers) > 0 {
+		logger.InfoContext(ctx, "setting default headers for Mistral client", "headers_count", len(config.Headers))
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
 	client := openai.NewClient(opts...)
-	if logger.GetSink() != nil {
-		logger.Info("Initialized Mistral model", "model", config.Model, "baseUrl", baseURL)
-	}
+	logger.InfoContext(ctx, "initialized Mistral model", "model", config.Model, "base_url", baseURL)
 
 	inner := &OpenAIModel{
 		Config: &OpenAIConfig{

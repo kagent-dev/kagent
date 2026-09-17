@@ -2,11 +2,9 @@ package models
 
 import (
 	"testing"
-
-	"github.com/go-logr/logr"
 )
 
-func TestNewMistralModelWithLogger(t *testing.T) {
+func TestNewMistralModel(t *testing.T) {
 	tests := []struct {
 		name        string
 		envAPIKey   string
@@ -60,7 +58,7 @@ func TestNewMistralModelWithLogger(t *testing.T) {
 			t.Setenv("MISTRAL_API_KEY", tt.envAPIKey)
 			t.Setenv("MISTRAL_API_BASE", tt.envAPIBase)
 
-			m, err := NewMistralModelWithLogger(tt.config, logr.Discard())
+			m, err := NewMistralModel(t.Context(), tt.config)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")

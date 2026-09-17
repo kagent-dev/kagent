@@ -168,6 +168,7 @@ export const PROVIDER_ICONS: Record<string, ComponentType> = {
   Bedrock: BedrockIcon,
   SAPAICore: SAPIcon,
   Mistral: MistralIcon,
+  Foundry: AzureOpenAIIcon,
 };
 
 /**

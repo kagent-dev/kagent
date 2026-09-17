@@ -95,10 +95,6 @@ database:
       minConns: null
       maxConnIdleTime: ""
       maxConnLifetime: ""
-    # -- Hard-delete idle sessions (and cascaded events/tasks/checkpoints/shares) after N days
-    # of no activity. Uses session.updated_at as a sliding idle clock (writes refresh it).
-    # 0 disables cleanup (default, existing installs unchanged).
-    sessionRetentionDays: 0
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
@@ -153,6 +149,11 @@ database:
           drop:
             - ALL
 
+      # -- Additional labels for the bundled PostgreSQL pod template, merged over the
+      # global `podLabels` (per-key; component keys win). Selector labels can
+      # never be overridden.
+      podLabels: {}
+
 # ==============================================================================
 # RBAC CONFIGURATION
 # ==============================================================================
@@ -187,9 +188,6 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
-  a2aBaseUrl: ""
   # -- Public gRPC URL advertised by AgentInstance Agent Cards.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
@@ -290,7 +288,6 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-      grpc: 8084
     annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
@@ -312,10 +309,62 @@ controller:
     service:
       type: ClusterIP
       port: 8443
-  # -- Native gRPC application API settings. This port is internal unless a
-  # separate TLS-capable GRPCRoute or ingress is configured.
+    # -- Prometheus Operator `ServiceMonitor` for the metrics `Service`.
+    # Requires `controller.metrics.enabled` and the
+    # `monitoring.coreos.com/v1` CRDs; the chart only renders it when the
+    # target cluster serves that API, so enabling it on a cluster without
+    # the Prometheus Operator is a no-op rather than a failed install
+    # (`helm template` needs `--api-versions monitoring.coreos.com/v1`).
+    # The endpoint follows
+    # `secureServing`: port name, scheme, bearer token and TLS settings are
+    # all derived from it, so flipping `secureServing` alone keeps the
+    # scrape working. With `secureServing` enabled the scrape is also
+    # authorized only once `<fullname>-metrics-reader` is bound to the
+    # Prometheus ServiceAccount; set `prometheusServiceAccount` below and
+    # the chart renders that binding for you.
+    # @default -- disabled
+    serviceMonitor:
+      enabled: false
+      # -- ServiceAccount Prometheus scrapes with. When `name` is set and
+      # `secureServing` is enabled, the chart binds
+      # `<fullname>-metrics-reader` to it with a `ClusterRoleBinding` so
+      # the scrape does not fail with 403. Leave `name` empty to manage
+      # the binding yourself.
+      prometheusServiceAccount:
+        name: ""
+        # -- Namespace of the Prometheus ServiceAccount.
+        # @default -- `serviceMonitor.namespace`, then the release namespace
+        namespace: ""
+      # -- Namespace to create the `ServiceMonitor` in. The scrape target
+      # stays the release namespace either way.
+      # @default -- the release namespace
+      namespace: ""
+      # -- Extra labels for the `ServiceMonitor` (merged with the chart
+      # labels). Set whatever label your Prometheus
+      # `serviceMonitorSelector` matches on.
+      labels: {}
+      # -- Annotations for the `ServiceMonitor`.
+      annotations: {}
+      # -- Scrape interval. Prometheus' global default when empty.
+      interval: ""
+      # -- Scrape timeout. Prometheus' global default when empty.
+      scrapeTimeout: ""
+      # -- Keep the scraped labels when they collide with server-side ones.
+      honorLabels: false
+      # -- `relabelings` applied to the scrape targets.
+      relabelings: []
+      # -- `metricRelabelings` applied to the scraped samples.
+      metricRelabelings: []
+      # -- Token presented to the authenticated metrics endpoint. Only used
+      # when `secureServing` is enabled; set to `""` to omit it.
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      # -- `tlsConfig` for the scrape. Only used when `secureServing` is
+      # enabled, where the controller serves a self-signed certificate.
+      # @default -- insecureSkipVerify: true
+      tlsConfig: {}
+  # -- gRPC application API settings. Native gRPC, gRPC-Web, MCP, and health
+  # share the controller service port.
   grpc:
-    bindAddress: ":8084"
     maxMessageBytes: 16777216
     reflection: false
     tlsCertFile: ""
@@ -324,16 +373,12 @@ controller:
   # Extra controller env (mapped to flags via SUBSTRATE_* env names).
   env: []
 
-  # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
-  # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
+  # Agent Substrate. Requires ate-system installed. kagent creates ate-api
+  # ActorTemplates and references an existing Kubernetes WorkerPool.
   substrate:
     enabled: false
     ateApiEndpoint: ""
     atenetRouterURL: ""
-    # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
-    ateApiServer:
-      namespace: ate-system
-      serviceAccount: ate-api-server
     defaultWorkerPool:
       namespace: ""
       name: ""
@@ -371,12 +416,12 @@ controller:
   readinessProbe: {}
 
 # -- Optional Agent Substrate WorkerPool installed by this chart. This is platform
-# capacity and is not owned by individual AgentHarness resources.
+# capacity and is not owned by individual agents.
 substrateWorkerPool:
   create: false
   name: kagent-default
   replicas: 1
-  ateomImage: ""
+  workerImage: ""
   # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
   # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
   sandboxClass: gvisor
@@ -681,6 +726,10 @@ kmcp:
 
 substrate:
   enabled: false
+  ateApi:
+    extraArgs:
+      # Minimum supported interval for discovering and reconciling actor templates.
+      - --template-resync-interval=250ms
 
 # ==============================================================================
 # BUILT-IN TOOLS
@@ -713,7 +762,7 @@ kagent-tools:
   tools:
     loglevel: "debug"
     metrics:
-      port: 8085 # Use a different port than the main service port (8084) to avoid duplicate port definitions
+      port: 8085 # Use a different port than the controller service port to avoid duplicate port definitions
 
 # ==============================================================================
 # PROXY CONFIGURATION
@@ -805,6 +854,9 @@ oauth2-proxy:
   # Cluster-specific OIDC settings - override these per deployment
   # These are set as env vars and referenced in args for easy patching
   extraEnv:
+    # Forces a rollout whenever the sign_in.html ConfigMap's content changes.
+    - name: KAGENT_OAUTH2_PROXY_SIGNIN_TEMPLATE_CHECKSUM
+      value: '{{ include "kagent.oauth2ProxySignInHTML" . | sha256sum }}'
     - name: OIDC_ISSUER_URL
       value: ""
     - name: OIDC_REDIRECT_URL
@@ -839,7 +891,7 @@ oauth2-proxy:
     # /assets/ with env-config.js ahead of it, so all three have to be reachable
     # unauthenticated or the branded login page renders blank. The Next.js paths
     # this replaces (_next/static, _next/image, login-bg) no longer exist.
-    skip-auth-regex: "^/(login|assets/|env-config\\.js|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
+    skip-auth-regex: "^/(login|assets/|env-config\\.js|logo-.*\\.png|favicon\\.ico).*$"
     # Use custom templates that redirect to kagent's branded /login page
     custom-templates-dir: "/templates"
 
@@ -852,6 +904,9 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
+  # -- Include prompts, tool details, and assistant responses in agent telemetry.
+  # This may expose sensitive user or model content.
+  captureSensitiveContent: false
   tracing:
     enabled: false
     exporter:
@@ -862,9 +917,13 @@ otel:
         insecure: true
   logging:
     enabled: false
+    # -- Include complete provider API request and response bodies in Claude logs.
+    # This is more verbose than captureSensitiveContent.
+    captureRawApiBodies: false
     exporter:
       otlp:
         endpoint: ""
+        protocol: "grpc"
         timeout: 15000 # milliseconds
         insecure: true
 

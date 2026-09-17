@@ -164,7 +164,7 @@ export class MockChatClient implements ChatClient {
      */
     const instance = allAgentInstances().find(
       (row) =>
-        row.namespace === conversation.namespace && row.id === conversation.id,
+        row.id === conversation.id,
     );
     if (instance && instance.state !== "ready") {
       yield {
@@ -197,14 +197,28 @@ export class MockChatClient implements ChatClient {
        * active-task slot, so a message naming it continues that turn and the
        * one-turn-per-instance invariant holds untouched. A message that does not
        * name it is refused above, in the controller's own words.
-       */
+      */
       const answered = this.transcriptFor(sessionId);
-      const reply = message(
-        input.messageId ?? `${parked.taskId}-answer`,
-        "user",
-        text,
-        parked.taskId,
-      );
+      const structured = readAnswer(input.hitl);
+      const reply: ChatMessage = {
+        id: input.messageId ?? `${parked.taskId}-answer`,
+        role: "user",
+        parts:
+          structured && parked.kind === "ask_user" && structured.id === parked.requestId
+            ? [
+                {
+                  kind: "ask_user",
+                  interaction: {
+                    questions: parked.questions,
+                    answers: structured.answers,
+                    askedBy: parked.askedBy,
+                  },
+                },
+              ]
+            : [{ kind: "text", text }],
+        createdAt: new Date().toISOString(),
+        taskId: parked.taskId,
+      };
       answered.push(reply);
       /*
        * What the agent understood, which is not the same as what it received.
@@ -215,7 +229,6 @@ export class MockChatClient implements ChatClient {
        * as though it worked. So the acknowledgement here says which happened — that
        * silent failure is the reason this fixture bothers to check.
        */
-      const structured = readAnswer(input.hitl);
       const acknowledgement = message(
         `${parked.taskId}-ack`,
         "agent",
@@ -330,12 +343,9 @@ export class MockChatClient implements ChatClient {
       /*
        * The turn ends by asking rather than by finishing.
        *
-       * Copied from a real `ask_user` turn captured on the cluster on 2026-08-24:
-       * an artifact carrying the call's `args`, a second carrying the tool's
-       * `response`, and then a status frame in `input_required` whose message is
-       * the question in plain prose. The reader therefore *sees* the question and
-       * nothing tells them the conversation is now stuck — which is precisely why
-       * it read as an agent that had simply broken.
+       * The real transport receives a raw call and fallback prose here, then
+       * normalises both away. This mock implements the same ChatClient boundary,
+       * so the structured pending request below is the only representation.
        */
       const questions =
         scenario === "asks-text"
@@ -345,24 +355,6 @@ export class MockChatClient implements ChatClient {
               { question: QUESTION, choices: TOPPINGS, multiple: true },
             ];
 
-      const call = dataMessage(`${taskId}-ask-call`, taskId, "tool_call", {
-        id: `call-ask-${taskId}`,
-        name: "ask_user",
-        args: { questions },
-      });
-      transcript.push(call);
-      yield { type: "message", message: snapshot(call) };
-
-      // The question also arrives as prose, exactly as it does on the wire — the
-      // structured payload is *beside* it rather than instead of it, so a reader
-      // whose build cannot render the choices still sees what was asked.
-      const asked = message(
-        `${taskId}-ask`,
-        "agent",
-        scenario === "asks-text" ? NOTE_QUESTION : SIZE_QUESTION,
-        taskId,
-      );
-      transcript.push(asked);
       this.persist(sessionId);
       const request: PendingRequest = {
         kind: "ask_user",
@@ -371,7 +363,6 @@ export class MockChatClient implements ChatClient {
         questions,
       };
       saveParked(sessionId, request);
-      yield { type: "message", message: snapshot(asked) };
       // The payload rides on the status, as it does on the wire — the choices are
       // the metadata of the message this status carried.
       yield { type: "status", state: "input_required", taskId, awaiting: request };
@@ -427,9 +418,9 @@ const STORAGE_PREFIX = "kagent.mockChat.";
 /**
  * Where a pending question lives between page loads.
  *
- * Beside the transcript and not inside it, because it is not a message: the
- * question is already in the conversation as prose, and what has to survive is the
- * fact that the *turn* never ended.
+ * Beside the transcript and not inside it, because a pending interaction is task
+ * state rather than a message. The raw protocol call and prose do not render; what
+ * has to survive is the request and the fact that the *turn* never ended.
  */
 const PARKED_PREFIX = "kagent.mockChat.parked.";
 
@@ -501,16 +492,58 @@ function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
 }
 
 /**
+ * What the fixture backend needs to fake a checkpoint, which only this file knows.
+ *
+ * A checkpoint is a turn boundary and a fork is the transcript up to one, so both
+ * are questions about the conversation — and the conversation lives here rather than
+ * in `src/mocks/state.ts`. The alternative was the transport reaching into this
+ * file's storage keys, which is the same coupling with nothing naming it.
+ */
+export function mockTranscriptOf(sessionId: string): ChatMessage[] {
+  return loadTranscript(sessionId) ?? SEEDED_TRANSCRIPTS[sessionId]?.() ?? [];
+}
+
+/** The turn a checkpoint taken now would sit at, or nothing if nothing was said. */
+export function mockLatestTaskId(sessionId: string): string {
+  const messages = mockTranscriptOf(sessionId);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const taskId = messages[index].taskId;
+    if (taskId) return taskId;
+  }
+  return "";
+}
+
+/**
+ * Copies the source's transcript up to and including one turn, as a fork's history.
+ *
+ * Truncating is what makes a fork of an earlier boundary different from a fork of
+ * the latest one, and it is the behaviour the whole feature rests on — a fixture
+ * that copied the lot would let a broken cutoff look right.
+ */
+export function mockForkTranscript(
+  sourceId: string,
+  forkId: string,
+  headTaskId: string,
+): void {
+  const messages = mockTranscriptOf(sourceId);
+  let end = -1;
+  for (let index = messages.length - 1; index >= 0 && end === -1; index -= 1) {
+    if (messages[index].taskId === headTaskId) end = index;
+  }
+  saveTranscript(forkId, end === -1 ? messages : messages.slice(0, end + 1));
+}
+
+/**
  * Conversations that already exist when the app opens.
  *
  * Built fresh per call so one test's turns cannot leak into the next.
  */
 const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
-  // Keyed by `namespace/instance-id`, which is what a conversation is addressed
+  // Keyed by `instance-id`, which is what a conversation is addressed
   // by now — the same key `conversationKey` builds. This is the first instance in
   // `mockAgentInstances`, so the fixture agent a reader opens first has a
   // conversation already in it.
-  "kagent/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44": () => [
+  "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44": () => [
     message("seed-1-user", "user", "Why is checkout crashlooping?", "seed-task-1"),
     dataMessage("seed-1-call", "seed-task-1", "tool_call", {
       id: "call-seed-1",
@@ -559,7 +592,7 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
    * every seeded transcript belonging to a named conversation, the fallback would
    * be unreachable and untestable while looking implemented.
    */
-  "kagent/2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0": () => [
+  "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0": () => [
     message(
       "seed-2-user",
       "user",
@@ -655,7 +688,7 @@ async function stopped(signal: AbortSignal | undefined, ms: number): Promise<boo
  * recorded in `playwright/DEFERRED.md` rather than papered over here.
  */
 function refuseAnInvalidShare(conversation: ChatConversationRef): void {
-  const token = agentInstanceShareToken(conversation.namespace, conversation.id);
+  const token = agentInstanceShareToken(conversation.id);
   if (!token) return;
 
   const share = instanceShareForToken(token);

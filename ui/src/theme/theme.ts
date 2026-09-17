@@ -59,13 +59,13 @@ const darkColor = {
    * filled badge rather than the quiet pill the rest of the page uses.
    */
   successBg: "#0c2c18",
-  successBorder: "#166534",
+  successBorder: "#218045",
   successText: "#4ade80",
   warningBg: "#33240a",
-  warningBorder: "#92400e",
+  warningBorder: "#a95c13",
   warningText: "#fbbf24",
   dangerBg: "#3a1417",
-  dangerBorder: "#991b1b",
+  dangerBorder: "#be3d3d",
   dangerText: "#f87171",
   /**
    * The brand colour as *foreground* text on the page.
@@ -86,7 +86,7 @@ const darkColor = {
    * 4.2:1 and 3.4:1, both under the 4.5 that small text needs.
    */
   infoBg: "#101c33",
-  infoBorder: "#1e3a8a",
+  infoBorder: "#4366af",
   infoText: "#93c5fd",
   accentBg: "#1e152e",
   accentBorder: "#5b21b6",
@@ -125,19 +125,19 @@ const lightColor: Record<keyof typeof darkColor, string> = {
   // inverted. What was there before came out muddy: antd tinted its mid-green
   // towards a light base and landed on something between the two.
   successBg: "#dcfce7",
-  successBorder: "#86efac",
+  successBorder: "#449e65",
   successText: "#166534",
   warningBg: "#fef3c7",
-  warningBorder: "#fcd34d",
+  warningBorder: "#bf7e28",
   warningText: "#92400e",
   dangerBg: "#fee2e2",
-  dangerBorder: "#fca5a5",
+  dangerBorder: "#ce6666",
   dangerText: "#991b1b",
   // On a white page the brand purple is already a readable foreground, so this is
   // `primary`. The token exists so a component need not know which theme it is on.
   primaryText: "#6d28d9",
   infoBg: "#eff6ff",
-  infoBorder: "#bfdbfe",
+  infoBorder: "#638be8",
   infoText: "#1d4ed8",
   accentBg: "#f5f3ff",
   accentBorder: "#ddd6fe",
@@ -233,7 +233,14 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       },
       Table: {
         headerBg: color.bgElevated,
-        rowHoverBg: color.border,
+        /*
+         * The page's own foreground at a fifth opacity, not `border`, which is tuned
+         * to be quiet: measured, a hovered row moved 1.35:1 from rest on the dark theme
+         * and sat within 1.11:1 of the pressed state, which separated the two by hue
+         * alone. Derived, so it lightens on dark and darkens on light without a value
+         * per mode.
+         */
+        rowHoverBg: `${color.text}33`,
       },
       /*
        * Inputs, selects and pickers: a stronger edge and a legible placeholder.
@@ -266,6 +273,32 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
       },
+      /*
+       * The segmented control, which on the dark theme had no visible edge anywhere.
+       *
+       * Measured rather than looked at: the track sat at 1.00:1 against the page — the
+       * same colour — and the selected pill at 1.12:1 against the track, behind an
+       * elevation shadow antd paints at one percent white. So nothing said "toggle" and
+       * nothing but a slightly brighter label said which half was chosen. The light
+       * theme escapes it because its pill is white with a dark shadow under it, so this
+       * leaves that mode alone.
+       *
+       * Fixed with an edge rather than a fill, the way the inputs above are. A fill
+       * cannot carry it at this end of the range: the page is near-black, so reaching
+       * 3:1 on luminance alone takes a mid-grey pill that reads as disabled. A
+       * one-pixel `borderStrong` ring measures 3.9:1 against the page and is the same
+       * boundary every other control in the app is outlined with, which leaves the two
+       * fills with only the pill's shape to carry.
+       */
+      ...(mode === "dark"
+        ? {
+            Segmented: {
+              trackBg: color.bgElevated,
+              itemSelectedBg: color.border,
+              boxShadowTertiary: `0 0 0 1px ${color.borderStrong}`,
+            },
+          }
+        : {}),
       Radio: {
         /*
          * The selected option's label and border are the brand colour used as ink, and

@@ -4,11 +4,12 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func loadConfig(t *testing.T, path string, baseURL string) *adk.AgentConfig {
 // runner pipeline, and returns all text from the response events.
 func runAgent(t *testing.T, agentCfg *adk.AgentConfig, prompt string) string {
 	t.Helper()
-	ctx := logr.NewContext(t.Context(), logr.Discard())
+	ctx := logging.IntoContext(t.Context(), slog.New(slog.DiscardHandler))
 
 	adkAgent, err := CreateGoogleADKAgent(ctx, agentCfg, "test-agent", nil)
 	require.NoError(t, err)

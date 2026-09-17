@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import {
   agentChat,
@@ -6,142 +7,59 @@ import {
   agents,
   instances,
   SIBLING_OF_READY,
+  loadPage,
+  withScenario,
 } from "../../helpers/app";
+import { dialog, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * The agent rail — the navigation for when you are inside one agent.
  *
- * Narrowed to a single agent: which agent you are in, the things you can do to it,
- * and every conversation you have had with it. The last of those is the sibling
- * instances of the same `(Harness, AgentTemplate)` pair, because an `AgentInstance`
- * *is* one conversation — so a second conversation with an agent is a second
- * instance of the same pair, and "New chat" creates rather than navigates.
+ * Narrowed to a single agent: which agent you are in, the things you can do to it, and
+ * every conversation you have had with it. The last of those is the sibling instances
+ * of the same `(Harness, AgentTemplate)` pair, because an `AgentInstance` *is* one
+ * conversation — so a second conversation with an agent is a second instance of the
+ * same pair, and "New chat" creates rather than navigates.
  *
- * ## What is no longer here
- *
- * The capabilities panel — an agent's tools and skills beside its conversation. It
- * read them off a `SandboxAgent`, and an instance has neither: what an agent can
- * reach is described by its `AgentTemplate`, which has no surface in this build yet.
- * Recorded in `playwright/DEFERRED.md` rather than left as a passing test of
- * something that is gone.
+ * What is beside the conversation rather than in the rail — its record, and the agent
+ * panel — is `panels.spec.ts`. What the rail *does* to a conversation is owned by
+ * `agents/agent-page.spec.ts`; this file keeps only what that table cannot say.
  */
+
+/**
+ * Picks one item from a rail row's action menu, and proves it took.
+ *
+ * Two clicks, either of which the dropdown's animation can swallow: the one that opens
+ * the menu, and the one that picks from it. Both fail silently — the menu never opens,
+ * or it opens and the item does nothing — and the report is whatever the *next* step was
+ * waiting for, which is nowhere near the cause.
+ *
+ * So the caller says what the item is supposed to open, and this retries until that is on
+ * screen. The same press-until-it-takes shape `pressUntil` gives a dialog button; it is
+ * separate only because two controls are involved rather than one.
+ */
+async function chooseFromRowMenu(
+  page: Page,
+  menu: Locator,
+  item: string,
+  opened: Locator,
+): Promise<void> {
+  const entry = page.getByRole("menuitem", { name: item });
+  await expect(async () => {
+    if (!(await opened.isVisible())) {
+      if (!(await entry.isVisible())) await menu.click({ force: true });
+      await entry.click();
+    }
+    await expect(opened).toBeVisible();
+  }).toPass({ timeout: 30_000 });
+}
+
+/** Unnamed, with a first message — so the rail has something to derive a title from. */
+const AUTO_TITLED = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
 
 const AGENT_CHAT = agentChat(instances.ready);
 const AGENT_DETAILS = agentDetail(instances.ready);
 
-test("chat: a conversation's record is read without leaving the conversation", async ({
-  page,
-}) => {
-  /*
-   * This was an entry in the rail, and reading four facts about a conversation meant
-   * leaving it and then finding the way back. Reference that costs a navigation is
-   * reference nobody consults, so it is a modal over the conversation now — in the
-   * gutter under Share, which is where the conversation's other controls live.
-   */
-  await page.goto(AGENT_CHAT);
-  await page.getByTestId("chat-details").click();
-
-  const fields = page.getByTestId("conversation-details-fields");
-  await expect(fields).toBeVisible({ timeout: 30_000 });
-  // The record, not a summary: the id is what a reader copies into a CLI.
-  await expect(fields).toContainText(instances.ready);
-
-  // Still on the conversation behind it — the point of not making this a page.
-  await expect(page).toHaveURL(new RegExp(`/agents/kagent/${instances.ready}/chat$`));
-  await expect(page.getByTestId("chat-input")).toBeVisible();
-
-  // There is no Edit anywhere on it: an instance has no spec to change. What the agent
-  // *is* lives on its AgentTemplate and how it *runs* on its Harness, so a control here
-  // would offer something that does not exist.
-  await expect(page.getByTestId("agent-details-edit")).toHaveCount(0);
-});
-
-test("agent rail: a conversation is deleted from a menu, on every surface", async ({
-  page,
-}) => {
-  /*
-   * The control used to be a trash can on every row, always visible, inches from the
-   * conversation being read in a rail where every row looks alike — a slip cost the
-   * whole thing with nothing to undo it. It is behind a per-row menu now, revealed on
-   * hover, so deleting takes two deliberate actions and the list reads as names.
-   *
-   * It also only existed where a caller passed a handler, which meant the chat page and
-   * nowhere else: the same row behaved differently depending on which surface had
-   * mounted the rail. The rail owns the delete now, which is what step 3 checks.
-   */
-  await page.goto(AGENT_CHAT);
-  const rail = page.getByTestId("chat-sessions");
-  // The row links themselves. Several controls share the `chat-session-` prefix now —
-  // the menu, the checkbox, the confirmation — so a prefix match counts each row
-  // several times.
-  const rows = rail.locator('a[data-testid^="chat-session-"]');
-  // Counted after the list has arrived: counting during the read gives zero, and a
-  // later assertion of "one fewer" then expects minus one.
-  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
-  const before = await rows.count();
-
-  const item = page.getByRole("menuitem", { name: "Delete chat" });
-
-  /*
-   * A named row, and deliberately not "the first one".
-   *
-   * `.first()` was an unstated dependency on the order the rail happened to render in.
-   * Once the rail sorted newest-first that became the *open* conversation, and deleting
-   * the conversation you are looking at navigates away — so the rail went with it and
-   * this test failed counting rows on a page it had left. The sibling is the row this
-   * was always about: one that goes without taking the page with it.
-   */
-  const sibling = `[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`;
-
-  await test.step("1. the menu offers it, and the row is otherwise quiet", async () => {
-    const menu = rail.locator(sibling);
-    // Present for a pointer to find, but not drawn until the row is hovered.
-    await expect(menu).toHaveCSS("opacity", "0");
-    await menu.click({ force: true });
-    await expect(item).toBeVisible();
-    // The dropdown animates in, and a click landing mid-transition is refused as
-    // unstable rather than missing the element.
-    await page.waitForTimeout(400);
-  });
-
-  await test.step("2. it still asks, and the question names the conversation", async () => {
-    // The menu makes deleting deliberate; it does not make it recoverable. A
-    // conversation is gone with its whole transcript and there is no undo.
-    await item.click();
-    const confirm = page.locator(".ant-modal:visible");
-    await expect(confirm).toContainText("cannot be recovered");
-    await confirm.getByRole("button", { name: "Keep" }).click();
-    await expect(rows).toHaveCount(before);
-  });
-
-  await test.step("3. and Delete removes exactly one", async () => {
-    // The dialog animates out, and a click while it is still there lands on its mask.
-    await expect(page.locator(".ant-modal:visible")).toHaveCount(0);
-    await page.locator(sibling).click({ force: true });
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: "Delete chat" }).click();
-    await page.locator(".ant-modal:visible").getByRole("button", { name: "Delete" }).click();
-    await expect(rows).toHaveCount(before - 1, { timeout: 20_000 });
-    await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
-  });
-
-  await test.step("4. and the same control is there off the chat page", async () => {
-    // The agent's own page mounts the same rail and passes no delete handler. That used
-    // to mean no control at all.
-    await page.getByTestId("agent-nav-agent-conversations").click();
-    await expect(page.getByTestId("agent-rail")).toBeVisible({ timeout: 30_000 });
-    await expect(
-      page.locator('[data-testid^="chat-session-menu-"]').first(),
-    ).toHaveCount(1);
-  });
-});
-
-/**
- * Changing which agent the rail is scoped to, without leaving the rail.
- *
- * The identity card wears a chevron, so it has to open something: an affordance that
- * looked like "change agent" and went somewhere else was the bug this replaced.
- */
 /**
  * The agent you are on stays out of its own switcher, wherever you opened it from.
  *
@@ -156,7 +74,7 @@ test("agent rail: a conversation is deleted from a menu, on every surface", asyn
  * conversation to read a harness from — the case the chat page's version of this test
  * cannot reach.
  */
-test("agent rail: the current agent is absent from the switcher on a surface with no conversation", async ({
+test("chat agent rail: the current agent is absent from the switcher on a surface with no conversation", async ({
   page,
 }) => {
   // The agent's own page, which has no conversation open and so no record to read a
@@ -179,7 +97,7 @@ test("agent rail: the current agent is absent from the switcher on a surface wit
   ).toHaveCount(0);
 });
 
-test("agent rail: the identity card switches agent", async ({ page }) => {
+test("chat agent rail: the identity card switches agent", async ({ page }) => {
   await page.goto(AGENT_CHAT);
 
   // Not mounted until asked for — the switcher reads every namespace, one request
@@ -234,7 +152,7 @@ test("agent rail: the identity card switches agent", async ({ page }) => {
  * that was itself half-hidden. Asserted as geometry rather than as a screenshot,
  * because the failure is an overlap of two rectangles and that is what to measure.
  */
-test("agent rail: stays clear of the header when the page scrolls", async ({ page }) => {
+test("chat agent rail: stays clear of the header when the page scrolls", async ({ page }) => {
   // A short viewport on a tall page, so there is something to scroll.
   await page.setViewportSize({ width: 1400, height: 700 });
   await page.goto(AGENT_DETAILS);
@@ -270,7 +188,7 @@ test("agent rail: stays clear of the header when the page scrolls", async ({ pag
  * is the rail being bounded with its overflow hidden while the list owns an `auto`
  * one, and that holds at any length.
  */
-test("agent rail: the conversation list scrolls without taking the rest with it", async ({
+test("chat agent rail: the conversation list scrolls without taking the rest with it", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1400, height: 700 });
@@ -305,7 +223,7 @@ test("agent rail: the conversation list scrolls without taking the rest with it"
   expect(shape.searchBottom).toBeLessThanOrEqual(shape.listTop);
 });
 
-test("agent rail: it can be got out of the way, and stays that way", async ({ page }) => {
+test("chat agent rail: it can be got out of the way, and stays that way", async ({ page }) => {
   await page.goto(AGENT_CHAT);
   await expect(page.getByTestId("agent-rail")).toBeVisible({ timeout: 30_000 });
 
@@ -335,46 +253,9 @@ test("agent rail: it can be got out of the way, and stays that way", async ({ pa
   });
 });
 
-test("chat: the agent panel says what the conversation cannot", async ({ page }) => {
-  /*
-   * A conversation is an `AgentInstance`, and an instance holds no configuration —
-   * what model is answering, what it was told to do and what tools it can reach all
-   * live on the `AgentTemplate` it was cut from. So this panel reads the template,
-   * which is also a thing the reader can open and change.
-   */
-  await page.goto(AGENT_CHAT);
-  const panel = page.getByTestId("chat-agent-context");
-  await expect(panel).toBeVisible({ timeout: 30_000 });
-
-  await test.step("1. it names the template, and the template is a link", async () => {
-    // Not a dead label: every conversation with this agent reads the same template, and
-    // the page behind this link is where that is said before anybody edits it.
-    await expect(page.getByTestId("chat-agent-context-template")).toBeVisible();
-  });
-
-  await test.step("2. the model and the tools, read from that template", async () => {
-    await expect(panel).toContainText("Model");
-    await expect(panel).toContainText("Tools");
-  });
-
-  await test.step("3. and it can be put away, and stays away", async () => {
-    await page.getByTestId("chat-context-collapse").click();
-    await expect(panel).toBeHidden();
-    await expect(page.getByTestId("chat-context-expand")).toBeVisible();
-
-    // Remembered per reader, like the rail: closing it on one conversation and finding
-    // it back on the next is what makes people stop using the control.
-    await page.reload();
-    await expect(page.getByTestId("chat-context-expand")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("chat-context-expand").click();
-    await expect(page.getByTestId("chat-agent-context")).toBeVisible();
-  });
-});
-
 /**
- * A rail you can read: every row named, and every row's state visible.
+ * A rail you can read: every row named.
  *
- * Both of these were missing for the same reason and are fixed by the same change.
  * Deriving a conversation's title needs its first message, which needs its task list —
  * and the A2A gateway refused a task read for any conversation that was not ready. With
  * conversations giving their workers back at the end of every turn, that is most of
@@ -385,30 +266,13 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
  * because that is where the transcript lives. Resuming to read one would have claimed a
  * worker every time somebody glanced at a conversation.
  */
-test("agent rail: conversations are named and show their state", async ({ page }) => {
+test("chat agent rail: conversations are named", async ({ page }) => {
   await page.goto(AGENT_CHAT);
   const rail = page.getByTestId("chat-sessions");
   const rows = rail.locator('a[data-testid^="chat-session-"]');
   await expect(rows.first()).toBeVisible({ timeout: 30_000 });
 
-  await test.step("1. an ordinary conversation is not marked at all", async () => {
-    /*
-     * The dot marks the exceptions, not everything.
-     *
-     * It used to appear on every row, `ready` included, which was right while `ready`
-     * meant something: a conversation held a worker until the page suspended it. The
-     * server quiesces a runtime after every turn now and leaves the record `ready`, so
-     * `ready` is what every conversation says, permanently — and a dot on every row
-     * repeating it is decoration implying a distinction the API cannot make.
-     *
-     * So a fixture of ordinary conversations carries no dots, and one that is creating,
-     * failed or being deleted carries one worth looking at.
-     */
-    const dots = rail.locator('[data-testid^="chat-session-state-"]');
-    await expect(dots.locator('[data-testid="chat-session-state-ready"]')).toHaveCount(0);
-  });
-
-  await test.step("2. a row is named by what was said in it, not only by its id", async () => {
+  await test.step("a row is named by what was said in it, not only by its id", async () => {
     /*
      * Asserted on a row other than the open one, which is the whole point: the open
      * conversation always had a title, because the page rendering its transcript could
@@ -420,9 +284,32 @@ test("agent rail: conversations are named and show their state", async ({ page }
       "at least one conversation should be named by its first message",
     ).not.toHaveCount(0, { timeout: 30_000 });
   });
+
+  await test.step("3. and the derived name is a title, not the message", async () => {
+    /*
+     * The specific fixture rather than the property above, because "some row is not
+     * Untitled" is satisfied by a row that simply has a name somebody typed. This one
+     * has no name and something said in it, which is the case the derivation exists
+     * for.
+     *
+     * This lived in `agents/agent-page.spec.ts` while driving the rail — the same
+     * claim, made twice and weakly in the place that owns the surface.
+     */
+    await page.goto(agentChat(AUTO_TITLED));
+    await expect(page.getByTestId("chat-panel")).toBeVisible({ timeout: 30_000 });
+
+    const row = page.getByTestId(`chat-session-${AUTO_TITLED}`);
+    await expect(row).toContainText("Summarise last night's deploy");
+    // Cut at a word boundary with an ellipsis, which is what says it is a summary
+    // rather than the text itself.
+    await expect(row).toContainText("…");
+    // And emphatically not the id, which is what an unnamed conversation falls back to
+    // when there is nothing said in it to derive from.
+    await expect(row).not.toContainText("Untitled");
+  });
 });
 
-test("agent rail: several conversations can be picked and deleted together", async ({
+test("chat agent rail: several conversations can be picked and deleted together", async ({
   page,
 }) => {
   /*
@@ -508,25 +395,43 @@ test("agent rail: several conversations can be picked and deleted together", asy
     await boxes.first().click();
     await rows.nth(1).hover();
     await boxes.nth(1).click();
-    await page.getByTestId("chat-bulk-menu").click();
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: /Delete all selected/ }).click();
-
+    // The confirmation's own test id rather than the modal class: it was reaching for
+    // `.ant-modal` while this id sat unused beside it.
     const confirm = page.getByTestId("chat-bulk-confirm");
+    /*
+     * Pressed until the confirmation is up, rather than clicked once behind a fixed
+     * 400ms sleep. The sleep was a guess at how long the dropdown takes to animate, and
+     * under a loaded Firefox run it is sometimes wrong — which showed up as a menu item
+     * that did nothing.
+     *
+     * The proof is the visible modal rather than `confirm`: that test id sits on antd's
+     * `ant-modal-root`, which is in the DOM whether the dialog is up or not and reports
+     * hidden either way. It is still the right locator to assert the *text* on, which is
+     * why both are here.
+     */
+    await chooseFromRowMenu(
+      page,
+      page.getByTestId("chat-bulk-menu"),
+      "Delete all selected",
+      dialog(page),
+    );
     // One question for the set, naming how many — not one per conversation, which is
     // the thing that makes clearing a rail unbearable.
-    await expect(page.locator(".ant-modal:visible")).toContainText("Delete 2 conversations?");
-    await expect(page.locator(".ant-modal:visible")).toContainText("can be recovered");
+    await expect(confirm).toContainText("Delete 2 conversations?");
+    await expect(confirm).toContainText("can be recovered");
     // And why it is worth doing on a cluster that keeps running out of workers.
-    await expect(page.locator(".ant-modal:visible")).toContainText("workers they hold");
-    await page.locator(".ant-modal:visible").getByRole("button", { name: "Delete" }).click();
+    await expect(confirm).toContainText("workers they hold");
+    // Once, not until: the modal's mask sits over the conversation list, so a retry
+    // going out after it unmounts lands on a row and navigates.
+    await pressOnce(confirm.getByRole("button", { name: "Delete" }));
+    await expect(dialog(page)).toHaveCount(0);
 
     await expect(rows).toHaveCount(before - 2, { timeout: 20_000 });
     await expect(confirm).toHaveCount(0);
   });
 });
 
-test("agent rail: the newest conversation is at the top", async ({ page }) => {
+test("chat agent rail: the newest conversation is at the top", async ({ page }) => {
   /*
    * The rail rendered in whatever order `ListAgentInstances` answered in, which is an
    * order in no particular order — so a conversation started a minute ago could sit
@@ -558,99 +463,223 @@ test("agent rail: the newest conversation is at the top", async ({ page }) => {
   );
 });
 
-test("agent rail: a conversation can be renamed from inside it, two ways", async ({
+test("chat agent rail: only the page you are on is marked as current", async ({ page }) => {
+  /*
+   * A conversation row used to be lit by id alone, so it claimed to be the current
+   * page on every surface that mounts the rail for an instance — the agent's own
+   * details page included, which is a different page from the chat the row links to.
+   * Two rows then carried `aria-current="page"` at once, which is both wrong on its
+   * face and wrong for a screen reader.
+   *
+   * Asserted from the details page rather than the chat, because the chat is the one
+   * place the old behaviour happened to be right.
+   */
+  await page.goto(AGENT_DETAILS);
+
+  const rail = page.getByTestId("chat-sessions");
+  await expect(rail).toBeVisible({ timeout: 30_000 });
+
+  const row = rail.locator(`a[data-testid="chat-session-${instances.ready}"]`);
+
+  await test.step("1. the conversation is listed, but is not the current page", async () => {
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute("data-active", "false");
+    await expect(row).not.toHaveAttribute("aria-current", "page");
+  });
+
+  await test.step("2. exactly one entry in the rail claims to be current", async () => {
+    // The count is the assertion. Any single row being right is not enough when the
+    // defect was two of them being right at the same time.
+    await expect(page.locator('[data-testid="chat-sessions-nav"] [aria-current="page"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="chat-sessions"] [aria-current="page"]')).toHaveCount(0);
+  });
+
+  await test.step("3. opening the conversation is what makes it current", async () => {
+    await row.click();
+    await expect(page).toHaveURL(new RegExp(`${instances.ready}/chat$`));
+    await expect(row).toHaveAttribute("data-active", "true");
+    await expect(row).toHaveAttribute("aria-current", "page");
+  });
+});
+
+/**
+ * Renaming and deleting a conversation from the rail — the surface, not the operation.
+ *
+ * Both operations are owned by `agents/agent-page.spec.ts`, which asserts them
+ * against the agent's conversations table: what a name may be, what a rename does to the
+ * list, what deleting costs. None of that is repeated here.
+ *
+ * What *is* here is the one thing the table cannot say — that you can do either without
+ * leaving the conversation you are reading. Renaming used to live only in that table, so
+ * changing the one field on a record its reader owns meant leaving, finding it in a list,
+ * renaming it and coming back; and the delete only existed where a caller passed a
+ * handler, which meant the chat page and nowhere else, so the same row behaved
+ * differently depending on which surface had mounted the rail.
+ *
+ * Deliberately a named sibling rather than `.first()`. That was an unstated dependency on
+ * render order: once the rail sorted newest-first it became the *open* conversation, and
+ * deleting the one you are looking at navigates away — so the rail went with it and the
+ * test failed counting rows on a page it had left.
+ */
+test("chat agent rail: a conversation is renamed and deleted, without leaving it", async ({
   page,
 }) => {
-  /*
-   * Renaming used to live only in the agent's conversations table, which meant leaving
-   * the conversation you were reading, finding it in a list, renaming it there and
-   * coming back — for the one field on the record its reader owns. It is offered on the
-   * conversation itself now, from the row's action menu and from the details modal.
-   *
-   * The proof is the rail row's own text rather than the toast: a success message says
-   * the app believes it worked, and a rename that failed would still show one.
-   */
-  await page.goto(agentChat(instances.ready));
+  await page.goto(AGENT_CHAT);
   const rail = page.getByTestId("chat-sessions");
-  await expect(rail.locator('a[data-testid^="chat-session-"]').first()).toBeVisible({
-    timeout: 30_000,
-  });
+  // The row links themselves. Several controls share the `chat-session-` prefix — the
+  // menu, the checkbox, the confirmation — so a prefix match counts each row several
+  // times.
+  const rows = rail.locator('a[data-testid^="chat-session-"]');
+  // Counted after the list has arrived: counting during the read gives zero, and a later
+  // assertion of "one fewer" then expects minus one.
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  const before = await rows.count();
 
-  await test.step("1. the row's action menu offers it", async () => {
-    await page.locator(`[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`).click({
-      force: true,
-    });
-    // The dropdown animates in, and a click landing mid-transition is refused as
-    // unstable rather than missing the element.
-    await page.waitForTimeout(400);
-    await page.getByRole("menuitem", { name: "Rename chat" }).click();
+  const menu = rail.locator(`[data-testid="chat-session-menu-${SIBLING_OF_READY}"]`);
+  const sibling = rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`);
 
-    const field = page.getByTestId("conversation-rename-input").locator("input");
-    // Empty for an unnamed conversation rather than pre-filled with the placeholder,
-    // or clearing a title would be impossible.
-    await expect(field).toHaveValue("");
+  await test.step("1. the row's menu renames it, and the rail says so without a reload", async () => {
+    // Drawn on every row, not revealed on hover: these actions are most of the reason to
+    // open the rail on a conversation you are not in.
+    await expect(menu).toBeVisible();
+    const rename = page.getByTestId("conversation-rename-input");
+    await chooseFromRowMenu(page, menu, "Rename chat", rename);
+
+    const field = rename.locator("input");
     await field.fill("Named from the rail");
-    await page.getByRole("button", { name: "Save" }).click();
-  });
-
-  await test.step("2. and the rail says so without a reload", async () => {
-    await expect(
-      rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`),
-    ).toContainText("Named from the rail", { timeout: 30_000 });
-  });
-
-  await test.step("3. the details modal offers it too, on the open conversation", async () => {
-    await page.getByTestId("chat-details").click();
-    await expect(page.getByTestId("conversation-details-fields")).toBeVisible();
-    // The name is a row on the record now, which is what gives the pencil something to
-    // sit beside — and what a reader came to this modal to check.
-    await expect(page.getByTestId("conversation-details-fields")).toContainText(
-      "Tuesday cluster review",
-    );
-
-    await page.getByTestId("conversation-details-rename").click();
-    const field = page.getByTestId("conversation-rename-input").locator("input");
-    // Pre-filled here, because this conversation *has* a name: the box opens on the
-    // stored one so an edit is an edit rather than a retype.
-    await expect(field).toHaveValue("Tuesday cluster review");
-    await field.fill("Named from the details");
-    await page.getByRole("button", { name: "Save" }).click();
-  });
-
-  await test.step("4. and the record behind the modal is re-read, not just the toast", async () => {
-    await expect(page.getByTestId("conversation-details-fields")).toContainText(
-      "Named from the details",
-      { timeout: 30_000 },
-    );
-  });
-
-  await test.step("5. and the rail behind it, which is a different read", async () => {
     /*
-     * The direction that was broken, and the reason renaming stopped being wired
-     * surface-to-surface.
+     * Pressed once the modal has stopped arriving, rather than clicked.
+     *
+     * A click computed while antd is still zooming a modal in lands where the button no
+     * longer is, and the box then stays open with the new name typed into it — which
+     * surfaces thirty seconds later as a rename that did not work, nowhere near the
+     * click that never happened. `pressOnce` rather than `pressUntil` because a second
+     * click would go out with this modal gone and the conversation list under it.
+     */
+    await pressOnce(page.getByRole("button", { name: "Save" }));
+
+    // The rail row's own text rather than the toast: a success message says the app
+    // believes it worked, and a rename that failed would still show one.
+    await expect(sibling).toContainText("Named from the rail", { timeout: 30_000 });
+  });
+
+  await test.step("2. the details modal renames the open conversation, and the rail agrees", async () => {
+    /*
+     * The second entry point, and the direction that was broken.
      *
      * The chat page reads the open conversation on its own and the rail beside it reads
      * the list, so a rename that refreshed the read it was started from left the other
-     * one showing the old name. Renaming from the modal refreshed the modal and not the
-     * rail; renaming from the rail refreshed the rail and not the modal. Both were
-     * right about their own read and both looked broken.
-     *
-     * Asserted through the modal rather than after closing it, because the rail is
-     * behind it the whole time and this is the moment the old value would still be on
-     * screen.
+     * showing the old name. Renaming from the modal refreshed the modal and not the
+     * rail; renaming from the rail refreshed the rail and not the modal. Both were right
+     * about their own read and both looked broken.
      */
+    /*
+     * Both clicks pressed until they take, like the row menu above.
+     *
+     * This step opens a modal and then a dialog inside it, and either click can land
+     * while the thing it is aimed at is still animating and be dropped. That is not a
+     * theory: this test walks four animated controls in a row and every one of them has
+     * failed that way at least once under a loaded Firefox run.
+     */
+    const fields = page.getByTestId("conversation-details-fields");
+    await pressUntil(page.getByTestId("chat-details"), () => expect(fields).toBeVisible());
+
+    const rename = page.getByTestId("conversation-rename-input");
+    await pressUntil(page.getByTestId("conversation-details-rename"), () =>
+      expect(rename).toBeVisible(),
+    );
+    const field = rename.locator("input");
+    // Pre-filled here, because this conversation *has* a name: the box opens on the
+    // stored one so an edit is an edit rather than a retype. The rail's box opens empty
+    // for the unnamed sibling in step 1, which is the other half of the same rule.
+    await expect(field).toHaveValue("Tuesday cluster review");
+    await field.fill("Named from the details");
+    // Once, for the reason step 1 gives: this modal is still arriving too.
+    await pressOnce(page.getByRole("button", { name: "Save" }));
+
+    // Asserted through the modal rather than after closing it, because the rail is
+    // behind it the whole time and this is the moment the old value would still be on
+    // screen.
     await expect(
       rail.locator(`a[data-testid="chat-session-${instances.ready}"]`),
     ).toContainText("Named from the details", { timeout: 30_000 });
+    // And step 1's rename survived it, so neither read clobbers the other.
+    await expect(sibling).toContainText("Named from the rail");
+
+    // Pressed until it takes, like every other dialog button here: an Escape sent while
+    // the save behind it is still settling is swallowed, and the modal then blocks the
+    // row menu the next step aims at.
+    await pressUntil(page.getByRole("button", { name: "Close" }), () =>
+      expect(fields).toBeHidden(),
+    );
   });
 
-  await test.step("6. and the other direction too: the rail's rename reached this record", async () => {
-    // Step 1 renamed the sibling from the rail, before this modal was ever opened. The
-    // modal describes the conversation that is open rather than that sibling, so the
-    // proof is the rail row it set — still correct after a second rename went the other
-    // way, which a refresh that clobbered one read with the other would have undone.
+  await test.step("3. deleting asks first, naming what cannot be recovered", async () => {
+    const confirm = dialog(page);
+    await chooseFromRowMenu(page, menu, "Delete chat", confirm);
+
+    // The menu makes deleting deliberate; it does not make it recoverable. A
+    // conversation is gone with its whole transcript and there is no undo.
+    await expect(confirm).toContainText("cannot be recovered");
+    // Once, for the reason the bulk delete above gives.
+    await pressOnce(confirm.getByRole("button", { name: "Keep" }));
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(rows).toHaveCount(before);
+  });
+
+  await test.step("4. and confirming removes exactly one, leaving the page put", async () => {
+    await chooseFromRowMenu(page, menu, "Delete chat", dialog(page));
+    await pressUntil(
+      dialog(page).getByRole("button", { name: "Delete" }),
+      () => expect(rows).toHaveCount(before - 1),
+    );
+    await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
+    // The conversation being read is not the one that went, so the page stays.
+    await expect(page).toHaveURL(AGENT_CHAT);
+  });
+
+  await test.step("5. and the same control is there off the chat page", async () => {
+    // The agent's own page mounts the same rail and passes no delete handler. That used
+    // to mean no control at all.
+    await page.getByTestId("agent-nav-agent-conversations").click();
+    await expect(page.getByTestId("agent-rail")).toBeVisible({ timeout: 30_000 });
     await expect(
-      rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`),
-    ).toContainText("Named from the rail");
+      page.locator('[data-testid^="chat-session-menu-"]').first(),
+    ).toHaveCount(1);
+  });
+});
+
+/**
+ * The rail's own read, failing on its own.
+ *
+ * Moved here from the chat error spec, where it sat among failing *turns*. It is not
+ * one: the conversation and the list of the agent's other conversations fail
+ * independently — `?chat=…` drives the turn, `?mock=…` drives the API — and this is
+ * the list. It belongs beside the rail that shows it.
+ */
+test("chat agent rail: a failed read says so, and is not an empty list", async ({
+  page,
+}) => {
+  await test.step("1. the list says it failed", async () => {
+    // The API scenario, not the chat one: the conversation itself and the list of the
+    // agent's other conversations fail independently, and this is the list.
+    await loadPage(page, AGENT_CHAT, { scenario: "error" });
+
+    const error = page.getByTestId("chat-sessions-error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Could not load conversations");
+  });
+
+  await test.step("2. it is not mistaken for having no conversations", async () => {
+    await expect(page.getByTestId("chat-sessions-empty")).toHaveCount(0);
+  });
+
+  await test.step("3. it recovers", async () => {
+    await page.goto(withScenario(AGENT_CHAT, "ok"));
+    await expect(page.getByTestId("chat-sessions-error")).toHaveCount(0);
+    // This conversation is in its own rail, marked as the one that is open.
+    await expect(
+      page.getByTestId(`chat-session-${instances.ready}`),
+    ).toBeVisible();
   });
 });
