@@ -3,11 +3,12 @@ package a2a
 import (
 	"context"
 	"iter"
+	"log/slog"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
@@ -52,7 +53,7 @@ func runUsageAgent(
 	executor := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName:        appName,
 		SessionService: adksession.InMemoryService(),
-		Logger:         logr.Discard(),
+		Logger:         slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{
 			AppName: appName,
 			Agent:   agent,
@@ -287,7 +288,7 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 	}
 
 	executor := NewKAgentExecutor(KAgentExecutorConfig{
-		AppName: appName, SessionService: adksession.InMemoryService(), Logger: logr.Discard(),
+		AppName: appName, SessionService: adksession.InMemoryService(), Logger: slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
 	})
 
@@ -313,9 +314,9 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 
 	// a2a-go merges terminal status update metadata into the stored task.
 	stored := &a2atype.Task{ID: taskID, ContextID: contextID, Status: pause.Status, Metadata: pause.Metadata}
-	decision := hitlDecisionMessage(&ToolApprovalResponse{
+	decision := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{{ID: "confirmation-call", Approved: true}},
+		Approvals: []apia2a.ToolApproval{{ID: "confirmation-call", Approved: true}},
 	})
 	decision.TaskID, decision.ContextID = taskID, contextID
 

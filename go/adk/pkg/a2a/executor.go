@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"time"
+
+	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -31,7 +34,7 @@ type KAgentExecutorConfig struct {
 	SessionService adksession.Service
 	Stream         bool
 	AppName        string
-	Logger         logr.Logger
+	Logger         *slog.Logger
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -40,7 +43,7 @@ type KAgentExecutor struct {
 	builtin        a2asrv.AgentExecutor
 	sessionService adksession.Service
 	appName        string
-	logger         logr.Logger
+	logger         *slog.Logger
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -55,9 +58,9 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	if cfg.SessionService != nil {
 		runnerConfig.SessionService = cfg.SessionService
 	}
-	logger := cfg.Logger.WithName("kagent-executor")
+	logger := cfg.Logger.With("component", "kagent-executor")
 	if usagePlugin, err := newTurnUsagePlugin(); err != nil {
-		logger.Error(err, "token usage aggregation is disabled")
+		logger.Error("token usage aggregation is disabled", "error", err)
 	} else {
 		runnerConfig.PluginConfig.Plugins = append([]*plugin.Plugin{usagePlugin}, runnerConfig.PluginConfig.Plugins...)
 	}
@@ -66,9 +69,19 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: genAIPartConverter,
-		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, _ *a2atype.TaskArtifactUpdateEvent) error {
+		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
+			}
+			// Preserve the artifact's protocol type while giving current A2A clients a
+			// common ordering key. A2A #2129 will replace this with native artifact
+			// start/end generations and a task timeline.
+			if processed.Artifact != nil {
+				position := event.Timestamp
+				if position.IsZero() {
+					position = time.Now()
+				}
+				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
 			}
 			return nil
 		},
@@ -154,11 +167,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		defer invocationSpan.End()
 		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 
-		e.logger.Info("Execute",
-			"taskID", reqCtx.TaskID,
-			"contextID", reqCtx.ContextID,
-			"appName", e.appName,
-			"userID", userID,
+		e.logger.InfoContext(ctx, "execute",
+			"task_id", reqCtx.TaskID,
+			"context_id", reqCtx.ContextID,
+			"app_name", e.appName,
+			"user_id", userID,
 		)
 
 		// Run our own session management before upstream executor runs its prepareSession function.
@@ -194,12 +207,59 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
+				position := time.Now().UTC()
+				if update.Status.Timestamp != nil {
+					position = update.Status.Timestamp.UTC()
+				}
+				update.Status.Message.SetMeta(apia2a.TimelinePositionMetadataKey, position.Format(time.RFC3339Nano))
+			}
+			if endsTurn(event, err) {
+				flushTurnSpans(ctx, invocationSpan)
 			}
 			if !yield(event, err) {
 				return
 			}
 		}
 	}
+}
+
+// endsTurn reports whether an event is the last one a turn produces: a terminal
+// or waiting task state, or an error, after which the caller ends the stream.
+func endsTurn(event a2atype.Event, err error) bool {
+	if err != nil {
+		return true
+	}
+	var state a2atype.TaskState
+	switch e := event.(type) {
+	case *a2atype.TaskStatusUpdateEvent:
+		state = e.Status.State
+	case *a2atype.Task:
+		state = e.Status.State
+	default:
+		return false
+	}
+	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+}
+
+// flushTurnSpans exports the turn's spans before the event that ends the turn
+// leaves the process, when the runtime asked for pre-response flushing.
+//
+// The server-level flush runs once the handler returns. For a unary request that
+// is before the response is written, so it is early enough. For a streaming
+// request the terminal event has already been sent by then, and the gateway
+// closes its stream to this runtime the moment it arrives; on Agent Substrate the
+// actor is checkpointed right after, with the spans of every streamed turn still
+// buffered and the flush's deadline expiring while the process is frozen. The
+// only window that exists for a streamed turn is before that event is yielded.
+//
+// The invocation span is ended first so it travels in the same export; the
+// deferred End in Execute becomes a no-op.
+func flushTurnSpans(ctx context.Context, invocationSpan trace.Span) {
+	if !telemetry.PreResponseFlushEnabled() {
+		return
+	}
+	invocationSpan.End()
+	telemetry.ForceFlush(ctx)
 }
 
 // ensureSession ensures that a session exists for the given user and session ID.
@@ -215,7 +275,7 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 		return nil
 	}
 	if err != nil {
-		e.logger.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
+		e.logger.DebugContext(ctx, "session lookup failed, will create", "error", err, "session_id", sessionID)
 	}
 
 	state := make(map[string]any)

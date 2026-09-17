@@ -1,0 +1,435 @@
+/**
+ * The fixture backend, exercised through the same entry point the app uses.
+ *
+ * `api/operations.test.ts` proves the *client* against in-process services. This
+ * proves the *fixtures*: that every operation the app can invoke is actually
+ * served, that the three scenario axes still work, and that a write can be read
+ * back. Those are different failures — a fake that is missing an RPC answers
+ * `Unimplemented`, and nothing notices until someone opens the page it belongs to.
+ * That is exactly the gap the two deleted REST-path suites existed to close, and
+ * it did not go away when the paths did.
+ *
+ * The scenario is read from the URL here exactly as it is in a browser, so these
+ * tests drive it the same way a person does.
+ */
+
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { ApiError } from "@/api/ApiError";
+import { clearApiExtensions } from "@/api/extensionPoints";
+import { invoke, operationIds } from "@/api/operations";
+import type { OperationId, OperationInput } from "@/api/operations";
+import { setApiTransport } from "@/api/transport";
+import { mockTransport } from "./transport";
+import { MOCK_INSTANCE_CREATOR } from "./fixtures";
+import { DISPOSABLE_CHECKPOINT, SEEDED_CHECKPOINT } from "./state";
+
+beforeAll(() => setApiTransport(mockTransport));
+afterAll(() => setApiTransport(undefined));
+
+/** The scenario, set the way a person sets it: in the URL. */
+function setScenario(scenario: "ok" | "empty" | "error"): void {
+  window.localStorage.clear();
+  window.history.replaceState({}, "", `/?mock=${scenario}`);
+}
+
+beforeEach(() => setScenario("ok"));
+afterEach(() => clearApiExtensions());
+
+/**
+ * A plausible input for every operation.
+ *
+ * `satisfies` is doing real work: an operation added to `OperationMap` without an
+ * entry here fails to compile, so the sweep below cannot silently stop covering
+ * the whole surface.
+ */
+const INPUTS = {
+  "scheduledRuns.list": {},
+  "scheduledRuns.get": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
+  "scheduledRuns.create": { requestId: "sweep-schedule", harness: { namespace: "kagent", name: "k8s-agent" }, agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.update": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000002", etag: "d686bd1d-9124-4e96-8df7-000000000002", config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.delete": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000003" },
+  "scheduledRuns.trigger": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001", requestId: "sweep-trigger" },
+  "scheduledRuns.executions": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
+  "models.list": {},
+  "models.get": { namespace: "kagent", name: "default-model-config" },
+  "models.create": {
+    payload: { ref: "kagent/swept-model", spec: { model: "gpt-4.1", provider: "OpenAI" } },
+  },
+  "models.update": {
+    namespace: "kagent",
+    name: "swept-model",
+    payload: { ref: "kagent/swept-model", spec: { model: "gpt-4.1", provider: "OpenAI" } },
+  },
+  "models.delete": { namespace: "kagent", name: "swept-model" },
+  "models.providers": {},
+  "models.providerModels": {},
+
+  "mcpServers.list": {},
+  "mcpServers.create": {
+    payload: {
+      type: "RemoteMCPServer" as const,
+      remoteMCPServer: {
+        metadata: { name: "swept-server", namespace: "kagent" },
+        spec: {
+          description: "a swept server",
+          protocol: "STREAMABLE_HTTP" as const,
+          url: "https://example.test/mcp",
+          headersFrom: [],
+        },
+      },
+    },
+  },
+  "mcpServers.delete": { namespace: "kagent", name: "swept-server" },
+  "tools.list": {},
+
+  "prompts.list": {},
+  "prompts.get": { namespace: "kagent", name: "shared-fragments" },
+  "prompts.create": {
+    payload: { namespace: "kagent", name: "swept-prompts", data: { tone: "brisk" } },
+  },
+  "prompts.update": {
+    namespace: "kagent",
+    name: "swept-prompts",
+    payload: { data: { tone: "brisker" } },
+  },
+  "prompts.delete": { namespace: "kagent", name: "swept-prompts" },
+
+  /*
+   * Each of these acts on a different instance, because this sweep runs every
+   * operation concurrently and the controller refuses a second lifecycle operation
+   * on an instance that already has one in flight. Suspending and resuming the same
+   * row here would be a race with itself.
+   */
+  "agentInstances.list": {},
+  "agentInstances.get": {
+
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  },
+  "agentInstances.suspend": {
+
+    id: "5a3c8e17-4b92-4d05-9f61-8c2e7a03b4d9",
+  },
+  "agentInstances.resume": {
+
+    id: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
+  },
+  "agentInstances.shares.list": {
+
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  },
+  "agentInstances.shares.create": {
+
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    permission: "readOnly",
+  },
+  // The seeded share, not one the sweep created: the sweep runs everything at once,
+  // so revoking the create above would be a race with it.
+  "agentInstances.shares.revoke": {
+
+    shareId: "mock-instance-share-seed",
+  },
+  "agentInstances.create": {
+    harness: { namespace: "kagent", name: "k8s-agent" },
+    agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+    // Required by the controller, and by the fixture backend for the same reason.
+    requestId: "swept-create",
+  },
+  // A different instance again, for the reason above: this sweep runs everything at
+  // once, and deleting one another operation is reading would be a race. This one is
+  // touched by nothing else here.
+  "agentInstances.delete": {
+
+    // The scratch instance, which exists for this. It has to be one the mock caller
+    // *created*: deleting is scoped to the creator exactly as reading is, so the
+    // barely-written record this used to name — whose creator is nobody — now
+    // answers NotFound, which is the controller's behaviour and not a fixture bug.
+    id: "9c3b7e18-40d6-4a52-8b71-e2f05c96a3d7",
+  },
+
+  "harnesses.list": {},
+  "harnesses.create": {
+    namespace: "kagent",
+    name: "made-up",
+    resource: {
+      metadata: { name: "made-up", namespace: "kagent" },
+      spec: {
+        kagent: {},
+        workload: {
+          image: `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`,
+        },
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "gs://snapshots/kagent/" },
+        },
+      },
+    },
+  },
+  "harnesses.delete": { namespace: "kagent", name: "made-up" },
+  "agentTemplates.list": {},
+  "agentTemplates.get": { namespace: "kagent", name: "k8s-agent-7f3a91c" },
+  "agentTemplates.create": {
+    namespace: "kagent",
+    name: "swept-template",
+    resource: {
+      metadata: { name: "swept-template", namespace: "kagent" },
+      spec: { modelConfig: { name: "default-model-config" } },
+    },
+  },
+  "agentTemplates.update": {
+    namespace: "kagent",
+    name: "note-taker",
+    resource: {
+      metadata: { name: "note-taker", namespace: "kagent" },
+      spec: { modelConfig: { name: "default-model-config" } },
+    },
+  },
+  // A different template again: this sweep runs everything at once, and deleting
+  // one another operation is reading would be a race.
+  "agentTemplates.delete": { namespace: "kagent", name: "support-triage-2b91d0e" },
+
+  "agentInstances.rename": {
+
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    // A real name rather than an empty one: an empty name is valid and would prove
+    // only that the call is wired, where this also proves the validation accepts
+    // something a reader would type.
+    name: "Renamed by the fixture suite",
+  },
+
+  // Forking reads the source and writes a new row, so it races nothing above.
+  "agentInstances.fork": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-fork",
+    name: "Forked by the fixture suite",
+  },
+
+  /*
+   * The seeded boundary, so forking one has something to fork without ordering this
+   * suite: every operation here runs concurrently and none may depend on another.
+   */
+  "agentInstances.checkpoints.create": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-checkpoint",
+  },
+  "agentInstances.checkpoints.list": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
+  "agentInstances.checkpoints.fork": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    requestId: "fixture-suite-checkpoint-fork",
+    name: "Forked from a checkpoint by the fixture suite",
+  },
+
+  // The disposable boundary: deleting the seeded one would race the fork case above.
+  "agentInstances.checkpoints.delete": { checkpointId: DISPOSABLE_CHECKPOINT.id },
+
+  "namespaces.list": {},
+  "substrate.summary": {},
+  "substrate.actors": {},
+  "substrate.workers": {},
+} satisfies { [K in OperationId]: OperationInput<K> };
+
+/** Runs one operation with the input above. */
+function run(id: OperationId): Promise<unknown> {
+  return invoke(id, INPUTS[id] as never);
+}
+
+describe("the fixture backend", () => {
+  /*
+   * Concurrently, because every call waits out the scenario's delay: serially this
+   * would be one delay per operation for no extra coverage.
+   */
+  it("serves every operation the app can invoke", async () => {
+    const failures = await Promise.all(
+      operationIds.map(async (id) => {
+        try {
+          await run(id);
+          return null;
+        } catch (error) {
+          return `${id}: ${(error as Error).message}`;
+        }
+      }),
+    );
+
+    expect(failures.filter(Boolean)).toEqual([]);
+  });
+
+  it("serves upstream substrate messages through the UI conversions", async () => {
+    const [summary, page] = await Promise.all([
+      invoke("substrate.summary", {}),
+      invoke("substrate.actors", {}),
+    ]);
+    expect(summary.actorTemplates[0]).toMatchObject({
+      name: "coder-template",
+      phase: "Ready",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=default-pool",
+    });
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
+      atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
+    });
+    expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
+  });
+
+  it("preserves continuation through a worker page with no namespace matches", async () => {
+    const first = await invoke("substrate.workers", { namespace: "platform", limit: 1 });
+    expect(first.workers).toEqual([]);
+    expect(first.nextPageToken).toBeDefined();
+    const last = await invoke("substrate.workers", { namespace: "platform", limit: 1, pageToken: first.nextPageToken });
+    expect(last.workers).toEqual([]);
+    expect(last.nextPageToken).toBeUndefined();
+  });
+
+  /*
+   * `models.providers` is two RPCs merged, and a merge with nothing on one side is
+   * wired rather than exercised — so the fixtures carry one provider of each kind and
+   * this asserts both arrive with the right provenance.
+   */
+  it("merges the providers an operator added with the ones the controller ships", async () => {
+    const providers = await invoke("models.providers", {});
+
+    const stock = providers.filter((provider) => provider.source === "stock");
+    const configured = providers.filter((provider) => provider.source === "configured");
+    expect(stock.length).toBeGreaterThan(0);
+    expect(configured).toHaveLength(1);
+
+    // A configured provider is a `ModelProviderConfig` resource, so its name is the
+    // resource's name while its type is the provider enum. They differ, where for a
+    // stock provider they are the same string — which is exactly what a picker keyed
+    // on the wrong one of the two gets wrong.
+    expect(configured[0].name).not.toBe(configured[0].type);
+    expect(configured[0].endpoint).toBeTruthy();
+    // No parameter lists: the controller reports none for a configured provider, and
+    // every caller iterates them, so they are empty rather than absent.
+    expect(configured[0].requiredParams).toEqual([]);
+    expect(configured[0].optionalParams).toEqual([]);
+
+    // The stock RPC must not also report it, or the picker shows it twice.
+    expect(stock.map((provider) => provider.name)).not.toContain(configured[0].name);
+  });
+
+  it("lists only the prompt libraries in the namespace asked about", async () => {
+    const scoped = await invoke("prompts.list", { namespace: "platform" });
+    expect(scoped.map((row) => ({ namespace: row.namespace, name: row.name }))).toEqual([
+      { namespace: "platform", name: "incident-playbooks" },
+    ]);
+
+    const all = await invoke("prompts.list", {});
+    expect(all.length).toBeGreaterThan(scoped.length);
+  });
+
+  /*
+   * The fixture backend has to refuse a lifecycle operation for the same reasons the
+   * controller does, or the disabled buttons on the instances page are decoration:
+   * a fake that suspended anything from any state would let the page ship with its
+   * preconditions inverted and nothing would object until a cluster did.
+   */
+  describe("agent instance lifecycle", () => {
+    const READY = "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44";
+    const FAILED = "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332";
+    const MID_OPERATION = "0a7d6c58-9e21-4b3c-a05d-4e8f1b6d2277";
+
+    it("records a suspend, so the list and the record agree afterwards", async () => {
+      const before = await invoke("agentInstances.get", {
+
+        id: READY,
+      });
+      expect(before.state).toBe("ready");
+
+      const suspended = await invoke("agentInstances.suspend", {
+
+        id: READY,
+      });
+      expect(suspended.state).toBe("suspended");
+      // Cleared, because the controller's operation completes synchronously — an
+      // instance still claiming to be suspending would refuse the resume that
+      // follows.
+      expect(suspended.operation).toBe("unspecified");
+
+      const listed = await invoke("agentInstances.list", {});
+      expect(listed.find((row) => row.id === READY)?.state).toBe("suspended");
+
+      const resumed = await invoke("agentInstances.resume", {
+
+        id: READY,
+      });
+      expect(resumed.state).toBe("ready");
+    });
+
+    it("refuses a suspend from a state the controller would refuse", async () => {
+      const error = await invoke("agentInstances.suspend", {
+
+        id: FAILED,
+      }).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe("Aborted");
+    });
+
+    it("refuses a second operation while one is already in flight", async () => {
+      const error = await invoke("agentInstances.resume", {
+
+        id: MID_OPERATION,
+      }).catch((reason: unknown) => reason);
+
+      expect((error as ApiError).code).toBe("Aborted");
+      expect((error as ApiError).message).toMatch(/conflicting lifecycle operation/);
+    });
+
+    it("lists other people's instances only when asked", async () => {
+      const mine = await invoke("agentInstances.list", {});
+      const everyone = await invoke("agentInstances.list", {
+
+        allCreators: true,
+      });
+
+      expect(everyone.length).toBeGreaterThan(mine.length);
+      expect(mine.every((row) => row.creator === MOCK_INSTANCE_CREATOR)).toBe(true);
+      expect(everyone.some((row) => row.creator !== MOCK_INSTANCE_CREATOR)).toBe(true);
+    });
+
+    it("lists conversations from targets in multiple namespaces", async () => {
+      const rows = await invoke("agentInstances.list", {});
+      expect(new Set(rows.map(row => row.agentTemplate?.split("/")[0])).size).toBeGreaterThan(1);
+    });
+  });
+
+  describe("?mock=empty", () => {
+    beforeEach(() => setScenario("empty"));
+
+    it("empties the lists", async () => {
+      expect(await invoke("models.list", {})).toEqual([]);
+      expect(await invoke("namespaces.list", {})).toEqual([]);
+    });
+
+    it("answers a single resource with a 404, which is the state a page renders", async () => {
+      await expect(
+        invoke("models.get", { namespace: "kagent", name: "default-model-config" }),
+      ).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
+  describe("?mock=error", () => {
+    beforeEach(() => setScenario("error"));
+
+    it("fails a read as the API would, and says it was asked to", async () => {
+      const error = await invoke("models.list", {}).catch((reason: unknown) => reason);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(500);
+      expect((error as ApiError).message).toContain("asked to fail");
+      // Named so a failing screenshot says which call broke.
+      expect((error as ApiError).message).toContain("ModelService/ListModelConfigs");
+    });
+
+    it("fails a write too, so a form's failure path is reachable", async () => {
+      await expect(
+        invoke("models.create", {
+          payload: {
+            ref: "kagent/never-created",
+            spec: { model: "gpt-4.1", provider: "OpenAI" },
+          },
+        }),
+      ).rejects.toBeInstanceOf(ApiError);
+    });
+  });
+});

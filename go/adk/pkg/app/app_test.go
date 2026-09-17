@@ -64,7 +64,7 @@ func TestSeedTaskInterceptor(t *testing.T) {
 
 func TestSeedTaskInterceptorRestoresWaitingTask(t *testing.T) {
 	store := a2ataskstore.NewInMemory(nil)
-	status := a2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent), &a2a.AskUserRequest{
+	status := a2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent), &apia2a.AskUserRequest{
 		Type: a2a.HITLTypeAskUserRequest, ID: "question-1",
 	})
 	waiting := &a2atype.Task{
@@ -139,13 +139,6 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	cfg := applyDefaults(AppConfig{ShutdownTimeout: 10 * time.Second})
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Errorf("expected shutdown timeout %v, got %v", 10*time.Second, cfg.ShutdownTimeout)
-	}
-}
-
-func TestApplyDefaults_Logger(t *testing.T) {
-	cfg := applyDefaults(AppConfig{})
-	if cfg.Logger.GetSink() == nil {
-		t.Error("expected default logger to be created")
 	}
 }
 

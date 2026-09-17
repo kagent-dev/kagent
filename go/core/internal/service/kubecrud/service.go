@@ -1,0 +1,212 @@
+package kubecrud
+
+import (
+	"cmp"
+	"context"
+	"fmt"
+	"slices"
+
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+type Object interface {
+	client.Object
+	comparable
+}
+
+type Service[T Object, L client.ObjectList] struct {
+	client     client.Client
+	object     T
+	list       L
+	authorizer auth.CollectionAuthorizer
+	resource   string
+}
+
+func NewService[T Object, L client.ObjectList](
+	client client.Client,
+	authorizer auth.CollectionAuthorizer,
+	object T,
+	list L,
+	resource string,
+) *Service[T, L] {
+	return &Service[T, L]{
+		client: client, object: object, list: list, authorizer: authorizer, resource: resource,
+	}
+}
+
+func (s *Service[T, L]) List(ctx context.Context, namespace string) ([]T, error) {
+	scope, err := s.scope(ctx, auth.VerbList)
+	if err != nil {
+		return nil, err
+	}
+	matcher, err := kubeauth.CompileScope(scope)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to apply the "+s.resource+" authorization scope", err)
+	}
+	list := s.list.DeepCopyObject().(L)
+	if err := s.client.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return nil, serviceerrors.NewInternal("Failed to list "+s.resource+"s", err)
+	}
+	items := make([]T, 0)
+	if err := meta.EachListItem(list, func(item runtime.Object) error {
+		object := item.(T)
+		if matcher.Matches(object) {
+			items = append(items, object)
+		}
+		return nil
+	}); err != nil {
+		return nil, serviceerrors.NewInternal("Failed to read "+s.resource+" list", err)
+	}
+	// Namespace and name are a total order, so a cluster-wide list cannot return equal items in an arbitrary order.
+	slices.SortFunc(items, func(left, right T) int {
+		return cmp.Or(
+			cmp.Compare(left.GetNamespace(), right.GetNamespace()),
+			cmp.Compare(left.GetName(), right.GetName()),
+		)
+	})
+	return items, nil
+}
+
+func (s *Service[T, L]) Get(ctx context.Context, ref types.NamespacedName) (T, error) {
+	var zero T
+	if err := s.validateRef(ref); err != nil {
+		return zero, err
+	}
+	if err := s.authorize(ctx, auth.VerbGet, ref); err != nil {
+		return zero, err
+	}
+	return s.get(ctx, ref)
+}
+
+// Create persists an object already prepared by the resource-specific service.
+func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
+	var zero T
+	if object == zero {
+		return zero, serviceerrors.NewInvalidArgument(s.resource+" resource is required", nil)
+	}
+	ref := types.NamespacedName{Namespace: object.GetNamespace(), Name: object.GetName()}
+	if err := s.validateNewRef(ref); err != nil {
+		return zero, err
+	}
+	if err := s.authorize(ctx, auth.VerbCreate, ref); err != nil {
+		return zero, err
+	}
+	if err := s.client.Create(ctx, object); err != nil {
+		switch {
+		case apierrors.IsAlreadyExists(err):
+			return zero, serviceerrors.NewAlreadyExists(s.resource+" already exists", err)
+		case apierrors.IsInvalid(err):
+			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
+		default:
+			return zero, serviceerrors.NewInternal("Failed to create "+s.resource, err)
+		}
+	}
+	return object, nil
+}
+
+// GetForUpdate authorizes an update and loads the live object that owns metadata and status.
+func (s *Service[T, L]) GetForUpdate(ctx context.Context, ref types.NamespacedName) (T, error) {
+	var zero T
+	if err := s.validateRef(ref); err != nil {
+		return zero, err
+	}
+	if err := s.authorize(ctx, auth.VerbUpdate, ref); err != nil {
+		return zero, err
+	}
+	return s.get(ctx, ref)
+}
+
+// SaveUpdate persists an object returned by GetForUpdate after its spec is changed.
+func (s *Service[T, L]) SaveUpdate(ctx context.Context, object T) (T, error) {
+	var zero T
+	if err := s.client.Update(ctx, object); err != nil {
+		if apierrors.IsInvalid(err) {
+			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
+		}
+		return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
+	}
+	return object, nil
+}
+
+func (s *Service[T, L]) Delete(ctx context.Context, ref types.NamespacedName) error {
+	if err := s.validateRef(ref); err != nil {
+		return err
+	}
+	if err := s.authorize(ctx, auth.VerbDelete, ref); err != nil {
+		return err
+	}
+	object, err := s.get(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if err := s.client.Delete(ctx, object); err != nil {
+		return serviceerrors.NewInternal("Failed to delete "+s.resource, err)
+	}
+	return nil
+}
+
+func (s *Service[T, L]) scope(ctx context.Context, verb auth.Verb) (apiauthorization.AuthorizationScope, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok || session == nil {
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+	}
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, s.resource)
+	if err != nil {
+		return apiauthorization.AuthorizationScope{}, serviceerrors.NewUnavailable("Failed to read the "+s.resource+" authorization scope", err)
+	}
+	return scope, nil
+}
+
+func (s *Service[T, L]) get(ctx context.Context, ref types.NamespacedName) (T, error) {
+	var zero T
+	object := s.object.DeepCopyObject().(T)
+	if err := s.client.Get(ctx, ref, object); err != nil {
+		if apierrors.IsNotFound(err) {
+			return zero, serviceerrors.NewNotFound(s.resource+" not found", err)
+		}
+		return zero, serviceerrors.NewInternal("Failed to get "+s.resource, err)
+	}
+	return object, nil
+}
+
+// authorize decides a single operation before any read, so a denial never depends on the object existing.
+func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, ref types.NamespacedName) error {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok || session == nil {
+		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+	}
+	resource := auth.Resource{Type: s.resource, Namespace: ref.Namespace, Name: ref.Name}
+	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	return nil
+}
+
+func (s *Service[T, L]) validateRef(ref types.NamespacedName) error {
+	if ref.Namespace == "" || ref.Name == "" {
+		return serviceerrors.NewInvalidArgument(s.resource+" namespace and name are required", nil)
+	}
+	return nil
+}
+
+func (s *Service[T, L]) validateNewRef(ref types.NamespacedName) error {
+	if err := s.validateRef(ref); err != nil {
+		return err
+	}
+	if len(utilvalidation.IsDNS1123Subdomain(ref.Namespace)) > 0 {
+		return serviceerrors.NewInvalidArgument("namespace must be a valid DNS subdomain", nil)
+	}
+	if len(utilvalidation.IsDNS1123Subdomain(ref.Name)) > 0 {
+		return serviceerrors.NewInvalidArgument("name must be a valid DNS subdomain", nil)
+	}
+	return nil
+}

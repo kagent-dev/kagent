@@ -69,6 +69,39 @@ Create the grafana server URL
 {{- end }}
 
 {{/*
+Host header values the MCP server will answer to.
+
+The server rejects any Host it was not told about — protection against DNS rebinding,
+which is aimed at browsers and applies to every client. Its default allow-list is the
+loopback forms of --address, so a server reached over the cluster network answers
+"forbidden: host not allowed" to the handshake and reports no tools at all.
+
+Derived from the same fullname, namespace and port as grafana-mcp.serverUrl, because that
+URL is precisely what the controller dials: the two cannot be allowed to disagree. The
+shorter in-cluster forms are included for anything addressing the service directly, and
+loopback for a port-forward. Set allowedHosts to override, including "*" to switch the
+check off behind a proxy that rewrites Host.
+*/}}
+{{- define "grafana-mcp.allowedHosts" -}}
+{{- if .Values.allowedHosts -}}
+{{- .Values.allowedHosts -}}
+{{- else -}}
+{{- $name := include "grafana-mcp.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $port := .Values.service.port | int -}}
+{{- $hosts := list
+  (printf "%s:%d" $name $port)
+  (printf "%s.%s:%d" $name $ns $port)
+  (printf "%s.%s.svc:%d" $name $ns $port)
+  (printf "%s.%s.svc.cluster.local:%d" $name $ns $port)
+  (printf "localhost:%d" $port)
+  (printf "127.0.0.1:%d" $port)
+-}}
+{{- join "," $hosts -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Join registry/repository/name/tag for grafana-mcp image, skipping empty segments, then append tag
 */}}
 {{- define "grafana-mcp.image" -}}

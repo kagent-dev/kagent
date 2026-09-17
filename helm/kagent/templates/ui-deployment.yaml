@@ -38,9 +38,6 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-ui
       volumes:
-        - name: nextjs-cache
-          emptyDir:
-            sizeLimit: {{ .Values.ui.volumes.nextjsCache }}
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.ui.volumes.tmp }}
@@ -71,27 +68,19 @@ spec:
           {{- end }}
           image: "{{ .Values.ui.image.registry | default .Values.registry  }}/{{ .Values.ui.image.repository }}:{{ coalesce .Values.tag .Values.ui.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.ui.image.pullPolicy | default .Values.imagePullPolicy }}
+          {{- /* The UI is a static bundle; these are read by init.sh, which
+                 renders them into the config.json the browser fetches at
+                 startup. Nothing here is consumed by a server process. */}}
           env:
-            - name: NEXT_PUBLIC_BACKEND_URL
-              value: {{ .Values.ui.publicBackendUrl | quote }}
-            - name: BACKEND_INTERNAL_URL
-              value: {{ .Values.ui.backendInternalUrl | default (include "kagent.controllerInternalHttpApiBase" .) | quote }}
-            - name: BACKEND_GRPC_URL
-              value: {{ .Values.ui.backendGrpcUrl | default (include "kagent.controllerInternalGrpcBase" .) | quote }}
+            - name: KAGENT_API_BASE_URL
+              value: {{ .Values.ui.publicBackendUrl | default "/api" | quote }}
             {{- if .Values.ui.auth }}
             - name: SSO_REDIRECT_PATH
-              value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
-            # Client components (e.g. AuthContext) can only read NEXT_PUBLIC_* vars at runtime.
-            - name: NEXT_PUBLIC_SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
             {{- end }}
             {{- if .Values.ui.streamTimeoutSeconds }}
             - name: KAGENT_STREAM_TIMEOUT_MS
               value: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
-            {{- end }}
-            {{- with .Values.ui.additionalForwardedHeaders }}
-            - name: KAGENT_ADDITIONAL_FORWARDED_HEADERS
-              value: {{ join "," . | quote }}
             {{- end }}
             {{- with .Values.ui.env }}
               {{- toYaml . | nindent 12 }}
@@ -101,17 +90,11 @@ spec:
               containerPort: {{ .Values.ui.service.ports.targetPort }}
               protocol: TCP
           volumeMounts:
-            - name: nextjs-cache
-              mountPath: /app/ui/.next/cache
             - name: tmp
               mountPath: /tmp
             - name: ui-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
-              readOnly: true
-            - name: ui-config
-              mountPath: /etc/supervisor/conf.d/supervisord.conf
-              subPath: supervisord.conf
               readOnly: true
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}

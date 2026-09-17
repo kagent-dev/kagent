@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// HarnessService is CRUD over the kagent.dev/v1alpha3 Harness CRD: the runtime
+// and infrastructure policy half of the (Harness, AgentTemplate) pair that
+// CreateAgentInstance names.
+//
+// A Harness is a reusable runtime adapter paired with an AgentTemplate when an
+// AgentInstance is created. Creating either Kubernetes resource does not run an
+// agent.
+service HarnessService {
+  rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);
+  rpc CreateHarness(CreateHarnessRequest) returns (CreateHarnessResponse);
+  rpc DeleteHarness(DeleteHarnessRequest) returns (DeleteHarnessResponse);
+}
+
+message Harness {
+  ResourceReference ref = 1;
+
+  // Resource is the whole Harness CR. The spec is carried verbatim rather than
+  // re-modelled here so that a CRD change cannot silently drift from the API.
+  StructuredObject resource = 2;
+
+  // Runtime is the adapter the spec selects: "kagent", "codex" or "claude".
+  // Denormalised because callers listing harnesses group and filter by it, and
+  // would otherwise each reimplement the exactly-one-of check the CRD enforces.
+  string runtime = 3;
+
+  // WorkloadImage is spec.workload.image, the digest-pinned runtime image.
+  string workload_image = 4;
+
+  // Ready mirrors the Ready status condition. False also covers a Harness the
+  // controller has not yet observed.
+  bool ready = 5;
+}
+
+message ListHarnessesRequest {
+  string namespace = 1;
+}
+
+message ListHarnessesResponse {
+  repeated Harness harnesses = 1;
+}
+
+message CreateHarnessRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message CreateHarnessResponse {
+  Harness harness = 1;
+}
+
+message DeleteHarnessRequest {
+  ResourceReference ref = 1;
+}
+
+message DeleteHarnessResponse {}

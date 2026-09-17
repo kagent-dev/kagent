@@ -1,0 +1,831 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Alert, Button, Tooltip } from "antd";
+import { FileText, PanelRightClose, PanelRightOpen, Share2 } from "lucide-react";
+import { useTheme } from "@emotion/react";
+import toast from "react-hot-toast";
+import { ChatComposer, type ChatComposerHandle } from "@/components/chat/ChatComposer";
+import { ShareDialog } from "@/components/chat/ShareDialog";
+import { AgentRail } from "@/components/agent/AgentRail";
+import { iconControlStyles } from "@/components/agent/controlStyles";
+import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
+import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
+import { ChatTranscript } from "@/components/chat/ChatTranscript";
+import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
+import { paths } from "@/router/routes";
+import {
+  apiClient,
+  useAgentInstance,
+  useAgentInstances,
+  useChat,
+} from "@/api";
+import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
+import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
+import { useCheckpoints } from "@/api/hooks/useCheckpoints";
+import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
+import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
+import { useExtensionAgentLinks } from "@/appExtensions/hooks";
+import { agentUrl } from "@/components/agent/agentUrl";
+
+/**
+ * How often the instance is re-read while it is doing something.
+ *
+ * A lifecycle operation on this cluster takes seconds rather than milliseconds —
+ * a template's actor reached ready in about twelve — so a second is fast enough to
+ * catch a stage and slow enough that a long answer is not a hundred round trips.
+ */
+const LIFECYCLE_POLL_MS = 1_000;
+
+/**
+ * The conversation with one agent.
+ *
+ * ## There is no session id here
+ *
+ * An `AgentInstance` owns the conversation's context and isolated history.
+ * `ListTasks` scoped to the instance returns its
+ * transcript — so `/agents/:id/chat` is the whole address, and there is
+ * nothing to put in a session segment.
+ *
+ * That is also why "New chat" in the rail *creates* rather than navigates: another
+ * conversation with the same agent is another instance of the same
+ * `(Harness, AgentTemplate)` pair, and the siblings of this instance are the other
+ * conversations you have had with it.
+ *
+ * ## Sharing
+ *
+ * A share is over the instance, because the instance is the conversation. The gRPC
+ * interceptor validates its `X-Share-Token`, and the A2A gateway authorises access
+ * to that same instance as the share's owner.
+ */
+/** Where the agent panel's open state is remembered, per reader. */
+const CONTEXT_OPEN = "kagent.chat.agentPanel.open";
+
+/**
+ * The widths at which the transcript stops having room for its neighbours.
+ *
+ * This one goes first, because it is reference you open when you want it. Then the
+ * application sidebar, at antd's `lg`. Then the rail, last, because it is the only way
+ * to the other conversations with this agent — its width lives in `AgentRail`.
+ */
+const CONTEXT_COLLAPSES_BELOW = 1440;
+
+/** Boundaries saved on this page, and the conversation they were saved in. */
+interface SavedMarks {
+  conversation?: string;
+  marks: ReadonlyMap<string, string>;
+}
+
+/** Stable, so a page with nothing saved does not re-derive its marks every render. */
+const NO_MARKS: SavedMarks = { marks: new Map() };
+
+export function AgentChatPage() {
+  const theme = useTheme();
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const location = useLocation();
+
+  const instance = useAgentInstance(id);
+  /*
+   * Every instance visible to the caller, for the rail's list of sibling conversations.
+   *
+   * Read here rather than in the rail because this page is the one that creates and
+   * deletes them, so it is the one that has to refresh the list afterwards — and a
+   * rail reading its own copy would show a conversation this page had just removed.
+   */
+  const instances = useAgentInstances();
+
+  const conversation = useMemo(
+    () => (id ? { id, contextId: instance.data?.contextId } : undefined),
+    [id, instance.data?.contextId],
+  );
+  /**
+   * Resume a suspended conversation before any turn begins.
+   *
+   * Handed to `useChat` rather than wrapped around `send`, because a turn begins two
+   * ways: the composer, and Retry. Retry starts one from inside the hook and never
+   * sees a wrapper out here — and with conversations giving their workers back after
+   * every turn, suspended is exactly the state a failed turn leaves behind, so Retry
+   * is the likeliest button to be pressed against one.
+   *
+   * The state is read when the turn starts rather than closed over, and the resume is
+   * awaited rather than fired alongside the send: sending into an instance that has
+   * not finished resuming is the refusal this exists to avoid.
+   */
+
+  const resumeFirst = useCallback(async () => {
+    if (instance.data?.state !== "suspended" || !id) return;
+    await apiClient.agentInstances.resume(id);
+    await instance.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.data?.state, id]);
+
+  const chat = useChat(conversation, resumeFirst);
+
+  /*
+   * The other side of a share writes here too.
+   *
+   * A read-write share makes this conversation something two people send to, and the
+   * owner sitting on this page was the one who never saw the visitor's messages.
+   */
+  useLiveTranscript(chat.refreshTranscript, {
+    enabled: Boolean(conversation),
+    isBusy: chat.phase === "streaming",
+  });
+
+  /**
+   * What to call this conversation when nobody has named it.
+   *
+   * Derived from the reader's first message, which is the only thing about a
+   * conversation that says what it is *about* — and it is free here and nowhere
+   * else. Titling a *list* of conversations this way would cost a `ListTasks` per
+   * row, so a list falls back to the id; this page has the transcript in hand
+   * because it is rendering it.
+   *
+   * Display only: it is not written back. A stored auto-title would be a name
+   * nobody chose, indistinguishable from one somebody did, and the reader could
+   * never tell whether clearing it would restore anything. The rename control on
+   * the agent's page is where a name comes from.
+   */
+  const autoTitle = useMemo(() => {
+    const firstFromReader = chat.messages.find((message) => message.role === "user");
+    const said = firstFromReader?.parts.find((part) => part.kind === "text")?.text;
+    return autoTitleFrom(said);
+  }, [chat.messages]);
+
+  const [isSharing, setSharing] = useState(false);
+  const [isShowingDetails, setShowingDetails] = useState(false);
+
+  const invalidateConversations = useInvalidateConversations();
+  const links = useExtensionAgentLinks();
+  const checkpoints = useCheckpoints(id);
+  /**
+   * Boundaries saved since this page loaded, by the message they were saved at.
+   *
+   * See `checkpointsByMessage`: the controller ties a checkpoint to a *turn*, and the
+   * message the reader has just sent does not know its turn yet.
+   */
+  /*
+   * Held against the conversation it belongs to, and read only for that one.
+   *
+   * The marks are keyed by message id, and a fork is given copies of its source's
+   * messages under the same ids — so a fork opened from this page inherited marks for
+   * boundaries it does not have. Carrying the conversation with them is what drops
+   * them: a different `id` reads as no marks, with no effect to clear anything and no
+   * render in between where the old ones still apply. The same shape `useChat` gives
+   * its transcript, and for the same reason. The controller's list is the truth; this
+   * only ever covers the gap before the first read of it lands.
+   */
+  const [savedHere, setSavedHere] = useState<SavedMarks>(NO_MARKS);
+  const marksHere = savedHere.conversation === id ? savedHere.marks : NO_MARKS.marks;
+  const [isCheckpointing, setCheckpointing] = useState(false);
+
+  const checkpointByMessage = useMemo(
+    () => checkpointsByMessage(chat.messages, checkpoints.data, marksHere),
+    [chat.messages, checkpoints.data, marksHere],
+  );
+  /*
+   * Whether there is a boundary to save.
+   *
+   * Something has to have been said, and the latest turn must not already be saved —
+   * a second checkpoint at the same boundary is a second row that forks identically,
+   * which is a way of filling the list rather than a thing anyone wants.
+   */
+  const latest = chat.messages[chat.messages.length - 1];
+  const canCheckpoint = Boolean(latest) && !checkpointByMessage.has(latest.id);
+
+  /*
+   * Saves the conversation's current turn boundary.
+   *
+   * Recorded against the reader's latest message as well as read back from the
+   * controller, because the boundary has to show before the next read lands — see
+   * `checkpointsByMessage` for why the message alone cannot say which turn it is in.
+   */
+  const checkpointChat = useCallback(async () => {
+    if (!id) return;
+    const anchor = [...chat.messages].reverse().find((m) => m.role === "user")?.id;
+    setCheckpointing(true);
+    try {
+      const checkpoint = await apiClient.agentInstances.checkpoints.create(id);
+      if (anchor) {
+        setSavedHere((current) => {
+          const marks = new Map(current.conversation === id ? current.marks : []);
+          marks.set(anchor, checkpoint.id);
+          return { conversation: id, marks };
+        });
+      }
+      await checkpoints.refresh();
+      toast.success("Checkpoint saved");
+    } catch (cause: unknown) {
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      console.error("Could not checkpoint the conversation:", cause);
+      toast.error(`Could not checkpoint: ${reason}`);
+    } finally {
+      setCheckpointing(false);
+    }
+  }, [id, chat.messages, checkpoints]);
+
+  /*
+   * Removes a saved boundary.
+   *
+   * The mark this page holds for it goes too: `savedHere` is what draws the line for
+   * a boundary saved since the page loaded, so leaving it would keep the line on
+   * screen over a checkpoint the controller no longer has.
+   */
+  const deleteCheckpoint = useCallback(
+    async (checkpointId: string) => {
+      try {
+        await apiClient.agentInstances.checkpoints.remove(checkpointId);
+        setSavedHere((current) => ({
+          conversation: current.conversation,
+          marks: new Map([...current.marks].filter(([, saved]) => saved !== checkpointId)),
+        }));
+        toast.success("Checkpoint deleted");
+      } catch (cause: unknown) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        console.error("Could not delete the checkpoint:", cause);
+        toast.error(`Could not delete: ${reason}`);
+        return;
+      }
+      try {
+        await checkpoints.refresh();
+      } catch (cause: unknown) {
+        console.error("Could not re-read the saved boundaries:", cause);
+      }
+    },
+    [checkpoints],
+  );
+
+  /*
+   * A new conversation holding the transcript up to a saved boundary, which is then
+   * opened. Forking the same boundary again is allowed and makes another one.
+   */
+  const forkCheckpoint = useCallback(
+    async (checkpointId: string) => {
+      const title = instance.data?.name || autoTitle;
+      try {
+        const forked = await apiClient.agentInstances.checkpoints.fork(
+          checkpointId,
+          title ? `${title} (fork)` : undefined,
+        );
+        await invalidateConversations();
+        toast.success(title ? `Forked "${title}"` : "Forked the conversation");
+        navigate(links?.chat?.({ id: forked.id }) ?? agentUrl.chat({ id: forked.id }));
+      } catch (cause: unknown) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        console.error("Could not fork conversation:", cause);
+        toast.error(`Could not fork: ${reason}`);
+      }
+    },
+    [
+      instance.data?.name,
+      autoTitle,
+      invalidateConversations,
+      links,
+      navigate,
+    ],
+  );
+
+  /**
+   * Starts another conversation with this agent.
+   *
+   * A new instance of the same pair — which is what a second conversation *is* — so
+   * this needs the current instance loaded to copy the pair from. The rail's button
+   * is disabled until then rather than creating something from a half-read record.
+   */
+
+  /*
+   * Whether this agent can be talked to at all.
+   *
+   * The gateway refuses any call for an instance that is not `READY` — it answers
+   * `UnsupportedOperation` naming the state — so a composer offered over a suspended
+   * or failed agent is a box that swallows what the reader types. The state is said
+   * instead.
+   */
+  const state = instance.data?.state;
+  const isReady = state === "ready";
+  /*
+   * Suspended is not "cannot answer" — it is "not resumed yet".
+   *
+   * The gateway does refuse a message for a suspended instance, but the reader's
+   * intention is unambiguous: they typed something and pressed send. Making them find
+   * a Resume control first, having just been told the agent gave its worker back at
+   * the end of the last turn, is a step the page can take for them — and with
+   * that would be a detour on the way to every message.
+   *
+   * Only suspended. Creating, failed and deleting are states a message cannot be
+   * carried through by resuming, so those still say so and disable the box.
+   */
+  const isSuspended = state === "suspended";
+  const canSend = isReady || isSuspended;
+
+  /*
+   * Watching the instance while it is doing something.
+   *
+   * The lifecycle indicator reads `AgentInstance.operation`, which the controller
+   * claims and clears as it works — so it only ever *changes* on a re-read, and a
+   * page that read the record once at mount would show whichever operation was in
+   * flight when it loaded, forever. So it is re-read while there is something to
+   * see and left alone when there is not: a chat page open on an idle agent makes
+   * no requests at all.
+   *
+   * Driven from a timer calling `refresh()` rather than from SWR's
+   * `refreshInterval`, for the reason recorded against the substrate page: SWR
+   * deduplicates a revalidation for `dedupingInterval` ms *after the response*, so
+   * a short interval quietly becomes a long one and the page reports a poll rate
+   * it is not keeping. And a tick that would overlap the one still in flight is
+   * dropped rather than queued, because a slow read must not build a backlog.
+   */
+  const isAwaitingReply = Boolean(chat.pendingQuestion);
+
+  /*
+   * The agent panel's state, remembered per reader.
+   *
+   * Absent means open: a reader who has never touched it gets the context, which is
+   * the more useful default for somebody meeting an agent for the first time.
+   */
+  const [isNarrowForContext, setNarrowForContext] = useCollapsedBelow(
+    CONTEXT_COLLAPSES_BELOW,
+  );
+  const [wantsContext, setWantsContext] = useState(
+    () => window.localStorage.getItem(CONTEXT_OPEN) !== "false",
+  );
+  const isContextOpen = wantsContext && !isNarrowForContext;
+
+  /*
+   * The reader's choice and the window's, kept apart.
+   *
+   * Only the stored preference is written: a panel closed because the window shrank is
+   * not a reader saying they do not want it, and remembering it that way would leave it
+   * shut on the next wide session. Opening it on a narrow window clears the width's
+   * veto until the next crossing — the same bargain antd's sidebar makes.
+   */
+  function toggleContext() {
+    const open = !isContextOpen;
+    window.localStorage.setItem(CONTEXT_OPEN, String(open));
+    setWantsContext(open);
+    if (open) setNarrowForContext(false);
+  }
+
+  /** The message box, so the caret can be handed back to it after a question. */
+  const composerRef = useRef<ChatComposerHandle>(null);
+
+  /*
+   * Opening a conversation puts the caret in its box.
+   *
+   * Not `autoFocus` on the composer, which fires once when it mounts — and it mounts
+   * disabled, because `canSend` is read from an instance that has not been fetched
+   * yet. A focus that happens before the box can be typed in is a focus that does not
+   * happen at all, so this waits for the state that enables it.
+   *
+   * Once per conversation, tracked rather than left to fire whenever `canSend` is
+   * true. A conversation that comes back from suspended flips it mid-visit, and the
+   * caret is by then wherever the reader put it — quite possibly in the field
+   * answering a question, which is the one place taking it from would cost them
+   * typing.
+   */
+  const focusedFor = useRef<string>(undefined);
+  useEffect(() => {
+    if (!id || !canSend || focusedFor.current === id) return;
+    focusedFor.current = id;
+    composerRef.current?.focus();
+  }, [id, canSend]);
+
+  /*
+   * The message this conversation was created for, sent once on arrival.
+   *
+   * `AgentNewChatPage` creates the instance from the first message and hands the text
+   * over in router state rather than sending it itself — there is no transcript on that
+   * page to put the answer in. Sending it here means the reader sees their own words in
+   * the conversation they are going to keep reading.
+   *
+   * Guarded by a ref *and* by clearing the history entry: a ref alone would re-send if
+   * the component remounted, and clearing alone would re-send on a fast double render
+   * before the navigation settled. Sending a message twice is not a cosmetic fault — it
+   * is two turns, and the second is refused while the first is in flight.
+   */
+  const sentInitial = useRef(false);
+  useEffect(() => {
+    const pending = (location.state as { initialMessage?: string } | null)
+      ?.initialMessage;
+    /*
+     * Held until the transcript has been read, which is not merely tidy.
+     *
+     * The history read owns the same abort controller the send does, and its cleanup
+     * aborts whatever is in flight. Sending during mount — while that read is still
+     * open, and while React is double-invoking effects in development — put the
+     * reader's message on screen and then killed the request before it reached the
+     * wire: a conversation showing what you typed, never answering, and no
+     * `SendStreamingMessage` in the controller's log at all.
+     */
+    if (!pending || sentInitial.current || !conversation || chat.isLoadingHistory) return;
+    sentInitial.current = true;
+    /*
+     * Sent before the history entry is cleared, not after.
+     *
+     * Clearing first navigates — a `replace` to the same path — and that re-render
+     * aborted the stream the send had just opened: the reader's message appeared,
+     * because the optimistic append had already happened, and nothing was ever put on
+     * the wire. A conversation that shows what you typed and never answers, with no
+     * `SendStreamingMessage` in the controller's log at all.
+     *
+     * The clear still has to happen, or a reload would send it again; it just belongs
+     * after the turn is under way.
+     */
+    void chat.send(pending);
+    /*
+     * And now cleared, because `location.state` is kept in the browser's session
+     * history rather than in memory: it survives a refresh, so a reader who reloaded
+     * a conversation they had just started watched its opening message be sent all
+     * over again — a second turn, from a page they only asked to redraw.
+     *
+     * A `replace` to the same address, which leaves the transcript alone: the read
+     * above is keyed on the conversation, and that has not changed.
+     */
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    // Keyed on the conversation, not on `chat`: the controller is rebuilt every render
+    // and depending on it would re-run this on each one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, chat.isLoadingHistory]);
+  const isBusy = isLifecycleBusy(instance.data, chat.turnPhase, isAwaitingReply);
+
+  /*
+   * The conversation list is deliberately not re-read when this one's state changes.
+   *
+   * The rail draws the open conversation from the live read above, so its indicator is
+   * already current and nothing here is stale to a reader. Refreshing the list to make
+   * the other readers of it agree sooner looked harmless and silently broke sending:
+   * the re-render reaches `useChat`, whose history effect aborts the controller an
+   * in-flight send is using, so the message went nowhere and nothing said so. Gating it
+   * on an idle turn was not enough either, because the state moves once during the
+   * resume that happens *before* the turn starts.
+   *
+   * That is a fragility in `useChat` — one effect owning another's abort — and worth
+   * fixing there rather than worked around here. Until then the list catches up on its
+   * next ordinary read, which costs nothing a reader can see.
+   */
+
+  /*
+   * The page no longer suspends a conversation when its turn ends.
+   *
+   * It used to, and had to: nothing on the server gave a worker back, so a conversation
+   * held one from creation until somebody suspended or deleted it, and a cluster with
+   * more conversations than workers could not start another. The page made the
+   * `SuspendAgentInstance` call nobody else was making.
+   *
+   * The server does it now — a completed A2A turn quiesces its own runtime and records
+   * the snapshot boundary it stopped at. That is strictly better than what this did: it
+   * happens whether or not a tab is open, which was this version's stated limitation and
+   * the reason the pool could still fill up.
+   *
+   * Doing both would be worse than doing neither. The server's quiesce releases the
+   * worker and deliberately leaves the instance logically `ready`; this suspended it
+   * logically as well, so every conversation read as suspended and every message paid
+   * for a resume first — a round trip added to each turn for something already done.
+   */
+
+  // Held in a ref so the interval is not torn down and rebuilt every time SWR
+  // hands back a new function identity — which would reset the clock on each read.
+  const refreshInstance = useRef(instance.refresh);
+  useEffect(() => {
+    refreshInstance.current = instance.refresh;
+  });
+
+  useEffect(() => {
+    if (!isBusy) return;
+    let inFlight = false;
+    const timer = setInterval(() => {
+      if (inFlight) return;
+      inFlight = true;
+      void refreshInstance.current().finally(() => {
+        inFlight = false;
+      });
+    }, LIFECYCLE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [isBusy]);
+
+  /*
+   * And once more when the agent goes quiet.
+   *
+   * The last poll before a turn ends can land while the controller is still
+   * claiming an operation, so without this the indicator would keep the previous
+   * reading until the reader did something else. Fired on the *transition* out of
+   * busy rather than on every render, so an idle page still makes no requests.
+   */
+  const wasBusy = useRef(isBusy);
+  useEffect(() => {
+    if (wasBusy.current && !isBusy) void refreshInstance.current();
+    wasBusy.current = isBusy;
+  }, [isBusy]);
+
+  return (
+    <div data-testid="agent-surface">
+      <div css={{
+          display: "flex",
+          // The columns are a rail, two one-icon gutters and the conversation between
+          // them. At `space(6)` the gutters sat in more air than they are wide, which
+          // read as three separated panels rather than one page.
+          gap: theme.space(2),
+          /*
+           * `flex-start`, not `stretch`.
+           *
+           * Stretched, each sidebar is as tall as the whole conversation — and a sticky
+           * element as tall as its scroll container has nowhere to stick, so on a long
+           * chat both rails scrolled away with the page. At `flex-start` they keep
+           * their own height and stay put, which is the entire reason they are sticky.
+           */
+          alignItems: "flex-start",
+        }}>
+        {id ? (
+          <AgentRail
+            agentRef={{ id }}
+            instance={instance.data}
+            instances={instances}
+            autoTitle={autoTitle}
+            // Only the chat needs to know: deleting the conversation it is showing
+            // leaves it on an address that no longer resolves.
+            onDeleted={(target) => {
+              if (target.id === id) navigate(paths.agents);
+            }}
+            /* In the rail's gutter, under the collapse toggle, rather than in a row of
+               its own across the conversation. It is one icon; a whole row for it cost
+               the transcript its width and left the three controls at the top of the
+               page on different lines as soon as anything scrolled. */
+            gutterActions={
+              conversation ? (
+                <>
+                <Tooltip title="Share this conversation" placement="right">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<Share2 size={16} aria-hidden />}
+                    onClick={() => setSharing(true)}
+                    aria-label="Share this conversation"
+                    data-testid="chat-share"
+                    css={iconControlStyles(theme)}
+                  />
+                </Tooltip>
+                {/* Under Share, in the same gutter. It was an entry in the rail, which
+                    meant leaving the conversation to read four facts about it and then
+                    finding the way back — reference that costs a navigation is
+                    reference nobody consults. */}
+                <Tooltip title="Conversation details" placement="right">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<FileText size={16} aria-hidden />}
+                    onClick={() => setShowingDetails(true)}
+                    aria-label="Conversation details"
+                    data-testid="chat-details"
+                    css={iconControlStyles(theme)}
+                  />
+                </Tooltip>
+                </>
+              ) : null
+            }
+          />
+        ) : null}
+
+        <section
+          data-testid="chat-panel"
+          css={{
+            flex: 1,
+            minWidth: 0,
+            /*
+             * A column, not a three-row grid.
+             *
+             * It was `grid-template-rows: auto 1fr auto`, which assumes exactly three
+             * children — and this panel has a varying number of them, because the
+             * notices above the transcript come and go with the conversation's state.
+             * A fourth child pushed the `1fr` onto a different row, so the transcript
+             * stopped being the part that grows and the composer moved: the flicker a
+             * reader saw when clicking between conversations, worst on the short ones
+             * where the composer is not pinned to the foot of the viewport anyway.
+             *
+             * As a column the transcript is the only thing that grows, whatever else
+             * is on screen, so the composer stays where it is.
+             */
+            display: "flex",
+            flexDirection: "column",
+            /* Small, because the biggest gap in this column is the one between the last
+               thing the agent said and the box you reply in — and the two are a
+               conversation, not two separate parts of a page. The composer paints its
+               own fade above itself, which is the separation that was wanted. */
+            gap: theme.space(2),
+            /*
+             * The panel owns its height, and the transcript scrolls inside it.
+             *
+             * It used to be `min-height: 64vh` with the page doing the scrolling, which
+             * meant the composer sat at the end of the content — so its position was a
+             * function of how much had been said. Clicking between conversations moved
+             * it by whatever the difference in transcript length happened to be, and
+             * loading one moved it twice: once for the skeleton, once for the messages.
+             * That is the flicker.
+             *
+             * Fixed to the viewport instead: the header, this page's own padding, and
+             * nothing else. The transcript is the part that scrolls, so the message box
+             * is in the same place in every conversation and stays there while one
+             * loads.
+             */
+            height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(12)})`,
+          }}
+        >
+          {/* The panel's own controls. What the agent is doing sits at the leading
+              edge, where a reader's eye already is for the conversation below it;
+              sharing is a capability of one conversation, so it is offered at the
+              corner the panel opens from. */}
+
+          {instance.error ? (
+            <Alert
+              type="error"
+              showIcon
+              data-testid="chat-instance-error"
+              title="Could not load this conversation"
+              description={
+                instance.error.code === "NotFound"
+                  ? /*
+                     * `NotFound` here does not mean "gone".
+                     *
+                     * `GetAgentInstance` resolves through `GetAgentInstanceForUser`
+                     * with the caller's id in the WHERE clause, so somebody else's
+                     * conversation answers not-found rather than refused — the two
+                     * are indistinguishable on the wire, by design. Reporting only
+                     * the controller's wording would tell a reader their
+                     * conversation had been deleted when it is simply not theirs.
+                     */
+                    `${instance.error.message} It may also belong to someone else: a conversation is scoped to whoever created it, and one you cannot read is reported the same way as one that does not exist.`
+                  : instance.error.message
+              }
+            />
+          ) : null}
+
+          {/* The controller's own precondition, said rather than discovered. A
+              suspended agent is resumable from the agents list, which is why the
+              state is named rather than the page simply refusing. */}
+          {instance.data && !canSend ? (
+            <Alert
+              type="warning"
+              showIcon
+              data-testid="chat-not-ready"
+              title={`This conversation is ${state}, so the agent cannot answer`}
+              description={
+                instance.data.failure?.message ||
+                "The A2A gateway accepts messages only for a ready conversation. Resume it from the agent's page, or start another conversation."
+              }
+            />
+          ) : null}
+
+          {/* The transcript owns its own scrolling now, so this passes it the room to
+              do it in and nothing else. */}
+          <ChatTranscript
+            chat={chat}
+            sessionId={id}
+            onFork={forkCheckpoint}
+            onDeleteCheckpoint={deleteCheckpoint}
+            checkpointByMessage={checkpointByMessage}
+            // The question is answered in a field inside the transcript, and once it
+            // has been, the next thing typed is an ordinary message. The transcript
+            // has no business knowing the composer exists, so the page it belongs to
+            // hands the caret back.
+            onAnswered={() => composerRef.current?.focus()}
+          />
+
+          {/* Stuck to the foot of the viewport rather than the foot of the page. The
+              page is what scrolls, so a composer in normal flow would be below the
+              fold for the whole of a long conversation — the one control the reader
+              always needs, permanently out of reach. The fade above it is so text
+              does not appear to end abruptly at its top edge. */}
+          <div
+            css={{
+              position: "sticky",
+              bottom: 0,
+              flexShrink: 0,
+              paddingBlockEnd: theme.space(2),
+              background: `linear-gradient(to bottom, transparent, ${theme.color.bg} ${theme.space(4)})`,
+              display: "grid",
+              // Tight: the status line belongs to the box above it and reads as its
+              // state rather than as a separate thing under it.
+              gap: theme.space(1),
+            }}
+          >
+            <ChatComposer
+              ref={composerRef}
+              send={chat.send}
+              isStreaming={chat.phase === "streaming"}
+              onCancel={chat.cancel}
+              onCheckpoint={checkpointChat}
+              canCheckpoint={canCheckpoint}
+              isCheckpointing={isCheckpointing}
+              // Disabled rather than hidden: a missing composer reads as a rendering
+              // fault, where a disabled one with the state named above it explains
+              // itself. A conversation holding a question keeps its composer, because
+              // the box is how the question is answered — the answer names the parked
+              // turn and resumes it.
+              disabled={!canSend}
+            />
+
+          </div>
+        </section>
+
+        {/*
+          What the agent is, beside what it said.
+
+          Collapsible and remembered, like the rail: it is reference rather than
+          navigation, so a reader following a long answer should be able to put it away
+          — and find it away next time rather than having to close it on every
+          conversation.
+
+          Present from the first frame, with only its contents waiting for the instance
+          read: this column and the panel are 288px of the row, so gating them on that
+          read shifts the conversation sideways when the record lands.
+        */}
+        <div
+          css={{
+            flexShrink: 0,
+            position: "sticky",
+            top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
+            alignSelf: "start",
+            marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
+            transition: "margin-inline-end 180ms ease",
+            /* Hidden rather than absent, so it keeps its place in the row while there
+               is nothing yet to show or hide. `visibility` also takes it out of the
+               accessibility tree and off the focus order, which `opacity` would not. */
+            visibility: instance.data ? "visible" : "hidden",
+          }}
+        >
+          <Button
+            type="text"
+            size="small"
+            css={iconControlStyles(theme)}
+            icon={
+              isContextOpen ? (
+                <PanelRightClose size={16} aria-hidden />
+              ) : (
+                <PanelRightOpen size={16} aria-hidden />
+              )
+            }
+            onClick={toggleContext}
+            aria-label={isContextOpen ? "Hide the agent panel" : "Show the agent panel"}
+            data-testid={isContextOpen ? "chat-context-collapse" : "chat-context-expand"}
+          />
+        </div>
+
+        {/* Slides rather than vanishing, for the same reason the rail does: an
+            unmounted panel makes the transcript jump its whole width in one frame,
+            which reads as a layout fault rather than as something closing. */}
+        <div
+          css={{
+            flexShrink: 0,
+            // Nothing to hold space for when the conversation could not be read: the
+            // panel draws from the instance, and the toggle beside it is hidden, so the
+            // reader would be left with an empty column they cannot collapse.
+            width: isContextOpen && !instance.error ? 248 : 0,
+            overflow: "hidden",
+            // Sticky on the wrapper, not on the panel inside it: a sticky element
+            // travels within its parent's box, and this wrapper is exactly as tall
+            // as the panel. See the rail, which had the same fault.
+            position: "sticky",
+            top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
+            alignSelf: "start",
+            /* Hidden for real once closed rather than clipped to zero width — a
+               child of a zero-width box still has a bounding box. Delayed by the
+               width transition when closing, immediate when opening. */
+            visibility: isContextOpen ? "visible" : "hidden",
+            transition: `width 180ms ease, visibility 0s linear ${isContextOpen ? "0s" : "180ms"}`,
+          }}
+          aria-hidden={!isContextOpen}
+        >
+          {/* The panel's own content is what waits for the read: it is derived from the
+              template the instance names, so an empty one would be a frame around
+              nothing. The box holding it keeps its width either way. */}
+          {instance.data ? (
+            /* No drag handle. The panel had one, and the wrapper above clips to a
+               fixed 248 with `overflow: hidden` — so dragging widened the aside
+               inside a box that never grew, and the only visible effect was a grab
+               cursor on an edge that did nothing. */
+            <div
+              data-testid="chat-context-aside"
+              css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
+            >
+              <AgentContextPanel agent={instance.data} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <ConversationDetailsModal
+        instance={instance}
+        open={isShowingDetails}
+        onClose={() => setShowingDetails(false)}
+      />
+
+      {conversation ? (
+        <ShareDialog
+          conversation={conversation}
+          open={isSharing}
+          onClose={() => setSharing(false)}
+        />
+      ) : null}
+    </div>
+  );
+}

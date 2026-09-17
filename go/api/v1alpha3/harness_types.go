@@ -22,8 +22,25 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// KagentHarness selects the kagent runtime adapter.
-type KagentHarness struct{}
+// KagentHarness configures the kagent runtime adapter.
+type KagentHarness struct {
+	// Memory enables long-term memory for agents using this Harness.
+	// +optional
+	Memory *KagentHarnessMemory `json:"memory,omitempty"`
+}
+
+// KagentHarnessMemory configures kagent's long-term memory service.
+// +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
+type KagentHarnessMemory struct {
+	// ModelConfigRef references the embedding ModelConfig in the Harness namespace.
+	// +required
+	ModelConfigRef corev1.LocalObjectReference `json:"modelConfigRef"`
+
+	// TTLDays controls how many days a stored memory entry remains valid.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TTLDays int `json:"ttlDays,omitempty"`
+}
 
 // CodexHarness selects the Codex runtime adapter.
 type CodexHarness struct{}
@@ -31,12 +48,25 @@ type CodexHarness struct{}
 // ClaudeHarness selects the Claude runtime adapter.
 type ClaudeHarness struct{}
 
+// BYOHarness selects an image that implements kagent's private A2A contract.
+type BYOHarness struct{}
+
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
 	// Image is an OCI image reference pinned by sha256 digest.
 	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
 	// +required
 	Image string `json:"image"`
+
+	// Command overrides the image entrypoint when set.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Args overrides the image command arguments when set.
+	// +kubebuilder:validation:MaxItems=64
+	// +optional
+	Args []string `json:"args,omitempty"`
 }
 
 // HarnessEnvVar configures one runtime environment variable.
@@ -88,7 +118,8 @@ type HarnessAgentTemplateAdmission struct {
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) == 1",message="exactly one of kagent, codex, or claude must be specified"
+// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || size(self.workload.command) > 0",message="BYO harnesses must specify workload.command"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`
@@ -98,6 +129,9 @@ type HarnessSpec struct {
 
 	// +optional
 	Claude *ClaudeHarness `json:"claude,omitempty"`
+
+	// +optional
+	BYO *BYOHarness `json:"byo,omitempty"`
 
 	// +required
 	Workload HarnessWorkload `json:"workload"`
@@ -160,6 +194,11 @@ type HarnessCapabilities struct {
 	// +required
 	Checkpoint bool `json:"checkpoint"`
 }
+
+// HarnessConditionType enumerates the condition types a Harness may report.
+const (
+	HarnessConditionTypeReady = "Ready"
+)
 
 // HarnessStatus reports controller-derived capabilities and current health.
 type HarnessStatus struct {

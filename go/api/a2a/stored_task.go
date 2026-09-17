@@ -9,6 +9,11 @@ import (
 
 const storedTaskMetadataKey = "https://kagent.dev/internal/stored-task/v1"
 
+// TimelinePositionMetadataKey temporarily orders messages and artifacts in a task.
+// Remove it when A2A's timeline and artifact generation fields are available:
+// https://github.com/a2aproject/A2A/pull/2129
+const TimelinePositionMetadataKey = "kagent.dev/timeline-position"
+
 // ClearStoredTask removes the private gateway-to-runtime continuation state.
 // Public callers may send this key, so the gateway must clear it before use.
 func ClearStoredTask(message *a2atype.Message) {

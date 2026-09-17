@@ -2,6 +2,13 @@ package env
 
 // Core kagent environment variables used by the controller and agent runtime.
 var (
+	LeaderElect = RegisterBoolVar(
+		"LEADER_ELECT",
+		true,
+		"Enable controller leader election, including during single-replica rolling updates. Set false for local testing.",
+		ComponentController,
+	)
+
 	KagentNamespace = RegisterStringVar(
 		"KAGENT_NAMESPACE",
 		"kagent",
@@ -33,16 +40,6 @@ var (
 		ComponentController,
 	)
 
-	KagentMCPStateless = RegisterBoolVar(
-		"KAGENT_MCP_STATELESS",
-		false,
-		"When true, the MCP server operates in stateless mode (no session persistence). "+
-			"Use when the network path does not provide sticky session routing based on the Mcp-Session-Id header. "+
-			"Note: stateless mode disables server-initiated notifications; clients will not receive "+
-			"resources/updated events.",
-		ComponentController,
-	)
-
 	// Variables injected into agent pods (not read by the controller itself).
 
 	KagentName = RegisterStringVar(
@@ -52,17 +49,17 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentURL = RegisterStringVar(
-		"KAGENT_URL",
+	KagentAPIURL = RegisterStringVar(
+		"KAGENT_API_URL",
 		"",
-		"Base URL for A2A communication with the kagent controller.",
+		"Base URL for kagent control-plane API calls.",
 		ComponentAgentRuntime,
 	)
 
-	KagentGRPCURL = RegisterStringVar(
-		"KAGENT_GRPC_URL",
+	KagentGatewayURL = RegisterStringVar(
+		"KAGENT_GATEWAY_URL",
 		"",
-		"Native gRPC target for kagent controller API calls.",
+		"Base URL for A2A and MCP traffic.",
 		ComponentAgentRuntime,
 	)
 
@@ -107,5 +104,19 @@ var (
 		"",
 		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
 		ComponentAgentRuntime,
+	)
+
+	DatabaseVectorEnabled = RegisterBoolVar(
+		"DATABASE_VECTOR_ENABLED",
+		false,
+		"Enable vector database migrations and vector-backed database functionality.",
+		ComponentDatabase,
+	)
+
+	SkipMigrations = RegisterBoolVar(
+		"SKIP_MIGRATIONS",
+		false,
+		"Verify required database migrations at startup without applying them.",
+		ComponentDatabase,
 	)
 )

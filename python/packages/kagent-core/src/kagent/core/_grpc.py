@@ -4,9 +4,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import grpc
-from kagent.api.v1alpha1 import memory_pb2_grpc, sessions_pb2_grpc
+from kagent.api.v1alpha1 import memory_pb2_grpc
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_MESSAGE_BYTES = 16 << 20
@@ -36,7 +37,7 @@ class AsyncControllerClient:
 
     def __init__(
         self,
-        target: str | None = None,
+        api_url: str | None = None,
         *,
         agent_name: str = "",
         token_provider: AsyncTokenProvider | None = None,
@@ -45,10 +46,10 @@ class AsyncControllerClient:
         channel: grpc.aio.Channel | None = None,
         credentials: grpc.ChannelCredentials | None = None,
     ) -> None:
-        if channel is None and not target:
-            raise ValueError("controller gRPC target is required")
+        if channel is None and not api_url:
+            raise ValueError("controller API URL is required")
 
-        self.target = target
+        self.target, self.secure = _target_from_url(api_url) if api_url else (None, False)
         self.timeout = timeout
         self.max_message_bytes = max_message_bytes
         self.agent_name = agent_name
@@ -57,8 +58,6 @@ class AsyncControllerClient:
         self._owns_channel = channel is None
         self._channel = channel
         self._closed = False
-        self._session_service: sessions_pb2_grpc.SessionServiceStub | None = None
-        self._task_service: sessions_pb2_grpc.TaskStoreServiceStub | None = None
         self._memory_service: memory_pb2_grpc.MemoryServiceStub | None = None
 
     @property
@@ -70,23 +69,13 @@ class AsyncControllerClient:
                 ("grpc.max_receive_message_length", self.max_message_bytes),
                 ("grpc.max_send_message_length", self.max_message_bytes),
             )
-            if self.credentials is None:
-                self._channel = grpc.aio.insecure_channel(self.target, options=options)
-            else:
+            if self.credentials is not None:
                 self._channel = grpc.aio.secure_channel(self.target, self.credentials, options=options)
+            elif self.secure:
+                self._channel = grpc.aio.secure_channel(self.target, grpc.ssl_channel_credentials(), options=options)
+            else:
+                self._channel = grpc.aio.insecure_channel(self.target, options=options)
         return self._channel
-
-    @property
-    def session_service(self) -> sessions_pb2_grpc.SessionServiceStub:
-        if self._session_service is None:
-            self._session_service = sessions_pb2_grpc.SessionServiceStub(self.channel)
-        return self._session_service
-
-    @property
-    def task_service(self) -> sessions_pb2_grpc.TaskStoreServiceStub:
-        if self._task_service is None:
-            self._task_service = sessions_pb2_grpc.TaskStoreServiceStub(self.channel)
-        return self._task_service
 
     @property
     def memory_service(self) -> memory_pb2_grpc.MemoryServiceStub:
@@ -132,3 +121,12 @@ class AsyncControllerClient:
 
     async def __aexit__(self, *_: object) -> None:
         await self.close()
+
+
+def _target_from_url(raw_url: str) -> tuple[str, bool]:
+    parsed = urlsplit(raw_url)
+    if not parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise ValueError(f"controller API URL {raw_url!r} must contain only a scheme and authority")
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"controller API URL {raw_url!r} must use http or https")
+    return parsed.netloc, parsed.scheme == "https"
