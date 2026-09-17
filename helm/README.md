@@ -77,6 +77,14 @@ substrate:
 For a separate Secret-backed connection, leave `enabled: false` and set
 `connectionStringSecretRef.name` and `key`.
 
+The separate Substrate connection can point to the same PostgreSQL server and
+database as Kagent while using a different database role. This keeps
+Substrate's required DDL privileges off Kagent's runtime role.
+
+Substrate currently uses one role for migrations, runtime access, and runtime
+outbox-partition DDL. It does not support separate DDL/migration and
+DML/runtime identities.
+
 ### Using Make
 
 ```bash
