@@ -46,7 +46,8 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		if err != nil {
 			return fmt.Errorf("lock checkpoint: %w", err)
 		}
-		if _, err := toAgentInstanceCheckpoint(checkpoint); err != nil {
+		source, err := toAgentInstanceCheckpoint(checkpoint)
+		if err != nil {
 			return err
 		}
 		if checkpoint.PreparedRevision == nil {
@@ -67,7 +68,7 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 		now := timestamppb.Now()
 		instance := &apiv1alpha1.AgentInstance{
 			Id: instanceID, Creator: userID, ContextId: sourceContextID.String(),
-			Name:             checkpoint.SourceName,
+			Name:             source.GetName(),
 			Harness:          &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.HarnessName},
 			AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentTemplateName},
 			PreparedRevision: *checkpoint.PreparedRevision,
@@ -190,6 +191,10 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		if err != nil {
 			return fmt.Errorf("lock AgentInstance %s: %w", checkpoint.GetAgentInstanceId(), err)
 		}
+		// Decoding rejects a corrupt stored instance before it becomes a checkpoint source.
+		if _, err := toAgentInstance(instance); err != nil {
+			return err
+		}
 		if instance.State != "AGENT_INSTANCE_STATE_READY" || instance.Operation != "AGENT_INSTANCE_OPERATION_UNSPECIFIED" {
 			return fmt.Errorf("AgentInstance %s cannot checkpoint in state %s with operation %s: %w", checkpoint.GetAgentInstanceId(), instance.State, instance.Operation, ErrConflict)
 		}
@@ -243,24 +248,24 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		value.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
 		value.CreatedAt = timestamppb.Now()
 		value.Failure = nil
-		data, err := marshalCheckpoint(value)
+		value.Name = defaultCheckpointName(sourceID.String(), boundary.ID)
+		data, err := proto.Marshal(value)
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
 		row, err := queryOne(ctx, tx, `
 			INSERT INTO agent_instance_checkpoint (id, source_instance_id, user_id, request_id, head_task_id,
 			    history_sequence, snapshot_atespace, snapshot_uri, snapshot_content_scope, source_history_id,
-			    prepared_revision, data, source_name, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-			    $10, $11, $12, $13, 'CREATING')
+			    prepared_revision, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+			    $10, $11, $12, 'CREATING')
 			ON CONFLICT DO NOTHING
 			RETURNING id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-			    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-			    source_name
+			    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
 		`,
 			pgx.RowToStructByName[agentInstanceCheckpointRow], checkpoint.GetId(),
 			checkpoint.GetAgentInstanceId(), userID, requestID, boundary.ID, *boundary.HistorySequence,
 			*boundary.SnapshotAtespace, *boundary.SnapshotURI, *boundary.SnapshotContentScope, instance.HistoryID,
-			instance.PreparedRevision, data, defaultCheckpointName(sourceID.String(), boundary.ID),
+			instance.PreparedRevision, data,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, existingErr := readCheckpointRequest(ctx, tx, userID, requestID)
@@ -320,7 +325,7 @@ func (c *Client) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID
 			result.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED
 			result.Failure = &apiv1alpha1.Failure{Reason: "SnapshotTagFailed", Message: failure}
 		}
-		data, err := marshalCheckpoint(result)
+		data, err := proto.Marshal(result)
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
@@ -386,8 +391,8 @@ func checkpointSnapshot(row agentInstanceCheckpointRow) *AgentInstanceTaskSnapsh
 func (c *Client) ListAgentInstanceCheckpoints(ctx context.Context, instanceID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_name FROM agent_instance_checkpoint
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		FROM agent_instance_checkpoint
 		WHERE source_instance_id = $1
 		  AND user_id = $2
 		  AND state = 'READY'
@@ -428,7 +433,7 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 			return err
 		}
 		checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
-		data, err := marshalCheckpoint(checkpoint)
+		data, err := proto.Marshal(checkpoint)
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
@@ -469,15 +474,6 @@ func (c *Client) DeleteAgentInstanceCheckpoint(ctx context.Context, id, userID s
 	return nil
 }
 
-// marshalCheckpoint encodes a checkpoint for the data column with its name left out.
-// The name lives in its own column so a rename is one UPDATE; a copy in the payload as
-// well would disagree with that column the moment anybody renamed the checkpoint.
-func marshalCheckpoint(checkpoint *apiv1alpha1.Checkpoint) ([]byte, error) {
-	stored := proto.Clone(checkpoint).(*apiv1alpha1.Checkpoint)
-	stored.Name = ""
-	return proto.Marshal(stored)
-}
-
 // defaultCheckpointName names a boundary by the conversation it was taken from and the
 // turn it sits at, the two things that tell two boundaries apart. Callers pass the
 // parsed id rather than what arrived on the wire, so that clearing a name restores the
@@ -499,23 +495,31 @@ func (c *Client) UpdateCheckpointName(ctx context.Context, id, userID, name stri
 		if err != nil {
 			return notFoundOr(err)
 		}
+		checkpoint, err := toAgentInstanceCheckpoint(row)
+		if err != nil {
+			return err
+		}
 		if name == "" {
 			name = defaultCheckpointName(row.SourceInstanceID.String(), row.HeadTaskID)
 		}
+		checkpoint.Name = name
+		data, err := proto.Marshal(checkpoint)
+		if err != nil {
+			return fmt.Errorf("encode checkpoint: %w", err)
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE agent_instance_checkpoint
-			SET source_name = $3
-			WHERE id = $1 AND user_id = $2
-		`, row.ID, userID, name)
+			SET data = $1
+			WHERE id = $2 AND user_id = $3
+		`, data, row.ID, userID)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() != 1 {
 			return ErrNotFound
 		}
-		row.SourceName = name
-		result, err = toAgentInstanceCheckpoint(row)
-		return err
+		result = checkpoint
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rename checkpoint %s: %w", id, err)
@@ -535,9 +539,6 @@ func toAgentInstanceCheckpoint(row agentInstanceCheckpointRow) (*apiv1alpha1.Che
 		strings.TrimPrefix(checkpoint.GetState().String(), "CHECKPOINT_STATE_") != row.State {
 		return nil, fmt.Errorf("checkpoint %s payload disagrees with indexed columns", row.ID)
 	}
-	// The name lives in its own column so a rename stays one UPDATE, which also keeps
-	// it out of the payload cross-check above.
-	checkpoint.Name = row.SourceName
 	return checkpoint, nil
 }
 
@@ -556,15 +557,6 @@ type agentInstanceCheckpointRow struct {
 	Data                 []byte
 	SourceHistoryID      uuid.UUID
 	PreparedRevision     *string
-	/*
-	 * The checkpoint's own display name, and the name its forks are given.
-	 *
-	 * The column predates the name being something a reader chooses — it held a copy of
-	 * the source conversation's title so a fork could still be named after a conversation
-	 * that had since been deleted. The job is the same one, so it was kept rather than a
-	 * second column added beside it; only what fills it has changed.
-	 */
-	SourceName string
 }
 
 // lockCheckpoint locks a checkpoint until the caller's transaction ends, optionally
@@ -573,8 +565,8 @@ type agentInstanceCheckpointRow struct {
 func lockCheckpoint(ctx context.Context, db pgx.Tx, id string, allUsers bool, userID string, state *string) (agentInstanceCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_name FROM agent_instance_checkpoint
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		FROM agent_instance_checkpoint
 		WHERE id = $1
 		  -- Only internal finalization explicitly opts out of owner filtering.
 		  AND ($2::boolean OR user_id = $3)
@@ -621,8 +613,8 @@ func insertReplayedTask(ctx context.Context, db dbExecutor, task agentInstanceTa
 func readCheckpoint(ctx context.Context, db dbExecutor, id, userID string, state *string) (agentInstanceCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_name FROM agent_instance_checkpoint
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		FROM agent_instance_checkpoint
 		WHERE id = $1 AND user_id = $2
 		  -- Lifecycle work also reads creating and deleting checkpoints.
 		  AND ($3::text IS NULL OR state = $3)
@@ -634,8 +626,8 @@ func readCheckpoint(ctx context.Context, db dbExecutor, id, userID string, state
 func readCheckpointRequest(ctx context.Context, db dbExecutor, userID, requestID string) (agentInstanceCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision,
-		    source_name FROM agent_instance_checkpoint
+		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		FROM agent_instance_checkpoint
 		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[agentInstanceCheckpointRow], userID, requestID)
 }

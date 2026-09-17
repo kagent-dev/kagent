@@ -209,14 +209,7 @@ func TestProtobufPersistenceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	storedCheckpoint := &apiv1alpha1.Checkpoint{}
 	require.NoError(t, proto.Unmarshal(checkpointRow.Data, storedCheckpoint))
-	// The name is the one field the payload does not carry: it lives in its own column
-	// so a rename is a single UPDATE, and a copy here would disagree with that column
-	// the moment anybody renamed the checkpoint.
-	require.Empty(t, storedCheckpoint.GetName())
-	require.Equal(t, checkpointRow.SourceName, checkpoint.GetName())
-	withoutName := proto.Clone(checkpoint).(*apiv1alpha1.Checkpoint)
-	withoutName.Name = ""
-	require.True(t, proto.Equal(withoutName, storedCheckpoint))
+	require.True(t, proto.Equal(checkpoint, storedCheckpoint))
 	require.Equal(t, checkpointRequest.ProtoReflect().GetUnknown(), checkpoint.ProtoReflect().GetUnknown())
 	_, err = client.GetAgentInstanceCheckpoint(ctx, checkpoint.Id, "mallory")
 	require.ErrorIs(t, err, ErrNotFound)

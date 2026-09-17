@@ -325,7 +325,10 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, _, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "mallory"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("snapshot lookup by another user = %v, want not found", err)
 	}
-	require.Equal(t, defaultCheckpointName(instanceID, "task-1"), checkpoint.GetName())
+	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", checkpoint.GetName())
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too early"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a creating checkpoint = %v, want not found", err)
+	}
 	if checkpoint.HeadTaskId != "task-1" || snapshot == nil ||
 		*snapshot != (AgentInstanceTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}) || checkpoint.HistorySequence == 0 {
 		t.Fatalf("checkpoint boundary = %+v", checkpoint)
@@ -363,7 +366,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	require.Equal(t, "Before the detour", stored.GetName())
 	restored, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "")
 	require.NoError(t, err)
-	require.Equal(t, defaultCheckpointName(instanceID, "task-1"), restored.GetName())
+	require.Equal(t, "11111111-1111-4111-8111-111111111111-task-1", restored.GetName())
 	retained, tagUID, err := client.GetAgentInstanceCheckpointSnapshot(ctx, checkpoint.GetId(), "alice")
 	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
@@ -378,6 +381,9 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.GetId(), "", "", "tag creation failed")
 	if err != nil || failed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
+	}
+	if _, err := client.UpdateCheckpointName(ctx, failed.GetId(), "alice", "doomed"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a failed checkpoint = %v, want not found", err)
 	}
 	if err := client.DeleteAgentInstance(ctx, instanceID); err != nil {
 		t.Fatal(err)
@@ -400,6 +406,9 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if _, err := client.GetAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleting checkpoint is publicly visible: %v", err)
 	}
+	if _, err := client.UpdateCheckpointName(ctx, checkpoint.GetId(), "alice", "too late"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rename of a deleting checkpoint = %v, want not found", err)
+	}
 	deletingSnapshot, deletingTagUID, err = client.BeginDeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice")
 	if err != nil || deletingSnapshot == nil || *deletingSnapshot != *retained || deletingTagUID != "tag-uid" {
 		t.Fatalf("deleting snapshot = %+v, tag = %q, error %v", deletingSnapshot, deletingTagUID, err)
@@ -407,6 +416,25 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err := client.DeleteAgentInstanceCheckpoint(ctx, checkpoint.GetId(), "alice"); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestReserveAgentInstanceCheckpointRejectsCorruptSource(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	client := NewClient(db)
+	instanceID := "99999999-9999-4999-8999-999999999999"
+	if _, err := db.Exec(ctx, `
+		INSERT INTO a2a_context (id, user_id, context_id) VALUES ($1, 'alice', $1)
+	`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, user_id, request_id, context_id, history_id, state, data) VALUES ($1, 'alice', 'instance-request', $1, $1, 'AGENT_INSTANCE_STATE_READY', $2)
+	`, instanceID, []byte{0xff}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := client.ReserveAgentInstanceCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), AgentInstanceId: instanceID}, "alice", "checkpoint-request")
+	require.ErrorContains(t, err, "decode AgentInstance")
 }
 
 func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
@@ -564,7 +592,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	fork2, created, err := client.ForkAgentInstance(ctx, checkpoint2.GetId(), "alice", "fork-request-2", fork2ID)
-	require.Equal(t, defaultCheckpointName(fork.GetId(), "task-1"), fork2.GetName())
+	require.Equal(t, "77777777-7777-4777-8777-777777777777-task-1", fork2.GetName())
 	if err != nil || !created || fork2.GetId() != fork2ID {
 		t.Fatalf("fork of fork = %+v, created %v, error %v", fork2, created, err)
 	}
