@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -21,17 +22,23 @@ import (
 
 // Init configures the global tracer provider and W3C propagator from the
 // standard OTEL environment. It is intended to be called once by a process
-// entrypoint. KAGENT_NAME identifies the service when set; fallbackServiceName
-// supports standalone harness validation where the compiler-owned environment
-// may be absent.
-func Init(ctx context.Context, fallbackServiceName string) (func(context.Context) error, bool, error) {
+// entrypoint. The compiler-owned telemetry contract identifies the service when
+// it is present, then KAGENT_NAME; fallbackServiceName supports standalone
+// harness validation where neither is available.
+func Init(ctx context.Context, fallbackServiceName string, telemetry RuntimeTelemetry) (func(context.Context) error, bool, error) {
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_TRACING_ENABLED")), "true") {
 		return func(context.Context) error { return nil }, false, nil
 	}
-	serviceName := environmentValue("KAGENT_NAME", fallbackServiceName)
-	serviceNamespace := environmentValue("KAGENT_NAMESPACE", "default")
+	serviceName := telemetry.AgentName
+	if serviceName == "" {
+		serviceName = environmentValue("KAGENT_NAME", fallbackServiceName)
+	}
+	serviceNamespace := telemetry.AgentNamespace
+	if serviceNamespace == "" {
+		serviceNamespace = environmentValue("KAGENT_NAMESPACE", "default")
+	}
 
-	res, err := NewResource(ctx, serviceName, serviceNamespace)
+	res, err := NewResource(ctx, serviceName, serviceNamespace, telemetry.Identity()...)
 	if err != nil {
 		return nil, true, err
 	}
@@ -44,10 +51,15 @@ func Init(ctx context.Context, fallbackServiceName string) (func(context.Context
 	return provider.Shutdown, true, nil
 }
 
-// NewResource combines service identity, SDK metadata, and OTEL resource attributes.
-func NewResource(ctx context.Context, serviceName, serviceNamespace string) (*resource.Resource, error) {
-	return resource.New(ctx, resource.WithFromEnv(), resource.WithTelemetrySDK(), resource.WithAttributes(
-		semconv.ServiceNameKey.String(serviceName), semconv.ServiceNamespaceKey.String(serviceNamespace)))
+// NewResource combines service identity, SDK metadata, and OTEL resource
+// attributes. Owned attributes are applied after the environment, so users
+// keep OTEL_RESOURCE_ATTRIBUTES for unrelated tuning while the compiler-supplied
+// identity stays authoritative.
+func NewResource(ctx context.Context, serviceName, serviceNamespace string, owned ...attribute.KeyValue) (*resource.Resource, error) {
+	attributes := append([]attribute.KeyValue{
+		semconv.ServiceNameKey.String(serviceName), semconv.ServiceNamespaceKey.String(serviceNamespace),
+	}, owned...)
+	return resource.New(ctx, resource.WithFromEnv(), resource.WithTelemetrySDK(), resource.WithAttributes(attributes...))
 }
 
 // NewTracerProvider creates a batched OTLP provider without installing it globally.

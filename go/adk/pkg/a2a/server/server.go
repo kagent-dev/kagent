@@ -19,6 +19,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -36,6 +37,11 @@ type ServerConfig struct {
 	Host            string
 	Port            string
 	ShutdownTimeout time.Duration
+
+	// InvocationAttributes are the trusted static attributes stamped on every
+	// A2A request span. Request identity is added by whichever component
+	// resolves it, never here.
+	InvocationAttributes []attribute.KeyValue
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
@@ -52,9 +58,11 @@ type A2AServer struct {
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
 	flushBeforeResponse := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true")
-	if flushBeforeResponse {
-		handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(&traceFlushInterceptor{logger: logger}))
-	}
+	// The request span anchors invocation identity whether or not the deployment
+	// needs a pre-response flush. It is a no-op span when tracing is disabled.
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(&invocationInterceptor{
+		logger: logger, identity: config.InvocationAttributes, flush: flushBeforeResponse,
+	}))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {

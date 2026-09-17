@@ -17,6 +17,7 @@ import (
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -121,6 +122,10 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
+	// The runtime reports this identity on every invocation span and on its
+	// resource, so a user-supplied resource marker is never required.
+	config.RuntimeTelemetry = telemetryConfig.HarnessTelemetry(
+		tracing.HarnessKindClaude, template.Name+"-"+harness.Name, template.Namespace)
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
 	}
@@ -136,7 +141,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}
-	provenance, err := c.buildProvenance(ctx, input, environment)
+	provenance, err := c.buildProvenance(ctx, input, environment, configJSON)
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
@@ -388,9 +393,14 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar, configJSON []byte) ([]byte, error) {
 	harness := input.Harness
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
+	entries := []provenanceEntry{
+		objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
+		// The compiled configuration carries settings that are not in any watched
+		// object, such as telemetry, so a change to one produces a new revision.
+		objectProvenance("kagent.internal/v1", "GeneratedInput", "config.json", "", 0, json.RawMessage(configJSON)),
+	}
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {

@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version                             = 4
+	Version                             = 5
 	PinnedClaudeVersion                 = "2.1.260"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
@@ -70,9 +71,13 @@ type Config struct {
 	Agents                map[string]Agent       `json:"agents,omitempty"`
 	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
-	MaxEventBytes         int                    `json:"max_event_bytes"`
-	MaxStderrBytes        int                    `json:"max_stderr_bytes"`
-	InterruptGraceMillis  int                    `json:"interrupt_grace_millis"`
+	// RuntimeTelemetry carries the compiler-owned span identity and content
+	// capture policy. It is absent for standalone runs, which fall back to the
+	// environment for service identity and leave capture disabled.
+	RuntimeTelemetry     tracing.RuntimeTelemetry `json:"runtime_telemetry,omitzero"`
+	MaxEventBytes        int                      `json:"max_event_bytes"`
+	MaxStderrBytes       int                      `json:"max_stderr_bytes"`
+	InterruptGraceMillis int                      `json:"interrupt_grace_millis"`
 }
 
 // MCPServer is one compiler-owned direct remote server. Claude's strict MCP
@@ -132,6 +137,12 @@ func (c Config) Validate() error {
 	}
 	if c.MaxEventBytes <= 0 || c.MaxStderrBytes <= 0 || c.InterruptGraceMillis <= 0 {
 		return fmt.Errorf("event, stderr, and interrupt grace limits must be positive")
+	}
+	if err := c.RuntimeTelemetry.Validate(); err != nil {
+		return err
+	}
+	if kind := c.RuntimeTelemetry.HarnessKind; kind != "" && kind != tracing.HarnessKindClaude {
+		return fmt.Errorf("claude runtime telemetry has harness kind %q", kind)
 	}
 	for name, agent := range c.Agents {
 		if !agentNamePattern.MatchString(name) {

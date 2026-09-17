@@ -221,6 +221,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 }
 
 // traceEnvironment injects the trace context into the environment variables.
+// Claude reads it once at startup, so a turn that is resumed after an approval
+// keeps emitting under the trace of the request that started the process. The
+// resumed A2A segment records a link to that origin rather than reparenting it.
 func traceEnvironment(ctx context.Context, environment []string) []string {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
