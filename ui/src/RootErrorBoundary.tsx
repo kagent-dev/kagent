@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { storedMode } from "./theme/themeMode";
+import { storedMode } from "./theme/storedMode";
+import { formatError } from "./components/common/formatError";
 
 interface Props {
   children: ReactNode;
@@ -32,16 +33,6 @@ export class RootErrorBoundary extends Component<Props, State> {
       this.props.children
     );
   }
-}
-
-/** The message and stack, as raw text to read or copy. */
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.stack?.includes(error.message)
-      ? error.stack
-      : `${error.name}: ${error.message}\n${error.stack ?? ""}`.trimEnd();
-  }
-  return String(error);
 }
 
 /*

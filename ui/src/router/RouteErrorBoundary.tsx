@@ -3,6 +3,8 @@ import { Button, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { TriangleAlert } from "lucide-react";
 import { useNavigate, useRouteError } from "react-router-dom";
+import { ChevronRight } from "lucide-react";
+import { formatError } from "@/components/common/formatError";
 
 const { Text, Title } = Typography;
 
@@ -25,6 +27,8 @@ export function RouteErrorBoundary() {
   useEffect(() => {
     console.error("Route crashed", error);
   }, [error]);
+
+  const details = formatError(error);
 
   return (
     <div
@@ -52,6 +56,68 @@ export function RouteErrorBoundary() {
         </Button>
         <Button onClick={() => navigate(-1)}>Go back</Button>
       </Space>
+      {details === errorMessage(error) ? null : (
+        <details
+          css={{
+            borderTop: `1px solid ${theme.color.border}`,
+            paddingTop: theme.space(3),
+            "& > summary": {
+              display: "flex",
+              alignItems: "center",
+              gap: theme.space(2),
+              color: theme.color.primaryText,
+              fontSize: 13,
+              listStyle: "none",
+              cursor: "pointer",
+              userSelect: "none",
+            },
+            "& > summary::-webkit-details-marker": { display: "none" },
+            "& > summary:hover": { opacity: 0.8 },
+            "& > summary:active": { opacity: 0.65 },
+            "& > summary:focus-visible": {
+              outline: `2px solid ${theme.color.primaryText}`,
+              outlineOffset: 3,
+              borderRadius: 4,
+            },
+            "&[open] .routeError-chevron": { transform: "rotate(90deg)" },
+          }}
+        >
+          <summary>
+            <ChevronRight
+              className="routeError-chevron"
+              size={13}
+              css={{ transition: "transform 150ms ease" }}
+              aria-hidden
+            />
+            Error details
+          </summary>
+          <pre
+            css={{
+              margin: `${theme.space(3)}px 0 0`,
+              padding: theme.space(3),
+              border: `1px solid ${theme.color.border}`,
+              borderRadius: 8,
+              background: theme.color.bg,
+              overflow: "auto",
+              maxHeight: "40vh",
+            }}
+          >
+            <code
+              data-testid="route-error-details"
+              css={{
+                fontFamily: theme.font.mono,
+                fontSize: 12,
+                lineHeight: 1.6,
+                color: theme.color.text,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {details}
+            </code>
+          </pre>
+        </details>
+      )}
     </div>
   );
 }
