@@ -48,8 +48,9 @@ type tagClient interface {
 }
 
 type Service struct {
-	// ponytail: coalesce duplicate creates within one controller; use a durable
-	// lease when multi-replica gateway coordination is supported.
+	// creates coalesces identical requests within this service instance.
+	// TODO: route tag creation and cleanup through durable instance ownership
+	// so retries on different replicas cannot race.
 	creates    singleflight.Group
 	store      store
 	authorizer auth.Authorizer

@@ -90,9 +90,6 @@ func (c *Controller) tick(ctx context.Context) error {
 			}
 		})
 	}
-	// ponytail: each batch waits for its slowest reconciliation. We'll likely
-	// need a custom work queue that leases more work as capacity becomes available,
-	// without blocking on the whole batch's results.
 	wg.Wait()
 	return nil
 }
@@ -189,8 +186,8 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 
 // executionTask only reads persisted history; the live subscription ingests
 // running work. Once linked, the stored task ID is the sole execution identity.
-// ponytail: scan the instance's task list; add protocol filtering if long-lived
-// scheduled conversations make pagination costly.
+// TODO: use GetTask once the execution has a task ID; retain the history scan
+// only for recovering an execution whose task has not yet been linked.
 func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
 	request := &a2atype.ListTasksRequest{PageSize: 100}
 	if execution.GetTaskId() != "" {

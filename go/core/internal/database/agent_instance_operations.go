@@ -12,9 +12,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// ponytail: outcomes grow without a bound; add settled-only pruning before sustained production use.
 // InstanceOperation identifies one admitted lifecycle operation. Instance is its
 // original input; Result and Failure describe its retained, immutable outcome.
+// TODO: add bounded pruning of settled outcomes after at least 24 hours;
+// pending or uncertain operations must never expire.
 type InstanceOperation struct {
 	ID                 uuid.UUID
 	SourceCheckpointID *uuid.UUID // Pinned fork intent; nil for ordinary creation.
