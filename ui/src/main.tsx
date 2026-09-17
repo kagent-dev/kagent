@@ -7,6 +7,7 @@ import { loadExtensionStylesheets } from "./appExtensions/theme";
 import { applyExtensionBranding } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
 import { App } from "./App";
+import { RootErrorBoundary } from "./RootErrorBoundary";
 
 async function bootstrap() {
   // Deployment configuration needs no step here: it arrives on `window` from a
@@ -33,9 +34,11 @@ async function bootstrap() {
       {/* Outside <App> because authentication is not an extension concern: the
           extension config's provider list belongs to whoever installs an
           extension, and core auth must exist whether or not one is present. */}
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <RootErrorBoundary>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </RootErrorBoundary>
     </React.StrictMode>,
   );
 }
