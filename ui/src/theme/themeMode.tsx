@@ -43,7 +43,7 @@ interface ThemeModeContextValue {
 
 const ThemeModeContext = createContext<ThemeModeContextValue | undefined>(undefined);
 
-function storedMode(): ThemeMode | undefined {
+export function storedMode(): ThemeMode | undefined {
   // Guarded: this module is imported by unit tests running without a DOM, and a
   // browser with storage disabled throws on access rather than returning null.
   try {

@@ -19,3 +19,17 @@ describe("RootErrorBoundary", () => {
     expect(screen.getByText("Something went wrong")).toBeVisible();
   });
 });
+
+it("puts the message and stack in the expandable section", () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+
+  render(
+    <RootErrorBoundary>
+      <Boom />
+    </RootErrorBoundary>,
+  );
+
+  const details = screen.getByTestId("root-error-details");
+  expect(details).toHaveTextContent("kaboom");
+  expect(details.closest("details")).not.toBeNull();
+});
