@@ -57,6 +57,18 @@ export const LIFECYCLE_TIMEOUT =
 const PRESS_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 90_000 : 15_000;
 
 /**
+ * How long one read inside a journey may take, which is not how long the journey may.
+ *
+ * These specs asked for sixty seconds an assertion while the mock lane's whole
+ * `LIFECYCLE_TIMEOUT` is sixty — so an assertion could never exhaust its own budget, and
+ * a broken one was reported as "Test timeout of 60000ms exceeded" rather than by name.
+ * The numbers were sized for the live budget and inherited unchanged by the mock run.
+ * Same argument as `PRESS_TIMEOUT`: when this is what failed, this should be what says
+ * so.
+ */
+export const READ_TIMEOUT = process.env.UI_LOOP_LIVE === "true" ? 60_000 : 20_000;
+
+/**
  * Presses a dialog's button, once the dialog has stopped arriving.
  *
  * antd animates a modal and a popconfirm in, and Playwright can compute a click's

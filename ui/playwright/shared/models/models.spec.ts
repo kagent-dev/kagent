@@ -12,6 +12,7 @@ import {
 } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
+  READ_TIMEOUT,
   confirmDelete,
   confirmation,
   selectOption,
@@ -56,11 +57,11 @@ test("models: a configuration is created, read, changed and deleted", async ({
        * cluster is free to hold more than that — see `readListTotal`.
        */
       await loadApp(page, "/models");
-      await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
+      await expect(dataRows(page).first()).toBeVisible({ timeout: READ_TIMEOUT });
       before = await readListTotal(page, "models");
 
       await page.getByTestId("models-new").click();
-      await page.waitForURL(/\/models\/new(\?|$)/, { timeout: 60_000 });
+      await page.waitForURL(/\/models\/new(\?|$)/, { timeout: READ_TIMEOUT });
 
       // The provider list is the app's own enum rather than the backend's, so the name
       // a reader sees is the same on either — `providerDisplayName` turns
@@ -80,7 +81,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
       await page.getByTestId("model-api-key").fill("sk-not-a-real-key");
 
       await page.getByTestId("model-submit").click();
-      await page.waitForURL(/\/models(\?|$)/, { timeout: 60_000 });
+      await page.waitForURL(/\/models(\?|$)/, { timeout: READ_TIMEOUT });
       created = true;
 
       // Read back off the list rather than from a toast or a closed form: those two
@@ -93,7 +94,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
       await expectListLoaded(page, "models");
       await expectNoLoadFailure(page);
       const row = rowNamed(page, CREATED);
-      await expect(row).toHaveCount(1, { timeout: 60_000 });
+      await expect(row).toHaveCount(1, { timeout: READ_TIMEOUT });
       await expect(row).toContainText("Anthropic");
       await expect(row).toContainText("claude-sonnet-4");
       await expectListTotal(page, "models", before + 1);
@@ -102,11 +103,11 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await test.step("2. the edit form opens on what was saved, not a blank draft", async () => {
       await page.getByTestId(`edit-${CREATED}`).click();
       await page.waitForURL(new RegExp(`/models/kagent/${CREATED}/edit$`), {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
 
       await expect(page.getByTestId("model-name")).toHaveValue(CREATED, {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       /*
        * The identity and the provider are the ref and what the ref means, so an edit
@@ -129,12 +130,12 @@ test("models: a configuration is created, read, changed and deleted", async ({
       await page.getByTestId("model-api-key-secret").fill(SECRET);
 
       await page.getByTestId("model-submit").click();
-      await page.waitForURL(/\/models(\?|$)/, { timeout: 60_000 });
+      await page.waitForURL(/\/models(\?|$)/, { timeout: READ_TIMEOUT });
 
       // The search went with the form; the list is whole again on the way back.
       await searchList(page, "models", CREATED);
       const row = rowNamed(page, CREATED);
-      await expect(row).toContainText(SECRET, { timeout: 60_000 });
+      await expect(row).toContainText(SECRET, { timeout: READ_TIMEOUT });
       // Changed, not duplicated — which a create dressed as an update would be.
       await expect(row).toHaveCount(1);
       await expectListTotal(page, "models", before + 1);
@@ -155,7 +156,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
 
     await test.step("5. confirming removes that row and leaves the rest", async () => {
       await confirmDelete(page, CREATED);
-      await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: 60_000 });
+      await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: READ_TIMEOUT });
       created = false;
 
       // One row went, not several, and not the read: a list that failed to reload is

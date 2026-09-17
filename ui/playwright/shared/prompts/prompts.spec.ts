@@ -11,7 +11,11 @@ import {
   searchList,
   throwawayName,
 } from "../../helpers/app";
-import { LIFECYCLE_TIMEOUT, confirmDelete } from "../../helpers/resource";
+import {
+  LIFECYCLE_TIMEOUT,
+  READ_TIMEOUT,
+  confirmDelete,
+} from "../../helpers/resource";
 import { sweepUp } from "../../helpers/cleanup";
 
 /**
@@ -45,11 +49,11 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       // strong and catches a create that wrote twice. Off the summary rather than by
       // counting rows, the table paging at 25 — see `readListTotal`.
       await loadApp(page, "/prompts");
-      await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
+      await expect(dataRows(page).first()).toBeVisible({ timeout: READ_TIMEOUT });
       before = await readListTotal(page, "prompts");
 
       await page.getByTestId("prompts-new").click();
-      await expect(page.getByTestId("prompt-submit")).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("prompt-submit")).toBeVisible({ timeout: READ_TIMEOUT });
 
       await page.getByTestId("prompt-name").fill(CREATED);
       await page.getByTestId("prompt-namespace").fill("kagent");
@@ -57,7 +61,7 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       await fragmentValue(page, 0).fill("Group by user impact.");
 
       await page.getByTestId("prompt-submit").click();
-      await expect(page).toHaveURL(/\/prompts$/, { timeout: 60_000 });
+      await expect(page).toHaveURL(/\/prompts$/, { timeout: READ_TIMEOUT });
       created = true;
 
       // Read back off the list rather than from a toast or a closed form: those two
@@ -69,7 +73,7 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       await expectListLoaded(page, "prompts");
       await expectNoLoadFailure(page);
       const row = rowNamed(page, CREATED);
-      await expect(row).toContainText("1 key", { timeout: 60_000 });
+      await expect(row).toContainText("1 key", { timeout: READ_TIMEOUT });
       await expect(row).toContainText("changelog");
       await expectListTotal(page, "prompts", before + 1);
     });
@@ -77,21 +81,21 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
     await test.step("2. opening it shows the fragment and how to include it", async () => {
       await rowNamed(page, CREATED).getByRole("link").first().click();
       await page.waitForURL(new RegExp(`/prompts/kagent/${CREATED}$`), {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
 
       const fragments = page.getByTestId("prompt-fragments");
-      await expect(fragments).toContainText("changelog", { timeout: 60_000 });
+      await expect(fragments).toContainText("changelog", { timeout: READ_TIMEOUT });
       await expect(fragments).toContainText("Group by user impact.");
     });
 
     await test.step("3. a fragment is added, saved, and read back off the library", async () => {
       await page.getByTestId("prompt-edit").click();
       await page.waitForURL(new RegExp(`/prompts/kagent/${CREATED}/edit$`), {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       // Seeded from the saved library, so the form and the page it came from agree.
-      await expect(fragmentKey(page, 0)).toHaveValue("changelog", { timeout: 60_000 });
+      await expect(fragmentKey(page, 0)).toHaveValue("changelog", { timeout: READ_TIMEOUT });
 
       await page.getByTestId("fragment-add").click();
       await fragmentKey(page, 1).fill("handoff");
@@ -104,14 +108,14 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
 
       await page.getByTestId("prompt-submit").click();
       await expect(page).toHaveURL(new RegExp(`/prompts/kagent/${CREATED}$`), {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
 
       // Read back from the re-read library rather than from the draft: a save that
       // never reached the backend would leave the old text here.
       const fragments = page.getByTestId("prompt-fragments");
       await expect(fragments).toContainText("Name the next owner explicitly.", {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       await expect(page.getByTestId("prompt-detail-meta")).toContainText("2 fragments");
     });
@@ -120,13 +124,13 @@ test("prompts: a library is created, read, changed and deleted", async ({ page }
       await page.getByRole("link", { name: "Back to libraries" }).click();
       // The search went with the detail page; the list is whole again on the way back.
       await searchList(page, "prompts", CREATED);
-      await expect(rowNamed(page, CREATED)).toContainText("2 keys", { timeout: 60_000 });
+      await expect(rowNamed(page, CREATED)).toContainText("2 keys", { timeout: READ_TIMEOUT });
       await expect(rowNamed(page, CREATED)).toContainText("handoff");
     });
 
     await test.step("5. confirming a delete removes that row and leaves the rest", async () => {
       await confirmDelete(page, CREATED);
-      await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: 60_000 });
+      await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: READ_TIMEOUT });
       created = false;
 
       // One row went, not several, and not the read: a list that failed to reload is

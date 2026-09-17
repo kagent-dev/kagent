@@ -1,8 +1,10 @@
 import { type Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import { loadApp, throwawayName } from "../../helpers/app";
+import { sweepQuietly } from "../../helpers/cleanup";
 import {
   LIFECYCLE_TIMEOUT,
+  READ_TIMEOUT,
   appeared,
   confirmDelete,
   selectOption,
@@ -48,7 +50,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
       // Counted first: an absolute count is the fixtures' to make, but "one more, then
       // one fewer" holds on any cluster.
       await loadApp(page, "/agents?tab=harnesses");
-      await expect(harnessRows(page).first()).toBeVisible({ timeout: 60_000 });
+      await expect(harnessRows(page).first()).toBeVisible({ timeout: READ_TIMEOUT });
       before = await harnessRows(page).count();
 
       await loadApp(page, "/harnesses/new");
@@ -97,10 +99,10 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
       // Back to the tab it came from, with the new harness in the list. Read back off
       // the table rather than from a toast: "the create returned" and "the thing
       // exists" are different claims, and only the list checks the second.
-      await page.waitForURL(/tab=harnesses/, { timeout: 60_000 });
+      await page.waitForURL(/tab=harnesses/, { timeout: READ_TIMEOUT });
       created = true;
-      await expect(page.getByTestId(table)).toContainText(CREATED, { timeout: 60_000 });
-      await expect.poll(() => harnessRows(page).count(), { timeout: 60_000 }).toBe(
+      await expect(page.getByTestId(table)).toContainText(CREATED, { timeout: READ_TIMEOUT });
+      await expect.poll(() => harnessRows(page).count(), { timeout: READ_TIMEOUT }).toBe(
         before + 1,
       );
     });
@@ -108,7 +110,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await test.step("3. and it is not ready yet, which is what a cluster reports", async () => {
       const row = page.getByTestId(table).locator("tr", { hasText: CREATED });
       await expect(row.getByTestId("harness-ready")).toContainText("Not ready yet", {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
     });
 
@@ -116,23 +118,28 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
       await confirmDelete(page, CREATED);
 
       await expect(page.getByTestId(table)).not.toContainText(CREATED, {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       created = false;
       // One row went, not the table: "gone" has to mean that harness rather than a read
       // that failed and left an empty list behind it.
-      await expect.poll(() => harnessRows(page).count(), { timeout: 60_000 }).toBe(before);
+      await expect.poll(() => harnessRows(page).count(), { timeout: READ_TIMEOUT }).toBe(before);
       await expect(page.getByTestId("harnesses-delete-error")).toHaveCount(0);
     });
   } finally {
     if (created) {
-      await loadApp(page, "/agents?tab=harnesses");
-      // Waited for, not counted once: `loadApp` returns as soon as the shell is up, and
-      // a tab still fetching has no rows — which reads as "already gone" and leaves a
-      // real Harness on the cluster. See `appeared`.
-      if (await appeared(page.getByTestId(table).getByText(CREATED).first())) {
-        await confirmDelete(page, CREATED);
-      }
+      // Through `sweepQuietly` like every sibling: `loadApp` and `confirmDelete` both
+      // throw, and thrown from here that replaces the failure the test was reporting and
+      // skips the delete under it. This was the one block still doing that.
+      await sweepQuietly(CREATED, async () => {
+        await loadApp(page, "/agents?tab=harnesses");
+        // Waited for, not counted once: `loadApp` returns as soon as the shell is up,
+        // and a tab still fetching has no rows — which reads as "already gone" and
+        // leaves a real Harness on the cluster. See `appeared`.
+        if (await appeared(page.getByTestId(table).getByText(CREATED).first())) {
+          await confirmDelete(page, CREATED);
+        }
+      });
     }
   }
 });

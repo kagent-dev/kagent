@@ -4,6 +4,7 @@ import { tick } from "../../helpers/controls";
 import { sweepQuietly } from "../../helpers/cleanup";
 import {
   LIFECYCLE_TIMEOUT,
+  READ_TIMEOUT,
   appeared,
   optionNamed,
   pressUntil,
@@ -80,7 +81,7 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
     await test.step("3. creating it lands on its own page, showing what was asked for", async () => {
       await page.getByTestId("schedule-submit").click();
       await expect(page.getByRole("heading", { name: CREATED, exact: true })).toBeVisible({
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       detailURL = page.url();
       await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+(\?|$)/);
@@ -96,7 +97,7 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
     await test.step("4. the edit form opens on the stored values, not on defaults", async () => {
       await page.getByTestId("schedule-edit").click();
       await expect(page.getByTestId("schedule-time")).toHaveValue("09:00", {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       await expect(page.getByTestId("schedule-timeout")).toHaveValue("90.001");
       await expect(page.getByTestId("schedule-timezone").locator("input")).toHaveValue(
@@ -113,12 +114,12 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
       await page.getByTestId("schedule-prompt").fill("Report unhealthy workloads only.");
       await page.getByTestId("schedule-submit").click();
       await expect(page.getByRole("heading", { name: CREATED, exact: true })).toBeVisible({
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
 
       const detail = page.getByTestId("schedule-detail");
       await expect(detail).toContainText("Report unhealthy workloads only.", {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
       // And the update did not quietly reset what it was not asked to change.
       await expect(detail).toContainText("90.001 seconds");
@@ -141,7 +142,7 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
       detailURL = undefined;
 
       await expect(page.getByRole("link", { name: CREATED, exact: true })).toHaveCount(0, {
-        timeout: 60_000,
+        timeout: READ_TIMEOUT,
       });
     });
   } finally {

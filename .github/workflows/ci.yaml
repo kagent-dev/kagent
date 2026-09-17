@@ -186,7 +186,25 @@ jobs:
         id: smoke-agent
         if: ${{ !cancelled() && steps.install-kagent.outcome == 'success' }}
         continue-on-error: true
-        run: kubectl get agenttemplate smoke -n kagent
+        # Retried, because everything below is gated on this one command. Asked once, a
+        # transient API-server or kubeconfig hiccup skips the whole browser lane and the
+        # job still reports green — which is the shape of #2638, a suite that measured
+        # nothing while every check passed.
+        run: |
+          for attempt in $(seq 1 10); do
+            if kubectl get agenttemplate smoke -n kagent; then exit 0; fi
+            echo "attempt ${attempt}: not there yet"
+            sleep 6
+          done
+          kubectl get agenttemplate -A || true
+          exit 1
+
+      # And when it is genuinely absent, said out loud on the run. A skipped lane and a
+      # passing one look identical in the checks list otherwise.
+      - name: Say so if the UI suite was skipped
+        if: ${{ !cancelled() && steps.smoke-agent.outcome != 'success' }}
+        run: |
+          echo "::warning title=UI live suite skipped::No smoke agent on the cluster, so the live Playwright lane did not run."
 
       # The UI, against this same cluster and the image built above. `ui-tests` runs on
       # the in-browser mock, so a backend contract change cannot fail it — which is how

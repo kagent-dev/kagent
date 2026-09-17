@@ -1,6 +1,7 @@
 import { test, expect } from "../../fixtures/test";
 import {
   LIFECYCLE_TIMEOUT,
+  READ_TIMEOUT,
   appeared,
   confirmation,
   pressOnce,
@@ -134,7 +135,7 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       // Success is leaving the form. A create the controller refused keeps the reader on
       // it with `template-create-error` — which is the shape the defect this suite was
       // written for produced for a template that had in fact been created.
-      await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
+      await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: READ_TIMEOUT });
       created = true;
       /*
        * And the list comes back narrowed to the namespace that was being worked in.
@@ -157,7 +158,7 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       await searchList(page, "templates", TEMPLATE);
       await expectListLoaded(page, "templates");
       await expectNoLoadFailure(page);
-      await expect(rowNamed(page, TEMPLATE)).toHaveCount(1, { timeout: 60_000 });
+      await expect(rowNamed(page, TEMPLATE)).toHaveCount(1, { timeout: READ_TIMEOUT });
       /*
        * Deliberately not asserting the harness here. The row carries the namespace too,
        * and on every cluster this runs against both are `kagent` — so the assertion
@@ -170,7 +171,7 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       await page.getByTestId(`template-link-${TEMPLATE}`).click();
       await page.waitForURL(
         new RegExp(`/agent-templates/${NAMESPACE}/${TEMPLATE}`),
-        { timeout: 60_000 },
+        { timeout: READ_TIMEOUT },
       );
       /*
        * The claim this journey exists for, on an element that holds "Runs on" and the
@@ -196,15 +197,31 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
         await expect
           .poll(
             async () => {
-              const text = (await status.textContent({ timeout: 30_000 })) ?? "";
-              if (text.includes(harness)) return text;
+              /*
+               * Nothing in here may throw. `expect.poll` calls its callback outside its
+               * own try/catch, so a throw ends the poll rather than failing one round of
+               * it — measured, a callback that throws twice and then succeeds gives up
+               * after 4ms, where one that returns is retried. Two here can: `textContent`
+               * on a detail page still drawing its `Skeleton`, and `expectSettled`'s own
+               * assertions after the reload. Either turned the ninety seconds below into
+               * a single attempt and reported a raw locator timeout instead of the
+               * message this poll was given.
+               */
+              try {
+                const text = (await status.textContent({ timeout: 30_000 })) ?? "";
+                if (text.includes(harness)) return text;
 
-              // Re-read after the reload rather than returning what was on screen
-              // before it: the round that finally succeeds should be the one that says
-              // so, not the one after it.
-              await page.reload();
-              await expectSettled(page);
-              return (await status.textContent({ timeout: 30_000 })) ?? "";
+                // Re-read after the reload rather than returning what was on screen
+                // before it: the round that finally succeeds should be the one that says
+                // so, not the one after it.
+                await page.reload();
+                await expectSettled(page);
+                return (await status.textContent({ timeout: 30_000 })) ?? "";
+              } catch (error) {
+                // The reason this round could not answer, which is what the failure
+                // message should end on if none of them ever does.
+                return `could not be read: ${String(error).split("\n")[0]}`;
+              }
             },
             {
               timeout: 90_000,
@@ -232,14 +249,14 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
        */
       await expect(page.getByTestId("template-submit")).toHaveCount(0);
       await page.getByTestId("template-edit").click();
-      await expect(page.getByTestId("template-submit")).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("template-submit")).toBeVisible({ timeout: READ_TIMEOUT });
 
       await page.getByTestId("template-form-description").fill(DESCRIPTION);
       await page.getByTestId("template-submit").click();
 
       // Back to reading, showing the saved value rather than the draft: a save that did
       // not reach the backend would leave the old one here.
-      await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: READ_TIMEOUT });
       await expect(page.getByTestId("template-form-description")).toHaveValue(
         DESCRIPTION,
       );
@@ -266,7 +283,7 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       // Scoped to the visible popconfirm, and pressed once it has stopped arriving —
       // see `helpers/resource` for what each of those is protecting against.
       await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
-      await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
+      await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: READ_TIMEOUT });
       created = false;
 
       // The rest of the list is still there — the cluster installs templates of its own
@@ -274,9 +291,9 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
       // That distinction is the whole reason `expectNoLoadFailure` exists, and an empty
       // table is exactly how a failed list would look. Waited for before it is asked,
       // the count being taken once.
-      await expect(dataRows(page).first()).toBeVisible({ timeout: 60_000 });
+      await expect(dataRows(page).first()).toBeVisible({ timeout: READ_TIMEOUT });
       await expectNoLoadFailure(page);
-      await expect(rowNamed(page, TEMPLATE)).toHaveCount(0, { timeout: 60_000 });
+      await expect(rowNamed(page, TEMPLATE)).toHaveCount(0, { timeout: READ_TIMEOUT });
     });
   } finally {
     /*
@@ -304,7 +321,7 @@ test("agent templates: one is created, admitted, edited and deleted", async ({
         if (await appeared(remove)) {
           await remove.click();
           await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
-          await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 60_000 });
+          await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: READ_TIMEOUT });
         }
       });
     }

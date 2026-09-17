@@ -204,7 +204,16 @@ export async function loadApp(page: Page, path: string): Promise<void> {
  * `live/pages.spec.ts` keeps the table of what each page draws.
  */
 export async function expectNoLoadFailure(page: Page): Promise<void> {
-  const alerts = page.locator('[data-testid$="-error"]');
+  /*
+   * Both families, because the app says it two ways. A page with room for an alert draws
+   * `<thing>-error`; one with only a line of copy where the data goes draws
+   * `<thing>-unavailable` — the dashboard's recent list, the schedules table, the tools
+   * chart, the schedule history, each rendered on `error` and nothing else. Matching the
+   * first alone, this passed on a dashboard that could not reach the controller.
+   */
+  const alerts = page.locator(
+    '[data-testid$="-error"], [data-testid$="-unavailable"]',
+  );
   const count = await alerts.count();
   if (count === 0) return;
 
