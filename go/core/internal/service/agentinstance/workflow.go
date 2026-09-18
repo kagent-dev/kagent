@@ -134,14 +134,15 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 // runtime mutations. Once authorized, every error retains the operation and its
 // resource pins. Pause/Quiesce and A2A execution join this boundary in the later
 // shared-instance-execution change; this is lifecycle serialization only.
-func (w *ActorWorkflow) run(ctx context.Context, instanceID string, kind apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
-	operation, err := w.store.BeginAgentInstanceOperation(ctx, instanceID, kind)
+func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKind apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
+	operation, err := w.store.BeginAgentInstanceOperation(ctx, instanceID, requestedKind)
 	if err != nil {
 		return nil, err
 	}
 	if operation.Result != nil || operation.Failure != "" || operation.ExecutorID != uuid.Nil {
 		return operationOutcome(operation)
 	}
+	kind := operation.Kind
 	instance := operation.Instance
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {

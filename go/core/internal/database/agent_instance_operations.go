@@ -12,12 +12,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// InstanceOperation identifies one admitted lifecycle operation. Instance is its
-// original input; Result and Failure describe its retained, immutable outcome.
+// InstanceOperation identifies one admitted lifecycle operation by ID and Kind.
+// Instance is its original input; Result and Failure describe its retained,
+// immutable outcome.
 // TODO: add bounded pruning of settled outcomes after at least 24 hours;
 // pending or uncertain operations must never expire.
 type InstanceOperation struct {
 	ID                 uuid.UUID
+	Kind               apiv1alpha1.AgentInstanceOperation
 	SourceCheckpointID *uuid.UUID // Pinned fork intent; nil for ordinary creation.
 	Instance           *apiv1alpha1.AgentInstance
 	ExecutorID         uuid.UUID // Nonzero means runtime work may have been issued; never retry it.
@@ -60,10 +62,13 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 			if err != nil {
 				return err
 			}
-			if operation.Instance.Operation == kind {
+			if operation.Kind == kind {
 				return nil
 			}
-			if kind != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE || operation.ExecutorID != uuid.Nil {
+			// Only Delete may replace another operation, before runtime work
+			// could have been issued. A claimed operation must retain its pins.
+			canSupersede := kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE && operation.ExecutorID == uuid.Nil
+			if !canSupersede {
 				return fmt.Errorf("AgentInstance has an unfinished lifecycle operation: %w", ErrConflict)
 			}
 			if err := execSQL(ctx, tx, `
@@ -89,7 +94,10 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 		default:
 			return fmt.Errorf("invalid lifecycle operation %s", kind)
 		}
-		if instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED && target != 0 && instance.State == target {
+		// Resume/Suspend at their target state return the retained outcome;
+		// the current state alone is not proof that this operation completed.
+		alreadyAtTarget := target != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_UNSPECIFIED && instance.State == target
+		if instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED && alreadyAtTarget {
 			operation, err = readCompletedInstanceOperation(ctx, tx, instanceID, kind)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("no retained lifecycle outcome for %s: %w", kind, ErrFailedPrecondition)
@@ -100,8 +108,11 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 		if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
 			expectedOperation = kind
 		}
+		// A reserved creation carries CREATE before lifecycle admission. With
+		// no claimed operation remaining, Delete may replace that marker too.
 		deletingUnissuedCreation := kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE && instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
-		if instance.State != expected || (instance.Operation != expectedOperation && !deletingUnissuedCreation) {
+		canStart := instance.State == expected && (instance.Operation == expectedOperation || deletingUnissuedCreation)
+		if !canStart {
 			return fmt.Errorf("AgentInstance cannot start %s from %s with operation %s: %w", kind, instance.State, instance.Operation, ErrConflict)
 		}
 		instance.Operation = kind
@@ -125,7 +136,7 @@ func (c *Client) BeginAgentInstanceOperation(ctx context.Context, instanceID str
 		if tag.RowsAffected() != 1 {
 			return fmt.Errorf("AgentInstance has an active task or checkpoint: %w", ErrConflict)
 		}
-		operation = &InstanceOperation{ID: uuid.New(), Instance: instance, SourceCheckpointID: row.SourceCheckpointID}
+		operation = &InstanceOperation{ID: uuid.New(), Kind: kind, Instance: instance, SourceCheckpointID: row.SourceCheckpointID}
 		return execSQL(ctx, tx, `
 			INSERT INTO agent_instance_operation (id, instance_id, kind, input, source_checkpoint_id) VALUES ($1, $2, $3, $4, $5)
 		`, operation.ID, instanceID, kind.String(), input, row.SourceCheckpointID)
@@ -195,20 +206,25 @@ func (c *Client) FinishAgentInstanceOperation(ctx context.Context, id, executorI
 		if err != nil {
 			return err
 		}
-		if operation.Result != nil || operation.Failure != "" || operation.ExecutorID != executorID || (executorID == uuid.Nil) != (failure != "") {
+		completed := operation.Result != nil || operation.Failure != ""
+		// Preparation may fail only before Claim. After Claim, only a known
+		// successful outcome may settle the operation; errors keep it pending.
+		failedPreparation := executorID == uuid.Nil && failure != ""
+		successfulExecution := executorID != uuid.Nil && failure == ""
+		if completed || operation.ExecutorID != executorID || (!failedPreparation && !successfulExecution) {
 			return fmt.Errorf("lifecycle operation no longer belongs to this executor: %w", ErrConflict)
 		}
 		result, err = toAgentInstance(row)
 		if err != nil {
 			return err
 		}
-		kind := operation.Instance.Operation
+		kind := operation.Kind
 		if result.Operation != kind || result.State != operation.Instance.State {
 			return fmt.Errorf("lifecycle operation changed: %w", ErrConflict)
 		}
 		result.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 		result.UpdatedAt = timestamppb.Now()
-		if failure == "" {
+		if successfulExecution {
 			switch kind {
 			case apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE:
 				if authority == "" {
@@ -230,7 +246,7 @@ func (c *Client) FinishAgentInstanceOperation(ctx context.Context, id, executorI
 		if err != nil {
 			return err
 		}
-		if failure == "" && kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE {
+		if successfulExecution && kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE {
 			err = execSQL(ctx, tx, `DELETE FROM agent_instance WHERE id = $1`, row.ID)
 		} else {
 			err = execSQL(ctx, tx, `UPDATE agent_instance SET state = $2, operation = $3, data = $4 WHERE id = $1`, row.ID, result.State.String(), result.Operation.String(), data)
@@ -238,7 +254,7 @@ func (c *Client) FinishAgentInstanceOperation(ctx context.Context, id, executorI
 		if err != nil {
 			return err
 		}
-		if failure != "" {
+		if failedPreparation {
 			data = nil
 		}
 		return execSQL(ctx, tx, `
@@ -288,7 +304,7 @@ func readInstanceOperation(ctx context.Context, db dbExecutor, id uuid.UUID) (*I
 		return nil, fmt.Errorf("invalid stored lifecycle operation %q", row.Kind)
 	}
 	operation.Instance.Id = row.InstanceID.String()
-	operation.Instance.Operation = apiv1alpha1.AgentInstanceOperation(value)
+	operation.Kind = apiv1alpha1.AgentInstanceOperation(value)
 	if row.ExecutorID != nil {
 		operation.ExecutorID = *row.ExecutorID
 	}

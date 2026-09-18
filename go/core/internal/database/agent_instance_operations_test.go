@@ -15,6 +15,7 @@ func TestInstanceOperationRetainsExactOutcome(t *testing.T) {
 	require.NoError(t, err)
 	create, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
 	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE, create.Kind)
 	creator := uuid.New()
 	claimed, err := client.ClaimAgentInstanceOperation(t.Context(), create.ID, creator)
 	require.NoError(t, err)
@@ -25,6 +26,7 @@ func TestInstanceOperationRetainsExactOutcome(t *testing.T) {
 
 	suspend, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND)
 	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND, suspend.Kind)
 	executor := uuid.New()
 	claimed, err = client.ClaimAgentInstanceOperation(t.Context(), suspend.ID, executor)
 	require.NoError(t, err)
@@ -37,6 +39,7 @@ func TestInstanceOperationRetainsExactOutcome(t *testing.T) {
 
 	resume, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME)
 	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME, resume.Kind)
 	resumer := uuid.New()
 	claimed, err = client.ClaimAgentInstanceOperation(t.Context(), resume.ID, resumer)
 	require.NoError(t, err)
@@ -48,10 +51,12 @@ func TestInstanceOperationRetainsExactOutcome(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 	old, err := client.GetAgentInstanceOperation(t.Context(), suspend.ID)
 	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND, old.Kind)
 	require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED, old.Result.State)
 
 	deletion, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
 	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE, deletion.Kind)
 	deleter := uuid.New()
 	claimed, err = client.ClaimAgentInstanceOperation(t.Context(), deletion.ID, deleter)
 	require.NoError(t, err)
@@ -64,11 +69,13 @@ func TestInstanceOperationRetainsExactOutcome(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	old, err = client.GetAgentInstanceOperation(t.Context(), create.ID)
 	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE, old.Kind)
 	require.Equal(t, "runtime.example", old.Result.A2AAuthority)
 	require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY, old.Result.State)
 	old, err = client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
 	require.NoError(t, err)
 	require.Equal(t, deletion.ID, old.ID)
+	require.Equal(t, deletion.Kind, old.Kind)
 }
 
 func TestInstanceOperationClaimsAndPreparationRecovery(t *testing.T) {
@@ -80,6 +87,9 @@ func TestInstanceOperationClaimsAndPreparationRecovery(t *testing.T) {
 	require.NoError(t, err)
 	first, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND)
 	require.NoError(t, err)
+	// Success requires a claim, even when there is no competing executor.
+	_, err = client.FinishAgentInstanceOperation(t.Context(), first.ID, uuid.Nil, "", "")
+	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.FinishAgentInstanceOperation(t.Context(), first.ID, uuid.Nil, "", "preparation unavailable")
 	require.NoError(t, err)
 	second, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND)
@@ -117,6 +127,7 @@ func TestInstanceOperationClaimsAndPreparationRecovery(t *testing.T) {
 	joined, err := client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND)
 	require.NoError(t, err)
 	require.Equal(t, winner, joined.ExecutorID)
+	require.Equal(t, second.Kind, joined.Kind)
 	_, err = client.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, client.DeleteAgentInstance(t.Context(), instance.Id), ErrConflict)
@@ -125,6 +136,9 @@ func TestInstanceOperationClaimsAndPreparationRecovery(t *testing.T) {
 	_, err = client.FinishAgentInstanceOperation(t.Context(), second.ID, uuid.New(), "", "")
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.FinishAgentInstanceOperation(t.Context(), second.ID, uuid.Nil, "", "cannot release issued work")
+	require.ErrorIs(t, err, ErrConflict)
+	// Even the claiming executor cannot release possibly issued work as a failure.
+	_, err = client.FinishAgentInstanceOperation(t.Context(), second.ID, winner, "", "runtime outcome unknown")
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = client.FinishAgentInstanceOperation(t.Context(), second.ID, winner, "", "")
 	require.NoError(t, err)
