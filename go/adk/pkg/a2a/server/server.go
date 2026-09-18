@@ -67,6 +67,12 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 
 	healthPaths := defaultHealthPaths()
 	if config.HealthPaths != nil {
+		for _, path := range config.HealthPaths {
+			// Mux patterns (subtrees, wildcards) would route what the exact-match tracing filter misses.
+			if !strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") || strings.ContainsAny(path, "{} \t") {
+				return nil, fmt.Errorf("health path %q must be a literal path", path)
+			}
+		}
 		healthPaths = slices.Clone(config.HealthPaths)
 	}
 	healthHandler := config.HealthHandler
