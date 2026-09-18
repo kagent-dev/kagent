@@ -13,6 +13,7 @@
  */
 
 import { type ResourceRefInput, invoke } from "./operations";
+import { randomId } from "./randomId";
 import { sortedByFields, sortedByRef } from "./order";
 import type {
   CreateModelConfigRequest,
@@ -34,7 +35,6 @@ import type {
 import type { NamespaceResponse } from "./domain/namespaces";
 import type {
   SubstrateActorPage,
-  SubstrateStatusResponse,
   SubstrateSummary,
   SubstrateWorkerPage,
 } from "./domain/substrate";
@@ -44,9 +44,9 @@ import type {
   AgentTemplateResource,
 } from "./domain/agentTemplates";
 import type {
-  SubstrateActorSortField,
-  SubstratePageInput,
-  SubstrateWorkerSortField,
+  SubstrateActorPageInput,
+  SubstrateWorkerPageInput,
+  SubstrateScopeInput,
 } from "./operations";
 import type {
   AgentInstance,
@@ -107,24 +107,16 @@ export interface NamespacesApi {
 }
 
 export interface SubstrateApi {
-  /**
-   * The whole inventory in one read, optionally narrowed to one namespace.
-   *
-   * Does not survive a large cluster and is used by nothing on screen — see the
-   * operation's own note. `summary`, `actors` and `workers` are what the substrate
-   * page reads.
-   */
-  status(namespace?: string, options?: ReadOptions): Promise<SubstrateStatusResponse>;
   /** Counts and the two small lists. The only honest source of a total. */
-  summary(namespace?: string, options?: ReadOptions): Promise<SubstrateSummary>;
-  /** One page of actors, narrowed and ordered server-side. */
+  summary(scope?: SubstrateScopeInput, options?: ReadOptions): Promise<SubstrateSummary>;
+  /** One page of actors, ordered and narrowed server-side across the whole inventory. */
   actors(
-    input: SubstratePageInput<SubstrateActorSortField>,
+    input: SubstrateActorPageInput,
     options?: ReadOptions,
   ): Promise<SubstrateActorPage>;
-  /** One page of worker assignments, narrowed and ordered server-side. */
+  /** One page of workers. The mirror of `actors`. */
   workers(
-    input: SubstratePageInput<SubstrateWorkerSortField>,
+    input: SubstrateWorkerPageInput,
     options?: ReadOptions,
   ): Promise<SubstrateWorkerPage>;
 }
@@ -251,6 +243,13 @@ export interface AgentInstancesApi {
     list(id: string, options?: ReadOptions): Promise<Checkpoint[]>;
     create(id: string): Promise<Checkpoint>;
     fork(checkpointId: string, name?: string): Promise<AgentInstance>;
+    /**
+     * Names a boundary, which is what a fork of it is called too.
+     *
+     * An empty name clears the reader's title and restores the generated one, so the
+     * record that comes back is what it is now called rather than what was sent.
+     */
+    rename(checkpointId: string, name: string): Promise<Checkpoint>;
     /** Releases the snapshot a boundary was holding. Forks already made keep theirs. */
     remove(checkpointId: string): Promise<void>;
   };
@@ -324,13 +323,11 @@ export function createApiClient(): KagentApiClient {
     },
 
     substrate: {
-      status: (namespace, options) =>
-        invoke("substrate.status", { namespace }, options),
-      summary: (namespace, options) =>
-        invoke("substrate.summary", { namespace }, options),
-      // Not sorted here, unlike every other list: the server orders these pages,
-      // and re-sorting a page would order it within itself while leaving it in the
-      // wrong place in the whole — which reads as a list that shuffles as you page.
+      summary: (scope = {}, options) =>
+        invoke("substrate.summary", scope, options),
+      // Not sorted here, unlike every other list: the server orders these pages across
+      // the whole inventory, and re-sorting a page would order it within itself while
+      // leaving it in the wrong place in the whole.
       actors: (input, options) => invoke("substrate.actors", input, options),
       workers: (input, options) => invoke("substrate.workers", input, options),
     },
@@ -371,21 +368,23 @@ export function createApiClient(): KagentApiClient {
       create: (input) => invoke("agentInstances.create", input),
       remove: (id) => invoke("agentInstances.delete", { id }),
       fork: (id, name) =>
-        invoke("agentInstances.fork", { id, requestId: crypto.randomUUID(), name }),
+        invoke("agentInstances.fork", { id, requestId: randomId(), name }),
       checkpoints: {
         list: (id, options) =>
           invoke("agentInstances.checkpoints.list", { id }, options),
         create: (id) =>
           invoke("agentInstances.checkpoints.create", {
             id,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
           }),
         fork: (checkpointId, name) =>
           invoke("agentInstances.checkpoints.fork", {
             checkpointId,
-            requestId: crypto.randomUUID(),
+            requestId: randomId(),
             name,
           }),
+        rename: (checkpointId, name) =>
+          invoke("agentInstances.checkpoints.rename", { checkpointId, name }),
         remove: (checkpointId) =>
           invoke("agentInstances.checkpoints.delete", { checkpointId }),
       },

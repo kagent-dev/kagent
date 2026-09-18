@@ -2,12 +2,14 @@ package e2e_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -26,6 +28,7 @@ import (
 // TestRuntimeRevisionLifecycle exercises actual Substrate runtimes through
 // invalid edits, template retirement, checkpoint retention, and later preparation.
 func TestRuntimeRevisionLifecycle(t *testing.T) {
+	t.Parallel()
 	target := interactionTarget(t)
 	modelURL := startInteractionMock(t)
 	templateName := createInteractionTemplate(t, modelURL)
@@ -70,21 +73,21 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	t.Cleanup(func() { deleteInstance(source.GetId()) })
 	send(source.GetId())
 
-	// Observe the actual runtime through the public status API before deleting
+	// Observe the actual runtime through the public inventory API before deleting
 	// references, so an empty response cannot falsely prove cleanup later.
-	backend, err := system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
+	actor, err := findSubstrateActor(ctx, system, "", substrate.ActorName(source.GetId()))
+	require.NoError(t, err)
+	require.NotNil(t, actor)
+	runtimeName := actor.GetActorTemplate().GetName()
+	runtimeNamespace := actor.GetActorTemplate().GetAtespace()
+	require.NotEmpty(t, runtimeName)
+	backend, err := system.GetSubstrateSummary(ctx, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
 	require.NoError(t, err)
 	require.Empty(t, backend.GetAteApiError())
-	var runtimeName, runtimeNamespace, goldenActorID string
-	for _, actor := range backend.GetActors() {
-		if actor.GetActorId() == substrate.ActorName(source.GetId()) {
-			runtimeName, runtimeNamespace = actor.GetActorTemplateName(), actor.GetActorTemplateNamespace()
-		}
-	}
-	require.NotEmpty(t, runtimeName)
+	var goldenActorID string
 	for _, actorTemplate := range backend.GetActorTemplates() {
-		if actorTemplate.GetNamespace() == runtimeNamespace && actorTemplate.GetName() == runtimeName {
-			goldenActorID = actorTemplate.GetGoldenActorId()
+		if actorTemplate.GetMetadata().GetAtespace() == runtimeNamespace && actorTemplate.GetMetadata().GetName() == runtimeName {
+			goldenActorID = actorTemplate.GetMetadata().GetUid()
 		}
 	}
 	require.NotEmpty(t, goldenActorID)
@@ -156,22 +159,18 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	// GC must remove both the template and golden actor after the final
 	// checkpoint disappears, without another template event to drive cleanup.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		backend, err := system.GetSubstrateStatus(ctx, &apiv1alpha1.GetSubstrateStatusRequest{Namespace: "kagent"})
+		backend, err := system.GetSubstrateSummary(ctx, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
 		if err != nil {
 			return false, err
 		}
 		require.Empty(t, backend.GetAteApiError())
 		for _, actorTemplate := range backend.GetActorTemplates() {
-			if actorTemplate.GetNamespace() == runtimeNamespace && actorTemplate.GetName() == runtimeName {
+			if actorTemplate.GetMetadata().GetAtespace() == runtimeNamespace && actorTemplate.GetMetadata().GetName() == runtimeName {
 				return false, nil
 			}
 		}
-		for _, actor := range backend.GetActors() {
-			if actor.GetAtespace() == "ate-golden" && actor.GetActorId() == goldenActorID {
-				return false, nil
-			}
-		}
-		return true, nil
+		actor, err := findSubstrateActor(ctx, system, "ate-golden", goldenActorID)
+		return actor == nil, err
 	}), "final checkpoint deletion must eventually collect its runtime without template changes")
 
 	// Recreating the name must prepare a new identity after collection.
@@ -185,4 +184,28 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { deleteInstance(nextInstance.GetAgentInstance().GetId()) })
 	send(nextInstance.GetAgentInstance().GetId())
+}
+
+func findSubstrateActor(ctx context.Context, system apiv1alpha1.SystemServiceClient, atespace, name string) (*ateapipb.Actor, error) {
+	for token := ""; ; {
+		page, err := system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
+			Atespace: atespace,
+			Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if page.GetAteApiError() != "" {
+			return nil, fmt.Errorf("Substrate actors: %s", page.GetAteApiError())
+		}
+		for _, actor := range page.GetActors() {
+			if actor.GetMetadata().GetName() == name {
+				return actor, nil
+			}
+		}
+		token = page.GetPage().GetNextPageToken()
+		if token == "" {
+			return nil, nil
+		}
+	}
 }

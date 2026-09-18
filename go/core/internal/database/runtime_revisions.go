@@ -160,19 +160,6 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	}, nil
 }
 
-// ListActorTemplateHarnesses returns actor-template and harness identities from all stored
-// revisions. Results can contain duplicates and have no guaranteed order.
-func (c *Client) ListActorTemplateHarnesses(ctx context.Context) ([]ActorTemplateHarness, error) {
-	rows, err := queryMany(ctx, c.db, `
-		SELECT actor_template_atespace AS atespace, actor_template_name AS name, actor_template_uid AS uid, harness_name
-		FROM runtime_revision
-	`, pgx.RowToStructByName[ActorTemplateHarness])
-	if err != nil {
-		return nil, fmt.Errorf("list ActorTemplate harnesses: %w", err)
-	}
-	return rows, nil
-}
-
 // RetirePairIdentities retires identities at the given namespace/template/harness
 // names, except the supplied UID pair when non-nil. Existing instances retain
 // their pinned revisions. Missing and already-retired identities are a no-op.

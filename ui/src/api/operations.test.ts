@@ -1,3 +1,4 @@
+import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -24,12 +25,15 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
 import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
 import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
-import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
+import {
+  SystemService,
+} from "@/generated/kagent/api/v1alpha1/system_pb";
 import {
   AgentInstanceOperation as PbAgentInstanceOperation,
   AgentInstanceService,
@@ -369,26 +373,146 @@ describe("the cluster", () => {
   it("returns the substrate inventory, and a partial-data warning as a warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: () => ({
-          enabled: true,
+        getSubstrateSummary: () => ({
           ateApiError: "ate-api list calls failed",
           workerPools: [
-            { namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" },
+            {
+              ref: { namespace: "kagent", name: "pool" },
+              resource: {
+                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                value: {
+                  metadata: { namespace: "kagent", name: "pool" },
+                  spec: { replicas: 2, workerImage: "ateom:1" },
+                  status: { replicas: 1, readyReplicas: 1 },
+                },
+              },
+            },
           ],
-          actorTemplates: [{ namespace: "kagent", name: "tpl", phase: "Ready" }],
-          actors: [{ actorId: "a1", atespace: "kagent", status: "Running", version: 3n }],
-          workers: [],
+          actorTemplates: [
+            {
+              metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+              status: {
+                goldenSnapshotStatus: {
+                  goldenSnapshot: { snapshotUri: "s3://golden" },
+                },
+              },
+              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+              workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
+            },
+          ],
+        }),
+        listSubstrateActors: () => ({
+          actors: [{
+            metadata: { name: "a1", atespace: "kagent", version: 3n },
+            actorTemplate: { atespace: "team", name: "tpl", uid: "template-uid" },
+            status: {
+              state: ActorState.RUNNING,
+              workerAssignment: {
+                workerNamespace: "kagent",
+                workerPod: "worker-0",
+                workerPool: "pool",
+                workerPodIp: "10.0.0.1",
+              },
+              externalSnapshot: { snapshotUri: "s3://snapshot" },
+              inProgressSnapshotName: "next-snapshot",
+            },
+          }],
         }),
       });
     });
 
-    const status = await apiClient.substrate.status();
-    expect(status.enabled).toBe(true);
+    const [summary, actors] = await Promise.all([apiClient.substrate.summary(), apiClient.substrate.actors({})]);
+    expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
+    expect(summary.actorTemplates[0]).toEqual({
+      atespace: "kagent",
+      name: "tpl",
+      phase: "Ready",
+      goldenActorId: "golden-actor",
+      goldenSnapshot: "s3://golden",
+      sandboxClass: "gvisor",
+      workerSelector: "pool=agents,zone=east",
+    });
     // The request succeeded; the runtime halves may be incomplete. That is a
     // message to put beside the data, not an error to throw.
-    expect(status.ateApiError).toMatch(/ate-api/);
-    expect(status.actors[0].atespace).toBe("kagent");
-    expect(status.actors[0].version).toBe(3);
+    expect(summary.ateApiError).toMatch(/ate-api/);
+    expect(actors.actors[0]).toEqual({
+      actorId: "a1",
+      atespace: "kagent",
+      status: "Running",
+      actorTemplateAtespace: "team",
+      actorTemplateName: "tpl",
+      ateomPodNamespace: "kagent",
+      ateomPodName: "worker-0",
+      ateomPodIp: "10.0.0.1",
+      latestSnapshot: "s3://snapshot",
+      workerPoolName: "pool",
+      inProgressSnapshot: "next-snapshot",
+      version: 3,
+    });
+  });
+
+  it.each([
+    { goldenSnapshotStatus: undefined, phase: "Pending" },
+    { goldenSnapshotStatus: { errorMessage: "warmup failed" }, phase: "Failed" },
+    {
+      goldenSnapshotStatus: {
+        errorMessage: "warmup failed",
+        goldenSnapshot: { snapshotUri: "s3://golden" },
+      },
+      phase: "Failed",
+    },
+  ])(
+    "derives template phase $phase from upstream status",
+    async ({ goldenSnapshotStatus, phase }) => {
+      serve(({ service }) => {
+        service(SystemService, {
+          getSubstrateSummary: () => ({
+            actorTemplates: [
+              {
+                metadata: { atespace: "kagent", name: "tpl" },
+                status: { goldenSnapshotStatus },
+              },
+            ],
+          }),
+        });
+      });
+      const { actorTemplates } = await apiClient.substrate.summary();
+      expect(actorTemplates[0].phase).toBe(phase);
+      expect(actorTemplates[0].workerSelector).toBeUndefined();
+    },
+  );
+
+  it.each([
+    [ActorState.UNSPECIFIED, "Unknown"],
+    [ActorState.RESUMING, "Resuming"],
+    [ActorState.RUNNING, "Running"],
+    [ActorState.SUSPENDING, "Suspending"],
+    [ActorState.SUSPENDED, "Suspended"],
+    [ActorState.PAUSING, "Pausing"],
+    [ActorState.PAUSED, "Paused"],
+    [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
+    [ActorState.DELETING, "ACTOR_STATE_DELETING"],
+    [99 as ActorState, "99"],
+  ])("preserves the actor status label for state %s", async (state, label) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: () => ({
+          actors: [{ metadata: { name: "a1" }, status: { state } }],
+        }),
+      });
+    });
+    const page = await apiClient.substrate.actors({});
+    expect(page.actors[0].status).toBe(label);
+  });
+
+  it("rejects worker pools without a resource instead of displaying empty columns", async () => {
+    const inventory = () => ({
+      workerPools: [{ ref: { namespace: "kagent", name: "pool" } }],
+    });
+    serve(({ service }) => {
+      service(SystemService, { getSubstrateSummary: inventory });
+    });
+    await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
@@ -396,26 +520,145 @@ describe("the cluster", () => {
   it("reads an empty warning as no warning", async () => {
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: () => ({ enabled: false, ateApiError: "" }),
+        getSubstrateSummary: () => ({ ateApiError: "" }),
       });
     });
-    expect((await apiClient.substrate.status()).ateApiError).toBeUndefined();
+    expect((await apiClient.substrate.summary()).ateApiError).toBeUndefined();
   });
 
-  it("passes the namespace filter through", async () => {
-    const asked: string[] = [];
+  it("passes independent namespace and atespace filters through", async () => {
+    const asked: { namespace: string; atespace: string }[] = [];
     serve(({ service }) => {
       service(SystemService, {
-        getSubstrateStatus: (request) => {
-          asked.push(request.namespace);
-          return { enabled: true };
+        getSubstrateSummary: (request) => {
+          asked.push({ namespace: request.namespace, atespace: request.atespace });
+          return {};
         },
       });
     });
 
-    await apiClient.substrate.status("kagent");
-    await apiClient.substrate.status();
-    expect(asked).toEqual(["kagent", ""]);
+    await apiClient.substrate.summary({ namespace: "kagent", atespace: "team-a" });
+    await apiClient.substrate.summary();
+    expect(asked).toEqual([{ namespace: "kagent", atespace: "team-a" }, { namespace: "", atespace: "" }]);
+  });
+
+  it("reads the summary's counts rather than counting rows", async () => {
+    serve(({ service }) => {
+      service(SystemService, {
+        getSubstrateSummary: () => ({
+          workerPools: [
+            {
+              ref: { namespace: "kagent", name: "pool" },
+              resource: {
+                apiVersion: "ate.dev/v1alpha1", kind: "WorkerPool",
+                value: {
+                  metadata: { namespace: "kagent", name: "pool" },
+                  spec: { replicas: 2, workerImage: "ateom:1" },
+                  status: { replicas: 1, readyReplicas: 1 },
+                },
+              },
+            },
+          ],
+          actorTemplates: [
+            {
+              metadata: { atespace: "kagent", name: "tpl", uid: "golden-actor" },
+              status: {
+                goldenSnapshotStatus: {
+                  goldenSnapshot: { snapshotUri: "s3://golden" },
+                },
+              },
+              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
+              workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
+            },
+          ],
+          actorCount: 410110n,
+          workerCount: 900n,
+          runningActorCount: 12n,
+          busyWorkerCount: 11n,
+          actorStatusCounts: [
+            { state: ActorState.CRASHED, count: 410098n },
+            { state: ActorState.RUNNING, count: 12n },
+          ],
+          computedAt: timestampFromDate(new Date("2026-09-04T12:00:00Z")),
+        }),
+      });
+    });
+
+    const summary = await apiClient.substrate.summary();
+    // `int64` on the wire: a count that stayed a bigint formats as "410110n" and
+    // arithmetic against it throws.
+    expect(summary.workerPools).toEqual([{ namespace: "kagent", name: "pool", replicas: 2, ateomImage: "ateom:1" }]);
+    expect(summary.actorTemplates[0].phase).toBe("Ready");
+    expect(summary.actorCount).toBe(410110);
+    expect(summary.runningActorCount).toBe(12);
+    expect(summary.busyWorkerCount).toBe(11);
+    expect(summary.actorStatusCounts).toEqual([
+      { status: "ACTOR_STATE_CRASHED", count: 410098 },
+      { status: "Running", count: 12 },
+    ]);
+    expect(summary.computedAt).toBe("2026-09-04T12:00:00.000Z");
+  });
+
+  // `PageRequest`/`PageResponse`, the shape every other paged read on this API uses.
+  it("sends the page size and token, and reads the next token back", async () => {
+    const asked: {
+      atespace: string;
+      limit: number;
+      pageToken: string;
+    }[] = [];
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: (request) => {
+          asked.push({
+            atespace: request.atespace,
+            limit: request.page?.limit ?? 0,
+            pageToken: request.page?.pageToken ?? "",
+          });
+          return {
+            actors: [{
+              metadata: { name: "a1", version: 3n },
+              status: { state: ActorState.RUNNING },
+            }],
+            page: { nextPageToken: "cursor-2" },
+          };
+        },
+      });
+    });
+
+    const page = await apiClient.substrate.actors({
+      atespace: "kagent",
+      limit: 100,
+      pageToken: "cursor-1",
+    });
+    expect(asked).toEqual([
+      {
+        atespace: "kagent",
+        limit: 100,
+        pageToken: "cursor-1",
+      },
+    ]);
+    expect(page.actors[0].actorId).toBe("a1");
+    expect(page.actors[0].status).toBe("Running");
+    expect(page.actors[0].version).toBe(3);
+    expect(page.actors[0].ateomPodName).toBeUndefined();
+    expect(page.nextPageToken).toBe("cursor-2");
+  });
+
+  // Absent rather than empty, so "there is more" is a question about presence: an
+  // empty token sent back as the next page would re-read page one for ever.
+  it("reads the last page's empty token as no next page", async () => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateWorkers: () => ({
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0" }],
+          page: { nextPageToken: "" },
+        }),
+      });
+    });
+
+    const page = await apiClient.substrate.workers({ limit: 100 });
+    expect(page.nextPageToken).toBeUndefined();
+    expect(page.workers).toHaveLength(1);
   });
 });
 

@@ -2,95 +2,131 @@ package telemetry
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
-	"time"
 
 	"go.opentelemetry.io/otel"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace/noop"
+	"go.opentelemetry.io/otel/log"
+	logglobal "go.opentelemetry.io/otel/log/global"
+	lognoop "go.opentelemetry.io/otel/log/noop"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
+	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
-// ForceFlush must drain spans buffered in a batch processor (which would
-// otherwise wait out its schedule delay) and be a no-op for providers
-// without ForceFlush support (e.g. the default global no-op provider).
-func TestForceFlush(t *testing.T) {
-	exporter := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter)))
-	prev := otel.GetTracerProvider()
-	otel.SetTracerProvider(tp)
-	t.Cleanup(func() {
-		otel.SetTracerProvider(prev)
-		_ = tp.Shutdown(context.Background())
-	})
-
-	_, span := otel.Tracer("test").Start(context.Background(), "buffered")
-	span.End()
-	if got := len(exporter.GetSpans()); got != 0 {
-		t.Fatalf("span exported before flush: %d", got)
-	}
-
-	// A canceled request context must not prevent the flush.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	ForceFlush(ctx)
-	if got := len(exporter.GetSpans()); got != 1 {
-		t.Fatalf("expected 1 span after flush, got %d", got)
-	}
-
-	otel.SetTracerProvider(noop.NewTracerProvider())
-	ForceFlush(context.Background()) // must not panic
-}
-
-// flushTimeout reads KAGENT_TRACE_FLUSH_TIMEOUT_MS and falls back to 3s on
-// unset, non-numeric, or non-positive values.
-func TestFlushTimeout(t *testing.T) {
-	tests := []struct {
-		name string
-		env  string
-		want time.Duration
+func TestInitExportsConfiguredSignals(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		traces, logs bool
 	}{
-		{name: "unset", env: "", want: 3 * time.Second},
-		{name: "valid", env: "500", want: 500 * time.Millisecond},
-		{name: "invalid", env: "not-a-number", want: 3 * time.Second},
-		{name: "non-positive", env: "0", want: 3 * time.Second},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", tt.env)
-			if got := flushTimeout(); got != tt.want {
-				t.Errorf("flushTimeout() = %v, want %v", got, tt.want)
+		{"disabled", false, false}, {"traces", true, false}, {"logs", false, true}, {"both", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			received := map[string][]byte{}
+			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				mu.Lock()
+				received[r.URL.Path] = data
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/x-protobuf")
+			}))
+			defer collector.Close()
+			t.Setenv("OTEL_TRACING_ENABLED", strconv.FormatBool(tc.traces))
+			t.Setenv("OTEL_LOGGING_ENABLED", strconv.FormatBool(tc.logs))
+			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+			t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "")
+			t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "")
+			t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", collector.URL+"/v1/traces")
+			t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", collector.URL+"/v1/logs")
+			t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
+			oldTrace, oldLog, oldPropagation := otel.GetTracerProvider(), logglobal.GetLoggerProvider(), otel.GetTextMapPropagator()
+			t.Cleanup(func() {
+				otel.SetTracerProvider(oldTrace)
+				logglobal.SetLoggerProvider(oldLog)
+				otel.SetTextMapPropagator(oldPropagation)
+			})
+			otel.SetTracerProvider(tracenoop.NewTracerProvider())
+			logglobal.SetLoggerProvider(lognoop.NewLoggerProvider())
+			shutdown, enabled, err := Init(t.Context(), "adk-service", "agent-namespace")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if enabled != (tc.traces || tc.logs) {
+				t.Fatalf("enabled = %v", enabled)
+			}
+			ctx := SetKAgentSpanAttributes(t.Context(), map[string]string{"kagent.test": "inherited"})
+			_, span := StartInvocationSpan(ctx)
+			span.End()
+			var record log.Record
+			record.SetBody(log.StringValue("test log"))
+			logglobal.GetLoggerProvider().Logger("test").Emit(t.Context(), record)
+			if err := shutdown(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for path, want := range map[string]bool{"/v1/traces": tc.traces, "/v1/logs": tc.logs} {
+				if _, got := received[path]; got != want {
+					t.Fatalf("export to %s = %v, want %v", path, got, want)
+				}
+			}
+			if tc.traces {
+				var request collectortrace.ExportTraceServiceRequest
+				if err := proto.Unmarshal(received["/v1/traces"], &request); err != nil {
+					t.Fatal(err)
+				}
+				if len(request.ResourceSpans) != 1 {
+					t.Fatalf("resource spans = %v", request.ResourceSpans)
+				}
+				resource := request.ResourceSpans[0]
+				attrs := map[string]string{}
+				for _, attr := range resource.Resource.Attributes {
+					attrs[attr.Key] = attr.Value.GetStringValue()
+				}
+				if attrs["service.name"] != "adk-service" || attrs["service.namespace"] != "agent-namespace" {
+					t.Fatalf("resource = %v", attrs)
+				}
+				found := false
+				for _, scope := range resource.ScopeSpans {
+					for _, span := range scope.Spans {
+						for _, attr := range span.Attributes {
+							if span.Name == "invocation" && attr.Key == "kagent.test" && attr.Value.GetStringValue() == "inherited" {
+								found = true
+							}
+						}
+					}
+				}
+				if !found {
+					t.Fatal("ADK attribute processor did not enrich the exported invocation span")
+				}
 			}
 		})
 	}
 }
 
-// The resource must merge OTEL_RESOURCE_ATTRIBUTES and the telemetry.sdk.*
-// attributes. resource.New starts empty, so building it from WithAttributes
-// alone silently drops everything the environment supplies.
-func TestNewTelemetryResourceMergesEnvAttributes(t *testing.T) {
-	t.Setenv("OTEL_SERVICE_NAME", "should-not-win")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=prod,service.version=1.4.2")
-
-	res, err := newTelemetryResource(context.Background(), "svc", "ns")
-	if err != nil {
-		t.Fatalf("newTelemetryResource: %v", err)
+// A disabled initializer must leave an application's existing provider alone.
+func TestInitDisabledPreservesProvider(t *testing.T) {
+	t.Setenv("OTEL_TRACING_ENABLED", "false")
+	t.Setenv("OTEL_LOGGING_ENABLED", "false")
+	previous := otel.GetTracerProvider()
+	shutdown, enabled, err := Init(t.Context(), "unused", "unused")
+	if err != nil || enabled {
+		t.Fatalf("Init = enabled %v, error %v", enabled, err)
 	}
-
-	got := map[string]string{}
-	for _, kv := range res.Attributes() {
-		got[string(kv.Key)] = kv.Value.String()
+	if otel.GetTracerProvider() != previous {
+		t.Fatal("disabled Init replaced the provider")
 	}
-	for key, want := range map[string]string{
-		"deployment.environment.name": "prod",
-		"service.version":             "1.4.2",
-		"telemetry.sdk.language":      "go",
-		"service.name":                "svc",
-		"service.namespace":           "ns",
-	} {
-		if got[key] != want {
-			t.Errorf("attribute %s = %q, want %q (all: %v)", key, got[key], want, got)
-		}
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

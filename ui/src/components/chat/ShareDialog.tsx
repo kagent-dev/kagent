@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { Copy, Trash2 } from "lucide-react";
 import { apiClient, type AgentInstanceShare } from "@/api";
 import { buildPath, paths } from "@/router/routes";
+import { copyText } from "@/components/common/copyText";
 
 const { Text } = Typography;
 
@@ -97,6 +98,10 @@ export function ShareDialog({
    * storage is a credential outliving the page that was trusted with it.
    */
   const [freshLink, setFreshLink] = useState<string>();
+
+  /** Which link was copied, and whether it worked. Kept against the link so a
+      newly created one resets it. */
+  const [copied, setCopied] = useState<{ link: string; ok: boolean }>();
 
   const reload = useCallback(() => setReloadToken((count) => count + 1), []);
 
@@ -229,10 +234,19 @@ export function ShareDialog({
                   size="small"
                   icon={<Copy size={13} />}
                   data-testid="share-copy-fresh-link"
-                  onClick={() => void navigator.clipboard?.writeText(freshLink)}
+                  onClick={() => {
+                    void copyText(freshLink)
+                      .catch(() => false)
+                      .then((ok) => setCopied({ link: freshLink, ok }));
+                  }}
                 >
-                  Copy link
+                  {copied?.link === freshLink && copied.ok ? "Copied" : "Copy link"}
                 </Button>
+                {copied?.link === freshLink && !copied.ok ? (
+                  <Text type="danger" data-testid="share-copy-failed">
+                    Could not copy. Select the link above and copy it yourself.
+                  </Text>
+                ) : null}
               </Space>
             }
           />

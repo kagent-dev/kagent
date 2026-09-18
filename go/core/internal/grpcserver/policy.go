@@ -14,7 +14,9 @@ func DefaultMethodPolicies() MethodPolicies {
 		apiv1alpha1.SystemService_GetVersion_FullMethodName:                   auth.AccessPublic,
 		apiv1alpha1.SystemService_GetCurrentUser_FullMethodName:               auth.AccessRead,
 		apiv1alpha1.SystemService_ListNamespaces_FullMethodName:               auth.AccessRead,
-		apiv1alpha1.SystemService_GetSubstrateStatus_FullMethodName:           auth.AccessRead,
+		apiv1alpha1.SystemService_GetSubstrateSummary_FullMethodName:          auth.AccessRead,
+		apiv1alpha1.SystemService_ListSubstrateActors_FullMethodName:          auth.AccessRead,
+		apiv1alpha1.SystemService_ListSubstrateWorkers_FullMethodName:         auth.AccessRead,
 		apiv1alpha1.MemoryService_AddSession_FullMethodName:                   auth.AccessCreate,
 		apiv1alpha1.MemoryService_AddSessionBatch_FullMethodName:              auth.AccessCreate,
 		apiv1alpha1.MemoryService_Search_FullMethodName:                       auth.AccessRead,
@@ -73,6 +75,7 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1alpha1.CheckpointService_ListCheckpoints_FullMethodName] = auth.AccessRead
 	policies[apiv1alpha1.CheckpointService_DeleteCheckpoint_FullMethodName] = auth.AccessDelete
 	policies[apiv1alpha1.CheckpointService_ForkAgentInstance_FullMethodName] = auth.AccessCreate
+	policies[apiv1alpha1.CheckpointService_UpdateCheckpointName_FullMethodName] = auth.AccessUpdate
 	policies[a2apb.A2AService_SendMessage_FullMethodName] = auth.AccessCreate
 	policies[a2apb.A2AService_SendStreamingMessage_FullMethodName] = auth.AccessCreate
 	policies[a2apb.A2AService_GetTask_FullMethodName] = auth.AccessRead

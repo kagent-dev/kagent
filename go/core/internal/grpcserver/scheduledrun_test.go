@@ -15,6 +15,7 @@ import (
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -192,8 +193,8 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	server, err := New(Config{
 		Listener: listener, Registerer: prometheus.NewRegistry(), Authenticator: &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
-		ScheduledRunService:  scheduledrun.NewService(store, kube, &authimpl.NoopAuthorizer{}),
-		AgentInstanceService: agentinstance.NewService(store, &authimpl.NoopAuthorizer{}, nil),
+		ScheduledRunService:  scheduledrun.NewService(store, kube, &pkgauth.NoopAuthorizer{}),
+		AgentInstanceService: agentinstance.NewService(store, &pkgauth.NoopAuthorizer{}, nil),
 	})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())

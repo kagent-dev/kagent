@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Alert,
@@ -13,9 +20,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import type { TableProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { SortOrder } from "antd/es/table/interface";
 import { useTheme, type CSSObject, type Theme } from "@emotion/react";
 import { useThemeMode } from "@/theme/themeMode";
 import { Radio, Search } from "lucide-react";
@@ -29,9 +34,6 @@ import {
   useSubstrateSummary,
   useSubstrateWorkers,
   type SubstrateActorEntry,
-  type SubstrateActorSortField,
-  type SubstrateSortOrder,
-  type SubstrateWorkerSortField,
   type SubstrateActorTemplateEntry,
   type SubstrateStatusCount,
   type SubstrateWorkerEntry,
@@ -39,18 +41,6 @@ import {
 } from "@/api";
 
 const { Text } = Typography;
-
-/**
- * How tall the actor and worker tables get before they scroll internally.
- *
- * These two lists are the only ones here whose length is set by the cluster rather
- * than by configuration, and ate-api will hand over as many as exist: a real cluster
- * answered with 34,356 actors, which unbounded came to a 1.4-million-pixel page that
- * took seconds to become interactive and could not even be screenshotted. Bounding
- * the body and letting antd window the rows keeps the page a fixed size whatever the
- * backend reports.
- */
-const GROWING_TABLE_HEIGHT = 420;
 
 /**
  * The interval polling starts at, in seconds.
@@ -61,14 +51,6 @@ const GROWING_TABLE_HEIGHT = 420;
  */
 const DEFAULT_POLL_SECONDS = 0.5;
 
-/**
- * The fastest this page will ask, in seconds.
- *
- * Below this the reader is not watching a cluster, they are load-testing one: the
- * inventory is a single unpaginated read of every actor, and on the cluster that
- * answered with 34,356 of them one read is not free. Enforced on the field rather than
- * only in the timer, so the number on screen is the number being used.
- */
 const MIN_POLL_SECONDS = 0.5;
 
 /**
@@ -90,14 +72,9 @@ function pollIntervalMs(seconds: number | null): number | undefined {
 
 /** Where the chosen scope lives, so a link carries what the reader is looking at. */
 const NAMESPACE_PARAM = "namespace";
+const ATESPACE_PARAM = "atespace";
 
-/**
- * The scope that means "everything the controller watches".
- *
- * `GetSubstrateStatusRequest.namespace` is empty for it — `substrateNamespaces("")` in
- * the controller expands that to its observed namespaces — so the absence of the URL
- * param and the absence of the field are the same fact, and neither needs a sentinel.
- */
+/** Empty Kubernetes scope means all watched namespaces. */
 const ALL_NAMESPACES = "";
 
 /**
@@ -257,10 +234,7 @@ const atAGlance = (count: number) => compactNumber.format(count).replace("K", "k
  * today's sample: a reader learns that `Crashed` is a thing that happens by seeing it at
  * zero, not by waiting for one.
  *
- * Mirrors `ActorStatusLabel` in `go/core/internal/substrate/list.go`, which names the
- * `ate.dev` `ActorState` enum. Drift is not a failure here: this decides only what is
- * listed at zero, and any state the controller reports that is missing from it is added
- * to the legend from the data — so a new one appears the first time it happens.
+ * States absent from this list are added to the legend when reported by Substrate.
  */
 const ACTOR_STATES = [
   "Crashed",
@@ -285,6 +259,56 @@ const ACTOR_STATES = [
  * browser does.
  */
 const ACTORS_DRAWN_INDIVIDUALLY = 80;
+
+/**
+ * A segment's floor, and the space between two of them.
+ *
+ * Constants rather than literals in the CSS, because the capacity below is arithmetic
+ * over exactly these two numbers: a floor changed in one place and not the other gives
+ * a bar that computes room it does not have.
+ */
+const SEGMENT_MIN_WIDTH = 6;
+const SEGMENT_GAP = 3;
+
+/**
+ * How many segments the bar has room for, side by side, at its current width.
+ *
+ * The per-actor drawing has a floor per segment and does not wrap, so eighty actors
+ * need 717px whatever the window is: at 1024 the sidebar expands and leaves the track
+ * 686px, and the bar pushed the whole page into horizontal scroll — which this app
+ * forbids, and which was reachable with eighty actors on an ordinary laptop.
+ *
+ * Measured in a layout effect so the answer is in before the browser paints, rather
+ * than after a frame of the overflow this exists to prevent. Zero means not measured —
+ * jsdom has no layout and its ResizeObserver is a no-op — and the caller reads that as
+ * "no width to cap by" rather than as "no room".
+ */
+function useSegmentCapacity() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [capacity, setCapacity] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const width = element.clientWidth;
+      /*
+       * A width of zero is the element on its way out — React replacing the node, or
+       * the observer's last word as it detaches — not a track with no room in it.
+       * Taken at face value it overwrote a good measurement with nothing, and the bar
+       * went back to drawing every actor on a track that could not hold them.
+       */
+      if (width <= 0) return;
+      setCapacity(Math.floor((width + SEGMENT_GAP) / (SEGMENT_MIN_WIDTH + SEGMENT_GAP)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, capacity] as const;
+}
 
 /**
  * The whole actor inventory as one bar, coloured by what each actor is doing.
@@ -331,6 +355,7 @@ function StatusBar({
   const { mode } = useThemeMode();
   const dark = mode === "dark";
   const palette = statusPalette(theme);
+  const [trackRef, capacity] = useSegmentCapacity();
   // Short in the legend, where the swatch and the column already say what is counted.
   const read = (entry: SubstrateStatusCount) =>
     `${entry.status || "not reported"}: ${atAGlance(entry.count)}`;
@@ -368,7 +393,16 @@ function StatusBar({
   const entries = [...merged].map(([status, count]) => ({ status, count }));
   const present = order(entries.filter((entry) => entry.count > 0));
   const total = present.reduce((sum, entry) => sum + entry.count, 0);
-  const perActor = total > 0 && total <= ACTORS_DRAWN_INDIVIDUALLY;
+  /*
+   * One segment per actor only while there is room for them all.
+   *
+   * The count is the first limit and the width is the second: below either, the bar
+   * falls back to a segment per status sized by its share, which is what it does for a
+   * cluster of hundreds of thousands anyway.
+   */
+  const drawableSegments =
+    capacity > 0 ? Math.min(ACTORS_DRAWN_INDIVIDUALLY, capacity) : ACTORS_DRAWN_INDIVIDUALLY;
+  const perActor = total > 0 && total <= drawableSegments;
   const summary = [caption, present.map(readFull).join(", ")].filter(Boolean).join(". ");
 
   // The one place a tone becomes two colours, so a legend key and the segment it explains
@@ -404,7 +438,7 @@ function StatusBar({
         /* One crashed actor in 410,110 is 0.0002% of the width: without a floor it is not
            a pixel, let alone something to point at — and it is the most important thing
            on the bar. */
-        minWidth: 6,
+        minWidth: SEGMENT_MIN_WIDTH,
         height: 18,
         // Only the two ends are rounded, so the row reads as one bar rather than as a
         // line of separate lozenges.
@@ -417,6 +451,7 @@ function StatusBar({
 
   const track = (
     <div
+      ref={trackRef}
       data-testid={testId}
       /* The tooltip needs a pointer, which a screen reader has not got and a keyboard
          cannot produce. So the same summary is the bar's own name — colour and hover are
@@ -425,7 +460,7 @@ function StatusBar({
       aria-label={total === 0 ? emptyText : `${title}. ${summary}`}
       css={{
         display: "flex",
-        gap: 3,
+        gap: SEGMENT_GAP,
         minHeight: 18,
         /* Hover only: pointing at the bar reveals the breakdown, but nothing happens on
            press, and an active state would promise that it does.
@@ -572,29 +607,18 @@ function StatusBar({
   );
 }
 
-/**
- * A section's name and how many rows are under it, which is worth knowing before
- * reading them.
- *
- * Both numbers whenever the rows on screen are not the whole answer — because a
- * search has narrowed them, or because they are one page of many. A bare count is
- * how a reader concludes their cluster has three actors when it is running four
- * hundred thousand, and with the lists paged that is now the *default* case rather
- * than an edge one.
- *
- * The total is the server's, never `rows.length`. That is the whole reason the
- * summary RPC exists: a page cannot count what it did not fetch.
- */
 function SectionTitle({
   title,
   count,
   total,
+  paged = false,
 }: {
   title: string;
   /** How many rows are on screen. */
   count: number;
   /** How many there are in total, counted server-side. */
   total?: number;
+  paged?: boolean;
 }) {
   const theme = useTheme();
   const narrowed = total !== undefined && total !== count;
@@ -602,24 +626,12 @@ function SectionTitle({
     <Space size={8}>
       <span>{title}</span>
       <Text css={{ color: theme.color.textMuted, fontWeight: 400 }}>
-        {narrowed ? `${count} of ${total.toLocaleString()}` : count}
+        {paged ? `${count} on this page` : narrowed ? `${count} of ${total.toLocaleString()}` : count}
       </Text>
     </Space>
   );
 }
 
-/**
- * Narrows one section's rows by what the reader typed.
- *
- * Per section rather than one box for the page, because these four lists answer four
- * different questions: narrowing the actors to one template should not also empty the
- * table that says what that template is.
- *
- * Matching is a substring of everything the row shows, case-insensitively. A row's own
- * text is built by the caller so the search covers what is on screen — including the
- * parts a column composes, like a pod and its IP — rather than a field list that drifts
- * from the columns beside it.
- */
 function filterRows<T>(
   rows: readonly T[],
   query: string,
@@ -630,14 +642,6 @@ function filterRows<T>(
   return rows.filter((row) => text(row).toLowerCase().includes(needle));
 }
 
-/**
- * A column comparator over whatever string the column shows.
- *
- * `localeCompare` rather than `<`, so a list of names sorts the way the reader reads
- * them. Every column gets one and every one carries a `multiple`, which is what makes
- * the tables multi-sortable: antd sorts by each active column in `multiple` order, so
- * shift-clicking Status then Template groups by status and orders within each group.
- */
 function byText<T>(of: (row: T) => string) {
   return (a: T, b: T) => of(a).localeCompare(of(b));
 }
@@ -685,143 +689,12 @@ function SectionSearch({
   );
 }
 
-/**
- * The Agent Substrate's own inventory.
- *
- * Four sections, in the order a reader needs them: the worker pools sandboxes run on and
- * the templates actors are cut from, both read from Kubernetes; then the actors placed
- * right now and the pods they are placed on, both read from ate-api. The split matters
- * more than it looks — the Kubernetes halves are complete whenever the request succeeded,
- * while the ate-api halves can be absent (`enabled: false`, no endpoint configured) or
- * partial (`ateApiError` on an otherwise successful response). Each of those is said in
- * the place it applies rather than as one banner over everything.
- */
+const PAGE_SIZE = 25;
 
-/**
- * How many rows a paged section asks for.
- *
- * The controller's maximum, because these tables are virtualised and bounded in
- * height: a bigger page costs nothing to render and means fewer round trips for a
- * reader scrolling through actors. Anything above 100 is refused outright rather
- * than clamped.
- */
-const PAGE_SIZE = 100;
-
-/**
- * How long to wait after a keystroke before asking the server.
- *
- * The filters are server-side now — which is the point, since filtering a fetched
- * page searches only what was fetched — so every keystroke would otherwise be a
- * request against a cluster with hundreds of thousands of actors. Long enough to
- * coalesce typing, short enough not to feel like lag.
- */
-const FILTER_DEBOUNCE_MS = 300;
-
-/** A value that follows its input, but only once it has stopped changing. */
-function useDebounced<T>(value: T, delayMs: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSettled(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return settled;
-}
-
-/** One paged table's order: which column, and which way. */
-type PagedSort<Field extends string> = {
-  field: Field | "default";
-  order: SubstrateSortOrder;
-};
-
-/**
- * What antd should draw on a column's header, from the order that was applied.
- *
- * The header is antd's own — the whole cell is the target, and the direction is its
- * pair of chevrons — because a page where two tables sort by clicking a header and two
- * more by clicking the words inside one is a page a reader has to learn twice.
- *
- * What is not antd's is the sorting: the columns below declare `sorter: true`, the form
- * that gives a column that header and leaves the table no comparator to run. That is
- * right here, but for the opposite reason to the one this comment used to give. No
- * order is sent anywhere — `GetSubstrateStatus` takes a namespace and nothing else —
- * so the read hands back the whole inventory and `localPage` orders all of it before
- * slicing out a page. The ordering is already over every row, and a comparator would
- * re-sort the hundred on screen: one page out of 410,110 reordered is not the cluster
- * sorted, and the first row of the sorted set is almost certainly not on it.
- */
-function sortDirectionFor<Field extends string>(
-  sort: PagedSort<Field>,
-  field: Field,
-): SortOrder | null {
-  if (sort.field !== field) return null;
-  return sort.order === "asc" ? "ascend" : "descend";
-}
-
-/**
- * A paged table's `onChange`, routed into the order it is read in.
- *
- * antd cycles a header ascending → descending → unsorted, and the third of those is
- * the table's default order rather than no order at all: these rows arrive sorted by
- * something whatever happens, and `default` is the grouping they fall back to.
- *
- * `columnKey` carries the sort field, so a column's key and the field it orders by are
- * the same string by construction — see the column definitions.
- */
-function pagedSortChange<Row, Field extends string>(
-  apply: (sort: PagedSort<Field>) => void,
-): NonNullable<TableProps<Row>["onChange"]> {
-  return (_pagination, _filters, sorter, extra) => {
-    if (extra.action !== "sort") return;
-    // An array under antd's multi-sort. These tables are single-sort — the read
-    // orders by one column — and taking the first entry keeps this correct if that
-    // ever changes: the order sent is then the column the reader chose last.
-    const active = Array.isArray(sorter) ? sorter[0] : sorter;
-    const field = active?.columnKey;
-
-    if (!active?.order || typeof field !== "string") {
-      apply({ field: "default", order: "asc" });
-      return;
-    }
-    apply({
-      field: field as Field,
-      order: active.order === "ascend" ? "asc" : "desc",
-    });
-  };
-}
-
-/**
- * Which order the rows on screen are in, said beside the table.
- *
- * "Across the whole inventory" is the claim worth making, and it is the true one: the
- * read fetches every row and orders all of them before this page gets a slice, so the
- * order holds over the cluster rather than over the hundred rows in front of the
- * reader. It does not say the server sorted them, because nothing asks the server to —
- * that sentence stood here over a client-side sort.
- *
- * The order comes back on the response rather than being assumed from the control, so
- * what is claimed is what was applied. The age is here for a related reason: these
- * reads are memoised for a fraction of a second, and a page that showed cached numbers
- * while claiming to poll would be the polling bug this codebase has already shipped
- * once.
- */
-/**
- * How old the rows are.
- *
- * The controller memoises these reads, so a table that has not changed and a read that
- * is not happening look identical without this.
- */
-function ReadAge({ computedAt, testId }: { computedAt?: string; testId: string }) {
+function PageAge({ computedAt }: { computedAt?: string }) {
   const theme = useTheme();
   const age = useDataAge(computedAt);
-  // Nothing rather than an empty line: a controller that did not say when it read leaves
-  // a gap under the table otherwise.
-  if (!age) return null;
-
-  return (
-    <Text data-testid={testId} css={{ color: theme.color.textMuted, fontSize: 12 }}>
-      {age}
-    </Text>
-  );
+  return <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{age}</Text>;
 }
 
 function useDataAge(computedAt: string | undefined): string {
@@ -839,48 +712,18 @@ function useDataAge(computedAt: string | undefined): string {
   return `read ${seconds.toFixed(1)}s ago`;
 }
 
-/**
- * The Agent Substrate's own inventory.
- *
- * Four sections, in the order a reader needs them: the worker pools sandboxes run on
- * and the templates actors are cut from, both read from Kubernetes; then the actors
- * placed right now and the pods they are placed on, both read from ate-api. The split
- * matters more than it looks — the Kubernetes halves are complete whenever the request
- * succeeded, while the ate-api halves can be absent (`enabled: false`, no endpoint
- * configured) or partial (`ateApiError` on an otherwise successful response). Each of
- * those is said in the place it applies rather than as one banner over everything.
- *
- * ## Three reads, not one
- *
- * This page used to make a single call for the whole inventory, and it stopped
- * working: `GetSubstrateStatus` answers with every actor and every worker in one
- * message, and on a cluster reporting 410,110 actors that is a message gRPC refuses
- * to send — *"trying to send message larger than max"*. The page reported it honestly
- * as a failed read, which was right, and the read could not succeed.
- *
- * So it now reads three things:
- *
- * - **the summary**, for the tiles and for the two lists that are inherently small
- *   (worker pools and actor templates ride inline);
- * - **a page of actors** and **a page of workers**, each `PageRequest`/`PageResponse`
- *   as `ListAgentInstances` does it.
- *
- * ## Where the counts come from, and why it matters
- *
- * Every total on this page is the summary's, computed server-side. None of them is
- * `rows.length`. With the lists paged, counting what arrived and calling it a total
- * would report twenty actors for a cluster running four hundred thousand — the exact
- * failure the "3 of 4" rendering already existed to prevent, made far more likely by
- * paging.
- *
- * ## Why the searches are server-side
- *
- * Because a filter applied to a page searches only that page. A reader searching for
- * an actor on page nine would be told there are no matches, which is worse than no
- * search at all. The term is sent and the server narrows the whole set — the counts
- * beside each heading are then the filtered totals, which is what makes "3 of 4,312"
- * true.
- */
+function PageWarning({ message, testId }: { message: string; testId: string }) {
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      title="ate-api could not finish reading this page"
+      description={message}
+      data-testid={testId}
+    />
+  );
+}
+
 export function SubstratePage() {
   const theme = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -893,65 +736,25 @@ export function SubstratePage() {
    * two different pages.
    */
   const namespace = searchParams.get(NAMESPACE_PARAM) ?? ALL_NAMESPACES;
-  const scope = namespace === ALL_NAMESPACES ? undefined : namespace;
+  const atespace = searchParams.get(ATESPACE_PARAM) ?? "";
 
   const namespaces = useNamespaces();
-  const summary = useSubstrateSummary(scope);
+  const summary = useSubstrateSummary({ namespace, atespace });
 
-  /*
-   * One search per section, and only two of them are sent to the server.
-   *
-   * The actors and the workers are paged, so their filters have to be — see the
-   * page's own note. Worker pools and actor templates arrive whole in the summary,
-   * so filtering those here is not a half-truth: the whole list is present to
-   * filter.
-   */
   const [poolQuery, setPoolQuery] = useState("");
   const [templateQuery, setTemplateQuery] = useState("");
-  const [actorQuery, setActorQuery] = useState("");
-  const [workerQuery, setWorkerQuery] = useState("");
-
-  const actorFilter = useDebounced(actorQuery.trim(), FILTER_DEBOUNCE_MS);
-  const workerFilter = useDebounced(workerQuery.trim(), FILTER_DEBOUNCE_MS);
-
-  /*
-   * The order each paged table is read in, applied by the read rather than by the
-   * table — see `sortDirectionFor` for why sorting the page in hand would be a lie at
-   * this size, and `useSubstrateActors` for what carrying it in the read key costs.
-   */
-  const [actorSort, setActorSort] = useState<PagedSort<SubstrateActorSortField>>({
-    field: "default",
-    order: "asc",
-  });
-  const [workerSort, setWorkerSort] = useState<PagedSort<SubstrateWorkerSortField>>({
-    field: "default",
-    order: "asc",
-  });
-
-  // A new order is a new result, so the page stack resets with it — a token from
-  // the previous order names a row's position in an ordering that no longer holds.
-  const actorPage = usePageStack(
-    `${namespace}|${actorFilter}|${actorSort.field}|${actorSort.order}`,
-  );
-  const workerPage = usePageStack(
-    `${namespace}|${workerFilter}|${workerSort.field}|${workerSort.order}`,
-  );
+  const actorPage = usePageStack(atespace);
+  const workerPage = usePageStack(namespace);
 
   const actors = useSubstrateActors({
-    namespace: scope,
-    filter: actorFilter,
+    atespace,
     limit: PAGE_SIZE,
     pageToken: actorPage.current,
-    sortField: actorSort.field,
-    sortOrder: actorSort.order,
   });
   const workers = useSubstrateWorkers({
-    namespace: scope,
-    filter: workerFilter,
+    namespace,
     limit: PAGE_SIZE,
     pageToken: workerPage.current,
-    sortField: workerSort.field,
-    sortOrder: workerSort.order,
   });
 
   /*
@@ -1004,6 +807,19 @@ export function SubstratePage() {
    * is rebuilt each time either way — and a `useCallback` over three hook objects
    * would either capture a stale one or list dependencies that change every render,
    * which is the memoisation doing nothing while claiming to.
+   */
+  /*
+   * All three together, including the expensive one.
+   *
+   * The summary is the dearest of the three — it walks ate-api for the actors, the
+   * workers and the templates, where a list read walks it once — and this ticks all
+   * three at the reader's chosen interval anyway. That is deliberate: the tiles and the
+   * rows are one picture, and totals that held still while the table beneath them moved
+   * would be two moments shown as one. `isTickInFlight` drops a
+   * tick that lands while the last is still running, so on a cluster where the walk
+   * takes seconds the whole page settles to the summary's cadence rather than queueing
+   * — which is the honest cost of keeping them in step, and the reason the floor on
+   * the interval exists.
    */
   const refreshInventory = async () => {
     await Promise.all([summary.refresh(), actors.refresh(), workers.refresh()]);
@@ -1067,13 +883,12 @@ export function SubstratePage() {
     () =>
       filterRows(inventory?.actorTemplates ?? [], templateQuery, (template) =>
         [
-          template.namespace,
+          template.atespace,
           template.name,
           template.goldenActorId,
           template.phase,
           template.sandboxClass,
           template.workerSelector,
-          template.harnessName,
         ]
           .filter(Boolean)
           .join(" "),
@@ -1081,52 +896,22 @@ export function SubstratePage() {
     [inventory?.actorTemplates, templateQuery],
   );
 
-  /* Memoised so the two bars below have a stable dependency: both branches allocate a new
-     array, so an inline expression changed identity on every render and the memos it fed
-     recomputed every tick — which is the one thing they exist to avoid. */
   const actorRows = useMemo(
     () => (actors.error ? [] : (actors.data?.actors ?? [])),
-    [actors.error, actors.data?.actors],
+    [actors.data?.actors, actors.error],
   );
 
-  /*
-   * What the bar above the actor table counts.
-   *
-   * Unfiltered it is the summary's own counts, which is the only honest source of a whole
-   * cluster: the table holds one page, and a page counted and drawn as the cluster would
-   * report eight actors for a deployment running 410,110.
-   *
-   * A search has no server-side breakdown, so the matches are counted here from the rows
-   * that came back — and those are also a page. `actorBarCaption` is what stops the bar
-   * claiming the rest: it says how many of the matches are actually in it.
-   */
-  const actorBar = useMemo(() => {
-    if (!actorFilter) {
-      return { counts: inventory?.actorStatusCounts ?? [], caption: undefined as string | undefined };
-    }
-    const byStatus = new Map<string, number>();
-    for (const actor of actorRows) {
-      byStatus.set(actor.status, (byStatus.get(actor.status) ?? 0) + 1);
-    }
-    const matches = actors.data?.totalSize ?? actorRows.length;
-    return {
-      counts: [...byStatus].map(([status, count]) => ({ status, count })),
-      caption:
-        actorRows.length < matches
-          ? `Matching “${actorFilter}”: ${atAGlance(actorRows.length)} of ${atAGlance(matches)} shown`
-          : `Matching “${actorFilter}”: ${atAGlance(matches)}`,
-    };
-  }, [actorFilter, actorRows, actors.data?.totalSize, inventory?.actorStatusCounts]);
   const workerRows = useMemo(
     () => (workers.error ? [] : (workers.data?.workers ?? [])),
-    [workers.error, workers.data?.workers],
+    [workers.data?.workers, workers.error],
   );
+
   /*
    * The tiles, from the summary's own counts.
    *
    * Not derived from the rows on screen, and that is the point of the summary
    * existing: the rows are one page, and a page counted as a total is how a cluster
-   * running 410,110 actors gets reported as running 100.
+   * running 410,110 actors gets reported as running 25.
    */
   const readyTemplates = useMemo(() => {
     let ready = 0;
@@ -1153,17 +938,6 @@ export function SubstratePage() {
     [mono, muted],
   );
 
-  /*
-   * Every column of the two inline tables sorts, and every sorter carries a
-   * `multiple` — antd applies each active sorter in that order, so shift-clicking two
-   * headers sorts by both. The numbers are a fixed priority rather than click order,
-   * so they are chosen to put the column worth *grouping* by first.
-   *
-   * A comparator here rather than a read, because these two lists arrive whole: the
-   * summary carries every pool and every template, so sorting them in the browser
-   * sorts all of them. The paged tables below wear the same header and mean something
-   * different by it — see `sortDirectionFor`.
-   */
   const workerPoolColumns: ColumnsType<SubstrateWorkerPoolEntry> = useMemo(
     () => [
       {
@@ -1199,10 +973,10 @@ export function SubstratePage() {
       {
         title: "Template",
         key: "template",
-        sorter: { compare: byText((t) => `${t.namespace}/${t.name}`), multiple: 5 },
+        sorter: { compare: byText((t) => `${t.atespace}/${t.name}`), multiple: 5 },
         render: (_, template) => (
           <div>
-            {qualified(template.namespace, template.name)}
+            {qualified(template.atespace, template.name)}
             {/* The golden actor is the snapshot every new actor of this template is
                 cut from, so it is the one identifier worth carrying beside the name. */}
             {template.goldenActorId ? (
@@ -1238,78 +1012,40 @@ export function SubstratePage() {
             "—"
           ),
       },
-      {
-        // Text and not a link: the agents list has no namespace filter to send a
-        // reader to, so a link here would land them on an unfiltered page and imply
-        // otherwise.
-        title: "Harness",
-        key: "harness",
-        sorter: { compare: byText((t) => t.harnessName ?? ""), multiple: 1 },
-        render: (_, template) => template.harnessName ?? "—",
-      },
     ],
     [mono, muted, qualified],
   );
 
-  /*
-   * Every column orders the whole inventory, and none of them sorts the page locally.
-   *
-   * `sorter: true` rather than a comparator: it is the form that gives a column antd's
-   * own header — the whole cell clickable, the direction in its chevrons, the same as
-   * the two tables above — while leaving the table nothing to reorder. A click becomes
-   * the next read, which orders every row before slicing this page out of it; see
-   * `sortDirectionFor` for why that is not the same as sorting on the server.
-   *
-   * Each column's `key` *is* its sort field, which is what lets the change handler send
-   * `columnKey` straight on — so the type says so, and a key that is not one of them
-   * fails to compile rather than silently sorting by nothing. That is the shape that
-   * let `pod` stand where `workerPod` belonged.
-   */
-  const actorColumns: (ColumnsType<SubstrateActorEntry>[number] & {
-    key: SubstrateActorSortField;
-  })[] = useMemo(
+  const actorColumns: ColumnsType<SubstrateActorEntry> = useMemo(
     () => [
       {
         title: "Actor",
         key: "actorId",
-        sorter: true,
-        sortOrder: sortDirectionFor(actorSort, "actorId"),
         width: 300,
-        render: (_, actor) => <span css={mono}>{actor.actorId}</span>,
+        render: (_, actor) => qualified(actor.atespace, actor.actorId),
       },
       {
         title: "Status",
         key: "status",
-        sorter: true,
-        sortOrder: sortDirectionFor(actorSort, "status"),
-        // Wide enough for `Snapshotting`. It was 190 while `ACTOR_STATE_CRASHED` could
-        // reach the page; words are shorter than the constants, so the columns fit.
-        width: 130,
+        width: 190,
         render: (_, actor) => <StatusChip label={actor.status} />,
       },
       {
         title: "Template",
         key: "template",
-        sorter: true,
-        sortOrder: sortDirectionFor(actorSort, "template"),
-        width: 240,
+        width: 260,
         render: (_, actor) =>
           actor.actorTemplateName
-            ? qualified(actor.actorTemplateNamespace, actor.actorTemplateName)
+            ? qualified(actor.actorTemplateAtespace, actor.actorTemplateName)
             : "—",
       },
       {
         title: "Worker pod",
         key: "workerPod",
-        sorter: true,
-        sortOrder: sortDirectionFor(actorSort, "workerPod"),
-        width: 260,
+        width: 320,
         render: (_, actor) =>
           actor.ateomPodName ? (
-            /* One line, always. A pod name and an IP together outrun the column, and
-               wrapping them made the row two lines tall — which moves every row under it,
-               on a page that polls. It runs into the slack on its right instead. */
-            <Text css={{ ...mono, ...muted, whiteSpace: "nowrap" }}>
+            <Text css={{ ...mono, ...muted }}>
               {actor.ateomPodNamespace ?? ""}/{actor.ateomPodName}
               {actor.ateomPodIp ? ` · ${actor.ateomPodIp}` : ""}
             </Text>
@@ -1318,55 +1054,50 @@ export function SubstratePage() {
           ),
       },
     ],
-    [actorSort, mono, muted, qualified],
+    [mono, muted, qualified],
   );
 
-  /** The same, for the workers: antd's header, the order the read applied. */
-  const workerColumns: (ColumnsType<SubstrateWorkerEntry>[number] & {
-    key: SubstrateWorkerSortField;
-  })[] = useMemo(
+  /*
+   * The same, for the workers.
+   *
+   * There is no Actor column, and that is not an omission. ate-api's `Worker` carries
+   * capacity and allocation and no actor reference: the binding lives on the *actor*,
+   * so the only way to fill that column is to read every actor and join. How much of
+   * the fleet is busy is on a tile instead, using reported worker allocation.
+   */
+  const workerColumns: ColumnsType<SubstrateWorkerEntry> = useMemo(
     () => [
       {
         title: "Pod",
         key: "pod",
-        sorter: true,
-        sortOrder: sortDirectionFor(workerSort, "pod"),
-        width: 360,
+        width: 420,
         render: (_, worker) => qualified(worker.workerNamespace, worker.workerPod),
       },
       {
         title: "Pool",
         key: "pool",
-        sorter: true,
-        sortOrder: sortDirectionFor(workerSort, "pool"),
-        width: 220,
+        width: 260,
         render: (_, worker) => worker.workerPool,
       },
       {
-        title: "Actor",
-        key: "actor",
-        sorter: true,
-        sortOrder: sortDirectionFor(workerSort, "actor"),
-        width: 360,
-        // "idle" rather than a dash: a worker with no actor on it is available, which
-        // is a state worth reading, where a dash says only that a cell is empty.
+        title: "IP",
+        key: "ip",
+        width: 200,
         render: (_, worker) =>
-          worker.actorId ? (
-            <span css={mono}>{worker.actorId}</span>
+          worker.ip ? (
+            <Text css={{ ...mono, ...muted }}>{worker.ip}</Text>
           ) : (
-            <Text css={muted}>idle</Text>
+            <Text css={muted}>—</Text>
           ),
       },
     ],
-    [mono, muted, qualified, workerSort],
+    [mono, muted, qualified],
   );
-
-  const ateApiEnabled = inventory?.enabled ?? false;
 
   return (
     <PageFrame
       title="Substrate"
-      description="Worker pools and actor templates from Kubernetes, plus live actors and worker assignments from ate-api."
+      description="Kubernetes worker pools, plus actor templates, live actors, and worker assignments from Substrate."
       actions={
         <Space size={8}>
           <Tooltip
@@ -1443,8 +1174,8 @@ export function SubstratePage() {
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-        <Space size={8}>
-          <Text css={muted}>Scope</Text>
+        <Space size={8} wrap>
+          <Text css={muted}>Kubernetes namespace</Text>
           {/* The test id is on a wrapper rather than on the Select, because antd
               renders its own tree underneath and a prop that survives today is not
               something to assert on. The wrapper is this app's own markup. */}
@@ -1469,9 +1200,7 @@ export function SubstratePage() {
                 { value: ALL_NAMESPACES, label: "All watched namespaces" },
                 ...(namespaces.data ?? []).map((entry) => ({
                   value: entry.name,
-                  // A namespace that is going away can still hold actors, so it is
-                  // offered — with its condition said out loud rather than left for
-                  // the reader to wonder about when the tables come back empty.
+                  // Terminating namespaces can still contain workers and pools.
                   label:
                     entry.status === "Active"
                       ? entry.name
@@ -1480,6 +1209,22 @@ export function SubstratePage() {
               ]}
             />
           </div>
+          <Text css={muted}>ATE atespace</Text>
+          <Input.Search
+            key={atespace}
+            defaultValue={atespace}
+            aria-label="ATE atespace"
+            placeholder="All atespaces"
+            maxLength={63}
+            allowClear
+            css={{ width: 240 }}
+            onSearch={(value) => {
+              const next = new URLSearchParams(searchParams);
+              if (value) next.set(ATESPACE_PARAM, value);
+              else next.delete(ATESPACE_PARAM);
+              setSearchParams(next, { replace: true });
+            }}
+          />
         </Space>
 
         {namespaces.error ? (
@@ -1519,7 +1264,7 @@ export function SubstratePage() {
             type="warning"
             showIcon
             title="Runtime actor state is incomplete"
-            description={`Worker pools and actor templates come from Kubernetes and are complete. The actors and workers below come from ate-api, which answered with an error: ${inventory.ateApiError}`}
+            description={`Worker pools come from Kubernetes and are complete. Everything else on this page — the actor templates as well as the actors and workers below — comes from ate-api, which answered with an error, so those may be short: ${inventory.ateApiError}`}
             data-testid="substrate-partial"
           />
         ) : null}
@@ -1568,7 +1313,7 @@ export function SubstratePage() {
             testId="substrate-stat-workers"
             value={
               inventory
-                ? `${inventory.busyWorkerCount}/${inventory.workerCount}`
+                ? `${inventory.busyWorkerCount.toLocaleString()}/${inventory.workerCount.toLocaleString()}`
                 : undefined
             }
             isLoading={summary.isLoading}
@@ -1580,7 +1325,7 @@ export function SubstratePage() {
             // Not read from the response — it is what this page asked for, which is
             // known even when the read failed, and is the thing that explains an empty
             // table.
-            value={namespace === ALL_NAMESPACES ? "all" : namespace}
+            value={!namespace && !atespace ? "all" : `K8s: ${namespace || "all"}; ATE: ${atespace || "all"}`}
           />
         </div>
 
@@ -1642,7 +1387,7 @@ export function SubstratePage() {
         >
           <Table<SubstrateActorTemplateEntry>
             data-testid="substrate-templates-table"
-            rowKey={(template) => `${template.namespace}/${template.name}`}
+            rowKey={(template) => `${template.atespace}/${template.name}`}
             columns={actorTemplateColumns}
             dataSource={templates}
             loading={summary.isLoading}
@@ -1661,18 +1406,8 @@ export function SubstratePage() {
             <SectionTitle
               title="Actors"
               count={actorRows.length}
-              total={actors.data?.totalSize}
+              paged
             />
-          }
-          extra={
-            <Space size={8}>
-              <SectionSearch
-                label="Search actors"
-                testId="substrate-actors-search"
-                value={actorQuery}
-                onChange={setActorQuery}
-              />
-            </Space>
           }
           data-testid="substrate-actors-card"
         >
@@ -1689,6 +1424,11 @@ export function SubstratePage() {
                 </Button>
               }
             />
+          ) : actors.data?.ateApiError ? (
+            <PageWarning
+              message={actors.data.ateApiError}
+              testId="substrate-actors-partial"
+            />
           ) : null}
 
           <StatusBar
@@ -1696,64 +1436,62 @@ export function SubstratePage() {
             title="Actor status"
             vocabulary={ACTOR_STATES}
             noun="Actors"
-            unread={Boolean(summary.error || actors.error)}
-            counts={actorBar.counts}
-            caption={actorBar.caption}
-            emptyText={
-              actorFilter
-                ? "No actors match your search."
-                : ateApiEnabled
-                  ? "No actors in this scope."
-                  : "ate-api is not configured, so there are no actors to show."
-            }
+            unread={Boolean(summary.error)}
+            counts={inventory?.actorStatusCounts ?? []}
+            emptyText="No actors in this scope."
           />
 
           <Table<SubstrateActorEntry>
             data-testid="substrate-actors-table"
-            rowKey={(actor) => actor.actorId}
+            rowKey={(actor) => `${actor.atespace}/${actor.actorId}`}
             columns={actorColumns}
             dataSource={actorRows}
             loading={actors.isLoading}
-            onChange={pagedSortChange<SubstrateActorEntry, SubstrateActorSortField>(
-              setActorSort,
-            )}
             /* antd's own pager is off because the pages come from the server by token,
                not by number — `PageControls` below turns them. */
             pagination={false}
-            virtual
-            /* The sum of the column widths, so the table asks for exactly what it uses:
-               a wider `x` reserves space no column wants and scrolls the card for it. */
-            scroll={{ y: GROWING_TABLE_HEIGHT, x: 930 }}
+            /* Horizontal only. `x` is the sum of the column widths, so the table asks
+               for exactly what it uses: a wider one reserves space no column wants and
+               scrolls the card for it. There is no `y` because a page of rows is short
+               enough to read whole — a body that scrolled would put a second way to
+               move through the same list right above the one that turns the pages. */
+            scroll={{ x: 1070 }}
             size="small"
-            /* Three different sentences, because they are three different facts and
-               only one is something to act on: a controller with no ate-api endpoint
-               is a deployment choice, a configured one reporting nothing means the
-               actors really are not there, and a search that matched nothing is the
-               reader's own doing. */
             locale={{
               emptyText: actors.error
                 ? " "
-                : actorFilter
-                  ? "No actors match your search, anywhere in this scope."
-                  : ateApiEnabled
-                    ? "ate-api reported no actors in this scope."
-                    : "ate-api is not configured on this controller. Set substrate-ate-api-endpoint to see live actors.",
+                : actors.data?.ateApiError
+                  ? "This read could not reach ate-api, so there may be actors it did not see."
+                  : "No actors on this page.",
             }}
           />
 
-          <ReadAge
-            testId="substrate-actors-order"
-            computedAt={actors.data?.computedAt}
-          />
+          {/* One row, the way antd lays out a paged table: what the page is on the
+              left, the controls to turn it on the right. `PageControls` carries its
+              own top margin for the stacked layout it was written for, which here
+              would drop it below the sentence it sits beside — so the row owns the
+              spacing and the control's own is cleared. */}
+          <div
+            css={{
+              alignItems: "center",
+              display: "flex",
+              gap: theme.space(4),
+              justifyContent: "space-between",
+              marginTop: theme.space(3),
+              "& > [data-testid$='-pages']": { marginTop: 0 },
+            }}
+          >
+            <PageAge computedAt={actors.data?.computedAt} />
 
-          <PageControls
-            testId="substrate-actors-pages"
-            page={actorPage}
-            hasNext={Boolean(actors.data?.nextPageToken)}
-            onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
-            onBack={actorPage.back}
-            isLoading={actors.isLoading}
-          />
+            <PageControls
+              testId="substrate-actors-pages"
+              page={actorPage}
+              hasNext={Boolean(actors.data?.nextPageToken)}
+              onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
+              onBack={actorPage.back}
+              isLoading={actors.isLoading}
+            />
+          </div>
         </Card>
 
         <Card
@@ -1761,18 +1499,8 @@ export function SubstratePage() {
             <SectionTitle
               title="Workers"
               count={workerRows.length}
-              total={workers.data?.totalSize}
+              paged
             />
-          }
-          extra={
-            <Space size={8}>
-              <SectionSearch
-                label="Search workers"
-                testId="substrate-workers-search"
-                value={workerQuery}
-                onChange={setWorkerQuery}
-              />
-            </Space>
           }
           data-testid="substrate-workers-card"
         >
@@ -1789,9 +1517,14 @@ export function SubstratePage() {
                 </Button>
               }
             />
+          ) : workers.data?.ateApiError ? (
+            <PageWarning
+              message={workers.data.ateApiError}
+              testId="substrate-workers-partial"
+            />
           ) : null}
 
-<Table<SubstrateWorkerEntry>
+          <Table<SubstrateWorkerEntry>
             data-testid="substrate-workers-table"
             rowKey={(worker) =>
               `${worker.workerNamespace}/${worker.workerPool}/${worker.workerPod}`
@@ -1799,37 +1532,44 @@ export function SubstratePage() {
             columns={workerColumns}
             dataSource={workerRows}
             loading={workers.isLoading}
-            onChange={pagedSortChange<SubstrateWorkerEntry, SubstrateWorkerSortField>(
-              setWorkerSort,
-            )}
             pagination={false}
-            virtual
-            scroll={{ y: GROWING_TABLE_HEIGHT, x: 940 }}
+            scroll={{ x: 880 }}
             size="small"
             locale={{
               emptyText: workers.error
                 ? " "
-                : workerFilter
-                  ? "No workers match your search, anywhere in this scope."
-                  : ateApiEnabled
-                    ? "ate-api reported no worker assignments."
-                    : "Worker assignments come from ate-api, which is not configured on this controller.",
+                : workers.data?.ateApiError
+                  ? "This read could not reach ate-api, so there may be workers it did not see."
+                  : "No worker assignments in this namespace scope on this page.",
             }}
           />
 
-          <ReadAge
-            testId="substrate-workers-order"
-            computedAt={workers.data?.computedAt}
-          />
+          {/* One row, the way antd lays out a paged table: what the page is on the
+              left, the controls to turn it on the right. `PageControls` carries its
+              own top margin for the stacked layout it was written for, which here
+              would drop it below the sentence it sits beside — so the row owns the
+              spacing and the control's own is cleared. */}
+          <div
+            css={{
+              alignItems: "center",
+              display: "flex",
+              gap: theme.space(4),
+              justifyContent: "space-between",
+              marginTop: theme.space(3),
+              "& > [data-testid$='-pages']": { marginTop: 0 },
+            }}
+          >
+            <PageAge computedAt={workers.data?.computedAt} />
 
-          <PageControls
-            testId="substrate-workers-pages"
-            page={workerPage}
-            hasNext={Boolean(workers.data?.nextPageToken)}
-            onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
-            onBack={workerPage.back}
-            isLoading={workers.isLoading}
-          />
+            <PageControls
+              testId="substrate-workers-pages"
+              page={workerPage}
+              hasNext={Boolean(workers.data?.nextPageToken)}
+              onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
+              onBack={workerPage.back}
+              isLoading={workers.isLoading}
+            />
+          </div>
         </Card>
       </Space>
     </PageFrame>

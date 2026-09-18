@@ -13,6 +13,10 @@ func TestOwnsEnvironment(t *testing.T) {
 		AnthropicAPIKeyEnvName,
 		ClaudeConfigDirEnvName,
 		PreResponseTraceFlushEnvName,
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
+		"OTEL_TRACES_EXPORTER",
+		"OTEL_LOG_RAW_API_BODIES",
+		"TRACEPARENT",
 		MCPCredentialEnvPrefix + "ABC123",
 	} {
 		if !OwnsEnvironment(name) {
@@ -21,6 +25,11 @@ func TestOwnsEnvironment(t *testing.T) {
 	}
 	if OwnsEnvironment("USER_DEFINED") {
 		t.Fatal("OwnsEnvironment accepted a user-defined name")
+	}
+	for _, name := range []string{"OTEL_TRACES_EXPORT_INTERVAL", "OTEL_RESOURCE_ATTRIBUTES"} {
+		if OwnsEnvironment(name) {
+			t.Errorf("OwnsEnvironment(%q) = true", name)
+		}
 	}
 }
 

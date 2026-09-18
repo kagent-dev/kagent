@@ -233,7 +233,14 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       },
       Table: {
         headerBg: color.bgElevated,
-        rowHoverBg: color.border,
+        /*
+         * The page's own foreground at a fifth opacity, not `border`, which is tuned
+         * to be quiet: measured, a hovered row moved 1.35:1 from rest on the dark theme
+         * and sat within 1.11:1 of the pressed state, which separated the two by hue
+         * alone. Derived, so it lightens on dark and darkens on light without a value
+         * per mode.
+         */
+        rowHoverBg: `${color.text}33`,
       },
       /*
        * Inputs, selects and pickers: a stronger edge and a legible placeholder.

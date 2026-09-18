@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -14,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type workflowStore interface {
@@ -24,6 +27,7 @@ type workflowStore interface {
 
 type actorClient interface {
 	EnsureAtespace(context.Context, string) error
+	EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
@@ -116,6 +120,10 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	atespace := revision.ActorTemplateAtespace
 	name := substrate.ActorName(instance.GetId())
+	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations)
+	if err != nil {
+		return nil, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err)
+	}
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
@@ -123,12 +131,18 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActor(ctx, atespace, name, revision.ActorTemplateAtespace, revision.ActorTemplateName)
+		if status.Code(err) == codes.AlreadyExists {
+			actor, err = w.actors.GetActor(ctx, atespace, name)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure Actor %s/%s: %w", atespace, name, err)
 	}
 	if !usesActorTemplate(actor, revision) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
+	}
+	if err := w.actors.EnsureActorEgressPolicy(ctx, atespace, name, policy); err != nil {
+		return nil, fmt.Errorf("ensure Actor %s/%s egress policy: %w", atespace, name, err)
 	}
 	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
@@ -149,6 +163,10 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
+	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations)
+	if err != nil {
+		return nil, fmt.Errorf("build fork Actor %s/%s egress policy: %w", atespace, name, err)
+	}
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
@@ -157,6 +175,9 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActorFromTag(ctx, atespace, name,
 			revision.ActorTemplateAtespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
+		if status.Code(err) == codes.AlreadyExists {
+			actor, err = w.actors.GetActor(ctx, atespace, name)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure fork Actor %s/%s: %w", atespace, name, err)
@@ -174,6 +195,9 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if snapshot.URI == "" || source.GetSnapshotUri() != snapshot.URI ||
 		strings.TrimPrefix(source.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != snapshot.ContentScope {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
+	}
+	if err := w.actors.EnsureActorEgressPolicy(ctx, atespace, name, policy); err != nil {
+		return nil, fmt.Errorf("ensure fork Actor %s/%s egress policy: %w", atespace, name, err)
 	}
 	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
@@ -412,4 +436,31 @@ func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.
 func usesActorTemplate(actor *ateapipb.Actor, revision *database.RuntimeRevision) bool {
 	ref := actor.GetActorTemplate()
 	return ref.GetAtespace() == revision.ActorTemplateAtespace && ref.GetName() == revision.ActorTemplateName
+}
+
+// actorEgressPolicy compiles destinations into an actor's default allowlist.
+func actorEgressPolicy(atespace string, destinations []string) (*ateapipb.EgressPolicy, error) {
+	var hostnames, cidrs []string
+	for _, destination := range destinations {
+		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {
+			ip = ip.Unmap()
+			cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
+			continue
+		}
+		hostname := strings.TrimSuffix(strings.ToLower(destination), ".")
+		if len(validation.IsDNS1123Subdomain(hostname)) != 0 {
+			return nil, fmt.Errorf("invalid egress destination %q", destination)
+		}
+		hostnames = append(hostnames, hostname)
+	}
+	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
+	if len(hostnames) > 0 {
+		slices.Sort(hostnames)
+		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: &ateapipb.HostnameRule{Patterns: slices.Compact(hostnames)}})
+	}
+	if len(cidrs) > 0 {
+		slices.Sort(cidrs)
+		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Cidrs: &ateapipb.CIDRRule{Cidrs: slices.Compact(cidrs)}})
+	}
+	return policy, nil
 }

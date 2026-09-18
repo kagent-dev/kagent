@@ -25,6 +25,7 @@ type CreateCheckpointInput struct {
 type CheckpointSummary struct {
 	ID              string          `json:"id"`
 	AgentInstanceID string          `json:"agent_instance_id"`
+	Name            string          `json:"name,omitempty"`
 	HeadTaskID      string          `json:"head_task_id,omitempty"`
 	HistorySequence uint64          `json:"history_sequence"`
 	State           string          `json:"state"`
@@ -109,7 +110,7 @@ func stableRequestID(id string) string {
 
 func checkpointSummary(value *apiv1alpha1.Checkpoint) CheckpointSummary {
 	result := CheckpointSummary{
-		ID: value.GetId(), AgentInstanceID: value.GetAgentInstanceId(),
+		ID: value.GetId(), AgentInstanceID: value.GetAgentInstanceId(), Name: value.GetName(),
 		HeadTaskID: value.GetHeadTaskId(), HistorySequence: value.GetHistorySequence(), State: value.GetState().String(),
 	}
 	if value.GetCreatedAt() != nil {

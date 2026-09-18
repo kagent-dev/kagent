@@ -8,12 +8,13 @@ import {
   Segmented,
   Select,
   Space,
+  Tooltip,
   Typography,
   Upload,
 } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Trash2, Upload as UploadIcon } from "lucide-react";
+import { Info, Plus, Trash2, Upload as UploadIcon } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { SubmitError } from "@/components/common/SubmitError";
 import {
@@ -335,13 +336,31 @@ export function McpServerNewPage() {
               ) : null}
 
               <Form.Item>
-                <Checkbox
-                  data-testid="mcp-streamable"
-                  checked={values.streamableHttp}
-                  onChange={(event) => set("streamableHttp", event.target.checked)}
-                >
-                  Use streamable HTTP instead of SSE
-                </Checkbox>
+                <Space size={6}>
+                  <Checkbox
+                    data-testid="mcp-streamable"
+                    checked={values.streamableHttp}
+                    onChange={(event) => set("streamableHttp", event.target.checked)}
+                  >
+                    Use streamable HTTP instead of SSE
+                  </Checkbox>
+                  {/* Named as an example rather than a list: which harnesses refuse SSE
+                      is theirs to change, and a list here would go stale silently. */}
+                  <Tooltip title="Some harnesses, like Codex, only accept streamable HTTP.">
+                    <Info
+                      size={14}
+                      data-testid="mcp-streamable-info"
+                      aria-label="Some harnesses, like Codex, only accept streamable HTTP."
+                      tabIndex={0}
+                      css={{
+                        display: "block",
+                        color: theme.color.textMuted,
+                        cursor: "help",
+                        "&:hover, &:focus-visible": { color: theme.color.text },
+                      }}
+                    />
+                  </Tooltip>
+                </Space>
               </Form.Item>
 
               <Form.Item

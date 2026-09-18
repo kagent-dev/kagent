@@ -720,6 +720,10 @@ kmcp:
 
 substrate:
   enabled: false
+  ateApi:
+    extraArgs:
+      # Minimum supported interval for discovering and reconciling actor templates.
+      - --template-resync-interval=250ms
 
 # ==============================================================================
 # BUILT-IN TOOLS
@@ -894,6 +898,9 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
+  # -- Include prompts, tool details, and assistant responses in agent telemetry.
+  # This may expose sensitive user or model content.
+  captureSensitiveContent: false
   tracing:
     enabled: false
     exporter:
@@ -904,9 +911,13 @@ otel:
         insecure: true
   logging:
     enabled: false
+    # -- Include complete provider API request and response bodies in Claude logs.
+    # This is more verbose than captureSensitiveContent.
+    captureRawApiBodies: false
     exporter:
       otlp:
         endpoint: ""
+        protocol: "grpc"
         timeout: 15000 # milliseconds
         insecure: true
 

@@ -50,8 +50,13 @@ import {
   useExtensionAgentLinks,
   useExtensionAgentRailItems,
   useExtensionAgentRailOverrides,
+  useExtensionSlotComponents,
 } from "@/appExtensions/hooks";
-import { applyAgentRailOverrides, isRailEntryHidden } from "@/appExtensions";
+import {
+  applyAgentRailOverrides,
+  ExtensionSlot,
+  isRailEntryHidden,
+} from "@/appExtensions";
 import {
   coreRailItems,
   mergeRailEntries,
@@ -1335,6 +1340,28 @@ export function AgentRail({
         css={iconControlStyles(theme)}
       />
       {gutterActions}
+      {/*
+        Under the surface's own gutter controls, and only where there are some.
+
+        The condition is not decoration. This column is drawn on every surface that
+        mounts the rail — the agent's own page and its analytics included — but only a
+        surface with an open conversation passes `gutterActions`. Without the guard a
+        contributed control would appear beneath the collapse toggle on pages that have
+        no conversation for it to act on, as a lone icon under a divider-less toggle.
+
+        `instance` as well as the prop, because the context below promises a conversation
+        and the rail is mounted before that read resolves; a contribution handed a
+        half-built context would render an action addressed to nothing.
+      */}
+      {gutterActions && instance ? (
+        <ExtensionSlot
+          id="app_agents_agentRail_gutter_actions"
+          context={{
+            instanceId: instance.id,
+            label: conversationLabel(instance, autoTitle),
+          }}
+        />
+      ) : null}
     </div>
     </>
   );
@@ -1416,6 +1443,32 @@ function ChatEntry({
   const [isShowingDetails, setShowingDetails] = useState(false);
   const [isSharing, setSharing] = useState(false);
   const [isMenuOpen, setMenuOpen] = useState(false);
+
+  /*
+   * What a contributed row affordance is told, built once for both points below so that
+   * the menu entry and the mark can never be describing different conversations.
+   *
+   * The label is handed over rather than left to the contribution to derive, because
+   * `conversationLabel` is this file's answer to what the row is called — a tooltip that
+   * worked it out again would start disagreeing with the row a few pixels from it the
+   * first time that answer changes.
+   */
+  const slotContext = {
+    instanceId: instance.id,
+    label: conversationLabel(instance, autoTitle),
+  };
+
+  /*
+   * Asked before the item is built rather than after.
+   *
+   * `ExtensionSlot` renders nothing when no extension contributes, but a menu item whose
+   * label renders nothing is still a menu item — the menu would show an empty,
+   * clickable strip under Chat details. So whether the item exists at all is decided by
+   * whether there is anything to put in it.
+   */
+  const contributedMenuItems = useExtensionSlotComponents(
+    "app_agents_agentRail_chatRow_menuItems",
+  );
 
   return (
     /* Room between the three things on a row. At 2px the checkbox, the name and the
@@ -1508,10 +1561,38 @@ function ChatEntry({
         aria-current={isActive ? "page" : undefined}
         css={{ ...rowStyles(theme, isActive), flex: 1, fontSize: 13, minWidth: 0 }}
       >
-        <Text ellipsis css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}>
+        {/* Tooltipped, because the row is narrow and a conversation named after a
+            snapshot carries two ids — the ellipsis would otherwise hide the part that
+            tells two of them apart. antd only raises it when the text actually clips. */}
+        <Text
+          // The title alone, not the row's label: the age is already legible in the
+          // row, and what the ellipsis hides is the name. To the right, so it opens
+          // into the page rather than back over the list it is explaining one of.
+          ellipsis={{
+            tooltip: { title: conversationTitle(instance, autoTitle), placement: "right" },
+          }}
+          css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
+        >
           {conversationLabel(instance, autoTitle)}
         </Text>
       </Link>
+      {/*
+        Outside the link, deliberately.
+
+        Inside it, a mark reporting that some *other* page about this conversation is open
+        would be part of the target that opens the conversation itself, and hovering it for
+        its explanation would light the row up as though the pointer were on the link.
+        Between the label and the menu button it is its own thing, which is what it is.
+
+        Nothing here knows what a contribution puts in this space. The row's own state is a
+        tint and a weight decided by `isActive` above, which is exact pathname equality — so
+        anything an extension needs to say about a row the reader is *not* currently on has
+        nowhere else to say it.
+      */}
+      <ExtensionSlot
+        id="app_agents_agentRail_chatRow_marker"
+        context={slotContext}
+      />
       {/*
         A menu, revealed on hover, rather than a trash can on every row.
 
@@ -1538,6 +1619,39 @@ function ChatEntry({
               label: "Chat details",
               onClick: () => setShowingDetails(true),
             },
+            /*
+             * Whatever an installed extension adds to a row, between the application's own
+             * read-only entry and the ones that change the conversation.
+             *
+             * Here rather than at the end because a contribution is almost always another
+             * way to *look at* this conversation, and the divider further down is what
+             * separates looking from destroying. An entry added after Delete would sit on
+             * the wrong side of that line.
+             *
+             * One item holding every contribution rather than one item each: the slot is a
+             * single place in this menu, and two installed extensions land in it in install
+             * order — the same arrangement they would have if this file had written them.
+             *
+             * `position: relative` is for the contribution's benefit. antd owns the item's
+             * padding, so a link inside the label leaves that padding a dead zone which
+             * closes the menu without going anywhere; stretching the hit area across the
+             * item needs a positioned ancestor, and this is the only element in a position
+             * to be one.
+             */
+            ...(contributedMenuItems.length > 0
+              ? [
+                  {
+                    key: "extensionItems",
+                    style: { position: "relative" as const },
+                    label: (
+                      <ExtensionSlot
+                        id="app_agents_agentRail_chatRow_menuItems"
+                        context={slotContext}
+                      />
+                    ),
+                  },
+                ]
+              : []),
             {
               key: "share",
               icon: <Share2 size={13} />,
