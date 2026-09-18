@@ -118,6 +118,7 @@ const (
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
 	ModelTypeFoundry         = "foundry"
+	ModelTypeMistral         = "mistral"
 )
 
 // Foundry API format values used by a Foundry model.
@@ -190,6 +191,30 @@ func (a *Anthropic) MarshalJSON() ([]byte, error) {
 
 func (a *Anthropic) GetType() string {
 	return ModelTypeAnthropic
+}
+
+type Mistral struct {
+	BaseModel
+	BaseUrl     string   `json:"base_url,omitempty"`
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	Timeout     *int     `json:"timeout,omitempty"`
+}
+
+func (m *Mistral) MarshalJSON() ([]byte, error) {
+	type Alias Mistral
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeMistral,
+		Alias: (*Alias)(m),
+	})
+}
+
+func (m *Mistral) GetType() string {
+	return ModelTypeMistral
 }
 
 type GeminiVertexAI struct {
@@ -444,6 +469,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &foundry, nil
+	case ModelTypeMistral:
+		var mistral Mistral
+		if err := json.Unmarshal(bytes, &mistral); err != nil {
+			return nil, err
+		}
+		return &mistral, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -566,6 +597,10 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
+		copyTLS(v.BaseModel)
+	case *Mistral:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
 		copyTLS(v.BaseModel)
 	default:
 		e.Model = ""
