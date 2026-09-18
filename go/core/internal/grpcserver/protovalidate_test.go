@@ -69,6 +69,90 @@ func TestAgentInstanceRequestValidation(t *testing.T) {
 	}
 }
 
+func TestCheckAccessRequestValidation(t *testing.T) {
+	validator, err := protovalidate.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "assistant"
+	emptyName := ""
+	targets := make([]*apiv1alpha1.AccessTarget, 101)
+	for i := range targets {
+		targets[i] = &apiv1alpha1.AccessTarget{Namespace: "team-a"}
+	}
+	for _, test := range []struct {
+		name    string
+		request *apiv1alpha1.CheckAccessRequest
+		valid   bool
+	}{
+		{
+			name: "named and namespace targets",
+			request: &apiv1alpha1.CheckAccessRequest{
+				ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE,
+				Verbs:        []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_UPDATE, apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_CREATE},
+				Targets:      []*apiv1alpha1.AccessTarget{{Namespace: "team-a", Name: &name}, {Namespace: "team-b"}},
+			},
+			valid: true,
+		},
+		{
+			name: "harness create and delete",
+			request: &apiv1alpha1.CheckAccessRequest{
+				ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_HARNESS,
+				Verbs:        []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_CREATE, apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_DELETE},
+				Targets:      []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}},
+			},
+			valid: true,
+		},
+		{
+			name:    "missing resource type",
+			request: &apiv1alpha1.CheckAccessRequest{Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_CREATE}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}}},
+		},
+		{
+			name:    "missing verbs",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}}},
+		},
+		{
+			name:    "duplicate verbs",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET, apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}}},
+		},
+		{
+			name:    "unknown verb",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{99}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a"}}},
+		},
+		{
+			name:    "missing targets",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}},
+		},
+		{
+			name:    "nil target",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}, Targets: []*apiv1alpha1.AccessTarget{nil}},
+		},
+		{
+			name:    "too many targets",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}, Targets: targets},
+		},
+		{
+			name:    "invalid namespace",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_HARNESS, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_DELETE}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "NOT A NAMESPACE"}}},
+		},
+		{
+			name:    "present empty name",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_GET}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a", Name: &emptyName}}},
+		},
+		{
+			name:    "unsupported harness verb",
+			request: &apiv1alpha1.CheckAccessRequest{ResourceType: apiv1alpha1.AuthorizationResourceType_AUTHORIZATION_RESOURCE_TYPE_HARNESS, Verbs: []apiv1alpha1.AuthorizationVerb{apiv1alpha1.AuthorizationVerb_AUTHORIZATION_VERB_UPDATE}, Targets: []*apiv1alpha1.AccessTarget{{Namespace: "team-a", Name: &name}}},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validator.Validate(test.request)
+			if (err == nil) != test.valid {
+				t.Fatalf("Validate() error = %v, valid = %t", err, test.valid)
+			}
+		})
+	}
+}
+
 func TestInvalidInstanceAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 	validator, err := protovalidate.New()
 	if err != nil {

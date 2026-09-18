@@ -45,6 +45,12 @@ func TestAgentInstanceServicePoliciesMatchTheirEffect(t *testing.T) {
 	}
 }
 
+func TestAuthorizationServicePolicyIsRead(t *testing.T) {
+	if got := DefaultMethodPolicies()[apiv1alpha1.AuthorizationService_CheckAccess_FullMethodName]; got != pkgauth.AccessRead {
+		t.Fatalf("CheckAccess policy = %q, want %q", got, pkgauth.AccessRead)
+	}
+}
+
 // TestReadOnlyShareCannotRenameAConversation is the property the policy entry
 // exists for, measured through the interceptor rather than read off the table: a
 // read-only share link may open a conversation and must not be able to retitle

@@ -15,6 +15,7 @@ import (
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/accessreview"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
@@ -59,6 +60,7 @@ type Config struct {
 	AgentInstanceService  *agentinstance.Service
 	CheckpointService     *checkpoint.Service
 	ScheduledRunService   *scheduledrun.Service
+	AuthorizationService  *accessreview.Service
 	A2AHandler            a2asrv.RequestHandler
 	// RegisterServices registers services core does not own. Called during New,
 	// because gRPC requires every service to be registered before Serve.
@@ -154,6 +156,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.CheckpointService != nil {
 		apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
+	}
+	if config.AuthorizationService != nil {
+		apiv1alpha1.RegisterAuthorizationServiceServer(grpcServer, &authorizationServer{service: config.AuthorizationService})
 	}
 	if config.A2AHandler != nil {
 		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
