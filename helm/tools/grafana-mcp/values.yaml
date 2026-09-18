@@ -9,7 +9,11 @@ grafana:
 image:
   registry: mcp
   repository: grafana
-  pullPolicy: Always
+  # -- Pull policy for this image. Empty falls back to global.imagePullPolicy,
+  # then to Always -- the tag below is mutable, so a cached image goes stale
+  # under any other terminal default. A value declared here would shadow the
+  # global, which is why the default is empty rather than Always.
+  pullPolicy: ""
   tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
 
 # -- Pull secrets for the pod, merged (union) with global.imagePullSecrets.

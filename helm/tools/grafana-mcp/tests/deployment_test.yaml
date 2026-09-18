@@ -157,3 +157,31 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].args[3]
           value: "*"
+
+  # The default tag is mutable, so the terminal pull policy must stay Always;
+  # the values default is empty so global.imagePullPolicy can reach this chart.
+  - it: should default the pull policy to Always
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+
+  - it: should fall back to global.imagePullPolicy when image.pullPolicy is empty
+    template: deployment.yaml
+    set:
+      global.imagePullPolicy: IfNotPresent
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+
+  - it: should let image.pullPolicy win over the global
+    template: deployment.yaml
+    set:
+      image.pullPolicy: Never
+      global.imagePullPolicy: IfNotPresent
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Never
