@@ -1,7 +1,8 @@
 /**
  * @jest-environment jsdom
  */
-import { describe, it, expect, jest, beforeEach } from "@jest/globals";
+// `expect` is left global: jest.setup.ts extends that one with jest-dom's matchers.
+import { describe, it, jest, beforeEach } from "@jest/globals";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PromptInstructionsTextarea } from "@/components/create/PromptInstructionsTextarea";
