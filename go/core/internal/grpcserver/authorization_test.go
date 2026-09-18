@@ -8,7 +8,7 @@ import (
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/accessreview"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +45,7 @@ func TestAuthorizationServiceGeneratedClient(t *testing.T) {
 		Registerer:           prometheus.NewRegistry(),
 		Authenticator:        &authimpl.UnsecureAuthenticator{},
 		SystemService:        testSystemService(),
-		AuthorizationService: accessreview.NewService(authorizer),
+		AuthorizationService: kubeauth.NewReviewer(authorizer),
 	})
 	require.NoError(t, err)
 	serverContext, cancelServer := context.WithCancel(t.Context())
