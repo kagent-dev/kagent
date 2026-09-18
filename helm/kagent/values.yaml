@@ -727,13 +727,23 @@ substrate:
     # Kagent and Substrate use separate schemas in the same database.
     enabled: false
     schema: substrate
-    # -- Read the Substrate connection string from a Secret.
+    # -- Optional inline Substrate runtime/DML connection string.
+    # Disable connectionStringSecretRef when using it.
+    connectionString: ""
+    # -- Read the Substrate runtime/DML connection string from a Secret.
     # With no name, Kagent creates this Secret from its bundled or inline URL.
     connectionStringSecretRef:
       enabled: true
       # -- Existing Secret name. Kagent creates a release-named Secret when empty.
       name: ""
       key: connectionString
+    # -- Optional DDL and maintenance connection. Defaults to the runtime connection.
+    ddlConnectionString: ""
+    # -- Read the optional DDL connection string from a Secret.
+    ddlConnectionStringSecretRef:
+      enabled: false
+      name: ""
+      key: ddlConnectionString
   ateApi:
     extraArgs:
       # Minimum supported interval for discovering and reconciling actor templates.

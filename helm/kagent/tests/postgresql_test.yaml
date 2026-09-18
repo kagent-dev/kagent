@@ -468,6 +468,26 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: should leave operator-provided runtime and DDL secrets unmanaged
+    template: postgresql-secret.yaml
+    set:
+      database:
+        postgres:
+          bundled:
+            enabled: false
+      substrate:
+        enabled: true
+        postgres:
+          connectionStringSecretRef:
+            name: substrate-database
+            key: runtimeUrl
+          ddlConnectionStringSecretRef:
+            name: substrate-database
+            key: ddlUrl
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: should require an explicit Substrate reference for an existing Kagent Secret
     template: postgresql-secret.yaml
     set:

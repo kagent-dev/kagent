@@ -24,7 +24,7 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 ### Substrate PostgreSQL
 
 Enabling Substrate uses Kagent's bundled PostgreSQL by default. Kagent and
-Substrate share the database connection but use separate schemas.
+Substrate share the database and connection but use separate schemas.
 
 ```yaml
 substrate:
@@ -77,13 +77,29 @@ substrate:
 For a separate Secret-backed connection, leave `enabled: false` and set
 `connectionStringSecretRef.name` and `key`.
 
-The separate Substrate connection can point to the same PostgreSQL server and
-database as Kagent while using a different database role. This keeps
-Substrate's required DDL privileges off Kagent's runtime role.
+For least privilege, give Substrate separate runtime/DML and DDL roles. Both
+connections can point to Kagent's PostgreSQL server and database; the
+`substrate` schema keeps their objects separate from Kagent's:
 
-Substrate currently uses one role for migrations, runtime access, and runtime
-outbox-partition DDL. It does not support separate DDL/migration and
-DML/runtime identities.
+```yaml
+substrate:
+  enabled: true
+  postgres:
+    schema: substrate
+    connectionStringSecretRef:
+      name: substrate-postgres
+      key: runtimeConnectionString
+    ddlConnectionStringSecretRef:
+      name: substrate-postgres
+      key: ddlConnectionString
+```
+
+The DDL role owns the Substrate schema and performs migrations and partition
+maintenance. After migrations, Substrate gives the runtime role access to the
+tables and sequences created by the DDL role. Without this step, the runtime
+connection would fail with permission-denied errors. When both connections use
+the same role, no grant is needed. Omitting the DDL connection preserves
+single-connection operation.
 
 ### Using Make
 
