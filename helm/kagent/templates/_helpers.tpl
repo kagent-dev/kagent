@@ -51,16 +51,17 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
-Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
-Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > empty (watch all).
+Watch namespaces - transforms the list of namespaces cached by the controller into a comma-separated string.
+controller.watchNamespaces is an explicit override; otherwise the watch scope is the resolved RBAC scope
+(kagent.rbacNamespaces), so the controller never watches a namespace its Roles do not cover and never
+holds a cluster-wide cache when RBAC is namespaced. An explicit rbac.namespaces: [] therefore also
+clears the watch scope back to cluster-wide.
 */}}
 {{- define "kagent.watchNamespaces" -}}
 {{- if .Values.controller.watchNamespaces -}}
   {{- .Values.controller.watchNamespaces | uniq | join "," -}}
-{{- else if and .Values.rbac .Values.rbac.namespaces -}}
-  {{- .Values.rbac.namespaces | uniq | join "," -}}
-{{- else if ((.Values.global).watchNamespaces) -}}
-  {{- (.Values.global).watchNamespaces | uniq | join "," -}}
+{{- else -}}
+  {{- include "kagent.rbacNamespaces" . | fromJsonArray | join "," -}}
 {{- end -}}
 {{- end -}}
 
