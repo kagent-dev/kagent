@@ -96,8 +96,24 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
     // The time zone is an AutoComplete, so its id is on the wrapper and the caret goes
     // in the input inside it. Escape dismisses the zone list, which otherwise sits
     // over the fields below.
-    await page.getByTestId("schedule-timezone").locator("input").fill("America/New_York");
+    const zone = page.getByTestId("schedule-timezone").locator("input");
+    await zone.fill("America/New_York");
     await page.keyboard.press("Escape");
+
+    /*
+     * The cadence line says the zone back, and says "UTC" when the field is empty rather
+     * than leaving it blank — which is what the form will store for a blank one. A reader
+     * who cleared it is otherwise told nothing about what they have just chosen.
+     *
+     * One field at a time: cleared, then put back.
+     */
+    const cadence = page.getByTestId("schedule-cadence");
+    await expect(cadence).toContainText("(America/New_York)");
+    await zone.fill("");
+    await expect(cadence).toContainText("(UTC)");
+    await zone.fill("America/New_York");
+    await page.keyboard.press("Escape");
+    await expect(cadence).toContainText("(America/New_York)");
 
     await page.getByTestId("schedule-prompt").fill("Report cluster health.");
     // A fractional timeout, because it is the value a backend most easily rounds off.
@@ -119,6 +135,10 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
 
     // Created paused, so the one control whose label flips offers to resume it.
     await expect(page.getByTestId("schedule-pause")).toHaveText("Resume");
+    // And it has never run. Its own state, not "no search matched" and not "the read
+    // failed" — three things the page keeps apart and a new schedule is the only one of
+    // them this journey can produce.
+    await expect(page.getByTestId("schedule-history-empty")).toBeVisible();
     await expect(page.getByTestId("schedule-meta")).toContainText("Weekdays at 09:00");
     await expect(page.getByTestId("schedule-meta")).toContainText("America/New_York");
     // The fractional second survived the round trip rather than being floored to 90.
