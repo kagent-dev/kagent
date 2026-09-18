@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -249,7 +250,11 @@ func Run(ctx context.Context, opts Options) error {
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors)); err != nil {
+	runtimeGC, err := v2controller.NewRuntimeRevisionGC(store, actors, metrics.Registry)
+	if err != nil {
+		return fmt.Errorf("create runtime revision GC: %w", err)
+	}
+	if err := manager.Add(runtimeGC); err != nil {
 		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {
