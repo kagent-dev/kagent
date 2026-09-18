@@ -81,9 +81,13 @@ func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
 }
 
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
+	resolved := &ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: spec}}
+	if spec.Foundry != nil {
+		resolved.FoundryEndpoint = spec.Foundry.Endpoint
+	}
 	return &HarnessInput{
 		Harness: &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}},
-		Root:    &AgentInput{Template: &v1alpha3.AgentTemplate{}, ResolvedModelConfig: &ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: spec}}},
+		Root:    &AgentInput{Template: &v1alpha3.AgentTemplate{}, ResolvedModelConfig: resolved},
 	}
 }
 

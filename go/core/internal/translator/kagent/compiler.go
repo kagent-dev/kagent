@@ -40,12 +40,12 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	template, harness := input.Root.Template, input.Harness
 	if memory := harness.Spec.Kagent.Memory; memory != nil {
 		name := memory.ModelConfigRef.Name
-		model, err := c.config.BuildModel(ctx, harness.Namespace, name)
+		model, err := c.config.BuildModel(harness.Namespace, name)
 		if err != nil {
 			return nil, fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 		}
 		compiled.Config.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model.Model)}
-		compiled.Models = append(compiled.Models, model.Config)
+		compiled.Models = append(compiled.Models, model.Resolved)
 		compiled.Environment = append(compiled.Environment, model.Environment...)
 		compiled.Egress = append(compiled.Egress, model.Egress...)
 	}

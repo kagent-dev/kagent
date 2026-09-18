@@ -33,6 +33,8 @@ type ResolvedModelConfig struct {
 	References        []ModelConfigReference
 	SemanticFailures  []ModelConfigFailure
 	ReferenceFailures []ModelConfigFailure
+	// FoundryEndpoint is the effective inline or ConfigMap-backed endpoint.
+	FoundryEndpoint string
 }
 
 func (r ResolvedModelConfig) ResourceName() string {
@@ -180,7 +182,8 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 			addSemanticFailure("InvalidProviderConfig", "foundry model config is required")
 			break
 		}
-		if config.Spec.Foundry.Endpoint == "" && config.Spec.Foundry.EndpointFrom != nil {
+		resolved.FoundryEndpoint = config.Spec.Foundry.Endpoint
+		if resolved.FoundryEndpoint == "" && config.Spec.Foundry.EndpointFrom != nil {
 			ref := config.Spec.Foundry.EndpointFrom
 			key := types.NamespacedName{Namespace: config.Namespace, Name: ref.Name}
 			resolved.References = append(resolved.References, ModelConfigReference{NamespacedName: key, Kind: "ConfigMap", Key: ref.Key})
@@ -189,9 +192,13 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 				addReferenceFailure("EndpointConfigMapNotFound", fmt.Sprintf("config map %s not found", ref.Name))
 			} else {
 				configMap := *fetched
-				_, ok := configMap.Data[ref.Key]
+				endpoint, ok := configMap.Data[ref.Key]
 				if !ok {
 					addReferenceFailure("EndpointConfigMapKeyNotFound", fmt.Sprintf("config map %s does not contain key %q", ref.Name, ref.Key))
+				} else if endpoint == "" {
+					addReferenceFailure("EndpointConfigMapKeyEmpty", fmt.Sprintf("config map %s has an empty endpoint at key %q", ref.Name, ref.Key))
+				} else {
+					resolved.FoundryEndpoint = endpoint
 				}
 			}
 		}

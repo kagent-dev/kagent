@@ -18,7 +18,7 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // CompileCredentials replaces secret-backed environment values with inert SDK
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
-func CompileCredentials(input *HarnessInput, extraModels []*v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
+func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
 	for _, variable := range input.Harness.Spec.Env {
 		if variable.CredentialRef != nil {
 			return nil, nil, NewValidationError("Harness environment %q: arbitrary credentialRef values cannot be injected into HTTP headers; configure credentials on ModelConfig or RemoteMCPServer", variable.Name)
@@ -36,11 +36,11 @@ func CompileCredentials(input *HarnessInput, extraModels []*v1alpha3.ModelConfig
 		bindings = append(bindings, egress.Credential{Hostname: u.Hostname(), Header: header, Prefix: prefix, URI: uri})
 		return nil
 	}
-	models := append([]*v1alpha3.ModelConfig(nil), extraModels...)
+	models := append([]*ResolvedModelConfig(nil), extraModels...)
 	var visit func(*AgentInput) error
 	visit = func(agent *AgentInput) error {
 		if len(extraModels) == 0 && agent.ResolvedModelConfig != nil {
-			models = append(models, agent.ResolvedModelConfig.Config)
+			models = append(models, agent.ResolvedModelConfig)
 		}
 		for _, tool := range agent.MCPTools {
 			for _, ref := range tool.Server.Spec.HeadersFrom {
@@ -62,11 +62,12 @@ func CompileCredentials(input *HarnessInput, extraModels []*v1alpha3.ModelConfig
 	if err := visit(input.Root); err != nil {
 		return nil, nil, err
 	}
-	for _, model := range models {
+	for _, resolved := range models {
+		model := resolved.Config
 		if model.Spec.APIKeyPassthrough || model.Spec.APIKeySecret == "" {
 			continue
 		}
-		name, endpoint, header, prefix := modelCredentialTarget(model)
+		name, endpoint, header, prefix := modelCredentialTarget(resolved)
 		if name == "" {
 			continue
 		}
@@ -95,11 +96,11 @@ func CompileCredentials(input *HarnessInput, extraModels []*v1alpha3.ModelConfig
 	if err != nil {
 		return nil, nil, NewValidationError("%v", err)
 	}
-	for _, model := range models {
-		if !model.Spec.APIKeyPassthrough {
+	for _, resolved := range models {
+		if !resolved.Config.Spec.APIKeyPassthrough {
 			continue
 		}
-		_, endpoint, _, _ := modelCredentialTarget(model)
+		_, endpoint, _, _ := modelCredentialTarget(resolved)
 		u, err := url.Parse(endpoint)
 		if err != nil {
 			return nil, nil, NewValidationError("invalid passthrough credential destination")
@@ -126,8 +127,8 @@ func CompileCredentials(input *HarnessInput, extraModels []*v1alpha3.ModelConfig
 	return result, bindings, nil
 }
 
-func modelCredentialTarget(model *v1alpha3.ModelConfig) (name, endpoint, header, prefix string) {
-	spec := model.Spec
+func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {
+	spec := resolved.Config.Spec
 	switch spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
 		name, endpoint, header, prefix = env.OpenAIAPIKey.Name(), "https://api.openai.com", "authorization", "Bearer "
@@ -152,12 +153,9 @@ func modelCredentialTarget(model *v1alpha3.ModelConfig) (name, endpoint, header,
 			endpoint = fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", spec.Bedrock.Region)
 		}
 	case v1alpha3.ModelProviderFoundry:
-		name, header = env.FoundryAPIKey.Name(), "api-key"
+		name, endpoint, header = env.FoundryAPIKey.Name(), resolved.FoundryEndpoint, "api-key"
 		if spec.Foundry != nil && spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
 			header = "x-api-key"
-		}
-		if spec.Foundry != nil {
-			endpoint = spec.Foundry.Endpoint
 		}
 	}
 	return name, endpoint, header, prefix

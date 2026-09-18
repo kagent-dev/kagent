@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
@@ -110,6 +111,7 @@ func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
 	ctx := krt.TestingDummyContext{}
 	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
 		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
+		v2translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
 	})
 }
 
@@ -134,26 +136,55 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	return collections
 }
 
-func TestResolveModelConfigRecordsFoundryEndpointReference(t *testing.T) {
-	model := &v1alpha3.ModelConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
-		Spec: v1alpha3.ModelConfigSpec{
-			Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry,
-			Foundry: &v1alpha3.FoundryConfig{Deployment: "chat", APIVersion: "2024-10-21", EndpointFrom: &corev1.ConfigMapKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint",
-			}},
-		},
+func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
+	ref := &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint"}
+	const endpoint = "https://example.services.ai.azure.com"
+	for _, tt := range []struct {
+		name      string
+		foundry   *v1alpha3.FoundryConfig
+		data      map[string]string
+		endpoint  string
+		failure   string
+		reference bool
+	}{
+		{name: "inline", foundry: &v1alpha3.FoundryConfig{Endpoint: endpoint}, endpoint: endpoint},
+		{name: "inline takes precedence", foundry: &v1alpha3.FoundryConfig{Endpoint: endpoint, EndpointFrom: ref}, endpoint: endpoint},
+		{name: "ConfigMap", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, data: map[string]string{"endpoint": endpoint}, endpoint: endpoint, reference: true},
+		{name: "missing ConfigMap", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, failure: "EndpointConfigMapNotFound", reference: true},
+		{name: "missing key", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, data: map[string]string{}, failure: "EndpointConfigMapKeyNotFound", reference: true},
+		{name: "empty endpoint", foundry: &v1alpha3.FoundryConfig{EndpointFrom: ref}, data: map[string]string{"endpoint": ""}, failure: "EndpointConfigMapKeyEmpty", reference: true},
+		{name: "missing endpoint", foundry: &v1alpha3.FoundryConfig{}, failure: "InvalidProviderConfig"},
+		{name: "missing provider config", failure: "InvalidProviderConfig"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
+				Spec:       v1alpha3.ModelConfigSpec{Model: "gpt-4o", Provider: v1alpha3.ModelProviderFoundry, Foundry: tt.foundry},
+			}
+			original := model.DeepCopy()
+			objects := []any{model}
+			if tt.data != nil {
+				objects = append(objects, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: ref.Name, Namespace: "test"}, Data: tt.data})
+			}
+			resolved := mockCollections(t, objects...).ResolvedModelConfigs.List()[0]
+			require.Equal(t, original, model, "resolution must not mutate its input")
+			require.Equal(t, original, resolved.Config, "retain the source configuration separately")
+			require.Equal(t, tt.endpoint, resolved.FoundryEndpoint)
+			if tt.failure == "" {
+				require.True(t, resolved.Usable())
+			} else {
+				require.False(t, resolved.Usable())
+				require.Equal(t, tt.failure, resolved.Failure().Reason)
+			}
+			if tt.reference {
+				require.Equal(t, []v2translator.ModelConfigReference{{
+					NamespacedName: types.NamespacedName{Namespace: "test", Name: ref.Name}, Kind: "ConfigMap", Key: ref.Key,
+				}}, resolved.References)
+			} else {
+				require.Empty(t, resolved.References)
+			}
+		})
 	}
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "test"},
-		Data:       map[string]string{"endpoint": "https://example.services.ai.azure.com"},
-	}
-	collections := mockCollections(t, model, configMap)
-	resolved := collections.ResolvedModelConfigs.List()[0]
-	require.Equal(t, model.Spec, resolved.Config.Spec)
-	require.Equal(t, []v2translator.ModelConfigReference{{
-		NamespacedName: types.NamespacedName{Namespace: "test", Name: "account"}, Kind: "ConfigMap", Key: "endpoint",
-	}}, resolved.References)
 }
 
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
