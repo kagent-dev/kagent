@@ -108,10 +108,19 @@ type headerTransport struct {
 	headers map[string]string
 }
 
+// applyRequestHeader sets an outbound header. Host must also be copied onto
+// req.Host because net/http ignores a Host key in the header map on the wire.
+func applyRequestHeader(req *http.Request, key, value string) {
+	if strings.EqualFold(key, "Host") {
+		req.Host = value
+	}
+	req.Header.Set(key, value)
+}
+
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range t.headers {
-		req.Header.Set(k, v)
+		applyRequestHeader(req, k, v)
 	}
 	return t.base.RoundTrip(req)
 }
