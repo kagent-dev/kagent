@@ -19,6 +19,7 @@ import {
   listSessionShares,
   type SessionShare,
 } from "@/app/actions/sessionShares";
+import { copyText } from "@/lib/utils";
 
 interface ShareButtonProps {
   sessionId: string;
@@ -102,25 +103,13 @@ export default function ShareButton({ sessionId, namespace, agentName }: ShareBu
   const handleCopy = async (token: string) => {
     const url = shareUrl(token);
     if (!url) return;
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(url);
-      } else {
-        const el = document.createElement("textarea");
-        el.value = url;
-        el.style.position = "fixed";
-        el.style.opacity = "0";
-        document.body.appendChild(el);
-        el.select();
-        document.execCommand("copy");
-        document.body.removeChild(el);
-      }
-      setCopiedToken(token);
-      toast.success("Link copied to clipboard");
-      setTimeout(() => setCopiedToken(null), 2000);
-    } catch {
+    if (!(await copyText(url))) {
       toast.error("Failed to copy link — please copy it manually");
+      return;
     }
+    setCopiedToken(token);
+    toast.success("Link copied to clipboard");
+    setTimeout(() => setCopiedToken(null), 2000);
   };
 
   return (
