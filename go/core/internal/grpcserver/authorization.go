@@ -4,13 +4,13 @@ import (
 	"context"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/service/accessreview"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type authorizationServer struct {
 	apiv1alpha1.UnimplementedAuthorizationServiceServer
-	service *accessreview.Service
+	reviewer *kubeauth.Reviewer
 }
 
 func (s *authorizationServer) CheckAccess(ctx context.Context, request *apiv1alpha1.CheckAccessRequest) (*apiv1alpha1.CheckAccessResponse, error) {
@@ -35,12 +35,12 @@ func (s *authorizationServer) CheckAccess(ctx context.Context, request *apiv1alp
 	for i, verb := range request.GetVerbs() {
 		requestVerbs[i] = verbs[verb]
 	}
-	requestTargets := make([]accessreview.Target, len(request.GetTargets()))
+	requestTargets := make([]kubeauth.ReviewTarget, len(request.GetTargets()))
 	for i, target := range request.GetTargets() {
-		requestTargets[i] = accessreview.Target{Namespace: target.GetNamespace(), Name: target.GetName()}
+		requestTargets[i] = kubeauth.ReviewTarget{Namespace: target.GetNamespace(), Name: target.GetName()}
 	}
 
-	results, err := s.service.Check(ctx, resourceTypes[request.GetResourceType()], requestVerbs, requestTargets)
+	results, err := s.reviewer.Review(ctx, resourceTypes[request.GetResourceType()], requestVerbs, requestTargets)
 	if err != nil {
 		return nil, err
 	}
