@@ -18,7 +18,7 @@ func TestNewRejectsBadInput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := New(context.Background(), tt.cfg)
+			_, err := New(context.Background(), tt.cfg)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("New() err = %v, want %q", err, tt.wantErr)
 			}

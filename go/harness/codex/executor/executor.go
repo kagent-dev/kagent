@@ -5,7 +5,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"io"
 	"time"
 	"unicode"
 
@@ -25,29 +24,28 @@ type Config struct {
 	Environment []string
 }
 
-// New validates the configuration and Codex installation, then returns the
-// executor and the resource to close on shutdown.
-func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, io.Closer, error) {
+// New validates the configuration and Codex installation, then returns the executor.
+func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, error) {
 	runner, err := adapter.New(ctx, adapter.Input{
 		ConfigJSON: cfg.ConfigJSON, Workspace: cfg.DataDir + "/workspace", DurableDir: cfg.DataDir, Environment: cfg.Environment,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("configure Codex Harness: %w", err)
+		return nil, fmt.Errorf("configure Codex Harness: %w", err)
 	}
 	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := runner.Validate(validateCtx); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	store, err := continuation.New(cfg.DataDir+"/adapter", "codex", validateThreadID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	executor, err := runtimea2a.New(runner, store)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return executor, io.NopCloser(nil), nil
+	return executor, nil
 }
 
 func validateThreadID(id string) error {
