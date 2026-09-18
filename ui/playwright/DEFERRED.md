@@ -255,16 +255,20 @@ plainly rather than guessing at.
 
 **A `tool_approval_request`** carries `tools[]` and a `hint` and is answered with
 `tool_approval_response` / `approvals[]` — a different payload, and a different control:
-per-tool approve or reject, with a rejection reason. The prompt names the tools and
-offers only the discard, which is honest. Building the approval controls needs the
-product decision about what a reader is being asked to vouch for, and it should not be
-guessed from the shape of the payload.
+per-tool approve or reject, with a rejection reason. **No longer deferred.** The product
+decision landed in #2714 and the controls shipped with it; they had no browser coverage
+until `tests/chat/approvals.spec.ts`, which decides two tools opposite ways in one
+submission and reads the decisions back off the reply rather than off the form — so it
+fails if the page sends both as approvals or pairs a reason with the wrong tool. The
+fixture parks on the request at the `ChatClient` boundary, which is what `asks` already
+does; what stays out is wire frames, and that stays out.
 
 **A turn parked without the HITL extension activated** has no payload at all — the
 question exists only as prose and carries no correlation id, so no answer can be routed
 to it. The prompt says so and offers the discard. This build always activates the
 extension, so it can only arise from a turn started by something else (a `kubectl`-driven
-send, an older client). It is not worth engineering around; it is worth not lying about.
+send, an older client). It is not worth engineering around; it is worth not lying about —
+and the sentence that does the not-lying is covered in the same spec.
 
 **The `ask_user` payload still renders as JSON in the transcript**, beside the answerable
 prompt — the tool call and its result are structured data and are shown as such. That is

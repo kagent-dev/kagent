@@ -35,6 +35,8 @@ const TIMING = {
   error: { step: 300, word: 45 },
   asks: { step: 300, word: 45 },
   "asks-text": { step: 300, word: 45 },
+  approves: { step: 300, word: 45 },
+  "asks-unknown": { step: 300, word: 45 },
 } as const;
 
 /**
@@ -52,6 +54,19 @@ const SIZES = ["Small", "Medium", "Large"];
 const NOTE_QUESTION = "What should I put on the order note?";
 /** The correlation id, which a real answer echoes verbatim. */
 const REQUEST_ID = "adk-mock-ask-1";
+
+/**
+ * The tools the scripted approval turn asks to run.
+ *
+ * Two, because the decision is per tool: one approved and one rejected in the same
+ * submission is the case a single-tool fixture cannot produce, and it is the one that
+ * says the controls are wired to their own row rather than to the form.
+ */
+const APPROVAL_TOOLS = [
+  { id: "call-1", name: "kubectl_apply", args: { manifest: "deployment.yaml" } },
+  { id: "call-2", name: "shell_exec", args: { command: "rm -rf /tmp//cache" } },
+];
+const APPROVAL_HINT = "These change the cluster. Approve only what you recognise.";
 
 /** Where the scripted turn gives up when the scenario asks it to fail. */
 const FAILURE_MESSAGE =
@@ -229,12 +244,29 @@ export class MockChatClient implements ChatClient {
        * as though it worked. So the acknowledgement here says which happened — that
        * silent failure is the reason this fixture bothers to check.
        */
+      /*
+       * What the agent understood of an approval, said tool by tool. A fixture that
+       * acknowledged "noted" either way would pass a UI that sent every decision as an
+       * approval, or paired the reasons with the wrong rows.
+       */
+      const decisions = parked.kind === "tool_approval" ? readApproval(input.hitl) : undefined;
+      const approvalReply =
+        decisions &&
+        decisions
+          .map(
+            (decision) =>
+              `${decision.id} ${decision.approved ? "approved" : `rejected (${decision.reason ?? "no reason given"})`}`,
+          )
+          .join("; ");
+
       const acknowledgement = message(
         `${parked.taskId}-ack`,
         "agent",
         structured && parked.kind === "ask_user" && structured.id === parked.requestId
           ? `Noted: **${structured.answers.map((a) => a.join(", ")).join("; ")}**.`
-          : `I did not catch a choice in that.`,
+          : approvalReply
+            ? `Noted: **${approvalReply}**.`
+            : `I did not catch a choice in that.`,
         parked.taskId,
       );
       answered.push(acknowledgement);
@@ -369,6 +401,34 @@ export class MockChatClient implements ChatClient {
       return;
     }
 
+    if (scenario === "approves") {
+      // The same park, a different request: tools to vouch for rather than a question
+      // to answer. `hint` is the runtime's own sentence about why it is asking.
+      this.persist(sessionId);
+      const request: PendingRequest = {
+        kind: "tool_approval",
+        taskId,
+        tools: APPROVAL_TOOLS,
+        hint: APPROVAL_HINT,
+      };
+      saveParked(sessionId, request);
+      yield { type: "status", state: "input_required", taskId, awaiting: request };
+      return;
+    }
+
+    if (scenario === "asks-unknown") {
+      /*
+       * Parked on something this build cannot render: a turn started without the
+       * extension carries its question as prose and no correlation id, so there is
+       * nothing to answer against. `unknown` is what `readRequest` returns for it.
+       */
+      this.persist(sessionId);
+      const request: PendingRequest = { kind: "unknown", taskId };
+      saveParked(sessionId, request);
+      yield { type: "status", state: "input_required", taskId, awaiting: request };
+      return;
+    }
+
     yield { type: "status", state: "completed", taskId };
   }
 
@@ -462,6 +522,35 @@ function readAnswer(
       })
     : [];
   return { id: body.id, answers };
+}
+
+/**
+ * The decisions carried back by a tool approval, read the way the runtime reads them.
+ *
+ * `rejection_reason` is snake_case on the wire and optional: a rejection may carry one
+ * and an approval never does. Read here so the acknowledgement can say which tools were
+ * approved — a fixture that answered "noted" either way would let a UI that sent the
+ * decisions the wrong way round pass.
+ */
+function readApproval(
+  hitl: Record<string, unknown> | undefined,
+): { id: string; approved: boolean; reason?: string }[] | undefined {
+  const payload = hitl?.[HITL_EXTENSION_URI];
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const body = payload as Record<string, unknown>;
+  if (body.type !== "tool_approval_response" || !Array.isArray(body.approvals)) {
+    return undefined;
+  }
+  return body.approvals.filter(isRecord).map((entry) => ({
+    id: typeof entry.id === "string" ? entry.id : "",
+    approved: entry.approved === true,
+    reason:
+      typeof entry.rejection_reason === "string" ? entry.rejection_reason : undefined,
+  }));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function clearParked(sessionId: string): void {
