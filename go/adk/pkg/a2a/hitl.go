@@ -21,6 +21,9 @@ const (
 	HITLTypeToolApprovalResponse = apia2a.HITLTypeToolApprovalResponse
 	HITLTypeAskUserResponse      = apia2a.HITLTypeAskUserResponse
 	KAgentMetadataKeyPrefix      = "kagent_"
+
+	// genericHITLText is the status text for a pause that names no tool.
+	genericHITLText = "Human input is required before the agent can continue."
 )
 
 var hitlAgentExtension = apia2a.HITLExtension()
@@ -391,6 +394,59 @@ func (tool confirmationTool) asHitlTool() apia2a.HITLTool {
 	return apia2a.HITLTool{ID: tool.approvalID, CallID: tool.callID, Name: tool.name, Args: tool.args}
 }
 
+// askUserQuestions returns the answerable questions of an ask_user pause, or nil.
+// A pause qualifies when it holds exactly one ask_user call, and that call carries
+// at least one question with text. A question without text cannot be rendered, and
+// an answer for it cannot be correlated, so it is dropped.
+func askUserQuestions(tools []apia2a.HITLTool) []apia2a.HITLQuestion {
+	if len(tools) != 1 || tools[0].Name != "ask_user" {
+		return nil
+	}
+	questions := publicAskUserQuestions(tools[0].Args["questions"])
+	answerable := make([]apia2a.HITLQuestion, 0, len(questions))
+	for _, question := range questions {
+		if question.Question != "" {
+			answerable = append(answerable, question)
+		}
+	}
+	if len(answerable) == 0 {
+		return nil
+	}
+	return answerable
+}
+
+// pendingQuestionText joins the questions an ask_user call is waiting on.
+func pendingQuestionText(questions []apia2a.HITLQuestion) string {
+	texts := make([]string, 0, len(questions))
+	for _, question := range questions {
+		texts = append(texts, question.Question)
+	}
+	return strings.Join(texts, "; ")
+}
+
+// hitlStatusText renders a pause as one human-readable line. An ask_user pause speaks
+// for itself; every other pause names its tools so no pending tool stays hidden.
+func hitlStatusText(tools []apia2a.HITLTool, hints []string) string {
+	if questions := pendingQuestionText(askUserQuestions(tools)); questions != "" {
+		return questions
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Name != "" {
+			names = append(names, tool.Name)
+		}
+	}
+	switch {
+	case len(hints) > 0 && len(names) > 0:
+		return fmt.Sprintf("%s (%s)", strings.Join(hints, "; "), strings.Join(names, ", "))
+	case len(hints) > 0:
+		return strings.Join(hints, "; ")
+	case len(names) > 0:
+		return fmt.Sprintf("Approval is required for tool(s): %s", strings.Join(names, ", "))
+	}
+	return genericHITLText
+}
+
 // BuildHITLStatusMessage: ADK confirmation DataParts → public HITL Message extension.
 func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.Message {
 	if message == nil {
@@ -398,7 +454,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	}
 	var tools []apia2a.HITLTool
 	var remote *RemoteHitlState
-	hint := "Human input is required before the agent can continue."
+	var hints []string
 	for _, part := range message.Parts {
 		data := asDataPart(part)
 		if data == nil || part.Metadata == nil {
@@ -412,7 +468,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		tool := parseConfirmationTool(data)
 		tools = append(tools, tool.asHitlTool())
 		if tool.hint != "" {
-			hint = tool.hint
+			hints = append(hints, tool.hint)
 		}
 		if candidate := ParseRemoteHitlState(tool.payload); candidate != nil {
 			remote = candidate
@@ -422,7 +478,11 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		return message
 	}
 
-	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(hint))
+	// The text part carries the same information as the typed payload, so a client
+	// that did not activate the extension still learns what it is being asked.
+	text := hitlStatusText(tools, hints)
+
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(text))
 	public.TaskID, public.ContextID = message.TaskID, message.ContextID
 	if !activated {
 		return public
@@ -444,14 +504,17 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 			Questions: remote.AskUserRequest.Questions, Nested: nested,
 		})
 	}
-	if len(tools) == 1 && tools[0].Name == "ask_user" {
+	// An ask_user call with no answerable question becomes an approval: an empty
+	// question list gives a request that no response can satisfy, because resume
+	// requires answers.
+	if questions := askUserQuestions(tools); questions != nil {
 		return AttachHitlExtension(public, &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
-			Questions: publicAskUserQuestions(tools[0].Args["questions"]),
+			Questions: questions,
 		})
 	}
 	return AttachHitlExtension(public, &apia2a.ToolApprovalRequest{
-		Type: HITLTypeToolApprovalRequest, Hint: hint, Tools: tools, Nested: nested,
+		Type: HITLTypeToolApprovalRequest, Hint: text, Tools: tools, Nested: nested,
 	})
 }
 
