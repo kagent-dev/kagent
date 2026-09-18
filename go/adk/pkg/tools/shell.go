@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,84 @@ import (
 )
 
 type CommandExecutor struct{}
+
+// maxLineRunes is the longest line read_file and grep_file will emit before
+// truncating. Counted in runes, not bytes -- see truncateRunes.
+const maxLineRunes = 2000
+
+// maxLineBytes caps how much of a single line scanFileLines will buffer.
+// Lines are emitted truncated to maxLineRunes, but grep has to see the whole
+// line to match against it, so the read limit is far larger than the emit
+// limit. A line longer than this makes its file unreadable, which callers
+// surface as an error (read_file) or as a skip count (grep_file).
+const maxLineBytes = 1024 * 1024
+
+// scanFileLines opens path and hands each line to visit, stopping early if
+// visit returns false. Line numbers are 1-based.
+//
+// This is the single reader behind read_file and grep_file. Both need the
+// same three guarantees -- reject non-regular files, cap how much of a line
+// is buffered, and surface failures wrapped -- and keeping them in one place
+// is what stops the two from drifting apart: an earlier revision set the
+// scanner buffer only in the grep path, which left read_file failing outright
+// on any file with a line over bufio's 64KB default.
+func scanFileLines(path string, visit func(lineNum int, line string) bool) error {
+	// Stat before opening: os.Open on a FIFO with no writer connected blocks
+	// indefinitely, and nothing on these paths imposes a timeout. Doing it
+	// here rather than at each call site means no future caller can omit it.
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to stat %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q is not a regular file", path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open %q: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	// nil initial buffer, not a fixed 64KB one: bufio grows from 4KB by
+	// doubling, so a long line still reaches maxLineBytes, but the common
+	// case -- a recursive grep over a tree of small files -- stops paying
+	// 64KB of allocation per file. Measured at ~15x less allocated per file.
+	scanner.Buffer(nil, maxLineBytes)
+	for lineNum := 1; scanner.Scan(); lineNum++ {
+		if !visit(lineNum, scanner.Text()) {
+			return nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to read %q: %w", path, err)
+	}
+	return nil
+}
+
+// truncateRunes shortens s to at most maxRunes code points, appending "..."
+// when it truncates.
+//
+// Slicing a Go string directly (s[:n]) cuts on a byte boundary, which can
+// split a multi-byte UTF-8 sequence and leave a partial code point that
+// renders as U+FFFD. It also makes the limit mean bytes, so the same line
+// would truncate at a different point than in the Python runtime (whose str
+// slicing is per-code-point) and than the tool descriptions promise, which
+// say "characters".
+func truncateRunes(s string, maxRunes int) string {
+	count := 0
+	// Ranging a string yields one iteration per rune, with i the byte index
+	// where that rune starts -- so at the maxRunes'th rune, s[:i] holds
+	// exactly maxRunes complete runes.
+	for i := range s {
+		if count == maxRunes {
+			return s[:i] + "..."
+		}
+		count++
+	}
+	return s
+}
 
 // GetSessionPath creates the working directory used by skill execution tools.
 func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
@@ -53,34 +132,19 @@ func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 
 // ReadFileContent reads a file with line numbers.
 func ReadFileContent(path string, offset, limit int) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
 	var result strings.Builder
-	scanner := bufio.NewScanner(file)
-	lineNum := 1
 	start := max(offset, 1)
 	count := 0
 
-	for scanner.Scan() {
-		if lineNum >= start {
-			line := scanner.Text()
-			if len(line) > 2000 {
-				line = line[:2000] + "..."
-			}
-			fmt.Fprintf(&result, "%6d|%s\n", lineNum, line)
-			count++
-			if limit > 0 && count >= limit {
-				break
-			}
+	err := scanFileLines(path, func(lineNum int, line string) bool {
+		if lineNum < start {
+			return true
 		}
-		lineNum++
-	}
-
-	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(&result, "%6d|%s\n", lineNum, truncateRunes(line, maxLineRunes))
+		count++
+		return limit <= 0 || count < limit
+	})
+	if err != nil {
 		return "", err
 	}
 
@@ -139,6 +203,57 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	}
 
 	return os.WriteFile(path, []byte(newContent), 0644)
+}
+
+// ListDirContent lists the entries of a directory, one per line. Directories
+// are suffixed with "/"; files are followed by their size in bytes.
+func ListDirContent(path string) (string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read directory %q: %w", path, err)
+	}
+
+	if len(entries) == 0 {
+		return "Directory is empty.", nil
+	}
+
+	var result strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() {
+			fmt.Fprintf(&result, "%s/\n", entry.Name())
+			continue
+		}
+
+		// entry.IsDir() and entry.Info() both describe the entry itself
+		// (Lstat-like), so for a symlink they report the link rather than
+		// its target -- the target's type is lost, and Info().Size() is the
+		// length of the stored target path, not the file's size. os.Stat
+		// follows the link, so use it for both, matching Python's pathlib
+		// Path.is_dir()/Path.stat(), which follow symlinks by default.
+		if entry.Type()&fs.ModeSymlink != 0 {
+			target, statErr := os.Stat(filepath.Join(path, entry.Name()))
+			switch {
+			case statErr != nil:
+				// Broken link: there is no target to size. Print the bare
+				// name, as Python does when its stat() raises here.
+				fmt.Fprintf(&result, "%s\n", entry.Name())
+			case target.IsDir():
+				fmt.Fprintf(&result, "%s/\n", entry.Name())
+			default:
+				fmt.Fprintf(&result, "%s\t%d\n", entry.Name(), target.Size())
+			}
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			fmt.Fprintf(&result, "%s\n", entry.Name())
+			continue
+		}
+		fmt.Fprintf(&result, "%s\t%d\n", entry.Name(), info.Size())
+	}
+
+	return strings.TrimSuffix(result.String(), "\n"), nil
 }
 
 func NewCommandExecutor() *CommandExecutor {
