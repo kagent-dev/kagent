@@ -5,7 +5,6 @@ import {
   agents,
   instances,
   loadPage,
-  withScenario,
 } from "../../helpers/app";
 
 /**
@@ -97,7 +96,7 @@ test("agents: a record the reader cannot have says which of the two it is", asyn
     // The distinction this suite keeps everywhere: "we could not find out" must not
     // render as "there is nothing here". Different id, different action — retry rather
     // than a way back to the list.
-    await loadPage(page, withScenario(agentDetail(instances.ready), "error"));
+    await loadPage(page, agentDetail(instances.ready), { scenario: "error" });
     await expect(page.getByTestId("instance-error")).toBeVisible();
     await expect(page.getByTestId("instance-not-found")).toHaveCount(0);
     await expect(

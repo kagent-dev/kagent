@@ -7,6 +7,7 @@ import {
   expectNoLoadFailure,
   loadApp,
 } from "../helpers/app";
+import { LIFECYCLE_TIMEOUT } from "../helpers/resource";
 import { liveRoutes } from "./helpers/live";
 
 /**
@@ -79,6 +80,14 @@ const answered: Record<
       .filter({ hasText: /\d/ })
       .or(page.getByTestId("substrate-inventory-error")),
 };
+
+/*
+ * Eight pages, each with a load and a read behind its own sixty seconds, in one test.
+ * On the live project's 120s default two slow ones exhaust it and the failure reads
+ * "Test timeout exceeded" rather than naming the page — the reporting loss that
+ * `READ_TIMEOUT` and `PRESS_TIMEOUT` exist to avoid.
+ */
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("live: every page loads against the cluster and reports no failure", async ({
   page,

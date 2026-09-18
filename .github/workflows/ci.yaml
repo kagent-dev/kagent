@@ -133,7 +133,9 @@ jobs:
           BUILDX_BUILDER_NAME=$(docker buildx inspect | awk '$1 == "Name:" { print $2; exit }')
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
-          # Once, before the fan-out: every `build-*` depends on it.
+          # Before the fan-out. Each `build-*` runs it again — it is not passed `-o` the
+          # way `proto-generate` is below — which is harmless only because the target
+          # documents itself as safe to run concurrently.
           make buildx-create
           # Likewise once, and for a sharper reason: `build-ui` and `build-golang-adk` both
           # depend on it, and `buf generate` writes `ui/src/generated` as well as

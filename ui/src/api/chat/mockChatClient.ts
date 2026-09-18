@@ -16,7 +16,11 @@ import { currentChatScenario } from "@/mocks/scenario";
 import { allAgentInstances, instanceShareForToken } from "@/mocks/state";
 import { ApiError } from "../ApiError";
 import { agentInstanceShareToken } from "../shareToken";
-import { HITL_EXTENSION_URI, type PendingRequest } from "./hitl";
+import {
+  HITL_EXTENSION_URI,
+  readToolApprovalResponse,
+  type PendingRequest,
+} from "./hitl";
 import { conversationKey } from "./types";
 import type {
   ChatClient,
@@ -239,24 +243,29 @@ export class MockChatClient implements ChatClient {
       /*
        * What the agent understood, which is not the same as what it received.
        *
-       * The runtime reads the structured answer only from a message that both
-       * declares the extension and carries the payload under its URI; anything else
-       * reaches the agent as ordinary prose, the turn resumes, and the reply reads
-       * as though it worked. So the acknowledgement here says which happened — that
-       * silent failure is the reason this fixture bothers to check.
+       * The runtime reads a structured answer only from a message that both declares the
+       * extension and carries the payload under its URI; anything else reaches the agent
+       * as ordinary prose, the turn resumes, and the reply reads as though it worked. So
+       * the acknowledgement below says which happened, tool by tool for an approval —
+       * that silent failure is the reason this fixture bothers to check.
+       *
+       * Through the app's own parser rather than a second one: a copy here drifted
+       * permissive, taking an empty `approvals` array and an empty `rejection_reason`
+       * where the real reader rejects both, and a fixture that accepts more than the code
+       * it stands in for acknowledges payloads the app would refuse. The extension list
+       * is asserted rather than read — the port carries the payload directly, having no
+       * wire to declare it on.
        */
-      /*
-       * What the agent understood of an approval, said tool by tool. A fixture that
-       * acknowledged "noted" either way would pass a UI that sent every decision as an
-       * approval, or paired the reasons with the wrong rows.
-       */
-      const decisions = parked.kind === "tool_approval" ? readApproval(input.hitl) : undefined;
+      const decisions =
+        parked.kind === "tool_approval"
+          ? readToolApprovalResponse(input.hitl, [HITL_EXTENSION_URI])
+          : undefined;
       const approvalReply =
         decisions &&
         decisions
           .map(
             (decision) =>
-              `${decision.id} ${decision.approved ? "approved" : `rejected (${decision.reason ?? "no reason given"})`}`,
+              `${decision.id} ${decision.approved ? "approved" : `rejected (${decision.rejectionReason ?? "no reason given"})`}`,
           )
           .join("; ");
 
@@ -523,35 +532,6 @@ function readAnswer(
       })
     : [];
   return { id: body.id, answers };
-}
-
-/**
- * The decisions carried back by a tool approval, read the way the runtime reads them.
- *
- * `rejection_reason` is snake_case on the wire and optional: a rejection may carry one
- * and an approval never does. Read here so the acknowledgement can say which tools were
- * approved — a fixture that answered "noted" either way would let a UI that sent the
- * decisions the wrong way round pass.
- */
-function readApproval(
-  hitl: Record<string, unknown> | undefined,
-): { id: string; approved: boolean; reason?: string }[] | undefined {
-  const payload = hitl?.[HITL_EXTENSION_URI];
-  if (typeof payload !== "object" || payload === null) return undefined;
-  const body = payload as Record<string, unknown>;
-  if (body.type !== "tool_approval_response" || !Array.isArray(body.approvals)) {
-    return undefined;
-  }
-  return body.approvals.filter(isRecord).map((entry) => ({
-    id: typeof entry.id === "string" ? entry.id : "",
-    approved: entry.approved === true,
-    reason:
-      typeof entry.rejection_reason === "string" ? entry.rejection_reason : undefined,
-  }));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function clearParked(sessionId: string): void {

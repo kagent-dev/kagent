@@ -99,10 +99,17 @@ test("live: a schedule's configuration survives a reload", async ({ page }) => {
     await page.getByTestId("schedule-enabled").uncheck();
 
     await page.getByTestId("schedule-submit").click();
+    /*
+     * The address first, then what is on it. Recorded after the heading, a create that
+     * reached the controller while the detail page was slow to draw left the hook with
+     * no URL to clean up — a real Schedule on the cluster, which is the one thing the
+     * hook exists to prevent.
+     */
+    await page.waitForURL(/\/schedules\/[0-9a-f-]+(\?|$)/, { timeout: 60_000 });
+    detailURL = page.url();
     await expect(page.getByRole("heading", { name: CREATED, exact: true })).toBeVisible({
       timeout: 60_000,
     });
-    detailURL = page.url();
   });
 
   await test.step("2. a reload reads it back from the controller, unchanged", async () => {

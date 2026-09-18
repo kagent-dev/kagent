@@ -88,7 +88,8 @@ resource**: create, read back, change, delete.
 That second kind is where a fixture and a controller most easily disagree, and it is why
 every resource that can have its journey here does: `models`, `prompts`, `harnesses`,
 `agent-templates` and `schedules`. The names are `throwawayName`d and every one cleans up
-in a `finally`, because live they are real.
+in a `test.afterEach`, because live they are real — see the rule below for why not a
+`finally`.
 
 **One move rules a spec out of here: a reload.** The fixture backend keeps writes in the
 page's own memory, so a reload starts a backend that has never heard of what was just

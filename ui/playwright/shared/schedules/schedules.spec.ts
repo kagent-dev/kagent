@@ -127,10 +127,17 @@ test("schedules: one is created, read, changed and deleted", async ({ page }) =>
 
   await test.step("3. creating it lands on its own page, showing what was asked for", async () => {
     await page.getByTestId("schedule-submit").click();
+    /*
+     * The address first, then what is on it. Recorded after the heading, a create that
+     * reached the controller while the detail page was slow to draw left the hook with
+     * no URL to clean up — a real Schedule on the cluster, which is the one thing the
+     * hook exists to prevent.
+     */
+    await page.waitForURL(/\/schedules\/[0-9a-f-]+(\?|$)/, { timeout: READ_TIMEOUT });
+    detailURL = page.url();
     await expect(page.getByRole("heading", { name: CREATED, exact: true })).toBeVisible({
       timeout: READ_TIMEOUT,
     });
-    detailURL = page.url();
     await expect(page).toHaveURL(/\/schedules\/[0-9a-f-]+(\?|$)/);
 
     // Created paused, so the one control whose label flips offers to resume it.
