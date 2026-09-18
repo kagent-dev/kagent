@@ -111,7 +111,7 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByTestId(`chat-checkpoint-delete-cancel-${id}`).click();
     await expect(dividers(page)).toHaveCount(1);
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
@@ -210,7 +210,7 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
     await openSnapshot(page, page.getByTestId(`chat-checkpoint-mark-${id}`));
     await page.getByTestId("snapshot-details-delete").click();
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.getByTestId("snapshot-details-delete-cancel").click();
     await expect(page.getByText("Delete this snapshot?")).toBeHidden();
     await expect(dividers(page)).toHaveCount(2);
   });
