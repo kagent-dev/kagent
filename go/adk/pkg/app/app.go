@@ -51,8 +51,9 @@ type AppConfig struct {
 	// after the ones the builder creates (task store, push notifications, etc.).
 	HandlerOpts []a2asrv.RequestHandlerOption
 
-	// Agent is the ADK agent used to enrich the agent card with skills via
-	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
+	// Agent is the ADK agent used to fill gaps in the agent card (description,
+	// HITL extension, default interface); skills are never derived from it.
+	// Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
 }
 
@@ -126,7 +127,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
 
-	// Enrich agent card with skills derived from the ADK agent.
+	// Fill gaps in the agent card (description, HITL extension, default interface).
 	if cfg.Agent != nil {
 		a2a.EnrichAgentCard(&cfg.AgentCard, cfg.Agent)
 	}

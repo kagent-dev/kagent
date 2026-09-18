@@ -33,7 +33,7 @@ func newSupportAgent(t *testing.T, subAgents ...adkagent.Agent) adkagent.Agent {
 	return agent
 }
 
-func TestEnrichAgentCard_DerivedSkillsNeverEmbedInstructions(t *testing.T) {
+func TestEnrichAgentCard_NeverDerivesSkillsFromAgent(t *testing.T) {
 	billing, err := llmagent.New(llmagent.Config{
 		Name:        "billing",
 		Description: "Looks up invoices.",
@@ -44,45 +44,36 @@ func TestEnrichAgentCard_DerivedSkillsNeverEmbedInstructions(t *testing.T) {
 	}
 	agent := newSupportAgent(t, billing)
 
-	// A curated card without a skills field: skills are derived.
+	// A card without skills stays without skills: nothing is derived from the
+	// agent, so its instructions cannot reach the discovery endpoint.
 	card := &a2atype.AgentCard{Name: "support"}
 	EnrichAgentCard(card, agent)
 
-	text := cardSkillsText(card)
-	if strings.Contains(text, "SECRET-RULE") || strings.Contains(text, "billing agent") {
-		t.Fatalf("derived skills leak instructions:\n%s", text)
+	if len(card.Skills) != 0 {
+		t.Fatalf("skills were derived from the agent: %s", cardSkillsText(card))
 	}
-	if len(card.Skills) != 2 {
-		t.Fatalf("expected primary + sub-agent skill, got:\n%s", text)
-	}
-	if card.Skills[0].ID != "support" || card.Skills[0].Description != "Handles support tickets." {
-		t.Fatalf("unexpected primary skill:\n%s", text)
-	}
-	if card.Skills[1].Name != "billing" || card.Skills[1].Description != "Looks up invoices." {
-		t.Fatalf("unexpected sub-agent skill:\n%s", text)
+	if strings.Contains(card.Description, "SECRET-RULE") {
+		t.Fatalf("description leaks instructions: %q", card.Description)
 	}
 	if card.Description != "Handles support tickets." {
 		t.Fatalf("description = %q, want agent description", card.Description)
 	}
+	if !hasHITLExtension(card.Capabilities.Extensions) || len(card.SupportedInterfaces) != 1 {
+		t.Fatalf("existing enrichment (HITL extension, default interface) regressed: %+v", card)
+	}
 }
 
-func TestEnrichAgentCard_KeepsCuratedSkills(t *testing.T) {
+func TestEnrichAgentCard_KeepsCompilerGeneratedSkills(t *testing.T) {
 	agent := newSupportAgent(t)
 
 	curated := []a2atype.AgentSkill{{ID: "refunds", Name: "Refunds", Description: "Processes refund requests."}}
-	card := &a2atype.AgentCard{Name: "support", Skills: curated}
+	card := &a2atype.AgentCard{Name: "support", Description: "Curated description.", Skills: curated}
 	EnrichAgentCard(card, agent)
-	if len(card.Skills) != 1 || card.Skills[0].ID != "refunds" {
-		t.Fatalf("curated skills were replaced: %s", cardSkillsText(card))
-	}
 
-	// An explicit empty list means "no skills" and must not be filled in.
-	card = &a2atype.AgentCard{Name: "support", Skills: []a2atype.AgentSkill{}}
-	EnrichAgentCard(card, agent)
-	if len(card.Skills) != 0 {
-		t.Fatalf("explicit empty skills were filled: %s", cardSkillsText(card))
+	if len(card.Skills) != 1 || card.Skills[0].ID != "refunds" || card.Skills[0].Description != "Processes refund requests." {
+		t.Fatalf("compiler-generated skills were changed: %s", cardSkillsText(card))
 	}
-	if !hasHITLExtension(card.Capabilities.Extensions) || len(card.SupportedInterfaces) != 1 {
-		t.Fatalf("existing enrichment (HITL extension, default interface) regressed: %+v", card)
+	if card.Description != "Curated description." {
+		t.Fatalf("description = %q, want the card's own description kept", card.Description)
 	}
 }
