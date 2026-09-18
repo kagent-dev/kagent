@@ -54,17 +54,20 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("prepare %s directory: %w", directory.name, err)
 		}
 	}
+	var pluginDirs []string
 	if cfg.SkillResources != nil {
 		skillsDir := filepath.Join(skillRoot, ".claude", "skills")
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
 			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
 		}
-		if _, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
+		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(claudeDir, "packages"),
 			Skills:   skillsDir,
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}
+		pluginDirs = materialized.ClaudeFormatPluginRoots()
 	}
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The image and compiler pin an exact Claude version. Prevent both automatic
@@ -135,7 +138,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPrompt: cfg.AppendSystemPrompt, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
 		SettingsPath: settingsPath, PermissionPromptTool: permissionPromptTool, ApprovalBroker: approvalBroker,
-		SkillRoot: skillRoot, Environment: environment,
+		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(),
 	}), nil

@@ -34,6 +34,7 @@ type ProcessConfig struct {
 	SettingsPath         string
 	PermissionPromptTool string
 	SkillRoot            string
+	PluginDirs           []string
 	Environment          []string
 	MaxEventBytes        int
 	MaxStderrBytes       int
@@ -150,6 +151,9 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		// Bare mode skips implicit skill discovery. --add-dir loads only the
 		// compiler-selected skills materialized beneath SkillRoot/.claude/skills.
 		args = append(args, "--add-dir", d.config.SkillRoot)
+	}
+	for _, dir := range d.config.PluginDirs {
+		args = append(args, "--plugin-dir", dir)
 	}
 	if turn.ContinuationID != "" {
 		// Resume the Actor's exact root conversation. --continue selects Claude's

@@ -34,7 +34,7 @@ type Paths struct {
 }
 
 // Materialization is the runtime-neutral result of materializing Agent Plugin
-// resources. Its plugin package locations remain private to this package.
+// resources. Only Claude-format plugin locations are exposed.
 type Materialization struct {
 	SkillsDirectory string
 	plugins         []materializedPlugin
@@ -63,12 +63,26 @@ type StdioMCPServer struct {
 
 // MaterializedPlugin is a plugin that has been materialized.
 type materializedPlugin struct {
-	name string
-	root string
+	name         string
+	root         string
+	claudeFormat bool
+}
+
+// ClaudeFormatPluginRoots lists plugins with a .claude-plugin/plugin.json manifest.
+// They are kept whole for the Claude CLI; their skills are never copied.
+func (m Materialization) ClaudeFormatPluginRoots() []string {
+	var roots []string
+	for _, plugin := range m.plugins {
+		if plugin.claudeFormat {
+			roots = append(roots, plugin.root)
+		}
+	}
+	return roots
 }
 
 // Materialize fetches Agent Plugin resources and copies explicitly selected
-// skills into their runtime directory. It does not load runtime configuration.
+// skills into their runtime directory; Claude-format plugins are kept whole.
+// It does not load runtime configuration.
 func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
 	plugins, err := materializeResources(ctx, resources, paths)
 	if err != nil {
@@ -127,11 +141,11 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 	plugins := make([]materializedPlugin, 0, len(resources.Plugins))
 	for i, plugin := range resources.Plugins {
 		root := filepath.Join(paths.Packages, fmt.Sprintf("plugin-%d", i))
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json")
+		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json", claudeManifest)
 		if err != nil {
 			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
-		manifest, err := loadManifest(pluginRoot)
+		manifest, claudeFormat, err := loadManifest(pluginRoot)
 		if err != nil {
 			return nil, fmt.Errorf("load plugin %d: %w", i, err)
 		}
@@ -139,13 +153,15 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 			return nil, fmt.Errorf("duplicate plugin name %q", manifest.Name)
 		}
 		pluginNames[manifest.Name] = struct{}{}
-		for _, name := range plugin.Skills {
-			source := filepath.Join(pluginRoot, "skills", name)
-			if err := copySkill(source, filepath.Join(paths.Skills, name)); err != nil {
-				return nil, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
+		if !claudeFormat {
+			for _, name := range plugin.Skills {
+				source := filepath.Join(pluginRoot, "skills", name)
+				if err := copySkill(source, filepath.Join(paths.Skills, name)); err != nil {
+					return nil, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
+				}
 			}
 		}
-		plugins = append(plugins, materializedPlugin{name: manifest.Name, root: pluginRoot})
+		plugins = append(plugins, materializedPlugin{name: manifest.Name, root: pluginRoot, claudeFormat: claudeFormat})
 	}
 	return plugins, nil
 }
@@ -171,7 +187,9 @@ func validateSkillName(name string) error {
 	return nil
 }
 
-func fetchSource(ctx context.Context, source agentplugin.Source, destination, requiredFile string) (string, error) {
+const claudeManifest = ".claude-plugin/plugin.json"
+
+func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
 	selected := 0
 	if source.OCI != "" {
 		selected++
@@ -191,10 +209,12 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination, re
 		}
 		root, err := containedPath(destination, source.Path)
 		if err == nil {
-			if info, err := os.Stat(filepath.Join(root, requiredFile)); err == nil && info.Mode().IsRegular() {
-				return root, nil
-			} else if err != nil && !os.IsNotExist(err) {
-				return "", err
+			for _, requiredFile := range requiredFiles {
+				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
+					return root, nil
+				} else if err != nil && !os.IsNotExist(err) {
+					return "", err
+				}
 			}
 		} else if !os.IsNotExist(err) {
 			return "", err
@@ -379,14 +399,19 @@ type manifestAuthor struct {
 	URL   string `json:"url,omitempty"`
 }
 
-func loadManifest(root string) (manifest, error) {
+// loadManifest reads the root plugin.json, or .claude-plugin/plugin.json only when that is absent.
+func loadManifest(root string) (value manifest, claudeFormat bool, err error) {
 	raw, err := os.ReadFile(filepath.Join(root, "plugin.json"))
+	if os.IsNotExist(err) {
+		claudeFormat = true
+		raw, err = os.ReadFile(filepath.Join(root, filepath.FromSlash(claudeManifest)))
+	}
 	if err != nil {
-		return manifest{}, err
+		return manifest{}, false, err
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return manifest{}, err
+		return manifest{}, false, err
 	}
 	allowed := map[string]bool{
 		"$schema": true, "name": true, "version": true, "description": true, "author": true,
@@ -402,21 +427,20 @@ func loadManifest(root string) (manifest, error) {
 	}
 	validated, err := json.Marshal(fields)
 	if err != nil {
-		return manifest{}, err
+		return manifest{}, false, err
 	}
-	var value manifest
 	decoder := json.NewDecoder(strings.NewReader(string(validated)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {
-		return manifest{}, err
+		return manifest{}, false, err
 	}
-	if value.Schema != pluginSchema {
-		return manifest{}, fmt.Errorf("unsupported plugin schema %q", value.Schema)
+	if !claudeFormat && value.Schema != pluginSchema {
+		return manifest{}, false, fmt.Errorf("unsupported plugin schema %q", value.Schema)
 	}
 	if len(value.Name) > 64 || !pluginNamePattern.MatchString(value.Name) || strings.Contains(value.Name, "--") || strings.Contains(value.Name, "..") {
-		return manifest{}, fmt.Errorf("invalid plugin name %q", value.Name)
+		return manifest{}, false, fmt.Errorf("invalid plugin name %q", value.Name)
 	}
-	return value, nil
+	return value, claudeFormat, nil
 }
 
 type mcpDocument struct {

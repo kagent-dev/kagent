@@ -48,11 +48,15 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
 	if cfg.SkillResources != nil {
-		if _, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
+		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
 			Skills:   filepath.Join(codexHome, "skills"),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
+		}
+		if len(materialized.ClaudeFormatPluginRoots()) > 0 {
+			return nil, fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 		}
 	}
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
