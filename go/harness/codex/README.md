@@ -24,8 +24,7 @@ harness.
 
 - OpenAI through a Secret-backed API key, the Responses API, and an optional
   absolute HTTP(S) base URL.
-- Amazon Bedrock through either `AWS_BEARER_TOKEN_BEDROCK` or standard AWS
-  access-key credentials in one Secret.
+- Amazon Bedrock through `AWS_BEARER_TOKEN_BEDROCK` in a Secret.
 - Streaming text, command and file activity, direct Streamable HTTP MCP (with
   allowed-tools selection), and native Shared agents.
 - Per-server MCP tool approval with live App Server pause, resume, and cancel.
@@ -33,6 +32,10 @@ harness.
 - Standalone and plugin-selected skills without plugin hooks, commands,
   executables, or implicit plugin MCP servers.
 - Exact native thread resume and bounded cancellation through `turn/interrupt`.
+
+Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
+AWS IAM keys and arbitrary Harness `credentialRef` environment values are rejected
+because they cannot be injected as outbound HTTP headers.
 
 The adapter deliberately fixes the native sandbox to `danger-full-access`; the
 Substrate Actor remains the security boundary. Its granular native approval

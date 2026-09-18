@@ -22,7 +22,7 @@ import (
 
 const credentialValue = "credential-must-not-be-serialized"
 
-func TestCompileSupportedProviders(t *testing.T) {
+func TestCompileProviderCredentials(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	tests := []struct {
 		name        string
@@ -31,28 +31,35 @@ func TestCompileSupportedProviders(t *testing.T) {
 		provider    string
 		environment map[string]string
 		egress      []string
+		wantErr     string
 	}{
 		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: credentialValue}, egress: []string{"api.openai.com"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"api.openai.com"},
 		},
 		{
 			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: credentialValue}, egress: []string{"gateway.example.com"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: v2translator.CredentialPlaceholder}, egress: []string{"gateway.example.com"},
 		},
 		{
 			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: credentialValue}, egress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
+			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: v2translator.CredentialPlaceholder}, egress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
-			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-west-2", awsAccessKeyEnv: "access", awsSecretKeyEnv: credentialValue, awsSessionTokenEnv: "session"}, egress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
+			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, wantErr: "cannot use gateway header injection",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input, reader := testInput(t, test.model, test.secret)
 			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("expected unsupported credential error, got %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

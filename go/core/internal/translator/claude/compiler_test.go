@@ -22,20 +22,21 @@ import (
 
 const credentialValue = "credential-must-not-be-serialized"
 
-func TestCompileSupportedProviders(t *testing.T) {
+func TestCompileProviderCredentials(t *testing.T) {
 	tests := []struct {
 		name       string
 		model      v1alpha3.ModelConfigSpec
 		secretData map[string][]byte
 		wantEnv    map[string]string
 		wantEgress []string
+		wantErr    string
 	}{
 		{
 			name: "Anthropic",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue},
+			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder},
 			wantEgress: []string{"api.anthropic.com"},
 		},
 		{
@@ -44,7 +45,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic"}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: credentialValue,
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
 			wantEgress: []string{"host.docker.internal"},
 		},
@@ -53,16 +54,14 @@ func TestCompileSupportedProviders(t *testing.T) {
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
 			secretData: map[string][]byte{claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte(credentialValue), claudeconfig.AWSSessionTokenEnvName: []byte("session")},
-			wantEnv: map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-east-1", claudeconfig.AWSAccessKeyEnvName: "access",
-				claudeconfig.AWSSecretKeyEnvName: credentialValue, claudeconfig.AWSSessionTokenEnvName: "session"},
-			wantEgress: []string{"bedrock-runtime.us-east-1.amazonaws.com"},
+			wantErr:    "cannot use gateway header injection",
 		},
 		{
 			name: "Bedrock API key",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
 			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
-			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: credentialValue},
+			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: v2translator.CredentialPlaceholder},
 			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
 		},
 		{
@@ -71,9 +70,7 @@ func TestCompileSupportedProviders(t *testing.T) {
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
 				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
 			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`)},
-			wantEnv: map[string]string{claudeconfig.UseVertexEnvName: "1", claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5",
-				claudeconfig.GoogleCredentialsJSONEnvName: `{"type":"service_account","project_id":"project","token_uri":"https://oauth2.googleapis.com/token","private_key":"` + credentialValue + `"}`},
-			wantEgress: []string{"oauth2.googleapis.com", "us-east5-aiplatform.googleapis.com"},
+			wantErr:    "cannot use gateway header injection",
 		},
 	}
 
@@ -81,6 +78,12 @@ func TestCompileSupportedProviders(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
 			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected unsupported credential error, got %v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,8 +115,8 @@ func TestCompileSupportedProviders(t *testing.T) {
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("compiled config or provenance contains credential material")
 			}
-			if !bytes.Contains(revision.Provenance, []byte(`"kind":"Secret"`)) {
-				t.Fatalf("provenance omits credential Secret: %s", revision.Provenance)
+			if bytes.Contains(revision.Provenance, []byte(`"kind":"Secret"`)) {
+				t.Fatalf("provenance contains gateway-managed Secret: %s", revision.Provenance)
 			}
 
 			again, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
@@ -395,7 +398,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 	foundSecret := false
 	for _, variable := range revision.Environment {
-		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == credentialValue {
+		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == v2translator.CredentialPlaceholder {
 			foundSecret = true
 		}
 	}

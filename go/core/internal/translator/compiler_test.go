@@ -214,7 +214,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
 }
 
-func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
+func TestCompileAgentTemplateInjectsCredentialsAtGateway(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mcp-auth", Namespace: "test"},
 		Data:       map[string][]byte{"token": []byte("Bearer top-secret")},
@@ -271,8 +271,8 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	if bytes.Contains(spec.ConfigJSON, secret.Data["token"]) || bytes.Contains(spec.Provenance, secret.Data["token"]) {
 		t.Fatal("runtime revision contains credential value")
 	}
-	if count := bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)); count != 2 {
-		t.Fatalf("provenance contains %d Secret entries, want 2: %s", count, spec.Provenance)
+	if count := bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)); count != 0 {
+		t.Fatalf("provenance contains %d Secret entries, want 0: %s", count, spec.Provenance)
 	}
 	if !bytes.Contains(spec.ConfigJSON, []byte("__KAGENT_ENV[KAGENT_CREDENTIAL_")) {
 		t.Fatalf("config does not contain credential placeholder: %s", spec.ConfigJSON)
@@ -284,9 +284,24 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 		}
 		foundSecretValues[variable.Value] = true
 	}
-	if !foundSecretValues[string(secret.Data["token"])] || !foundSecretValues[string(secondSecret.Data["token"])] {
-		t.Fatalf("runtime revision environment does not contain resolved credentials")
+	if foundSecretValues[string(secret.Data["token"])] || foundSecretValues[string(secondSecret.Data["token"])] {
+		t.Fatal("credential leaked into runtime environment")
 	}
+	require.True(t, foundSecretValues[v2translator.CredentialPlaceholder])
+	require.Len(t, spec.Credentials, 2)
+	firstDigest, err := spec.Digest()
+	require.NoError(t, err)
+	rotated := secret.DeepCopy()
+	rotated.UID = "replacement-secret"
+	rotated.Data["token"] = []byte("rotated-token")
+	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
+	})
+	next, err := rotatedCompiler.CompileAgentTemplate(t.Context(), harness, template)
+	require.NoError(t, err)
+	nextDigest, err := next.Digest()
+	require.NoError(t, err)
+	require.Equal(t, firstDigest, nextDigest, "gateway credential rotation must not change runtime revision")
 	if len(spec.EgressDestinations) != 3 || spec.EgressDestinations[0] != "api.openai.com" || spec.EgressDestinations[1] != "mcp.example.com" || spec.EgressDestinations[2] != "second-mcp.example.com" {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
 	}

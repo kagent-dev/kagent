@@ -17,8 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// provenanceEntry records one Kubernetes input to a compiled revision. Secret
-// entries identify a single key and hash its value; secret values are never stored.
+// provenanceEntry records a non-secret Kubernetes input to a compiled revision.
 type provenanceEntry struct {
 	APIVersion string    `json:"apiVersion"`
 	Kind       string    `json:"kind"`
@@ -76,7 +75,7 @@ func (c *Builder) BuildModel(ctx context.Context, namespace, name string) (*Mode
 		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	return &ModelResult{
-		Config: resolved.Config, Model: runtime.Model, Environment: runtime.Environment,
+		Config: credentialModel(resolved.Config, runtime.Model), Model: runtime.Model, Environment: runtime.Environment,
 		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
 	}, nil
 }
@@ -144,7 +143,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
 	if modelConfig != nil {
-		result.Models = []*v1alpha3.ModelConfig{modelConfig}
+		result.Models = []*v1alpha3.ModelConfig{credentialModel(modelConfig, modelRuntime.Model)}
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)
@@ -159,33 +158,6 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		result.Egress = append(result.Egress, child.Egress...)
 	}
 	return result, nil
-}
-
-// ResolveEnvironment replaces Kubernetes Secret references with literals
-// because Substrate ActorTemplates accept only literal environment values.
-func (c *Builder) ResolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
-	resolved := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range resolved {
-		if variable.ValueFrom == nil {
-			continue
-		}
-		if variable.ValueFrom.SecretKeyRef == nil {
-			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		fetched := krt.FetchOne(c.ctx, c.collections.Secrets, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: ref.Name}))
-		if fetched == nil {
-			return nil, fmt.Errorf("secret %q not found", ref.Name)
-		}
-		secret := *fetched
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		resolved[i].Value = string(value)
-		resolved[i].ValueFrom = nil
-	}
-	return resolved, nil
 }
 
 // BuildProvenance records every Kubernetes input that can change the compiled
@@ -231,8 +203,7 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			}
 		}
 	}
-	// Secret provenance contains only UID and value hash. Name+key deduplication
-	// keeps repeated references from changing the digest.
+	// Validate Secret references without making rotation part of revision identity.
 	seenSecrets := map[string]struct{}{}
 	for _, variable := range environment {
 		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
@@ -249,12 +220,10 @@ func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness
 			return nil, fmt.Errorf("secret %q not found", ref.Name)
 		}
 		secret := *fetched
-		value, ok := secret.Data[ref.Key]
+		_, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
-		hash := sha256.Sum256(value)
-		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
@@ -387,4 +356,13 @@ func appendURLHost(destinations []string, raw string) []string {
 		return append(destinations, parsed.Hostname())
 	}
 	return destinations
+}
+
+// credentialModel retains the resolved endpoint for gateway credential routing.
+func credentialModel(model *v1alpha3.ModelConfig, runtime adk.Model) *v1alpha3.ModelConfig {
+	if foundry, ok := runtime.(*adk.Foundry); ok && model.Spec.Foundry.EndpointFrom != nil {
+		model = model.DeepCopy()
+		model.Spec.Foundry.Endpoint = foundry.Endpoint
+	}
+	return model
 }

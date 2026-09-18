@@ -11,6 +11,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -120,7 +121,7 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	atespace := revision.ActorTemplateAtespace
 	name := substrate.ActorName(instance.GetId())
-	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations)
+	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
 	if err != nil {
 		return nil, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err)
 	}
@@ -163,7 +164,7 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
-	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations)
+	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
 	if err != nil {
 		return nil, fmt.Errorf("build fork Actor %s/%s egress policy: %w", atespace, name, err)
 	}
@@ -439,7 +440,7 @@ func usesActorTemplate(actor *ateapipb.Actor, revision *database.RuntimeRevision
 }
 
 // actorEgressPolicy compiles destinations into an actor's default allowlist.
-func actorEgressPolicy(atespace string, destinations []string) (*ateapipb.EgressPolicy, error) {
+func actorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
 	var hostnames, cidrs []string
 	for _, destination := range destinations {
 		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {
@@ -454,6 +455,24 @@ func actorEgressPolicy(atespace string, destinations []string) (*ateapipb.Egress
 		hostnames = append(hostnames, hostname)
 	}
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
+	bindings, err := egress.CanonicalCredentials(credentials)
+	if err != nil {
+		return nil, err
+	}
+	for _, binding := range bindings {
+		if !slices.Contains(hostnames, binding.Hostname) {
+			return nil, fmt.Errorf("credential destination %q is not allowed", binding.Hostname)
+		}
+		var rule *ateapipb.HostnameRule
+		if len(policy.Rules) > 0 {
+			rule = policy.Rules[len(policy.Rules)-1].GetHostnames()
+		}
+		if rule == nil || rule.Patterns[0] != binding.Hostname {
+			rule = &ateapipb.HostnameRule{Patterns: []string{binding.Hostname}, Effects: &ateapipb.EgressRuleEffects{}}
+			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: rule})
+		}
+		rule.Effects.InjectStaticHeaders = append(rule.Effects.InjectStaticHeaders, &ateapipb.CredentialHeaderInjection{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI})
+	}
 	if len(hostnames) > 0 {
 		slices.Sort(hostnames)
 		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: &ateapipb.HostnameRule{Patterns: slices.Compact(hostnames)}})
@@ -461,6 +480,9 @@ func actorEgressPolicy(atespace string, destinations []string) (*ateapipb.Egress
 	if len(cidrs) > 0 {
 		slices.Sort(cidrs)
 		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Cidrs: &ateapipb.CIDRRule{Cidrs: slices.Compact(cidrs)}})
+	}
+	if len(policy.Rules) > 256 {
+		return nil, fmt.Errorf("egress policy exceeds 256 rules")
 	}
 	return policy, nil
 }

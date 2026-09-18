@@ -7,6 +7,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -137,6 +138,7 @@ func TestActorCreationRetriesEgressPolicyBeforeReady(t *testing.T) {
 			store := &lifecycleTestStore{instance: instance, revision: &database.RuntimeRevision{
 				ActorTemplateAtespace: "team-a", ActorTemplateName: "template",
 				EgressDestinations: []string{"api.example.com", "192.0.2.1"},
+				Credentials:        []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team-a/auth/token"}},
 			}}
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, policyErr: context.DeadlineExceeded, createAlreadyExists: true}
 			workflow := NewActorWorkflow(store, actors)
@@ -161,9 +163,10 @@ func TestActorCreationRetriesEgressPolicyBeforeReady(t *testing.T) {
 			require.Empty(t, store.instance.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(instance.Id)), actors.policyActor)
 			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, actors.policy.Metadata)
-			require.Len(t, actors.policy.Rules, 2)
+			require.Len(t, actors.policy.Rules, 3)
+			require.Equal(t, &ateapipb.CredentialHeaderInjection{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://kubernetes.io/team-a/auth/token"}, actors.policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders()[0])
 			require.Equal(t, []string{"api.example.com"}, actors.policy.Rules[0].GetHostnames().GetPatterns())
-			require.Equal(t, []string{"192.0.2.1/32"}, actors.policy.Rules[1].GetCidrs().GetCidrs())
+			require.Equal(t, []string{"192.0.2.1/32"}, actors.policy.Rules[2].GetCidrs().GetCidrs())
 
 			// The policy succeeds, but publishing READY fails. The next call must
 			// repeat policy convergence without creating another Actor.
@@ -340,19 +343,34 @@ func TestFinishCreatePreservesLaterLifecycle(t *testing.T) {
 }
 
 func TestActorEgressPolicy(t *testing.T) {
-	policy, err := actorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"})
+	policy, err := actorEgressPolicy("team-a", []string{"API.Example.com.", "api.example.com", "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, policy.Metadata)
 	require.Len(t, policy.Rules, 2)
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
 	require.Equal(t, []string{"192.0.2.1/32", "2001:db8::1/128"}, policy.Rules[1].GetCidrs().GetCidrs())
-	policy, err = actorEgressPolicy("team-a", nil)
+	policy, err = actorEgressPolicy("team-a", nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
 	for _, destination := range []string{"", "*", "https://api.example.com", "api.example.com:443", "192.0.2.0/24", "fe80::1%eth0"} {
 		t.Run(destination, func(t *testing.T) {
-			_, err := actorEgressPolicy("team-a", []string{destination})
+			_, err := actorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
+	bindings := []egress.Credential{
+		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"},
+		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://kubernetes.io/team/auth/key"},
+	}
+	_, err := actorEgressPolicy("team", []string{"other.example.com"}, bindings)
+	require.ErrorContains(t, err, "is not allowed")
+	policy, err := actorEgressPolicy("team", []string{"api.example.com", "other.example.com"}, bindings)
+	require.NoError(t, err)
+	require.Len(t, policy.Rules, 2)
+	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
+	require.Len(t, policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders(), 2)
+	require.Nil(t, policy.Rules[1].GetHostnames().GetEffects(), "the broad allow rule must not bypass injection")
 }

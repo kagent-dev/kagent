@@ -1195,9 +1195,8 @@ function toActorTemplateEntry(
     name: metadata.name,
     phase: golden?.errorMessage
       ? "Failed"
-      : golden?.goldenSnapshot ? "Ready" : "Pending",
-    goldenActorId: orUndefined(metadata.uid),
-    goldenSnapshot: orUndefined(golden?.goldenSnapshot?.snapshotUri),
+      : golden?.goldenTag ? "Ready" : "Pending",
+    goldenTag: golden?.goldenTag ? `${golden.goldenTag.atespace}/${golden.goldenTag.name}` : undefined,
     sandboxClass:
       SandboxClass[
         actorTemplate.sandboxConfig?.sandboxClass ?? SandboxClass.UNSPECIFIED
@@ -1239,7 +1238,7 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
     ateomPodIp: orUndefined(assignment?.workerPodIp),
     latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
     workerPoolName: orUndefined(assignment?.workerPool),
-    inProgressSnapshot: orUndefined(actor.status?.inProgressSnapshotName),
+    inProgressSnapshot: orUndefined(actor.status?.inProgressLocalSnapshotName),
     version: toNumber(metadata.version),
   };
 }

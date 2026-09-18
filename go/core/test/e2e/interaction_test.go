@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -812,6 +814,9 @@ func reachableServerURL(t *testing.T, baseURL, path string) string {
 			t.Fatalf("KAGENT_LOCAL_HOST is required on %s", goruntime.GOOS)
 		}
 	}
+	if net.ParseIP(host) != nil {
+		host = mockOriginService(t, host, port)
+	}
 	parsed.Host = net.JoinHostPort(host, port)
 	parsed.Path = path
 	return parsed.String()
@@ -925,6 +930,9 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 	clientScheme := k8sruntime.NewScheme()
 	if err := corev1.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register Kubernetes core API: %v", err)
+	}
+	if err := discoveryv1.AddToScheme(clientScheme); err != nil {
+		t.Fatalf("register discovery API: %v", err)
 	}
 	if err := v1alpha3.AddToScheme(clientScheme); err != nil {
 		t.Fatalf("register kagent API: %v", err)
@@ -1085,4 +1093,33 @@ func startForkMemoryMock(t *testing.T) string {
 	server.Start()
 	t.Cleanup(server.Close)
 	return reachableModelURL(t, server.URL)
+}
+
+// Gateway credential rules match DNS names. Give host-based mocks a cluster
+// service name without depending on public DNS or changing the gateway config.
+func mockOriginService(t *testing.T, address, port string) string {
+	t.Helper()
+	number, err := strconv.ParseInt(port, 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kube := interactionKubeClient(t)
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{GenerateName: "mock-origin-", Namespace: "kagent"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "http", Port: int32(number)}}}}
+	if err := kube.Create(t.Context(), service); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), service); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete mock service: %v", err)
+		}
+	})
+	addressType := discoveryv1.AddressTypeIPv4
+	if net.ParseIP(address).To4() == nil {
+		addressType = discoveryv1.AddressTypeIPv6
+	}
+	endpoints := &discoveryv1.EndpointSlice{ObjectMeta: metav1.ObjectMeta{Name: service.Name, Namespace: service.Namespace, Labels: map[string]string{discoveryv1.LabelServiceName: service.Name, discoveryv1.LabelManagedBy: "kagent-e2e"}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: service.Name, UID: service.UID}}}, AddressType: addressType, Ports: []discoveryv1.EndpointPort{{Name: new("http"), Port: new(int32(number)), Protocol: new(corev1.ProtocolTCP)}}, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{address}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}}}}
+	if err := kube.Create(t.Context(), endpoints); err != nil {
+		t.Fatal(err)
+	}
+	return service.Name + "." + service.Namespace + ".svc.cluster.local"
 }

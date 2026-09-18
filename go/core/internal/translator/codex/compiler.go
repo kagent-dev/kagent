@@ -130,9 +130,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
-	environment, err = c.resolveEnvironment(ctx, input.Harness.Namespace, environment)
+	environment, credentials, err := v2translator.CompileCredentials(input, nil, environment)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Codex runtime environment: %w", err)
+		return nil, err
 	}
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
@@ -149,7 +149,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 			Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 			Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Provenance: provenance, EgressDestinations: egress,
+			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -372,12 +372,10 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		if err != nil {
 			return nil, err
 		}
-		value, ok := secret.Data[ref.Key]
+		_, ok := secret.Data[ref.Key]
 		if !ok {
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
-		hash := sha256.Sum256(value)
-		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
@@ -389,29 +387,6 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	raw, _ := json.Marshal(content)
 	hash := sha256.Sum256(raw)
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
-}
-
-func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
-	resolved := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range resolved {
-		if variable.ValueFrom == nil {
-			continue
-		}
-		if variable.ValueFrom.SecretKeyRef == nil {
-			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		secret, err := c.secret(ctx, namespace, ref.Name)
-		if err != nil {
-			return nil, err
-		}
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		resolved[i].Value, resolved[i].ValueFrom = string(value), nil
-	}
-	return resolved, nil
 }
 
 var _ v2translator.HarnessCompiler = (*Compiler)(nil)

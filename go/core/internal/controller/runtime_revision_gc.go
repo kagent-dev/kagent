@@ -23,7 +23,7 @@ type runtimeRevisionGCStore interface {
 
 type runtimeRevisionGCClient interface {
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
-	DeleteActorTemplate(context.Context, string, string, string) error
+	DeleteActorTemplate(context.Context, string, string) error
 }
 
 // RuntimeRevisionGC retries durable runtime deletions independently of preparation.
@@ -98,7 +98,7 @@ func (r *RuntimeRevisionGC) collect(ctx context.Context, id string) error {
 	// Both deletes tolerate already-missing objects. If runtime cleanup succeeds
 	// but database finalization fails, the durable deletion marker keeps this
 	// revision discoverable so the next sweep can safely retry the sequence.
-	if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID); err != nil {
+	if err := r.templates.DeleteActorTemplate(ctx, revision.ActorTemplateAtespace, revision.ActorTemplateName); err != nil {
 		return fmt.Errorf("delete unreferenced ActorTemplate %s/%s: %w", revision.ActorTemplateAtespace, revision.ActorTemplateName, err)
 	}
 	if err := r.store.DeleteRuntimeRevision(ctx, revision.Revision, revision.ActorTemplateUID); err != nil {

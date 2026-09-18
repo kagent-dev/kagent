@@ -1357,12 +1357,11 @@ function substrateActorTemplateMessage(
     metadata: {
       atespace: template.atespace,
       name: template.name,
-      uid: template.goldenActorId ?? "",
     },
     status: {
       goldenSnapshotStatus: {
-        goldenSnapshot: template.goldenSnapshot
-          ? { snapshotUri: template.goldenSnapshot }
+        goldenTag: template.goldenTag
+          ? { atespace: template.goldenTag.split("/")[0], name: template.goldenTag.split("/")[1] }
           : undefined,
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
@@ -1406,7 +1405,7 @@ function substrateActorMessage(
       externalSnapshot: actor.latestSnapshot
         ? { snapshotUri: actor.latestSnapshot }
         : undefined,
-      inProgressSnapshotName: actor.inProgressSnapshot ?? "",
+      inProgressLocalSnapshotName: actor.inProgressSnapshot ?? "",
     },
   };
 }

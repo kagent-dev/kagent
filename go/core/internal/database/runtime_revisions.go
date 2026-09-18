@@ -8,6 +8,7 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/jackc/pgx/v5"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -71,6 +72,13 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 	if err != nil {
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
+	credentials, err := egress.CanonicalCredentials(revision.Credentials)
+	if err != nil {
+		return fmt.Errorf("invalid runtime revision credentials: %w", err)
+	}
+	if credentials == nil {
+		credentials = []egress.Credential{}
+	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		if ready {
 			// Match GC finalization's lock order: pair before revision. Use the
@@ -91,10 +99,10 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 			INSERT INTO runtime_revision (
 			    revision, namespace, agent_template_name, agent_template_uid,
 			    harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
-			    actor_template_atespace, actor_template_name, actor_template_uid
+			    actor_template_atespace, actor_template_name, actor_template_uid, credentials
 			) VALUES (
 			    $1, $2, $3, $4, $5, $6, $7, $8,
-			    $9, $10, $11, $12
+			    $9, $10, $11, $12, $13
 			)
 			ON CONFLICT (revision) DO UPDATE SET
 			    actor_template_uid = EXCLUDED.actor_template_uid,
@@ -103,7 +111,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		`,
 			revision.Revision, revision.Namespace, revision.AgentTemplateName, revision.AgentTemplateUID,
 			revision.HarnessName, revision.HarnessUID, revision.SourceSnapshot, card, revision.EgressDestinations,
-			revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID,
+			revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, credentials,
 		)
 		if err != nil {
 			return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
@@ -133,7 +141,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
-		    source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid,
+		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
 		    agent_card, deleted_at FROM runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
@@ -149,12 +157,17 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	if err := proto.Unmarshal(row.AgentCard, card); err != nil {
 		return nil, fmt.Errorf("decode runtime revision %s Agent Card: %w", row.Revision, err)
 	}
+	credentials, err := egress.CanonicalCredentials(row.Credentials)
+	if err != nil {
+		return nil, fmt.Errorf("decode runtime revision %s credentials: %w", row.Revision, err)
+	}
 	return &RuntimeRevision{
 		Revision: row.Revision, Namespace: row.Namespace,
 		AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUID,
 		HarnessName: row.HarnessName, HarnessUID: row.HarnessUID,
 		SourceSnapshot: row.SourceSnapshot, AgentCard: card,
 		EgressDestinations:    row.EgressDestinations,
+		Credentials:           credentials,
 		ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
 		ActorTemplateUID: row.ActorTemplateUID,
 	}, nil
@@ -188,7 +201,7 @@ func retirePairIdentities(ctx context.Context, db dbExecutor, namespace, templat
 func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
-		    source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid,
+		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
 		    agent_card, deleted_at FROM runtime_revision r
 		WHERE r.revision IN (SELECT revision FROM unreferenced_runtime_revision)
 	`, pgx.RowToStructByName[runtimeRevisionRow])
@@ -212,7 +225,7 @@ func (c *Client) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runtim
 func getRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revision string) (runtimeRevisionRow, error) {
 	return queryOne(ctx, tx, `
 		SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid,
-		    source_snapshot, egress_destinations, actor_template_atespace, actor_template_name, actor_template_uid,
+		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
 		    agent_card, deleted_at FROM runtime_revision WHERE revision = $1 FOR UPDATE
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 }
@@ -304,6 +317,7 @@ type runtimeRevisionRow struct {
 	HarnessUID            string
 	SourceSnapshot        []byte
 	EgressDestinations    []string
+	Credentials           []egress.Credential
 	ActorTemplateAtespace string
 	ActorTemplateName     string
 	ActorTemplateUID      string

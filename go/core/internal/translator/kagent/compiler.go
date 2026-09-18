@@ -78,9 +78,9 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, err = c.config.ResolveEnvironment(ctx, template.Namespace, environment)
+	environment, credentials, err := v2translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
-		return nil, fmt.Errorf("resolve runtime environment: %w", err)
+		return nil, err
 	}
 	if traceConfig.Enabled {
 		compiled.Egress = append(compiled.Egress, traceConfig.Hostname)
@@ -94,7 +94,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
 		Image: harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance: provenance, EgressDestinations: compiled.Egress,
+		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
 }
 

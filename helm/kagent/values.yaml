@@ -720,6 +720,12 @@ kmcp:
 
 substrate:
   enabled: false
+  # Grant each agent atespace access to its credential namespace explicitly.
+  # HTTPS also requires the egress-mitm-ca-pool Secret in Substrate's namespace.
+  credentialProvider:
+    namespacePolicies: []
+    # - atespace: kagent
+    #   allowedNamespaces: [kagent]
   ateApi:
     extraArgs:
       # Minimum supported interval for discovering and reconciling actor templates.

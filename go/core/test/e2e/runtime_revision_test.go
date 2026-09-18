@@ -156,7 +156,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 	require.NoError(t, err)
 
-	// GC must remove both the template and golden actor after the final
+	// GC must remove the template after the final
 	// checkpoint disappears, without another template event to drive cleanup.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		backend, err := system.GetSubstrateSummary(ctx, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
