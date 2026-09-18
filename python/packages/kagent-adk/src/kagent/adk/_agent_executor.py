@@ -37,7 +37,7 @@ from kagent.core.a2a import (
 from kagent.core.tracing._span_processor import clear_kagent_span_attributes, set_kagent_span_attributes
 from pydantic import BaseModel
 
-from ._bearer_token import bearer_token, extract_bearer_token
+from ._bearer_token import bearer_token, extract_bearer_token, session_id
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from .converters.event_converter import serialize_metadata_value
@@ -213,8 +213,10 @@ class A2aAgentExecutor(AgentExecutor):
         headers = headers if isinstance(headers, dict) else {}
         run_request.state_delta = {"headers": headers}
         # Also stash the token in a ContextVar for consumers with no
-        # callback_context of their own - see _bearer_token.py.
+        # callback_context of their own - see _bearer_token.py. The session goes
+        # with it so those consumers can resolve the exchanged token too.
         bearer_token.set(extract_bearer_token(headers))
+        session_id.set(run_request.session_id)
         return run_request
 
     async def _prepare_session(

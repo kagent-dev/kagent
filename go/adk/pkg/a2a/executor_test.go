@@ -11,6 +11,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -471,4 +472,100 @@ func TestKAgentExecutor_LeavesSpansToTheBatcherWithoutTheOptIn(t *testing.T) {
 	if seen[a2atype.TaskStateCompleted] != 0 {
 		t.Fatalf("spans exported before the terminal event = %d, want 0 without KAGENT_PRE_RESPONSE_TRACE_FLUSH", seen[a2atype.TaskStateCompleted])
 	}
+}
+
+// TestWithSessionID covers the executor half of STS token injection: the session
+// ID must be readable as a context value, not just via ADK's SessionID() method.
+func TestWithSessionID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sessionID string
+		want      any
+	}{
+		{name: "stores the session ID", sessionID: "01a01e53-cfc7-7c25", want: "01a01e53-cfc7-7c25"},
+		{name: "empty session ID is not stored", sessionID: "", want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := withSessionID(context.Background(), tt.sessionID)
+			if got := ctx.Value(models.SessionIDKey); got != tt.want {
+				t.Fatalf("session ID in context = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestWithSessionIDAndBearerTokenAreDistinct guards against the two keys
+// colliding: pointers to zero-size structs may share an address.
+func TestWithSessionIDAndBearerTokenAreDistinct(t *testing.T) {
+	t.Parallel()
+
+	const (
+		sessionID = "session-abc"
+		bearer    = "token-xyz"
+	)
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, bearer)
+	ctx = withSessionID(ctx, sessionID)
+
+	if got := ctx.Value(models.BearerTokenKey); got != bearer {
+		t.Fatalf("bearer token = %v, want %q: it must survive the session stamp", got, bearer)
+	}
+	if got := ctx.Value(models.SessionIDKey); got != sessionID {
+		t.Fatalf("session ID = %v, want %q: it must be stored under its own key", got, sessionID)
+	}
+}
+
+type stubExchangedTokens struct{ token string }
+
+func (s stubExchangedTokens) GetTokenForSession(string) string { return s.token }
+
+func TestWithExchangedTokens(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stamps the provider when one is configured", func(t *testing.T) {
+		t.Parallel()
+		e := &KAgentExecutor{exchangedTokens: stubExchangedTokens{token: "exchanged"}}
+		ctx := e.withExchangedTokens(context.Background())
+
+		provider, ok := ctx.Value(models.ExchangedTokenProviderKey).(models.ExchangedTokenProvider)
+		if !ok {
+			t.Fatalf("provider in context = %v, want a models.ExchangedTokenProvider", ctx.Value(models.ExchangedTokenProviderKey))
+		}
+		if got := provider.GetTokenForSession("any"); got != "exchanged" {
+			t.Fatalf("GetTokenForSession() = %q, want %q", got, "exchanged")
+		}
+	})
+
+	t.Run("stamps nothing when token propagation is off", func(t *testing.T) {
+		t.Parallel()
+		e := &KAgentExecutor{}
+		ctx := e.withExchangedTokens(context.Background())
+
+		if got := ctx.Value(models.ExchangedTokenProviderKey); got != nil {
+			t.Fatalf("provider in context = %v, want nil", got)
+		}
+	})
+
+	t.Run("coexists with the bearer token and session ID stamps", func(t *testing.T) {
+		t.Parallel()
+		e := &KAgentExecutor{exchangedTokens: stubExchangedTokens{token: "exchanged"}}
+		ctx := context.WithValue(context.Background(), models.BearerTokenKey, "bearer")
+		ctx = withSessionID(ctx, "session-abc")
+		ctx = e.withExchangedTokens(ctx)
+
+		if got := ctx.Value(models.BearerTokenKey); got != "bearer" {
+			t.Fatalf("bearer token = %v, want %q", got, "bearer")
+		}
+		if got := ctx.Value(models.SessionIDKey); got != "session-abc" {
+			t.Fatalf("session ID = %v, want %q", got, "session-abc")
+		}
+		if ctx.Value(models.ExchangedTokenProviderKey) == nil {
+			t.Fatal("provider in context = nil, want the stamped provider")
+		}
+	})
 }
