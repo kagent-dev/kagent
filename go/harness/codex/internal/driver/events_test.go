@@ -68,3 +68,35 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 		t.Fatalf("MCP events = %#v, %#v, want tools.lookup", sink.calls[1], sink.results[1])
 	}
 }
+
+func TestApprovalToolCorrelatesActiveCall(t *testing.T) {
+	translator := newEventTranslator("thread", "turn")
+	sink := &recordingSink{}
+	for _, raw := range []string{
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"read","server":"protected","tool":"read","arguments":{"path":"source"},"status":"inProgress"}}}`,
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"delete","server":"protected","tool":"delete","arguments":{"path":"target"},"status":"inProgress"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	id, name, err := translator.approvalTool("protected", "", map[string]any{"path": "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "delete" || name != "protected.delete" {
+		t.Fatalf("approval tool = %q/%q, want delete/protected.delete", id, name)
+	}
+	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "target"}); err == nil {
+		t.Fatal("approvalTool() accepted a duplicate approval")
+	}
+	translator.tools["copy"] = activeTool{name: "protected.copy", server: "protected", arguments: map[string]any{"path": "source"}}
+	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "source"}); err == nil {
+		t.Fatal("approvalTool() accepted ambiguous active calls")
+	}
+}

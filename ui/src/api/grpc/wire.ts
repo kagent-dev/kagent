@@ -77,7 +77,11 @@ export function wrap(
 ): { apiVersion: string; kind: string; value: JsonObject } {
   // `kind` must match what the handler expects exactly — `structuredobject.ToGo`
   // rejects a mismatch with `ErrKindMismatch` rather than ignoring it.
-  return { apiVersion, kind, value: value as JsonObject };
+  //
+  // The JSON round-trip drops keys whose value is `undefined`. protobuf-es turns
+  // such a key into a Struct entry with no kind set, which Go cannot unmarshal —
+  // it rejects the whole write as an invalid resource rather than naming a field.
+  return { apiVersion, kind, value: JSON.parse(JSON.stringify(value)) as JsonObject };
 }
 
 /**
@@ -112,18 +116,23 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * reader can check the list against the schemas rather than trust it — regenerate it
  * with, from the repository root:
  *
- *   awk '/^message /{m=$2} /int64|uint64/{print FILENAME":"NR" "m}' \
+ *   awk '/^message /{m=$2} /int64|uint64/{print FILENAME":"FNR" "m}' \
  *     proto/kagent/api/v1alpha1/*.proto
  *
- * - `system.proto:85`   — `SubstrateActor.version`     (reached by `substrate.status`)
- * - `system.proto:96`   — `SubstrateWorker.version`    (reached by `substrate.status`)
- * - `feedback.proto:15` — `Feedback.id`                (no operation id yet)
- * - `feedback.proto:20` — `Feedback.message_id`        (no operation id yet)
- * - `feedback.proto:27` — `CreateFeedbackRequest.message_id` (no operation id yet)
+ * `FNR`, not `NR`: `NR` keeps counting across files, so every line number after the
+ * first schema comes out wrong — which is how this list drifted last time.
+ *
+ * - `ateapi.proto`      — `ResourceMetadata.version`  (reached by `substrate.actors`)
+ * - `ateapi.proto`      — `Worker.metadata.version`    (reached by `substrate.workers`)
+ * - `system.proto`  — `SubstrateActorStatusCount.count`      (`substrate.summary`)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.actor_count`         (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.worker_count`        (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.running_actor_count` (the same)
+ * - `system.proto`  — `GetSubstrateSummaryResponse.busy_worker_count`   (the same)
  * - `memory.proto:38`   — `MemorySummary.access_count` (no operation id yet)
  * - `checkpoints.proto:32` — `Checkpoint.history_sequence` (no operation id yet)
  *
- * The last five have no operation behind them today. They are listed anyway: the
+ * The last two have no operation behind them today. They are listed anyway: the
  * moment one gets an id, this is the helper its conversion needs, and a list that
  * only covered what happens to be wired is a list that goes stale silently.
  */

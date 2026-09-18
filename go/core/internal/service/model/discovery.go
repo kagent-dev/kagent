@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
@@ -149,9 +148,8 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			// value is the model name, while the Foundry deployment name is set
 			// separately in the model config.
 			//
-			// Claude (Anthropic) models on Foundry are served via the Anthropic
-			// Messages API rather than this OpenAI-compatible surface, so they are
-			// intentionally omitted here; Claude-on-Foundry support is coming later.
+			// Claude models on Foundry are served over the Anthropic Messages API;
+			// set spec.foundry.apiFormat to Anthropic when using them.
 			{Name: "gpt-4.1", FunctionCalling: true},
 			{Name: "gpt-4.1-mini", FunctionCalling: true},
 			{Name: "gpt-4.1-nano", FunctionCalling: true},
@@ -166,6 +164,12 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "Mistral-large", FunctionCalling: true},
 			{Name: "cohere-command-a", FunctionCalling: true},
 			{Name: "grok-3", FunctionCalling: true},
+			// Claude models on Foundry (Anthropic Messages API).
+			{Name: "claude-opus-4-8", FunctionCalling: true},
+			{Name: "claude-opus-5", FunctionCalling: true},
+			{Name: "claude-sonnet-5", FunctionCalling: true},
+			{Name: "claude-sonnet-4-6", FunctionCalling: true},
+			{Name: "claude-haiku-4-5", FunctionCalling: true},
 		},
 		v1alpha3.ModelProviderOllama: {
 			// FunctionCalling flags corrected: recent Ollama builds of these models
@@ -316,25 +320,6 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 	return providers
 }
 
-func (s *Service) ListSupportedMemoryProviders(context.Context) []ProviderDefinition {
-	providersData := []struct {
-		providerEnum v1alpha1.MemoryProvider
-		configType   reflect.Type
-	}{
-		{v1alpha1.Pinecone, reflect.TypeFor[v1alpha1.PineconeConfig]()},
-	}
-
-	providers := []ProviderDefinition{}
-	for _, providerData := range providersData {
-		providers = append(providers, providerDefinition(
-			string(providerData.providerEnum),
-			getStructJSONKeys(providerData.configType),
-			getRequiredKeysForMemoryProvider(providerData.providerEnum),
-		))
-	}
-	return providers
-}
-
 func (s *Service) ListConfiguredProviders(ctx context.Context) ([]ConfiguredProvider, error) {
 	var modelProviderConfigList v1alpha3.ModelProviderConfigList
 	if err := s.kubeClient.List(ctx, &modelProviderConfigList, client.InNamespace(s.defaultNamespace)); err != nil {
@@ -425,15 +410,6 @@ func getRequiredKeysForModelProvider(providerType v1alpha3.ModelProvider) []stri
 		return []string{"deployment", "endpoint"}
 	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderOllama:
 		return []string{}
-	default:
-		return []string{}
-	}
-}
-
-func getRequiredKeysForMemoryProvider(providerType v1alpha1.MemoryProvider) []string {
-	switch providerType {
-	case v1alpha1.Pinecone:
-		return []string{"indexHost"}
 	default:
 		return []string{}
 	}

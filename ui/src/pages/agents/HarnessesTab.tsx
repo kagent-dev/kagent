@@ -3,7 +3,12 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { Alert, Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
-import { useHarnessesAcrossNamespaces, useNamespaces, type Harness } from "@/api";
+import {
+  useHarnessesAcrossNamespaces,
+  useInvalidateAgentTemplates,
+  useNamespaces,
+  type Harness,
+} from "@/api";
 import { admitsLabels, harnessSelector } from "@/api/domain/harnesses";
 import { apiClient, useAgentTemplatesAcrossNamespaces } from "@/api";
 import { FilterBar } from "@/components/table/FilterBar";
@@ -57,6 +62,10 @@ export function HarnessesTab() {
   const namespaces = useNamespaces();
   const harnesses = useHarnessesAcrossNamespaces(namespaces.data?.map((row) => row.name));
 
+  // `ListHarnesses` needs a namespace, so a failed namespace read means the harness read
+  // is never issued and `harnesses.error` stays empty — an empty table, not a failure.
+  const loadFailure = namespaces.error ?? harnesses.error;
+
   const view = useListView(FILTER_IDS);
   const selectedNamespaces = view.selected("ns");
 
@@ -99,13 +108,20 @@ export function HarnessesTab() {
 
   const [deleting, setDeleting] = useState<string>();
   const [failure, setFailure] = useState<string>();
+  const invalidateTemplates = useInvalidateAgentTemplates();
 
   async function remove(row: Harness) {
     setDeleting(row.ref);
     setFailure(undefined);
     try {
       await apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name);
-      await harnesses.refresh();
+      // Swallowed for the reason the create pages give: the delete has already
+      // succeeded, and `refresh` rethrows into the catch below.
+      await harnesses.refresh().catch(() => {});
+      // And the templates, because an agent is a template paired with a harness — the
+      // confirmation above says every agent built on this one stops existing, and the
+      // agents list is derived from the template read rather than from this one.
+      await invalidateTemplates().catch(() => {});
     } catch (cause: unknown) {
       setFailure(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -252,13 +268,13 @@ export function HarnessesTab() {
       ) : null}
 
 
-      {harnesses.error ? (
+      {loadFailure ? (
         <Alert
           type="error"
           showIcon
           data-testid="harnesses-error"
           title="Could not load harnesses"
-          description={harnesses.error.message}
+          description={loadFailure.message}
         />
       ) : null}
 
@@ -269,7 +285,7 @@ export function HarnessesTab() {
           data-testid="harnesses-table"
           rowKey={(row) => row.ref}
           columns={columns}
-          dataSource={harnesses.error ? [] : filtered}
+          dataSource={loadFailure ? [] : filtered}
           pagination={false}
           size="small"
         />

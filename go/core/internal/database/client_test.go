@@ -7,205 +7,94 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestConcurrentAgentUpserts verifies that concurrent StoreAgent calls
-// don't corrupt data. The database's OnConflict clause ensures atomic upserts.
-func TestConcurrentAgentUpserts(t *testing.T) {
+// TestDirectModelScans covers database defaults, required catalog fields, and nullable
+// memory fields when rows are scanned directly into application models.
+func TestDirectModelScans(t *testing.T) {
+	ctx := t.Context()
 	db := setupTestDB(t)
 	client := NewClient(db)
-	ctx := context.Background()
-
-	const numGoroutines = 10
-	const numUpserts = 50
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	// All goroutines upsert to the same agent ID - this tests conflict handling
-	agentID := "test-agent"
-
-	for i := range numGoroutines {
-		go func(goroutineID int) {
-			defer wg.Done()
-			for j := range numUpserts {
-				agent := &dbpkg.Agent{
-					ID:   agentID,
-					Type: fmt.Sprintf("type-%d-%d", goroutineID, j),
-				}
-				err := client.StoreAgent(ctx, agent)
-				assert.NoError(t, err, "StoreAgent should not fail")
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify the agent exists and has valid data (not corrupted)
-	agent, err := client.GetAgent(ctx, agentID)
+	_, err := db.Exec(ctx, `INSERT INTO tool (id, server_name, group_kind) VALUES ('defaulted', 'server', 'kind')`)
 	require.NoError(t, err)
-	assert.Equal(t, agentID, agent.ID)
-	assert.NotEmpty(t, agent.Type) // Should have some valid type from one of the upserts
-}
-
-// TestConcurrentToolServerUpserts verifies that concurrent StoreToolServer calls
-// work correctly without application-level locking.
-func TestConcurrentToolServerUpserts(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-
-	const numGoroutines = 10
-	const numUpserts = 50
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	serverName := "test-server"
-	groupKind := "RemoteMCPServer"
-
-	for i := range numGoroutines {
-		go func(goroutineID int) {
-			defer wg.Done()
-			for j := range numUpserts {
-				toolServer := &dbpkg.ToolServer{
-					Name:        serverName,
-					GroupKind:   groupKind,
-					Description: fmt.Sprintf("Description from goroutine %d iteration %d", goroutineID, j),
-				}
-				_, err := client.StoreToolServer(ctx, toolServer)
-				assert.NoError(t, err, "StoreToolServer should not fail")
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify the tool server exists and has valid data
-	server, err := client.GetToolServer(ctx, serverName)
+	_, err = db.Exec(ctx, `INSERT INTO toolserver (name, group_kind) VALUES ('defaulted', 'kind')`)
 	require.NoError(t, err)
-	assert.Equal(t, serverName, server.Name)
-	assert.NotEmpty(t, server.Description)
-}
 
-// TestConcurrentRefreshToolsForServer verifies that concurrent RefreshToolsForServer
-// calls work correctly. This is the most complex operation that previously required
-// an application-level lock.
-func TestConcurrentRefreshToolsForServer(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-
-	serverName := "test-server"
-	groupKind := "RemoteMCPServer"
-
-	// Create the tool server first
-	_, err := client.StoreToolServer(ctx, &dbpkg.ToolServer{
-		Name:        serverName,
-		GroupKind:   groupKind,
-		Description: "Test server",
+	t.Run("tools", func(t *testing.T) {
+		tools, err := client.ListTools(ctx)
+		require.NoError(t, err)
+		require.Len(t, tools, 1)
+		tool := tools[0]
+		assert.Empty(t, tool.Description)
+		assert.False(t, tool.CreatedAt.IsZero())
+		assert.Equal(t, tool.CreatedAt, tool.UpdatedAt)
+		assert.Nil(t, tool.DeletedAt)
 	})
-	require.NoError(t, err)
 
-	const numGoroutines = 10
+	t.Run("servers", func(t *testing.T) {
+		servers, err := client.ListToolServers(ctx)
+		require.NoError(t, err)
+		require.Len(t, servers, 1)
+		server := servers[0]
+		assert.Empty(t, server.Description)
+		assert.False(t, server.CreatedAt.IsZero())
+		assert.Equal(t, server.CreatedAt, server.UpdatedAt)
+		assert.Nil(t, server.DeletedAt)
+		assert.Nil(t, server.LastConnected)
+		require.NoError(t, client.RefreshToolServer(ctx, &ToolServer{Name: "defaulted", GroupKind: "kind", Description: "updated"}))
+		updated, err := client.ListToolServers(ctx)
+		require.NoError(t, err)
+		require.Len(t, updated, 1)
+		assert.Equal(t, server.CreatedAt, updated[0].CreatedAt)
+		assert.False(t, updated[0].UpdatedAt.Before(server.UpdatedAt))
+		assert.Equal(t, "updated", updated[0].Description)
+	})
 
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	for i := range numGoroutines {
-		go func(goroutineID int) {
-			defer wg.Done()
-			// Each goroutine refreshes with a different set of tools
-			tools := []*v1alpha3.MCPTool{
-				{Name: fmt.Sprintf("tool-a-%d", goroutineID), Description: "Tool A"},
-				{Name: fmt.Sprintf("tool-b-%d", goroutineID), Description: "Tool B"},
-			}
-			err := client.RefreshToolsForServer(ctx, serverName, groupKind, tools...)
-			assert.NoError(t, err, "RefreshToolsForServer should not fail")
-		}(i)
+	for _, query := range []string{
+		`UPDATE tool SET created_at = NULL`,
+		`UPDATE tool SET updated_at = NULL`,
+		`UPDATE tool SET description = NULL`,
+		`UPDATE toolserver SET created_at = NULL`,
+		`UPDATE toolserver SET updated_at = NULL`,
+		`UPDATE toolserver SET description = NULL`,
+	} {
+		t.Run(query, func(t *testing.T) {
+			_, err := db.Exec(ctx, query)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			assert.Equal(t, "23502", pgErr.Code) // not_null_violation
+		})
 	}
 
-	wg.Wait()
-
-	// Verify the tools exist and no data was corrupted. With READ COMMITTED isolation,
-	// concurrent delete+insert transactions can interleave, so we don't assert on an
-	// exact count. What matters is that all calls succeeded and valid tool records exist.
-	tools, err := client.ListToolsForServer(ctx, serverName, groupKind)
-	require.NoError(t, err)
-	assert.NotEmpty(t, tools, "Should have tools after concurrent refreshes")
-	for _, tool := range tools {
-		assert.Equal(t, serverName, tool.ServerName)
-		assert.Equal(t, groupKind, tool.GroupKind)
-	}
-}
-
-// TestStoreAgentIdempotence verifies that calling StoreAgent multiple times
-// with the same data is idempotent and doesn't error. This is critical for
-// the lock-free concurrency model where concurrent upserts must succeed.
-func TestStoreAgentIdempotence(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-
-	agent := &dbpkg.Agent{
-		ID:   "idempotent-agent",
-		Type: "declarative",
-	}
-
-	// First store should succeed
-	err := client.StoreAgent(ctx, agent)
-	require.NoError(t, err, "First StoreAgent should succeed")
-
-	// Second store with same data should also succeed (idempotent)
-	err = client.StoreAgent(ctx, agent)
-	require.NoError(t, err, "Second StoreAgent should succeed (idempotent)")
-
-	// Third store with updated data should succeed (upsert)
-	agent.Type = "byo"
-	err = client.StoreAgent(ctx, agent)
-	require.NoError(t, err, "Third StoreAgent with updated data should succeed")
-
-	// Verify final state
-	retrieved, err := client.GetAgent(ctx, agent.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "byo", retrieved.Type, "Agent should have updated type")
-}
-
-// TestStoreToolServerIdempotence verifies that StoreToolServer is idempotent.
-func TestStoreToolServerIdempotence(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-
-	server := &dbpkg.ToolServer{
-		Name:        "idempotent-server",
-		GroupKind:   "RemoteMCPServer",
-		Description: "Original description",
-	}
-
-	// First store
-	_, err := client.StoreToolServer(ctx, server)
-	require.NoError(t, err, "First StoreToolServer should succeed")
-
-	// Second store with same data (idempotent)
-	_, err = client.StoreToolServer(ctx, server)
-	require.NoError(t, err, "Second StoreToolServer should succeed")
-
-	// Third store with updated data (upsert)
-	server.Description = "Updated description"
-	_, err = client.StoreToolServer(ctx, server)
-	require.NoError(t, err, "Third StoreToolServer with updated data should succeed")
-
-	// Verify final state
-	retrieved, err := client.GetToolServer(ctx, server.Name)
-	require.NoError(t, err)
-	assert.Equal(t, "Updated description", retrieved.Description)
+	t.Run("memory", func(t *testing.T) {
+		embedding := make([]float32, 768)
+		embedding[0] = 1
+		_, err := db.Exec(ctx, `INSERT INTO memory (id, agent_name, user_id, embedding, access_count) VALUES ('nullable', 'agent', 'user', $1, NULL)`, pgvector.NewVector(embedding))
+		require.NoError(t, err)
+		memory := &Memory{AgentName: "agent", UserID: "user", Embedding: makeEmbedding(0.5), AccessCount: 1}
+		require.NoError(t, client.StoreAgentMemories(ctx, memory))
+		all, err := client.ListAgentMemories(ctx, "agent", "user")
+		require.NoError(t, err)
+		require.Len(t, all, 2)
+		assert.Equal(t, "nullable", all[0].ID) // SQL NULL counts still sort first descending.
+		assert.Empty(t, all[0].Content)
+		assert.Empty(t, all[0].Metadata)
+		assert.Equal(t, embedding, all[0].Embedding.Slice())
+		assert.True(t, all[0].CreatedAt.IsZero())
+		assert.Nil(t, all[0].ExpiresAt)
+		assert.Zero(t, all[0].AccessCount)
+		results, err := client.SearchAgentMemory(ctx, "agent", "user", makeEmbedding(0.5), 2)
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, memory.ID, results[0].ID)
+		assert.Equal(t, all[0], results[1].Memory)
+		assert.Greater(t, results[1].Score, 0.0)
+	})
 }
 
 // setupTestDB resets the shared Postgres database's tables for test isolation.
@@ -220,9 +109,8 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	// changes type OIDs and breaks existing pool connections.
 	_, err := sharedDB.Exec(context.Background(), `
 		TRUNCATE TABLE
-			agent, feedback,
-			tool, toolserver, lg_checkpoint, lg_checkpoint_write,
-			crewai_agent_memory, crewai_flow_state, memory,
+			scheduled_run,
+			tool, toolserver, memory,
 			agent_instance_share,
 			agent_instance, a2a_context, agent_template_harness_pair, runtime_revision
 		RESTART IDENTITY CASCADE
@@ -252,7 +140,7 @@ func TestStoreAndSearchAgentMemory(t *testing.T) {
 	agentName := "test-agent"
 	userID := "test-user"
 
-	memories := []*dbpkg.Memory{
+	memories := []*Memory{
 		{
 			ID:        "mem-1",
 			AgentName: agentName,
@@ -277,7 +165,7 @@ func TestStoreAndSearchAgentMemory(t *testing.T) {
 	}
 
 	for _, m := range memories {
-		err := client.StoreAgentMemory(ctx, m)
+		err := client.StoreAgentMemories(ctx, m)
 		require.NoError(t, err)
 	}
 
@@ -301,13 +189,13 @@ func TestStoreAgentMemoriesBatch(t *testing.T) {
 	agentName := "batch-agent"
 	userID := "batch-user"
 
-	memories := []*dbpkg.Memory{
+	memories := []*Memory{
 		{ID: "b-1", AgentName: agentName, UserID: userID, Content: "batch memory 1", Embedding: makeEmbedding(0.2)},
 		{ID: "b-2", AgentName: agentName, UserID: userID, Content: "batch memory 2", Embedding: makeEmbedding(0.4)},
 		{ID: "b-3", AgentName: agentName, UserID: userID, Content: "batch memory 3", Embedding: makeEmbedding(0.6)},
 	}
 
-	err := client.StoreAgentMemories(ctx, memories)
+	err := client.StoreAgentMemories(ctx, memories...)
 	require.NoError(t, err)
 
 	results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 10)
@@ -326,7 +214,7 @@ func TestSearchAgentMemoryLimit(t *testing.T) {
 	userID := "limit-user"
 
 	for i := range 5 {
-		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+		err := client.StoreAgentMemories(ctx, &Memory{
 			ID:        fmt.Sprintf("lim-%d", i),
 			AgentName: agentName,
 			UserID:    userID,
@@ -362,10 +250,10 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 	client := NewClient(db)
 	ctx := context.Background()
 
-	mem1 := &dbpkg.Memory{AgentName: "agent-a", UserID: "user-1", Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5)}
-	require.NoError(t, client.StoreAgentMemory(ctx, mem1))
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{AgentName: "agent-b", UserID: "user-1", Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5)}))
-	require.NoError(t, client.StoreAgentMemory(ctx, &dbpkg.Memory{AgentName: "agent-a", UserID: "user-2", Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5)}))
+	mem1 := &Memory{AgentName: "agent-a", UserID: "user-1", Content: "agent-a user-1 memory", Embedding: makeEmbedding(0.5)}
+	require.NoError(t, client.StoreAgentMemories(ctx, mem1))
+	require.NoError(t, client.StoreAgentMemories(ctx, &Memory{AgentName: "agent-b", UserID: "user-1", Content: "agent-b user-1 memory", Embedding: makeEmbedding(0.5)}))
+	require.NoError(t, client.StoreAgentMemories(ctx, &Memory{AgentName: "agent-a", UserID: "user-2", Content: "agent-a user-2 memory", Embedding: makeEmbedding(0.5)}))
 
 	results, err := client.SearchAgentMemory(ctx, "agent-a", "user-1", makeEmbedding(0.5), 10)
 	require.NoError(t, err)
@@ -381,8 +269,8 @@ func TestSearchAgentMemoryNormalizedName(t *testing.T) {
 	client := NewClient(db)
 	ctx := context.Background()
 
-	stored := &dbpkg.Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
-	require.NoError(t, client.StoreAgentMemory(ctx, stored))
+	stored := &Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
+	require.NoError(t, client.StoreAgentMemories(ctx, stored))
 
 	results, err := client.SearchAgentMemory(ctx, "ns__my-agent", "user-1", makeEmbedding(0.5), 10)
 	require.NoError(t, err)
@@ -401,7 +289,7 @@ func TestDeleteAgentMemory(t *testing.T) {
 	userID := "del-user"
 
 	for i := range 3 {
-		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+		err := client.StoreAgentMemories(ctx, &Memory{
 			ID:        fmt.Sprintf("del-%d", i),
 			AgentName: agentName,
 			UserID:    userID,
@@ -437,17 +325,17 @@ func TestPruneExpiredMemories(t *testing.T) {
 	past := time.Now().Add(-1 * time.Hour)
 
 	// Memory that is expired and unpopular, should be deleted
-	coldMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "cold expired memory", Embedding: makeEmbedding(0.1), ExpiresAt: &past, AccessCount: 2}
-	require.NoError(t, client.StoreAgentMemory(ctx, coldMem))
+	coldMem := &Memory{AgentName: agentName, UserID: userID, Content: "cold expired memory", Embedding: makeEmbedding(0.1), ExpiresAt: &past, AccessCount: 2}
+	require.NoError(t, client.StoreAgentMemories(ctx, coldMem))
 
 	// Memory that is expired but popular (AccessCount >= 10), TTL should be extended
-	hotMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "hot expired memory", Embedding: makeEmbedding(0.9), ExpiresAt: &past, AccessCount: 15}
-	require.NoError(t, client.StoreAgentMemory(ctx, hotMem))
+	hotMem := &Memory{AgentName: agentName, UserID: userID, Content: "hot expired memory", Embedding: makeEmbedding(0.9), ExpiresAt: &past, AccessCount: 15}
+	require.NoError(t, client.StoreAgentMemories(ctx, hotMem))
 
 	// Memory that has not expired, should be untouched
 	future := time.Now().Add(24 * time.Hour)
-	liveMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "non-expired memory", Embedding: makeEmbedding(0.5), ExpiresAt: &future, AccessCount: 0}
-	require.NoError(t, client.StoreAgentMemory(ctx, liveMem))
+	liveMem := &Memory{AgentName: agentName, UserID: userID, Content: "non-expired memory", Embedding: makeEmbedding(0.5), ExpiresAt: &future, AccessCount: 0}
+	require.NoError(t, client.StoreAgentMemories(ctx, liveMem))
 
 	err := client.PruneExpiredMemories(ctx)
 	require.NoError(t, err)
@@ -486,7 +374,7 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 
 	// Small store so every search hits the same top rows (max overlap).
 	for i := range 5 {
-		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+		err := client.StoreAgentMemories(ctx, &Memory{
 			AgentName: agentName,
 			UserID:    userID,
 			Content:   fmt.Sprintf("shared memory %d", i),
@@ -524,36 +412,5 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 
 	for err := range errs {
 		require.NoError(t, err, "concurrent memory search must not fail")
-	}
-}
-
-// TestSingleRowReadsMapMissingToErrNotFound verifies that every single-row
-// read maps the driver's no-rows error to dbpkg.ErrNotFound, so callers can
-// match with errors.Is without importing pgx.
-func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
-	db := setupTestDB(t)
-	client := NewClient(db)
-	ctx := context.Background()
-	missing := "missing"
-
-	tests := []struct {
-		name string
-		read func() error
-	}{
-		{name: "GetAgent", read: func() error { _, err := client.GetAgent(ctx, "missing"); return err }},
-		{name: "GetTool", read: func() error { _, err := client.GetTool(ctx, "missing"); return err }},
-		{name: "GetToolServer", read: func() error { _, err := client.GetToolServer(ctx, "missing"); return err }},
-		{name: "ListCheckpoints by ID", read: func() error {
-			_, err := client.ListCheckpoints(ctx, "user", "thread", "namespace", &missing, 0)
-			return err
-		}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.read()
-			require.Error(t, err)
-			require.ErrorIs(t, err, dbpkg.ErrNotFound)
-		})
 	}
 }

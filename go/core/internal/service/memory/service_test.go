@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
@@ -23,18 +23,12 @@ type memoryStore struct {
 	deletedUser  string
 }
 
-func (store *memoryStore) StoreAgentMemory(_ context.Context, memory *database.Memory) error {
+func (store *memoryStore) StoreAgentMemories(_ context.Context, memories ...*database.Memory) error {
 	if store.err != nil {
 		return store.err
 	}
-	memory.ID = "memory-1"
-	store.stored = append(store.stored, memory)
-	return nil
-}
-
-func (store *memoryStore) StoreAgentMemories(_ context.Context, memories []*database.Memory) error {
-	if store.err != nil {
-		return store.err
+	for _, memory := range memories {
+		memory.ID = "memory-1"
 	}
 	store.stored = append(store.stored, memories...)
 	return nil

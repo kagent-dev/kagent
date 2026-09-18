@@ -30,14 +30,8 @@ const { Text } = Typography;
  *
  * ## Why it reads the list itself
  *
- * The rail is handed the instances of one namespace, and switching agent means
- * leaving that namespace behind. This is the only part that needs every agent in the
- * cluster, so it is the part that asks — and it asks only while it is open, because
- * it is only rendered then.
- *
- * Reading across namespaces is a request per namespace (`AgentInstanceService` has
- * no cross-namespace read), which is another reason this is not loaded until asked
- * for.
+ * The rail lists conversations for the current agent. Switching needs the
+ * Kubernetes template catalog, which is loaded only while this picker is open.
  */
 export function AgentSwitcher({
   current,

@@ -25,7 +25,7 @@ type HttpMcpServerConfig struct {
 	Params          StreamableHTTPConnectionParams `json:"params"`
 	Tools           []string                       `json:"tools,omitempty"`
 	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
-	RequireApproval []string                       `json:"require_approval,omitempty"`
+	RequireApproval bool                           `json:"require_approval,omitempty"`
 }
 
 type SseConnectionParams struct {
@@ -43,7 +43,7 @@ type SseMcpServerConfig struct {
 	Params          SseConnectionParams `json:"params"`
 	Tools           []string            `json:"tools,omitempty"`
 	AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
-	RequireApproval []string            `json:"require_approval,omitempty"`
+	RequireApproval bool                `json:"require_approval,omitempty"`
 }
 
 // StdioMcpServerConfig starts one local MCP server without invoking a shell.
@@ -118,6 +118,12 @@ const (
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
 	ModelTypeFoundry         = "foundry"
+)
+
+// Foundry API format values used by a Foundry model.
+const (
+	FoundryAPIFormatOpenAI    = "openai"
+	FoundryAPIFormatAnthropic = "anthropic"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -344,6 +350,9 @@ type Foundry struct {
 	Endpoint   string `json:"endpoint"`
 	Deployment string `json:"deployment"`
 	APIVersion string `json:"api_version"`
+	// APIFormat selects the API format: "openai" (default) or "anthropic"
+	// (Claude Messages API). Empty is treated as "openai".
+	APIFormat string `json:"api_format,omitempty"`
 }
 
 func (f *Foundry) MarshalJSON() ([]byte, error) {

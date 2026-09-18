@@ -48,9 +48,9 @@ func TestGetAgentInstanceTableUsesFullID(t *testing.T) {
 	cfg := &GetCfg{}
 	var output bytes.Buffer
 
-	require.NoError(t, get(t.Context(), client, "kagent", cfg, clioutput.FormatTable, &output))
+	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatTable, &output))
 	assert.Equal(t, &apiv1alpha1.ListAgentInstancesRequest{
-		Namespace: "kagent", Page: &apiv1alpha1.PageRequest{},
+		Page: &apiv1alpha1.PageRequest{},
 	}, client.listRequest)
 	assert.Contains(t, output.String(), testInstanceID)
 	assert.Contains(t, output.String(), "smoke")
@@ -63,7 +63,7 @@ func TestGetOneAgentInstanceJSON(t *testing.T) {
 	cfg := &GetCfg{InstanceID: testInstanceID}
 	var output bytes.Buffer
 
-	require.NoError(t, get(t.Context(), client, "kagent", cfg, clioutput.FormatJSON, &output))
+	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatJSON, &output))
 	assert.Equal(t, testInstanceID, client.getRequest.GetAgentInstanceId())
 	assert.True(t, json.Valid(output.Bytes()))
 	assert.Contains(t, output.String(), testInstanceID)
@@ -76,7 +76,7 @@ func TestListAgentInstancesJSONPreservesNextPageToken(t *testing.T) {
 	}
 	var output bytes.Buffer
 
-	require.NoError(t, get(t.Context(), client, "kagent", cfg, clioutput.FormatJSON, &output))
+	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatJSON, &output))
 	assert.Equal(t, int32(1), client.listRequest.GetPage().GetLimit())
 	assert.Equal(t, "current-page", client.listRequest.GetPage().GetPageToken())
 	assert.True(t, json.Valid(output.Bytes()))
@@ -111,7 +111,7 @@ func (c *fakeAgentInstanceClient) ListAgentInstances(
 
 func testInstance() *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
-		Id: testInstanceID, Namespace: "kagent", Creator: "e2e",
+		Id: testInstanceID, Creator: "e2e",
 		Harness:       &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "kagent"},
 		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"},
 		State:         apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,

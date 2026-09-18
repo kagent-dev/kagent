@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	dbmodel "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -50,24 +50,14 @@ func (f *fakeDiscoverer) ListTools(_ context.Context, ref toolservice.MCPServerR
 }
 
 type fakeCatalog struct {
-	server       *dbmodel.ToolServer
-	tools        []*v1alpha3.MCPTool
-	deletedTools string
-	deleted      string
+	server  *database.ToolServer
+	tools   []*v1alpha3.MCPTool
+	deleted string
 }
 
-func (f *fakeCatalog) StoreToolServer(_ context.Context, server *dbmodel.ToolServer) (*dbmodel.ToolServer, error) {
+func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
 	f.server = server
-	return server, nil
-}
-
-func (f *fakeCatalog) RefreshToolsForServer(_ context.Context, _, _ string, tools ...*v1alpha3.MCPTool) error {
 	f.tools = tools
-	return nil
-}
-
-func (f *fakeCatalog) DeleteToolsForServer(_ context.Context, name, groupKind string) error {
-	f.deletedTools = name + "|" + groupKind
 	return nil
 }
 
@@ -162,8 +152,8 @@ func TestReconcileDeletesCatalogProjection(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	want := "test/gone|" + mcpServerGroupKind
-	if catalog.deletedTools != want || catalog.deleted != want {
-		t.Fatalf("catalog deletes = tools %q, server %q, want %q", catalog.deletedTools, catalog.deleted, want)
+	if catalog.deleted != want {
+		t.Fatalf("catalog delete = %q, want %q", catalog.deleted, want)
 	}
 }
 

@@ -157,7 +157,9 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     setupFiles: ["./src/testSetup.ts"],
     css: true,
-    exclude: ["**/node_modules/**", "**/playwright/**"],
+    /* Playwright's own specs are `.spec.ts` and must not run here. `.test.ts` under
+       playwright/ is a check *about* that suite rather than part of it, and does. */
+    exclude: ["**/node_modules/**", "**/playwright/**/*.spec.ts"],
     // Unit tests drive the client against this repo's own mock handlers, so the
     // mode is stated rather than inherited. It used to come free from the dev
     // default; that default is gone, because a page that quietly serves fixtures

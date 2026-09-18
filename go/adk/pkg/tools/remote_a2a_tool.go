@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
@@ -330,7 +330,7 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
-		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "remote agent request failed", "tool", s.name, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
 	}
 
@@ -343,12 +343,12 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	payload, _ := confirmation.Payload.(map[string]any)
 	remoteState := a2a.ParseRemoteHitlState(payload)
 	if remoteState == nil {
-		slog.Error("Resume for remote agent without valid remote HITL state", "tool", s.name)
+		logging.FromContext(ctx).ErrorContext(ctx, "resume for remote agent without valid remote HITL state", "tool", s.name)
 		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", s.name)}, nil
 	}
 	if !remoteState.HasResponse() {
-		slog.Error("Resume for remote agent without a HITL response",
-			"tool", remoteState.SubagentName, "taskID", remoteState.TaskID)
+		logging.FromContext(ctx).ErrorContext(ctx, "resume for remote agent without a HITL response",
+			"tool", remoteState.SubagentName, "task_id", remoteState.TaskID)
 		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing HITL response.", remoteState.SubagentName)}, nil
 	}
 
@@ -368,10 +368,10 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	}
 	a2a.AttachHitlExtension(message, remoteState.ResponsePayload())
 
-	slog.Info("Forwarding HITL response to subagent",
-		"responseType", remoteState.ResponseType(),
+	logging.FromContext(ctx).InfoContext(ctx, "forwarding HITL response to subagent",
+		"response_type", remoteState.ResponseType(),
 		"subagent", subagentName,
-		"taskID", taskID,
+		"task_id", taskID,
 	)
 
 	client, err := s.ensureClient(ctx)
@@ -383,7 +383,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
-		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "remote agent resume failed", "tool", subagentName, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
 	}
 
@@ -451,7 +451,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 // decision is forwarded and a final result comes back.
 func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype.Task, contextID string) remoteA2AResponse {
 	if task == nil {
-		slog.Error("Subagent returned input_required without task", "tool", s.name)
+		logging.FromContext(ctx).ErrorContext(ctx, "subagent returned input_required without task", "tool", s.name)
 		return remoteA2AResponse{
 			Error:             fmt.Sprintf("Remote agent '%s' returned input_required without task context.", s.name),
 			SubagentSessionID: contextID,
@@ -460,7 +460,7 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 
 	state := a2a.BuildRemoteHitlState(task, s.name)
 	if state == nil {
-		slog.Error("Subagent returned input_required without a valid HITL extension", "tool", s.name)
+		logging.FromContext(ctx).ErrorContext(ctx, "subagent returned input_required without a valid HITL extension", "tool", s.name)
 		return remoteA2AResponse{
 			Error:             fmt.Sprintf("Remote agent '%s' requested input without a valid HITL extension.", s.name),
 			Status:            "failed",
@@ -469,11 +469,11 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 	}
 
 	hint := a2a.RemoteHitlHint(state)
-	slog.Info("Subagent returned input_required, requesting confirmation from parent",
-		"tool", s.name, "taskID", task.ID)
+	logging.FromContext(ctx).InfoContext(ctx, "subagent returned input_required, requesting confirmation from parent",
+		"tool", s.name, "task_id", task.ID)
 
 	if err := ctx.RequestConfirmation(hint, state.ToMap()); err != nil {
-		slog.Error("Failed to request confirmation", "tool", s.name, "error", err)
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to request confirmation", "tool", s.name, "error", err)
 	}
 	return remoteA2AResponse{
 		Status:            "pending",

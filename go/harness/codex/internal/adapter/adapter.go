@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
-	"github.com/kagent-dev/kagent/go/harness/runtime/utils"
+	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -66,28 +66,73 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
 	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
+	approvalServers := make(map[string]struct{})
+	for name, server := range cfg.MCPServers {
+		if server.RequireApproval {
+			approvalServers[name] = struct{}{}
+		}
+	}
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.CodexExecutable, ExpectedVersion: cfg.ExpectedCodexVersion, StrictVersion: cfg.StrictVersion,
 		Workspace: input.Workspace, Model: cfg.Model, Provider: nativeProviderName(cfg.Provider.Name),
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
+		ApprovalServers: approvalServers,
 	}), nil
 }
 
 type nativeConfig struct {
 	Model          string                         `toml:"model"`
 	ModelProvider  string                         `toml:"model_provider"`
-	ApprovalPolicy string                         `toml:"approval_policy"`
+	ApprovalPolicy nativeApprovalPolicy           `toml:"approval_policy"`
 	SandboxMode    string                         `toml:"sandbox_mode"`
 	WebSearch      string                         `toml:"web_search"`
+	Features       nativeFeatures                 `toml:"features"`
 	Analytics      nativeAnalytics                `toml:"analytics"`
+	Otel           *nativeOtel                    `toml:"otel,omitempty"`
 	ModelProviders map[string]nativeModelProvider `toml:"model_providers,omitempty"`
 	Agents         map[string]nativeAgent         `toml:"agents,omitempty"`
 	MCPServers     map[string]nativeMCPServer     `toml:"mcp_servers,omitempty"`
 }
 
+type nativeApprovalPolicy struct {
+	Granular nativeGranularApprovalPolicy `toml:"granular"`
+}
+
+type nativeGranularApprovalPolicy struct {
+	SandboxApproval    bool `toml:"sandbox_approval"`
+	Rules              bool `toml:"rules"`
+	SkillApproval      bool `toml:"skill_approval"`
+	RequestPermissions bool `toml:"request_permissions"`
+	MCPElicitations    bool `toml:"mcp_elicitations"`
+}
+
+type nativeFeatures struct {
+	DefaultModeRequestUserInput bool `toml:"default_mode_request_user_input"`
+}
+
 type nativeAnalytics struct {
 	Enabled bool `toml:"enabled"`
+}
+
+type nativeOtel struct {
+	LogUserPrompt bool                `toml:"log_user_prompt"`
+	Exporter      *nativeOtelExporter `toml:"exporter,omitempty"`
+	TraceExporter *nativeOtelExporter `toml:"trace_exporter,omitempty"`
+}
+
+type nativeOtelExporter struct {
+	OTLPGRPC *nativeOTLPGRPC `toml:"otlp-grpc,omitempty"`
+	OTLPHTTP *nativeOTLPHTTP `toml:"otlp-http,omitempty"`
+}
+
+type nativeOTLPGRPC struct {
+	Endpoint string `toml:"endpoint"`
+}
+
+type nativeOTLPHTTP struct {
+	Endpoint string `toml:"endpoint"`
+	Protocol string `toml:"protocol"`
 }
 
 type nativeModelProvider struct {
@@ -103,10 +148,11 @@ type nativeAgent struct {
 }
 
 type nativeMCPServer struct {
-	URL            string            `toml:"url"`
-	HTTPHeaders    map[string]string `toml:"http_headers,omitempty,inline"`
-	EnvHTTPHeaders map[string]string `toml:"env_http_headers,omitempty,inline"`
-	EnabledTools   []string          `toml:"enabled_tools,omitempty"`
+	URL                      string            `toml:"url"`
+	HTTPHeaders              map[string]string `toml:"http_headers,omitempty,inline"`
+	EnvHTTPHeaders           map[string]string `toml:"env_http_headers,omitempty,inline"`
+	EnabledTools             []string          `toml:"enabled_tools,omitempty"`
+	DefaultToolsApprovalMode string            `toml:"default_tools_approval_mode"`
 }
 
 type nativeAgentConfig struct {
@@ -119,7 +165,9 @@ type nativeAgentConfig struct {
 func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
-		ApprovalPolicy: "never", SandboxMode: "danger-full-access", WebSearch: "disabled",
+		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
+		SandboxMode:    "danger-full-access", WebSearch: "cached",
+		Features:   nativeFeatures{DefaultModeRequestUserInput: true},
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),
@@ -129,6 +177,13 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 			"kagent-openai": {
 				Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
 			},
+		}
+	}
+	if cfg.Telemetry != nil {
+		native.Otel = &nativeOtel{
+			LogUserPrompt: cfg.Telemetry.CaptureContent,
+			Exporter:      nativeExporter(cfg.Telemetry.Logs),
+			TraceExporter: nativeExporter(cfg.Telemetry.Traces),
 		}
 	}
 	for name, agent := range cfg.Agents {
@@ -146,8 +201,13 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 				literal[header] = value
 			}
 		}
+		approvalMode := "approve"
+		if server.RequireApproval {
+			approvalMode = "prompt"
+		}
 		native.MCPServers[name] = nativeMCPServer{
 			URL: server.URL, HTTPHeaders: literal, EnvHTTPHeaders: environment, EnabledTools: server.EnabledTools,
+			DefaultToolsApprovalMode: approvalMode,
 		}
 	}
 	contents, err := toml.Marshal(native)
@@ -155,6 +215,20 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		return nil, fmt.Errorf("encode Codex configuration: %w", err)
 	}
 	return contents, nil
+}
+
+func nativeExporter(exporterConfig *config.OTLPExporter) *nativeOtelExporter {
+	if exporterConfig == nil {
+		return nil
+	}
+	exporter := &nativeOtelExporter{}
+	switch exporterConfig.Protocol {
+	case "grpc":
+		exporter.OTLPGRPC = &nativeOTLPGRPC{Endpoint: exporterConfig.Endpoint}
+	case "http/protobuf":
+		exporter.OTLPHTTP = &nativeOTLPHTTP{Endpoint: exporterConfig.Endpoint, Protocol: "binary"}
+	}
+	return exporter
 }
 
 func nativeProviderName(name string) string {

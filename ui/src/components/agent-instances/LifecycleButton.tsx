@@ -57,7 +57,7 @@ export function LifecycleButton({
         action === "suspend"
           ? apiClient.agentInstances.suspend
           : apiClient.agentInstances.resume;
-      await call(instance.namespace, instance.id);
+      await call(instance.id);
       // Re-read before the toast, so the row shows the new state by the time the
       // reader is told about it — the other order congratulates them over a table
       // that still says the opposite.

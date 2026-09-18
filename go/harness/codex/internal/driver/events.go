@@ -3,6 +3,7 @@ package driver
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -14,11 +15,18 @@ import (
 type eventTranslator struct {
 	threadID string
 	turnID   string
-	tools    map[string]string
+	tools    map[string]activeTool
 }
 
 func newEventTranslator(threadID, turnID string) *eventTranslator {
-	return &eventTranslator{threadID: threadID, turnID: turnID, tools: make(map[string]string)}
+	return &eventTranslator{threadID: threadID, turnID: turnID, tools: make(map[string]activeTool)}
+}
+
+type activeTool struct {
+	name            string
+	server          string
+	arguments       any
+	approvalMatched bool
 }
 
 func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) (runtime.Outcome, bool, error) {
@@ -105,6 +113,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		return nil
 	}
 	name := ""
+	approvalServer := ""
 	var arguments map[string]any
 	result := map[string]any{"status": item.Status}
 	switch item.Type {
@@ -119,6 +128,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		result["changes"] = boundValue(item.Changes)
 	case "mcpToolCall":
 		name, arguments = item.Server+"."+item.Tool, map[string]any{"arguments": boundValue(item.Arguments)}
+		approvalServer = item.Server
 		result["result"], result["error"] = boundValue(item.Result), boundValue(item.Error)
 	case "collabAgentToolCall":
 		name, arguments = "Agent", map[string]any{"prompt": bounded(item.Prompt), "tool": item.Tool}
@@ -129,15 +139,15 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		if _, exists := t.tools[item.ID]; exists {
 			return fmt.Errorf("codex tool item %q started more than once", item.ID)
 		}
-		t.tools[item.ID] = name
+		t.tools[item.ID] = activeTool{name: name, server: approvalServer, arguments: item.Arguments}
 		return sink.ToolCall(runtime.ToolCall{ID: item.ID, Name: name, Arguments: arguments})
 	}
-	startedName, exists := t.tools[item.ID]
+	started, exists := t.tools[item.ID]
 	if !exists {
 		return fmt.Errorf("codex tool item %q completed without starting", item.ID)
 	}
-	if startedName != name {
-		return fmt.Errorf("codex tool item %q changed name from %q to %q", item.ID, startedName, name)
+	if started.name != name {
+		return fmt.Errorf("codex tool item %q changed name from %q to %q", item.ID, started.name, name)
 	}
 	delete(t.tools, item.ID)
 	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: result, IsError: item.Status == "failed"})
@@ -151,13 +161,36 @@ func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
 	slices.Sort(ids)
 	for _, id := range ids {
 		if err := sink.ToolResult(runtime.ToolResult{
-			ID: id, Name: t.tools[id], Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true,
+			ID: id, Name: t.tools[id].name, Result: map[string]any{"error": "Codex turn ended before tool completion"}, IsError: true,
 		}); err != nil {
 			return err
 		}
 		delete(t.tools, id)
 	}
 	return nil
+}
+
+func (t *eventTranslator) approvalTool(server, toolName string, arguments map[string]any) (string, string, error) {
+	matchedID := ""
+	for id, tool := range t.tools {
+		if tool.approvalMatched || tool.server != server || !reflect.DeepEqual(tool.arguments, arguments) {
+			continue
+		}
+		if toolName != "" && tool.name != server+"."+toolName {
+			continue
+		}
+		if matchedID != "" {
+			return "", "", fmt.Errorf("codex requested approval matching multiple active tools for server %q", server)
+		}
+		matchedID = id
+	}
+	if matchedID == "" {
+		return "", "", fmt.Errorf("codex requested approval without a matching active tool for server %q", server)
+	}
+	matched := t.tools[matchedID]
+	matched.approvalMatched = true
+	t.tools[matchedID] = matched
+	return matchedID, matched.name, nil
 }
 
 func rejectBufferedPostTerminalActivity(frames <-chan rpcFrame) error {

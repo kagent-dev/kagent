@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"maps"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
@@ -86,6 +87,7 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 		return nil, err
 	}
 	existing.Spec = *incoming.Spec.DeepCopy()
+	existing.Labels = maps.Clone(incoming.Labels)
 	result, err := s.service.SaveUpdate(ctx, existing)
 	if err != nil {
 		return nil, err

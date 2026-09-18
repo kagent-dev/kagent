@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Skeleton, Space, Typography } from "antd";
 import type { DescriptionsProps } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useParams } from "react-router-dom";
@@ -11,7 +11,6 @@ import {
 } from "@/components/agent-instances/InstanceTags";
 import { LifecycleButton } from "@/components/agent-instances/LifecycleButton";
 import {
-  labelPairs,
   relativeAge,
   stateAppearance,
 } from "@/components/agent-instances/instanceLabels";
@@ -47,8 +46,8 @@ const { Paragraph, Text } = Typography;
  */
 export function AgentDetailsPage() {
   const theme = useTheme();
-  const { namespace, id } = useParams<{ namespace: string; id: string }>();
-  const { data, isLoading, error, refresh } = useAgentInstance(namespace, id);
+  const { id } = useParams<{ id: string }>();
+  const { data, isLoading, error, refresh } = useAgentInstance(id);
   /*
    * The other conversations with this agent, for the rail beside the page.
    *
@@ -56,7 +55,7 @@ export function AgentDetailsPage() {
    * siblings of this instance, and a rail fetching its own copy would be a second
    * request for rows this page already has reason to hold.
    */
-  const instances = useAgentInstances(namespace);
+  const instances = useAgentInstances();
 
   /*
    * The agent this conversation belongs to, when the record names a pair.
@@ -69,7 +68,7 @@ export function AgentDetailsPage() {
   const agentHref =
     data?.harness && data.agentTemplate
       ? agentPageUrl({
-          namespace: data.namespace,
+          namespace: data.agentTemplate.split("/")[0],
           agentTemplate: bareName(data.agentTemplate),
           harness: bareName(data.harness),
         })
@@ -92,14 +91,11 @@ export function AgentDetailsPage() {
             </Text>
           ),
         },
-        {
-          key: "namespace",
-          label: "Namespace",
-          children: <ValueOrNotReported value={data.namespace} mono />,
-        },
+
         {
           key: "creator",
           label: "Creator",
+          span: 2,
           children: <ValueOrNotReported value={data.creator} />,
         },
         {
@@ -131,7 +127,7 @@ export function AgentDetailsPage() {
           children: data.agentTemplate ? (
             <Link
               to={buildPath(paths.agentTemplateDetail, {
-                namespace: data.namespace,
+                namespace: data.agentTemplate.split("/")[0],
                 name: bareName(data.agentTemplate),
               })}
               data-testid="instance-template-link"
@@ -188,28 +184,6 @@ export function AgentDetailsPage() {
             <NotReported />
           ),
         },
-        {
-          key: "labels",
-          label: "Labels",
-          span: 2,
-          children:
-            labelPairs(data).length > 0 ? (
-              <Space size={4} wrap data-testid="instance-labels">
-                {labelPairs(data).map((pair) => (
-                  <Tag key={pair} css={{ fontFamily: theme.font.mono }}>
-                    {pair}
-                  </Tag>
-                ))}
-              </Space>
-            ) : (
-              // Distinct from "not reported": an instance with no labels is
-              // ordinary, and saying the controller failed to mention them would
-              // be wrong.
-              <Text css={{ color: theme.color.textMuted }} data-testid="instance-no-labels">
-                None set
-              </Text>
-            ),
-        },
       ]
     : [];
 
@@ -243,9 +217,9 @@ export function AgentDetailsPage() {
           alignItems: "flex-start",
         }}
       >
-        {namespace && id ? (
+        {id ? (
           <AgentRail
-            agentRef={{ namespace, id }}
+            agentRef={{ id }}
             instance={data}
             instances={instances}
           />
@@ -261,7 +235,7 @@ export function AgentDetailsPage() {
             type="warning"
             showIcon
             title="This conversation cannot be opened"
-            description={`No conversation ${id ?? ""} was found in ${namespace ?? "that namespace"}. It may have been deleted — or started by somebody else, which the controller reports in exactly the same words: an instance is read as its creator, so somebody else's answers "not found" rather than "not yours".`}
+            description={`No conversation ${id ?? ""} was found. It may have been deleted — or started by somebody else, which the controller reports in exactly the same words: an instance is read as its creator, so somebody else's answers "not found" rather than "not yours".`}
             data-testid="instance-not-found"
             action={
               <Link to={paths.agents}>
@@ -306,13 +280,13 @@ export function AgentDetailsPage() {
 
                 {/*
                   One control, not two.
-                  
+
                   Both actions used to be rendered side by side with whichever did not
                   apply left disabled — so a ready conversation showed a greyed-out
                   Resume, and a suspended one a greyed-out Suspend. A disabled control
                   the reader can never use in this state is not information; it is a
                   second thing to read past to find the one that works.
-                  
+
                   The state decides which is offered. Anything that is neither ready nor
                   suspended — creating, failed, deleting — gets Suspend, disabled with
                   the controller's own reason, which is the honest answer: there is a

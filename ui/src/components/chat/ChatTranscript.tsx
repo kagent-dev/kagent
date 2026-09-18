@@ -1,10 +1,34 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import type { ChatController, ChatTurnPhase } from "@/api";
+import type { ChatController, ChatTurnPhase, Checkpoint } from "@/api";
 import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
+import { CheckpointDivider } from "./CheckpointDivider";
+import { groupByCheckpoint } from "./messageCheckpoints";
+import { scrollbarStyles } from "@/components/agent/controlStyles";
+
+/** Stable, so a transcript with no boundaries does not regroup on every render. */
+const EMPTY_CHECKPOINTS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * The room a checkpoint's line takes, on top of the gap between two messages.
+ *
+ * A line drawn at the transcript's own rhythm reads as one more thing said. Pushing
+ * the conversation apart around it is what makes it a division rather than an entry —
+ * and the space is what tells the reader, before they read the label, that the two
+ * halves are not continuous.
+ */
+const CHECKPOINT_GAP = 4;
+
+/**
+ * Less below than above, because below it is not the only space there is: the
+ * transcript's own gap to the next message sits under this one, and the two together
+ * read as a hole in the conversation rather than a division in it.
+ */
+const CHECKPOINT_GAP_BELOW = 2;
 
 /**
  * Turn phases worth naming on screen. The rest are transient enough to skip.
@@ -31,8 +55,29 @@ export function ChatTranscript({
   chat,
   sessionId,
   onAnswered,
+  onOpenCheckpoint,
+  onRenameCheckpoint,
+  onFork,
+  onDeleteCheckpoint,
+  checkpointsById,
+  checkpointByMessage,
 }: {
   chat: ChatController;
+  /**
+   * Opens a saved boundary's record, where its name and the rename live. Absent when
+   * read-only, as the two below are, which leaves the line as a mark and nothing more.
+   */
+  onOpenCheckpoint?: (checkpointId: string) => void;
+  /** Names a boundary, and with it the forks taken from it. */
+  onRenameCheckpoint?: (checkpointId: string) => void;
+  /** Starts a new conversation from a boundary. */
+  onFork?: (checkpointId: string) => void;
+  /** Drops a boundary and the runtime stored with it. */
+  onDeleteCheckpoint?: (checkpointId: string) => void;
+  /** The boundaries the controller has described, for the line to name itself by. */
+  checkpointsById?: ReadonlyMap<string, Checkpoint>;
+  /** Which boundary each message sits inside, for the messages that sit inside one. */
+  checkpointByMessage?: ReadonlyMap<string, string>;
   /**
    * An `ask_user` answer has just gone.
    *
@@ -50,6 +95,12 @@ export function ChatTranscript({
   sessionId?: string;
 }) {
   const theme = useTheme();
+  /* A boundary falls after the last message of the turn it was taken at, so the
+     messages are grouped by turn before they are drawn and the line goes between. */
+  const groups = useMemo(
+    () => groupByCheckpoint(chat.messages, checkpointByMessage ?? EMPTY_CHECKPOINTS),
+    [chat.messages, checkpointByMessage],
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -108,12 +159,22 @@ export function ChatTranscript({
     if (!box) return;
     const atBottom = () =>
       box.scrollHeight - box.scrollTop - box.clientHeight <= AT_BOTTOM_SLACK;
+    /*
+     * Growth moves the foot away without anybody scrolling. A scroll event arriving
+     * mid-growth read that as the reader having left and unset the pin the observer
+     * below needs to close the gap — so the button came back, and stayed.
+     */
+    let lastTop = box.scrollTop;
     const measure = () => {
       const now = atBottom();
+      const movedUp = box.scrollTop < lastTop;
+      lastTop = box.scrollTop;
       if (returningRef.current) {
         if (!now) return;
         returningRef.current = false;
       }
+      // Short of the foot without having scrolled up is growth, not the reader leaving.
+      if (pinnedRef.current && !now && !movedUp) return;
       pinnedRef.current = now;
       setAtBottom(now);
     };
@@ -240,17 +301,7 @@ export function ChatTranscript({
         // Clear of the messages, which run to the right edge — the reader's own align
         // that way, so an unpadded bar sits on top of them.
         paddingInlineEnd: theme.space(3),
-        scrollbarWidth: "thin",
-        scrollbarColor: `${theme.color.border} transparent`,
-        "&::-webkit-scrollbar": { width: 10 },
-        "&::-webkit-scrollbar-track": { background: "transparent" },
-        "&::-webkit-scrollbar-thumb": {
-          background: theme.color.border,
-          borderRadius: 999,
-          border: "3px solid transparent",
-          backgroundClip: "content-box",
-        },
-        "&:hover::-webkit-scrollbar-thumb": { background: theme.color.textMuted },
+        ...scrollbarStyles(theme),
       }}
     >
     <div
@@ -281,9 +332,53 @@ export function ChatTranscript({
           description="No messages yet. Ask the agent something."
         />
       ) : (
-        chat.messages.map((message) => (
-          <ChatMessageItem key={message.id} message={message} sessionId={sessionId} />
-        ))
+        /*
+         * One flat run of children, each keyed by what it *is* — a message by its id, a
+         * line by its checkpoint's.
+         *
+         * Not a fragment per group keyed by its first message: the grouping changes
+         * when the saved boundaries land, so two groups becoming one retired a key and
+         * React unmounted and remounted the messages under it. Every rendered mermaid
+         * diagram flashed back to its loading state each time the checkpoint list
+         * resolved or the reader saved a boundary, because that component holds its
+         * render in local state.
+         */
+        groups.flatMap((group, index) => {
+          const drawn: ReactNode[] = group.messages.map((message) => (
+            <ChatMessageItem
+              key={message.id}
+              message={message}
+              sessionId={sessionId}
+              isCheckpointed={Boolean(group.checkpointId)}
+            />
+          ));
+          const checkpointId = group.checkpointId;
+          if (checkpointId) {
+            drawn.push(
+              <div
+                key={`checkpoint-${checkpointId}`}
+                css={{
+                  // The extra room the line needs, split either side of it. Not on the
+                  // last group: a line against the composer would be dividing the
+                  // conversation from the box used to continue it.
+                  marginBlockStart: theme.space(CHECKPOINT_GAP),
+                  marginBlockEnd:
+                    index === groups.length - 1 ? 0 : theme.space(CHECKPOINT_GAP_BELOW),
+                }}
+              >
+                <CheckpointDivider
+                  checkpointId={checkpointId}
+                  checkpoint={checkpointsById?.get(checkpointId)}
+                  onOpen={onOpenCheckpoint && (() => onOpenCheckpoint(checkpointId))}
+                  onFork={onFork && (() => onFork(checkpointId))}
+                  onRename={onRenameCheckpoint && (() => onRenameCheckpoint(checkpointId))}
+                  onDelete={onDeleteCheckpoint && (() => onDeleteCheckpoint(checkpointId))}
+                />
+              </div>,
+            );
+          }
+          return drawn;
+        })
       )}
 
       {statusLabel ? (
@@ -301,18 +396,18 @@ export function ChatTranscript({
         /*
          * The conversation is holding a question, and that has to be said.
          *
-         * Rendered as something answerable rather than as a notice, because the
-         * question already appears twice above — as the tool call's JSON and as the
-         * agent's prose — and neither can end the turn. `info` and deliberately not
-         * `error`: nothing went wrong. The agent called a tool that asks the reader
-         * something and its turn parked in `input_required`, a state the controller
-         * keeps non-terminal on purpose. Colouring it red would be a visible lie
-         * about a turn that worked.
+         * Rendered as something answerable rather than as a notice. Raw tool JSON
+         * and fallback prose are removed at the client boundary, leaving this as
+         * the one representation. `info` and deliberately not `error`: nothing
+         * went wrong. The agent called a tool that asks the reader something and
+         * its turn parked in `input_required`, a state the controller keeps
+         * non-terminal on purpose. Colouring it red would be a visible lie.
          */
         <AskUserPrompt
           request={chat.pendingQuestion}
           isBusy={chat.phase === "streaming"}
           onAnswer={(answers) => void chat.answerQuestion(answers)}
+          onToolApproval={(decisions) => void chat.answerToolApproval(decisions)}
           onDismiss={() => void chat.dismissQuestion()}
           onAnswered={onAnswered}
         />
@@ -409,6 +504,47 @@ export function ChatTranscript({
               css={{
                 transform: "translateY(-100%)",
                 boxShadow: `0 6px 18px -6px ${theme.color.bg}`,
+                /*
+                 * Purple rather than the default grey: it floats over the conversation
+                 * rather than sitting in a row of controls, so its edge is the only
+                 * thing separating it from whatever is behind it.
+                 *
+                 * The edge is a diluted brand purple, not the whole of it: at full
+                 * strength it read as a control demanding to be used, over a
+                 * conversation somebody is trying to read. There is no token between
+                 * `primaryText` and the surface, so it is mixed here — the same purple,
+                 * a fraction of it.
+                 *
+                 * Through `&.ant-btn`, because antd's own default-variant rule is more
+                 * specific than the emitted class and wins a plain declaration.
+                 */
+                "&.ant-btn": {
+                  color: theme.color.primaryText,
+                  borderColor: `color-mix(in srgb, ${theme.color.primaryText} 45%, transparent)`,
+                  // Quicker than antd's 200ms: three steps that each take a fifth of a
+                  // second read as the button catching up rather than responding.
+                  transition:
+                    "background 80ms ease, border-color 80ms ease, color 80ms ease",
+                },
+                /*
+                 * Three steps, not two: a wash under the pointer, the full fill under
+                 * the press. Hovering used to land on the fill, which was as loud as a
+                 * click and left the click with nowhere further to go.
+                 *
+                 * The variant class is in the selector to outrank antd's own hover rule,
+                 * which carries three classes of its own and otherwise wins.
+                 */
+                "&.ant-btn.ant-btn-variant-outlined:not(:disabled):hover, &.ant-btn.ant-btn-variant-outlined:not(:disabled):focus-visible":
+                  {
+                    color: theme.color.primaryText,
+                    borderColor: theme.color.primaryText,
+                    background: `color-mix(in srgb, ${theme.color.primary} 14%, ${theme.color.bgElevated})`,
+                  },
+                "&.ant-btn.ant-btn-variant-outlined:not(:disabled):active": {
+                  color: theme.color.textOnPrimary,
+                  borderColor: theme.color.primaryHover,
+                  background: theme.color.primaryHover,
+                },
               }}
             />
           </Tooltip>

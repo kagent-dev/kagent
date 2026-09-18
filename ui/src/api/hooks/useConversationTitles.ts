@@ -46,7 +46,7 @@ export function useConversationTitles(
     .filter((instance) => instance.name.trim() === "")
     .slice(0, TITLE_BUDGET);
   const key = targets.length > 0
-    ? ["conversation-titles", targets.map((t) => `${t.namespace}/${t.id}`).sort().join(",")]
+    ? ["conversation-titles", targets.map((t) => t.id).sort().join(",")]
     : null;
 
   const { data } = useSWR(
@@ -56,7 +56,7 @@ export function useConversationTitles(
         targets.map(async (instance) => {
           try {
             const history = await getChatClient().history({
-              namespace: instance.namespace,
+
               id: instance.id,
             });
             const said = history.messages

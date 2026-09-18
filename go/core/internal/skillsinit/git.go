@@ -26,10 +26,12 @@ func CloneGit(ref GitRef) error {
 		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
 			return err
 		}
-		// `--` separator prevents a ref starting with `-` from being parsed
-		// as a flag. Refs are already validated upstream as 40-char hex when
-		// Full is true, but defense in depth costs nothing.
-		if err := runGitIn(ref.Dest, "checkout", "--", ref.Ref); err != nil {
+		// The trailing `--` separates revisions from pathspecs: without
+		// it, git treats the ref as a pathspec and the checkout fails
+		// for commit SHAs. It does not guard against a ref that looks
+		// like an option — refs are already validated upstream as
+		// 40-char hex when Full is true.
+		if err := runGitIn(ref.Dest, "checkout", ref.Ref, "--"); err != nil {
 			return err
 		}
 	} else {

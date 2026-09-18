@@ -3,17 +3,14 @@
  *
  * The core UI never imports extension code; an extension bundle imports this module and
  * registers what it wants to change, once, before the first request is made
- * (from its own entry module, which the app loads ahead of rendering). Three
+ * (from its own entry module, which the app loads ahead of rendering). Two
  * things can be changed without editing the application:
  *
  * 1. **What a call actually does** — `registerOperationOverride` replaces one
- *    operation's implementation, so a deployment can serve `agents.list` from its
+ *    operation's implementation, so a deployment can serve `models.list` from its
  *    own backend, a different API version, or a different protocol
  *    entirely.
- * 2. **Where an HTTP call goes** — `registerEndpointOverride` swaps the path an
- *    endpoint id resolves to. Only the handful of endpoints still served over
- *    HTTP have a path to swap; see `endpoints.ts`.
- * 3. **What goes over the wire** — `registerApiTransform` wraps every call: add a
+ * 2. **What goes over the wire** — `registerApiTransform` wraps every call: add a
  *    header, send it somewhere else, inspect the request message.
  *
  * ## Why an override, where there used to be a path
@@ -26,14 +23,14 @@
  * express, and is what a distribution needs in order to answer some operations from
  * a second backend.
  *
- * All three registries are additive and reversible: each register call returns an
+ * Both registries are additive and reversible: each register call returns an
  * unregister function. Transforms run in registration order on the way out and in
  * reverse order on the way back, so a pair of transforms nests rather than
  * interleaves.
  *
  * @example
  * // In an extension bundle's entry module:
- * registerOperationOverride("agents.list", () => managedAgents());
+ * registerOperationOverride("models.list", () => managedModels());
  * registerApiTransform({
  *   name: "tenant-header",
  *   request: (ctx) => ({
@@ -43,43 +40,23 @@
  * });
  */
 
-import {
-  clearEndpointOverrides,
-  registerEndpointOverride,
-  resolveEndpoint,
-} from "./endpoints";
-import type { EndpointId, EndpointParams, EndpointResolver } from "./endpoints";
 import type { ApiOperation, OperationCallOptions, OperationId } from "./operations";
 
-export { registerEndpointOverride, resolveEndpoint };
-export type { EndpointId, EndpointParams, EndpointResolver };
-
-/**
- * Anything a transform can be aimed at.
- *
- * Two vocabularies rather than one, because the app now speaks two protocols and
- * pretending otherwise is how a transform ends up registered against something
- * that never runs. An operation id is a gRPC call; an endpoint id is one of the
- * few remaining HTTP paths.
- */
-export type ApiCallId = OperationId | EndpointId;
+/** Anything a transform can be aimed at. */
+export type ApiCallId = OperationId;
 
 /** A call, after it has been built and before it is sent. */
 export interface ApiRequestContext {
   /** Which logical call this is, so a transform can target one. */
   readonly endpoint: ApiCallId;
   /**
-   * `GET`/`POST`/… for an HTTP endpoint. Always `POST` for an RPC, which is what
-   * gRPC-Web puts on the wire.
+   * Always `POST`, which is what gRPC-Web puts on the wire.
    */
   readonly method: string;
   /**
    * The URL the call is going to.
    *
-   * For an HTTP endpoint, rewriting this sends the request somewhere else — which
-   * is how an extension base URL moves chat.
-   *
-   * For an RPC it is **informational**. A gRPC method is addressed from its own
+   * This is **informational**. A gRPC method is addressed from its own
    * descriptor and the transport's base URL, so a rewritten URL here changes
    * nothing about where the call lands; it is assembled so a transform can *decide*
    * on the strength of where a call is going. Moving the RPCs is
@@ -89,8 +66,6 @@ export interface ApiRequestContext {
    */
   url: string;
   headers: Record<string, string>;
-  /** Already-serialised body, for an HTTP endpoint. */
-  body?: BodyInit;
   /**
    * The request message, for an RPC.
    *
@@ -104,7 +79,7 @@ export interface ApiRequestContext {
 /** A response, before it reaches the caller. */
 export interface ApiResponseContext {
   readonly endpoint: ApiCallId;
-  /** HTTP status for an endpoint; the status the gRPC code stands for otherwise. */
+  /** The status the gRPC code stands for. */
   readonly status: number;
   readonly url: string;
 }
@@ -172,7 +147,6 @@ export function registerApiTransform(transform: ApiTransform): () => void {
 /** Drops every registration. Intended for tests. */
 export function clearApiExtensions(): void {
   operationOverrides.clear();
-  clearEndpointOverrides();
   transforms.length = 0;
 }
 

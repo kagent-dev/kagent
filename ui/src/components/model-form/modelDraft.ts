@@ -107,6 +107,7 @@ const PROVIDER_SPEC_KEY: Record<string, keyof ModelConfigSpec> = {
   AnthropicVertexAI: "anthropicVertexAI",
   Bedrock: "bedrock",
   SAPAICore: "sapAICore",
+  Foundry: "foundry",
 };
 
 /** Parameters the CRD types as numbers rather than strings. */

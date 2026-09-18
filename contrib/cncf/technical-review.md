@@ -79,19 +79,19 @@ Target personas interact with kagent through multiple interfaces:
 3. **Kubernetes API**: Direct interaction via `kubectl` and Kubernetes manifests:
    ```yaml
    apiVersion: kagent.dev/v1alpha3
-   kind: SandboxAgent
+   kind: AgentTemplate
    metadata:
      name: my-agent
    spec:
-     type: Declarative
-     declarative:
-       systemMessage: "You are a helpful Kubernetes assistant"
-       tools: [...]
+     modelConfig:
+       name: default-model-config
+     systemPrompt: "You are a helpful Kubernetes assistant"
+     tools: [...]
    ```
 
-4. **HTTP REST API**: Programmatic access at `http://kagent-controller:8083/api` for:
-   - Agent invocation and management
-   - Session and task tracking
+4. **gRPC API**: Programmatic access to the controller for:
+   - AgentTemplate, Harness, and AgentInstance management
+   - Instance lifecycle and sharing
    - Model configuration
    - Integration with external systems
 
@@ -191,7 +191,7 @@ Kagent implements a multi-layered IAM approach:
 
 1. **Kubernetes RBAC**:
    - Controller uses ServiceAccount with ClusterRole for CRD management
-   - Standard agents run in isolated Agent Substrate actors; Kubernetes ServiceAccounts are not part of the SandboxAgent API
+   - Agents run in isolated Agent Substrate actors; Kubernetes ServiceAccounts are not part of the AgentTemplate API
    - Example roles in [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml)
 
 2. **API Authentication** (planned enhancement - [Issue #476](https://github.com/kagent-dev/kagent/issues/476)):
@@ -445,15 +445,15 @@ kubectl wait --for=condition=Ready pods --all -n kagent --timeout=120s
 **2. Verify CRDs:**
 
 ```bash
-kubectl get crds | grep kagent.dev
-# Expected: sandboxagents.kagent.dev, modelconfigs.kagent.dev, etc.
+kubectl get crds
+# Expected: agenttemplates.kagent.dev, harnesses.kagent.dev, modelconfigs.kagent.dev, etc.
 ```
 
 **3. Check Agents:**
 
 ```bash
-kubectl get agents -n kagent
-# Expected: Default agents (k8s-agent, observability-agent, etc.) with Ready=True
+kubectl get agenttemplates,harnesses -n kagent
+# Expected: admitted AgentTemplate/Harness pairs report ready revisions
 ```
 
 **4. Test API:**

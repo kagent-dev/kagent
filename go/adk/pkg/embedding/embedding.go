@@ -11,13 +11,15 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/ollama/ollama/api"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -87,7 +89,7 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 	if len(texts) == 0 {
 		return nil, fmt.Errorf("no texts provided")
 	}
-	logr.FromContextOrDiscard(ctx).V(1).Info("Generating embeddings", "count", len(texts), "model", c.config.Model)
+	logging.FromContext(ctx).DebugContext(ctx, "generating embeddings", "count", len(texts), "model", c.config.Model)
 	return c.p.generate(ctx, texts)
 }
 
@@ -116,7 +118,7 @@ func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
 }
 
 func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.EmbeddingConfig, provider string, isAzureFamily bool, texts []string) ([][]float32, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model:      openai.EmbeddingModel(cfg.Model),
@@ -197,7 +199,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 		APIVersion: apiVersion,
 		HTTPClient: httpClient,
 	}
-	// Implicit auth mirrors NewAzureOpenAIModelWithLogger: the incoming bearer
+	// Implicit auth mirrors NewAzureOpenAIModel: the incoming bearer
 	// token when APIKeyPassthrough is enabled (a placeholder Api-Key is
 	// overwritten per request by embeddingPassthroughOpts), otherwise the
 	// AZURE_OPENAI_API_KEY Api-Key header, otherwise DefaultAzureCredential.
@@ -255,7 +257,7 @@ func newOllamaProvider(cfg *adk.EmbeddingConfig) (*ollamaProvider, error) {
 }
 
 func (p *ollamaProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	resp, err := p.client.Embed(ctx, &api.EmbedRequest{
 		Model:      p.config.Model,
@@ -276,7 +278,7 @@ type geminiProvider struct {
 }
 
 func (p *geminiProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	p.once.Do(func() {
 		client, err := genai.NewClient(ctx, &genai.ClientConfig{
@@ -321,7 +323,7 @@ type bedrockProvider struct {
 }
 
 func (p *bedrockProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	log := logr.FromContextOrDiscard(ctx)
+	log := logging.FromContext(ctx)
 
 	region := os.Getenv("AWS_DEFAULT_REGION")
 	if region == "" {
@@ -381,18 +383,18 @@ func embeddingHTTPClient(cfg *adk.EmbeddingConfig) (*http.Client, error) {
 	})
 }
 
-func processEmbeddings(log logr.Logger, embeddings [][]float32, provider string) ([][]float32, error) {
+func processEmbeddings(log *slog.Logger, embeddings [][]float32, provider string) ([][]float32, error) {
 	result := make([][]float32, 0, len(embeddings))
 	for _, embedding := range embeddings {
 		if len(embedding) > TargetDimension {
-			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
+			log.Debug("truncating embedding", "from", len(embedding), "to", TargetDimension)
 			embedding = normalizeL2(embedding[:TargetDimension])
 		} else if len(embedding) < TargetDimension {
 			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
 		}
 		result = append(result, embedding)
 	}
-	log.Info("Successfully generated embeddings", "provider", provider, "count", len(result))
+	log.Info("successfully generated embeddings", "provider", provider, "count", len(result))
 	return result, nil
 }
 

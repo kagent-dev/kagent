@@ -4,9 +4,10 @@ import { isMockMode } from "./api/config";
 import { activeAppExtensions } from "./appExtensions/activeExtensions";
 import { extensionBranding, extensionThemes } from "./appExtensions/selectors";
 import { loadExtensionStylesheets } from "./appExtensions/theme";
-import { applyExtensionDocumentTitle } from "./appExtensions/branding";
+import { applyExtensionBranding } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
 import { App } from "./App";
+import { RootErrorBoundary, RootErrorFallback } from "./RootErrorBoundary";
 
 async function bootstrap() {
   // Deployment configuration needs no step here: it arrives on `window` from a
@@ -17,7 +18,7 @@ async function bootstrap() {
   // Before the first render: a web font that arrives afterwards reflows
   // everything already painted.
   loadExtensionStylesheets(extensionThemes(activeAppExtensions));
-  applyExtensionDocumentTitle(extensionBranding(activeAppExtensions));
+  applyExtensionBranding(extensionBranding(activeAppExtensions));
 
   // Which backend is serving is decided in one place, `api/config.ts`, and read
   // here rather than re-derived: two independent readings of the same env var
@@ -33,11 +34,21 @@ async function bootstrap() {
       {/* Outside <App> because authentication is not an extension concern: the
           extension config's provider list belongs to whoever installs an
           extension, and core auth must exist whether or not one is present. */}
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <RootErrorBoundary>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </RootErrorBoundary>
     </React.StrictMode>,
   );
 }
 
-void bootstrap();
+// The boundary above cannot see this: nothing has rendered yet when the
+// stylesheet, branding or mock-backend step throws.
+void bootstrap().catch((error: unknown) => {
+  console.error("App failed to start", error);
+  const root = document.getElementById("root");
+  if (root) {
+    ReactDOM.createRoot(root).render(<RootErrorFallback error={error} />);
+  }
+});

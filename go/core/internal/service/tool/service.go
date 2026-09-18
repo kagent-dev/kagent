@@ -6,12 +6,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	corev1 "k8s.io/api/core/v1"
@@ -19,7 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type ServerType string
@@ -37,7 +37,6 @@ var (
 type DiscoveryStore interface {
 	ListTools(context.Context) ([]database.Tool, error)
 	ListToolServers(context.Context) ([]database.ToolServer, error)
-	ListToolsForServer(context.Context, string, string) ([]database.Tool, error)
 }
 
 type MCPClient interface {
@@ -118,24 +117,25 @@ func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to list ToolServers from database", err)
 	}
+	if len(servers) == 0 {
+		return []ToolServer{}, nil
+	}
+	tools, err := s.discoveryStore.ListTools(ctx)
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to list tools from database", err)
+	}
+	byServer := make(map[[2]string][]*v1alpha3.MCPTool)
+	for _, tool := range tools {
+		key := [2]string{tool.ServerName, tool.GroupKind}
+		byServer[key] = append(byServer[key], &v1alpha3.MCPTool{Name: tool.ID, Description: tool.Description})
+	}
 	result := make([]ToolServer, 0, len(servers))
 	for _, server := range servers {
-		tools, err := s.discoveryStore.ListToolsForServer(ctx, server.Name, server.GroupKind)
-		if err != nil {
-			return nil, serviceerrors.NewInternal("Failed to list tools for ToolServer from database", err)
+		discovered := byServer[[2]string{server.Name, server.GroupKind}]
+		if discovered == nil {
+			discovered = []*v1alpha3.MCPTool{}
 		}
-		discovered := make([]*v1alpha3.MCPTool, 0, len(tools))
-		for _, discoveredTool := range tools {
-			discovered = append(discovered, &v1alpha3.MCPTool{
-				Name:        discoveredTool.ID,
-				Description: discoveredTool.Description,
-			})
-		}
-		result = append(result, ToolServer{
-			Ref:             server.Name,
-			GroupKind:       server.GroupKind,
-			DiscoveredTools: discovered,
-		})
+		result = append(result, ToolServer{Ref: server.Name, GroupKind: server.GroupKind, DiscoveredTools: discovered})
 	}
 	return result, nil
 }
@@ -170,7 +170,7 @@ func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServer
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Invalid ToolServer metadata", err)
 	}
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "ToolServer", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "ToolServer", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return nil, err
 	}
 	if err := secretmaterial.ValidateMaterials(request.Secrets); err != nil {
@@ -185,7 +185,7 @@ func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServer
 	}
 	if err := secretmaterial.CreateCompanionSecrets(ctx, s.kubeClient, owner, gvk, request.Secrets); err != nil {
 		if rollbackErr := secretmaterial.RollbackOwnerOnCreateFailure(ctx, s.kubeClient, owner); rollbackErr != nil {
-			ctrllog.FromContext(ctx).Error(rollbackErr, "failed to roll back ToolServer after companion-secret failure")
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to roll back tool server after companion secret failure", "error", rollbackErr)
 		}
 		return nil, err
 	}
@@ -196,7 +196,7 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 	if ref.Namespace == "" || ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("ToolServer namespace and name are required", nil)
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "ToolServer", Name: ref.String()}); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "ToolServer", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return err
 	}
 
@@ -311,7 +311,7 @@ func (s *Service) authorizeMCP(ctx context.Context, verb auth.Verb, ref MCPServe
 	if ref.Ref.Namespace == "" || ref.Ref.Name == "" {
 		return serviceerrors.NewInvalidArgument("ToolServer namespace and name are required", nil)
 	}
-	return s.authorize(ctx, verb, auth.Resource{Type: "ToolServer", Name: ref.Ref.String()})
+	return s.authorize(ctx, verb, auth.Resource{Type: "ToolServer", Namespace: ref.Ref.Namespace, Name: ref.Ref.Name})
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.Resource) error {
