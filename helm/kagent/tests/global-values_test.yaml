@@ -4,6 +4,7 @@ templates:
   - postgresql-secret.yaml
   - controller-configmap.yaml
   - rbac/getter-role.yaml
+  - substrate-workerpool.yaml
 tests:
   - it: should override every image registry from global.imageRegistry
     set:
@@ -13,14 +14,27 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].image
           pattern: "^mirror\\.example/kagent-dev/kagent/controller:"
-  - it: should point the agent runtime at global.imageRegistry
+  - it: should rewrite the worker pool image onto global.imageRegistry
     set:
       global.imageRegistry: mirror.example
-    template: controller-configmap.yaml
+      controller.substrate.enabled: true
+      substrateWorkerPool.create: true
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
+    template: substrate-workerpool.yaml
     asserts:
       - equal:
-          path: data.IMAGE_REGISTRY
-          value: mirror.example
+          path: spec.workerImage
+          value: mirror.example/kagent-dev/substrate/ateom:v1
+  - it: should leave the worker pool image alone when the global is unset
+    set:
+      controller.substrate.enabled: true
+      substrateWorkerPool.create: true
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
+    template: substrate-workerpool.yaml
+    asserts:
+      - equal:
+          path: spec.workerImage
+          value: ghcr.io/kagent-dev/substrate/ateom:v1
   - it: should keep per-image registry when the global is unset
     template: controller-deployment.yaml
     asserts:

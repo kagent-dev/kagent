@@ -399,6 +399,32 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- end -}}
 
 {{/*
+Rewrite a full image reference onto global.imageRegistry, for values that carry
+a whole reference in one string rather than registry/repository/tag keys.
+Follows the container runtime's rule for deciding whether the first path
+segment is a registry: it is one only when it contains a dot or a colon or is
+exactly "localhost". A host-carrying reference has that segment replaced so the
+mirror sees a stable path; a bare Docker Hub-style name is prefixed instead.
+When global.imageRegistry is unset the reference passes through unchanged.
+Call with (dict "root" $ "image" <reference>).
+*/}}
+{{- define "kagent.mirroredImage" -}}
+{{- $ref := .image -}}
+{{- $mirror := ((.root.Values.global).imageRegistry) -}}
+{{- if and $mirror $ref -}}
+  {{- $parts := splitList "/" $ref -}}
+  {{- $first := first $parts -}}
+  {{- if and (gt (len $parts) 1) (or (contains "." $first) (contains ":" $first) (eq $first "localhost")) -}}
+    {{- printf "%s/%s" $mirror (join "/" (rest $parts)) -}}
+  {{- else -}}
+    {{- printf "%s/%s" $mirror $ref -}}
+  {{- end -}}
+{{- else -}}
+  {{- $ref -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The ui container image. Same tag precedence as the controller: the top-level
 tag wins over the component tag.
 */}}

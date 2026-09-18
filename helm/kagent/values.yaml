@@ -21,8 +21,9 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, ui, bundled
-  # postgres, grafana-mcp, and the agent runtime. The vendored subcharts
-  # (kagent-tools, kmcp, substrate) adopt it when their pinned versions bump.
+  # postgres, grafana-mcp, and substrateWorkerPool.workerImage. The vendored
+  # subcharts (kagent-tools, kmcp, substrate) adopt it when their pinned
+  # versions bump.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
   # pod's own imagePullSecrets, so a local secret is never removed. Coverage
