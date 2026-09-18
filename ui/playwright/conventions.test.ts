@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
  */
 
 const TESTS = join(__dirname, "tests");
+const SHARED = join(__dirname, "shared");
 
 /**
  * Folders whose subject is the application rather than a resource it manages.
@@ -39,6 +40,29 @@ function resources(): string[] {
 
 function specsIn(dir: string): string[] {
   return readdirSync(dir).filter((name) => name.endsWith(".spec.ts"));
+}
+
+/** Folders under `shared/`, which are resources for the same reason `tests/` ones are. */
+function sharedFolders(): string[] {
+  return readdirSync(SHARED).filter(
+    (name) => !name.startsWith(".") && statSync(join(SHARED, name)).isDirectory(),
+  );
+}
+
+/**
+ * Every spec under `shared/`, nested ones included.
+ *
+ * Recursive deliberately: the resource journeys moved a directory down into
+ * `shared/<resource>/`, and a top-level-only read would have quietly stopped applying
+ * the rule below to exactly the specs it matters most for.
+ */
+function sharedSpecs(): string[] {
+  return [
+    ...specsIn(SHARED).map((name) => join(SHARED, name)),
+    ...sharedFolders().flatMap((folder) =>
+      specsIn(join(SHARED, folder)).map((name) => join(SHARED, folder, name)),
+    ),
+  ];
 }
 
 function folders(): string[] {
@@ -135,6 +159,51 @@ describe("playwright layout", () => {
       "a single test of ten or more steps needs `test.describe.configure({ timeout: LIFECYCLE_TIMEOUT })`",
     ).toEqual([]);
   });
+
+  it("a shared spec asserts nothing only one backend can answer", () => {
+    /*
+     * `shared/` runs in both suites, so a scenario query there is either ignored by a
+     * cluster or — worse — read as a claim the run cannot make. The narrowness is the
+     * folder's whole value: assertions true on both backends are the weakest ones, and
+     * a lifecycle drifting in here would quietly cost the mock suite its precision.
+     */
+    for (const spec of sharedSpecs()) {
+      const source = readFileSync(spec, "utf8");
+      expect(
+        /mock=|withScenario|scenario:|helpers\/mockCalls/.test(source),
+        `${spec} drives the mock backend, so it cannot run live`,
+      ).toBe(false);
+    }
+  });
+
+  it.each(sharedFolders())(
+    "shared/%s holds one spec, holding one test, titled for its folder",
+    (folder) => {
+      /*
+       * The same shape as a resource folder in `tests/`, and for the same reasons — one
+       * journey per resource, and a title that says where it lives so `--grep` can
+       * select an area. Not the empty-and-error rule, though: those need `?mock=`, which
+       * is the one thing a spec here may not touch.
+       */
+      const specs = specsIn(join(SHARED, folder));
+      expect(specs, `shared/${folder}/ should hold one spec`).toHaveLength(1);
+
+      const source = readFileSync(join(SHARED, folder, specs[0]), "utf8");
+      expect(
+        [...source.matchAll(/^test(\.skip)?\(/gm)],
+        `shared/${folder}/${specs[0]} should hold one test`,
+      ).toHaveLength(1);
+
+      const expected = folder.replace(/-/g, " ");
+      for (const title of titles(join(SHARED, folder, specs[0]))) {
+        const prefix = title.split(":")[0];
+        expect(
+          prefix === expected || prefix.startsWith(`${expected} `),
+          `shared/${folder}/${specs[0]}: "${title}" should begin with "${expected}"`,
+        ).toBe(true);
+      }
+    },
+  );
 
   it("every spec outside a folder is about the application, not a resource", () => {
     // Top level means the shell, routing, the dashboard, theme contrast — things that

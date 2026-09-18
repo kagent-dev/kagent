@@ -243,7 +243,11 @@ export function HarnessesTab() {
         ]}
         trailing={
           <Space size={8}>
-            {!harnesses.error && !harnesses.isLoading ? (
+            {/* `data !== undefined` as well as `!isLoading`: SWR runs its fetcher in an effect, so
+            the first paint reports "not loading" on a page that has not asked yet, and this
+            counted "0 of 0" for the 600ms before the answer arrived. A count of nothing is a
+            claim, and until the read lands this page has not earned it. */}
+            {!harnesses.error && !harnesses.isLoading && harnesses.data !== undefined ? (
               <Text data-testid="harnesses-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {rows.length}{" "}
                 {rows.length === 1 ? "harness" : "harnesses"}

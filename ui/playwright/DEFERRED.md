@@ -15,62 +15,92 @@ missing is the page.
 | Old spec | Blocked on | Already available |
 |---|---|---|
 | `onboarding/onboarding.spec.ts` | No onboarding wizard exists on this architecture | — nothing; drop it unless the flow is rebuilt |
-| `cleanup.spec.ts` | Not applicable while the suite runs on the mock backend: each test gets a fresh browser context, so there is nothing to sweep. Revisit if the suite gains a live-backend mode. | — |
+| `cleanup.spec.ts` | Still not a spec. The mock suite gives each test a fresh browser context, so there is nothing to sweep; the live suite creates real resources and each spec removes what it made in a `test.afterEach`. What neither covers is a run *killed* between the two — see below. | — |
 
-## Ported since: chat
+## Now running in CI: the live suite
 
-`chat/chat.spec.ts` and `chat/chat-errors.spec.ts` are live. The chat page was
-rebuilt on the `ChatClient` port, so both journeys assert against the real page:
-history, sending, streaming deltas, tool call and result rendering, a failed
-turn with retry, cancelling mid-stream, and the session list failing on its own.
+`playwright/live/` runs in the `test-e2e` job, against the image built from
+`ui/Dockerfile` on the same cluster as the Go end-to-end tests. `README.md` has the
+wiring. Two things follow for this file.
 
-The chat-message extension point is covered too, now that the example mounts a
-component there: `extension-points.withExtension.spec.ts` asserts one slot per message
-and four *distinguishable* contributions, so per-message context is proven rather
-than assumed. Every extension point the app declares now has a runtime
-assertion.
+**The cleanup entry above is now about litter, not contexts.** A live spec deletes what
+it created, in a `test.afterEach` rather than a `finally` — measured, a timed-out test has
+a closed page and everything in its `finally` throws, which is the failure most likely to
+leave something behind. A run killed outright still cannot. That is why `throwawayName` puts the
+process and a timestamp in every name — anything matching `e2e-live-*` in `kagent` is
+litter and safe to remove. A sweep spec stays the wrong shape for it, being one bad
+selector away from deleting somebody's work.
 
-## Covered: form validation, and every resource's lifecycle
+**Every live spec was broken the first time one was run against a cluster**, each in a
+way the mock suite structurally could not show: `agent-lifecycle.spec.ts` — since
+replaced by `shared/agent-templates/` — drove
+`/agents/new`, a page long removed, for an agent nobody creates; `schedules.spec.ts`
+drove a dialog for an editor that is a page, and named CI's fixture rather than
+`setup-cluster.sh`'s; `substrate.spec.ts` read a tile once, catching the em-dash it
+draws before the data lands. Two harness faults came out of the same run and were fixed
+in `helpers/resource.ts`.
 
-Each resource's lifecycle spec asserts its own form's gate in the create step — the
-submit refused while a required field is empty, the refusal naming the field, the
-address staying on the form — and checks the required *marks* against that gate with
-`expectRequired`. antd draws the mark from `required` on a `Form.Item` while these
-forms gate their submit in code, so the two are separate statements about the same
-field and only a test keeps them agreeing.
+The specs were written, they were correct, nothing ran them, and they decayed into files
+testing pages that had been removed. A stale entry costs more than no entry; a stale
+*spec* costs more again.
 
-**What is still missing is the agent form, because there is no agent form.** An agent
-is an `AgentTemplate` paired with a `Harness` and is not created, so the old
-"declarative agent create blocks submit" assertion has no page to run against. If a
-create-an-agent surface lands, its validation belongs in that change.
+## Deferred: MCP servers stay mock-only — the list cannot read its own writes
 
-## Not started by request
+Every other resource has its create/read/change/delete journey in `shared/`, running
+against both backends. MCP servers do not, and the reason is a defect rather than an
+awkward fixture: **#2849**.
 
-App extension-point specs. The framework is still being edited and its
-contract is not frozen; the team lead will ask for these once it lands.
+The page's two halves use different stores. `CreateToolServer` writes a Kubernetes
+`RemoteMCPServer`; `ListToolServers` reads the PostgreSQL `toolserver` table; the only
+writer of that table is the reconciler, after it has tried to connect to the server. So
+the list lags a create by however long discovery takes. Measured on a cluster:
 
-## Ported since: MCP servers and prompt libraries
+```
+CreateToolServer   OK
+ListToolServers    OK   <- 57ms later; the new server is not in it
+   (nothing further)
+ListToolServers    OK   <- a fresh page load a minute on; now present
+```
 
-`mcp-servers/mcp-servers.spec.ts` and `prompts/prompts.spec.ts` are live: one lifecycle
-spec apiece, with the failure states among the steps.
+Delete has the same shape in reverse, and `DeleteToolServer` resolves the server's kind
+from that same projection — so while a new server is invisible it is also undeletable.
 
-**These were listed above as blocked on pages that did not exist. The pages did
-exist** — `McpServersPage`, `PromptsPage` and `PromptDetailPage` are all real, and were
-before the specs were written. The entries were simply stale, which is worth recording:
-this file is only useful while it is true, and a stale "blocked on" entry costs more
-than no entry at all, because it stops somebody porting work that is already possible.
+A shared spec was written and did pass, by pressing **Refresh** after the create and
+after the delete. It was withdrawn rather than landed: a spec that presses through a
+defect to stay green is how the defect stops being noticed, and the press would have
+needed removing anyway. The mock lifecycle in `tests/mcp-servers/mcp-servers.spec.ts`
+keeps its full coverage meanwhile.
 
-The specs cover the list, the per-server tool count including a server that discovered
-none, the filter, the step through to a library's fragments and the include expression
-a reader copies, and both failure journeys. The detail page's two failure states are
-asserted apart — a library that could not be loaded and a library that does not exist
-lead to different actions, and the page distinguishes them.
+**Revisit when #2849 lands.** The spec is a short port of the mock one — create with a
+URL the cluster can resolve, read the row back, delete it — and the acceptance test is
+that it needs no Refresh.
 
-One thing they needed from the harness: a spec can now declare console output it
-provokes on purpose, with `test.use({ expectedNoise: [...] })`. The not-found journey
-makes the browser log a 404, and forgiving 404s for the whole suite would have blunted
-the guard — a 404 is also what a missing asset looks like, and this repository has
-shipped one to production that way before.
+Worth recording for its own sake: the fixtures cannot show this class of bug at all. They
+answer from the page's own memory and are therefore always immediately consistent, so a
+mock backend has no write that is not yet a read. Only a cluster has one.
+
+## Ported since, and no longer worth describing here
+
+Chat and its error journeys, the chat-message extension point, MCP servers, prompt
+libraries, and form validation for every resource that has a form. Each is a spec now,
+and a spec describes itself better than a list of what it covers.
+
+**Two of those had been listed as blocked on pages that already existed.** That is the
+lesson worth keeping: a stale "blocked on" entry costs more than no entry, because it
+stops somebody porting work that is already possible.
+
+**What is still missing is the agent form, because there is no agent form.** An agent is
+an `AgentTemplate` paired with a `Harness` and is not created. If a create-an-agent
+surface lands, its validation belongs in that change.
+
+## Was "not started by request", and is not that any more
+
+App extension-point specs were held back while the framework's contract was unfrozen.
+`extension-points.withExtension.spec.ts` and `extension-points-absent.spec.ts` both exist
+and run, and between them assert every point the app declares — so this entry described
+the tree accurately for about as long as it took the contract to settle, and then said
+the opposite of the paragraph above it for longer. Anything still wanted here has to be
+named; "the specs" is done.
 
 ## Lost with the REST path tests, and where it went instead
 
@@ -134,7 +164,10 @@ landing page carries all three as tabs, and a conversation's record links out to
 template and to the agent rather than duplicating either. What is still not covered in a
 browser is that an agent's readiness *reason* is readable end to end, because the
 `AgentInstance` record reports a failure message and the template reports a condition, and
-no single surface shows both.
+no single surface shows both. Nor is either half: `AgentDetailsPage` — the record itself,
+with `instance-state`, `instance-operation`, `instance-failure` and the sentence saying
+what a state means — has no spec at all. A gap rather than a deferral, and worth taking
+before the end-to-end one.
 
 ## What the chat fixes could not be covered against
 
@@ -156,7 +189,10 @@ The reading itself is covered exhaustively in `src/components/chat/lifecycleRead
 since a substrate agent really does suspend itself then and nothing in the API reports it.
 What is missing is a browser journey that suspends an instance from the agents list while a
 chat page is open on it and watches the indicator follow. That belongs in `playwright/live/`,
-where the operation is real.
+where the operation is real — and that lane now exists and runs in CI, so the blocker has
+moved rather than gone: an `AgentInstance` exists only once a message has been sent, and
+neither cluster has a model that can answer one. CI installs with `OPENAI_API_KEY: fake`,
+and `setup-cluster.sh` sets no key at all.
 
 ### Streaming, end to end, against a controller
 
@@ -173,6 +209,9 @@ artifact path. Teaching the fixture to emit artifact frames would mean it stoppe
 `ChatClient` and started being an A2A server, which is the wrong seam — the transport is
 already covered by unit tests over real bytes. The browser-level gap is a `playwright/live/`
 spec that sends a message and asserts the reply grows on screen before the turn completes.
+The lane is no longer what blocks it: a reply that streams needs a model that answers, and
+both clusters this suite runs against carry a fake key. Reachable today only by a developer
+with their own.
 
 A related gap worth naming rather than leaving implicit: the mock backend serves one
 instance per conversation and never *changes* an instance's `operation`, so the lifecycle
@@ -186,18 +225,19 @@ answer names the parked turn and carries the extension payload, and the agent us
 What is left are the two neighbouring cases, both of which the UI *recognises* and says
 plainly rather than guessing at.
 
-**A `tool_approval_request`** carries `tools[]` and a `hint` and is answered with
-`tool_approval_response` / `approvals[]` — a different payload, and a different control:
-per-tool approve or reject, with a rejection reason. The prompt names the tools and
-offers only the discard, which is honest. Building the approval controls needs the
-product decision about what a reader is being asked to vouch for, and it should not be
-guessed from the shape of the payload.
+**A `tool_approval_request`** is **no longer deferred.** The product decision landed in
+#2714 and the controls shipped with it; they had no browser coverage until
+`tests/chat/approvals.spec.ts`, which drives both shapes — several tools decided
+independently behind a Submit, and a single tool decided on the prompt itself — and reads
+the decisions back off the reply rather than off the form, so it fails if the page sends
+both as approvals or pairs a reason with the wrong tool.
 
 **A turn parked without the HITL extension activated** has no payload at all — the
 question exists only as prose and carries no correlation id, so no answer can be routed
 to it. The prompt says so and offers the discard. This build always activates the
 extension, so it can only arise from a turn started by something else (a `kubectl`-driven
-send, an older client). It is not worth engineering around; it is worth not lying about.
+send, an older client). It is not worth engineering around; it is worth not lying about —
+and the sentence that does the not-lying is covered in the same spec.
 
 **The `ask_user` payload still renders as JSON in the transcript**, beside the answerable
 prompt — the tool call and its result are structured data and are shown as such. That is

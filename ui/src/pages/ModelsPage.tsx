@@ -239,7 +239,11 @@ export function ModelsPage() {
           trailing={
             // Only a successful load can be counted. Saying "0 of 0" because a
             // request failed would be a claim the page cannot support.
-            !error && !isLoading ? (
+            /* `data !== undefined` as well as `!isLoading`: SWR runs its fetcher in an effect, so
+            the first paint reports "not loading" on a page that has not asked yet, and this
+            counted "0 of 0" for the 600ms before the answer arrived. A count of nothing is a
+            claim, and until the read lands this page has not earned it. */
+            !error && !isLoading && data !== undefined ? (
               <Text data-testid="models-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {models.length}{" "}
                 {models.length === 1 ? "configuration" : "configurations"}

@@ -11,24 +11,18 @@ import {
   expectLoading,
   chooseFilter,
   clickRefresh,
-  confirmDelete,
-  confirmation,
   expectRequired,
-  selectOption,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 
 /**
- * Model configurations — the whole life of one, in a single journey.
+ * Model configurations, on the fixtures.
  *
- * One test, because a video and a trace are recorded per *test* — see
- * `playwright/README.md` for the shape and the trade it makes.
- *
- * The fixture backend records writes (`src/mocks/state.ts`) so the reads afterwards
- * can contradict the form, which is what steps 6, 8 and 10 rely on. Three claims that
- * would otherwise each cost their own page load are steps here rather than files of
- * their own: the required-field marks (5), the refresh confirmation (3) and the
- * filter in the address (4).
+ * The write journey is not here: creating one, reading it back, changing its credential
+ * and deleting it runs against both backends from `shared/models/`. What is left is what
+ * only fixed data can settle — the seeded rows and their refs taken apart, the refresh
+ * confirmation, the filter in the address, the required-field marks, and the empty and
+ * failure states.
  */
 
 /** The four seeded configurations, which is what "nothing narrowed" has to mean. */
@@ -39,9 +33,6 @@ const SEEDED = [
   "bedrock-haiku",
 ];
 
-/** The one this journey makes, reads, renames the model on, and removes. */
-const CREATED = "browser-made-model";
-
 /*
  * A lifecycle is longer than a journey, so it gets its own budget — see
  * `LIFECYCLE_TIMEOUT`. Set per file rather than across the suite, so the tight default
@@ -49,7 +40,7 @@ const CREATED = "browser-made-model";
  */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("models: a configuration is created, read, changed and deleted", async ({
+test("models: the list reads, narrows, and says what the form requires", async ({
   page,
 }) => {
   await test.step("1. a loading state precedes the data", async () => {
@@ -166,123 +157,13 @@ test("models: a configuration is created, read, changed and deleted", async ({
     });
   });
 
-  await test.step("6. a filled-in configuration is created and appears on the list", async () => {
-    // The provider is picked by the name a reader sees, which is not the enum the
-    // draft stores: `providerDisplayName` turns `AmazonBedrock` into "AWS Bedrock".
-    await selectOption(page, "model-provider", "Anthropic");
-
-    // The model is an AutoComplete, not a Select — the test id is on the wrapper and
-    // the caret goes in the input inside it. Typed rather than picked, because the
-    // field exists to accept a model the catalogue has not heard of.
-    const model = page.getByTestId("model-model").locator("input");
-    await model.fill("claude-sonnet-4");
-
-    await page.getByTestId("model-name").fill(CREATED);
-    // The namespace is half the ref, so a configuration created without one is
-    // addressed as `/name` and never appears on the list — which is why the form
-    // marks it required and why this step chooses one rather than leaving the
-    // default.
-    await selectOption(page, "model-namespace", "kagent");
-    await page.getByTestId("model-api-key").fill("sk-not-a-real-key");
-
-    await page.getByTestId("model-submit").click();
-    await page.waitForURL(/\/models(\?|$)/, { timeout: 30_000 });
-
-    // Read back off the list rather than from a toast or a closed form: those two
-    // only prove the app believes it worked.
-    const row = rowNamed(page, CREATED);
-    await expect(row).toHaveCount(1, { timeout: 30_000 });
-    await expect(row).toContainText("Anthropic");
-    await expect(row).toContainText("claude-sonnet-4");
-    await expect(dataRows(page)).toHaveCount(SEEDED.length + 1);
-  });
-
-  await test.step("7. the edit form opens on what was saved, not on a blank draft", async () => {
-    await page.getByTestId(`edit-${CREATED}`).click();
-    await page.waitForURL(new RegExp(`/models/kagent/${CREATED}/edit$`));
-    await expectSettled(page);
-
-    await expect(page.getByTestId("model-name")).toHaveValue(CREATED);
-    /*
-     * The identity and the provider are the ref and what the ref means, so an edit
-     * changes neither: a configuration cannot be renamed, moved to another namespace,
-     * or repointed at a different provider's model. Asserted here because it is the
-     * boundary between "edit" and "make a new one", and a form that quietly allowed
-     * it would write a resource nothing else in the cluster is pointing at.
-     */
-    await expect(page.getByTestId("model-name")).toBeDisabled();
-    await expect(page.getByTestId("model-model").locator("input")).toBeDisabled();
-
-    /*
-     * And the key is not asked for again, because the cluster already holds it. The
-     * label says so in words; the mark has to agree, or the form is demanding a
-     * credential in order to change anything else.
-     *
-     * The radio is clicked first because the field is not on screen until it is: a
-     * key is write-only, so the configuration comes back carrying no credential to
-     * seed the draft from, and the form opens on the mode that matches what it was
-     * given rather than on the one it was created with.
-     */
-    await page
-      .getByTestId("model-auth-type")
-      .getByText("API key", { exact: true })
-      .click();
-    await expectRequired(page, {
-      marked: ["Name", "Namespace"],
-      unmarked: ["API key (leave blank to keep existing)"],
-    });
-  });
-
-  await test.step("8. a change is saved, and the list shows it", async () => {
-    // The credential moves from one the controller minted to a Secret the cluster
-    // already holds — the one change on this form the list has a column for, which is
-    // what makes the save checkable from outside the form.
-    await page
-      .getByTestId("model-auth-type")
-      .getByText("Existing secret", { exact: true })
-      .click();
-    await page.getByTestId("model-api-key-secret").fill("kagent-anthropic");
-
-    await page.getByTestId("model-submit").click();
-    await page.waitForURL(/\/models(\?|$)/, { timeout: 30_000 });
-
-    const row = rowNamed(page, CREATED);
-    await expect(row).toContainText("kagent-anthropic", { timeout: 30_000 });
-    // Changed, not duplicated — which a create dressed as an update would be.
-    await expect(row).toHaveCount(1);
-    await expect(dataRows(page)).toHaveCount(SEEDED.length + 1);
-  });
-
-  await test.step("9. deleting asks first, and Keep leaves it alone", async () => {
-    await page.getByTestId(`delete-${CREATED}`).click();
-    const prompt = confirmation(page);
-    // The confirmation names the row. "Delete this model configuration?" is no help
-    // in a table of five of them, and *which* is the one question the reader has.
-    await expect(prompt).toContainText(CREATED);
-    await prompt.getByRole("button", { name: "Keep" }).click();
-    await expect(rowNamed(page, CREATED)).toHaveCount(1);
-    // Waited out rather than assumed gone: the dialog stays visible while it animates
-    // away, and the next step's click would land on it.
-    await expect(prompt).toHaveCount(0);
-  });
-
-  await test.step("10. confirming removes that row and leaves the rest", async () => {
-    await confirmDelete(page, CREATED);
-
-    await expect(rowNamed(page, CREATED)).toHaveCount(0, { timeout: 30_000 });
-    // "Gone" has to mean that one rather than the read: a list that failed to reload
-    // is also a list the row is missing from.
-    await expect(dataRows(page)).toHaveCount(SEEDED.length);
-    await expect(rowNamed(page, "default-model-config")).toHaveCount(1);
-  });
-
-  await test.step("11. an empty result says so instead of showing a bare table", async () => {
+  await test.step("6. an empty result says so instead of showing a bare table", async () => {
     await loadPage(page, routes.models, { scenario: "empty", title: "Models" });
     await expect(page.getByText("No model configurations yet.")).toBeVisible();
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("12. a failed load is reported, not disguised as an empty list", async () => {
+  await test.step("7. a failed load is reported, not disguised as an empty list", async () => {
     await loadPage(page, routes.models, { scenario: "error", title: "Models" });
 
     const alert = page.getByTestId("models-error");
@@ -301,7 +182,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("13. retrying asks the backend again, and it recovers", async () => {
+  await test.step("8. retrying asks the backend again, and it recovers", async () => {
     const before = await operationCalls(page, rpc.listModelConfigs);
 
     await page.getByRole("button", { name: "Try again" }).click();
