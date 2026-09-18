@@ -101,6 +101,11 @@ function isScenario(value: string | null): value is MockScenario {
  * boundary; what it must not do is start emitting wire frames, which is a transport
  * shape covered by unit tests over real bytes.
  *
+ * `approves-one` is the same request with a single tool, which is a different set of
+ * controls rather than a shorter list of the same ones: Approve and Reject on the prompt
+ * itself, and a rejection that opens its reason with the caret already in it. A fixture
+ * with two tools cannot reach either.
+ *
  * `asks-unknown` parks it on a request this build does not recognise, which is what a
  * turn started without the HITL extension looks like: prose, no correlation id, nothing
  * to answer against. The page says so and offers only the discard, and that sentence is
@@ -113,6 +118,7 @@ export const CHAT_SCENARIOS = [
   "asks",
   "asks-text",
   "approves",
+  "approves-one",
   "asks-unknown",
 ] as const;
 

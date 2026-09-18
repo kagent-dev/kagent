@@ -36,6 +36,7 @@ const TIMING = {
   asks: { step: 300, word: 45 },
   "asks-text": { step: 300, word: 45 },
   approves: { step: 300, word: 45 },
+  "approves-one": { step: 300, word: 45 },
   "asks-unknown": { step: 300, word: 45 },
 } as const;
 
@@ -401,14 +402,14 @@ export class MockChatClient implements ChatClient {
       return;
     }
 
-    if (scenario === "approves") {
+    if (scenario === "approves" || scenario === "approves-one") {
       // The same park, a different request: tools to vouch for rather than a question
       // to answer. `hint` is the runtime's own sentence about why it is asking.
       this.persist(sessionId);
       const request: PendingRequest = {
         kind: "tool_approval",
         taskId,
-        tools: APPROVAL_TOOLS,
+        tools: scenario === "approves-one" ? [APPROVAL_TOOLS[1]] : APPROVAL_TOOLS,
         hint: APPROVAL_HINT,
       };
       saveParked(sessionId, request);

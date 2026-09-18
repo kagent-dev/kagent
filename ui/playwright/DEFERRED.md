@@ -78,60 +78,24 @@ Worth recording for its own sake: the fixtures cannot show this class of bug at 
 answer from the page's own memory and are therefore always immediately consistent, so a
 mock backend has no write that is not yet a read. Only a cluster has one.
 
-## Ported since: chat
+## Ported since, and no longer worth describing here
 
-`chat/chat.spec.ts` and `chat/chat-errors.spec.ts` are live. The chat page was
-rebuilt on the `ChatClient` port, so both journeys assert against the real page:
-history, sending, streaming deltas, tool call and result rendering, a failed
-turn with retry, cancelling mid-stream, and the session list failing on its own.
+Chat and its error journeys, the chat-message extension point, MCP servers, prompt
+libraries, and form validation for every resource that has a form. Each is a spec now,
+and a spec describes itself better than a list of what it covers.
 
-The chat-message extension point is covered too, now that the example mounts a
-component there: `extension-points.withExtension.spec.ts` asserts one slot per message
-and four *distinguishable* contributions, so per-message context is proven rather
-than assumed. Every extension point the app declares now has a runtime
-assertion.
+**Two of those had been listed as blocked on pages that already existed.** That is the
+lesson worth keeping: a stale "blocked on" entry costs more than no entry, because it
+stops somebody porting work that is already possible.
 
-## Covered: form validation, and every resource's lifecycle
-
-Each resource's lifecycle spec asserts its own form's gate in the create step — the
-submit refused while a required field is empty, the refusal naming the field, the
-address staying on the form — and checks the required *marks* against that gate with
-`expectRequired`. antd draws the mark from `required` on a `Form.Item` while these
-forms gate their submit in code, so the two are separate statements about the same
-field and only a test keeps them agreeing.
-
-**What is still missing is the agent form, because there is no agent form.** An agent
-is an `AgentTemplate` paired with a `Harness` and is not created, so the old
-"declarative agent create blocks submit" assertion has no page to run against. If a
-create-an-agent surface lands, its validation belongs in that change.
+**What is still missing is the agent form, because there is no agent form.** An agent is
+an `AgentTemplate` paired with a `Harness` and is not created. If a create-an-agent
+surface lands, its validation belongs in that change.
 
 ## Not started by request
 
-App extension-point specs. The framework is still being edited and its
-contract is not frozen; the team lead will ask for these once it lands.
-
-## Ported since: MCP servers and prompt libraries
-
-`mcp-servers/mcp-servers.spec.ts` and `prompts/prompts.spec.ts` are live: one lifecycle
-spec apiece, with the failure states among the steps.
-
-**These were listed above as blocked on pages that did not exist. The pages did
-exist** — `McpServersPage`, `PromptsPage` and `PromptDetailPage` are all real, and were
-before the specs were written. The entries were simply stale, which is worth recording:
-this file is only useful while it is true, and a stale "blocked on" entry costs more
-than no entry at all, because it stops somebody porting work that is already possible.
-
-The specs cover the list, the per-server tool count including a server that discovered
-none, the filter, the step through to a library's fragments and the include expression
-a reader copies, and both failure journeys. The detail page's two failure states are
-asserted apart — a library that could not be loaded and a library that does not exist
-lead to different actions, and the page distinguishes them.
-
-One thing they needed from the harness: a spec can now declare console output it
-provokes on purpose, with `test.use({ expectedNoise: [...] })`. The not-found journey
-makes the browser log a 404, and forgiving 404s for the whole suite would have blunted
-the guard — a 404 is also what a missing asset looks like, and this repository has
-shipped one to production that way before.
+App extension-point specs. The framework is still being edited and its contract is not
+frozen; the team lead will ask for these once it lands.
 
 ## Lost with the REST path tests, and where it went instead
 
@@ -195,7 +159,10 @@ landing page carries all three as tabs, and a conversation's record links out to
 template and to the agent rather than duplicating either. What is still not covered in a
 browser is that an agent's readiness *reason* is readable end to end, because the
 `AgentInstance` record reports a failure message and the template reports a condition, and
-no single surface shows both.
+no single surface shows both. Nor is either half: `AgentDetailsPage` — the record itself,
+with `instance-state`, `instance-operation`, `instance-failure` and the sentence saying
+what a state means — has no spec at all. A gap rather than a deferral, and worth taking
+before the end-to-end one.
 
 ## What the chat fixes could not be covered against
 
@@ -253,15 +220,12 @@ answer names the parked turn and carries the extension payload, and the agent us
 What is left are the two neighbouring cases, both of which the UI *recognises* and says
 plainly rather than guessing at.
 
-**A `tool_approval_request`** carries `tools[]` and a `hint` and is answered with
-`tool_approval_response` / `approvals[]` — a different payload, and a different control:
-per-tool approve or reject, with a rejection reason. **No longer deferred.** The product
-decision landed in #2714 and the controls shipped with it; they had no browser coverage
-until `tests/chat/approvals.spec.ts`, which decides two tools opposite ways in one
-submission and reads the decisions back off the reply rather than off the form — so it
-fails if the page sends both as approvals or pairs a reason with the wrong tool. The
-fixture parks on the request at the `ChatClient` boundary, which is what `asks` already
-does; what stays out is wire frames, and that stays out.
+**A `tool_approval_request`** is **no longer deferred.** The product decision landed in
+#2714 and the controls shipped with it; they had no browser coverage until
+`tests/chat/approvals.spec.ts`, which drives both shapes — several tools decided
+independently behind a Submit, and a single tool decided on the prompt itself — and reads
+the decisions back off the reply rather than off the form, so it fails if the page sends
+both as approvals or pairs a reason with the wrong tool.
 
 **A turn parked without the HITL extension activated** has no payload at all — the
 question exists only as prose and carries no correlation id, so no answer can be routed

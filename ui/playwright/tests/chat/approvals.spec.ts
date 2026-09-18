@@ -68,6 +68,35 @@ test("chat: a tool approval is decided per tool, and the decisions are what go b
   });
 });
 
+test("chat: one tool is approved or rejected on the prompt itself", async ({ page }) => {
+  /*
+   * One tool is a different prompt, not a shorter one: there is nothing to decide
+   * between, so the decision is the prompt's own Approve and Reject rather than a row's
+   * Allow and Deny behind a Submit. Both paths send the same payload, and only this one
+   * has ever been reachable by a reader with a single-tool agent.
+   */
+  await page.goto(`${AGENT_CHAT}?chat=approves-one`);
+  await page.getByTestId("chat-input").fill("Clear the cache.");
+  await page.getByTestId("chat-send").click();
+
+  const prompt = page.getByTestId("chat-awaiting-reply");
+  await expect(prompt).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("chat-approval-tool")).toHaveCount(1);
+
+  // Rejecting asks why, with the caret already in the field — the one place it can be,
+  // there being no other tool to choose between.
+  await page.getByTestId("chat-approval-reject").click();
+  const reason = page.getByTestId("chat-approval-reason-call-2");
+  await expect(reason).toBeFocused();
+  await page.keyboard.type("Not on a Friday.");
+
+  await page.getByTestId("chat-approval-submit").click();
+  const transcript = page.getByTestId("chat-transcript");
+  await expect(transcript).toContainText("call-2 rejected", { timeout: 30_000 });
+  await expect(transcript).toContainText("Not on a Friday.");
+  await expect(prompt).toHaveCount(0);
+});
+
 test("chat: a question this build cannot answer says so, rather than guessing", async ({
   page,
 }) => {
