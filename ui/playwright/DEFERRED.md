@@ -15,7 +15,7 @@ missing is the page.
 | Old spec | Blocked on | Already available |
 |---|---|---|
 | `onboarding/onboarding.spec.ts` | No onboarding wizard exists on this architecture | — nothing; drop it unless the flow is rebuilt |
-| `cleanup.spec.ts` | Still not a spec. The mock suite gives each test a fresh browser context, so there is nothing to sweep; the live suite creates real resources and each spec removes what it made in a `finally`. What neither covers is a run *killed* between the two — see below. | — |
+| `cleanup.spec.ts` | Still not a spec. The mock suite gives each test a fresh browser context, so there is nothing to sweep; the live suite creates real resources and each spec removes what it made in a `test.afterEach`. What neither covers is a run *killed* between the two — see below. | — |
 
 ## Now running in CI: the live suite
 
@@ -32,7 +32,8 @@ litter and safe to remove. A sweep spec stays the wrong shape for it, being one 
 selector away from deleting somebody's work.
 
 **Every live spec was broken the first time one was run against a cluster**, each in a
-way the mock suite structurally could not show: `agent-lifecycle.spec.ts` drove
+way the mock suite structurally could not show: `agent-lifecycle.spec.ts` — since
+replaced by `shared/agent-templates/` — drove
 `/agents/new`, a page long removed, for an agent nobody creates; `schedules.spec.ts`
 drove a dialog for an editor that is a page, and named CI's fixture rather than
 `setup-cluster.sh`'s; `substrate.spec.ts` read a tile once, catching the em-dash it
@@ -92,10 +93,14 @@ stops somebody porting work that is already possible.
 an `AgentTemplate` paired with a `Harness` and is not created. If a create-an-agent
 surface lands, its validation belongs in that change.
 
-## Not started by request
+## Was "not started by request", and is not that any more
 
-App extension-point specs. The framework is still being edited and its contract is not
-frozen; the team lead will ask for these once it lands.
+App extension-point specs were held back while the framework's contract was unfrozen.
+`extension-points.withExtension.spec.ts` and `extension-points-absent.spec.ts` both exist
+and run, and between them assert every point the app declares — so this entry described
+the tree accurately for about as long as it took the contract to settle, and then said
+the opposite of the paragraph above it for longer. Anything still wanted here has to be
+named; "the specs" is done.
 
 ## Lost with the REST path tests, and where it went instead
 
