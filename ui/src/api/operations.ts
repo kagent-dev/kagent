@@ -1,3 +1,5 @@
+import type { Client } from "@connectrpc/connect";
+import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
 /**
  * Every call the UI knows how to make, behind a stable id.
  *
@@ -62,6 +64,7 @@ import type {
   AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
+import type { Checkpoint } from "./domain/checkpoints";
 import type { Harness, HarnessResource } from "./domain/harnesses";
 import type {
   AgentTemplate,
@@ -129,7 +132,19 @@ export interface SubstratePageInput<Sort = string> {
  * transform and a fake all see the same named fields as the implementation — a
  * positional signature cannot be inspected by any of them.
  */
+type ScheduledRunRpc<K extends keyof Client<typeof ScheduledRunService>> = {
+  input: Parameters<Client<typeof ScheduledRunService>[K]>[0];
+  output: Awaited<ReturnType<Client<typeof ScheduledRunService>[K]>>;
+};
+
 export interface OperationMap {
+  "scheduledRuns.list": ScheduledRunRpc<"listScheduledRuns">;
+  "scheduledRuns.get": ScheduledRunRpc<"getScheduledRun">;
+  "scheduledRuns.create": ScheduledRunRpc<"createScheduledRun">;
+  "scheduledRuns.update": ScheduledRunRpc<"updateScheduledRun">;
+  "scheduledRuns.delete": ScheduledRunRpc<"deleteScheduledRun">;
+  "scheduledRuns.trigger": ScheduledRunRpc<"triggerScheduledRun">;
+  "scheduledRuns.executions": ScheduledRunRpc<"listScheduledRunExecutions">;
   "models.list": { input: NoInput; output: ModelConfig[] };
   "models.get": { input: ResourceRefInput; output: ModelConfig };
   "models.create": { input: { payload: CreateModelConfigRequest }; output: ModelConfig };
@@ -203,6 +218,61 @@ export interface OperationMap {
    */
   "agentInstances.rename": {
     input: AgentInstanceRef & { name: string };
+    output: AgentInstance;
+  };
+
+  /**
+   * Forks a conversation: a new instance that starts from where this one is now.
+   *
+   * Two controller calls, not one: a checkpoint of the source at its current turn
+   * boundary, then a fork of that checkpoint. The source has to be quiescent, so a
+   * conversation mid-turn is refused with `FailedPrecondition`. The fork comes back
+   * unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.fork": {
+    input: AgentInstanceRef & { requestId: string; name?: string };
+    output: AgentInstance;
+  };
+
+  /**
+   * Saves the conversation's current turn boundary, so a fork can start from it later.
+   *
+   * The controller has no cutoff to offer: what is saved is wherever the conversation
+   * stands now. A conversation mid-turn has no boundary to save and is refused with
+   * `FailedPrecondition`.
+   */
+  "agentInstances.checkpoints.create": {
+    input: AgentInstanceRef & { requestId: string };
+    output: Checkpoint;
+  };
+
+  /** Every boundary saved against this conversation, newest first. */
+  "agentInstances.checkpoints.list": {
+    input: AgentInstanceRef;
+    output: Checkpoint[];
+  };
+
+  /**
+   * Removes a saved boundary, and with it the snapshot it was holding.
+   *
+   * A checkpoint pins a copy of the conversation's runtime in the substrate — that is
+   * what makes forking one possible — so this is the only thing that gives that space
+   * back. Forks already made from it are unaffected: they own their own copy.
+   */
+  "agentInstances.checkpoints.delete": {
+    input: { checkpointId: string };
+    output: void;
+  };
+
+  /**
+   * Forks a saved boundary: a new conversation holding the transcript up to it.
+   *
+   * Unlike `agentInstances.fork` this starts from a boundary saved earlier, so the
+   * fork's history stops there rather than at the source's latest turn. The fork
+   * comes back unnamed; pass `name` to title it in the same operation.
+   */
+  "agentInstances.checkpoints.fork": {
+    input: { checkpointId: string; requestId: string; name?: string };
     output: AgentInstance;
   };
 

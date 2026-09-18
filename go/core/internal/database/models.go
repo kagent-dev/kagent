@@ -49,13 +49,12 @@ type AgentMemorySearchResult struct {
 }
 
 type AgentTemplateHarnessPair struct {
-	Namespace           string
-	AgentTemplateName   string
-	AgentTemplateUID    string
-	HarnessName         string
-	HarnessUID          string
-	DesiredRevision     string
-	AgentTemplateLabels map[string]string
+	Namespace         string
+	AgentTemplateName string
+	AgentTemplateUID  string
+	HarnessName       string
+	HarnessUID        string
+	DesiredRevision   string
 }
 
 type RuntimeRevision struct {
@@ -83,13 +82,11 @@ type ActorTemplateHarness struct {
 // AgentInstanceQuery narrows a page of AgentInstances. Zero values mean "do not
 // filter on this", so an empty query lists the caller's own instances.
 type AgentInstanceQuery struct {
-	UserID      string
-	AllUsers    bool
-	MatchLabels map[string]string
+	UserID   string
+	AllUsers bool
 	// AgentTemplate and Harness name the agent whose conversations are wanted.
 	// They are matched against the (AgentTemplate, Harness) pair the instance's
-	// prepared revision was built from, not against its labels, so they select
-	// instances stored before either field existed.
+	// prepared revision was built from.
 	AgentTemplate *apiv1alpha1.ResourceReference
 	Harness       *apiv1alpha1.ResourceReference
 	AfterID       string

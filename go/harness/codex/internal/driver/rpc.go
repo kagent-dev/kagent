@@ -118,6 +118,24 @@ func (c *rpcClient) notify(method string, params any) error {
 	return c.write(rpcMessage{JSONRPC: "2.0", Method: method}, params)
 }
 
+func (c *rpcClient) respond(id json.RawMessage, result any) error {
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	message := rpcMessage{JSONRPC: "2.0", ID: append(json.RawMessage(nil), id...), Result: raw}
+	data, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("encode Codex JSON-RPC response: %w", err)
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if _, err := c.writer.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("write Codex JSON-RPC response: %w", err)
+	}
+	return nil
+}
+
 func (c *rpcClient) write(message rpcMessage, params any) error {
 	if params != nil {
 		raw, err := json.Marshal(params)

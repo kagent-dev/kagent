@@ -210,13 +210,6 @@ app.kubernetes.io/component: engine
 {{- end }}
 
 {{/*
-Check if leader election should be enabled (more than 1 replica)
-*/}}
-{{- define "kagent.leaderElectionEnabled" -}}
-{{- gt (.Values.controller.replicas | int) 1 -}}
-{{- end -}}
-
-{{/*
 Extract the TCP port from controller.metrics.bindAddress.
 
 Anchors the digit run to the end of the string so every Go-style
@@ -241,6 +234,25 @@ documented contract.
 {{- define "kagent.controller.metricsEnabled" -}}
 {{- $port := include "kagent.controller.metricsPort" . -}}
 {{- if and .Values.controller.metrics.enabled $port (ne $port "0") -}}1{{- end -}}
+{{- end -}}
+
+{{/*
+Whether the controller ServiceMonitor (and the RBAC that exists only to
+serve its scrape) should render. Requires the metrics endpoint, the
+serviceMonitor toggle, and the Prometheus Operator CRDs on the target
+cluster; without the CRD the manifest would fail to apply.
+*/}}
+{{- define "kagent.controller.serviceMonitorEnabled" -}}
+{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") -}}1{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the controller metrics Service port, derived from the scheme the
+controller serves. Shared by the metrics Service and the ServiceMonitor
+endpoint so the two can never drift apart.
+*/}}
+{{- define "kagent.controller.metricsPortName" -}}
+{{- ternary "https" "http-metrics" .Values.controller.metrics.secureServing -}}
 {{- end -}}
 
 {{/*

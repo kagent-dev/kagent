@@ -697,8 +697,8 @@ github.com/kagent-dev/mockllm v0.0.7 h1:ofucOQKKqarRICBjxJFKIpxD7NQOjVuA0Frujh96
 github.com/kagent-dev/mockllm v0.0.7/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
 github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085 h1:5bYxRc6K6+JiFMYGSJpQ7y18PzTGXUmUtVXY7Fqh0Ew=
 github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085/go.mod h1:vTMste7c+XiDOQyhe6iGPKLbMy3chY/h2fL3Dox5fAE=
-github.com/kagent-dev/substrate v0.0.26 h1:oJSerQTvPSHj72FOfi8VK+DVZgRP0kPh1DcUlaxwJds=
-github.com/kagent-dev/substrate v0.0.26/go.mod h1:WBkGfDCbVFbtJTEMpIIbq59yEgko1L4WHJIEVGBdems=
+github.com/kagent-dev/substrate v0.0.30 h1:liUtc4D2k89TJcbmEh4NKo2UMDDWqZHWhdLzbP38yRk=
+github.com/kagent-dev/substrate v0.0.30/go.mod h1:RzpiJ7EPvbljJNJxr/XUJBODcxnIrb5iui0qLKf7vww=
 github.com/karamaru-alpha/copyloopvar v1.2.2 h1:yfNQvP9YaGQR7VaWLYcfZUlRP2eo2vhExWKxD/fP6q0=
 github.com/karamaru-alpha/copyloopvar v1.2.2/go.mod h1:oY4rGZqZ879JkJMtX3RRkcXRkmUvH0x35ykgaKgsgJY=
 github.com/keybase/go-keychain v0.0.1 h1:way+bWYa6lDppZoZcgMbYsvC7GxljxrskdNInRtuthU=
@@ -1013,6 +1013,8 @@ github.com/rivo/uniseg v0.1.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJ
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
+github.com/robfig/cron/v3 v3.0.1 h1:WdRxkvbJztn8LMz/QEvLN5sBU+xKpSqwwUO1Pjr4qDs=
+github.com/robfig/cron/v3 v3.0.1/go.mod h1:eQICP3HwyT7UooqI/z+Ov+PtYAWygg1TEWWzGIFLtro=
 github.com/rodaine/protogofakeit v0.1.1 h1:ZKouljuRM3A+TArppfBqnH8tGZHOwM/pjvtXe9DaXH8=
 github.com/rodaine/protogofakeit v0.1.1/go.mod h1:pXn/AstBYMaSfc1/RqH3N82pBuxtWgejz1AlYpY1mI0=
 github.com/rogpeppe/fastuuid v0.0.0-20150106093220-6724a57986af/go.mod h1:XWv6SoW27p1b0cqNHllgS5HIMJraePCO15w5zCzIWYg=

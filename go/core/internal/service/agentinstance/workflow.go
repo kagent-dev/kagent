@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -14,21 +16,23 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type workflowStore interface {
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
 }
 
 type actorClient interface {
 	EnsureAtespace(context.Context, string) error
+	EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
+	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
 	DeleteActor(context.Context, string, string) error
 }
@@ -43,6 +47,24 @@ type ActorWorkflow struct {
 
 func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors}
+}
+
+// Pause checkpoints the runtime on its current worker without changing the
+// AgentInstance logical state or persisting A2A task state.
+func (w *ActorWorkflow) Pause(ctx context.Context, instance *apiv1alpha1.AgentInstance) error {
+	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
+	if err != nil {
+		return fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
+	actor, err := w.actors.PauseActor(ctx, atespace, name)
+	if err != nil {
+		return fmt.Errorf("pause Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
+		return fmt.Errorf("pause Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
+	}
+	return nil
 }
 
 // Quiesce durably suspends the runtime without changing the AgentInstance's
@@ -98,6 +120,10 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	atespace := revision.ActorTemplateAtespace
 	name := substrate.ActorName(instance.GetId())
+	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations)
+	if err != nil {
+		return nil, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err)
+	}
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
@@ -105,6 +131,9 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActor(ctx, atespace, name, revision.ActorTemplateAtespace, revision.ActorTemplateName)
+		if status.Code(err) == codes.AlreadyExists {
+			actor, err = w.actors.GetActor(ctx, atespace, name)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure Actor %s/%s: %w", atespace, name, err)
@@ -112,7 +141,10 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	if !usesActorTemplate(actor, revision) {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplate().GetAtespace(), actor.GetActorTemplate().GetName())
 	}
-	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))
+	if err := w.actors.EnsureActorEgressPolicy(ctx, atespace, name, policy); err != nil {
+		return nil, fmt.Errorf("ensure Actor %s/%s egress policy: %w", atespace, name, err)
+	}
+	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance ready: %w", err)
 	}
@@ -131,6 +163,10 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(instance.GetId())
+	policy, err := actorEgressPolicy(atespace, revision.EgressDestinations)
+	if err != nil {
+		return nil, fmt.Errorf("build fork Actor %s/%s egress policy: %w", atespace, name, err)
+	}
 	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
 		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
 	}
@@ -139,6 +175,9 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 	if status.Code(err) == codes.NotFound {
 		actor, err = w.actors.CreateActorFromTag(ctx, atespace, name,
 			revision.ActorTemplateAtespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
+		if status.Code(err) == codes.AlreadyExists {
+			actor, err = w.actors.GetActor(ctx, atespace, name)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure fork Actor %s/%s: %w", atespace, name, err)
@@ -157,11 +196,31 @@ func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentIns
 		strings.TrimPrefix(source.GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_") != snapshot.ContentScope {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
 	}
-	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), substrate.ActorHost(atespace, name, ""))
+	if err := w.actors.EnsureActorEgressPolicy(ctx, atespace, name, policy); err != nil {
+		return nil, fmt.Errorf("ensure fork Actor %s/%s egress policy: %w", atespace, name, err)
+	}
+	instance, err = w.finishCreate(ctx, instance, substrate.ActorHost(atespace, name, ""))
 	if err != nil {
 		return nil, fmt.Errorf("mark fork AgentInstance ready: %w", err)
 	}
 	return instance, nil
+}
+
+// finishCreate publishes the runtime authority only while creation owns the instance.
+// A delayed completion returns the current lifecycle unchanged.
+func (w *ActorWorkflow) finishCreate(ctx context.Context, instance *apiv1alpha1.AgentInstance, authority string) (*apiv1alpha1.AgentInstance, error) {
+	next := proto.CloneOf(instance)
+	next.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	next.A2AAuthority = authority
+	next.Failure = nil
+	current, err := w.store.TransitionAgentInstance(ctx, next,
+		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+		apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
+	if errors.Is(err, database.ErrConflict) {
+		return current, nil
+	}
+	return current, err
 }
 
 // Suspend completes synchronously: success means both Substrate and the
@@ -261,19 +320,19 @@ func (w *ActorWorkflow) claim(
 	// returned bool reports whether this call installed the marker; a retry
 	// which finds the same operation joins it but must not later clear it.
 	if instance.GetState() != expectedState {
-		return nil, false, database.ErrAgentInstanceConflict
+		return nil, false, fmt.Errorf("AgentInstance %s requires state %s for %s; current state is %s: %w", instance.GetId(), expectedState, operation, instance.GetState(), database.ErrConflict)
 	}
 	if instance.GetOperation() == operation {
 		return instance, false, nil
 	}
 	if instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
-		return nil, false, database.ErrAgentInstanceConflict
+		return nil, false, fmt.Errorf("AgentInstance %s cannot perform %s while %s is in progress: %w", instance.GetId(), operation, instance.GetOperation(), database.ErrConflict)
 	}
 	next := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	next.Operation = operation
 	next.UpdatedAt = timestamppb.Now()
 	claimed, err := w.store.TransitionAgentInstance(ctx, next, expectedState, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED)
-	if errors.Is(err, database.ErrAgentInstanceConflict) && claimed.GetState() == expectedState && claimed.GetOperation() == operation {
+	if errors.Is(err, database.ErrConflict) && claimed.GetState() == expectedState && claimed.GetOperation() == operation {
 		return claimed, false, nil
 	}
 	return claimed, err == nil, err
@@ -292,7 +351,7 @@ func (w *ActorWorkflow) finish(
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	next.UpdatedAt = timestamppb.Now()
 	current, err := w.store.TransitionAgentInstance(ctx, next, expectedState, instance.GetOperation())
-	if errors.Is(err, database.ErrAgentInstanceConflict) && current.GetState() == nextState && current.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+	if errors.Is(err, database.ErrConflict) && current.GetState() == nextState && current.GetOperation() == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		return current, nil
 	}
 	return current, err
@@ -310,7 +369,7 @@ func (w *ActorWorkflow) release(ctx context.Context, instance *apiv1alpha1.Agent
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	next.UpdatedAt = timestamppb.Now()
 	_, err := w.store.TransitionAgentInstance(ctx, next, state, instance.GetOperation())
-	if errors.Is(err, database.ErrAgentInstanceConflict) {
+	if errors.Is(err, database.ErrConflict) {
 		return operationErr
 	}
 	return errors.Join(operationErr, err)
@@ -377,4 +436,31 @@ func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.
 func usesActorTemplate(actor *ateapipb.Actor, revision *database.RuntimeRevision) bool {
 	ref := actor.GetActorTemplate()
 	return ref.GetAtespace() == revision.ActorTemplateAtespace && ref.GetName() == revision.ActorTemplateName
+}
+
+// actorEgressPolicy compiles destinations into an actor's default allowlist.
+func actorEgressPolicy(atespace string, destinations []string) (*ateapipb.EgressPolicy, error) {
+	var hostnames, cidrs []string
+	for _, destination := range destinations {
+		if ip, err := netip.ParseAddr(destination); err == nil && ip.Zone() == "" {
+			ip = ip.Unmap()
+			cidrs = append(cidrs, netip.PrefixFrom(ip, ip.BitLen()).String())
+			continue
+		}
+		hostname := strings.TrimSuffix(strings.ToLower(destination), ".")
+		if len(validation.IsDNS1123Subdomain(hostname)) != 0 {
+			return nil, fmt.Errorf("invalid egress destination %q", destination)
+		}
+		hostnames = append(hostnames, hostname)
+	}
+	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
+	if len(hostnames) > 0 {
+		slices.Sort(hostnames)
+		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Hostnames: &ateapipb.HostnameRule{Patterns: slices.Compact(hostnames)}})
+	}
+	if len(cidrs) > 0 {
+		slices.Sort(cidrs)
+		policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Cidrs: &ateapipb.CIDRRule{Cidrs: slices.Compact(cidrs)}})
+	}
+	return policy, nil
 }

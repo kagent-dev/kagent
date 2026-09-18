@@ -26,6 +26,7 @@ import (
 	v2controller "github.com/kagent-dev/kagent/go/core/internal/controller"
 	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
+	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -36,6 +37,7 @@ import (
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -214,7 +216,7 @@ func Run(ctx context.Context, opts Options) error {
 		Cache:                   managerCacheOptions,
 		Client:                  managerClientOptions,
 		Metrics:                 metricsserver.Options{BindAddress: "0"},
-		LeaderElection:          envBool("LEADER_ELECT"),
+		LeaderElection:          kagentenv.LeaderElect.Get(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
 	})
@@ -241,6 +243,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
+	}
+	if err := manager.Add(v2controller.NewRuntimeRevisionGC(store, actors)); err != nil {
+		return fmt.Errorf("add runtime revision GC to controller manager: %w", err)
 	}
 	if opts.SetupWithManager != nil {
 		if err := opts.SetupWithManager(manager); err != nil {
@@ -276,6 +281,14 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
 		env("KAGENT_GATEWAY_URL", "http://127.0.0.1:8083"))
+	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
+	if err := manager.Add(scheduledruncontroller.NewScheduler(store)); err != nil {
+		return fmt.Errorf("add scheduled run scheduler: %w", err)
+	}
+	if err := manager.Add(scheduledruncontroller.NewController(store, instanceWorkflow,
+		gateway)); err != nil {
+		return fmt.Errorf("add scheduled run controller: %w", err)
+	}
 	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)
 	if err != nil {
 		return err
@@ -302,6 +315,7 @@ func Run(ctx context.Context, opts Options) error {
 		SystemService:         system,
 		MemoryService:         memory,
 		AgentInstanceService:  instances,
+		ScheduledRunService:   schedules,
 		// Both halves of the pair CreateAgentInstance names. Without these two
 		// the only way to author a Harness or an AgentTemplate is kubectl.
 		AgentTemplateService: kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),

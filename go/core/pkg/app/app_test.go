@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
@@ -77,6 +78,17 @@ func TestOptionsResolve(t *testing.T) {
 				t.Errorf("authorizer = %s, want %s", got, want)
 			}
 		})
+	}
+}
+
+func TestLeaderElectionDefaultsOnWithLocalOptOut(t *testing.T) {
+	t.Setenv("LEADER_ELECT", "")
+	if !kagentenv.LeaderElect.Get() {
+		t.Fatal("leader election must default to enabled")
+	}
+	t.Setenv("LEADER_ELECT", "false")
+	if kagentenv.LeaderElect.Get() {
+		t.Fatal("local testing must be able to disable leader election")
 	}
 }
 

@@ -7,14 +7,14 @@ grafana:
   # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
 
 image:
-  registry: mcp
-  repository: grafana
+  registry: grafana
+  repository: mcp-grafana
   # -- Pull policy for this image. Empty falls back to global.imagePullPolicy,
-  # then to Always -- the tag below is mutable, so a cached image goes stale
-  # under any other terminal default. A value declared here would shadow the
-  # global, which is why the default is empty rather than Always.
+  # then to Always, this chart's previous declared default. A value declared
+  # here would shadow the global, which is why the default is empty.
   pullPolicy: ""
-  tag: "latest" # Only latest is available via docker hub at present. See https://github.com/grafana/mcp-grafana/issues/180
+  tag: "1.4.1" # docker.io/mcp/grafana (Docker's MCP Catalog mirror) only ever ships "latest";
+               # pin to the upstream grafana/mcp-grafana image instead, which tags releases.
 
 # -- Pull secrets for the pod, merged (union) with global.imagePullSecrets.
 imagePullSecrets: []

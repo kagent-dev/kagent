@@ -267,3 +267,41 @@ func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
 		t.Fatalf("marshaled message missing image: %s", b)
 	}
 }
+
+func TestResponsesUsageToGenai(t *testing.T) {
+	t.Run("nil when no tokens", func(t *testing.T) {
+		if got := responsesUsageToGenai(responses.ResponseUsage{}); got != nil {
+			t.Fatalf("expected nil for empty usage, got %+v", got)
+		}
+	})
+
+	t.Run("maps input, output, cached and reasoning tokens", func(t *testing.T) {
+		usage := responses.ResponseUsage{
+			InputTokens:  100,
+			OutputTokens: 50,
+			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+				CachedTokens: 80,
+			},
+			OutputTokensDetails: responses.ResponseUsageOutputTokensDetails{
+				ReasoningTokens: 30,
+			},
+		}
+
+		got := responsesUsageToGenai(usage)
+		if got == nil {
+			t.Fatal("expected non-nil usage metadata")
+		}
+		if got.PromptTokenCount != 100 {
+			t.Errorf("PromptTokenCount = %d, want 100", got.PromptTokenCount)
+		}
+		if got.CandidatesTokenCount != 50 {
+			t.Errorf("CandidatesTokenCount = %d, want 50", got.CandidatesTokenCount)
+		}
+		if got.CachedContentTokenCount != 80 {
+			t.Errorf("CachedContentTokenCount = %d, want 80", got.CachedContentTokenCount)
+		}
+		if got.ThoughtsTokenCount != 30 {
+			t.Errorf("ThoughtsTokenCount = %d, want 30", got.ThoughtsTokenCount)
+		}
+	})
+}

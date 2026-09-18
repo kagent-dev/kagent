@@ -120,7 +120,7 @@ func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
 		"x-kagent-agent-instance-id", forkID,
 	), 4*time.Minute)
 	t.Cleanup(forkCancel)
-	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: forkID, PageSize: 10})
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: forked.GetAgentInstance().GetContextId(), PageSize: 10})
 	if err != nil {
 		t.Fatalf("build forked Claude task list request: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestE2EClaudeMockCheckpointForkAndResume(t *testing.T) {
 		t.Fatalf("list forked Claude tasks: %v", err)
 	}
 	listed, err := pbconv.FromProtoListTasksResponse(listedResponse)
-	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ContextID != forkID || listed.Tasks[0].Status.State != a2atype.TaskStateCompleted {
+	if err != nil || len(listed.Tasks) != 1 || listed.Tasks[0].ContextID != forked.GetAgentInstance().GetContextId() || listed.Tasks[0].Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("forked Claude tasks = %+v, error %v; want one copied task in context %s", listed, err, forkID)
 	}
 
@@ -357,7 +357,7 @@ func getClaudeTask(t *testing.T, fixture *interactionFixture, taskID a2atype.Tas
 
 func assertClaudeTaskHistory(t *testing.T, fixture *interactionFixture, taskIDs ...a2atype.TaskID) {
 	t.Helper()
-	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.instanceID})
+	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
 	if err != nil {
 		t.Fatalf("build ListTasks request: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestE2EClaudeMockWholeServerMCP(t *testing.T) {
 	toolName := "mcp__" + mcpServer.Name + "__add_numbers"
 	llmURL := startClaudeResourceMockLLM(t, toolName)
 	model := createClaudeMockModel(t, kube, llmURL)
-	template := createClaudeMCPTemplate(t, kube, model.Name, mcpServer.Name)
+	template := createClaudeMCPTemplate(t, kube, model.Name, mcpServer.Name, false)
 	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, template)
 
 	streamed := sendClaudeStreaming(t, fixture, "Add 3 and 5 using the configured MCP server.")
@@ -529,6 +529,25 @@ func TestE2EClaudeMockWholeServerMCP(t *testing.T) {
 		}
 	}
 	t.Fatal("mock MCP server did not receive an add_numbers tool call")
+}
+
+func TestE2EClaudeMockMCPToolApproval(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	mcpURL, _ := startMCPMock(t)
+
+	kube := interactionKubeClient(t)
+	mcpServer := createClaudeMCPServer(t, kube, mcpURL)
+	toolName := "mcp__" + mcpServer.Name + "__add_numbers"
+	modelURL := startClaudeResourceMockLLM(t, toolName)
+	model := createClaudeMockModel(t, kube, modelURL)
+	template := createClaudeMCPTemplate(t, kube, model.Name, mcpServer.Name, true)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, template)
+
+	completed := sendApprovedToolRequest(t, fixture, "Add 3 and 5 using the configured MCP server.", toolName)
+	if completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "CLAUDE_MCP_DONE result is 8") {
+		t.Fatalf("approved MCP task state = %s, text = %q", completed.Status.State, taskText(completed))
+	}
 }
 
 func createClaudeMCPServer(t *testing.T, kube ctrlclient.Client, mcpURL string) *v1alpha3.RemoteMCPServer {
@@ -553,7 +572,7 @@ func createClaudeMCPServer(t *testing.T, kube ctrlclient.Client, mcpURL string) 
 	return server
 }
 
-func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string) string {
+func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, mcpServer string, requireApproval bool) string {
 	t.Helper()
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{
@@ -565,7 +584,8 @@ func createClaudeMCPTemplate(t *testing.T, kube ctrlclient.Client, modelConfig, 
 			Description:  "Claude direct whole-server MCP E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				Server:          corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: mcpServer},
+				RequireApproval: requireApproval,
 			}}},
 		},
 	}

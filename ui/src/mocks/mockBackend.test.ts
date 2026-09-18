@@ -21,6 +21,7 @@ import type { OperationId, OperationInput } from "@/api/operations";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
 import { MOCK_INSTANCE_CREATOR } from "./fixtures";
+import { DISPOSABLE_CHECKPOINT, SEEDED_CHECKPOINT } from "./state";
 
 beforeAll(() => setApiTransport(mockTransport));
 afterAll(() => setApiTransport(undefined));
@@ -42,6 +43,13 @@ afterEach(() => clearApiExtensions());
  * the whole surface.
  */
 const INPUTS = {
+  "scheduledRuns.list": {},
+  "scheduledRuns.get": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
+  "scheduledRuns.create": { requestId: "sweep-schedule", harness: { namespace: "kagent", name: "k8s-agent" }, agentTemplate: { namespace: "kagent", name: "k8s-agent-7f3a91c" }, config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.update": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000002", etag: "d686bd1d-9124-4e96-8df7-000000000002", config: { prompt: "Report", schedule: "0 9 * * *" } },
+  "scheduledRuns.delete": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000003" },
+  "scheduledRuns.trigger": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001", requestId: "sweep-trigger" },
+  "scheduledRuns.executions": { scheduledRunId: "c686bd1d-9124-4e96-8df7-000000000001" },
   "models.list": {},
   "models.get": { namespace: "kagent", name: "default-model-config" },
   "models.create": {
@@ -187,6 +195,31 @@ const INPUTS = {
     // something a reader would type.
     name: "Renamed by the fixture suite",
   },
+
+  // Forking reads the source and writes a new row, so it races nothing above.
+  "agentInstances.fork": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-fork",
+    name: "Forked by the fixture suite",
+  },
+
+  /*
+   * The seeded boundary, so forking one has something to fork without ordering this
+   * suite: every operation here runs concurrently and none may depend on another.
+   */
+  "agentInstances.checkpoints.create": {
+    id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    requestId: "fixture-suite-checkpoint",
+  },
+  "agentInstances.checkpoints.list": { id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44" },
+  "agentInstances.checkpoints.fork": {
+    checkpointId: SEEDED_CHECKPOINT.id,
+    requestId: "fixture-suite-checkpoint-fork",
+    name: "Forked from a checkpoint by the fixture suite",
+  },
+
+  // The disposable boundary: deleting the seeded one would race the fork case above.
+  "agentInstances.checkpoints.delete": { checkpointId: DISPOSABLE_CHECKPOINT.id },
 
   "namespaces.list": {},
   "substrate.status": {},

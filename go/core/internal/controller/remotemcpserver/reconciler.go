@@ -57,9 +57,7 @@ type ToolDiscoverer interface {
 // RemoteMCPServer status remains the source used by harness compilers, while the
 // database projection serves list RPCs without making those RPCs perform discovery.
 type CatalogStore interface {
-	StoreToolServer(context.Context, *database.ToolServer) (*database.ToolServer, error)
-	RefreshToolsForServer(context.Context, string, string, ...*v1alpha3.MCPTool) error
-	DeleteToolsForServer(context.Context, string, string) error
+	RefreshToolServer(context.Context, *database.ToolServer, ...*v1alpha3.MCPTool) error
 	DeleteToolServer(context.Context, string, string) error
 }
 
@@ -88,7 +86,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
-		return reconcile.Result{}, r.deleteCatalog(ctx, request.String())
+		return reconcile.Result{}, r.catalog.DeleteToolServer(ctx, request.String(), remoteGroupKind)
 	}
 
 	tools, err := r.discoverer.ListTools(ctx, toolservice.MCPServerRef{
@@ -131,22 +129,9 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *v1alpha3.RemoteM
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	if _, err := r.catalog.StoreToolServer(ctx, &database.ToolServer{
+	return r.catalog.RefreshToolServer(ctx, &database.ToolServer{
 		Name: name, GroupKind: remoteGroupKind, Description: server.Spec.Description, LastConnected: lastConnected,
-	}); err != nil {
-		return fmt.Errorf("store server: %w", err)
-	}
-	if err := r.catalog.RefreshToolsForServer(ctx, name, remoteGroupKind, tools...); err != nil {
-		return fmt.Errorf("refresh tools: %w", err)
-	}
-	return nil
-}
-
-func (r *Reconciler) deleteCatalog(ctx context.Context, name string) error {
-	return errors.Join(
-		wrapError("delete tools", r.catalog.DeleteToolsForServer(ctx, name, remoteGroupKind)),
-		wrapError("delete server", r.catalog.DeleteToolServer(ctx, name, remoteGroupKind)),
-	)
+	}, tools...)
 }
 
 func wrapError(action string, err error) error {

@@ -69,11 +69,11 @@ func TestReadInvokeTaskFile(t *testing.T) {
 	assert.Equal(t, "hello from file", got)
 }
 
-func TestNewInvokeRequestUsesAgentInstanceAsContext(t *testing.T) {
-	request := newInvokeRequest("hello", "instance-id")
+func TestNewInvokeRequestLetsGatewayResolveContext(t *testing.T) {
+	request := newInvokeRequest("hello")
 
 	require.NotNil(t, request.Message)
-	assert.Equal(t, "instance-id", request.Message.ContextID)
+	assert.Empty(t, request.Message.ContextID)
 	require.Len(t, request.Message.Parts, 1)
 	assert.Equal(t, "hello", request.Message.Parts[0].Text())
 }
@@ -88,7 +88,7 @@ func TestWithModelToken(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := withModelToken(context.Background(), "model-key")
-	_, err = client.SendMessage(ctx, newInvokeRequest("hello", "instance-id"))
+	_, err = client.SendMessage(ctx, newInvokeRequest("hello"))
 	require.ErrorIs(t, err, errServiceParamsObserved)
 	assert.Equal(t, []string{"Bearer model-key"}, observer.authorization)
 }

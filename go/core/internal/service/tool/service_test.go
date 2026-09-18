@@ -27,22 +27,21 @@ import (
 )
 
 type fakeDiscoveryStore struct {
-	tools       []database.Tool
-	servers     []database.ToolServer
-	serverTools map[string][]database.Tool
-	err         error
+	toolsErr error
+	tools    []database.Tool
+	servers  []database.ToolServer
+	err      error
 }
 
 func (f *fakeDiscoveryStore) ListTools(context.Context) ([]database.Tool, error) {
+	if f.toolsErr != nil {
+		return nil, f.toolsErr
+	}
 	return f.tools, f.err
 }
 
 func (f *fakeDiscoveryStore) ListToolServers(context.Context) ([]database.ToolServer, error) {
 	return f.servers, f.err
-}
-
-func (f *fakeDiscoveryStore) ListToolsForServer(_ context.Context, name, groupKind string) ([]database.Tool, error) {
-	return f.serverTools[name+"|"+groupKind], f.err
 }
 
 type fakeMCPClient struct {
@@ -88,14 +87,11 @@ func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, verb
 
 func TestServiceDiscoveryAndAuthorization(t *testing.T) {
 	store := &fakeDiscoveryStore{
-		tools: []database.Tool{{ID: "all-tool", Description: "all"}},
+		tools: []database.Tool{{ID: "server-tool", ServerName: "default/server", GroupKind: "RemoteMCPServer.kagent.dev", Description: "server"}},
 		servers: []database.ToolServer{{
 			Name:      "default/server",
 			GroupKind: "RemoteMCPServer.kagent.dev",
 		}},
-		serverTools: map[string][]database.Tool{
-			"default/server|RemoteMCPServer.kagent.dev": {{ID: "server-tool", Description: "server"}},
-		},
 	}
 	authorizer := &recordingAuthorizer{}
 	service := NewService(toolTestKube(t, true), store, authorizer, "default", &fakeMCPClient{})
@@ -106,7 +102,7 @@ func TestServiceDiscoveryAndAuthorization(t *testing.T) {
 	ctx := toolTestContext()
 	tools, err := service.ListTools(ctx)
 	require.NoError(t, err)
-	require.Equal(t, "all-tool", tools[0].ID)
+	require.Equal(t, "server-tool", tools[0].ID)
 
 	servers, err := service.ListToolServers(ctx)
 	require.NoError(t, err)
@@ -283,4 +279,39 @@ func toolTestKube(t *testing.T, withMCPServer bool, objects ...client.Object) cl
 		)
 	}
 	return fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(restMapper).WithObjects(objects...).Build()
+}
+
+func TestListToolServersGroupsByExactIdentity(t *testing.T) {
+	store := &fakeDiscoveryStore{
+		servers: []database.ToolServer{
+			{Name: "shared", GroupKind: "remote"},
+			{Name: "shared", GroupKind: "local"},
+			{Name: "empty", GroupKind: "remote"},
+		},
+		tools: []database.Tool{
+			{ID: "first", ServerName: "shared", GroupKind: "remote", Description: "first description"},
+			{ID: "local", ServerName: "shared", GroupKind: "local"},
+			{ID: "second", ServerName: "shared", GroupKind: "remote"},
+			{ID: "orphan", ServerName: "absent", GroupKind: "remote"},
+		},
+	}
+	service := NewService(toolTestKube(t, true), store, &recordingAuthorizer{}, "default", &fakeMCPClient{})
+	servers, err := service.ListToolServers(toolTestContext())
+	require.NoError(t, err)
+	require.Equal(t, []ToolServer{
+		{Ref: "shared", GroupKind: "remote", DiscoveredTools: []*v1alpha3.MCPTool{{Name: "first", Description: "first description"}, {Name: "second"}}},
+		{Ref: "shared", GroupKind: "local", DiscoveredTools: []*v1alpha3.MCPTool{{Name: "local"}}},
+		{Ref: "empty", GroupKind: "remote", DiscoveredTools: []*v1alpha3.MCPTool{}},
+	}, servers)
+}
+
+func TestListToolServersSkipsToolReadWithoutServers(t *testing.T) {
+	store := &fakeDiscoveryStore{toolsErr: errors.New("tool read failed")}
+	service := NewService(toolTestKube(t, true), store, &recordingAuthorizer{}, "default", &fakeMCPClient{})
+	servers, err := service.ListToolServers(toolTestContext())
+	require.NoError(t, err)
+	require.Equal(t, []ToolServer{}, servers)
+	store.servers = []database.ToolServer{{Name: "server", GroupKind: "kind"}}
+	_, err = service.ListToolServers(toolTestContext())
+	require.ErrorIs(t, err, store.toolsErr)
 }

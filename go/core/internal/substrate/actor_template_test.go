@@ -43,8 +43,11 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetReadyz().GetHttpGet().GetPath() != "/readyz" || container.GetReadyz().GetHttpGet().GetPort() != 8081 || container.GetReadyz().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_COLD_BOOT {
+	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
 		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotsConfig().GetOnResume())
+	}
+	if template.GetSnapshotsConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
+		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotsConfig().GetOnPause())
 	}
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {

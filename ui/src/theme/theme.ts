@@ -59,13 +59,13 @@ const darkColor = {
    * filled badge rather than the quiet pill the rest of the page uses.
    */
   successBg: "#0c2c18",
-  successBorder: "#166534",
+  successBorder: "#218045",
   successText: "#4ade80",
   warningBg: "#33240a",
-  warningBorder: "#92400e",
+  warningBorder: "#a95c13",
   warningText: "#fbbf24",
   dangerBg: "#3a1417",
-  dangerBorder: "#991b1b",
+  dangerBorder: "#be3d3d",
   dangerText: "#f87171",
   /**
    * The brand colour as *foreground* text on the page.
@@ -86,7 +86,7 @@ const darkColor = {
    * 4.2:1 and 3.4:1, both under the 4.5 that small text needs.
    */
   infoBg: "#101c33",
-  infoBorder: "#1e3a8a",
+  infoBorder: "#4366af",
   infoText: "#93c5fd",
   accentBg: "#1e152e",
   accentBorder: "#5b21b6",
@@ -125,19 +125,19 @@ const lightColor: Record<keyof typeof darkColor, string> = {
   // inverted. What was there before came out muddy: antd tinted its mid-green
   // towards a light base and landed on something between the two.
   successBg: "#dcfce7",
-  successBorder: "#86efac",
+  successBorder: "#449e65",
   successText: "#166534",
   warningBg: "#fef3c7",
-  warningBorder: "#fcd34d",
+  warningBorder: "#bf7e28",
   warningText: "#92400e",
   dangerBg: "#fee2e2",
-  dangerBorder: "#fca5a5",
+  dangerBorder: "#ce6666",
   dangerText: "#991b1b",
   // On a white page the brand purple is already a readable foreground, so this is
   // `primary`. The token exists so a component need not know which theme it is on.
   primaryText: "#6d28d9",
   infoBg: "#eff6ff",
-  infoBorder: "#bfdbfe",
+  infoBorder: "#638be8",
   infoText: "#1d4ed8",
   accentBg: "#f5f3ff",
   accentBorder: "#ddd6fe",

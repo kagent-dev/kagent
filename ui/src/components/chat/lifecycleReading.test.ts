@@ -25,7 +25,6 @@ function instance(overrides: Partial<AgentInstance> = {}): AgentInstance {
     operation: "unspecified",
     createdAt: "2026-08-24T10:00:00Z",
     updatedAt: "2026-08-24T10:00:00Z",
-    labels: {},
     ...overrides,
   };
 }

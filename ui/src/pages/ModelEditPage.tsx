@@ -35,10 +35,12 @@ export function ModelEditPage() {
     if (!namespace || !name) return;
 
     await apiClient.models.update(namespace, name, payload);
-    // Refreshed before navigating, so the list lands showing the new values rather
-    // than the previous ones for a moment.
-    await models.refresh();
-    await model.refresh();
+    // A `refresh()` rather than the key sweep the create pages use, and the one place
+    // that distinction earns a subscription: this fetches before navigating, where a
+    // sweep would find no mounted subscriber for the list and do nothing. Swallowed —
+    // `refresh` rethrows, and the write has already succeeded.
+    await models.refresh().catch(() => {});
+    await model.refresh().catch(() => {});
     toast.success(`Model configuration ${name} updated`);
     await navigate(paths.models);
   }

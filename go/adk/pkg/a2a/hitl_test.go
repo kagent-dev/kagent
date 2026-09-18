@@ -3,10 +3,12 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
@@ -33,9 +35,9 @@ func hitlDecisionMessage(payload any) *a2atype.Message {
 }
 
 func TestHitlExtensionAttachAndParse(t *testing.T) {
-	message := hitlDecisionMessage(&ToolApprovalResponse{
+	message := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type:      HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{{ID: "confirm-1", Approved: true}},
+		Approvals: []apia2a.ToolApproval{{ID: "confirm-1", Approved: true}},
 	})
 	payload := GetToolApprovalResponse(message)
 	if payload == nil || len(payload.Approvals) != 1 || !payload.Approvals[0].Approved {
@@ -83,11 +85,14 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	})
 
 	t.Run("ask user", func(t *testing.T) {
-		questions := []any{map[string]any{"question": "Which database?"}}
+		questions := []any{map[string]any{
+			"question": "Which databases?", "choices": []any{"PostgreSQL", "MySQL"}, "multiple": true,
+		}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
 		payload := GetAskUserRequest(BuildHITLStatusMessage(internal, true))
-		if payload == nil || len(payload.Questions) != 1 {
+		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which databases?" ||
+			!slices.Equal(payload.Questions[0].Choices, []string{"PostgreSQL", "MySQL"}) || !payload.Questions[0].Multiple {
 			t.Fatalf("payload = %#v", payload)
 		}
 	})
@@ -95,9 +100,9 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	t.Run("nested subagent", func(t *testing.T) {
 		remote := RemoteHitlState{
 			TaskID: "child-task", ContextID: "child-context", SubagentName: "k8s_agent",
-			ToolApprovalRequest: &ToolApprovalRequest{
+			ToolApprovalRequest: &apia2a.ToolApprovalRequest{
 				Type: HITLTypeToolApprovalRequest,
-				Tools: []HitlTool{{
+				Tools: []apia2a.HITLTool{{
 					ID: "child-confirm", CallID: "child-call", Name: "delete_pod",
 					Args: map[string]any{"name": "api"},
 				}},
@@ -133,13 +138,13 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 }
 
 func TestBuildResumeHITLMessageAskUser(t *testing.T) {
-	incoming := hitlDecisionMessage(&AskUserResponse{
+	incoming := hitlDecisionMessage(&apia2a.AskUserResponse{
 		Type: HITLTypeAskUserResponse, ID: "confirm-1",
-		Answers: []AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+		Answers: []apia2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 	})
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &AskUserRequest{
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: "confirm-1",
 		}),
 	}}
@@ -152,17 +157,17 @@ func TestBuildResumeHITLMessageAskUser(t *testing.T) {
 func TestBuildResumeHITLMessageBatchFlattensApprovals(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &ToolApprovalRequest{
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &apia2a.ToolApprovalRequest{
 			Type: HITLTypeToolApprovalRequest,
-			Tools: []HitlTool{
+			Tools: []apia2a.HITLTool{
 				{ID: "confirm-1", CallID: "call-1", Name: "delete_file", Args: map[string]any{}},
 				{ID: "confirm-2", CallID: "call-2", Name: "restart_pod", Args: map[string]any{}},
 			},
 		}),
 	}}
-	incoming := hitlDecisionMessage(&ToolApprovalResponse{
+	incoming := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type: HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{
+		Approvals: []apia2a.ToolApproval{
 			{ID: "confirm-1", Approved: true},
 			{ID: "confirm-2", Approved: false, RejectionReason: "not now"},
 		},
@@ -176,18 +181,18 @@ func TestBuildResumeHITLMessageBatchFlattensApprovals(t *testing.T) {
 func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &AskUserRequest{
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: "parent-confirm",
-			Questions: []map[string]any{{"question": "Which namespace?"}},
-			Nested: &NestedHitlRequest{
+			Questions: []apia2a.HITLQuestion{{Question: "Which namespace?"}},
+			Nested: &apia2a.NestedHITLRequest{
 				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
-				Tools: []HitlTool{{ID: "child-confirm", CallID: "child-call", Name: "ask_user", Args: map[string]any{}}},
+				Tools: []apia2a.HITLTool{{ID: "child-confirm", CallID: "child-call", Name: "ask_user", Args: map[string]any{}}},
 			},
 		}),
 	}}
-	incoming := hitlDecisionMessage(&AskUserResponse{
+	incoming := hitlDecisionMessage(&apia2a.AskUserResponse{
 		Type: HITLTypeAskUserResponse, ID: "child-confirm",
-		Answers: []AskUserAnswer{{Answer: []string{"default"}}},
+		Answers: []apia2a.AskUserAnswer{{Answer: []string{"default"}}},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
 	if err != nil {
@@ -207,21 +212,21 @@ func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
 func TestBuildResumeHITLMessageNestedApprovals(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &ToolApprovalRequest{
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &apia2a.ToolApprovalRequest{
 			Type:  HITLTypeToolApprovalRequest,
-			Tools: []HitlTool{{ID: "parent-confirm", CallID: "parent-call", Name: "child", Args: map[string]any{}}},
-			Nested: &NestedHitlRequest{
+			Tools: []apia2a.HITLTool{{ID: "parent-confirm", CallID: "parent-call", Name: "child", Args: map[string]any{}}},
+			Nested: &apia2a.NestedHITLRequest{
 				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
-				Tools: []HitlTool{
+				Tools: []apia2a.HITLTool{
 					{ID: "child-confirm-1", CallID: "child-call-1", Name: "delete_pod", Args: map[string]any{}},
 					{ID: "child-confirm-2", CallID: "child-call-2", Name: "restart_pod", Args: map[string]any{}},
 				},
 			},
 		}),
 	}}
-	incoming := hitlDecisionMessage(&ToolApprovalResponse{
+	incoming := hitlDecisionMessage(&apia2a.ToolApprovalResponse{
 		Type: HITLTypeToolApprovalResponse,
-		Approvals: []ToolApproval{
+		Approvals: []apia2a.ToolApproval{
 			{ID: "child-confirm-1", Approved: true},
 			{ID: "child-confirm-2", Approved: false, RejectionReason: "not now"},
 		},
@@ -244,9 +249,9 @@ func TestBuildRemoteHitlStateAndHint(t *testing.T) {
 	task := &a2atype.Task{
 		ID: "child-task", ContextID: "child-context",
 		Status: a2atype.TaskStatus{
-			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &ToolApprovalRequest{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &apia2a.ToolApprovalRequest{
 				Type: HITLTypeToolApprovalRequest,
-				Tools: []HitlTool{{
+				Tools: []apia2a.HITLTool{{
 					ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
 				}},
 			}),
@@ -266,11 +271,11 @@ func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
 	task := &a2atype.Task{
 		ID: "child-task", ContextID: "child-context",
 		Status: a2atype.TaskStatus{
-			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &apia2a.AskUserRequest{
 				Type: HITLTypeAskUserRequest,
 				ID:   "confirm-1",
-				Questions: []map[string]any{
-					{"question": "What is the GitHub owner/org for the repo?"},
+				Questions: []apia2a.HITLQuestion{
+					{Question: "What is the GitHub owner/org for the repo?"},
 				},
 			}),
 		},
@@ -286,19 +291,19 @@ func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
 }
 
 // A two-level nested ask_user pause should also surface the question, since
-// the nested HitlTool's Args round-trip through JSON and lose their type.
+// the nested apia2a.HITLTool's Args round-trip through JSON and lose their type.
 func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 	question := "What is the GitHub owner/org for the repo?"
 	task := &a2atype.Task{
 		ID: "child-task", ContextID: "child-context",
 		Status: a2atype.TaskStatus{
-			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &apia2a.AskUserRequest{
 				Type:      HITLTypeAskUserRequest,
 				ID:        "confirm-1",
-				Questions: []map[string]any{{"question": question}},
-				Nested: &NestedHitlRequest{
+				Questions: []apia2a.HITLQuestion{{Question: question}},
+				Nested: &apia2a.NestedHITLRequest{
 					TaskID: "grandchild-task", ContextID: "grandchild-context", SubagentName: "grandchild_agent",
-					Tools: []HitlTool{{
+					Tools: []apia2a.HITLTool{{
 						ID: "confirm-2", CallID: "confirm-2", Name: "ask_user",
 						Args: map[string]any{"questions": []map[string]any{{"question": question}}},
 					}},
