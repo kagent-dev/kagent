@@ -6,6 +6,7 @@ import (
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 // Matcher is a validated authorization scope that can be applied to Kubernetes objects.
@@ -83,6 +84,36 @@ func (m Matcher) Matches(object metav1.Object) bool {
 		}
 		if matches {
 			return true
+		}
+	}
+	return false
+}
+
+// MatchesAnyName reports whether the scope contains any valid Kubernetes
+// resource name in namespace.
+func (m Matcher) MatchesAnyName(namespace string) bool {
+	if len(utilvalidation.IsDNS1123Label(namespace)) != 0 {
+		return false
+	}
+	if m.scope.Kind == apiauthorization.ScopeAll {
+		return true
+	}
+	for _, clause := range m.scope.AnyOf {
+		names := []string{"x"}
+		for _, predicate := range clause.All {
+			if predicate.Attribute == apiauthorization.AttributeName {
+				names = predicate.Values
+				break
+			}
+		}
+		for _, name := range names {
+			if len(utilvalidation.IsDNS1123Subdomain(name)) != 0 {
+				continue
+			}
+			object := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}
+			if m.Matches(object) {
+				return true
+			}
 		}
 	}
 	return false
