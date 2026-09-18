@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 type retryTestActors struct {
@@ -139,7 +138,7 @@ func TestLifecycleRetainsAmbiguousMutation(t *testing.T) {
 	}
 }
 
-func TestDelayedLifecycleObserverRetainsItsOutcome(t *testing.T) {
+func TestSupersededLifecycleObserverCannotExecute(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		deleteAfter bool
@@ -194,8 +193,8 @@ func TestDelayedLifecycleObserverRetainsItsOutcome(t *testing.T) {
 			}
 			close(release)
 			late := <-result
-			require.NoError(t, late.err)
-			require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY, late.instance.State)
+			require.ErrorIs(t, late.err, database.ErrConflict)
+			require.Nil(t, late.instance)
 			require.Zero(t, actors.mutations.Load(), "the delayed caller must not become another executor")
 			current, err := store.GetAgentInstanceByID(ctx, instance.Id)
 			if test.deleteAfter {
@@ -234,7 +233,7 @@ func TestDelayedCreationCannotResurrectDeletedActor(t *testing.T) {
 	_, err := NewActorWorkflow(store, base).Delete(ctx, instance)
 	require.NoError(t, err)
 	close(release)
-	require.ErrorIs(t, <-result, database.ErrFailedPrecondition)
+	require.ErrorIs(t, <-result, database.ErrConflict)
 	require.Zero(t, actors.mutations.Load())
 	_, err = base.GetActor(ctx, "team-a", substrate.ActorName(instance.Id))
 	require.Equal(t, codes.NotFound, status.Code(err))
@@ -253,26 +252,26 @@ func TestLifecycleReadFailureCanRetryPreparation(t *testing.T) {
 }
 
 // completionTestStore injects failures at the database/runtime boundary while
-// retaining real PostgreSQL claims and receipts.
+// retaining real PostgreSQL instance ownership.
 type completionTestStore struct {
 	*lifecycleTestStore
 	afterClaim func(context.Context)
 	finishErr  error
 }
 
-func (s *completionTestStore) ClaimAgentInstanceOperation(ctx context.Context, id, executor uuid.UUID) (bool, error) {
-	claimed, err := s.Client.ClaimAgentInstanceOperation(ctx, id, executor)
+func (s *completionTestStore) ClaimAgentInstanceOperation(ctx context.Context, instanceID string, id, executor uuid.UUID) (bool, error) {
+	claimed, err := s.Client.ClaimAgentInstanceOperation(ctx, instanceID, id, executor)
 	if claimed && err == nil && s.afterClaim != nil {
 		s.afterClaim(ctx)
 	}
 	return claimed, err
 }
 
-func (s *completionTestStore) FinishAgentInstanceOperation(ctx context.Context, id, executor uuid.UUID, authority, failure string) (*apiv1alpha1.AgentInstance, error) {
+func (s *completionTestStore) FinishAgentInstanceOperation(ctx context.Context, instanceID string, id, executor uuid.UUID, authority, failure string) (*apiv1alpha1.AgentInstance, error) {
 	if s.finishErr != nil {
 		return nil, s.finishErr
 	}
-	return s.Client.FinishAgentInstanceOperation(ctx, id, executor, authority, failure)
+	return s.Client.FinishAgentInstanceOperation(ctx, instanceID, id, executor, authority, failure)
 }
 
 func TestLifecycleCompletionFailureDoesNotRepeatRuntime(t *testing.T) {
@@ -287,7 +286,7 @@ func TestLifecycleCompletionFailureDoesNotRepeatRuntime(t *testing.T) {
 	operation, err := store.BeginAgentInstanceOperation(t.Context(), instance.Id, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
 	require.NoError(t, err)
 	// Only the original executor with its known successful response may finish.
-	_, err = store.FinishAgentInstanceOperation(t.Context(), operation.ID, operation.ExecutorID, substrate.ActorHost("team-a", substrate.ActorName(instance.Id), ""), "")
+	_, err = store.FinishAgentInstanceOperation(t.Context(), instance.Id, operation.ID, operation.ExecutorID, substrate.ActorHost("team-a", substrate.ActorName(instance.Id), ""), "")
 	require.NoError(t, err)
 	ready, err := NewActorWorkflow(store, actors).Create(t.Context(), instance)
 	require.NoError(t, err)
@@ -352,13 +351,16 @@ func TestCreationUsesPreparedAtespace(t *testing.T) {
 	}
 }
 
-func TestDelayedCreationObservesCompletedOperation(t *testing.T) {
+func TestDelayedCreationObservesOnlyCurrentGeneration(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		readErr error
+		name      string
+		readErr   error
+		supersede bool
 	}{
-		{name: "actor already created"},
-		{name: "lookup unavailable", readErr: status.Error(codes.Unavailable, "lookup unavailable")},
+		{name: "actor already created", supersede: true},
+		{name: "lookup unavailable", readErr: status.Error(codes.Unavailable, "lookup unavailable"), supersede: true},
+		{name: "same generation completed"},
+		{name: "same generation completed despite local read error", readErr: status.Error(codes.Unavailable, "lookup unavailable")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, instance := lifecycleFixture(t)
@@ -390,12 +392,20 @@ func TestDelayedCreationObservesCompletedOperation(t *testing.T) {
 			workflow := NewActorWorkflow(store, base)
 			ready, err := workflow.Create(ctx, instance)
 			require.NoError(t, err)
-			_, err = workflow.Suspend(ctx, ready)
-			require.NoError(t, err)
+			if test.supersede {
+				_, err = workflow.Suspend(ctx, ready)
+				require.NoError(t, err)
+			}
 			close(release)
 			late := <-done
-			require.NoError(t, late.err)
-			require.True(t, proto.Equal(ready, late.instance), "preparation errors must not replace the original operation's result")
+			if test.supersede {
+				require.ErrorIs(t, late.err, database.ErrConflict)
+				require.Nil(t, late.instance)
+			} else {
+				require.NoError(t, late.err)
+				require.Equal(t, ready.Id, late.instance.Id)
+				require.Equal(t, ready.State, late.instance.State)
+			}
 			require.Zero(t, actors.mutations.Load())
 		})
 	}

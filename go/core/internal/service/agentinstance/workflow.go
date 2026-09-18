@@ -25,9 +25,9 @@ type workflowStore interface {
 	GetAgentInstanceCheckpointSnapshot(context.Context, string, string) (*database.AgentInstanceTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	BeginAgentInstanceOperation(context.Context, string, apiv1alpha1.AgentInstanceOperation) (*database.InstanceOperation, error)
-	ClaimAgentInstanceOperation(context.Context, uuid.UUID, uuid.UUID) (bool, error)
-	FinishAgentInstanceOperation(context.Context, uuid.UUID, uuid.UUID, string, string) (*apiv1alpha1.AgentInstance, error)
-	GetAgentInstanceOperation(context.Context, uuid.UUID) (*database.InstanceOperation, error)
+	ClaimAgentInstanceOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
+	FinishAgentInstanceOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string) (*apiv1alpha1.AgentInstance, error)
+	GetAgentInstanceOperation(context.Context, string, uuid.UUID) (*database.InstanceOperation, error)
 }
 
 type actorClient interface {
@@ -43,7 +43,7 @@ type actorClient interface {
 
 // ActorWorkflow runs the imperative Substrate operations behind AgentInstance
 // lifecycle RPCs. Only the claiming caller issues lifecycle mutations; others
-// observe the retained result or receive a pending-operation error.
+// observe current completion or receive a pending/superseded-operation error.
 type ActorWorkflow struct {
 	store  workflowStore
 	actors actorClient
@@ -105,8 +105,8 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 	}, nil
 }
 
-// Create provisions the persisted instance once, using its pinned checkpoint for forks. Retries observe its retained
-// creation outcome; an uncertain prior creation never triggers another Actor call.
+// Create provisions the persisted instance once, using its pinned checkpoint for
+// forks. Retries return current state; an uncertain prior creation blocks execution.
 func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	return w.run(ctx, instance.GetId(), apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE)
 }
@@ -139,24 +139,24 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 	if err != nil {
 		return nil, err
 	}
-	if operation.Result != nil || operation.Failure != "" || operation.ExecutorID != uuid.Nil {
+	if operation.Instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED || operation.ExecutorID != uuid.Nil {
 		return operationOutcome(operation)
 	}
-	kind := operation.Kind
+	kind := operation.Instance.Operation
 	instance := operation.Instance
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
-		return w.failPreparation(ctx, operation.ID, fmt.Errorf("load prepared revision: %w", err))
+		return w.failPreparation(ctx, operation, fmt.Errorf("load prepared revision: %w", err))
 	}
 	var snapshot *database.AgentInstanceTaskSnapshot
 	var tagName string
 	if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE && operation.SourceCheckpointID != nil {
 		snapshot, _, err = w.store.GetAgentInstanceCheckpointSnapshot(ctx, operation.SourceCheckpointID.String(), instance.Creator)
 		if err != nil {
-			return w.failPreparation(ctx, operation.ID, fmt.Errorf("load pinned checkpoint: %w", err))
+			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
 		}
 		if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope != "DATA" {
-			return w.failPreparation(ctx, operation.ID, fmt.Errorf("fork requires a retained DATA checkpoint"))
+			return w.failPreparation(ctx, operation, fmt.Errorf("fork requires a retained DATA checkpoint"))
 		}
 		tagName = "checkpoint-" + operation.SourceCheckpointID.String()
 	}
@@ -166,23 +166,23 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 	if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
 		policy, err = actorEgressPolicy(atespace, revision.EgressDestinations, revision.Credentials)
 		if err != nil {
-			return w.failPreparation(ctx, operation.ID, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err))
+			return w.failPreparation(ctx, operation, fmt.Errorf("build Actor %s/%s egress policy: %w", atespace, name, err))
 		}
 	}
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	missing := status.Code(err) == codes.NotFound
 	if err != nil && !missing {
-		return w.failPreparation(ctx, operation.ID, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err))
+		return w.failPreparation(ctx, operation, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err))
 	}
 	if missing && kind != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE && kind != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE {
-		return w.failPreparation(ctx, operation.ID, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err))
+		return w.failPreparation(ctx, operation, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err))
 	}
 	if !missing {
 		if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE {
-			return w.failPreparation(ctx, operation.ID, fmt.Errorf("refuse to adopt existing Actor %s/%s without a completed creation receipt", atespace, name))
+			return w.failPreparation(ctx, operation, fmt.Errorf("refuse to adopt existing Actor %s/%s while creation is still pending", atespace, name))
 		}
 		if !validActorIdentity(actor, revision, name) {
-			return w.failPreparation(ctx, operation.ID, fmt.Errorf("actor %s/%s identity or template changed", atespace, name))
+			return w.failPreparation(ctx, operation, fmt.Errorf("actor %s/%s identity or template changed", atespace, name))
 		}
 		if kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME || kind == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
 			switch actor.GetStatus().GetState() {
@@ -190,19 +190,19 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 				ateapipb.ActorState_ACTOR_STATE_PAUSED, ateapipb.ActorState_ACTOR_STATE_RESUMING,
 				ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 			default:
-				return w.failPreparation(ctx, operation.ID, fmt.Errorf("actor %s/%s cannot perform %s from %s", atespace, name, kind, actor.GetStatus().GetState()))
+				return w.failPreparation(ctx, operation, fmt.Errorf("actor %s/%s cannot perform %s from %s", atespace, name, kind, actor.GetStatus().GetState()))
 			}
 		}
 	}
 
 	executorID := uuid.New()
-	claimed, err := w.store.ClaimAgentInstanceOperation(ctx, operation.ID, executorID)
+	claimed, err := w.store.ClaimAgentInstanceOperation(ctx, instanceID, operation.ID, executorID)
 	if err != nil {
 		return nil, err
 	}
 	if !claimed {
-		// Observe the admitted identity, even if newer lifecycle work now exists.
-		current, err := w.store.GetAgentInstanceOperation(ctx, operation.ID)
+		// A superseded generation returns a conflict without runtime work.
+		current, err := w.store.GetAgentInstanceOperation(ctx, instanceID, operation.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -272,18 +272,18 @@ func (w *ActorWorkflow) run(ctx context.Context, instanceID string, requestedKin
 	// A disconnected client must not discard an already known runtime outcome.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	return w.store.FinishAgentInstanceOperation(finishCtx, operation.ID, executorID, authority, "")
+	return w.store.FinishAgentInstanceOperation(finishCtx, instanceID, operation.ID, executorID, authority, "")
 }
 
 // failPreparation releases only unissued work. If another caller won, observe
-// the admitted operation instead: a local preparation error cannot replace its
-// retained outcome or clear a newer operation.
-func (w *ActorWorkflow) failPreparation(ctx context.Context, id uuid.UUID, cause error) (*apiv1alpha1.AgentInstance, error) {
+// the same generation instead. Completion returns current state; supersession
+// returns a conflict. A local preparation error cannot clear a newer operation.
+func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.InstanceOperation, cause error) (*apiv1alpha1.AgentInstance, error) {
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	_, err := w.store.FinishAgentInstanceOperation(finishCtx, id, uuid.Nil, "", "lifecycle preparation failed")
+	_, err := w.store.FinishAgentInstanceOperation(finishCtx, admitted.Instance.Id, admitted.ID, uuid.Nil, "", "lifecycle preparation failed")
 	if errors.Is(err, database.ErrConflict) {
-		operation, readErr := w.store.GetAgentInstanceOperation(finishCtx, id)
+		operation, readErr := w.store.GetAgentInstanceOperation(finishCtx, admitted.Instance.Id, admitted.ID)
 		if readErr != nil {
 			return nil, errors.Join(cause, err, readErr)
 		}
@@ -293,11 +293,8 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, id uuid.UUID, cause
 }
 
 func operationOutcome(operation *database.InstanceOperation) (*apiv1alpha1.AgentInstance, error) {
-	if operation.Result != nil {
-		return operation.Result, nil
-	}
-	if operation.Failure != "" {
-		return nil, fmt.Errorf("%s: %w", operation.Failure, database.ErrFailedPrecondition)
+	if operation.Instance.Operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		return operation.Instance, nil
 	}
 	return nil, fmt.Errorf("lifecycle operation %s is pending; runtime effects may be unresolved: %w", operation.ID, database.ErrConflict)
 }

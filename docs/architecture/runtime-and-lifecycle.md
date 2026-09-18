@@ -12,42 +12,52 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; AgentInstance creation does not resume
 an Actor merely to probe `/readyz`.
 
-Create (including forks), explicit Suspend, Resume, and Delete each admit a durable
-operation UUID. Fork creation loads its pinned checkpoint from PostgreSQL. Namespace
-provisioning belongs to the template controller; instance creation uses the pinned
-ActorTemplate's existing namespace. Read-only
-preparation may run concurrently, but an atomic execution claim permits exactly one
-caller to issue runtime mutations. Network work holds no database transaction or lock.
-Completion atomically records the result and changes or deletes the instance.
-Delayed callers observe their operation's retained result, even after newer lifecycle
-operations or instance deletion. This includes callers whose delayed preparation
-fails after another caller has completed: the retained operation outcome takes
-precedence over their local preparation error.
+Create (including forks), explicit Suspend, Resume, and Delete keep their current
+operation UUID and executor claim on the instance row. Fork creation loads its
+pinned checkpoint from PostgreSQL. Namespace provisioning belongs to the template
+controller; instance creation uses the pinned ActorTemplate's existing namespace.
+Read-only preparation may run concurrently, but an atomic execution claim permits
+exactly one caller to issue runtime mutations. Network work holds no database
+transaction or lock. Completion changes the instance atomically and retains its
+operation UUID until a later transition supersedes it.
 
-An unclaimed operation can retry preparation; Delete may supersede it. Once claimed,
-the operation never expires. A timeout, disconnected client, process restart, or lost
-runtime response leaves the operation pending and blocks conflicting lifecycle work,
-including Delete. The instance retains its revision and checkpoint pins. A runtime
-success whose database completion fails also remains pending. Only the original
-executor with a known successful response may finish persistence; a favorable Actor
-read alone does not establish that an earlier request has stopped. There is currently
-no automatic takeover or administrative unlock API for uncertain operations.
+A joined caller observes the current instance only while its admitted generation
+remains current. A superseded caller gets a conflict and issues no runtime work,
+even when the new operation has the same state and kind. There is no historical
+lifecycle result archive or pruning requirement. Creation retries return current
+instance state; already-at-target Suspend/Resume requests are successful no-ops.
+Neither requires an old operation receipt. A2A message deduplication and event
+replay have their own durable history requirements and are unchanged.
 
-Pending observers receive an error containing the operation UUID. Completed results
-are currently retained indefinitely; bounded pruning must preserve at least 24 hours
-of outcomes and must never remove pending work. These records are internal, not a new
-public operations API. Public requests still authorize against the instance; retaining
-a Delete result does not make a fresh request for a deleted instance authorized.
+An unclaimed operation can retry preparation; Delete may supersede it. Preparation
+failure invalidates its generation. Once claimed, an operation never expires. A
+timeout, disconnected client, process restart, lost runtime response, or runtime
+success whose database completion fails leaves the operation pending and blocks
+conflicting lifecycle work, including Delete. The instance retains its revision
+and checkpoint pins. Only the original executor with a known successful response
+may finish persistence; a favorable Actor read alone does not establish that an
+earlier request has stopped. There is no automatic takeover or administrative
+unlock API for uncertain operations.
+
+Deletion retains an indefinitely kept DELETED instance tombstone with its owner,
+creation request identity, and final operation UUID. It clears runtime routing,
+releases the revision and checkpoint pins, and revokes shares atomically. A fork's
+source checkpoint UUID remains as request identity; a generated foreign-key column
+pins that checkpoint only while the instance is live. Ordinary instance/task/share
+access excludes deleted instances. Create/Fork request IDs remain reserved after
+deletion and cannot recreate compute. Public Delete still returns NotFound for a
+fresh request after deletion; already-authorized joined Delete callers can observe
+the final tombstone. No public operation API is introduced.
 
 Explicit suspend and resume update the logical lifecycle state. Deletion closes task
-admission, stops and deletes the Actor, then removes control-plane state. The workflow
+admission, stops and deletes the Actor, then tombstones the instance. The workflow
 entry points are in
 [`go/core/internal/service/agentinstance`](../../go/core/internal/service/agentinstance).
 This serialization covers explicit lifecycle calls only: A2A, Pause, Quiesce, and
 checkpoint execution still need shared ownership before multi-replica gateway use.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
-can issue lifecycle calls without operation records. PostgreSQL tests with controlled
+can issue lifecycle calls without instance-local execution claims. PostgreSQL tests with controlled
 Actor responses verify claim ordering, delayed callers, and lost responses; live
 Substrate settlement and the complete multi-replica rollout remain acceptance work.
 

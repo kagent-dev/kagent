@@ -321,6 +321,9 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition("request_id belongs to a deleted AgentInstance", err)
+	}
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
@@ -328,6 +331,12 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
 	}
 	instance, err = s.workflow.Create(ctx, instance)
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance was deleted", err)
+	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to create fork AgentInstance", err)
 	}

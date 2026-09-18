@@ -18,7 +18,8 @@ import (
 // READY checkpoint, replaying only events through its saved boundary. The fork retains the
 // source context ID, revision, and snapshot reference. A repeated owner/requestID returns
 // the existing fork for the same checkpoint, or ErrIdempotencyConflict otherwise. The
-// boolean reports creation; callers provision the runtime separately.
+// boolean reports creation; callers provision the runtime separately. A deleted
+// fork returns ErrFailedPrecondition and retains its request identity.
 func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, requestID, instanceID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	checkpointUUID, err := uuid.Parse(checkpointID)
 	if err != nil {
@@ -31,6 +32,9 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			return nil, false, ErrIdempotencyConflict
 		}
 		instance, err := toAgentInstance(existing)
+		if err == nil && instance.State == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+			return nil, false, ErrFailedPrecondition
+		}
 		return instance, false, err
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -145,6 +149,9 @@ func (c *Client) ForkAgentInstance(ctx context.Context, checkpointID, userID, re
 			return nil, false, ErrIdempotencyConflict
 		}
 		instance, err := toAgentInstance(existing)
+		if err == nil && instance.State == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+			return nil, false, ErrFailedPrecondition
+		}
 		return instance, false, err
 	}
 	if err != nil {
@@ -185,7 +192,7 @@ func (c *Client) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint 
 		}
 
 		instance, err := lockAgentInstance(ctx, tx, checkpoint.GetAgentInstanceId())
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.UserID != userID)) {
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.UserID != userID || instance.State == "AGENT_INSTANCE_STATE_DELETED")) {
 			return ErrNotFound
 		}
 		if err != nil {
@@ -443,7 +450,7 @@ func (c *Client) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, id, use
 			WHERE agent_instance_checkpoint.id = $1 AND agent_instance_checkpoint.user_id = $2
 			  AND agent_instance_checkpoint.state IN ('READY', 'DELETING')
 			  AND NOT EXISTS (
-			      SELECT 1 FROM agent_instance i WHERE i.source_checkpoint_id = agent_instance_checkpoint.id
+			      SELECT 1 FROM agent_instance i WHERE i.pinned_checkpoint_id = agent_instance_checkpoint.id
 			  )
 		`, row.ID, userID, data)
 		if err != nil {

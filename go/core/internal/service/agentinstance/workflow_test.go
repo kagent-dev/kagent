@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -101,7 +102,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 	actor.Status.ExternalSnapshot.SnapshotUri = "s3://snapshots/later-turn"
 	replayed, err := NewActorWorkflow(store, actors).Create(t.Context(), instance)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(fork, replayed), "a retry must retain the creation result, not revalidate later Actor state")
+	require.True(t, proto.Equal(fork, replayed), "a retry returns the current instance without revalidating later Actor state")
 }
 
 // lifecycleFixture uses the same persistence boundary as production; only Actor
@@ -347,4 +348,35 @@ func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[0].GetHostnames().GetPatterns())
 	require.Len(t, policy.Rules[0].GetHostnames().GetEffects().GetInjectStaticHeaders(), 2)
 	require.Nil(t, policy.Rules[1].GetHostnames().GetEffects(), "the broad allow rule must not bypass injection")
+}
+
+func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) {
+	store, fixture := lifecycleFixture(t)
+	actors := &retryTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
+	service := NewService(store, serviceTestAuthorizer{}, NewActorWorkflow(store, actors))
+	ctx := serviceTestContext("alice")
+	instance, err := service.Create(ctx, fixture.Harness, fixture.AgentTemplate, "retry-request", "conversation")
+	require.NoError(t, err)
+	suspended, err := service.Suspend(ctx, instance.Id)
+	require.NoError(t, err)
+	mutations := actors.mutations.Load()
+	retried, err := service.Create(ctx, fixture.Harness, fixture.AgentTemplate, "retry-request", "ignored retry name")
+	require.NoError(t, err)
+	require.Equal(t, suspended.Id, retried.Id)
+	require.Equal(t, suspended.State, retried.State)
+	require.Equal(t, mutations, actors.mutations.Load(), "creation retry cannot reissue runtime work")
+	deleted, err := service.Delete(ctx, instance.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED, deleted.State)
+	require.Empty(t, deleted.A2AAuthority)
+	mutations = actors.mutations.Load()
+	_, err = service.Create(ctx, fixture.Harness, fixture.AgentTemplate, "retry-request", "")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition))
+	_, err = service.Get(ctx, instance.Id)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
+	_, err = service.Delete(ctx, instance.Id)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
+	_, err = service.Resume(ctx, instance.Id)
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
+	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
 }
