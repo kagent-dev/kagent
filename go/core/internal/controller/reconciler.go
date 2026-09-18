@@ -138,9 +138,11 @@ type Reconciler struct {
 	pairs                      controllers.Queue
 	agentTemplateStatuses      controllers.Queue
 	modelConfigStatuses        controllers.Queue
+	harnessStatuses            controllers.Queue
 	pairHandler                krt.HandlerRegistration
 	agentTemplateStatusHandler krt.HandlerRegistration
 	modelConfigStatusHandler   krt.HandlerRegistration
+	harnessStatusHandler       krt.HandlerRegistration
 }
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
@@ -174,6 +176,9 @@ func newReconciler(
 	r.modelConfigStatuses = newReconciliationQueue("v2-model-config-status", func(item any) error {
 		return r.reconcileModelConfigStatus(context.Background(), item.(string))
 	})
+	r.harnessStatuses = newReconciliationQueue("v2-harness-status", func(item any) error {
+		return r.reconcileHarnessStatus(context.Background(), item.(string))
+	})
 
 	r.pairHandler = collections.Reconciliations.Register(func(event krt.Event[PairReconciliation]) {
 		r.pairs.Add(krt.GetKey(event.Latest()))
@@ -192,6 +197,13 @@ func newReconciler(
 		}
 		r.modelConfigStatuses.Add(status.ResourceName())
 	})
+	r.harnessStatusHandler = collections.HarnessStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.Harness, kagentv1alpha3.HarnessStatus]]) {
+		status := event.Latest()
+		if apiequality.Semantic.DeepEqual(harnessStatusWithTransitionTimes(status.Status, status.Obj.Status), status.Obj.Status) {
+			return
+		}
+		r.harnessStatuses.Add(status.ResourceName())
+	})
 	return r
 }
 
@@ -207,15 +219,17 @@ func newReconciliationQueue(name string, reconcile func(any) error) controllers.
 // Run waits for the graph boundary to observe initial state, then processes
 // pair and status writes until stop closes.
 func (r *Reconciler) Run(stop <-chan struct{}) {
-	if !r.pairHandler.WaitUntilSynced(stop) || !r.agentTemplateStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
+	if !r.pairHandler.WaitUntilSynced(stop) || !r.agentTemplateStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) || !r.harnessStatusHandler.WaitUntilSynced(stop) {
 		r.pairs.ShutDownEarly()
 		r.agentTemplateStatuses.ShutDownEarly()
 		r.modelConfigStatuses.ShutDownEarly()
+		r.harnessStatuses.ShutDownEarly()
 		return
 	}
 	go r.pollPendingTemplates(stop)
 	go r.agentTemplateStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
+	go r.harnessStatuses.Run(stop)
 	r.pairs.Run(stop)
 }
 
@@ -368,6 +382,38 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 		return fmt.Errorf("update ModelConfig %s status: %w", key, err)
 	}
 	return nil
+}
+
+func (r *Reconciler) reconcileHarnessStatus(ctx context.Context, key string) error {
+	desired := r.collections.HarnessStatuses.GetKey(key)
+	harness := r.collections.Harnesses.GetKey(key)
+	if desired == nil || harness == nil {
+		return nil
+	}
+	updated := (*harness).DeepCopy()
+	updated.Status = harnessStatusWithTransitionTimes(desired.Status, updated.Status)
+	if apiequality.Semantic.DeepEqual(updated.Status, (*harness).Status) {
+		return nil
+	}
+	if _, err := r.status.Harnesses(updated.Namespace).UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update Harness %s status: %w", key, err)
+	}
+	return nil
+}
+
+func harnessStatusWithTransitionTimes(desired, current kagentv1alpha3.HarnessStatus) kagentv1alpha3.HarnessStatus {
+	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
+	for conditionIndex := range desired.Conditions {
+		condition := &desired.Conditions[conditionIndex]
+		if previous := apimeta.FindStatusCondition(current.Conditions, condition.Type); previous != nil &&
+			previous.Status == condition.Status && previous.Reason == condition.Reason &&
+			previous.Message == condition.Message && previous.ObservedGeneration == condition.ObservedGeneration {
+			condition.LastTransitionTime = previous.LastTransitionTime
+			continue
+		}
+		condition.LastTransitionTime = metav1.Now()
+	}
+	return desired
 }
 
 func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentTemplateStatus) kagentv1alpha3.AgentTemplateStatus {
