@@ -65,7 +65,6 @@ func (r *RuntimeRevisionGC) sweep(ctx context.Context) {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list unreferenced runtime revisions", "error", err)
 		return
 	}
-	// ponytail: sweeps are serial; add bounded workers if slow deletions delay reclamation.
 	for _, candidate := range revisions {
 		if ctx.Err() != nil {
 			return

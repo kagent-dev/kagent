@@ -124,12 +124,11 @@ func (s *testStore) ForkAgentInstance(_ context.Context, _ string, userID, _ str
 }
 
 type testWorkflow struct {
-	snapshot *database.AgentInstanceTaskSnapshot
-	tagName  string
+	instance *apiv1alpha1.AgentInstance
 }
 
-func (w *testWorkflow) Fork(_ context.Context, instance *apiv1alpha1.AgentInstance, snapshot *database.AgentInstanceTaskSnapshot, tagName string) (*apiv1alpha1.AgentInstance, error) {
-	w.snapshot, w.tagName = snapshot, tagName
+func (w *testWorkflow) Create(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	w.instance = instance
 	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
 	return instance, nil
 }
@@ -304,8 +303,8 @@ func TestForkCreatesAgentInstanceFromCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
-		workflow.snapshot != store.snapshot || workflow.tagName != tagName(checkpoint.Id) || store.forked.GetId() == "" {
-		t.Fatalf("fork = %+v, checkpoint = %+v", instance, workflow.snapshot)
+		workflow.instance != store.forked || store.forked.GetId() == "" {
+		t.Fatalf("fork = %+v, checkpoint = %+v", instance, checkpoint)
 	}
 }
 
