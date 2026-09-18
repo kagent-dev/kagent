@@ -16,7 +16,9 @@ const base: AgentResponse = {
 function toolMcp(names?: string[]): Tool {
   return {
     type: "McpServer",
-    mcpServer: { name: "srv", namespace: "ns", toolNames: names, kind: "ToolServer" },
+    // toolNames is declared `string[]`, but one case below passes undefined on
+    // purpose to cover the defensive path, so the cast is deliberate.
+    mcpServer: { name: "srv", namespace: "ns", toolNames: names as string[], kind: "ToolServer" },
   };
 }
 

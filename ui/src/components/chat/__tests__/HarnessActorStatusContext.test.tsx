@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { getAgentHarnessSessionStatus } from "@/app/actions/agentHarnessSession";
+import type { AgentHarnessSessionState } from "@/app/actions/agentHarnessSession";
 import {
   HarnessActorStatusProvider,
   useHarnessActorStatus,
@@ -13,6 +14,15 @@ const mockGetStatus = getAgentHarnessSessionStatus as jest.MockedFunction<
   typeof getAgentHarnessSessionStatus
 >;
 
+// The provider is rendered with namespace="kagent" harnessName="harness"; the
+// actor identity is not asserted on, only `state`, but AgentHarnessSessionActor
+// requires it so the mock has to return a whole actor.
+const statusResponse = (state: AgentHarnessSessionState) => ({
+  message: "",
+  data: { namespace: "kagent", name: "harness", sessionId: "session-1", state },
+});
+
+
 function StatusConsumer({ label }: { label: string }) {
   const status = useHarnessActorStatus();
   return <span>{`${label}:${status?.state ?? "loading"}`}</span>;
@@ -21,7 +31,7 @@ function StatusConsumer({ label }: { label: string }) {
 describe("HarnessActorStatusProvider", () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    mockGetStatus.mockResolvedValue({ data: { state: "running" } });
+    mockGetStatus.mockResolvedValue(statusResponse("running"));
   });
 
   afterEach(() => {
@@ -94,13 +104,13 @@ describe("HarnessActorStatusProvider", () => {
     act(() => jest.advanceTimersByTime(0));
 
     await act(async () => {
-      resolveSecond({ data: { state: "running" } });
+      resolveSecond(statusResponse("running"));
       await Promise.resolve();
     });
     expect(screen.getByText("status:running")).toBeInTheDocument();
 
     await act(async () => {
-      resolveFirst({ data: { state: "suspended" } });
+      resolveFirst(statusResponse("suspended"));
       await Promise.resolve();
     });
     expect(screen.getByText("status:running")).toBeInTheDocument();
