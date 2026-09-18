@@ -203,12 +203,8 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
 	for _, source := range sources {
-		want := []int64{0, 1}
-		if source.Name == "core" {
-			want = append(want, 2)
-		}
-		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, want) {
-			t.Fatalf("%s versions = %v, want %v", source.Name, versions, want)
+		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, []int64{0, 1}) {
+			t.Fatalf("%s versions = %v, want the single baseline", source.Name, versions)
 		}
 	}
 	// Routing, wire context, and durable history are independent identities.

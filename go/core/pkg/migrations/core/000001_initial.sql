@@ -36,6 +36,7 @@ CREATE TABLE runtime_revision (
     harness_uid              TEXT        NOT NULL,
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
+    credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
