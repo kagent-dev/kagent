@@ -394,14 +394,32 @@ func (tool confirmationTool) asHitlTool() apia2a.HITLTool {
 	return apia2a.HITLTool{ID: tool.approvalID, CallID: tool.callID, Name: tool.name, Args: tool.args}
 }
 
-// pendingQuestionText joins the questions an ask_user call is waiting on.
-func pendingQuestionText(tool apia2a.HITLTool) string {
-	questions := publicAskUserQuestions(tool.Args["questions"])
-	texts := make([]string, 0, len(questions))
+// askUserQuestions returns the answerable questions of an ask_user pause, or nil.
+// A pause qualifies when it holds exactly one ask_user call, and that call carries
+// at least one question with text. A question without text cannot be rendered, and
+// an answer for it cannot be correlated, so it is dropped.
+func askUserQuestions(tools []apia2a.HITLTool) []apia2a.HITLQuestion {
+	if len(tools) != 1 || tools[0].Name != "ask_user" {
+		return nil
+	}
+	questions := publicAskUserQuestions(tools[0].Args["questions"])
+	answerable := make([]apia2a.HITLQuestion, 0, len(questions))
 	for _, question := range questions {
 		if question.Question != "" {
-			texts = append(texts, question.Question)
+			answerable = append(answerable, question)
 		}
+	}
+	if len(answerable) == 0 {
+		return nil
+	}
+	return answerable
+}
+
+// pendingQuestionText joins the questions an ask_user call is waiting on.
+func pendingQuestionText(questions []apia2a.HITLQuestion) string {
+	texts := make([]string, 0, len(questions))
+	for _, question := range questions {
+		texts = append(texts, question.Question)
 	}
 	return strings.Join(texts, "; ")
 }
@@ -409,10 +427,8 @@ func pendingQuestionText(tool apia2a.HITLTool) string {
 // hitlStatusText renders a pause as one human-readable line. An ask_user pause speaks
 // for itself; every other pause names its tools so no pending tool stays hidden.
 func hitlStatusText(tools []apia2a.HITLTool, hints []string) string {
-	if len(tools) == 1 && tools[0].Name == "ask_user" {
-		if questions := pendingQuestionText(tools[0]); questions != "" {
-			return questions
-		}
+	if questions := pendingQuestionText(askUserQuestions(tools)); questions != "" {
+		return questions
 	}
 	names := make([]string, 0, len(tools))
 	for _, tool := range tools {
@@ -488,10 +504,13 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 			Questions: remote.AskUserRequest.Questions, Nested: nested,
 		})
 	}
-	if len(tools) == 1 && tools[0].Name == "ask_user" {
+	// An ask_user call with no answerable question becomes an approval: an empty
+	// question list gives a request that no response can satisfy, because resume
+	// requires answers.
+	if questions := askUserQuestions(tools); questions != nil {
 		return AttachHitlExtension(public, &apia2a.AskUserRequest{
 			Type: HITLTypeAskUserRequest, ID: tools[0].ID,
-			Questions: publicAskUserQuestions(tools[0].Args["questions"]),
+			Questions: questions,
 		})
 	}
 	return AttachHitlExtension(public, &apia2a.ToolApprovalRequest{

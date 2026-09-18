@@ -32,6 +32,7 @@ from kagent.core.a2a import (
     AskUserRequest,
     HitlTool,
     ToolApprovalRequest,
+    ask_user_questions,
     attach_hitl_extension,
     get_ask_user_request,
     get_ask_user_response,
@@ -72,10 +73,15 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
 
 def _hitl_request(tools: list[HitlTool], text: str) -> AskUserRequest | ToolApprovalRequest:
-    """An ask_user interrupt becomes a question; anything else becomes an approval."""
-    if len(tools) == 1 and tools[0].name == "ask_user":
-        questions = tools[0].args.get("questions")
-        return AskUserRequest(id=tools[0].id, questions=questions if isinstance(questions, list) else [])
+    """An ask_user interrupt becomes a question; anything else becomes an approval.
+
+    An ask_user call with no answerable question becomes an approval too: an
+    empty question list gives a request that no response can satisfy, because
+    resume requires one answer per question.
+    """
+    questions = ask_user_questions(tools)
+    if questions:
+        return AskUserRequest(id=tools[0].id, questions=questions)
     return ToolApprovalRequest(hint=text, tools=tools)
 
 

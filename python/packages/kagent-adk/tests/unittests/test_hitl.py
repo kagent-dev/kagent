@@ -447,3 +447,30 @@ def test_status_message_without_confirmation_parts_stays_generic():
 
     assert get_tool_approval_request(status_message) is None
     assert _status_text(status_message) == "Human input is required before the agent can continue."
+
+
+def test_status_message_ask_user_without_questions_asks_for_approval():
+    part = _confirmation_part("confirm-1", "ask_user", {"questions": []})
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=True)
+    request = get_tool_approval_request(status_message)
+
+    assert get_ask_user_request(status_message) is None
+    assert request is not None
+    assert request.tools[0].name == "ask_user"
+    assert _status_text(status_message) == "Approval is required for tool(s): ask_user"
+
+
+def test_status_message_ask_user_drops_questions_without_text():
+    part = _confirmation_part(
+        "confirm-1",
+        "ask_user",
+        {"questions": [{"question": ""}, {"question": "Which cluster?"}]},
+    )
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=True)
+    request = get_ask_user_request(status_message)
+
+    assert request is not None
+    assert request.questions == [{"question": "Which cluster?"}]
+    assert _status_text(status_message) == "Which cluster?"

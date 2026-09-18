@@ -187,17 +187,28 @@ def require_ask_user_response(
 GENERIC_HITL_TEXT = "Human input is required before the agent can continue."
 
 
-def _ask_user_question_text(tool: HitlTool) -> str:
-    """Join the questions an ask_user call is waiting on."""
-    questions = tool.args.get("questions")
+def ask_user_questions(tools: list[HitlTool]) -> list[dict[str, Any]]:
+    """Return the answerable questions of an ask_user pause, or an empty list.
+
+    A pause qualifies when it holds exactly one ask_user call, and that call
+    carries at least one question with text. A question without text cannot be
+    rendered, and an answer for it cannot be correlated, so it is dropped.
+    """
+    if len(tools) != 1 or tools[0].name != "ask_user":
+        return []
+    questions = tools[0].args.get("questions")
     if not isinstance(questions, list):
-        return ""
-    texts = [
-        question["question"]
+        return []
+    return [
+        question
         for question in questions
         if isinstance(question, dict) and isinstance(question.get("question"), str) and question["question"]
     ]
-    return "; ".join(texts)
+
+
+def _ask_user_question_text(questions: list[dict[str, Any]]) -> str:
+    """Join the questions an ask_user call is waiting on."""
+    return "; ".join(question["question"] for question in questions)
 
 
 def hitl_status_text(tools: list[HitlTool], hints: list[str] | None = None) -> str:
@@ -207,10 +218,9 @@ def hitl_status_text(tools: list[HitlTool], hints: list[str] | None = None) -> s
     pending tool stays hidden, and keeps the hints the tools supplied.
     """
     hints = [hint for hint in (hints or []) if hint]
-    if len(tools) == 1 and tools[0].name == "ask_user":
-        questions = _ask_user_question_text(tools[0])
-        if questions:
-            return questions
+    questions = _ask_user_question_text(ask_user_questions(tools))
+    if questions:
+        return questions
     names = [tool.name for tool in tools if tool.name]
     if hints and names:
         return f"{'; '.join(hints)} ({', '.join(names)})"

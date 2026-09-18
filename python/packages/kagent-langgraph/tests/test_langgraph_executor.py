@@ -101,3 +101,38 @@ async def test_interrupt_normalizes_non_dict_args():
     assert request is not None
     assert request.tools[0].args == {}
     assert _text(message) == "Approval is required for tool(s): delete_file"
+
+
+async def test_interrupt_ask_user_without_questions_asks_for_approval():
+    interrupt_data = [{"action_requests": [{"id": "call-ask", "name": "ask_user", "args": {"questions": []}}]}]
+
+    message = await _handle(True, interrupt_data=interrupt_data)
+
+    request = get_tool_approval_request(message)
+
+    assert get_ask_user_request(message) is None
+    assert request is not None
+    assert request.tools[0].name == "ask_user"
+    assert _text(message) == "Approval is required for tool(s): ask_user"
+
+
+async def test_interrupt_ask_user_drops_questions_without_text():
+    interrupt_data = [
+        {
+            "action_requests": [
+                {
+                    "id": "call-ask",
+                    "name": "ask_user",
+                    "args": {"questions": [{"question": ""}, "not-a-mapping", {"question": "Which cluster?"}]},
+                }
+            ]
+        }
+    ]
+
+    message = await _handle(True, interrupt_data=interrupt_data)
+
+    request = get_ask_user_request(message)
+
+    assert request is not None
+    assert request.questions == [{"question": "Which cluster?"}]
+    assert _text(message) == "Which cluster?"

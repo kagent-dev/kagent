@@ -24,6 +24,7 @@ from kagent.core.a2a import (
     NestedHitlRequest,
     ToolApprovalRequest,
     ToolApprovalResponse,
+    ask_user_questions,
     attach_hitl_extension,
     get_ask_user_request,
     get_ask_user_response,
@@ -199,11 +200,8 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
             questions=remote_state.hitl_request.questions,
             nested=nested,
         )
-    elif len(tools) == 1 and tools[0].name == "ask_user":
-        request = AskUserRequest(
-            id=tools[0].id,
-            questions=tools[0].args.get("questions") or [],
-        )
+    elif questions := ask_user_questions(tools):
+        request = AskUserRequest(id=tools[0].id, questions=questions)
     else:
         request = ToolApprovalRequest(hint=text, tools=tools, nested=nested)
 

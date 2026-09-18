@@ -142,6 +142,36 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("ask user without questions asks for approval", func(t *testing.T) {
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			hintlessConfirmationPart("confirm-2", "ask_user", "call-2"))
+		public := BuildHITLStatusMessage(internal, true)
+		if GetAskUserRequest(public) != nil {
+			t.Fatal("an ask_user call without questions must not become an ask_user request")
+		}
+		payload := GetToolApprovalRequest(public)
+		if payload == nil || payload.Tools[0].Name != "ask_user" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		if want := "Approval is required for tool(s): ask_user"; messageText(public) != want {
+			t.Errorf("text = %q, want %q", messageText(public), want)
+		}
+	})
+
+	t.Run("ask user drops questions without text", func(t *testing.T) {
+		questions := []any{map[string]any{"question": ""}, map[string]any{"question": "Which cluster?"}}
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
+		public := BuildHITLStatusMessage(internal, true)
+		payload := GetAskUserRequest(public)
+		if payload == nil || len(payload.Questions) != 1 || payload.Questions[0].Question != "Which cluster?" {
+			t.Fatalf("payload = %#v", payload)
+		}
+		if want := "Which cluster?"; messageText(public) != want {
+			t.Errorf("text = %q, want %q", messageText(public), want)
+		}
+	})
+
 	t.Run("nested subagent", func(t *testing.T) {
 		remote := RemoteHitlState{
 			TaskID: "child-task", ContextID: "child-context", SubagentName: "k8s_agent",
