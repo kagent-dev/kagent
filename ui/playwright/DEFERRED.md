@@ -24,7 +24,9 @@ missing is the page.
 wiring. Two things follow for this file.
 
 **The cleanup entry above is now about litter, not contexts.** A live spec deletes what
-it created; a run killed between the two cannot. That is why `throwawayName` puts the
+it created, in a `test.afterEach` rather than a `finally` — measured, a timed-out test has
+a closed page and everything in its `finally` throws, which is the failure most likely to
+leave something behind. A run killed outright still cannot. That is why `throwawayName` puts the
 process and a timestamp in every name — anything matching `e2e-live-*` in `kagent` is
 litter and safe to remove. A sweep spec stays the wrong shape for it, being one bad
 selector away from deleting somebody's work.
@@ -215,7 +217,10 @@ The reading itself is covered exhaustively in `src/components/chat/lifecycleRead
 since a substrate agent really does suspend itself then and nothing in the API reports it.
 What is missing is a browser journey that suspends an instance from the agents list while a
 chat page is open on it and watches the indicator follow. That belongs in `playwright/live/`,
-where the operation is real.
+where the operation is real — and that lane now exists and runs in CI, so the blocker has
+moved rather than gone: an `AgentInstance` exists only once a message has been sent, and
+neither cluster has a model that can answer one. CI installs with `OPENAI_API_KEY: fake`,
+and `setup-cluster.sh` sets no key at all.
 
 ### Streaming, end to end, against a controller
 
@@ -232,6 +237,9 @@ artifact path. Teaching the fixture to emit artifact frames would mean it stoppe
 `ChatClient` and started being an A2A server, which is the wrong seam — the transport is
 already covered by unit tests over real bytes. The browser-level gap is a `playwright/live/`
 spec that sends a message and asserts the reply grows on screen before the turn completes.
+The lane is no longer what blocks it: a reply that streams needs a model that answers, and
+both clusters this suite runs against carry a fake key. Reachable today only by a developer
+with their own.
 
 A related gap worth naming rather than leaving implicit: the mock backend serves one
 instance per conversation and never *changes* an instance's `operation`, so the lifecycle
