@@ -49,8 +49,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		return nil, fmt.Errorf("render runtime Agent Card: %w", err)
 	}
 	environment := append([]corev1.EnvVar(nil), spec.Environment...)
-	// Beta3 intercepts HTTPS at the egress gateway. Every runtime needs its
-	// projected CA, including runtimes without credential bindings.
+	// The systemInfo trustBundle volume below projects the gateway CA. These
+	// variables tell each TLS client to trust it; mounting the file alone does
+	// not configure trust. The gateway intercepts HTTPS even without credentials.
 	for _, variable := range environment {
 		if _, owned := egressTrustEnvironment[variable.Name]; owned {
 			return nil, fmt.Errorf("runtime environment %q conflicts with gateway trust", variable.Name)

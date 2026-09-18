@@ -72,10 +72,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 	if err != nil {
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
-	credentials, err := egress.CanonicalCredentials(revision.Credentials)
-	if err != nil {
-		return fmt.Errorf("invalid runtime revision credentials: %w", err)
-	}
+	credentials := revision.Credentials
 	if credentials == nil {
 		credentials = []egress.Credential{}
 	}
@@ -150,8 +147,8 @@ func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*Runt
 	return toRuntimeRevision(row)
 }
 
-// toRuntimeRevision converts a prepared revision and decodes its agent card, returning an
-// error for malformed protobuf data.
+// toRuntimeRevision decodes the agent card and canonicalizes credential bindings,
+// returning an error for malformed stored data.
 func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	card := &a2apb.AgentCard{}
 	if err := proto.Unmarshal(row.AgentCard, card); err != nil {

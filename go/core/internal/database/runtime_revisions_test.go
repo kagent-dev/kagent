@@ -495,7 +495,16 @@ func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, got.Credentials, unchanged.Credentials, "revision credentials are immutable")
-	revision.Revision = "bad-revision"
-	revision.Credentials[0].Hostname = "*"
-	require.ErrorContains(t, client.RecordRuntimeRevision(t.Context(), revision, false), "exact DNS hostname")
+}
+
+func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
+	revision, err := toRuntimeRevision(runtimeRevisionRow{
+		Revision: "bad-revision",
+		Credentials: []egress.Credential{{
+			Hostname: "*", Header: "authorization", URI: "ate-secret://kubernetes.io/team/auth/token",
+		}},
+	})
+	require.ErrorContains(t, err, "decode runtime revision bad-revision credentials")
+	require.ErrorContains(t, err, "exact DNS hostname")
+	require.Nil(t, revision)
 }

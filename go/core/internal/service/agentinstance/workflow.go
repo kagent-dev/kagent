@@ -440,6 +440,7 @@ func usesActorTemplate(actor *ateapipb.Actor, revision *database.RuntimeRevision
 }
 
 // actorEgressPolicy compiles destinations into an actor's default allowlist.
+// Credential bindings are already canonicalized by the store.
 func actorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
 	var hostnames, cidrs []string
 	for _, destination := range destinations {
@@ -455,11 +456,7 @@ func actorEgressPolicy(atespace string, destinations []string, credentials []egr
 		hostnames = append(hostnames, hostname)
 	}
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
-	bindings, err := egress.CanonicalCredentials(credentials)
-	if err != nil {
-		return nil, err
-	}
-	for _, binding := range bindings {
+	for _, binding := range credentials {
 		if !slices.Contains(hostnames, binding.Hostname) {
 			return nil, fmt.Errorf("credential destination %q is not allowed", binding.Hostname)
 		}
