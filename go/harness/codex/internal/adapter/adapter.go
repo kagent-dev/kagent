@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -66,6 +67,9 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
 	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
+	// The native runtime inherits the compiled identity through the standard
+	// resource variable, so no user-supplied marker is required.
+	environment = tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.Identity())
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {
