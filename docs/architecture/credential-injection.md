@@ -70,7 +70,3 @@ static header injection and are rejected rather than serialized into runtimes.
 Caller-token passthrough retains its existing behavior. A passthrough model
 cannot share a hostname with static gateway credentials, which would override
 the caller's authentication.
-
-Existing instances remain pinned to their prepared revision. Recreate instances
-to move them from older runtimes with inline credentials to gateway injection;
-normal revision garbage collection removes unreferenced older templates.
