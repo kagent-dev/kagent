@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -43,6 +44,10 @@ type AppConfig struct {
 
 	// ShutdownTimeout is the graceful shutdown timeout. Defaults to 5 seconds.
 	ShutdownTimeout time.Duration
+
+	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
+	HealthPaths   []string
+	HealthHandler http.Handler
 
 	// Logger is the structured logger. If nil, a JSON logger is created.
 	Logger *slog.Logger
@@ -135,6 +140,8 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		Host:            cfg.Host,
 		Port:            cfg.Port,
 		ShutdownTimeout: cfg.ShutdownTimeout,
+		HealthPaths:     cfg.HealthPaths,
+		HealthHandler:   cfg.HealthHandler,
 	}
 
 	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)
