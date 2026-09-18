@@ -102,17 +102,26 @@ check off behind a proxy that rewrites Host.
 {{- end }}
 
 {{/*
-Join registry/repository/name/tag for grafana-mcp image, skipping empty segments, then append tag
+The container image. image.registry is a host only and image.repository is the
+path below it, so global.imageRegistry replaces the host outright -- the same
+substitution every other image in this chart family uses. The registry once
+held a Docker Hub organization; that shape is refused rather than rendered,
+because prepending a mirror to it would turn the old host into a directory and
+the operator would find out at pull time. The global is trimmed of a trailing
+slash because the join below adds its own, and a double slash is an invalid
+reference that fails at pull time.
 */}}
 {{- define "grafana-mcp.image" -}}
 {{- $img := .Values.image -}}
-{{/* image.registry holds the docker.io org here ("mcp"), not a host, so the
-     air-gap override is prepended rather than substituted: the mirror serves
-     the image under its existing mcp/grafana path. The global is trimmed of a
-     trailing slash because the join below adds its own, and a double slash is
-     an invalid reference that fails at pull time. */}}
+{{- if hasKey $img "name" -}}
+{{- fail "image.name was removed: append it to image.repository instead (e.g. repository: grafana/mcp-grafana)." -}}
+{{- end -}}
+{{- if and $img.registry (not (or (contains "." $img.registry) (contains ":" $img.registry) (eq $img.registry "localhost") (ne $img.registry ($img.registry | lower)))) -}}
+{{- fail (printf "image.registry (%q) is not a registry host. image.registry now takes only a host (default docker.io) and image.repository takes the full path below it (e.g. grafana/mcp-grafana). Move the organization into image.repository." $img.registry) -}}
+{{- end -}}
 {{- $mirror := ((.Values.global).imageRegistry) | default "" | trimSuffix "/" -}}
-{{- $parts := compact (list $mirror $img.registry $img.repository $img.name) -}}
+{{- $registry := $mirror | default $img.registry -}}
+{{- $parts := compact (list $registry $img.repository) -}}
 {{- printf "%s:%s" (join "/" $parts) $img.tag -}}
 {{- end -}}
 {{/*

@@ -7,8 +7,11 @@ grafana:
   # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
 
 image:
-  registry: grafana
-  repository: mcp-grafana
+  # -- Registry host only (a mirror or docker.io), never a path: the global
+  # override replaces this whole value, so a path segment here would be lost
+  # under global.imageRegistry. The path lives in repository.
+  registry: docker.io
+  repository: grafana/mcp-grafana
   # -- Pull policy for this image. Empty falls back to global.imagePullPolicy,
   # then to Always, this chart's previous declared default. A value declared
   # here would shadow the global, which is why the default is empty.
