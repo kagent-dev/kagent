@@ -75,14 +75,18 @@ def plot():
 
 
 # To integrate with Kagent, just replace the kickoff above with the KAgentApp code below
-def main():
-    """Main entry point to run the KAgent CrewAI server."""
+def build_app():
+    """Build the poem flow ASGI application."""
     with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
         agent_card = json.load(f)
 
-    app = KAgentApp(crew=PoemFlow(), agent_card=agent_card)
+    return KAgentApp(crew=PoemFlow(), agent_card=agent_card).build()
 
-    server = app.build()
+
+def main():
+    """Main entry point to run the KAgent CrewAI server."""
+    server = build_app()
+
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")
