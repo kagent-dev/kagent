@@ -269,7 +269,7 @@ Bundled PostgreSQL image - constructs the full image reference from registry/rep
 */}}
 {{- define "kagent.postgresql.image" -}}
 {{- $pg := .Values.database.postgres.bundled -}}
-{{- $registry := default $pg.image.registry ((.Values.global).imageRegistry) -}}
+{{- $registry := default $pg.image.registry (include "kagent.globalImageRegistry" .) -}}
 {{- $parts := compact (list $registry $pg.image.repository $pg.image.name) -}}
 {{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
 {{- end -}}
@@ -395,26 +395,40 @@ call. The top-level tag wins over the component tag, as it always has.
 */}}
 {{- define "kagent.controllerImage" -}}
 {{- $root := dict "registry" (.Values.controller.image.registry | default .Values.registry) "repository" .Values.controller.image.repository "tag" (coalesce .Values.tag .Values.controller.image.tag .Chart.Version) -}}
-{{- include "kagent.images.image" (dict "imageRoot" $root "global" .Values.global) -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
+{{- end -}}
+
+{{/*
+global.imageRegistry, normalized. A trailing slash is an easy value to ship
+("mirror.example/") and every consumer joins the registry onto a path with its
+own "/", so the raw value would render an image reference with a double slash
+that fails at pull time. Every template that reads the global goes through
+this helper so the tolerance is uniform across the chart.
+*/}}
+{{- define "kagent.globalImageRegistry" -}}
+{{- ((.Values.global).imageRegistry) | default "" | trimSuffix "/" -}}
 {{- end -}}
 
 {{/*
 Rewrite a full image reference onto global.imageRegistry, for values that carry
 a whole reference in one string rather than registry/repository/tag keys.
 Follows the container runtime's rule for deciding whether the first path
-segment is a registry: it is one only when it contains a dot or a colon or is
-exactly "localhost". A host-carrying reference has that segment replaced so the
-mirror sees a stable path; a bare Docker Hub-style name is prefixed instead.
-When global.imageRegistry is unset the reference passes through unchanged.
+segment is a registry: it is one only when it contains a dot or a colon, is
+exactly "localhost", or contains an uppercase letter (a repository path is
+lowercase-only, so an uppercase segment can only be a host). A host-carrying
+reference has that segment replaced so the mirror sees a stable path; a bare
+Docker Hub-style name is prefixed instead. When global.imageRegistry is unset
+the reference passes through unchanged.
 Call with (dict "root" $ "image" <reference>).
 */}}
 {{- define "kagent.mirroredImage" -}}
 {{- $ref := .image -}}
-{{- $mirror := ((.root.Values.global).imageRegistry) -}}
+{{- $mirror := include "kagent.globalImageRegistry" .root -}}
 {{- if and $mirror $ref -}}
   {{- $parts := splitList "/" $ref -}}
   {{- $first := first $parts -}}
-  {{- if and (gt (len $parts) 1) (or (contains "." $first) (contains ":" $first) (eq $first "localhost")) -}}
+  {{- if and (gt (len $parts) 1) (or (contains "." $first) (contains ":" $first) (eq $first "localhost") (ne $first ($first | lower))) -}}
     {{- printf "%s/%s" $mirror (join "/" (rest $parts)) -}}
   {{- else -}}
     {{- printf "%s/%s" $mirror $ref -}}
@@ -430,5 +444,6 @@ tag wins over the component tag.
 */}}
 {{- define "kagent.uiImage" -}}
 {{- $root := dict "registry" (.Values.ui.image.registry | default .Values.registry) "repository" .Values.ui.image.repository "tag" (coalesce .Values.tag .Values.ui.image.tag .Chart.Version) -}}
-{{- include "kagent.images.image" (dict "imageRoot" $root "global" .Values.global) -}}
+{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
+{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}

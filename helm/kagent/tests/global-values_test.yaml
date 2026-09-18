@@ -5,6 +5,10 @@ templates:
   - controller-configmap.yaml
   - rbac/getter-role.yaml
   - substrate-workerpool.yaml
+  # ui-deployment.yaml includes ui-nginx-configmap.yaml, and helm-unittest can
+  # only resolve cross-template includes when both are listed here.
+  - ui-deployment.yaml
+  - ui-nginx-configmap.yaml
 tests:
   - it: should override every image registry from global.imageRegistry
     set:
@@ -35,6 +39,37 @@ tests:
       - equal:
           path: spec.workerImage
           value: ghcr.io/kagent-dev/substrate/ateom:v1
+  - it: should tolerate a trailing slash on global.imageRegistry
+    set:
+      global.imageRegistry: "mirror.example/"
+      controller.substrate.enabled: true
+      substrateWorkerPool.create: true
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
+    template: substrate-workerpool.yaml
+    asserts:
+      - equal:
+          path: spec.workerImage
+          value: mirror.example/kagent-dev/substrate/ateom:v1
+  # Nothing reads IMAGE_REGISTRY from the pod environment: agent workload images
+  # come from each harness spec, not from this env. The global must therefore
+  # not touch it -- rewiring it would claim mirror coverage the runtime does
+  # not have. This pins the removal itself.
+  - it: should keep the agent-runtime env on its per-image registry under the global
+    set:
+      global.imageRegistry: mirror.example
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.IMAGE_REGISTRY
+          value: ghcr.io
+  - it: should point the ui image at global.imageRegistry
+    set:
+      global.imageRegistry: mirror.example
+    template: ui-deployment.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^mirror\\.example/"
   - it: should keep per-image registry when the global is unset
     template: controller-deployment.yaml
     asserts:

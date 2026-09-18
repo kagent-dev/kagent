@@ -108,8 +108,11 @@ Join registry/repository/name/tag for grafana-mcp image, skipping empty segments
 {{- $img := .Values.image -}}
 {{/* image.registry holds the docker.io org here ("mcp"), not a host, so the
      air-gap override is prepended rather than substituted: the mirror serves
-     the image under its existing mcp/grafana path. */}}
-{{- $parts := compact (list ((.Values.global).imageRegistry) $img.registry $img.repository $img.name) -}}
+     the image under its existing mcp/grafana path. The global is trimmed of a
+     trailing slash because the join below adds its own, and a double slash is
+     an invalid reference that fails at pull time. */}}
+{{- $mirror := ((.Values.global).imageRegistry) | default "" | trimSuffix "/" -}}
+{{- $parts := compact (list $mirror $img.registry $img.repository $img.name) -}}
 {{- printf "%s:%s" (join "/" $parts) $img.tag -}}
 {{- end -}}
 {{/*
