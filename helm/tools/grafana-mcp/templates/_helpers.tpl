@@ -129,9 +129,8 @@ imagePullSecrets:
 
 {{/*
 imagePullPolicy: image.pullPolicy, then global.imagePullPolicy, then Always.
-The terminal default is Always rather than IfNotPresent because the default tag
-is mutable ("latest"): with a cached image, IfNotPresent never picks up a new
-push of the same tag.
+The terminal default stays Always, this chart's previous declared default, so
+an install that sets neither value keeps the pull behavior it already has.
 */}}
 {{- define "grafana-mcp.imagePullPolicy" -}}
 {{- .Values.image.pullPolicy | default ((.Values.global).imagePullPolicy) | default "Always" -}}
