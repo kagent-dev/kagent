@@ -6,6 +6,7 @@ from google.genai import types as genai_types
 from kagent.adk._mcp_apps import (
     MCP_APP_RENDERED_NOTICE,
     MCPAppToolNames,
+    _result_has_ui_resource,
     compact_mcp_app_response,
     make_mcp_app_model_result_callback,
 )
@@ -16,6 +17,13 @@ def _function_response_content(name: str, response: dict) -> genai_types.Content
         role="user",
         parts=[genai_types.Part(function_response=genai_types.FunctionResponse(name=name, response=response))],
     )
+
+
+def test_result_has_ui_resource_accepts_nested_and_flat_meta_shapes():
+    # _meta.ui.resourceUri, the shape the other tests exercise via compact_mcp_app_response.
+    assert _result_has_ui_resource({"_meta": {"ui": {"resourceUri": "ui://server/dashboard"}}})
+    # _meta["ui/resourceUri"], the flat shape parseMCPUIMetadata also accepts (go/adk/pkg/mcp/mcp_ui.go).
+    assert _result_has_ui_resource({"_meta": {"ui/resourceUri": "ui://server/dashboard"}})
 
 
 def test_compact_success_replaces_payload_with_notice():
@@ -29,6 +37,24 @@ def test_compact_success_replaces_payload_with_notice():
     assert "structuredContent" not in compacted
     # _meta is preserved for downstream tooling.
     assert compacted["_meta"] == response["_meta"]
+
+
+def test_compact_skips_data_only_result_from_a_ui_capable_tool():
+    # A UI-capable tool's result with no UI resource of its own.
+    response = {
+        "content": [{"type": "text", "text": '{"issues": [{"key": "GF-3687"}]}'}],
+        "structuredContent": {"issues": [{"key": "GF-3687"}]},
+        "_meta": {},
+    }
+    compacted = compact_mcp_app_response(response)
+    assert compacted == response
+
+
+def test_compact_skips_result_with_no_meta_at_all():
+    # Servers that never set _meta on a call result (as opposed to an empty one).
+    response = {"content": [{"type": "text", "text": "hello"}], "structuredContent": {"x": 1}}
+    compacted = compact_mcp_app_response(response)
+    assert compacted == response
 
 
 def test_compact_error_keeps_content_drops_structured():
@@ -48,7 +74,11 @@ def test_callback_compacts_only_app_tool_responses():
     app_tool_names.add("show-weather-dashboard")
     callback = make_mcp_app_model_result_callback(app_tool_names)
 
-    weather = {"structuredContent": {"temperature": 36}, "content": [{"type": "text", "text": "36C"}]}
+    weather = {
+        "structuredContent": {"temperature": 36},
+        "content": [{"type": "text", "text": "36C"}],
+        "_meta": {"ui": {"resourceUri": "ui://server-everything/weather-dashboard"}},
+    }
     echo = {"content": [{"type": "text", "text": "hello"}]}
     request = LlmRequest(
         contents=[
