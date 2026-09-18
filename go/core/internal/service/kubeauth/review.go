@@ -1,49 +1,48 @@
-package accessreview
+package kubeauth
 
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type Service struct {
+type Reviewer struct {
 	authorizer auth.CollectionAuthorizer
 }
 
-type Target struct {
+type ReviewTarget struct {
 	Namespace string
 	Name      string
 }
 
-type Result struct {
-	Target       Target
+type ReviewResult struct {
+	Target       ReviewTarget
 	AllowedVerbs []auth.Verb
 }
 
-func NewService(authorizer auth.CollectionAuthorizer) *Service {
-	return &Service{authorizer: authorizer}
+func NewReviewer(authorizer auth.CollectionAuthorizer) *Reviewer {
+	return &Reviewer{authorizer: authorizer}
 }
 
-func (s *Service) Check(ctx context.Context, resourceType string, verbs []auth.Verb, targets []Target) ([]Result, error) {
+func (r *Reviewer) Review(ctx context.Context, resourceType string, verbs []auth.Verb, targets []ReviewTarget) ([]ReviewResult, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 
-	results := make([]Result, len(targets))
+	results := make([]ReviewResult, len(targets))
 	for i, target := range targets {
 		results[i].Target = target
 	}
 
 	for _, verb := range verbs {
-		scope, err := s.authorizer.Scope(ctx, session.Principal(), verb, resourceType)
+		scope, err := r.authorizer.Scope(ctx, session.Principal(), verb, resourceType)
 		if err != nil {
 			return nil, serviceerrors.NewUnavailable("Failed to read the "+resourceType+" authorization scope", err)
 		}
-		matcher, err := kubeauth.CompileScope(scope)
+		matcher, err := CompileScope(scope)
 		if err != nil {
 			return nil, serviceerrors.NewInternal("Failed to apply the "+resourceType+" authorization scope", err)
 		}

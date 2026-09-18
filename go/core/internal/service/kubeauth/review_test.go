@@ -1,4 +1,4 @@
-package accessreview_test
+package kubeauth_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/core/internal/service/accessreview"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/assert"
@@ -58,21 +58,21 @@ func TestCheckAccessMatrix(t *testing.T) {
 			}}},
 		},
 	}}
-	targets := []accessreview.Target{
+	targets := []kubeauth.ReviewTarget{
 		{Namespace: "team-a", Name: "assistant"},
 		{Namespace: "team-b", Name: "assistant"},
 		{Namespace: "team-a"},
 		{Namespace: "team-a", Name: "other"},
 	}
 
-	results, err := accessreview.NewService(authorizer).Check(
+	results, err := kubeauth.NewReviewer(authorizer).Review(
 		ctx,
 		auth.ResourceAgentTemplate,
 		[]auth.Verb{auth.VerbUpdate, auth.VerbCreate},
 		targets,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, []accessreview.Result{
+	assert.Equal(t, []kubeauth.ReviewResult{
 		{Target: targets[0], AllowedVerbs: []auth.Verb{auth.VerbUpdate, auth.VerbCreate}},
 		{Target: targets[1]},
 		{Target: targets[2], AllowedVerbs: []auth.Verb{auth.VerbUpdate, auth.VerbCreate}},
@@ -112,11 +112,11 @@ func TestCheckAccessScopeFailures(t *testing.T) {
 			}
 			ctx := auth.AuthSessionTo(t.Context(), testSession{})
 
-			_, err := accessreview.NewService(authorizer).Check(
+			_, err := kubeauth.NewReviewer(authorizer).Review(
 				ctx,
 				auth.ResourceModelConfig,
 				[]auth.Verb{auth.VerbCreate},
-				[]accessreview.Target{{Namespace: "team-a"}},
+				[]kubeauth.ReviewTarget{{Namespace: "team-a"}},
 			)
 			assert.True(t, serviceerrors.IsCode(err, test.wantCode), "error = %v", err)
 		})
@@ -124,11 +124,11 @@ func TestCheckAccessScopeFailures(t *testing.T) {
 }
 
 func TestCheckAccessRequiresSession(t *testing.T) {
-	_, err := accessreview.NewService(&testAuthorizer{}).Check(
+	_, err := kubeauth.NewReviewer(&testAuthorizer{}).Review(
 		t.Context(),
 		auth.ResourceAgentTemplate,
 		[]auth.Verb{auth.VerbGet},
-		[]accessreview.Target{{Namespace: "team-a", Name: "assistant"}},
+		[]kubeauth.ReviewTarget{{Namespace: "team-a", Name: "assistant"}},
 	)
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated), "error = %v", err)
 }
