@@ -18,6 +18,12 @@ const (
 	VerbDelete Verb = "delete"
 )
 
+const (
+	ResourceAgentTemplate = "AgentTemplate"
+	ResourceHarness       = "Harness"
+	ResourceModelConfig   = "ModelConfig"
+)
+
 type Resource struct {
 	Type      string
 	Namespace string
