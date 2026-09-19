@@ -22,7 +22,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme, type CSSObject, type Theme } from "@emotion/react";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import { Radio, Search } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { StatTile } from "@/components/dashboard/StatTile";

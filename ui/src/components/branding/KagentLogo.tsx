@@ -1,4 +1,4 @@
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 
 /**
  * The kagent marks.
