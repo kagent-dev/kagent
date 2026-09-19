@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import { Button, Popconfirm, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import type { Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
 import { snapshotLabel } from "./snapshotLabel";

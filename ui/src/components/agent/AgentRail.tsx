@@ -44,7 +44,7 @@ import {
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
-import { useThemeMode } from "@/theme/themeMode";
+import { useThemeMode } from "@/theme/useThemeMode";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
