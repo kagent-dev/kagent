@@ -385,5 +385,5 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	if toolPredicate != nil {
 		visibleTools = tool.FilterToolset(toolset, toolPredicate)
 	}
-	return &mcpAppToolset{inner: visibleTools, appToolNames: appToolNames}, nil
+	return &mcpAppToolset{inner: visibleTools, appToolNames: appToolNames, serverURL: params.URL}, nil
 }
