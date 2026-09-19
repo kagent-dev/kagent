@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// AuthorizationService answers advisory access checks for catalog UI actions.
+// The resource operation remains authoritative.
+service AuthorizationService {
+  rpc CheckAccess(CheckAccessRequest) returns (CheckAccessResponse);
+}
+
+enum AuthorizationResourceType {
+  AUTHORIZATION_RESOURCE_TYPE_UNSPECIFIED = 0;
+  AUTHORIZATION_RESOURCE_TYPE_AGENT_TEMPLATE = 1;
+  AUTHORIZATION_RESOURCE_TYPE_HARNESS = 2;
+  AUTHORIZATION_RESOURCE_TYPE_MODEL_CONFIG = 3;
+}
+
+enum AuthorizationVerb {
+  AUTHORIZATION_VERB_UNSPECIFIED = 0;
+  AUTHORIZATION_VERB_GET = 1;
+  AUTHORIZATION_VERB_CREATE = 2;
+  AUTHORIZATION_VERB_UPDATE = 3;
+  AUTHORIZATION_VERB_DELETE = 4;
+}
+
+message CheckAccessRequest {
+  option (buf.validate.message).cel = {
+    id: "supported_resource_verbs"
+    message: "Harness supports only CREATE and DELETE access reviews"
+    expression: "this.resource_type != 2 || this.verbs.all(verb, verb == 2 || verb == 4)"
+  };
+  AuthorizationResourceType resource_type = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: 0
+  }];
+  repeated AuthorizationVerb verbs = 2 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 4
+    unique: true
+    items: {
+      enum: {
+        defined_only: true
+        not_in: 0
+      }
+    }
+  }];
+  repeated AccessTarget targets = 3 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 100
+  }];
+}
+
+message AccessTarget {
+  string namespace = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+  }];
+  // When omitted, the review checks whether any valid resource name in the
+  // namespace is permitted.
+  optional string name = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 253
+    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+  }];
+}
+
+message CheckAccessResponse {
+  repeated ResourceAccess results = 1;
+}
+
+message ResourceAccess {
+  AccessTarget target = 1;
+  repeated AuthorizationVerb allowed_verbs = 2;
+}
