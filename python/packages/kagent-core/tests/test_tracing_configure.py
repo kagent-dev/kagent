@@ -297,9 +297,7 @@ def test_force_flush_continues_when_log_flush_fails(monkeypatch):
 def test_force_flush_timeout_env_override(monkeypatch, raw, expected):
     calls = []
 
-    logger_provider = SimpleNamespace(
-        force_flush=lambda timeout: calls.append(("logs", timeout))
-    )
+    logger_provider = SimpleNamespace(force_flush=lambda timeout: calls.append(("logs", timeout)))
     tracer_provider = SimpleNamespace(
         force_flush=lambda timeout: calls.append(("traces", timeout))
     )
