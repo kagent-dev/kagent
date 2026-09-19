@@ -17,11 +17,12 @@ Create a default fully qualified app name.
 Common labels
 */}}
 {{- define "kagent.labels" -}}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimAll "-._" }}
 {{ include "kagent.selectorLabels" . }}
 {{- if .Chart.Version }}
-{{- /* helm-controller installs OCI charts under `<version>+<digest>`; a `+` is not valid in a label value, so the build metadata is sanitised the way helm.sh/chart is. */}}
-app.kubernetes.io/version: {{ .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" | quote }}
+{{- /* helm-controller installs OCI charts under `<version>+<digest>`; a `+` is not valid in a label value, so the build metadata is sanitised the way helm.sh/chart is.
+     A label value must also end alphanumeric: truncating to 63 characters can cut a long version right after a `.`, `-` or `_`, so every trailing one is trimmed, not only a `-`. */}}
+app.kubernetes.io/version: {{ .Chart.Version | replace "+" "_" | trunc 63 | trimAll "-._" | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: kagent
