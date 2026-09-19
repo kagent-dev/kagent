@@ -1,0 +1,338 @@
+version: 2.1
+
+# Fork (giantswarm/kagent-upstream): publishes the line's images and charts to
+# gsoci.azurecr.io (FORK.md, "What is published"). Hand-written on purpose — the
+# repository runs upstream's GitHub Actions for tests and scans (ci.yaml,
+# image-scan.yaml) and this pipeline for publishing, nothing generated.
+#
+# Every push to a branch of the line (the consumed branch `giantswarm`, the
+# `sync/**` re-pin candidates, pull request branches) publishes a dev build;
+# a tag `vX.Y.Z-gs.N` publishes a release (the release scheme in FORK.md). The
+# mirrored upstream refs (`main`, `release/v*.x`, upstream's `vX.Y.Z` tags) are
+# excluded by the filters below: they are read-only copies, never built here.
+#
+# Shape: `version` resolves the version once; four `push-image` jobs build the
+# images multi-arch with the repository's own `make build-<image>` and push them
+# to gsoci, then sign them and their SBOM attestations with the orb's cosign
+# keyless flow (the CircleCI OIDC identity of this project); `push-charts`
+# stamps the chart defaults with the version and the runtime images' digests
+# and pushes both charts, signed; `record` re-reads every digest from the
+# registry, checks the chart against them and appends the row to the ledger.
+
+orbs:
+  architect: giantswarm/architect@10.5.0
+
+# The one registry the line publishes to: visibility, host, the context's
+# credential variables, and whether dev builds are pushed (they are — the dev
+# channel and agentlab follow them). One line, no trailing newline: the orb's
+# login reads it line by line.
+registries: &registries |-
+  public gsoci.azurecr.io ACR_GSOCI_USERNAME ACR_GSOCI_PASSWORD true
+
+# Every job of the workflow runs on the same refs.
+filters: &filters
+  branches:
+    ignore: /^(main|release\/.*)$/
+  tags:
+    only: /^v[0-9]+\.[0-9]+\.[0-9]+-gs\.[1-9][0-9]*$/
+
+jobs:
+  version:
+    executor: architect/architect
+    resource_class: small
+    environment:
+      # Base of the dev versions built from a branch, and the only base a
+      # release tag may carry: upstream main's next release (FORK.md, "Release
+      # scheme"). Moves at the re-pin that follows an upstream release.
+      DEV_BASE_VERSION: "0.11.0"
+    steps:
+      - checkout
+      - run:
+          name: Resolve the version
+          command: |
+            set -euo pipefail
+            if [ -n "${CIRCLE_TAG:-}" ]; then
+              # A release of the line: vX.Y.Z-gs.N, X.Y.Z = DEV_BASE_VERSION, N
+              # the line's counter for it. Any other shape — above all a bare
+              # vX.Y.Z, a name upstream will use and the mirror would then
+              # skip — is refused instead of published.
+              version="${CIRCLE_TAG#v}"
+              if ! [[ "$version" =~ ^${DEV_BASE_VERSION//./\\.}-gs\.[1-9][0-9]*$ ]]; then
+                echo "ERROR: tag ${CIRCLE_TAG} is not v${DEV_BASE_VERSION}-gs.N (FORK.md, 'Release scheme'); nothing published" >&2
+                exit 1
+              fi
+            else
+              # Dev version in the schema giantswarm's gitsemver emits:
+              #   BASE-dev.BRANCH.DATE.TIME.hSHA7 — the branch lowercased to
+              # [a-z0-9-], the committer date in UTC. Consumers select the
+              # channel with a Flux semverFilter on the branch part; the
+              # timestamp keeps semver order across rebuilds.
+              branch=$(printf '%s' "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+              stamp=$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%d.%H-%M-%S "$CIRCLE_SHA1")
+              version="${DEV_BASE_VERSION}-dev.${branch}.${stamp}.h${CIRCLE_SHA1:0:7}"
+            fi
+            printf '%s' "$version" | tee .build_version
+            echo
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .build_version
+
+  push-image:
+    parameters:
+      image:
+        description: The image to build and push, one of the Makefile's build-<image> targets.
+        type: string
+      resource_class:
+        type: enum
+        enum: ["small", "medium", "medium+", "large", "xlarge"]
+        default: medium
+    executor: architect/architect
+    resource_class: << parameters.resource_class >>
+    environment:
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: default
+      - attach_workspace:
+          at: .
+      - architect/image-login-to-registries:
+          registries-data: *registries
+      - run:
+          name: Build << parameters.image >> for amd64 and arm64 and push it to gsoci
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            VERSION=$(cat .build_version)
+            export VERSION
+            export DOCKER_REGISTRY=gsoci.azurecr.io
+            export DOCKER_REPO=giantswarm/kagent
+            # QEMU handlers for the RUN steps of the non-host platform (the
+            # orb's build registers them the same way).
+            # renovate: datasource=docker depName=tonistiigi/binfmt
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.3 --install all
+            # The Makefile's build, with buildx pushing both platforms as one
+            # index and attaching the provenance and SPDX SBOM attestations the
+            # orb's own image builds carry; the metadata file yields the index
+            # digest the signing step needs.
+            export DOCKER_BUILDER="docker buildx build"
+            export DOCKER_BUILD_ARGS="--push --platform linux/amd64,linux/arm64 --attest type=provenance,mode=min --attest type=sbom --metadata-file /tmp/.buildx_metadata.json --progress=plain"
+            # apk.cgr.dev intermittently refuses some of the parallel anonymous
+            # fetches (HTTP 403, reported by apk as "Permission denied"). The
+            # builder keeps the finished stages, so a retry repeats only the
+            # failed step.
+            for attempt in 1 2 3; do
+              if make build-<< parameters.image >>; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "ERROR: the build failed three times" >&2
+                exit 1
+              fi
+              echo "build attempt ${attempt} failed, retrying" >&2
+              sleep $((attempt * 30))
+            done
+            index_digest=$(jq -r '."containerimage.descriptor".digest // empty' /tmp/.buildx_metadata.json)
+            if [ -z "$index_digest" ]; then
+              echo "ERROR: no index digest in the buildx metadata:" >&2
+              cat /tmp/.buildx_metadata.json >&2
+              exit 1
+            fi
+            # What the orb's signing step reads: the pushed set, its visibility
+            # and the index digest.
+            printf '%s' "$index_digest" > /tmp/.index_digest
+            printf 'public' > /tmp/.image_access
+            printf '%s\n' gsoci.azurecr.io > /tmp/.eligible_registries
+            echo "gsoci.azurecr.io/giantswarm/kagent/<< parameters.image >>:${VERSION} ${index_digest}"
+      - architect/image-sign-and-attest:
+          image: giantswarm/kagent/<< parameters.image >>
+
+  push-charts:
+    executor: architect/architect
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Stamp the chart defaults and push both charts to gsoci
+          command: |
+            set -euo pipefail
+            # envsubst renders the Chart-template.yaml files (make helm-version).
+            apk add --no-cache gettext >/dev/null
+            VERSION=$(cat .build_version)
+            export VERSION
+            registry=gsoci.azurecr.io
+            repo=giantswarm/kagent
+            # One credential for helm (its own registry config) and for the
+            # signing step (the docker config cosign and oras read).
+            printf '%s' "$ACR_GSOCI_PASSWORD" | helm registry login "$registry" --username "$ACR_GSOCI_USERNAME" --password-stdin
+            mkdir -p ~/.docker
+            auth=$(printf '%s:%s' "$ACR_GSOCI_USERNAME" "$ACR_GSOCI_PASSWORD" | base64 -w0)
+            printf '{"auths":{"%s":{"auth":"%s"}}}' "$registry" "$auth" > ~/.docker/config.json
+            chmod 600 ~/.docker/config.json
+            # Point the chart's defaults at the images published by this
+            # pipeline and record the version as appVersion. The tag has to be
+            # an explicit default: the chart falls back to .Chart.Version, which
+            # helm-controller extends with `+<digest>` — not a valid image tag.
+            # The runtime images are pinned by index digest as well (the image
+            # jobs have finished, so the indexes exist; resolved the way
+            # `record` does): a Harness accepts nothing but a digest, and the
+            # chart's own default Harness and its runtime-images ConfigMap
+            # render from these keys. The Substrate worker image is the
+            # Makefile's pin — the one Substrate the e2e cluster runs (ci.yaml
+            # reads it the same way). sed keeps the file's formatting (`helm
+            # show values` is documentation); the checks make a missed anchor
+            # fail the job instead of shipping upstream's defaults.
+            digest() { oras manifest fetch --descriptor "$1" | jq -r .digest; }
+            adk_digest=$(digest "${registry}/${repo}/golang-adk:${VERSION}")
+            claude_digest=$(digest "${registry}/${repo}/claude-harness:${VERSION}")
+            test -n "${adk_digest}" && test -n "${claude_digest}"
+            eval "$(make -s substrate-pin)"
+            worker_registry="${SUBSTRATE_REPO#oci://}"
+            worker_image="${worker_registry%/helm}/ateom-gvisor:${SUBSTRATE_VERSION}"
+            sed -i \
+              -e "s|^tag: \"\"$|tag: \"${VERSION}\"|" \
+              -e "s|^registry: \"ghcr.io\"$|registry: \"${registry}\"|" \
+              -e "s|^\(\s*repository: \)kagent-dev/kagent/|\1${repo}/|" \
+              -e "/^  agentImage:$/,/^  [^ #]/ s|^    digest: \"\"$|    digest: \"${adk_digest}\"|" \
+              -e "/^runtimeImages:$/,/^[^ #]/ s|^    digest: \"\"$|    digest: \"${claude_digest}\"|" \
+              -e "s|^  workerImage: \"\"$|  workerImage: \"${worker_image}\"|" \
+              helm/kagent/values.yaml
+            if grep -q '^\s*repository: kagent-dev/kagent/' helm/kagent/values.yaml; then
+              echo "ERROR: an upstream image repository survived the stamping" >&2
+              exit 1
+            fi
+            # yq compares in place: its scalar output keeps or drops the quotes by version.
+            stamped() { yq -e ".$1 == \"$2\"" helm/kagent/values.yaml >/dev/null || { echo "ERROR: $1 is not stamped with $2" >&2; exit 1; }; }
+            stamped tag "${VERSION}"
+            stamped registry "${registry}"
+            stamped controller.agentImage.digest "${adk_digest}"
+            stamped runtimeImages.claudeHarness.digest "${claude_digest}"
+            stamped substrateWorkerPool.workerImage "${worker_image}"
+            for chart in kagent kagent-crds; do
+              printf 'appVersion: %s\n' "${VERSION}" >> "helm/${chart}/Chart-template.yaml"
+            done
+            # helm-publish pushes to $(HELM_REPO)/kagent/helm.
+            make helm-publish HELM_REPO="oci://${registry}/giantswarm"
+            # The pushed charts, by digest, for the signing step.
+            : > /tmp/.cosign_refs
+            for chart in kagent-crds kagent; do
+              ref="${registry}/${repo}/helm/${chart}"
+              echo "${ref}@$(digest "${ref}:${VERSION}")" | tee -a /tmp/.cosign_refs
+            done
+      - architect/cosign-sign-verify
+
+  record:
+    # The ledger (FORK.md): the published version, the commit, the upstream pin
+    # and every digest — printed here, stored as the job's artifact and appended
+    # as a row of builds.md on the `ledger` branch. Runs only after both pushes
+    # succeeded; a chart whose stamped pins disagree with the pushed indexes
+    # fails here.
+    executor: architect/architect
+    resource_class: small
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - architect/generate-github-token
+      - run:
+          name: Check the chart against the image digests and record the build
+          command: |
+            set -euo pipefail
+            VERSION=$(cat .build_version)
+            registry=gsoci.azurecr.io
+            repo=giantswarm/kagent
+            digest() { oras manifest fetch --descriptor "$1" | jq -r .digest; }
+            declare -A D
+            for image in controller ui golang-adk claude-harness; do
+              D[$image]=$(digest "${registry}/${repo}/${image}:${VERSION}")
+            done
+            for chart in kagent kagent-crds; do
+              D[chart_${chart}]=$(digest "${registry}/${repo}/helm/${chart}:${VERSION}")
+            done
+            git remote add upstream https://github.com/kagent-dev/kagent.git
+            git fetch -q upstream main
+            pin=$(git merge-base "$CIRCLE_SHA1" upstream/main)
+            pin_date=$(git show -s --format=%cs "$pin")
+            # The chart's stamped runtime-image pins have to be the index
+            # digests this row records — a consumer reads the chart, the ledger
+            # is what a re-pin is checked against, and the two must not disagree.
+            helm show values "oci://${registry}/${repo}/helm/kagent" --version "${VERSION}" > /tmp/.values.yaml
+            check() {
+              yq -e ".$1 == \"$2\"" /tmp/.values.yaml >/dev/null || {
+                echo "ERROR: chart ${VERSION}: $1 is $(yq ".$1" /tmp/.values.yaml), the $3 index is $2" >&2
+                exit 1
+              }
+            }
+            check controller.agentImage.digest "${D[golang-adk]}" golang-adk
+            check runtimeImages.claudeHarness.digest "${D[claude-harness]}" claude-harness
+            check tag "${VERSION}" version
+            check registry "${registry}" registry
+            row="| $(date -u +'%Y-%m-%d %H:%M') | \`${VERSION}\` | \`${CIRCLE_SHA1:0:7}\` | \`${pin:0:7}\` (${pin_date}) | \`${D[controller]}\` | \`${D[ui]}\` | \`${D[golang-adk]}\` | \`${D[claude-harness]}\` | \`${D[chart_kagent]}\` | \`${D[chart_kagent-crds]}\` | [run](${CIRCLE_BUILD_URL}) |"
+            {
+              echo "## Published ${VERSION}"
+              echo
+              echo "Commit \`${CIRCLE_SHA1:0:7}\`, upstream pin \`${pin:0:7}\` (${pin_date})."
+              echo
+              echo "| artifact | digest |"
+              echo "|---|---|"
+              for image in controller ui golang-adk claude-harness; do
+                echo "| \`${registry}/${repo}/${image}:${VERSION}\` | \`${D[$image]}\` |"
+              done
+              echo "| \`oci://${registry}/${repo}/helm/kagent:${VERSION}\` | \`${D[chart_kagent]}\` |"
+              echo "| \`oci://${registry}/${repo}/helm/kagent-crds:${VERSION}\` | \`${D[chart_kagent-crds]}\` |"
+            } > /tmp/published.md
+            cat /tmp/published.md
+            # CircleCI's checkout rewires https://github.com to SSH with the
+            # project's read-only deploy key (a global insteadOf); the ledger
+            # push uses the token over HTTPS, so it runs without that config.
+            GIT_CONFIG_GLOBAL=/dev/null \
+            LEDGER_TOKEN="$GITHUB_TOKEN" \
+            LEDGER_REMOTE_URL="https://github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}.git" \
+            LEDGER_GIT_NAME='circleci-architect[bot]' \
+            LEDGER_GIT_EMAIL='240937895+circleci-architect[bot]@users.noreply.github.com' \
+              scripts/fork/ledger-append.sh builds.md "$row"
+      - store_artifacts:
+          path: /tmp/published.md
+          destination: published.md
+
+workflows:
+  publish:
+    jobs:
+      - version:
+          filters: *filters
+      - push-image:
+          name: push-image-controller
+          image: controller
+          context: architect
+          requires: [version]
+          filters: *filters
+      - push-image:
+          name: push-image-ui
+          image: ui
+          resource_class: large
+          context: architect
+          requires: [version]
+          filters: *filters
+      - push-image:
+          name: push-image-golang-adk
+          image: golang-adk
+          context: architect
+          requires: [version]
+          filters: *filters
+      - push-image:
+          name: push-image-claude-harness
+          image: claude-harness
+          context: architect
+          requires: [version]
+          filters: *filters
+      - push-charts:
+          context: architect
+          requires: [push-image-controller, push-image-ui, push-image-golang-adk, push-image-claude-harness]
+          filters: *filters
+      - record:
+          context: architect
+          requires: [push-charts]
+          filters: *filters

@@ -16,7 +16,7 @@ header() {
     builds.md) cat <<'H'
 # Builds
 
-Every dev build and release published by Tag and Push, newest last (see FORK.md). Image
+Every dev build and release published by the CircleCI pipeline, newest last (see FORK.md). Image
 digests are the multi-arch index digests — what a `Harness` pins.
 
 | published (UTC) | version | commit | upstream pin | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run |

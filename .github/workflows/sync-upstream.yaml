@@ -4,7 +4,7 @@ name: Sync with upstream
 # (FORK.md, "Re-pin"). Fast-forwards the mirror (main, release/v*.x, tags —
 # scripts/fork/mirror.sh) to upstream, rebases the carried commits onto the upstream head (scripts/fork/repin.sh),
 # lets CI Build and Scan images test the candidate branch, and force-pushes the
-# consumed branch so Tag and Push publishes the dev build. When a carried
+# consumed branch so the CircleCI pipeline publishes the dev build. When a carried
 # commit conflicts or a check fails it opens a pull request against the
 # consumed branch that names the cause, and pushes nothing else.
 #
@@ -14,7 +14,7 @@ name: Sync with upstream
 # workflows write; the ruleset's bypass actor): GITHUB_TOKEN may not update a
 # workflow file, not even in a mirrored upstream commit, and the App may. An
 # App push starts workflows, wanted on the candidate and the consumed branch
-# (CI Build, Scan images, Tag and Push) and unwanted on the mirrored refs,
+# (CI Build, Scan images; the CircleCI pipeline reacts to the push as well) and unwanted on the mirrored refs,
 # where upstream's own files would run — the sync cancels those right away.
 on:
   schedule:
@@ -189,7 +189,7 @@ jobs:
           scripts/fork/ledger-append.sh re-pins.md \
             "| $(date -u +'%Y-%m-%d %H:%M') | \`${PIN:0:7}\` | \`${TARGET:0:7}\` ($(git show -s --format=%cs "$TARGET")) | \`${OLD_HEAD:0:7}\` → \`${NEW_HEAD:0:7}\` | ${{ steps.repin.outputs.replayed_count }} | ${dropped:-—} | [run](${RUN_URL}) |"
           echo "### Landed" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${CONSUMED}\` is \`${NEW_HEAD:0:7}\` (was \`${OLD_HEAD:0:7}\`); Tag and Push publishes the dev build." >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${CONSUMED}\` is \`${NEW_HEAD:0:7}\` (was \`${OLD_HEAD:0:7}\`); the CircleCI pipeline publishes the dev build." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checks failed — open the pull request
         if: steps.checks.outputs.result == 'red' || steps.checks.outputs.result == 'timeout'

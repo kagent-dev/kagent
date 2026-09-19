@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cancel the workflow runs that upstream's own workflow files start when the
 # mirror is pushed (FORK.md, "The mirror"): the mirrored refs carry upstream's
-# ci.yaml / image-scan.yaml / tag.yaml, which ask for runners the fork does not
+# ci.yaml / image-scan.yaml, which ask for runners the fork does not
 # have and publish to registries it must not touch.
 #
 #   scripts/fork/mirror-quiet.sh <since ISO-8601> <pushed-refs-file>
