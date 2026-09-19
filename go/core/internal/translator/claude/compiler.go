@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -85,6 +86,12 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
+		// Claude sends these on every model call: the identity the Go ADK runtime
+		// sends from KAGENT_AGENT_TEMPLATE and KAGENT_NAMESPACE. The Claude harness
+		// knows no user per turn, so it names the agent only.
+		corev1.EnvVar{Name: claudeconfig.AnthropicCustomHeadersEnvName, Value: claudeconfig.CustomHeaders(map[string]string{
+			adk.AgentHeader: input.Root.Template.Name, adk.AgentNamespaceHeader: input.Root.Template.Namespace,
+		})},
 	)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
 	// The adapter derives Claude Code's own telemetry flags; raw bodies have no

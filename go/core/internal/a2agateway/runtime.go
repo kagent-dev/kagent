@@ -11,6 +11,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -97,6 +98,16 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		principal := auth.Principal{Agent: auth.Agent{ID: u.session.GetId()}}
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, principal); err != nil {
 			return ctx, nil, err
+		}
+		// The person of the turn, for the runtime to name on its model calls
+		// (x-kagent-user): only an identity the authenticator resolved from the
+		// caller's validated token — a session carrying claims. A session
+		// without claims (the unsecure mode's X-User-Id and its default, an
+		// agent's propagated caller id, the control plane) resolves nobody and
+		// forwards nothing, so a raw credential or a stand-in never becomes an
+		// accounting identity.
+		if caller := session.Principal(); caller.Claims != nil && caller.User.ID != "" {
+			httpRequest.Header.Set(adk.UserHeader, caller.User.ID)
 		}
 	}
 	for key, values := range httpRequest.Header {

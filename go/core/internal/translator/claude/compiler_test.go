@@ -111,6 +111,10 @@ func TestCompileProviderCredentials(t *testing.T) {
 			if gotEnvironment[claudeconfig.SandboxEnvName] != "1" {
 				t.Errorf("environment[%s] = %q, want %q", claudeconfig.SandboxEnvName, gotEnvironment[claudeconfig.SandboxEnvName], "1")
 			}
+			// The template's identity on every model call, in Claude's "Name: Value" lines.
+			if want := "x-kagent-agent: assistant\nx-kagent-agent-namespace: test"; gotEnvironment[claudeconfig.AnthropicCustomHeadersEnvName] != want {
+				t.Errorf("environment[%s] = %q, want %q", claudeconfig.AnthropicCustomHeadersEnvName, gotEnvironment[claudeconfig.AnthropicCustomHeadersEnvName], want)
+			}
 			if !reflect.DeepEqual(revision.EgressDestinations, tt.wantEgress) {
 				t.Errorf("egress = %v", revision.EgressDestinations)
 			}
@@ -270,12 +274,14 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	value := "http://mock.example.com"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	var validation *translator.ValidationError
-	if !errors.As(err, &validation) {
-		t.Fatalf("Compile() error = %v, want validation error", err)
+	for _, name := range []string{claudeconfig.AnthropicBaseURLEnvName, claudeconfig.AnthropicCustomHeadersEnvName} {
+		value := "http://mock.example.com"
+		input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: name, Value: value}}
+		_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+		var validation *translator.ValidationError
+		if !errors.As(err, &validation) {
+			t.Fatalf("Compile() with Harness env %s: error = %v, want validation error", name, err)
+		}
 	}
 }
 

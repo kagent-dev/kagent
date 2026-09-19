@@ -11,6 +11,8 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
 )
@@ -30,7 +32,8 @@ type TransportConfig struct {
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
-// TLS → custom headers → trace propagation → timeout.
+// TLS → headers (the configured defaults, the runtime's identity, the user of
+// the turn) → trace propagation → timeout.
 func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	transport, err := BuildTLSTransport(
 		http.DefaultTransport,
@@ -52,9 +55,7 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 		}
 	}
 
-	if len(tc.Headers) > 0 {
-		transport = &headerTransport{base: transport, headers: tc.Headers}
-	}
+	transport = &headerTransport{base: transport, headers: tc.Headers, identity: runtimeIdentityHeaders()}
 
 	// Outermost layer: inject W3C traceparent/tracestate from the active span so
 	// LLM calls stay attached to the invocation trace instead of starting fresh
@@ -141,16 +142,63 @@ func BearerTokenFromContext(ctx context.Context) string {
 	return BearerFromCallContext(ctx)
 }
 
-// headerTransport wraps an http.RoundTripper and adds custom headers to all requests
+// userKey is the context key of the authenticated user of a turn: its own
+// type, so it can never be equal to another key. A pointer to a zero-size
+// struct (BearerTokenKey above is one) is not such a key: the runtime may
+// place two zero-size variables at the same address, and the user's slot then
+// reads whatever the other key stored — the caller's bearer token.
+type userKey struct{}
+
+// WithUser returns a copy of ctx that carries the authenticated user of the
+// turn every model call made under ctx belongs to; the call sends it as the
+// x-kagent-user header. The A2A server sets it from the metadata of the same
+// name the gateway forwards once it has resolved the caller's identity from a
+// validated token; a turn without one carries nothing and its calls send no
+// such header.
+func WithUser(ctx context.Context, user string) context.Context {
+	return context.WithValue(ctx, userKey{}, user)
+}
+
+// UserFromContext returns the user set by WithUser, or "" when there is none.
+func UserFromContext(ctx context.Context) string {
+	user, _ := ctx.Value(userKey{}).(string)
+	return user
+}
+
+// runtimeIdentityHeaders is the identity the controller injected into this
+// runtime — the name of the AgentTemplate it executes (KAGENT_AGENT_TEMPLATE)
+// and its namespace (KAGENT_NAMESPACE) — as the headers every model call
+// carries. A runtime the controller did not start (a BYO build, a test) has no
+// identity and sends none; half an identity is none.
+func runtimeIdentityHeaders() map[string]string {
+	agent, hasAgent := env.KagentAgentTemplate.Lookup()
+	namespace, hasNamespace := env.KagentNamespace.Lookup()
+	if !hasAgent || !hasNamespace || agent == "" || namespace == "" {
+		return nil
+	}
+	return map[string]string{adk.AgentHeader: agent, adk.AgentNamespaceHeader: namespace}
+}
+
+// headerTransport wraps an http.RoundTripper and sets headers on every request:
+// the configured default headers, then the runtime's identity — which therefore
+// wins over a configured header of the same name, so a model configuration
+// cannot name another agent — then the user of the turn the request belongs to.
 type headerTransport struct {
-	base    http.RoundTripper
-	headers map[string]string
+	base     http.RoundTripper
+	headers  map[string]string
+	identity map[string]string
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
+	}
+	for k, v := range t.identity {
+		req.Header.Set(k, v)
+	}
+	if user := UserFromContext(req.Context()); user != "" {
+		req.Header.Set(adk.UserHeader, user)
 	}
 	return t.base.RoundTrip(req)
 }

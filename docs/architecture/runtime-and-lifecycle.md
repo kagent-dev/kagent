@@ -208,6 +208,19 @@ sequenceDiagram
 Clients never receive Actor addresses. The gateway derives and dials them through
 the private atenetwork router.
 
+Every model call a runtime makes names the agent it is made for and the user of
+the turn, as request headers: `x-kagent-agent` and `x-kagent-agent-namespace`
+carry the `AgentTemplate`'s name and namespace (the controller injects them as
+`KAGENT_AGENT_TEMPLATE` and `KAGENT_NAMESPACE`; the Claude harness sends the same
+two through `ANTHROPIC_CUSTOM_HEADERS`), `x-kagent-user` the authenticated user
+of the turn — the identity the controller resolved from the caller's validated
+token and forwarded to the actor as metadata of the same name; absent when
+there is none. A gateway between the runtime and the
+model provider can attribute usage per agent and user from them, where the
+network identity of the caller (a shared WorkerPool pod, an egress) says nothing
+about the agent. They are an accounting identity the runtime asserts about
+itself, never an authorization input.
+
 Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history

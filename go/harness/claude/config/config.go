@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +36,7 @@ const (
 	AWSBedrockTokenEnvName              = "AWS_BEARER_TOKEN_BEDROCK"
 	AnthropicAPIKeyEnvName              = "ANTHROPIC_API_KEY"
 	AnthropicBaseURLEnvName             = "ANTHROPIC_BASE_URL"
+	AnthropicCustomHeadersEnvName       = "ANTHROPIC_CUSTOM_HEADERS"
 	VertexProjectEnvName                = "ANTHROPIC_VERTEX_PROJECT_ID"
 	VertexRegionEnvName                 = "CLOUD_ML_REGION"
 	SandboxEnvName                      = "IS_SANDBOX"
@@ -50,7 +53,7 @@ func OwnsEnvironment(name string) bool {
 	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, GoogleApplicationCredentialsEnvName,
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
-		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
+		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, AnthropicCustomHeadersEnvName, VertexProjectEnvName, VertexRegionEnvName,
 		SandboxEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER",
 		"OTEL_LOGS_EXPORTER", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT",
@@ -61,6 +64,18 @@ func OwnsEnvironment(name string) bool {
 	default:
 		return false
 	}
+}
+
+// CustomHeaders renders headers as the value of ANTHROPIC_CUSTOM_HEADERS: one
+// "Name: Value" pair per line, which Claude adds to every model call. The lines
+// are sorted by name so the same headers render the same value.
+func CustomHeaders(headers map[string]string) string {
+	names := slices.Sorted(maps.Keys(headers))
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		lines = append(lines, name+": "+headers[name])
+	}
+	return strings.Join(lines, "\n")
 }
 
 type Config struct {

@@ -52,6 +52,15 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentAgentTemplate = RegisterStringVar(
+		"KAGENT_AGENT_TEMPLATE",
+		"",
+		"Name of the AgentTemplate the runtime executes. With KAGENT_NAMESPACE it is the identity "+
+			"the runtime sends on every model call, as the request headers x-kagent-agent and "+
+			"x-kagent-agent-namespace. Injected into agent runtimes via the controller.",
+		ComponentAgentRuntime,
+	)
+
 	KagentAPIURL = RegisterStringVar(
 		"KAGENT_API_URL",
 		"",

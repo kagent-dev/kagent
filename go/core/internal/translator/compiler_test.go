@@ -674,6 +674,46 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 	}
 }
 
+// The controller tells the runtime which AgentTemplate it executes, so every
+// model call the runtime makes can carry that identity.
+func TestCompileAgentTemplateIdentifiesTheTemplateToTheRuntime(t *testing.T) {
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:   &v1alpha3.KagentHarness{},
+			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
+			SystemPrompt: "help",
+		},
+	}
+	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runnable-agent"}, Spec: v1alpha3.AgentSpec{
+		TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name},
+	}}
+	spec, err := compiler(t, modelConfig(), template, harness).CompileAgent(t.Context(), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{}
+	for _, variable := range spec.Environment {
+		environment[variable.Name] = variable.Value
+	}
+	want := map[string]string{"KAGENT_NAME": "runnable-agent", "KAGENT_AGENT_TEMPLATE": "helper", "KAGENT_NAMESPACE": "test"}
+	for name, value := range want {
+		if environment[name] != value {
+			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
+		}
+	}
+}
+
 func TestCompileAgentSharedADKConfig(t *testing.T) {
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},

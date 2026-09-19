@@ -50,6 +50,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	environment := append(compiled.Environment, harnessEnvironment...)
 	environment = append(environment,
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
+		corev1.EnvVar{Name: env.KagentAgentTemplate.Name(), Value: template.Name},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 		corev1.EnvVar{Name: env.KagentGatewayURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
