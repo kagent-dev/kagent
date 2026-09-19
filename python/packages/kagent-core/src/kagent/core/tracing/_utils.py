@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 
 from fastapi import FastAPI
 from opentelemetry import _logs, trace
@@ -110,8 +111,8 @@ def _instrument_google_generativeai(logger_provider=None):
 
 
 def _resolve_flush_timeout_millis() -> int:
-    """Resolve KAGENT_TRACE_FLUSH_TIMEOUT_MS, falling back to 3000ms when unset or invalid."""
-    raw = os.getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")
+    """Resolve KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS, falling back to 3000ms when unset or invalid."""
+    raw = os.getenv("KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS")
     if raw is None:
         return 3000
     try:
@@ -119,32 +120,49 @@ def _resolve_flush_timeout_millis() -> int:
     except ValueError:
         timeout_millis = -1
     if timeout_millis <= 0:
-        logging.warning("Invalid KAGENT_TRACE_FLUSH_TIMEOUT_MS value %r; falling back to 3000ms", raw)
+        logging.warning("Invalid KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS value %r; falling back to 3000ms", raw)
         return 3000
     return timeout_millis
 
 
 def force_flush(timeout_millis: int | None = None) -> None:
-    """Export any spans still buffered in the tracer provider's batch processor.
+    """Export telemetry still buffered in the tracer and logger providers.
 
     Call before a response completes when the process may be suspended right
     afterwards: Agent Substrate checkpoints the actor as soon as the A2A
-    response body closes, so unexported spans stay frozen in the snapshot
+    response body closes, so unexported telemetry stays frozen in the snapshot
     until the session's next resume (or forever, for a session's last
-    message). No-op when the provider has no force_flush (tracing disabled).
-    The timeout defaults to 3000ms, configurable via
-    KAGENT_TRACE_FLUSH_TIMEOUT_MS.
+    message). No-op for providers without force_flush support. The timeout
+    defaults to 3000ms, configurable via KAGENT_TELEMETRY_FLUSH_TIMEOUT_MS.
+
+    Logs are flushed first because GenAI audit events are the telemetry most
+    likely to be lost when the actor is checkpointed immediately after the
+    response closes.
     """
     if timeout_millis is None:
         timeout_millis = _resolve_flush_timeout_millis()
-    provider = trace.get_tracer_provider()
-    flush = getattr(provider, "force_flush", None)
-    if flush is None:
-        return
-    try:
-        flush(timeout_millis)
-    except Exception:
-        logging.warning("Failed to flush pending spans", exc_info=True)
+
+    logger_provider = _logs.get_logger_provider()
+    tracer_provider = trace.get_tracer_provider()
+    deadline = time.monotonic() + timeout_millis / 1000
+
+    for name, provider in (
+        ("logs", logger_provider),
+        ("traces", tracer_provider),
+    ):
+        flush = getattr(provider, "force_flush", None)
+        if flush is None:
+            continue
+
+        remaining_millis = max(0, int((deadline - time.monotonic()) * 1000))
+        if remaining_millis == 0:
+            logging.warning("Skipping pending %s flush because the telemetry flush budget expired", name)
+            continue
+
+        try:
+            flush(remaining_millis)
+        except Exception:
+            logging.warning("Failed to flush pending %s", name, exc_info=True)
 
 
 # High-frequency probe endpoints with nothing worth flushing.
